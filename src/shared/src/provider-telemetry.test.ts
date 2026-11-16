@@ -19,7 +19,7 @@ function quotaLimit() {
 }
 
 describe("provider telemetry schemas", () => {
-  it.each(["antigravity", "codex-app", "codex-cli"])("accepts %s quota identity", (agentBackendId) => {
+  it.each(["antigravity", "codex-app", "codex-cli", "cursor", "cursor-sdk", "copilot", "qoder", "agy"])("accepts %s quota identity", (agentBackendId) => {
     expect(ProviderQuotaSnapshotSchema.safeParse({ agentBackendId, observation: { status: "error", sourceEpoch: "A".repeat(22), code: "unauthorized", retryable: false } }).success).toBe(true)
   })
 
@@ -70,6 +70,13 @@ describe("provider telemetry schemas", () => {
       freshForSeconds: 300,
       limits: [primary, weekly],
     }).success).toBe(true)
+  })
+
+  it("accepts a reported plan without inventing quota limits, but rejects an empty success", () => {
+    const value = { status: "available", sourceEpoch: "A".repeat(22), freshForSeconds: 300, limits: [] };
+    expect(ProviderQuotaObservationSchema.safeParse({ ...value, planName: "Enterprise" }).success).toBe(true);
+    expect(ProviderQuotaObservationSchema.safeParse(value).success).toBe(false);
+    expect(ProviderQuotaSnapshotSchema.safeParse({ agentBackendId: "future-unknown", observation: { ...value, planName: "Unknown" } }).success).toBe(false);
   })
 
   it("rejects duplicate identities, out-of-range percentages, and labels over 64 UTF-8 bytes", () => {

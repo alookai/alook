@@ -313,23 +313,21 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const providerQuotaReader = opts.providerQuotaReader
     ?? (opts.sessionFactory ? async () => null : readBuiltinProviderQuota);
   const providerQuotaByBackend = new Map<ProviderQuotaSnapshot["agentBackendId"], ProviderQuotaSnapshot>();
-  let requestReadyQuotaResend = (): void => {};
+  const providerQuotaReadAt = new Map<ProviderQuotaSnapshot["agentBackendId"], number>();
+  let requestReadyQuotaResend: (quotas?: ProviderQuotaSnapshot[]) => void = () => {};
   const recordProviderQuota = (
     backendId: ProviderQuotaSnapshot["agentBackendId"],
     quota: ProviderQuotaObservation,
   ): void => {
     const previous = providerQuotaByBackend.get(backendId);
-    if (
-      previous?.observation.status === "available"
-      && quota.status === "error"
-      && previous.observation.sourceEpoch === quota.sourceEpoch
-    ) return;
-    providerQuotaByBackend.set(backendId, {
+    const snapshot: ProviderQuotaSnapshot = {
       agentBackendId: backendId,
       observation: structuredClone(quota) as ProviderQuotaSnapshot["observation"],
-    });
+    };
+    providerQuotaByBackend.set(backendId, snapshot);
+    providerQuotaReadAt.set(backendId, Date.now());
     if (previous && previous.observation.sourceEpoch !== quota.sourceEpoch) {
-      requestReadyQuotaResend();
+      requestReadyQuotaResend([structuredClone(snapshot)]);
     }
   };
   void sweepTimelineHistory(workingDirectoryBase).catch(() => {
@@ -352,8 +350,18 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   let channelRef: WsControlChannel | null = null;
 
+  const providerQuotaSnapshot = (backend: ProviderQuotaSnapshot["agentBackendId"]): ProviderQuotaSnapshot | undefined => {
+    const saved = providerQuotaByBackend.get(backend);
+    if (!saved) return undefined;
+    const snapshot = structuredClone(saved);
+    if (snapshot.observation.status === "available") {
+      snapshot.observation.freshForSeconds -= Math.floor(Math.max(0, Date.now() - (providerQuotaReadAt.get(backend) ?? 0)) / 1_000);
+      if (snapshot.observation.freshForSeconds <= 0) return undefined;
+    }
+    return snapshot;
+  };
   const providerQuotaSnapshots = (): ProviderQuotaSnapshot[] =>
-    [...providerQuotaByBackend.values()].map((snapshot) => structuredClone(snapshot));
+    [...providerQuotaByBackend.keys()].flatMap((backend) => { const snapshot = providerQuotaSnapshot(backend); return snapshot ? [snapshot] : []; });
   const tokenUsageAvailability = new Map<string, { backendId: BuiltinBackendId; status: "available" | "unavailable" }>();
   const activityPayload = async (
     info: { agentId: string; state: HostAgentActivity["state"] },
@@ -365,7 +373,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       if (observed) recordProviderQuota(backendId, observed);
     }
     const quota = isProviderQuotaBackend(backendId)
-      ? providerQuotaByBackend.get(backendId)
+      ? providerQuotaSnapshot(backendId)
       : undefined;
     const usageWindow = backendId && tokenUsageCapability(backendId) === "supported"
       ? await dailyTokenUsage.usageWindow(info.agentId)
@@ -1053,9 +1061,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       await enrollAgent(agentId);
     },
   });
-  requestReadyQuotaResend = () => {
+  requestReadyQuotaResend = (quotas) => {
     if (stopping) return;
-    if (router) channel.sendReady?.(router.buildReady());
+    if (router) channel.sendReady?.({ ...router.buildReady(), ...(quotas ? { providerQuotas: quotas } : {}) });
   };
 
   // Machine lifecycle commands are claimed before diagnostics, bot observers,
@@ -1114,7 +1122,24 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     void coldStartWarmup();
     void resyncPendingWakes();
     void resyncPendingDiagnostics();
+    refreshMachineQuotas();
   });
+
+  const refreshMachineQuotas = (): void => {
+    if (stopping) return;
+    for (const runtime of opts.runtimeReport) {
+      if (runtime.status !== "healthy" || !supportsBuiltinQuotaPolling(runtime.id)) continue;
+      const backend = runtime.id;
+      trackTelemetry(providerQuotaReader(backend).then((observed) => {
+        if (stopping || !observed) return;
+        recordProviderQuota(backend, observed);
+        const snapshot = providerQuotaSnapshot(backend);
+        if (snapshot) requestReadyQuotaResend([snapshot]);
+      }).catch(() => { log.warn("machine quota read failed", { backend }); }));
+    }
+  };
+  const quotaRefreshTimer = setInterval(refreshMachineQuotas, 300_000);
+  quotaRefreshTimer.unref?.();
 
   if (opts.runtimeReport.some((runtime) => runtime.id === "claude")) {
     const observed = await providerQuotaReader("claude");
@@ -1139,6 +1164,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     stop: () => {
       if (stopPromise) return stopPromise;
       stopping = true;
+      clearInterval(quotaRefreshTimer);
       const failures: unknown[] = [];
       stopPromise = Promise.resolve().then(async () => {
         try {

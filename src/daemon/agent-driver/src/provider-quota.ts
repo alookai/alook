@@ -1,4 +1,7 @@
 import { readAntigravityQuota } from "./adapters/antigravity/quota.js";
+import { readCursorQuota } from "./adapters/cursor/quota.js";
+import { readAgyQuota } from "./adapters/agy/quota.js";
+import { readSdkQuota } from "./internal/sdk-quota-reader.js";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -18,13 +21,14 @@ type ClaudeCredentials = {
   };
 };
 
-type QuotaReaderOptions = {
+export type QuotaReaderOptions = {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
   home?: string;
   readCredentialsFile?: (path: string) => Promise<string>;
   readKeychain?: () => Promise<string>;
   fetchUsage?: typeof fetch;
+  command?: string;
 };
 
 function parseCredentials(value: string): ClaudeCredentials | null {
@@ -158,13 +162,33 @@ async function readClaudeQuota(options: QuotaReaderOptions): Promise<ProviderQuo
   };
 }
 
-export function supportsBuiltinQuotaPolling(backend: BuiltinBackendId | undefined): backend is "claude" | "antigravity" {
-  return backend === "claude" || backend === "antigravity";
+export function supportsBuiltinQuotaPolling(backend: string | undefined): backend is "claude" | "antigravity" | "cursor" | "cursor-sdk" | "copilot" | "qoder" | "agy" {
+  return backend === "claude" || backend === "antigravity" || backend === "cursor" || backend === "cursor-sdk" || backend === "copilot" || backend === "qoder" || backend === "agy";
 }
 
-export async function readBuiltinProviderQuota(
+async function readProviderQuota(
   backend: BuiltinBackendId,
   options: QuotaReaderOptions = {},
 ): Promise<ProviderQuotaObservation | null> {
-  return backend === "claude" ? readClaudeQuota(options) : backend === "antigravity" ? readAntigravityQuota(options) : null;
+  if (backend === "claude") return readClaudeQuota(options);
+  if (backend === "antigravity") return readAntigravityQuota(options);
+  if (backend === "cursor" || backend === "cursor-sdk") return readCursorQuota(options, backend);
+  if (backend === "copilot" || backend === "qoder") return readSdkQuota(backend, options);
+  if (backend === "agy") return readAgyQuota(options);
+  return null;
+}
+
+const quotaReads = new Map<BuiltinBackendId, { read: Promise<ProviderQuotaObservation | null>; expiresAt: number; readAt: number }>();
+
+export async function readBuiltinProviderQuota(backend: BuiltinBackendId, options?: QuotaReaderOptions): Promise<ProviderQuotaObservation | null> {
+  if (options) return readProviderQuota(backend, options);
+  const previous = quotaReads.get(backend);
+  if (previous && previous.expiresAt > Date.now()) {
+    const observation = await previous.read;
+    return observation?.status === "available" ? { ...observation, freshForSeconds: Math.max(1, observation.freshForSeconds - Math.floor((Date.now() - previous.readAt) / 1_000)) } : observation;
+  }
+  const current = { read: Promise.resolve(null) as Promise<ProviderQuotaObservation | null>, expiresAt: Number.POSITIVE_INFINITY, readAt: 0 };
+  current.read = readProviderQuota(backend).finally(() => { current.readAt = Date.now(); current.expiresAt = current.readAt + 30_000; });
+  quotaReads.set(backend, current);
+  return current.read;
 }

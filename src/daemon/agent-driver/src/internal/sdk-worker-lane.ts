@@ -86,7 +86,7 @@ export class SdkWorkerLane implements RuntimeLane {
     }
   }
 
-  async probe(): Promise<unknown> { return this.request("open", this.init, this.init.probe?.includeModels ? 10_000 : 5_000); }
+  async probe(timeoutMs = this.init.probe?.includeModels ? 10_000 : 5_000): Promise<unknown> { return this.request("open", this.init, timeoutMs); }
 
   async send(input: LaneSendInput): Promise<LaneAdmission> {
     if (this.stopping || this.exited) return { ok: false, reason: "closed" };

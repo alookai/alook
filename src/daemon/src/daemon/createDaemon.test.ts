@@ -1630,6 +1630,58 @@ for await (const line of createInterface({ input: process.stdin })) {
     await daemon.stop();
   });
 
+  it("reports machine default plans for new backends on connect without launching bots", async () => {
+    const sockets: FakeSocket[] = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [], attempted: 0 })));
+    const backends = ["cursor", "cursor-sdk", "copilot", "qoder", "agy"] as const;
+    const reader = vi.fn(async (_backend: string) => ({ status: "available" as const, sourceEpoch: "A".repeat(22), planName: "Pro", freshForSeconds: 300, limits: [] }));
+    const daemon = await createDaemon({ machineKey: "cmk_machine_plans", serverUrl: "http://localhost:9999", serverWsUrl: "ws://x", webSocketFactory: factory(sockets) as any,
+      runtimeReport: [...backends.map((id) => ({ id, status: "healthy" as const })), { id: "pi", status: "healthy" as const }, { id: "antigravity", status: "unhealthy" as const }],
+      driverFor: () => fakeDriver, capabilities: [], providerQuotaReader: reader });
+    try {
+      reader.mockClear();
+      sockets[0].emit("open");
+      const quotaFrames = () => sockets[0].sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "ready" && frame.providerQuotas?.length);
+      await vi.waitFor(() => expect(quotaFrames()).toHaveLength(backends.length));
+      expect(quotaFrames().every((frame) => frame.providerQuotas.length === 1)).toBe(true);
+      expect(reader.mock.calls.map((args) => args[0]).sort()).toEqual([...backends].sort());
+      expect(fakeDriver.start).not.toHaveBeenCalled();
+    } finally { await daemon.stop(); }
+  });
+
+  it("ages saved quota on reconnect and never refreshes other backends when one machine read fails", async () => {
+    const sockets: FakeSocket[] = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [], attempted: 0 })));
+    let pending = false;
+    let resolveQuota!: (quota: import("@alook/shared").ProviderQuotaObservation) => void;
+    const wait = { promise: new Promise<import("@alook/shared").ProviderQuotaObservation>((resolve) => { resolveQuota = resolve; }), resolve: (quota: import("@alook/shared").ProviderQuotaObservation) => resolveQuota(quota) };
+    const reader = vi.fn(async (backend: string) => {
+      if (pending && backend === "copilot") return wait.promise;
+      if (pending) return null;
+      return { status: "available" as const, sourceEpoch: "A".repeat(22), planName: "Pro", freshForSeconds: 300, limits: [] };
+    });
+    const daemon = await createDaemon({ machineKey: "cmk_aged_plans", serverUrl: "http://localhost:9999", serverWsUrl: "ws://x", webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "copilot", status: "healthy" }, { id: "cursor", status: "healthy" }], driverFor: () => fakeDriver, capabilities: [], providerQuotaReader: reader });
+    try {
+      sockets[0].emit("open");
+      const ready = () => sockets[0].sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "ready");
+      await vi.waitFor(() => expect(ready().filter((frame) => frame.providerQuotas.length)).toHaveLength(2));
+      pending = true;
+      const originalNow = Date.now;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => originalNow() + 120_000);
+      const count = ready().length;
+      sockets[0].emit("open");
+      await drainEventTasks();
+      const reconnect = ready()[count];
+      expect(reconnect.providerQuotas).toHaveLength(2);
+      expect(reconnect.providerQuotas.every((item: any) => item.observation.freshForSeconds <= 180)).toBe(true);
+      wait.resolve({ status: "error", sourceEpoch: "A".repeat(22), code: "network", retryable: true });
+      await drainEventTasks();
+      expect(ready().at(-1).providerQuotas).toEqual([{ agentBackendId: "copilot", observation: { status: "error", sourceEpoch: "A".repeat(22), code: "network", retryable: true } }]);
+      clock.mockRestore();
+    } finally { wait.resolve({ status: "error", sourceEpoch: "A".repeat(22), code: "network", retryable: true }); await daemon.stop(); }
+  });
+
   it("includes hostname/os/arch/daemonVersion in the ready frame", async () => {
     const sockets: FakeSocket[] = [];
     const daemon = await createDaemon({

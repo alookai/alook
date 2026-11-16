@@ -15,15 +15,16 @@ export async function buildSdkWorkerArtifact() {
     await promisify(execFile)(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.build.json", "--outDir", root, "--sourceMap", "false", "--declarationMap", "false"], { cwd: packageRoot });
     writeFileSync(join(root, "package.json"), '{"type":"module"}\n');
     const load = (url: string): Promise<unknown> => import(url);
-    const [lane, driver, qoder, copilot, cursor, pi] = await Promise.all([
+    const [lane, driver, qoder, copilot, cursor, pi, quota] = await Promise.all([
       load(pathToFileURL(join(root, "internal/sdk-worker-lane.js")).href) as Promise<typeof import("../internal/sdk-worker-lane.js")>,
       load(pathToFileURL(join(root, "internal/optional-sdk-driver.js")).href) as Promise<typeof import("../internal/optional-sdk-driver.js")>,
       load(pathToFileURL(join(root, "adapters/qoder/worker.js")).href) as Promise<typeof import("../adapters/qoder/worker.js")>,
       load(pathToFileURL(join(root, "adapters/copilot/worker.js")).href) as Promise<typeof import("../adapters/copilot/worker.js")>,
       load(pathToFileURL(join(root, "adapters/cursor-sdk/worker.js")).href) as Promise<typeof import("../adapters/cursor-sdk/worker.js")>,
       load(pathToFileURL(join(root, "adapters/pi-durable/worker.js")).href) as Promise<typeof import("../adapters/pi-durable/worker.js")>,
+      load(pathToFileURL(join(root, "internal/sdk-quota-worker.js")).href) as Promise<typeof import("../internal/sdk-quota-worker.js")>,
     ]);
-    return { ...lane, ...driver, ...qoder, ...copilot, ...cursor, ...pi, dispose };
+    return { ...lane, ...driver, ...qoder, ...copilot, ...cursor, ...pi, ...quota, dispose };
   } catch (error) {
     dispose();
     throw error;

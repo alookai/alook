@@ -40,7 +40,7 @@ describe("readBuiltinProviderQuota", () => {
       env: { ANTHROPIC_API_KEY: "custom" },
       readCredentialsFile,
     })).resolves.toBeNull()
-    await expect(readBuiltinProviderQuota("cursor")).resolves.toBeNull()
+    await expect(readBuiltinProviderQuota("opencode")).resolves.toBeNull()
     expect(readCredentialsFile).not.toHaveBeenCalled()
   })
 

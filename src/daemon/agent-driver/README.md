@@ -340,7 +340,7 @@ Discovery and launch share the same executable lookup: an explicit `command`,
 is used only when `LOCALAPPDATA` is absent). Run the selected CLI executable in a terminal and finish
 Google sign-in before starting a bot; ACP authentication is separate.
 
-Opening the model list runs the native `agy models` command and preserves its returned slugs and labels. Installation checks and Bot launch do not run that command. The model list does not establish an authenticated model request or infer per-model effort support.
+Opening the model list runs the native `agy models` command and preserves its returned slugs and labels. Installation checks and Bot launch do not run that command; machine quota polling uses it to check sign-in. The model list does not establish an authenticated model request or infer per-model effort support.
 
 The CLI must advertise native `--input-format stream-json`,
 `--output-format stream-json` and `--conversation` support. Alook keeps one
@@ -357,8 +357,7 @@ does not support ACP or Claude control messages. This backend declares
 
 Token usage comes from live completed step events, deduplicated with native
 conversation/step identity. Cumulative result usage is not added again. Unknown
-counts remain unknown. Provider quota is unsupported until a CLI-specific
-source is established; ACP credentials and quota are not reused.
+counts remain unknown. Machine account quota uses the native `/usage` command after a signed-in `models` preflight. Only a successful response with zero model turns, zero tokens and no conversation is accepted. The current command reports quota groups, without a plan name or account ID; each read therefore gets a new opaque source epoch. ACP credentials and quota are not reused.
 
 Version 1.3.4 was checked for executable discovery, advertised protocol and
 unauthenticated startup cleanup. Authenticated multi-turn and resume acceptance
@@ -447,3 +446,17 @@ Opening a model list requests the selected machine and backend through the owner
 The existing `codex` ID retains PATH-first, then App discovery for previously saved bot bindings. It is hidden from new selections when explicit source IDs are reported, and remains available when editing an existing binding or using an older daemon. Existing bot bindings are not rewritten. Explicit command overrides remain supported.
 
 Apply migration `0113_community_machine_backend_quota_codex_sources.sql` before the updated daemon reports source-specific quotas. It preserves existing observations and adds independent App/CLI keys.
+
+## Machine account plans and quotas
+
+Machine quota describes the backend's default machine login. A bot's environment overrides can select another account; these observations do not describe that bot's account.
+
+Cursor CLI uses its selected native credential store: `AGENT_CLI_CREDENTIAL_STORE=file`, ephemeral `memory`, or the platform default (Keychain on macOS, file elsewhere). It never falls back across stores. Cursor SDK separately reads `CURSOR_API_KEY` or its unexpired, backend-matched `~/.cursor/sdk/auth.json`. Its production authentication backend is `https://api2.cursor.sh`; custom backends are unavailable. Both query the official Dashboard plan/period endpoints. CLI and SDK credentials are not shared.
+
+Copilot uses `account.getCurrentAuth()` and `account.getQuota()` through an owned SDK stdio connection. Qoder starts an independent SDK daemon and calls `getUsageInfo()`. Neither creates a model session. Qoder account totals include additive credit pools; session credits are never account quota. A plan with no usable limit, including unlimited entitlements, is reported without a percentage. An absent Qoder account ID gives each read a new source epoch.
+
+The daemon queries healthy installed backends on connection and every five minutes. In-flight and recent reads share a 30-second cache. Reconnects retain remaining freshness; each polling update carries only its own backend. Errors preserve the database's same-account observation age, while a changed source epoch replaces the old account data. Every short SDK query has a deadline and the existing process-tree cleanup boundary.
+
+Apply `0117_community_machine_backend_quota_plans.sql` before deploying the updated server and daemon. It preserves old observations, admits Cursor, Cursor SDK, Copilot, Qoder and agy, and permits plan-only observations. OpenCode, Pi and Pi Durable still have no independent vendor plan reader; upstream accounts are not inferred from model names.
+
+Official Copilot SDK 1.0.34 and Qoder SDK 1.0.59 were tested against local protocol runtimes, including timeout isolation from a running Qoder bot. These contracts do not establish real supplier-account acceptance. The installed agy reader returned native quota without a model turn. Cursor authentication-store behavior is covered with controlled credentials.
