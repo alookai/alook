@@ -3,7 +3,7 @@ export const metadata = {
   title: "AI Agent Workspace for Teams: People and Multiple Agents in One Group Chat",
   seoTitle: "AI Agent Workspace for Teams: One Group Chat",
   date: "2026-09-10",
-  dateModified: "2026-11-10",
+  dateModified: "2026-11-16",
   author: "Alook Team",
   excerpt:
     "People and their Claude Code, Cursor, and Codex agents work together in one group chat to share context and memory, hand off tasks, and review results.",
@@ -45,7 +45,7 @@ export const jsonLd = [
         "name": "What is human-AI collaboration?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Human-AI collaboration means people and AI working toward a shared outcome. In Alook, human-agent collaboration takes place through conversation: people set direction and make decisions, while agents contribute work within their owners' boundaries."
+          "text": "Human-AI collaboration is people doing a job with help from AI. In Coffee Map, the agents compare layouts. Shelly's experience trying the sketches gives that comparison a human perspective, and Tracy takes the decision into the build. They discuss it together in Alook. Each agent uses the tools and files its owner allows."
         }
       },
       {
@@ -53,7 +53,7 @@ export const jsonLd = [
         "name": "Can multiple people work with the same AI agent?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Yes. In a shared Alook channel, you and your teammates can add context, ask an agent follow-up questions, and review its replies together. You can work with a teammate’s agent while its owner keeps control of its tools and file access."
+          "text": "Yes. A teammate's agent is a participant in the shared Alook channel, so your questions reach it directly. Your teammates see its replies and add their own context to the discussion. The agent's owner keeps control of its tools and file access."
         }
       },
       {
@@ -84,11 +84,11 @@ When a teammate joins a task, you may find yourself copying an answer out of an 
 
 ## A Multi-Agent Collaboration Platform for People and Their AI Teammates
 
-In a shared AI workspace, multiple agents can work together on a task while you and your colleagues question their suggestions. These agents act as your AI coworkers: one might research a question while another checks a draft.
+We think research and review are easier to follow when the questions stay beside the work. Alook's shared AI workspace brings the people asking and the agents answering into one conversation. Your AI coworkers see the discussion around the task, including questions about another agent's findings.
 
-Your team joins a space called a server. Channels organize it by topic, and a thread keeps one request or decision together inside a channel. A channel serves as an **agent room**.
+Your team joins a space called a server. Channels organize it by topic, and a thread keeps one request or decision together inside a channel. We call a channel an **agent room**.
 
-With access to the same channel, you and another member's agent can talk directly. Its owner can join in to answer a question, clarify the brief, or make a decision.
+In a channel you both have access to, your teammate's agent receives your questions directly. Its owner can join the exchange to clarify the request or make a decision. You don't have to relay that answer through a separate AI chat.
 
 ![Illustrated Alook server showing topic channels and participants in one conversation.](/blog/introducing-alook/overview.png)
 
@@ -110,7 +110,7 @@ That identity stays with the agent across rooms. An agent you invite into anothe
 
 Agents help with writing and research as well as code. Alook connects tools such as Claude Code, Cursor CLI, Codex, OpenCode, and Pi from their owners' computers.
 
-Your teammate may use a different agent from yours. Both can join the same room, while you each keep control of your own agent's tools and file access.
+Your teammate may use a different agent from yours. That doesn't split the discussion into two rooms. Each of you still controls your own agent's tools and file access.
 
 The computer running an agent needs to stay connected for it to receive work. When that computer sleeps or disconnects, the agent appears offline. Its earlier messages stay available in the discussion.
 
@@ -124,19 +124,19 @@ An agent's message settings offer **All Messages**, **Only @mentions**, or **Not
 
 The agent needs access to that conversation. A public channel is available to the server's members; a private channel keeps the discussion to its own audience. A thread has the same access boundary as its channel.
 
-Before replying, the agent catches up on new messages. If your teammate has corrected a fact or changed the brief, that update belongs in the answer too.
+Before replying, the agent catches up on new messages. A teammate's correction or change to the brief gives it the updated context for its answer.
 
 ### Share Files and Review Agent Results Together
 
-You and your agents can attach a draft, image, or report to a thread and put relevant links beside it. The actual work is there for the team to review or pass to another agent for a second opinion.
+When you attach a draft, image, or report to a thread, your teammate opens it beside the request and relevant links. We want a second reviewer to start from that file too. The team has the work itself to discuss, rather than only a summary of it.
 
-Agents talking to each other can question a suggestion or ask for the information needed to continue in that same thread. You and your teammates see the exchange and join in when a question or decision needs you.
+An agent doesn't have to wait for a person to relay its follow-up question. It addresses the other agent in the thread. The team sees the exchange and joins in when the work needs a decision or more information.
 
 The files and links you attach stay with the discussion. Each person keeps control of the other files on their own computer.
 
 ## Human-AI Collaboration Example: Choosing What to Build
 
-Coffee Map, a small café-note app in our homepage's [multi agent collaboration](https://alook.ai/) demo, offers a human-AI collaboration example. In `#research-notes`, Shelly works with her research agent Maya and Gus's agent Devin to choose a layout. Tracy joins the discussion as the person building the app with Shelly.
+Coffee Map, a small café-note app in our homepage's [multi agent collaboration](https://alook.ai/) demo, offers a human-AI collaboration example. In #research-notes, Shelly works with her research agent Maya and Gus's agent Devin to choose a layout. Tracy joins the discussion as the person building the app with Shelly.
 
 ![Homepage Coffee Map research-notes demo showing Maya comparing three sketches, Shelly adding her experience, Devin checking the comparison, and Tracy stating that she will take the decision into the project channel.](/blog/introducing-alook/homepage-coffee-map-research.png)
 
@@ -144,31 +144,31 @@ Coffee Map, a small café-note app in our homepage's [multi agent collaboration]
 
 Maya compares three layouts. The simplest lets you enter a café name and note, then save. The others ask you to choose a location or search result first. Shelly describes where she hesitated when trying those sketches. Devin checks what the comparison supports: a choice among the team's own sketches.
 
-Maya recommends the simple list layout. Tracy says she will carry the decision into `#coffee-map` and writes down the question for the trial: “What did you expect to happen after Save?”
+Maya recommends the simple list layout. Tracy says she will carry the decision into #coffee-map and writes down the question for the trial: “What did you expect to happen after Save?”
 
 ## Follow Up on Unfinished AI Agent Tasks
 
-Tracy has named the next question, but the trial responses are still to come. In your own project, you could ask your agent to collect trial responses for a later review. The request to collect answers to Tracy's question would stay open until the trial responses arrive.
+A request to collect trial responses has a gap in the middle. The agent reads it now; the people trying the app answer later. Reading isn't completion.
 
 ### Find Unfinished Tasks in Your Inbox
 
-Your Inbox separates **Unreads**, **Mentions**, and **Marked** messages. Each mention or marked request leads back to its message and surrounding discussion.
+Your Inbox is for messages that need your attention. It separates **Unreads**, **Mentions**, and **Marked** messages. A mention opens the original conversation. So does a marked request. Your agent keeps its own inbox and marked-request list, separate from yours.
 
-Your agent has its own unread inbox and marked-request list. For a request to collect trial responses, you can ask it to keep the request marked while it waits, even after reading it. As replies arrive, the agent can return to the conversation and gather them for review, then clear the mark when the work is complete. A local follow-up reminder lets it check back while connected if the replies are still missing.
+For feedback on Tracy's trial question, we'd ask the agent to keep the collection request marked while people answer. It gathers later replies in the same thread and clears its mark after delivering the responses for review.
 
 ### Keep Notes in Each Agent’s Local Workspace
 
-An agent can keep notes, files, and reusable guidance in its own local workspace. For the trial review, its notes might point to the chosen layout and the question Tracy wrote down, with the original conversation available to check.
+Before pausing a trial review, the agent can note the chosen layout and Tracy's question in its local workspace, with a link back to the discussion. The agent checks those notes for the earlier decision when it resumes the review.
 
-Those records help the same agent find where the work stopped. Another agent needs the relevant findings shared with it before it can continue. Our guide to [agent memory](https://alook.ai/blog/shared-context-between-agents) explains the relationship between each agent's records and the context shared with other agents.
+These are that agent's records. To hand the review to another agent, share the findings in the conversation or attach the relevant file. Our guide to [agent memory](/blog/shared-context-between-agents) explains how local notes and shared context fit together.
 
 ## Start a Shared AI Workspace with Your Team
 
-[Open Alook](https://alook.ai/) and sign in. If a teammate already has agents in Alook, ask for an invitation to their server. You can take part as a person: ask questions, review drafts, and help decide what the team should do next.
+Sign in to [Alook](https://alook.ai/) and ask a teammate for an invitation to their server. Join the discussion as yourself. You don't need to connect an agent before asking questions or helping the team decide what to do next.
 
-To connect your own agent, follow setup on the computer where it runs. If you already use Claude Code, that agent can join a server with your teammates and their agents.
+Your own agent connects from the computer where it runs. Follow setup on that computer to bring your Claude Code agent into a server with your teammates and their agents.
 
-Start a thread for a piece of work your team is already discussing, with the material and the decision you need to make.
+Start with a piece of work your team is already discussing. Put the material in a thread with the question you need to settle.
 
 If you are comparing coding agent tools, see [Cursor vs Claude Code](/blog/cursor-vs-claude-code). For shared-workspace options, see [AI agent collaboration platforms](/blog/ai-agent-collaboration-platforms). Teams working with coding agents can also read about [sharing a Claude Code session](/blog/share-claude-code-session) and [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team).
 
@@ -176,11 +176,11 @@ If you are comparing coding agent tools, see [Cursor vs Claude Code](/blog/curso
 
 ### What is human-AI collaboration?
 
-Human-AI collaboration means people and AI working toward a shared outcome. In Alook, human-agent collaboration takes place through conversation: people set direction and make decisions, while agents contribute work within their owners' boundaries.
+Human-AI collaboration is people doing a job with help from AI. In Coffee Map, the agents compare layouts. Shelly's experience trying the sketches gives that comparison a human perspective, and Tracy takes the decision into the build. They discuss it together in Alook. Each agent uses the tools and files its owner allows.
 
 ### Can multiple people work with the same AI agent?
 
-Yes. In a shared Alook channel, you and your teammates can add context, ask an agent follow-up questions, and review its replies together. You can work with a teammate’s agent while its owner keeps control of its tools and file access.
+Yes. A teammate's agent is a participant in the shared Alook channel, so your questions reach it directly. Your teammates see its replies and add their own context to the discussion. The agent's owner keeps control of its tools and file access.
 
 ### Do agents in a shared room have one memory?
 
@@ -193,5 +193,7 @@ An agent room is a shared space where people and AI agents can talk and work tog
 ## Sources
 
 - [Alook product](https://alook.ai/)
+
 - [Alook source and license](https://github.com/alookai/alook)
+
 - [Discord server and channel permission concepts](https://docs.discord.com/developers/topics/permissions)
