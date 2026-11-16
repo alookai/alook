@@ -360,16 +360,21 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   };
   const providerQuotaSnapshots = (): ProviderQuotaSnapshot[] =>
     [...providerQuotaByBackend.keys()].flatMap((backend) => { const snapshot = providerQuotaSnapshot(backend); return snapshot ? [snapshot] : []; });
+  const refreshMachineQuota = (backend: string | undefined): void => {
+    if (stopping || !supportsBuiltinQuotaPolling(backend)) return;
+    trackTelemetry(providerQuotaReader(backend).then((observed) => {
+      if (stopping || !observed) return;
+      recordProviderQuota(backend, observed);
+      const snapshot = providerQuotaSnapshot(backend);
+      if (snapshot) requestReadyQuotaResend([snapshot]);
+    }).catch(() => { log.warn("machine quota read failed", { backend }); }));
+  };
   const tokenUsageAvailability = new Map<string, { backendId: BuiltinBackendId; status: "available" | "unavailable" }>();
   const activityPayload = async (
     info: { agentId: string; state: HostAgentActivity["state"] },
   ): Promise<HostAgentActivity> => {
     if (info.state !== "idle") return info;
     const backendId = managerRef?.agentBackendId(info.agentId) ?? undefined;
-    if (supportsBuiltinQuotaPolling(backendId)) {
-      const observed = await providerQuotaReader(backendId);
-      if (observed) recordProviderQuota(backendId, observed);
-    }
     const quota = isProviderQuotaBackend(backendId)
       ? providerQuotaSnapshot(backendId)
       : undefined;
@@ -914,6 +919,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       if (stopping) return;
       selfSleepScheduler?.observeAgentActivity(info.agentId, info.state === "running");
       reportAgentActivity(info);
+      if (info.state === "idle") refreshMachineQuota(managerRef?.agentBackendId(info.agentId) ?? undefined);
       // Bot typing indicator (DM-only) — install / tear down the daemon-metered
       // heartbeat off the derived FSM activity, so the pill lifecycle exactly
       // mirrors "is this bot actively working."
@@ -1028,7 +1034,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
         if (failed) throw failed.reason;
         const activities = results.map((result) => (result as PromiseFulfilledResult<HostAgentActivity>).value);
-        // Telemetry enrichment can await local I/O (and Claude quota refresh).
+        // Telemetry enrichment can await local I/O.
         // Do not let an activity snapshot captured at connect overwrite a newer
         // live state transition that was sent while that work was in flight.
         return stopping ? [] : activities.filter(
@@ -1126,23 +1132,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const refreshMachineQuotas = (): void => {
     if (stopping) return;
     for (const runtime of opts.runtimeReport) {
-      if (runtime.status !== "healthy" || !supportsBuiltinQuotaPolling(runtime.id)) continue;
-      const backend = runtime.id;
-      trackTelemetry(providerQuotaReader(backend).then((observed) => {
-        if (stopping || !observed) return;
-        recordProviderQuota(backend, observed);
-        const snapshot = providerQuotaSnapshot(backend);
-        if (snapshot) requestReadyQuotaResend([snapshot]);
-      }).catch(() => { log.warn("machine quota read failed", { backend }); }));
+      if (runtime.status === "healthy") refreshMachineQuota(runtime.id);
     }
   };
   const quotaRefreshTimer = setInterval(refreshMachineQuotas, 300_000);
   quotaRefreshTimer.unref?.();
 
-  if (opts.runtimeReport.some((runtime) => runtime.id === "claude")) {
-    const observed = await providerQuotaReader("claude");
-    if (observed) recordProviderQuota("claude", observed);
-  }
   channel.connect();
   await router!.start();
   selfSleepScheduler?.start();
