@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFile, execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -12,7 +12,8 @@ const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
 const machineId = "cm_self_update_real_123456";
 const credential = "cmk_REAL_SELF_UPDATE_SECRET";
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-self-update-fixtures-"));
-const baseDirs = new Set<string>();
+const fixtureCleanups = new Set<Promise<void>>();
+let retainFixtures = false;
 let oldTgz = "";
 let newTgz = "";
 const strippedNpmContextLauncher = path.join(fixtureRoot, "launch-without-npm-context.mjs");
@@ -135,7 +136,6 @@ async function createControlServer(): Promise<ControlServer> {
 
 function makeBaseDir(control: ControlServer, latestPath: string): string {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-self-update-real-"));
-  baseDirs.add(baseDir);
   const daemons = path.join(baseDir, "daemons");
   const daemonDir = path.join(daemons, machineId);
   fs.mkdirSync(daemonDir, { recursive: true, mode: 0o700 });
@@ -253,22 +253,53 @@ beforeAll(() => {
   newTgz = packFixture("9.9.1");
 }, 120_000);
 
-afterEach(async () => {
-  for (const baseDir of baseDirs) await waitForUpdateSettled(baseDir);
-  for (const baseDir of baseDirs) await terminateCurrent(baseDir);
-  for (const baseDir of baseDirs) fs.rmSync(baseDir, { recursive: true, force: true });
-  baseDirs.clear();
-});
+async function withFixture(
+  latestPath: string,
+  run: (baseDir: string, control: ControlServer) => Promise<void>,
+): Promise<void> {
+  const control = await createControlServer();
+  let baseDir: string | undefined;
+  let failure: unknown;
+  try {
+    baseDir = makeBaseDir(control, latestPath);
+    await run(baseDir, control);
+  } catch (error) {
+    failure = error;
+  } finally {
+    const directory = baseDir;
+    const cleanup = (async () => {
+      let cleanupFailure: unknown;
+      let helperSettled = false;
+      if (directory) {
+        try { await waitForUpdateSettled(directory); helperSettled = true; }
+        catch (error) { cleanupFailure = error; retainFixtures = true; }
+        try { await terminateCurrent(directory); } catch (error) { cleanupFailure ??= error; }
+      }
+      try { await control.close(); } catch (error) { cleanupFailure ??= error; }
+      if (directory) {
+        const owner = fs.existsSync(pidfile(directory)) ? readOwner(directory) : undefined;
+        if (owner && alive(owner.pid)) {
+          retainFixtures = true;
+          cleanupFailure ??= new Error("self-update fixture daemon remained alive after cleanup");
+        } else if (helperSettled) fs.rmSync(directory, { recursive: true, force: true });
+      }
+      if (cleanupFailure) throw cleanupFailure;
+    })();
+    fixtureCleanups.add(cleanup);
+    try { await cleanup; } catch (error) { failure ??= error; }
+    finally { fixtureCleanups.delete(cleanup); }
+  }
+  if (failure) throw failure;
+}
 
-afterAll(() => {
-  fs.rmSync(fixtureRoot, { recursive: true, force: true });
+afterAll(async () => {
+  await Promise.allSettled([...fixtureCleanups]);
+  if (!retainFixtures) fs.rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
 describe("daemon self-update real package/process handoff", () => {
   it("upgrades 9.9.0 to 9.9.1 with a new PID and the same local identity", async () => {
-    const control = await createControlServer();
-    try {
-      const baseDir = makeBaseDir(control, newTgz);
+    await withFixture(newTgz, async (baseDir, control) => {
       const firstReady = await startOld(baseDir, control);
       const oldOwner = readOwner(baseDir);
 
@@ -296,15 +327,11 @@ describe("daemon self-update real package/process handoff", () => {
       await waitFor(() => updateEvents(baseDir).includes("replacement_ready"));
       expect(updateEvents(baseDir)).toContain("replacement_ready");
       expect(fs.readFileSync(path.join(daemonDir(baseDir), "update.log"), "utf8")).not.toContain(credential);
-    } finally {
-      await control.close();
-    }
+    });
   }, 120_000);
 
   it("upgrades through PATH when the running daemon has no npm_execpath", async () => {
-    const control = await createControlServer();
-    try {
-      const baseDir = makeBaseDir(control, newTgz);
+    await withFixture(newTgz, async (baseDir, control) => {
       const firstReady = await startOld(baseDir, control, true);
       const oldOwner = readOwner(baseDir);
 
@@ -322,15 +349,11 @@ describe("daemon self-update real package/process handoff", () => {
       expect(newOwner.machineId).toBe(oldOwner.machineId);
       await waitFor(() => updateEvents(baseDir).includes("replacement_ready"));
       expect(updateEvents(baseDir)).toContain("replacement_ready");
-    } finally {
-      await control.close();
-    }
+    });
   }, 120_000);
 
   it("keeps the old PID and socket live when latest maps to a missing tgz", async () => {
-    const control = await createControlServer();
-    try {
-      const baseDir = makeBaseDir(control, path.join(fixtureRoot, "missing-latest.tgz"));
+    await withFixture(path.join(fixtureRoot, "missing-latest.tgz"), async (baseDir, control) => {
       const firstReady = await startOld(baseDir, control);
       const owner = readOwner(baseDir);
 
@@ -342,15 +365,11 @@ describe("daemon self-update real package/process handoff", () => {
       expect(alive(owner.pid)).toBe(true);
       expect(firstReady.socket.readyState).toBe(WebSocket.OPEN);
       expect(control.ready.filter((entry) => entry.frame.daemonVersion === "9.9.1")).toHaveLength(0);
-    } finally {
-      await control.close();
-    }
+    });
   }, 120_000);
 
   it("rolls back exactly once to 9.9.0 when the new daemon cannot start", async () => {
-    const control = await createControlServer();
-    try {
-      const baseDir = makeBaseDir(control, newTgz);
+    await withFixture(newTgz, async (baseDir, control) => {
       const firstReady = await startOld(baseDir, control);
       const oldOwner = readOwner(baseDir);
       fs.writeFileSync(path.join(daemonDir(baseDir), "test-fail-start-9.9.1"), "1", { mode: 0o600 });
@@ -366,15 +385,11 @@ describe("daemon self-update real package/process handoff", () => {
       expect(alive(rollbackOwner.pid)).toBe(true);
       expect(updateEvents(baseDir).filter((event) => event === "replacement_start_failed")).toHaveLength(1);
       expect(updateEvents(baseDir).filter((event) => event === "rollback_ready")).toHaveLength(1);
-    } finally {
-      await control.close();
-    }
+    });
   }, 120_000);
 
   it("bounds rollback to one attempt when both new start and rollback fail", async () => {
-    const control = await createControlServer();
-    try {
-      const baseDir = makeBaseDir(control, newTgz);
+    await withFixture(newTgz, async (baseDir, control) => {
       const firstReady = await startOld(baseDir, control);
       const oldOwner = readOwner(baseDir);
       fs.writeFileSync(path.join(daemonDir(baseDir), "test-fail-start-9.9.1"), "1", { mode: 0o600 });
@@ -389,9 +404,7 @@ describe("daemon self-update real package/process handoff", () => {
       expect(updateEvents(baseDir).filter((event) => event === "replacement_start_failed")).toHaveLength(1);
       expect(updateEvents(baseDir).filter((event) => event === "replacement_terminal_failure")).toHaveLength(1);
       expect(control.ready.filter((entry) => entry.frame.daemonVersion === "9.9.1")).toHaveLength(0);
-      expect(control.ready.filter((entry) => entry.frame.daemonVersion === "9.9.0")).toHaveLength(1);
-    } finally {
-      await control.close();
-    }
+      expect(new Set(control.ready.filter((entry) => entry.frame.daemonVersion === "9.9.0").map((entry) => entry.socket)).size).toBe(1);
+    });
   }, 120_000);
 });
