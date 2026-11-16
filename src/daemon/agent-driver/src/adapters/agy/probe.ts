@@ -55,12 +55,12 @@ export async function probeAgy(command?: string, includeModels = false): Promise
   const version = probeCommandVersion(spec.command);
   if (!version.ok) return { status: "unhealthy", lastError: version.error };
   let help: string;
-  try { help = await readAgyCommand(spec, ["--help"], true); }
-  catch { return { status: "unhealthy", version: version.version, lastError: "agy_stream_probe_failed" }; }
-  if (!["--input-format", "--output-format", "stream-json", "--conversation"].every((flag) => help.includes(flag))) {
-    return { status: "unhealthy", version: version.version, lastError: "agy_stream_incompatible" };
+  try { help = await readAgyCommand(spec, ["acp", "--help"], true); }
+  catch { return { status: "unhealthy", version: version.version, lastError: "agy_acp_probe_failed" }; }
+  if (!["ACP", "--process-per-session", "--stdio"].every((flag) => help.includes(flag))) {
+    return { status: "unhealthy", version: version.version, lastError: "agy_acp_incompatible" };
   }
-  if (!includeModels || !/\bmodels\b/.test(help)) return { status: "healthy", version: version.version };
+  if (!includeModels) return { status: "healthy", version: version.version };
   try {
     const reasoning = parseAgyModelCatalog(await readAgyCommand(spec, ["models"], false));
     return reasoning ? { status: "healthy", version: version.version, reasoning }

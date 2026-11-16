@@ -2364,6 +2364,113 @@ describe("createDaemon — logging", () => {
     await daemon.stop();
   });
 
+  it.skipIf(process.platform === "win32")("steers working unread through built-in agy ACP and retains coverage until inbox ack", async () => {
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "agy-working-coverage-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    vi.stubEnv("GEMINI_HOME", join(workingDirectoryBase, "gemini"));
+    const command = join(workingDirectoryBase, "agy");
+    const requestsFile = join(workingDirectoryBase, "requests.jsonl");
+    const finishFile = join(workingDirectoryBase, "finish");
+    writeFileSync(command, `#!${process.execPath}
+const fs = require('node:fs');
+const readline = require('node:readline');
+const pending = new Map();
+const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
+const gemini = process.argv[process.argv.indexOf('--gemini-dir')+1];
+const conversations = path.join(gemini,'antigravity-cli','conversations');
+fs.mkdirSync(conversations,{recursive:true});
+const db = new DatabaseSync(path.join(conversations,'native-coverage.db'));
+db.exec('CREATE TABLE executor_metadata(idx INTEGER PRIMARY KEY,data BLOB); CREATE TABLE steps(idx INTEGER PRIMARY KEY,has_subtrajectory INTEGER)');
+let executionIndex = 0;
+const send = (value) => process.stdout.write(JSON.stringify({jsonrpc:'2.0',...value})+'\\n');
+const result = (id, value) => send({id,result:value});
+fs.appendFileSync(${JSON.stringify(requestsFile)},JSON.stringify({pid:process.pid})+'\\n');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+  const m=JSON.parse(line);
+  fs.appendFileSync(${JSON.stringify(requestsFile)},line+'\\n');
+  if(m.method==='initialize') result(m.id,{protocolVersion:1,agentInfo:{name:'Antigravity ACP Server',version:'1.4.12'},agentCapabilities:{loadSession:true,sessionCapabilities:{resume:{},list:{}},_meta:{antigravity:{systemPrompt:{append:true}}}}});
+  else if(m.method==='session/new') result(m.id,{sessionId:'native-coverage',configOptions:[]});
+  else if(m.method==='session/prompt') {
+    pending.set(m.id,m);
+    send({method:'session/update',params:{sessionId:'native-coverage',update:{sessionUpdate:'user_message_chunk',content:m.params.prompt[0]}}});
+  }
+});
+setInterval(()=>{
+  if(!fs.existsSync(${JSON.stringify(finishFile)})) return;
+  if(pending.size) {
+    const identity = Buffer.from('fixture-execution-'+executionIndex);
+    const data = Buffer.concat([Buffer.from([8,4,74,identity.length]),identity]);
+    db.prepare('INSERT INTO executor_metadata(idx,data) VALUES(?,?)').run(executionIndex++,data);
+  }
+  for(const [id] of pending) result(id,{stopReason:'end_turn'});
+  pending.clear();
+},10);
+`, { mode: 0o755 });
+    const requests = (): Array<{ pid?: number; method?: string; params?: { sessionId?: string } }> =>
+      existsSync(requestsFile) ? readFileSync(requestsFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
+    const prompts = () => requests().filter((request) => request.method === "session/prompt");
+    const channel = "/demo#1234/general";
+    const sockets: FakeSocket[] = [];
+    const modelSeen = vi.spyOn(WsControlChannel.prototype, "recordModelSeen");
+    const logger = stubLogger();
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => String(input).includes("/enroll-agent")
+      ? Response.json({ runnerKey: "rk_agy_coverage" }) : Response.json({ bots: [{ id: "bot_agy", name: "AGY", discriminator: "0001" }] })));
+    const daemon = await createDaemon({
+      machineKey: "cmk_agy_coverage", serverUrl: "http://server.invalid", serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never, runtimeReport: [{ id: "agy" }],
+      driverFor: () => ({ id: "agy" } as Driver), providerQuotaReader: async () => null,
+      workingDirectoryBase, agentCliPath: process.execPath, capabilities: [], logger,
+    });
+    const wake = (seq: number) => sockets[0]!.emit("message", JSON.stringify({
+      type: "agent:wake", agentId: "bot_agy", launchId: `agy_${seq}`,
+      config: { version: 1, runtime: "agy", command, model: { kind: "default" }, mode: { kind: "default" } },
+      unreadNotice: { kind: "unread_notice", channel, latestSeq: seq },
+    }));
+    const acked = (seq: number) => sockets[0]!.sent.map((frame) => JSON.parse(frame)).some((frame) =>
+      frame.type === "agent_wake_ack" && frame.launchId === `agy_${seq}` && frame.status === "ok");
+    const observe = (seq: number) => {
+      const pull = credentialProxyHarness.onInboxPullStart?.("bot_agy");
+      credentialProxyHarness.onInboxPullResponse?.("bot_agy", [{ channel, seq: `#${seq}` }], pull);
+      const ack = credentialProxyHarness.onInboxAckStart?.("bot_agy");
+      credentialProxyHarness.onInboxAckResponse?.("bot_agy", [{ channel, seq }], ack);
+    };
+    let pid: number | undefined;
+    try {
+      sockets[0]!.emit("open");
+      sockets[0]!.emit("message", JSON.stringify({ type: "bot:added", botId: "bot_agy", name: "AGY", discriminator: "0001" }));
+      wake(1);
+      await vi.waitFor(() => expect(prompts()).toHaveLength(1), { timeout: 5000 });
+      pid = requests().find((request) => request.pid)?.pid;
+      await vi.waitFor(() => expect(acked(1)).toBe(true));
+      await vi.waitFor(() => expect(sockets[0]!.sent.map((frame) => JSON.parse(frame)).some((frame) => frame.type === "agent_activity" && frame.state === "running")).toBe(true));
+      expect(modelSeen).not.toHaveBeenCalled();
+      observe(1);
+      expect(modelSeen).toHaveBeenCalledTimes(1);
+      for (let seq = 2; seq <= 6; seq++) wake(seq);
+      await vi.waitFor(() => expect(acked(6)).toBe(true));
+      await vi.waitFor(() => expect(prompts()).toHaveLength(2));
+      expect(existsSync(finishFile)).toBe(false);
+      const pull = credentialProxyHarness.onInboxPullStart?.("bot_agy");
+      credentialProxyHarness.onInboxPullResponse?.("bot_agy", [{ channel, seq: "#6" }], pull);
+      expect(modelSeen).toHaveBeenCalledTimes(1);
+      observe(6);
+      wake(7); wake(8);
+      await vi.waitFor(() => expect(acked(8)).toBe(true));
+      await vi.waitFor(() => expect(prompts()).toHaveLength(3));
+      observe(7);
+      await vi.waitFor(() => expect(prompts()).toHaveLength(4));
+      observe(8);
+      expect(prompts().map((request) => request.params?.sessionId)).toEqual(Array(4).fill("native-coverage"));
+      expect(requests().filter((request) => request.method === "session/new")).toHaveLength(1);
+      writeFileSync(finishFile, "done");
+      await vi.waitFor(() => expect(sockets[0]!.sent.map((frame) => JSON.parse(frame)).some((frame) =>
+        frame.type === "agent_activity" && frame.agentId === "bot_agy" && frame.state === "idle")).toBe(true));
+    } finally { await daemon.stop(); }
+    expect(pid).toEqual(expect.any(Number));
+    expect(() => process.kill(pid!, 0)).toThrow();
+  });
+
   it("keeps every working unread covered while coalescing wake bursts into one real session delivery", async () => {
     global.fetch = vi.fn(async (url: string | URL) => {
       const href = String(url);

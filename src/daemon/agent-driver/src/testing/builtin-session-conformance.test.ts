@@ -1,9 +1,10 @@
+import { NativeExecutionReader } from "../adapters/agy/execution.js";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentEvent,
   BuiltinBackendId,
@@ -27,6 +28,7 @@ import { ClaudeDriver } from "../adapters/claude/index.js";
 import { CodexDriver } from "../adapters/codex/index.js";
 import { CursorDriver } from "../adapters/cursor/index.js";
 import { AntigravityAcpLane } from "../adapters/antigravity/acp-lane.js";
+import { AgyAcpLane } from "../adapters/agy/acp-lane.js";
 import { AgyDriver } from "../adapters/agy/index.js";
 import { AntigravityDriver } from "../adapters/antigravity/index.js";
 import { GrokDriver } from "../adapters/grok/index.js";
@@ -39,6 +41,11 @@ import { SdkLane } from "../controller/sdk-host.js";
 import { createFakeAgentDriverHost } from "./fake-host.js";
 import { capabilitiesFor, createAgentDriverRegistry, createBuiltinAgentDriverRegistry } from "../registry.js";
 import { createAgentDriverSdkWithRegistry } from "../sdk.js";
+
+beforeEach(() => {
+  vi.spyOn(NativeExecutionReader.prototype, "checkpoint").mockResolvedValue({ index: -1, executionId: null, lastStepIndex: -1 });
+  vi.spyOn(NativeExecutionReader.prototype, "terminal").mockResolvedValue("success");
+});
 
 const isCodexBackend = (backend: string) => ["codex", "codex-app", "codex-cli"].includes(backend);
 
@@ -158,6 +165,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
   const claudeInputUuids: string[] = [];
   const stdinMessages: Record<string, unknown>[] = [];
   let claudeAckCursor = 0;
+  let agyPromptCursor = 0;
   if (backend === "pi") {
     vi.spyOn(PiDriver.prototype, "openLane").mockImplementation(async (ctx) => {
       contexts.push(ctx);
@@ -215,7 +223,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           if (!line.trim()) continue;
           const message = JSON.parse(line) as Record<string, unknown>;
           stdinMessages.push(message);
-          if (backend !== "cursor" && backend !== "grok" && backend !== "antigravity") continue;
+          if (backend !== "cursor" && backend !== "grok" && backend !== "antigravity" && backend !== "agy") continue;
           const respond = (result: unknown) => process.stdout.write(`${JSON.stringify({
             jsonrpc: "2.0",
             id: message.id,
@@ -224,8 +232,8 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           if (message.method === "initialize") {
             respond({
               protocolVersion: 1,
-              agentInfo: { name: "antigravity-acp", version: "1.3.0" },
-              agentCapabilities: { loadSession: true },
+              agentInfo: { name: backend === "agy" ? "Antigravity ACP Server" : "antigravity-acp", version: "1.3.0" },
+              agentCapabilities: { loadSession: true, ...(backend === "agy" ? { sessionCapabilities: { resume: {}, list: {} }, _meta: { antigravity: { systemPrompt: { append: true } } } } : {}) },
               authMethods: [{ id: backend === "grok" ? "cached_token" : "cursor_login" }],
               ...(backend === "grok" ? {
                 _meta: {
@@ -246,7 +254,9 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
             respond({
               config: { currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", creditUsagePercent: 0 } },
             });
-          } else if (message.method === "session/load") {
+          } else if (message.method === "session/list") {
+            respond({ sessions: [{ sessionId: ctx.config.sessionId, cwd: ctx.workingDirectory }] });
+          } else if (message.method === "session/load" || message.method === "session/resume") {
             const params = message.params as { sessionId?: string } | undefined;
             respond({ sessionId: params?.sessionId ?? `${backend}-resumed`, configOptions: [] });
           } else if (message.method === "session/new") {
@@ -305,6 +315,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "inProgress" },
           } });
           break;
+        case "agy":
         case "cursor":
         case "antigravity":
         case "grok":
@@ -331,13 +342,19 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "completed" },
           } });
           break;
+        case "agy":
         case "cursor":
         case "antigravity":
         case "grok":
           {
             const prompts = stdinMessages.filter((message) => message.method === "session/prompt");
-            const prompt = prompts[turn - 1]!;
-            write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
+            if (backend === "agy") {
+              for (const prompt of prompts.slice(agyPromptCursor, turn)) write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
+              agyPromptCursor = turn;
+            } else {
+              const prompt = prompts[turn - 1]!;
+              write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
+            }
           }
           break;
         case "opencode":
@@ -365,6 +382,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "completed" },
           } });
           break;
+        case "agy":
         case "cursor":
         case "antigravity":
         case "grok": {
@@ -482,7 +500,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   });
 
   const busy = await session.send({ id: "busy", kind: "user", text: "busy" });
-  expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" || backend === "claude" || isCodexBackend(backend) ? "accepted" : "queued");
+  expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" || backend === "agy" || backend === "claude" || isCodexBackend(backend) ? "accepted" : "queued");
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   if (backend === "claude") {
@@ -507,7 +525,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   harness.completeTurn(1);
   await settle();
 
-  if (backend === "cursor" || backend === "grok" || backend === "antigravity") {
+  if (backend === "cursor" || backend === "grok" || backend === "antigravity" || backend === "agy") {
     await vi.waitFor(() => {
       expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(2);
     });
@@ -523,14 +541,14 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
     expect(await settlePromptAdmission(backend, harness, 2, reuse)).toMatchObject({ status: "accepted" });
     if (backend === "pi") harness.handles[0]!.isStreaming = true;
   }
-  if (backend !== "cursor" && backend !== "grok" && backend !== "antigravity") {
+  if (backend !== "cursor" && backend !== "grok" && backend !== "antigravity" && backend !== "agy") {
     if (!isCodexBackend(backend)) harness.sessionReady(2);
     await settle();
     harness.completeTurn(2);
     await settle();
   }
 
-  if (backend === "claude" || isCodexBackend(backend) || backend === "grok" || backend === "antigravity") {
+  if (backend === "claude" || isCodexBackend(backend) || backend === "grok" || backend === "antigravity" || backend === "agy") {
     expect(harness.processes).toHaveLength(1);
     expect(harness.processes[0]!.kill).not.toHaveBeenCalled();
   }
@@ -592,7 +610,7 @@ function emitStaleTerminal(backend: BuiltinBackendId, harness: VendorHarness): v
 }
 
 describe("native primitive regressions through registered public sessions", () => {
-  describe.each(["cursor", "grok", "antigravity"] as const)("%s native stop reasons", (backend) => {
+  describe.each(["cursor", "grok", "antigravity", "agy"] as const)("%s native stop reasons", (backend) => {
     it.each(["end_turn", "refusal", "max_tokens", "max_turn_requests", "cancelled"] as const)("preserves %s through the public session and remains reusable", async (stopReason) => {
       const fixture = await openRegisteredHarness(backend, "native-stop-reason");
       try {
@@ -677,7 +695,7 @@ describe("native primitive regressions through registered public sessions", () =
   });
 });
 
-describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity"] as const)(
+describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity", "agy"] as const)(
   "%s shared persistent stress conformance",
   (backend) => {
     it("runs ten sequential public turns through one physical open", async () => {
@@ -709,7 +727,7 @@ describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "o
 
       const busy = ids.slice(1, 6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
       await Promise.all(busy);
-      fixture.harness.completeTurn(backend === "cursor" ? 6 : 1);
+      fixture.harness.completeTurn(backend === "cursor" || backend === "agy" ? 6 : 1);
       await settle();
 
       const idleBurst = ids.slice(6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
@@ -719,7 +737,7 @@ describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "o
       }
       await Promise.all(idleBurst);
       if (!isCodexBackend(backend) && backend !== "cursor") fixture.harness.sessionReady(2);
-      let turn = backend === "cursor" ? 10 : 2;
+      let turn = backend === "cursor" || backend === "agy" ? 10 : 2;
       let staleTerminalEmitted = false;
       let completedTurnId: string | undefined;
       while (
@@ -764,7 +782,7 @@ describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "o
   },
 );
 
-describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity"] as const)(
+describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "opencode", "pi", "antigravity", "agy"] as const)(
   "%s registered public-session lifecycle conformance",
   (backend) => {
     it("runs resume, busy admission, interrupt reuse, environment, release, and requested stop through sdk.open", async () => {
@@ -781,7 +799,7 @@ describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "o
         ? PiDriver.prototype
         : backend === "opencode"
           ? OpenCodeDriver.prototype
-        : ({ claude: ClaudeDriver, codex: CodexDriver, "codex-app": CodexDriver, "codex-cli": CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
+        : ({ agy: AgyDriver, claude: ClaudeDriver, codex: CodexDriver, "codex-app": CodexDriver, "codex-cli": CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
       const existing = (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!;
       existing.mockImplementationOnce(async (...args: unknown[]) => {
         await openGate;
@@ -832,7 +850,7 @@ describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "o
         ? PiDriver.prototype
         : backend === "opencode"
           ? OpenCodeDriver.prototype
-          : ({ claude: ClaudeDriver, codex: CodexDriver, "codex-app": CodexDriver, "codex-cli": CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver } as const)[backend].prototype;
+          : ({ agy: AgyDriver, claude: ClaudeDriver, codex: CodexDriver, "codex-app": CodexDriver, "codex-cli": CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver } as const)[backend].prototype;
       (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!.mockRejectedValueOnce(
         new Error("apiKey=supersecret failed at /Users/Alice Smith/private key.json"),
       );
@@ -881,6 +899,8 @@ describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "o
         ? vi.spyOn(SdkLane.prototype, "stop")
         : backend === "antigravity"
           ? vi.spyOn(AntigravityAcpLane.prototype, "stop")
+        : backend === "agy"
+          ? vi.spyOn(AgyAcpLane.prototype, "stop")
         : backend === "cursor"
           ? vi.spyOn(CursorAcpLane.prototype, "stop")
           : backend === "grok"
@@ -918,6 +938,8 @@ describe.each(["claude", "codex", "codex-app", "codex-cli", "cursor", "grok", "o
         ? vi.spyOn(SdkLane.prototype, "stop")
         : backend === "antigravity"
           ? vi.spyOn(AntigravityAcpLane.prototype, "stop")
+        : backend === "agy"
+          ? vi.spyOn(AgyAcpLane.prototype, "stop")
         : backend === "cursor"
           ? vi.spyOn(CursorAcpLane.prototype, "stop")
           : backend === "grok"
