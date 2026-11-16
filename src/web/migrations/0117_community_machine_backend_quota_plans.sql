@@ -2,7 +2,7 @@ PRAGMA defer_foreign_keys=ON;
 
 CREATE TABLE community_machine_backend_quota_new (
   machine_id TEXT NOT NULL REFERENCES community_machine(id) ON DELETE CASCADE,
-  agent_backend_id TEXT NOT NULL CHECK (agent_backend_id IN ('claude', 'codex', 'codex-app', 'codex-cli', 'grok', 'antigravity', 'cursor', 'cursor-sdk', 'copilot', 'qoder', 'agy')),
+  agent_backend_id TEXT NOT NULL,
   source_epoch TEXT NOT NULL CHECK (length(source_epoch) = 22 AND source_epoch NOT GLOB '*[^A-Za-z0-9_-]*'),
   status TEXT NOT NULL CHECK (status IN ('available', 'error')),
   plan_name TEXT,
