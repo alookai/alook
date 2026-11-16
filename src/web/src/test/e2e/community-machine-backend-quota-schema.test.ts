@@ -47,7 +47,7 @@ afterAll(() => {
   sqlRun(`DELETE FROM user WHERE id = ?`, OWNER_ID)
 })
 
-describe("community_machine_backend_quota.agent_backend_id CHECK", () => {
+describe("community_machine_backend_quota backend storage", () => {
   it.each(SUPPORTED_BACKENDS)("admits supported backend '%s'", (backend) => {
     expect(() => insertQuota(backend)).not.toThrow()
     expect(
@@ -58,7 +58,11 @@ describe("community_machine_backend_quota.agent_backend_id CHECK", () => {
     ).toEqual([{ agent_backend_id: backend }])
   })
 
-  it("rejects an unsupported backend", () => {
-    expect(() => insertQuota("unsupported")).toThrow(/CHECK constraint failed/i)
+  it("admits a backend outside the current application catalogue", () => {
+    expect(() => insertQuota("future-unknown")).not.toThrow()
+    expect(sqlQuery<{ agent_backend_id: string }>(
+      `SELECT agent_backend_id FROM community_machine_backend_quota WHERE machine_id = ?`,
+      MACHINE_ID,
+    )).toEqual([{ agent_backend_id: "future-unknown" }])
   })
 })
