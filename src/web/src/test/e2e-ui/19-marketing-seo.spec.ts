@@ -169,7 +169,7 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
   const footerLinks = page.getByTestId(tid.landingFooterNavigation).locator("a")
   expect(await footerLinks.evaluateAll(linkContract)).toEqual([
     ...expectedLinks,
-    { href: "/tutorials", label: "Tutorials" },
+    { href: "/usecases", label: "Use Cases" },
   ])
 
   const styleContract = (element: Element) => {

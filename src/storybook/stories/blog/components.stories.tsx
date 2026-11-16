@@ -6,6 +6,7 @@ import { CompanyRoles } from "@blog/components/company-roles"
 import { ConnectDemo, BotsDemo } from "@blog/components/guides/mock-scenes"
 import { ServerDemo } from "@blog/components/guides/server-demo"
 import { MessageDemo } from "@blog/components/guides/message-demo"
+import { StoryDemo } from "@blog/components/guides/story-demo"
 import { Prerequisites } from "@blog/components/guides/prerequisites"
 import BlogError from "@blog/app/error"
 import BlogNotFound from "@blog/app/not-found"
@@ -22,6 +23,7 @@ export const Connect: Story = { render: () => <ConnectDemo /> }
 export const Bots: Story = { render: () => <BotsDemo runtime="codex" /> }
 export const Server: Story = { render: () => <ServerDemo /> }
 export const Message: Story = { render: () => <MessageDemo /> }
+export const UseCaseStory: Story = { render: () => <StoryDemo label="Use case story" channel="seo" channels={["general", "seo"]} steps={[{ send: "Nina", mentions: ["Scout"], text: "Which pages get the most search traffic?" }, { post: "Scout", text: "/compress-pdf leads with 18.2k monthly visits." }]} /> }
 export const Requirements: Story = { render: () => <Prerequisites><p>A local machine and an available coding agent.</p></Prerequisites> }
 export const Byline: Story = { render: () => <BlogPostByline post={{ author: "Alook Team", date: "2026-09-10", dateModified: "2026-11-05", readingTime: "7 min read" }} /> }
 export const NotFound: Story = { render: () => <BlogNotFound /> }

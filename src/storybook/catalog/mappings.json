@@ -4123,5 +4123,55 @@
       }
     ],
     "reason": "The navigation composition renders ForumPostCount through real sidebar rows with illustrative counts. The asynchronous provider requires separate authenticated runtime QA."
+  },
+  "src/web/blog/src/app/usecases/layout.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--use-cases",
+        "region": "Actual Use cases PublicLayout"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/app/usecases/page.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--use-cases",
+        "region": "Actual use case directory with original registry and shared gallery"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/app/usecases/[slug]/page.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--use-case",
+        "region": "Actual async use case page with original MDX body and guide scenes"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/app/brand-visual/blog-reading-specimen.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-design-references--brand-board",
+        "region": "Original full brand reference board, including the Blog reading specimen"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/components/guides/story-demo.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-components--use-case-story",
+        "region": "Actual use case story scene with real Message, composer and mention components"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   }
 }

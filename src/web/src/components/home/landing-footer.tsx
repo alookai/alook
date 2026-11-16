@@ -62,7 +62,7 @@ export function LandingFooter({ zone = "main" }: { zone?: PublicZone }) {
             {MARKETING_SITE_LINKS.map((link) => (
               <ZoneLink key={link.href} href={link.href} zone={zone} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</ZoneLink>
             ))}
-            <ZoneLink href="/tutorials" zone={zone} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>Tutorials</ZoneLink>
+            <ZoneLink href="/usecases" zone={zone} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>Use Cases</ZoneLink>
           </nav>
         </div>
         {/* The footer's memory point (Gus #2419): the wordmark set huge, like

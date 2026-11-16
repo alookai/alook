@@ -52,7 +52,7 @@ it("executes the actual index loader and renders ordered featured/recent links b
   render(await BlogPage());
   expect(screen.getByRole("heading", { level: 1, name: "Blog" })).toBeVisible();
   expect(screen.getByRole("region", { name: "Featured article" })).toHaveTextContent("Local AI agents");
-  expect(screen.getByRole("link", { name: /Human-AI Collaboration/ })).toHaveAttribute("href", "/blog/introducing-alook");
+  for (const link of screen.getAllByRole("link", { name: /Human-AI Collaboration/ })) expect(link).toHaveAttribute("href", "/blog/introducing-alook");
   await waitFor(() => expect(ready(navigation.id)).toHaveLength(1));
   expect(ready(navigation.id)[0]!.attributes).toMatchObject({ region: "page", route_template: "/blog" });
   expect(navigation.done).toBe(true);
@@ -150,16 +150,11 @@ it("settles actual content mounted before the URL only after the independent rou
   expect(ready(second.id)).toHaveLength(1);
 });
 
-it("renders a related article title before its summary and retains its destination", async () => {
-  const related = { ...posts[1]!, slug: "ai-agent-vs-chatbot", title: "AI agent vs chatbot" };
-  loaders.all.mockResolvedValueOnce([...posts, related]);
+it("ends an article with the next pillar and the shared Alook call to action", async () => {
   render(await BlogPostPage({ params: Promise.resolve({ slug: "local-ai-agents" }) }));
-  expect(screen.getByRole("heading", { name: "Keep exploring", level: 2 })).toBeVisible();
-  const link = screen.getByRole("link", { name: /AI agent vs chatbot/ });
-  expect(link).toHaveAttribute("href", "/blog/ai-agent-vs-chatbot");
-  expect([...link.querySelectorAll("span")].map(child => child.textContent)).toEqual([
-    related.title, "Decide whether I need an agent or a chatbot", related.readingTime,
-  ]);
+  expect(screen.queryByRole("heading", { name: "Keep exploring" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open Alook" })).toHaveAttribute("href", "/c");
+  expect(screen.getByRole("link", { name: "More blogs" })).toHaveAttribute("href", "/blog");
 });
 
 it("keeps globals until cleanup finishes draining the real dynamic imports", async () => {
