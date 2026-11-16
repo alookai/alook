@@ -1,7 +1,7 @@
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
-import { composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, sendMessage } from "./_fixtures/actions"
+import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { beginScrollTraceAnalysis, endScrollTraceAnalysis, installScrollTrace, markScrollTrace, startScrollTrace, summarizeScrollTrace } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
@@ -145,10 +145,9 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
         && response.request().postDataJSON().content === content)
       if (mode === "away") await sendMessage(alice.page, content)
       else {
-        const send = alice.page.getByTestId(tid.composerSend)
-        await expect(send).toBeEnabled()
-        await ignoreNextDevToolsPointerCapture(alice.page)
-        await send.click()
+        await expect(editable).toHaveAttribute("enterkeyhint", "send")
+        await expect(editable).toBeFocused()
+        await alice.page.keyboard.press("Enter")
       }
       const response = await post
       expect(response.status()).toBe(201)
