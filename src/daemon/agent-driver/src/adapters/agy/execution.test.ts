@@ -52,8 +52,10 @@ describe("agy persisted execution outcome", () => {
   it("rejects malformed records and traversal identities", () => {
     for (const data of [Buffer.from([8, 1, 74, 99]), payload(0, "new"), payload(12, "new"), payload(4, "../bad")]) expect(() => parseNativeExecution(data)).toThrow();
     expect(() => new NativeExecutionReader("/isolated", "../bad")).toThrow();
-    expect(agyStateHome({ HOME: "/isolated", GEMINI_HOME: "~/custom" }, "/cwd")).toBe("/isolated/custom");
-    expect(agyStateHome({ HOME: "/isolated", GEMINI_HOME: "relative" }, "/cwd")).toBe("/cwd/relative");
+    const home = join(tmpdir(), "agy-isolated-home");
+    const cwd = join(tmpdir(), "agy-isolated-cwd");
+    expect(agyStateHome({ HOME: home, GEMINI_HOME: "~/custom" }, cwd)).toBe(join(home, "custom"));
+    expect(agyStateHome({ HOME: home, GEMINI_HOME: "relative" }, cwd)).toBe(join(cwd, "relative"));
   });
 
   it.skipIf(Number(process.versions.node.split(".")[0]) < 22)("reads actual SQLite terminal records and fails closed when the database is unavailable", async () => {
