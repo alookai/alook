@@ -2,6 +2,7 @@
 import {createInterface}from'node:readline';
 import {appendFileSync,existsSync,readFileSync,writeFileSync}from'node:fs';
 import {join}from'node:path';
+writeFileSync(join(process.cwd(),'qoder-pid'),String(process.pid));
 let sessionId;
 let pending=[];
 const send=f=>process.stdout.write(JSON.stringify(f)+'\n');
@@ -17,6 +18,8 @@ const timer=setInterval(()=>{if(existsSync(join(process.cwd(),'release')))for(co
 for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity})){
  const f=JSON.parse(line);const r=f.request;
  if(f.type==='control_request'){
+  appendFileSync(join(process.cwd(),'qoder-requests'),r.type+'\n');
+  if(r.type==='daemon.get_usage_info'&&process.env.QUOTA_HANG==='1')continue;
   if(r.type==='daemon.initialize')response(f,{daemon_protocol_version:2,daemon_version:'1.1.81-fixture',capabilities:['multi_session_v2','daemon_queries_v1','daemon_keep_alive_v1','daemon_async_session_teardown_v1']});
   else if(r.type==='daemon.open_session'){
    const args=r.worker_args;const index=args.indexOf('--session-id');const resume=args.indexOf('--resume');
@@ -26,6 +29,7 @@ for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity}
    writeFileSync(saved,sessionId);appendFileSync(join(process.cwd(),'qoder-opens'),String(process.pid)+'\n');response(f,undefined,sessionId);
   }else if(r.subtype==='initialize'){response(f,{commands:[],agents:[],output_style:'default',available_output_styles:[],capabilities:['msg_lifecycle_v1','plan_mode_v1']},sessionId);init();}
   else if(r.type==='daemon.get_models')response(f,{models:[{value:'native-fixture',displayName:'Native Fixture',description:'local',efforts:['high'],isDefault:true}]});
+  else if(r.type==='daemon.get_usage_info')response(f,{usage:{userId:'fixture-user',userType:'Pro',totalUsagePercentage:25,userQuota:{total:100,used:100},addOnQuota:{total:300,used:0}},session:{total_credits:0,model_usage:{}}});
   else if(r.type==='daemon.close_session')response(f,undefined,sessionId);
   else if(r.type==='daemon.shutdown'){response(f);clearInterval(timer);setTimeout(()=>process.exit(0),10);}
   else if(r.subtype==='interrupt'){

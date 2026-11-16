@@ -22,6 +22,7 @@ import type {
   AgentEvent,
   AgentSession,
   AgentSessionResult,
+  BuiltinBackendId,
   BuiltinBackendSpecs,
 } from "@alook/agent-driver";
 import { AgentRouter } from "../manager/agentRouter";
@@ -1630,6 +1631,58 @@ for await (const line of createInterface({ input: process.stdin })) {
     await daemon.stop();
   });
 
+  it("reports machine default plans for new backends on connect without launching bots", async () => {
+    const sockets: FakeSocket[] = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [], attempted: 0 })));
+    const backends = ["cursor", "cursor-sdk", "copilot", "qoder", "agy"] as const;
+    const reader = vi.fn(async (_backend: string) => ({ status: "available" as const, sourceEpoch: "A".repeat(22), planName: "Pro", freshForSeconds: 300, limits: [] }));
+    const daemon = await createDaemon({ machineKey: "cmk_machine_plans", serverUrl: "http://localhost:9999", serverWsUrl: "ws://x", webSocketFactory: factory(sockets) as any,
+      runtimeReport: [...backends.map((id) => ({ id, status: "healthy" as const })), { id: "pi", status: "healthy" as const }, { id: "antigravity", status: "unhealthy" as const }],
+      driverFor: () => fakeDriver, capabilities: [], providerQuotaReader: reader });
+    try {
+      reader.mockClear();
+      sockets[0].emit("open");
+      const quotaFrames = () => sockets[0].sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "ready" && frame.providerQuotas?.length);
+      await vi.waitFor(() => expect(quotaFrames()).toHaveLength(backends.length));
+      expect(quotaFrames().every((frame) => frame.providerQuotas.length === 1)).toBe(true);
+      expect(reader.mock.calls.map((args) => args[0]).sort()).toEqual([...backends].sort());
+      expect(fakeDriver.start).not.toHaveBeenCalled();
+    } finally { await daemon.stop(); }
+  });
+
+  it("ages saved quota on reconnect and never refreshes other backends when one machine read fails", async () => {
+    const sockets: FakeSocket[] = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [], attempted: 0 })));
+    let pending = false;
+    let resolveQuota!: (quota: import("@alook/shared").ProviderQuotaObservation) => void;
+    const wait = { promise: new Promise<import("@alook/shared").ProviderQuotaObservation>((resolve) => { resolveQuota = resolve; }), resolve: (quota: import("@alook/shared").ProviderQuotaObservation) => resolveQuota(quota) };
+    const reader = vi.fn(async (backend: string) => {
+      if (pending && backend === "copilot") return wait.promise;
+      if (pending) return null;
+      return { status: "available" as const, sourceEpoch: "A".repeat(22), planName: "Pro", freshForSeconds: 300, limits: [] };
+    });
+    const daemon = await createDaemon({ machineKey: "cmk_aged_plans", serverUrl: "http://localhost:9999", serverWsUrl: "ws://x", webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "copilot", status: "healthy" }, { id: "cursor", status: "healthy" }], driverFor: () => fakeDriver, capabilities: [], providerQuotaReader: reader });
+    try {
+      sockets[0].emit("open");
+      const ready = () => sockets[0].sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "ready");
+      await vi.waitFor(() => expect(ready().filter((frame) => frame.providerQuotas.length)).toHaveLength(2));
+      pending = true;
+      const originalNow = Date.now;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => originalNow() + 120_000);
+      const count = ready().length;
+      sockets[0].emit("open");
+      await drainEventTasks();
+      const reconnect = ready()[count];
+      expect(reconnect.providerQuotas).toHaveLength(2);
+      expect(reconnect.providerQuotas.every((item: any) => item.observation.freshForSeconds <= 180)).toBe(true);
+      wait.resolve({ status: "error", sourceEpoch: "A".repeat(22), code: "network", retryable: true });
+      await drainEventTasks();
+      expect(ready().at(-1).providerQuotas).toEqual([{ agentBackendId: "copilot", observation: { status: "error", sourceEpoch: "A".repeat(22), code: "network", retryable: true } }]);
+      clock.mockRestore();
+    } finally { wait.resolve({ status: "error", sourceEpoch: "A".repeat(22), code: "network", retryable: true }); await daemon.stop(); }
+  });
+
   it("includes hostname/os/arch/daemonVersion in the ready frame", async () => {
     const sockets: FakeSocket[] = [];
     const daemon = await createDaemon({
@@ -1880,7 +1933,7 @@ describe("createDaemon — terminal usage shutdown contract", () => {
     return { promise, resolve };
   }
 
-  async function setup(extra: Partial<Parameters<typeof createDaemon>[0]> = {}) {
+  async function setup(extra: Partial<Parameters<typeof createDaemon>[0]> = {}, backend: BuiltinBackendId = "antigravity") {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];
     const logger = stubLogger();
@@ -1899,8 +1952,8 @@ describe("createDaemon — terminal usage shutdown contract", () => {
       serverUrl: "http://server.invalid",
       serverWsUrl: "ws://x",
       webSocketFactory: factory(sockets) as never,
-      runtimeReport: [{ id: "antigravity" }],
-      driverFor: () => fullFakeDriver("antigravity"),
+      runtimeReport: [{ id: backend }],
+      driverFor: () => fullFakeDriver(backend),
       sessionFactory: () => {
         const session = daemonFakeSession();
         sessions.push(session);
@@ -1912,15 +1965,42 @@ describe("createDaemon — terminal usage shutdown contract", () => {
       ...extra,
     });
     sockets[0]!.emit("open");
-    const wake = (agentId = "bot_1") => sockets[0]!.emit("message", JSON.stringify({
+    const wake = (agentId = "bot_1", latestSeq = 1) => sockets[0]!.emit("message", JSON.stringify({
       type: "agent:wake",
       agentId,
-      config: { version: 1, runtime: "antigravity", model: { kind: "default" }, mode: { kind: "default" } },
+      config: { version: 1, runtime: backend, model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "launch_terminal",
-      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq },
     }));
     return { daemon, sockets, sessions, logger, workingDirectoryBase, wake };
   }
+
+  it.each(["claude", "antigravity", "cursor", "cursor-sdk", "copilot", "qoder", "agy"] as const)("keeps %s turns and activity live while background quota is pending", async (backend) => {
+    const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
+    const quota = gate<null>();
+    const reader = vi.fn(() => quota.promise);
+    const ctx = await setup({ runtimeReport: [{ id: backend, status: "healthy" }], providerQuotaReader: reader }, backend);
+    const frames = () => ctx.sockets[0]!.sent.map((frame) => JSON.parse(frame));
+    try {
+      await vi.waitFor(() => expect(reader).toHaveBeenCalledWith(backend));
+      ctx.wake();
+      await vi.waitFor(() => expect(ctx.sessions).toHaveLength(1));
+      await vi.waitFor(() => expect(frames().some((frame) => frame.type === "agent_activity" && frame.state === "running")).toBe(true));
+      await ctx.sessions[0]!.fire("runtime_event", { kind: "turn_end" });
+      await vi.waitFor(() => expect(frames().at(-1)).toMatchObject({ type: "agent_activity", state: "idle" }));
+      let resynced = false;
+      const activities = Promise.resolve(resync.mock.calls[0]![0]().activities).then((snapshot) => { resynced = true; return snapshot; });
+      await vi.waitFor(() => expect(resynced).toBe(true));
+      expect(await activities).toMatchObject([{ agentId: "bot_1", state: "idle" }]);
+      const send = vi.spyOn(ctx.sessions[0]!, "send");
+      const previousFrames = ctx.sockets[0]!.sent.length;
+      ctx.wake("bot_1", 2);
+      await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+      await ctx.sessions[0]!.fire("agent_event", { type: "turn_started", turnId: "next-turn", commandIds: [send.mock.calls[0]![0].id] });
+      await vi.waitFor(() => expect(frames().slice(previousFrames).some((frame) => frame.type === "agent_activity" && frame.state === "running")).toBe(true));
+      expect(ctx.sessions).toHaveLength(1);
+    } finally { quota.resolve(null); await ctx.daemon.stop(); }
+  });
 
   it.each([false, true])("closes WS early and settles accepted persistence despite failed stop=%s", async (failedStop) => {
     const persistenceStarted = gate<void>();
@@ -1986,13 +2066,15 @@ describe("createDaemon — terminal usage shutdown contract", () => {
 
   it("normal resync keeps current idle activity and drops an idle snapshot superseded by public root work", async () => {
     const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
-    const quotaStarted = gate<void>();
-    const quota = gate<null>();
-    let holdQuota = false;
-    const ctx = await setup({ providerQuotaReader: async (backend) => {
-      if (backend === "antigravity" && holdQuota) { quotaStarted.resolve(); return quota.promise; }
-      return null;
-    } });
+    const readStarted = gate<void>();
+    const read = gate<void>();
+    let holdRead = false;
+    const originalWindow = DailyTokenUsageStore.prototype.usageWindow;
+    vi.spyOn(DailyTokenUsageStore.prototype, "usageWindow").mockImplementation(async function (...args) {
+      if (holdRead) { readStarted.resolve(); await read.promise; }
+      return originalWindow.apply(this, args);
+    });
+    const ctx = await setup();
     try {
       ctx.wake();
       ctx.wake("bot_2");
@@ -2000,11 +2082,11 @@ describe("createDaemon — terminal usage shutdown contract", () => {
       await ctx.sessions[0]!.fire("runtime_event", { kind: "turn_end" });
       await ctx.sessions[1]!.fire("runtime_event", { kind: "turn_end" });
       await drainEventTasks();
-      holdQuota = true;
+      holdRead = true;
       const activities = resync.mock.calls[0]![0]().activities;
-      await quotaStarted.promise;
+      await readStarted.promise;
       await ctx.sessions[0]!.fire("agent_event", { type: "internal_progress", turnId: "daemon-test-turn", source: "native", itemType: "root-work" });
-      quota.resolve(null);
+      read.resolve();
       const snapshot = await activities;
       expect(snapshot?.map((activity) => ({ agentId: activity.agentId, state: activity.state }))).toEqual([
         { agentId: "bot_2", state: "idle" },
@@ -2013,20 +2095,14 @@ describe("createDaemon — terminal usage shutdown contract", () => {
         frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "running",
       )).toBe(true);
     } finally {
-      quota.resolve(null);
+      read.resolve();
       await ctx.daemon.stop();
     }
   });
 
-  it("joins an accepted resync root through its post-stop quota and usage-window reads", async () => {
+  it("joins an accepted resync root through its usage-window read after stop", async () => {
     const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
-    const quotaStarted = gate<void>();
-    const quota = gate<null>();
-    let holdQuota = false;
-    const ctx = await setup({ providerQuotaReader: async (backend) => {
-      if (backend === "antigravity" && holdQuota) { quotaStarted.resolve(); return quota.promise; }
-      return null;
-    } });
+    const ctx = await setup();
     ctx.wake();
     await vi.waitFor(() => expect(ctx.sessions).toHaveLength(1));
     await ctx.sessions[0]!.fire("runtime_event", { kind: "turn_end" });
@@ -2039,22 +2115,16 @@ describe("createDaemon — terminal usage shutdown contract", () => {
       await read.promise;
       return originalWindow.apply(this, args);
     });
-    holdQuota = true;
-    // A reconnect snapshot owns the whole enrichment root, including a later
-    // usageWindow call after quota resolves. It bypasses activityReportTails.
     ctx.sockets[0]!.emit("open");
-    await quotaStarted.promise;
+    await readStarted.promise;
     const shutdown = ctx.daemon.stop();
     let settled = false;
     void shutdown.then(() => { settled = true; });
     await ctx.sessions[0]!.closed;
     await drainEventTasks();
     expect(settled).toBe(false);
-    expect(windowSpy).not.toHaveBeenCalled();
+    expect(windowSpy).toHaveBeenCalledOnce();
     const framesAtStop = ctx.sockets[0]!.sent.length;
-    quota.resolve(null);
-    await readStarted.promise;
-    expect(settled).toBe(false);
     read.resolve();
     await shutdown;
     const reads = windowSpy.mock.calls.length;
@@ -2065,18 +2135,22 @@ describe("createDaemon — terminal usage shutdown contract", () => {
     expect(ctx.sockets[0]!.sent).toHaveLength(framesAtStop);
   });
 
-  it("settles all accepted resync reads when one quota read fails", async () => {
+  it("settles all accepted resync reads when one usage-window read fails", async () => {
     const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
     const started = gate<void>();
-    const quota = gate<null>();
+    const read = gate<void>();
     let reads = 0;
     let hold = false;
-    const ctx = await setup({ providerQuotaReader: async (backend) => {
-      if (backend !== "antigravity" || !hold) return null;
-      if (++reads === 1) throw new Error("quota read failed");
-      started.resolve();
-      return quota.promise;
-    } });
+    const originalWindow = DailyTokenUsageStore.prototype.usageWindow;
+    vi.spyOn(DailyTokenUsageStore.prototype, "usageWindow").mockImplementation(async function (...args) {
+      if (hold) {
+        if (++reads === 1) throw new Error("usage read failed");
+        started.resolve();
+        await read.promise;
+      }
+      return originalWindow.apply(this, args);
+    });
+    const ctx = await setup();
     ctx.wake();
     ctx.wake("bot_2");
     await vi.waitFor(() => expect(ctx.sessions).toHaveLength(2));
@@ -2085,7 +2159,7 @@ describe("createDaemon — terminal usage shutdown contract", () => {
     await drainEventTasks();
     hold = true;
     const root = resync.mock.calls[0]![0]().activities as Promise<unknown>;
-    const rootFailure = expect(root).rejects.toThrow("quota read failed");
+    const rootFailure = expect(root).rejects.toThrow("usage read failed");
     await started.promise;
     const shutdown = ctx.daemon.stop();
     let settled = false;
@@ -2093,7 +2167,7 @@ describe("createDaemon — terminal usage shutdown contract", () => {
     await Promise.all(ctx.sessions.map((session) => session.closed));
     await drainEventTasks();
     expect(settled).toBe(false);
-    quota.resolve(null);
+    read.resolve();
     await rootFailure;
     await shutdown;
     expect(reads).toBe(2);

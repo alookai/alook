@@ -12,10 +12,18 @@ import { readCommunityMachines } from "./machines.server"
 import { readCommunityBots } from "./bots.server"
 
 const backends = ["qoder", "copilot", "cursor-sdk", "pi-durable"]
-it("reports unsupported quota for installed SDK backends and keeps unknown backends unknown", async () => {
-  mocks.machines.mockResolvedValue([{ id: "machine", status: "online", availableRuntimes: [...backends, "unknown"].map(id => ({ id })) }])
+it("reports supported quota readers without inventing observations and keeps unsupported and unknown distinct", async () => {
+  const capabilities = [
+    ["cursor", "supported"], ["cursor-sdk", "supported"], ["copilot", "supported"],
+    ["qoder", "supported"], ["agy", "supported"], ["pi-durable", "unsupported"], ["unknown", "unknown"],
+  ]
+  mocks.machines.mockResolvedValue([{ id: "machine", status: "online", availableRuntimes: capabilities.map(([id]) => ({ id })) }])
   const result = await readCommunityMachines({} as never, "owner")
-  expect(result.machines[0].quota.map(({ capability }) => capability)).toEqual([...backends.map(() => "unsupported"), "unknown"])
+  expect(result.machines[0].quota).toEqual(capabilities.map(([agentBackendId, capability]) => ({
+    scope: { kind: "machine_backend", machineId: "machine", agentBackendId },
+    capability, runtimeState: "healthy", snapshot: { status: "pending" },
+  })))
+  expect(mocks.machines).toHaveBeenCalledWith(expect.anything(), "owner")
 })
 it("reports supported usage for all four new backends without inventing measured tokens", async () => {
   mocks.bots.mockResolvedValue([...backends, "unknown"].map((runtime, index) => ({ id: `bot-${index}`, runtime, name: runtime, discriminator: "1234", description: "", image: null, avatarVersion: 0, presence: "offline", ownerUserId: "owner" })))

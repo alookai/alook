@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const DAILY_TOKEN_USAGE_WINDOW_DAYS = 30;
-export const PROVIDER_QUOTA_BACKENDS = ["claude", "codex", "codex-app", "codex-cli", "grok", "antigravity"] as const;
+export const PROVIDER_QUOTA_BACKENDS = ["claude", "codex", "codex-app", "codex-cli", "grok", "antigravity", "cursor", "cursor-sdk", "copilot", "qoder", "agy"] as const;
 export const ProviderQuotaBackendSchema = z.enum(PROVIDER_QUOTA_BACKENDS);
 export type ProviderQuotaBackend = z.infer<typeof ProviderQuotaBackendSchema>;
 export type TelemetryCapability = "supported" | "unsupported" | "unknown";
@@ -10,7 +10,7 @@ const tokenUsageBackends: ReadonlySet<string> = new Set([
   "claude", "codex", "codex-app", "codex-cli", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable",
 ]);
 const quotaUnsupportedBackends: ReadonlySet<string> = new Set([
-  "cursor", "opencode", "pi", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable",
+  "opencode", "pi", "pi-durable",
 ]);
 
 export function isProviderQuotaBackend(backendId: string | null | undefined): backendId is ProviderQuotaBackend {
@@ -105,8 +105,9 @@ const AvailableQuotaObservationSchema = z.object({
   sourceEpoch: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
   planName: boundedText.optional(),
   freshForSeconds: z.number().int().positive().max(86_400),
-  limits: z.array(QuotaLimitSchema).min(1).max(8),
+  limits: z.array(QuotaLimitSchema).max(8),
 }).strict().superRefine((value, ctx) => {
+  if (!value.planName && value.limits.length === 0) ctx.addIssue({ code: "custom", message: "plan or quota limits required", path: ["limits"] });
   const identities = new Set<string>();
   for (const [index, limit] of value.limits.entries()) {
     const identity = quotaIdentity(limit);

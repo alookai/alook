@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { readBuiltinProviderQuota } from "./provider-quota.js";
+import { readBuiltinProviderQuota, supportsBuiltinQuotaPolling } from "./provider-quota.js";
 
 describe("readBuiltinProviderQuota", () => {
   it("maps Claude OAuth usage without exposing credentials in the observation", async () => {
+    expect(supportsBuiltinQuotaPolling("claude")).toBe(true);
     const fetchUsage = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer local-secret-token")
       return Response.json({
@@ -34,13 +35,16 @@ describe("readBuiltinProviderQuota", () => {
   })
 
   it("returns unsupported for custom Claude providers and non-quota backends", async () => {
+    for (const backend of [undefined, "opencode", "toString", "__proto__"]) {
+      expect(supportsBuiltinQuotaPolling(backend)).toBe(false);
+    }
     const readCredentialsFile = vi.fn(async () => "")
     await expect(readBuiltinProviderQuota("claude", {
       platform: "linux",
       env: { ANTHROPIC_API_KEY: "custom" },
       readCredentialsFile,
     })).resolves.toBeNull()
-    await expect(readBuiltinProviderQuota("cursor")).resolves.toBeNull()
+    await expect(readBuiltinProviderQuota("opencode")).resolves.toBeNull()
     expect(readCredentialsFile).not.toHaveBeenCalled()
   })
 

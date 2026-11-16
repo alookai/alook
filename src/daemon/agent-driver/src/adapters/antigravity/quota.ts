@@ -4,21 +4,13 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { ProviderQuotaObservation, QuotaLimit } from "../../contract.js";
 import { asRecord } from "../../internal/utils.js";
+import type { QuotaReadOptions } from "../../internal/quota-reader.js";
 
 import { readLocalCommand } from "./local-data.js";
 const PROD = "https://cloudcode-pa.googleapis.com";
 const DAILY = "https://daily-cloudcode-pa.googleapis.com";
 type Source = { identity: string; epoch: string; accessToken?: { value: string; expiresAt: number } };
 let activeSource: Source = { identity: "", epoch: randomBytes(16).toString("base64url") };
-
-type AntigravityQuotaReaderOptions = {
-  platform?: NodeJS.Platform;
-  env?: NodeJS.ProcessEnv;
-  home?: string;
-  readCredentialsFile?: (path: string) => Promise<string>;
-  readKeychain?: () => Promise<string>;
-  fetchUsage?: typeof fetch;
-};
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -76,7 +68,7 @@ export function parseAntigravityQuota(value: unknown): QuotaLimit[] | undefined 
   return limits.size <= 8 ? [...limits.values()] : undefined;
 }
 
-export async function readAntigravityQuota(options: AntigravityQuotaReaderOptions = {}): Promise<ProviderQuotaObservation> {
+export async function readAntigravityQuota(options: QuotaReadOptions = {}): Promise<ProviderQuotaObservation> {
   const env = options.env ?? process.env;
   const home = options.home ?? homedir();
   const configuredHome = env.GEMINI_HOME?.replace(/^~(?=[/\\]|$)/, home);

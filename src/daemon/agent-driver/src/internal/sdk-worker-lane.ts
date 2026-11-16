@@ -86,7 +86,7 @@ export class SdkWorkerLane implements RuntimeLane {
     }
   }
 
-  async probe(): Promise<unknown> { return this.request("open", this.init, this.init.probe?.includeModels ? 10_000 : 5_000); }
+  async probe(timeoutMs = this.init.probe?.includeModels ? 10_000 : 5_000): Promise<unknown> { return this.request("open", this.init, timeoutMs); }
 
   async send(input: LaneSendInput): Promise<LaneAdmission> {
     if (this.stopping || this.exited) return { ok: false, reason: "closed" };
@@ -106,10 +106,9 @@ export class SdkWorkerLane implements RuntimeLane {
   private async stopOnce(input: LaneStopInput): Promise<void> {
     this.stopping = true;
     this.rejectPending(new Error("SDK worker is stopping"));
-    try {
-      if (this.child.pid) await killProcessTree(this.child.pid, { graceMs: input.forceAfterMs ?? SESSION_STOP_GRACE_MS });
-      else if (!this.exited) this.child.kill("SIGTERM");
-    } finally { rmSync(this.directory, { recursive: true, force: true }); }
+    if (this.child.pid) await killProcessTree(this.child.pid, { graceMs: input.forceAfterMs ?? SESSION_STOP_GRACE_MS });
+    else if (!this.exited) this.child.kill("SIGTERM");
+    rmSync(this.directory, { recursive: true, force: true });
   }
 
   private request(method: string, params: unknown, timeoutMs = 60_000): Promise<unknown> {

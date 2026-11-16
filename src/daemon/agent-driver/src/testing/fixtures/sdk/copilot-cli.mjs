@@ -21,6 +21,8 @@ const handle=async f=>{
   if(f.method==='session.resume'&&(!existsSync(history)||readFileSync(history,'utf8')!==sessionId))send({jsonrpc:'2.0',id:f.id,error:{code:-32602,message:'session history not found'}});
   else{writeFileSync(history,sessionId);appendFileSync(join(process.cwd(),'copilot-opens'),String(process.pid)+'\n');reply(f,{sessionId,capabilities:{}});}
  } else if(f.method==='models.list')reply(f,{models:[{id:'native-fixture',name:'Native Fixture',supportedReasoningEfforts:['high']}]});
+ else if(f.method==='account.getCurrentAuth')reply(f,{authInfo:{type:'token',host:'github.com',login:'fixture',token:'fixture-token',copilotUser:{copilot_plan:'pro'}}});
+ else if(f.method==='account.getQuota')reply(f,{quotaSnapshots:{premium_interactions:{isUnlimitedEntitlement:false,entitlementRequests:300,usedRequests:60,remainingPercentage:80,resetDate:'2026-12-01T00:00:00Z'}}});
  else if(f.method==='session.send'){
   const messageId='input-'+(++seq);appendFileSync(join(process.cwd(),'copilot-inputs'),JSON.stringify({text:p.prompt,mode:p.mode})+'\n');
   if(p.prompt==='blocked extra'||p.prompt==='error extra'){

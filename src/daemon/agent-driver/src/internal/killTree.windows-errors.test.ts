@@ -35,6 +35,81 @@ describe.skipIf(process.platform !== "win32")("Windows process-tree error handli
     })).toThrow("powershell unavailable");
   });
 
+  it.each([true, false])("waits for owned close after PID exit (initially alive: %s)", async (initiallyAlive) => {
+    vi.useFakeTimers();
+    let alive = initiallyAlive;
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      if (alive) return true;
+      throw Object.assign(new Error("not found"), { code: "ESRCH" });
+    });
+    const child = Object.assign(fakeChild(), { pid: 4_242 });
+    const killer = fakeChild();
+    const spawn = vi.fn().mockReturnValueOnce(child).mockReturnValue(killer);
+    const module = await importWithSpawn(spawn);
+    module.spawnAgentProcess("agent.cmd", [], { cwd: process.cwd(), stdin: "ignore" });
+    let settled = false;
+    const stopping = module.killProcessTree(child.pid!).then(() => { settled = true; });
+    alive = false;
+    if (initiallyAlive) killer.emit("close", 0, null);
+    child.emit("exit", 0, null);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(false);
+    child.emit("close", 0, null);
+    await vi.advanceTimersByTimeAsync(100);
+    await stopping;
+    expect(settled).toBe(true);
+    await module.killProcessTree(child.pid!);
+    expect(spawn).toHaveBeenCalledTimes(initiallyAlive ? 2 : 1);
+  });
+
+  it("does not let an older close discard a replacement process owner", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("not found"), { code: "ESRCH" });
+    });
+    const oldChild = Object.assign(fakeChild(), { pid: 4_242 });
+    const replacement = Object.assign(fakeChild(), { pid: 4_242 });
+    const module = await importWithSpawn(vi.fn().mockReturnValueOnce(oldChild).mockReturnValueOnce(replacement));
+    module.spawnAgentProcess("agent.cmd", [], { cwd: process.cwd(), stdin: "ignore" });
+    module.spawnAgentProcess("agent.cmd", [], { cwd: process.cwd(), stdin: "ignore" });
+    oldChild.emit("close", 0, null);
+    let settled = false;
+    const stopping = module.killProcessTree(4_242).then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(false);
+    replacement.emit("close", 0, null);
+    await vi.advanceTimersByTimeAsync(100);
+    await stopping;
+  });
+
+  it("shares the exit deadline with owned close and retains a timed-out owner until close", async () => {
+    vi.useFakeTimers();
+    let alive = true;
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      if (alive) return true;
+      throw Object.assign(new Error("not found"), { code: "ESRCH" });
+    });
+    const child = Object.assign(fakeChild(), { pid: 4_242 });
+    const killer = fakeChild();
+    const module = await importWithSpawn(vi.fn().mockReturnValueOnce(child).mockReturnValue(killer));
+    module.spawnAgentProcess("agent.cmd", [], { cwd: process.cwd(), stdin: "ignore" });
+    const stopping = module.killProcessTree(child.pid!);
+    const rejected = expect(stopping).rejects.toThrow("did not close within 2000ms");
+    killer.emit("close", 0, null);
+    await vi.advanceTimersByTimeAsync(1_900);
+    alive = false;
+    child.emit("exit", 0, null);
+    await vi.advanceTimersByTimeAsync(100);
+    await rejected;
+    let settled = false;
+    const stoppingAgain = module.killProcessTree(child.pid!).then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(false);
+    child.emit("close", 0, null);
+    await vi.advanceTimersByTimeAsync(100);
+    await stoppingAgain;
+  });
+
   it("surfaces taskkill launch and nonzero-exit failures", async () => {
     vi.spyOn(process, "kill").mockImplementation(() => true);
 

@@ -97,13 +97,28 @@ describe("GET /api/community/machines — provider quota", () => {
     expect(JSON.stringify(body)).not.toContain("retryable")
   })
 
-  it("keeps CLI quota unsupported and the existing ACP quota separate", async () => {
+  it("keeps supported CLI quota separate from the existing ACP quota", async () => {
     mockListMachinesForUser.mockResolvedValue([{ id: "machine", status: "online", availableRuntimes: [{ id: "agy", status: "healthy" }, { id: "antigravity", status: "healthy" }] }])
-    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map([[
+      "machine", [{
+        observedAt: new Date().toISOString(),
+        quota: {
+          agentBackendId: "agy",
+          observation: { status: "error", sourceEpoch: "A".repeat(22), code: "unauthorized", retryable: false },
+        },
+      }],
+    ]]))
     const response = await GET(new NextRequest("http://localhost/api/community/machines"))
     const body = await response.json()
-    expect(body.machines[0].quota.map((entry: any) => ({ backend: entry.scope.agentBackendId, capability: entry.capability }))).toEqual([
-      { backend: "agy", capability: "unsupported" }, { backend: "antigravity", capability: "supported" },
+    expect(body.machines[0].quota).toEqual([
+      {
+        scope: { kind: "machine_backend", machineId: "machine", agentBackendId: "agy" },
+        capability: "supported", runtimeState: "healthy", snapshot: { status: "error", code: "unauthorized" },
+      },
+      {
+        scope: { kind: "machine_backend", machineId: "machine", agentBackendId: "antigravity" },
+        capability: "supported", runtimeState: "healthy", snapshot: { status: "pending" },
+      },
     ])
   })
 
@@ -239,7 +254,7 @@ describe("GET /api/community/machines — provider quota", () => {
       },
       {
         scope: { kind: "machine_backend", machineId: "cm_1", agentBackendId: "cursor" },
-        capability: "unsupported",
+        capability: "supported",
         runtimeState: "healthy",
         snapshot: { status: "pending" },
       },
