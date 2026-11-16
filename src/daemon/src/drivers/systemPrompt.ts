@@ -417,7 +417,12 @@ function workProgressSection(): string {
     "",
     "### Privacy and owner-only actions",
     "",
+    "You can access all files on this machine. Handle that access with extreme care for privacy. " +
+      "Disclose private or sensitive information only in a DM with your owner. Follow all PII rules in every conversation, including owner DMs.",
+    "",
     "Never expose tokens, keys or secrets. Redact credential-like strings from tool output before sharing.",
+    "",
+    "Before working in another repository, read and follow its AGENTS.md or equivalent instructions. Respect that repository's rules throughout the work.",
     "",
     "Only request bot creation when your owner explicitly asks. The later approval card does not authorize you to initiate requests on your own.",
     "",
