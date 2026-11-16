@@ -14,12 +14,13 @@ export function createScene(root: HTMLElement, complete: () => void) {
   const editor = stage.querySelector("[data-tutorial-editor]")!;
   const update = (detail: object) => channel.dispatchEvent(new CustomEvent("story-state", { detail }));
   const slot = (index: number) => () => stage.querySelector(`[data-story-message="${index}"]`) ?? editor;
-  const camera = (at: number, target: (() => Element) | null, view: HTMLElement = stage, scale = FOCUS_SCALE) => {
+  const camera = (at: number, target: (() => Element) | null, view: HTMLElement = stage, baseScale = FOCUS_SCALE) => {
     let destination = { scale: 1, x: 0, y: 0 };
     timeline.to(view, { duration: 0.9, ease: "power2.inOut", scale: () => destination.scale, x: () => destination.x, y: () => destination.y, onStart: () => {
       if (!target) { destination = { scale: 1, x: 0, y: 0 }; return; }
       const current = { scale: Number(gsap.getProperty(view, "scale")), x: Number(gsap.getProperty(view, "x")), y: Number(gsap.getProperty(view, "y")) };
       const base = root.getBoundingClientRect(), rect = target().getBoundingClientRect();
+      const scale = Math.max(baseScale, Math.min(2.6, 700 / base.width));
       const fx = (rect.left - base.left - current.x + rect.width / 2) / current.scale;
       const fy = (rect.top - base.top - current.y + Math.min(rect.height, base.height * 0.5) / 2) / current.scale;
       destination = { scale, x: Math.max(base.width * (1 - scale), Math.min(0, base.width * 0.55 - fx * scale)), y: Math.max(base.height * (1 - scale), Math.min(0, base.height * 0.5 - fy * scale)) };

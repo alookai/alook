@@ -124,7 +124,7 @@ function StoryChannel({ channel, channels, steps, title }: { channel: string; ch
         {rendered.map((message, index) => <div key={message.id} data-story-message={index} data-visible={index < state.shown} className={styles.storySlot}><Message m={message} onOpenThread={ignore} /></div>)}
       </div>
       <div className={styles.storyTyping}>{state.typing && <TypingIndicator names={[state.typing]} />}</div>
-      <div className={styles.messageComposer} data-message-composer data-tutorial-panel>
+      <div className={styles.storyComposer} data-message-composer data-tutorial-panel>
         {draftMentions.map((item, index) => <div key={item.id} data-mention-choice={index} className={styles.mentionMenu} style={{ visibility: state.popup === index ? "visible" : "hidden" }}><MentionRow item={item} selected showMembersHeader={false} onSelect={ignore} /></div>)}
         <ComposerPreview hasText={hasText}>
           <div className="min-h-6 text-base chat-input-line-height" data-tutorial-editor>
