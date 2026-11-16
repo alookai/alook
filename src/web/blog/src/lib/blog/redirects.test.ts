@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { blogRedirects } from "./redirects";
 
 describe("blogRedirects", () => {
-	it("301s retired blog slugs directly to their replacement", () => {
+	it("301s retired blog slugs and the retired Guides directory directly to their replacement", () => {
 		expect(blogRedirects()).toEqual([
 			{
 				source: "/blog/building-your-first-agent-team",
@@ -29,6 +29,26 @@ describe("blogRedirects", () => {
 			{
 				source: "/blog/what-makes-a-shared-ai-workspace-usable",
 				destination: "/blog/introducing-alook",
+				statusCode: 301,
+			},
+			{
+				source: "/guides",
+				destination: "/blog/prevent-coding-agents-duplicating-work",
+				statusCode: 301,
+			},
+			{
+				source: "/blog/prevent-claude-code-codex-duplicating-work",
+				destination: "/blog/prevent-coding-agents-duplicating-work",
+				statusCode: 301,
+			},
+			{
+				source: "/blog/prevent-codex-opencode-duplicating-work",
+				destination: "/blog/prevent-coding-agents-duplicating-work",
+				statusCode: 301,
+			},
+			{
+				source: "/blog/prevent-claude-code-opencode-duplicating-work",
+				destination: "/blog/prevent-coding-agents-duplicating-work",
 				statusCode: 301,
 			},
 		]);

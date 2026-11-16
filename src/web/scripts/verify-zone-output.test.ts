@@ -12,7 +12,6 @@ const blogRoutes = {
   },
 }
 const blogAppPaths = {
-  "/guides/page": "guides.js",
   "/tutorials/page": "tutorials.js",
   "/tutorials/[slug]/page": "step-guide.js",
   "/_not-found/page": "not-found.js",

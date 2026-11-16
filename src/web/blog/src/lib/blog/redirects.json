@@ -23,5 +23,25 @@
     "source": "/blog/what-makes-a-shared-ai-workspace-usable",
     "destination": "/blog/introducing-alook",
     "statusCode": 301
+  },
+  {
+    "source": "/guides",
+    "destination": "/blog/prevent-coding-agents-duplicating-work",
+    "statusCode": 301
+  },
+  {
+    "source": "/blog/prevent-claude-code-codex-duplicating-work",
+    "destination": "/blog/prevent-coding-agents-duplicating-work",
+    "statusCode": 301
+  },
+  {
+    "source": "/blog/prevent-codex-opencode-duplicating-work",
+    "destination": "/blog/prevent-coding-agents-duplicating-work",
+    "statusCode": 301
+  },
+  {
+    "source": "/blog/prevent-claude-code-opencode-duplicating-work",
+    "destination": "/blog/prevent-coding-agents-duplicating-work",
+    "statusCode": 301
   }
 ]

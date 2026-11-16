@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 const { JSDOM } = createRequire(import.meta.url)("jsdom") as { JSDOM: new (html: string, options?: { contentType: string }) => { window: { document: Document } } };
-import { isGuide } from "../src/lib/blog/guides";
 import { blogTopics } from "../src/lib/blog/topics";
 import { parseBlogDiscoveryManifest } from "../../src/lib/blog-discovery-manifest";
 import { isDraftBlogPost, readBlogMetadata, type BlogMetadata } from "../src/lib/blog/validate-assets";
@@ -105,17 +104,13 @@ export function validateBlogBuild(blogRoot: string): void {
   const serverRoot = resolve(blogRoot, ".next/server/app");
   const discovery = parseBlogDiscoveryManifest(JSON.parse(readFileSync(resolve(serverRoot, "internal/blog-discovery.body"), "utf8")));
   samePosts("Discovery manifest", discovery.posts.map((post) => post.slug));
-  const mainSlugs = posts.filter(({ metadata }) => !isGuide(metadata)).map(({ metadata }) => metadata.slug);
-  const guideSlugs = posts.filter(({ metadata }) => isGuide(metadata)).map(({ metadata }) => metadata.slug);
   const feed = new JSDOM(readFileSync(resolve(serverRoot, "blog/feed.xml.body"), "utf8"), { contentType: "application/xml" });
-  samePosts("RSS", [...feed.window.document.querySelectorAll("item > link")].map((link) => link.textContent?.split("/blog/")[1] ?? ""), mainSlugs);
+  samePosts("RSS", [...feed.window.document.querySelectorAll("item > link")].map((link) => link.textContent?.split("/blog/")[1] ?? ""));
   const articleLinks = (html: string) => [...new Set([...new JSDOM(html).window.document.querySelectorAll<HTMLAnchorElement>('a[href^="/blog/"]')]
     .map((link) => link.getAttribute("href")!.slice(6))
     .filter((slug) => !slug.includes("/") && slug !== "feed.xml"))];
   const mainIndex = readFileSync(resolve(serverRoot, "blog.html"), "utf8");
-  const guidesIndex = readFileSync(resolve(serverRoot, "guides.html"), "utf8");
-  samePosts("Blog index", articleLinks(mainIndex), mainSlugs);
-  samePosts("Guides index", articleLinks(guidesIndex), guideSlugs);
+  samePosts("Blog index", articleLinks(mainIndex));
   const guideDocument = new JSDOM(readFileSync(resolve(serverRoot, "tutorials.html"), "utf8")).window.document;
   const stepLinks = [...new Set([...guideDocument.querySelectorAll('a[href^="/tutorials/"]')].map((link) => link.getAttribute("href")!.slice(11)))];
   samePosts("Step guides index", stepLinks, stepGuides.map((guide) => guide.slug));
@@ -123,15 +118,6 @@ export function validateBlogBuild(blogRoot: string): void {
     const html = readFileSync(resolve(serverRoot, `tutorials/${guide.slug}.html`), "utf8");
     const failures = validateStepGuide(html, guide);
     if (failures.length) throw new Error(failures.join("\n"));
-  }
-  for (const html of [mainIndex, ...posts.map((post) => post.html)]) {
-    const doc = new JSDOM(html).window.document;
-    for (const link of doc.querySelectorAll<HTMLAnchorElement>('footer a[href], [data-blog-recommendations] a[href]')) {
-      const url = new URL(link.getAttribute("href")!, origin);
-      if (url.origin === origin && ((link.closest("[data-blog-recommendations]") && /^\/guides\/?$/.test(url.pathname)) || guideSlugs.some((slug) => url.pathname.replace(/\/$/, "") === `/blog/${slug}`))) {
-        throw new Error("Guides leaked into Blog footer or recommendations");
-      }
-    }
   }
   const imageAssets = JSON.parse(readFileSync(resolve(blogRoot, "src/lib/blog/image-assets.json"), "utf8"));
   const redirects = JSON.parse(readFileSync(resolve(blogRoot, "src/lib/blog/redirects.json"), "utf8")) as { source: string; destination: string }[];

@@ -1,10 +1,9 @@
-import { isGuide } from "@blog/lib/blog/guides";
 import { getAllPosts } from "@blog/lib/blog/posts";
 
 export const dynamic = "force-static";
 
 export async function GET() {
-  const posts = (await getAllPosts()).filter((post) => !isGuide(post));
+  const posts = await getAllPosts();
   const siteUrl = "https://alook.ai";
 
   const items = posts

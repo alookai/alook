@@ -3,7 +3,6 @@ import { HandAccent } from "@/components/brand/hand-accent";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import Image from "next/image";
 import Link from "next/link";
-import { isGuide } from "@blog/lib/blog/guides";
 import { getAllPosts } from "@blog/lib/blog/posts";
 import { blogTopics } from "@blog/lib/blog/topics";
 import { buildBlogPostCards, formatBlogPostDate } from "@blog/lib/blog/post-cards";
@@ -33,7 +32,7 @@ const collectionJsonLd = {
 };
 
 export default async function BlogPage() {
-  const posts = (await getAllPosts()).filter((post) => !isGuide(post));
+  const posts = await getAllPosts();
   const [featured, ...recent] = buildBlogPostCards(posts);
 
   return (

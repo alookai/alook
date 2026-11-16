@@ -6,13 +6,11 @@ vi.mock("@blog/lib/blog/posts", () => ({ getAllPosts: vi.fn() }));
 vi.mock("@blog/app/blog/(index)/recent-posts", () => ({ RecentPosts: () => null }));
 
 import { metadata as blog } from "@blog/app/blog/(index)/page";
-import { metadata as guides } from "@blog/app/guides/page";
 import { metadata as tutorials } from "@blog/app/tutorials/page";
 
 const pages = [
   ["blog", blog, "https://alook.ai/blog", "Blog — AI Agent Collaboration & Workflows — Alook"],
   ["tutorials", tutorials, "https://alook.ai/tutorials", "Tutorials — Alook"],
-  ["guides", guides, "https://alook.ai/guides", "Guides — Coding Agent Collaboration — Alook"],
 ] as const;
 
 describe("Blog public page metadata", () => {

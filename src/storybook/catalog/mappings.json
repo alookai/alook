@@ -4035,26 +4035,6 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
-  "src/web/blog/src/app/guides/layout.tsx": {
-    "kind": "composition",
-    "examples": [
-      {
-        "story": "blog-pages--guides",
-        "region": "Actual Guides PublicLayout and Blog footer"
-      }
-    ],
-    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-  },
-  "src/web/blog/src/app/guides/page.tsx": {
-    "kind": "composition",
-    "examples": [
-      {
-        "story": "blog-pages--guides",
-        "region": "Actual async Guides page and original recent-posts filter"
-      }
-    ],
-    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-  },
   "src/web/blog/src/app/tutorials/layout.tsx": {
     "kind": "composition",
     "examples": [

@@ -33,7 +33,7 @@ export default class BlogWorker extends WorkerEntrypoint<BlogCloudflareEnv> {
 		}
 		if (pathname === MANIFEST_PATH) return new Response("Not Found", { status: 404 });
 		const response = await fetchOpenNext(request, this.env, this.ctx);
-		const publicDocument = pathname === "/blog" || /^\/tutorials(?:\/[^/.]+)?\/?$/.test(pathname) || /^\/guides\/?$/.test(pathname) || /^\/blog\/[^/.]+\/?$/.test(pathname);
+		const publicDocument = pathname === "/blog" || /^\/tutorials(?:\/[^/.]+)?\/?$/.test(pathname) || /^\/blog\/[^/.]+\/?$/.test(pathname);
 		return finalizePublicWorkerResponse(response, publicDocument, request);
 	}
 

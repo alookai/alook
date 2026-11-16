@@ -18,7 +18,6 @@ export const pageRoutes = [
   "/contact",
   "/demo",
   "/download",
-  "/guides",
   "/landing-legacy",
   "/onboarding-preview",
   "/pricing",

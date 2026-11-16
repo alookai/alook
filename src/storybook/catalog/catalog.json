@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 337,
+    "composition": 335,
     "environment": 10,
     "nonvisual": 30,
     "direct": 40
@@ -134,36 +134,6 @@
         {
           "story": "blog-components--error",
           "region": "Actual shared DeferredBlogError leaf; Next error boundary/metadata acceptance is separate"
-        }
-      ],
-      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-    },
-    {
-      "source": "src/web/blog/src/app/guides/layout.tsx",
-      "application": "Blog",
-      "candidates": [
-        "GuidesLayout"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "blog-pages--guides",
-          "region": "Actual Guides PublicLayout and Blog footer"
-        }
-      ],
-      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-    },
-    {
-      "source": "src/web/blog/src/app/guides/page.tsx",
-      "application": "Blog",
-      "candidates": [
-        "GuidesPage"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "blog-pages--guides",
-          "region": "Actual async Guides page and original recent-posts filter"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -6870,12 +6840,6 @@
       "id": "blog-pages--article",
       "title": "Blog/Pages",
       "name": "Article",
-      "source": "src/storybook/stories/blog/pages.stories.tsx"
-    },
-    {
-      "id": "blog-pages--guides",
-      "title": "Blog/Pages",
-      "name": "Guides",
       "source": "src/storybook/stories/blog/pages.stories.tsx"
     },
     {

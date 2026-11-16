@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 35 published slugs exactly once", () => {
+  it("covers all 32 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(35);
-    expect(new Set(slugs).size).toBe(35);
+    expect(slugs).toHaveLength(32);
+    expect(new Set(slugs).size).toBe(32);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -81,9 +81,6 @@ describe("blogTopics", () => {
         "claude-code-memory",
         "share-claude-code-session",
         "multiple-ai-agents-edit-same-repository",
-        "prevent-claude-code-codex-duplicating-work",
-        "prevent-codex-opencode-duplicating-work",
-        "prevent-claude-code-opencode-duplicating-work",
         "prevent-coding-agents-duplicating-work",
       ],
       [
@@ -124,9 +121,6 @@ describe("blogTopics", () => {
       "codex-memory": "Recover a Codex task after compaction and distinguish task context, project rules and local Memories",
       "claude-code-codex-cursor-grok-which-to-choose": "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses",
       "ask-coworker-codex-claude-code": "Let coworkers talk to the coding agents that did the work",
-      "prevent-claude-code-codex-duplicating-work": "Prevent Claude Code and Codex from duplicating work",
-      "prevent-codex-opencode-duplicating-work": "Prevent Codex and OpenCode from duplicating work",
-      "prevent-claude-code-opencode-duplicating-work": "Prevent Claude Code and OpenCode from duplicating work",
       "ai-agent-vs-chatbot": "Decide whether I need an agent or a chatbot",
       "personal-agents-vs-coding-agents": "Decide whether my existing coding tools cover the work or I need another agent product",
       "grok-bot-vs-meta-muse-vs-manus-cue": "Choose a personal-agent product by tools, ongoing work and review controls",
@@ -252,21 +246,5 @@ describe("topic discovery", () => {
     expect(getNextTopicBridge("personal-ai-company", allPosts)?.post.slug).toBe(
       "ai-agent-orchestration"
     );
-  });
-});
-
-describe("Guides recommendation isolation", () => {
-  it("excludes a tagged pillar and neighboring articles from Keep exploring", () => {
-    const current = blogTopics[1].entries[0].slug;
-    const guides = new Set([blogTopics[1].pillarSlug, blogTopics[1].entries[1].slug]);
-    const posts = allPosts.map((post) => guides.has(post.slug) ? { ...post, tags: ["guides"] } : post);
-    const related = getRelatedPosts(current, posts, 20);
-    expect(related.length).toBeGreaterThan(0);
-    expect(related.every((post) => !guides.has(post.slug))).toBe(true);
-  });
-  it("omits Next Blog when the next pillar is a guide, without refilling from the full registry", () => {
-    const nextPillar = blogTopics[1].pillarSlug;
-    const posts = allPosts.map((post) => post.slug === nextPillar ? { ...post, tags: ["guides"] } : post);
-    expect(getNextTopicBridge(blogTopics[0].pillarSlug, posts)).toBeUndefined();
   });
 });
