@@ -78,6 +78,7 @@ const environment = {
   HOME: root, USERPROFILE: root, GEMINI_HOME: gemini,
 };
 let releases = 0;
+const rawOutput = [];
 const host = {
   prepareExecution: async () => ({ ok: true, resource: {
     environmentLayers: {
@@ -86,7 +87,7 @@ const host = {
     },
     release: async () => { releases++; },
   } }),
-  onRawOutput() {}, now: Date.now, createId: randomUUID,
+  onRawOutput(event) { rawOutput.push(event); }, now: Date.now, createId: randomUUID,
 };
 const sdk = createAgentDriverSdk({ host });
 const sessions = [];
@@ -126,7 +127,10 @@ let failure;
 try {
   const first = await open();
   const { session, events } = first;
-  assert.equal((await session.start({ id: "first", kind: "user", text: "first" })).status, "accepted");
+  const started = await session.start({ id: "first", kind: "user", text: "first" });
+  assert.equal(started.status, "accepted", JSON.stringify({
+    receipt: started, snapshot: session.snapshot(), events, rawOutput,
+  }));
   assert.equal((await session.send({ id: "second", kind: "user", text: "second" })).delivery, "steer");
   await wait(() => session.snapshot().state === "idle");
   const completed = () => events.filter(event => event.type === "turn_completed");
@@ -139,7 +143,10 @@ try {
   results.push(...completed().map(event => event.result.outcome));
   await stop(first);
   const resumed = await open(id);
-  assert.equal((await resumed.session.start({ id: "resumed", kind: "user", text: "recovered" })).status, "accepted");
+  const resumedStart = await resumed.session.start({ id: "resumed", kind: "user", text: "recovered" });
+  assert.equal(resumedStart.status, "accepted", JSON.stringify({
+    receipt: resumedStart, snapshot: resumed.session.snapshot(), events: resumed.events, rawOutput,
+  }));
   await wait(() => resumed.session.snapshot().state === "idle");
   assert.equal(resumed.events.find(event => event.type === "turn_completed").result.outcome, "success");
   results.push("success");
