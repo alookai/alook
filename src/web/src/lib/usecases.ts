@@ -26,8 +26,8 @@ const definitions: readonly UseCaseDefinition[] = [
   },
   {
     slug: "github-issue-to-reviewed-pr",
-    title: "Open Alook to a fix your bots have prepared",
-    description: "Iris finds a GitHub issue, opens an Alook forum post, works with Atlas on a fix, and brings Mara the pull request for approval.",
+    title: "Let your bots fix GitHub issues while you sleep",
+    description: "Iris finds GitHub issues overnight, works with Atlas in an Alook forum post, and brings Mara a checked PR for morning approval.",
     date: "2026-11-16",
     category: "coding",
   },
