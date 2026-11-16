@@ -4,6 +4,8 @@ import { ProviderLogo } from "./provider-logo"
 import { runtimeLabel } from "@/lib/community/runtime-label"
 
 it.each([
+  ["codex-app", "Codex App", "codex"],
+  ["codex-cli", "Codex CLI", "codex"],
   ["qoder", "Qoder", "qoder"],
   ["copilot", "GitHub Copilot", "copilot"],
   ["cursor-sdk", "Cursor SDK", "cursor"],

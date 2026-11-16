@@ -1,6 +1,6 @@
 const backendLabels = new Map([
   ["codex", "Codex (automatic)"],
-  ["codex-app", "Codex"],
+  ["codex-app", "Codex App"],
   ["codex-cli", "Codex CLI"],
   ["agy", "antigravity cli"],
   ["qoder", "Qoder"],

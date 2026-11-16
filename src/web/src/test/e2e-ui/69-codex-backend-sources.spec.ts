@@ -53,8 +53,8 @@ async function screenshot(page: Page, info: TestInfo, name: string) {
 }
 
 for (const [runtime, label, previousRuntime, previousLabel] of [
-  ["codex-app", "Codex", "codex-cli", "Codex CLI"],
-  ["codex-cli", "Codex CLI", "codex-app", "Codex"],
+  ["codex-app", "Codex App", "codex-cli", "Codex CLI"],
+  ["codex-cli", "Codex CLI", "codex-app", "Codex App"],
 ] as const) {
   test(`${runtime} creation persists its source and clears another source's model and effort`, async ({ caseActors, caseResources }, info) => {
     const actors = await caseActors(["alice"])

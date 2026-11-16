@@ -126,7 +126,7 @@ it("selects Codex App and CLI as separate backends and clears incompatible model
     options: [{ id: "codex-app", unhealthy: false }, { id: "codex-cli", unhealthy: false }],
     runtime: "codex-app",
   })
-  expect(renderer.getByRole("radio", { name: "Codex", exact: true })).toBeChecked()
+  expect(renderer.getByRole("radio", { name: "Codex App", exact: true })).toBeChecked()
   fireEvent.click(renderer.getByRole("radio", { name: "Codex CLI", exact: true }))
   expect(onRuntimeChange).toHaveBeenCalledExactlyOnceWith("codex-cli")
   expect(onModelChange).toHaveBeenCalledExactlyOnceWith(null)

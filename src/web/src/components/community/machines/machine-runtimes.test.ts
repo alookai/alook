@@ -18,6 +18,18 @@ function renderChip(chipElement: any): any {
 }
 
 describe("MachineRuntimes", () => {
+  it("shows only the two explicit Codex sources in a mixed machine report", () => {
+    const chips = collectChips(MachineRuntimes({ runtimes: [
+      { id: "codex" }, { id: "codex-app" }, { id: "codex-cli" },
+    ] }));
+    expect(chips.map((chip) => chip.key)).toEqual([".$codex-app", ".$codex-cli"]);
+    const labels = chips.map((chip) => {
+      const badge = renderChip(chip);
+      return Children.toArray(badge.props.children.props.children)[1] as any;
+    }).map((label) => label.props.children);
+    expect(labels).toEqual(["Codex App", "Codex CLI"]);
+  });
+
   it("returns null for an empty runtime list", () => {
     expect(MachineRuntimes({ runtimes: [] })).toBeNull()
   })

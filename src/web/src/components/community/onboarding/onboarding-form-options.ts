@@ -15,7 +15,7 @@ export const ONBOARDING_HARNESSES = [
   },
   {
     value: "codex-app",
-    label: "Codex",
+    label: "Codex App",
     provider: "codex-app",
   },
   { value: "codex-cli", label: "Codex CLI", provider: "codex-cli" },
