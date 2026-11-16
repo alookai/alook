@@ -3835,6 +3835,16 @@
     ],
     "reason": "Next route placeholder returns null. The original bot route/list visual output is mounted by the Bots empty story."
   },
+  "src/web/src/app/c/me/machines/page.tsx": {
+    "kind": "nonvisual",
+    "examples": [
+      {
+        "story": "web-pages-community-shell--machines-empty",
+        "region": "Original machines route/list visual output in the isolated community shell"
+      }
+    ],
+    "reason": "Next route placeholder returns null. The original machines route/list visual output is mounted by the Machines empty story; this placeholder adds no painted layout."
+  },
   "src/web/src/app/c/me/page.tsx": {
     "kind": "nonvisual",
     "examples": [

@@ -10,7 +10,7 @@
     "server-output": 11,
     "composition": 335,
     "environment": 10,
-    "nonvisual": 30,
+    "nonvisual": 31,
     "direct": 40
   },
   "entries": [
@@ -834,6 +834,21 @@
         }
       ],
       "reason": "Next route placeholder returns null. The original bot route/list visual output is mounted by the Bots empty story."
+    },
+    {
+      "source": "src/web/src/app/c/me/machines/page.tsx",
+      "application": "Web",
+      "candidates": [
+        "MachinesPage"
+      ],
+      "kind": "nonvisual",
+      "examples": [
+        {
+          "story": "web-pages-community-shell--machines-empty",
+          "region": "Original machines route/list visual output in the isolated community shell"
+        }
+      ],
+      "reason": "Next route placeholder returns null. The original machines route/list visual output is mounted by the Machines empty story; this placeholder adds no painted layout."
     },
     {
       "source": "src/web/src/app/c/me/page.tsx",

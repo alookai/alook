@@ -1,4 +1,4 @@
-const prerenderedCommunityPaths = ["/c/me", "/c/me/bots"] as const;
+const prerenderedCommunityPaths = ["/c/me", "/c/me/bots", "/c/me/machines"] as const;
 
 const PUBLIC_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 const PUBLIC_CDN_CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
