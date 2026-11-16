@@ -26,7 +26,7 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
   const presence = registry?.runtime.ws.actions.beginPresenceSnapshot()
   try {
     const profile = await loadAndSeedProfiles(
-    async origin => parseCommunityUserCardRead(await apiFetch<unknown>(`/api/community/users/${userId}/profile`, { ...origin, signal: context.signal }), userId, registry!.accountId!),
+    async origin => parseCommunityUserCardRead(await apiFetch<unknown>(`/api/community/users/${userId}/profile`, { ...origin, headers: { ...origin.headers, "x-alook-profile-runtime": "1" }, signal: context.signal }), userId, registry!.accountId!),
     (profile) => [{
       id: profile.id,
       identityAbout: {
@@ -49,6 +49,7 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
         mutualServers: profile.mutualServers,
         ownerHandle: profile.kind === "bot" ? profile.ownerProfile.handle : null,
         ownedByViewer: profile.kind === "bot" && profile.ownedByViewer,
+        botRuntime: profile.kind === "bot" ? (profile.runtime ?? null) : null,
       },
     }], registry, context.signal, token,
   )

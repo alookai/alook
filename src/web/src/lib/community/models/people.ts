@@ -11,7 +11,7 @@ export type CommunityProfilePatch = Pick<CommunityProfile, "id"> & {
   >>
   avatar?: Pick<CommunityResourceProfile, "avatarVersion"> & Partial<Pick<CommunityResourceProfile, "avatar">>
   status?: Pick<CommunityProfile, "statusEmoji" | "statusText">
-  card?: Pick<CommunityProfile, "ownerHandle" | "mutualServers" | "ownedByViewer">
+  card?: Pick<CommunityProfile, "ownerHandle" | "mutualServers" | "ownedByViewer" | "botRuntime">
   presence?: Presence
 }
 

@@ -18,7 +18,7 @@ import { DEMO_PROFILES } from "./landing-interactive-shell-data"
 // Static preview of every built-in backend in agent-driver/src/registry.ts. Keep this fixture in the
 // web layer: the public demo must never load daemon adapters or probe a visitor's computer.
 const DEMO_BACKENDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"] as const
-const BOT_BACKENDS = ["codex", "claude", "cursor", "grok", "pi"] as const
+const BOT_BACKENDS = ["codex-app", "claude", "cursor", "grok", "pi"] as const
 
 const MACHINE: MachineSummary = {
   id: "demo-mac", hostname: "gus-macbook", displayName: "Gus’s MacBook Pro", platform: "darwin", arch: "arm64", osRelease: "25.0", daemonVersion: "0.1.56",

@@ -35,6 +35,7 @@ type ProfileIdentity =
   | { kind: "human" }
   | {
       kind: "bot"
+      runtime?: string | null
       ownerProfile: OwnerProfileRef
       ownedByViewer: boolean
     }

@@ -447,6 +447,7 @@ describe("useShellProfileController", () => {
       statusEmoji: null,
       statusText: "",
       kind: "bot",
+      runtime: "claude",
       ownerProfile: { id: "owner", handle: "Owner#0042" },
       ownedByViewer: false,
     }).mockResolvedValueOnce({
@@ -469,6 +470,7 @@ describe("useShellProfileController", () => {
     await waitFor(() => expect(hook.current.profile?.data.identity?.kind).toBe("bot"))
     expect(hook.current.profile?.data.identity).toEqual({
       kind: "bot",
+      runtime: "claude",
       ownerProfile: { id: "owner", handle: "Owner#0042" },
       ownedByViewer: false,
     })

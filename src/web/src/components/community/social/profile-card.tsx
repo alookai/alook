@@ -9,6 +9,8 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { ProviderLogo } from "@/components/provider-logo"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 import { Avatar } from "../avatar"
 import { profileBannerBackground } from "@/lib/avatar/profile-banner"
 import { resolveAvatar } from "@/lib/avatar/resolve"
@@ -156,6 +158,10 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
   const presence = data.userId ? (globalProfile?.presence ?? "offline") : data.presence
   const mutual = data.mutual ?? 0
   const botIdentity = data.identity?.kind === "bot" ? data.identity : null
+  const botRuntime = botIdentity
+    ? (data.userId ? (globalProfile?.botRuntime ?? botIdentity.runtime ?? null) : (botIdentity.runtime ?? null))
+    : null
+  const botRuntimeLabel = botRuntime ? runtimeLabel(botRuntime) : null
   const showOwnedBotCard = Boolean(botIdentity?.ownedByViewer && data.userId)
   const showSelfRunningBots = Boolean(isSelf && data.userId && hasSelfRunningBots)
   const showSecondaryCards = Boolean(secondaryCard) || showOwnedBotCard || showSelfRunningBots
@@ -295,10 +301,20 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
                   <Badge
                     data-testid={tid.profileBotBadge}
                     variant="secondary"
-                    className="h-5 gap-1 text-xs"
+                    title={botRuntimeLabel ?? undefined}
+                    className="h-5 max-w-full shrink gap-1 text-xs"
                   >
-                    <Bot className="size-3 shrink-0" aria-hidden />
-                    Bot
+                    {botRuntime && botRuntimeLabel ? (
+                      <>
+                        <ProviderLogo provider={botRuntime} className="size-3 shrink-0" />
+                        <span className="min-w-0 truncate">{botRuntimeLabel}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bot className="size-3 shrink-0" aria-hidden />
+                        Bot
+                      </>
+                    )}
                   </Badge>
                   <button
                     type="button"

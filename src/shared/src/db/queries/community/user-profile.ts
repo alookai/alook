@@ -3,6 +3,7 @@ import { getUsersByIds } from "../user"
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { and, inArray, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { communityBotBinding } from "../../community-machine-schema";
 import { communityUserProfile } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -12,6 +13,7 @@ export type PublicProfileIdentity =
   | { kind: "human" }
   | {
       kind: "bot";
+      runtime: string | null;
       ownerProfile: { id: string; handle: string };
       ownedByViewer: boolean;
     };
@@ -58,6 +60,7 @@ export async function getPublicProfileForViewer(
       bannerColor: communityUserProfile.bannerColor,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
+      runtime: communityBotBinding.runtime,
       ownerId: owner.id,
       ownerName: owner.name,
       ownerDiscriminator: owner.discriminator,
@@ -65,6 +68,7 @@ export async function getPublicProfileForViewer(
     })
     .from(target)
     .leftJoin(communityUserProfile, eq(communityUserProfile.userId, target.id))
+    .leftJoin(communityBotBinding, eq(communityBotBinding.userId, target.id))
     .leftJoin(
       owner,
       and(eq(owner.id, target.ownerUserId), isNull(owner.deletedAt))
@@ -84,6 +88,7 @@ export async function getPublicProfileForViewer(
   const identity: PublicProfileIdentity = row.isBot
     ? {
         kind: "bot",
+        runtime: row.runtime ?? null,
         ownerProfile: {
           id: row.ownerId!,
           handle: formatHandle(row.ownerName!, row.ownerDiscriminator!),

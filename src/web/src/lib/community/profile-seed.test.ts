@@ -251,14 +251,14 @@ describe("actual card facts through canonical mapper ownership",()=>{
     const {CommunityUserCardReadSchema}=await import("@alook/shared")
     const {userProfileQueryFn}=await import("@/hooks/community/use-user-profile")
     const profile=CommunityUserCardReadSchema.parse({id:"card-peer",name:"Peer",discriminator:"0042",image:null,avatarVersion:0,aboutMe:"",bannerColor:null,statusEmoji:null,statusText:null,mutualServers:0,
-      ...(kind==="human"?{kind:"human"}:{kind:"bot",ownerProfile:{id:kind==="owned-bot"?"viewer":"other",handle:"Owner#0043"},ownedByViewer:kind==="owned-bot"})})
+      ...(kind==="human"?{kind:"human"}:{kind:"bot",runtime:kind==="owned-bot"?"codex-app":null,ownerProfile:{id:kind==="owned-bot"?"viewer":"other",handle:"Owner#0043"},ownedByViewer:kind==="owned-bot"})})
     apiFetch.mockResolvedValueOnce(profile)
     expect(await registry.queryClient.query({queryKey:communityKeys.profile(profile.id),queryFn:userProfileQueryFn(profile.id)})).toEqual({id:profile.id})
     const canonical=registry.collections.profiles.get(profile.id)!
-    const card={ownerHandle:kind==="human"?null:"Owner#0043",mutualServers:0,ownedByViewer:kind==="owned-bot"}
+    const card={ownerHandle:kind==="human"?null:"Owner#0043",mutualServers:0,ownedByViewer:kind==="owned-bot",botRuntime:kind==="owned-bot"?"codex-app":null}
     expect(canonical).toMatchObject(card)
     expect(communityUserProfilePatch(profile.id,canonical).card).toEqual(card)
-    for(const fields of [{ownerHandle:canonical.ownerHandle},{mutualServers:canonical.mutualServers},{ownedByViewer:canonical.ownedByViewer}]) {
+    for(const fields of [{ownerHandle:canonical.ownerHandle},{mutualServers:canonical.mutualServers},{ownedByViewer:canonical.ownedByViewer},{botRuntime:canonical.botRuntime}]) {
       const patch=communityUserProfilePatch(profile.id,fields)
       expect(patch.card).toEqual(fields)
       writeCommunityProfilePatches([patch],registry)

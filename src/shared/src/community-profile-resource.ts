@@ -13,6 +13,7 @@ export const CommunityResourceProfileSchema = z.strictObject({
   ownerHandle: z.string().nullable().optional(),
   mutualServers: z.number().int().nonnegative().optional(),
   ownedByViewer: z.boolean().optional(),
+  botRuntime: z.string().min(1).nullable().optional(),
   statusEmoji: z.string().nullable().optional(),
   statusText: z.string().nullable().optional(),
 })

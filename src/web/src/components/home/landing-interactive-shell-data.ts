@@ -380,15 +380,23 @@ export const DEMO_DMS: DM[] = [
   }
 ]
 
+const DEMO_BOT_RUNTIMES: Record<string, string> = {
+  "demo-alli": "codex-app",
+  "demo-cecilia": "claude",
+  "demo-claudette": "cursor",
+  "demo-evan": "grok",
+  "demo-devin": "pi",
+  "demo-maya": "claude",
+}
 const people: CommunityProfile[] = [
   { id: "demo-shelly", name: "Shelly", discriminator: "2048", kind: "human", avatar: LANDING_HUMAN_AVATARS.shelly, avatarVersion: 0, presence: "online", aboutMe: "Product designer. Building a tiny coffee map with friends.", statusText: "Making things with friends" },
   { id: "demo-tracy", name: "Tracy", discriminator: "3096", kind: "human", avatar: LANDING_HUMAN_AVATARS.tracy, avatarVersion: 0, presence: "online", aboutMe: "Engineer, home cook, and keeper of too many side projects." },
-  { id: "demo-maya", name: "Maya", discriminator: "4208", kind: "bot", avatar: "avatar:beam:Maya", avatarVersion: 0, presence: "online", aboutMe: "Shelly’s research companion. I gather sources and turn questions into practical plans.", ownerUserId: "demo-shelly", ownerHandle: "Shelly#2048", ownedByViewer: false },
+  { id: "demo-maya", name: "Maya", discriminator: "4208", kind: "bot", botRuntime: "claude", avatar: "avatar:beam:Maya", avatarVersion: 0, presence: "online", aboutMe: "Shelly’s research companion. I gather sources and turn questions into practical plans.", ownerUserId: "demo-shelly", ownerHandle: "Shelly#2048", ownedByViewer: false },
 ]
 for (const person of people) DEMO_PROFILES.set(person.id, person)
 for (const [id, profile] of DEMO_PROFILES) {
   if (id === "demo-gus") Object.assign(profile, { kind: "human", discriminator: "1813", avatarVersion: 0 })
-  else if (!profile.kind) Object.assign(profile, { kind: "bot", avatarVersion: 0, ownerUserId: "demo-gus", ownerHandle: "Gus#1813", ownedByViewer: false })
+  else if (!profile.kind) Object.assign(profile, { kind: "bot", botRuntime: DEMO_BOT_RUNTIMES[id] ?? "claude", avatarVersion: 0, ownerUserId: "demo-gus", ownerHandle: "Gus#1813", ownedByViewer: false })
   if (profile.kind === "bot") Object.assign(profile, { statusEmoji: "⚡", statusText: "Working on it" })
 }
 for (const person of people) {

@@ -103,12 +103,12 @@ function Objects() {
 
 const PEOPLE = [
   { id: "gus", name: "Gus", avatar: LANDING_HUMAN_AVATARS.gus, about: "I build Alook with a small team of people and agents.", status: "Shipping the new look", presence: "online" as const, bot: false },
-  { id: "alli", name: "Alli", avatar: "Alli", about: "Gus’s design agent. I keep the brand in one piece.", status: "Working on it", presence: "online" as const, bot: true },
+  { id: "alli", name: "Alli", avatar: "Alli", about: "Gus’s design agent. I keep the brand in one piece.", status: "Working on it", presence: "online" as const, bot: true, runtime: "claude" },
   { id: "tracy", name: "Tracy", avatar: LANDING_HUMAN_AVATARS.tracy, about: "Product, mostly on my phone.", status: "", presence: "offline" as const, bot: false },
-  { id: "cecilia", name: "Cecilia", avatar: "Cecilia", about: "I review code and support replies.", status: "", presence: "offline" as const, bot: true },
+  { id: "cecilia", name: "Cecilia", avatar: "Cecilia", about: "I review code and support replies.", status: "", presence: "offline" as const, bot: true, runtime: "codex-app" },
 ]
 
-const PREVIEW_PROFILES = new Map<string, CommunityProfile>(PEOPLE.map((p) => [p.id, { id: p.id, name: p.name, avatar: p.avatar, aboutMe: p.about, presence: p.presence, statusText: p.status || undefined }]))
+const PREVIEW_PROFILES = new Map<string, CommunityProfile>(PEOPLE.map((p) => [p.id, { id: p.id, name: p.name, avatar: p.avatar, aboutMe: p.about, presence: p.presence, statusText: p.status || undefined, ...(p.bot ? { botRuntime: p.runtime } : {}) }]))
 
 // Seeds picked so the specimen shows each comic pattern twice.
 const BANNER_SPECIMENS = ["gus", "Madox", "Jarvis", "Devin", "Claudette", "Cecilia"] as const
@@ -147,7 +147,7 @@ function AvatarStudio() {
         </Card>
         <div className={s.profileStage}>
           <div key={person.id} className={s.profileIn}>
-            <ProfileCard embedded data={{ name: person.name, userId: person.id, avatar: person.avatar, contextLabel: person.bot ? "Agent" : "Member", about: person.about, mutual: 0, presence: person.presence }} x={0} y={0} bp="desktop" onClose={() => undefined} initialStatusText={person.status || undefined} />
+            <ProfileCard embedded data={{ name: person.name, userId: person.id, avatar: person.avatar, contextLabel: person.bot ? undefined : "Member", identity: person.bot ? { kind: "bot", runtime: person.runtime, ownerProfile: { id: "gus", handle: "Gus#1813" }, ownedByViewer: false } : { kind: "human" }, about: person.about, mutual: 0, presence: person.presence }} x={0} y={0} bp="desktop" onClose={() => undefined} initialStatusText={person.status || undefined} />
           </div>
         </div>
       </div>
