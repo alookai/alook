@@ -1,6 +1,8 @@
 import { CommunityConversationEntryReadSchema, CommunityMessagesReadSchema } from "@alook/shared"
 import { communityFixtureFetch, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import { test, expect } from "./_fixtures/case-fixture"
+import { composerEditable } from "./_fixtures/actions"
+import { waitForCommittedGeometry, waitForStableTail } from "./_fixtures/message-scroll-characterization"
 
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
@@ -55,7 +57,7 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
   expect([...entry.messages, ...neighbor.messages].map(message => message.id)).not.toContain(latestId)
   const jumpButton = page.getByRole("button", { name: "Jump to present", exact: true })
   await expect(jumpButton).toBeVisible({ timeout: 20_000 })
-  await expect(jumpButton).toHaveText("Jump to present")
+  await expect(jumpButton).toHaveText("")
 
   let newestGets = 0
   let anchorGets = 0
@@ -67,9 +69,22 @@ test("anchored channel jumps to the newest tail with one request", async ({ case
     if (url.searchParams.has("anchor")) anchorGets += 1
   })
 
+  const editable = composerEditable(page)
+  await editable.fill("retained while returning to present")
+  await editable.click()
+  const root = page.getByTestId(tid.messageScroller)
+  const beforeViewport = await waitForCommittedGeometry(root)
+  const viewport = page.viewportSize()!
+  await page.setViewportSize({ ...viewport, height: viewport.height - 180 })
+  await expect.poll(() => root.evaluate(element => element.clientHeight)).toBeLessThan(beforeViewport.clientHeight)
   await jumpButton.click()
   await expect(page.getByTestId(tid.message(latestId))).toBeVisible({ timeout: 30_000 })
   await expect(jumpButton).toBeHidden()
+  await waitForStableTail(root, "requested-present-reduced-viewport")
+  await expect(editable).toHaveText("retained while returning to present")
+  await expect(page.getByTestId(tid.scrollToPresent)).toBeHidden()
+  await page.setViewportSize(viewport)
+  await waitForStableTail(root, "requested-present-restored-viewport")
   await expect(page.getByText("Loading newer messages…", { exact: true })).toHaveCount(0)
   await expect.poll(() => newestGets).toBe(1)
   await page.waitForTimeout(1_000) // duplicate newest-fetch exclusion window

@@ -39,7 +39,6 @@ export function renderMessageListView(
           scrollCount={controller.pillCount}
           scrollMode={controller.pillMode}
           onScroll={controller.pillOnClick}
-          scrollPending={controller.pillPending}
           scrollError={controller.pillError}
           newVisible={controller.newJumpVisible}
           newPending={controller.newJumpPending}

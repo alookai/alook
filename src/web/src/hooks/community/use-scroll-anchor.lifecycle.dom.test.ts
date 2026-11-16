@@ -67,8 +67,7 @@ describe("qualified positioning lifecycle", () => {
   })
 
   it.each(["user", "entry", "root", "error", "empty", "retired"] as const)("cancels pending pinned resume on %s before a later complete tail", cancellation => {
-    const presentPhases: boolean[] = []
-    const h = mount({ positionEntry: {} }, false, result => { presentPhases.push(result.presentPositionPending) })
+    const h = mount({ positionEntry: {} })
     const rows = [...h.input.items, message("hidden-append")]
     try {
       const native = scrollFixture.latest.virtualizer
@@ -93,11 +92,9 @@ describe("qualified positioning lifecycle", () => {
       }
       const root = h.view.getByTestId("scroll")
       const anchor = root.querySelector<HTMLElement>('[data-msg-id="m3"]')?.getBoundingClientRect().top
-      presentPhases.length = 0
       h.update({ items: rows, hasMoreNewer: false, positionDataState: "ready" })
       if (cancellation === "empty") {
         expect(end).toHaveBeenCalledOnce()
-        expect(presentPhases.some(Boolean)).toBe(false)
       } else expect(end).not.toHaveBeenCalled()
       if (cancellation === "root") {
         expect(root).not.toBe(h.root)

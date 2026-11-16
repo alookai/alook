@@ -233,7 +233,6 @@ describe("manual reading waits for the real matching row commit", () => {
       else if (retirement === "present") {
         const completed = new Promise<MessageRequestResult>(resolve => { finishPresent = resolve })
         act(() => scrollFixture.latest.requestPresentPosition({ accepted: true, completed }))
-        expect(scrollFixture.latest.presentPositionPending).toBe(true)
       }
       else { h.stage({ active: false }); h.stage({ active: true }) }
       fireEvent.wheel(h.root, { deltaY: -800 })
@@ -340,7 +339,6 @@ describe("manual reading waits for the real matching row commit", () => {
       else if (retirement === "present") {
         const completed = new Promise<MessageRequestResult>(resolve => { finishPresent = resolve })
         act(() => scrollFixture.latest.requestPresentPosition({ accepted: true, completed }))
-        expect(scrollFixture.latest.presentPositionPending).toBe(true)
       }
       else { h.stage({ active: false }); h.stage({ active: true }) }
       expect(h.root.scrollTop).toBe(0)

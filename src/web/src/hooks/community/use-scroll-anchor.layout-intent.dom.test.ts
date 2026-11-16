@@ -66,7 +66,7 @@ function tailGeometry(h: ReturnType<typeof mount>, phase: string) {
     readReady: scrollFixture.latest.readPositionReady, followingTail: scrollFixture.latest.followingTail,
     paginationEnabled: scrollFixture.latest.paginationEnabled,
     paginationPending: scrollFixture.latest.paginationRequestPending,
-    presentPending: scrollFixture.latest.presentPositionPending, localSubmitVersion: h.input.localSubmitVersion }
+    localSubmitVersion: h.input.localSubmitVersion }
 }
 
 function qualifyRawTailAfterHistory(h: ReturnType<typeof mount>, rows: Msg[], projectNew: boolean) {
@@ -100,7 +100,6 @@ function qualifyRawTailAfterHistory(h: ReturnType<typeof mount>, rows: Msg[], pr
   expect(scrollFixture.latest.readPositionReady, detail).toBe(true)
   expect(scrollFixture.latest.paginationEnabled, detail).toBe(true)
   expect(scrollFixture.latest.paginationRequestPending, detail).toBe(false)
-  expect(scrollFixture.latest.presentPositionPending, detail).toBe(false)
   expect(h.input.localSubmitVersion, detail).toBe(0)
   return samples
 }

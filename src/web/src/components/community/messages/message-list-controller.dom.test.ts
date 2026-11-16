@@ -2,12 +2,14 @@ import contractText0 from "./message-list-controller.ts?raw"
 import React from "react"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act, fireEvent, render as rtlRender } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 import { ConversationFooterShell, ConversationFooterSlotProvider, useConversationFooterSlot } from "./conversation-footer-shell"
+import { renderMessageListView } from "./message-list-view"
+import { tid } from "@/lib/community/testids"
 
 type ScrollInput = Parameters<typeof import("@/hooks/community/use-scroll-anchor").useScrollAnchor>[0]
 function notifyReached(input: ScrollInput, id: string) {
@@ -129,6 +131,32 @@ function Probe({
 }
 
 describe("useMessageListController", () => {
+  it("keeps the rendered present action available while the request owner is pending", () => {
+    vi.stubGlobal("window", document.defaultView!)
+    const target = document.createElement("div")
+    document.body.append(target)
+    const onJumpToPresent = vi.fn(() => ({ accepted: false as const }))
+    const value = props({ hasMoreNewer: true, presentPending: true, onJumpToPresent })
+    function Scene() {
+      const controller = useMessageListController(value, 40)
+      return renderMessageListView(value, controller, () => null, null, target, 40)
+    }
+    const view = rtlRender(React.createElement(Scene))
+    try {
+      act(() => mocks.finishPosition("success"))
+      const present = view.getByRole("button", { name: /Jump to present/ })
+      expect(present).toBeEnabled()
+      expect(present).not.toHaveAttribute("aria-busy", "true")
+      expect(present.querySelector(".animate-spin")).toBeNull()
+      expect(view.queryByRole("button", { name: "Loading messages" })).toBeNull()
+      fireEvent.click(present)
+      fireEvent.click(present)
+      expect(onJumpToPresent).toHaveBeenCalledTimes(2)
+      expect(mocks.requestPresentPosition).toHaveBeenCalledWith({ accepted: false })
+      expect(mocks.scrollInputs.at(-1)).toMatchObject({ presentPending: true })
+    } finally { view.unmount(); target.remove() }
+  })
+
   it("commits selection, footer and tail reservation together through dialog close and owner replacement", () => {
     const samples: Array<{ selected: boolean; footerSelected: boolean; capsule: number }> = []
     function SelectionOwner() {
@@ -271,6 +299,14 @@ describe("useMessageListController", () => {
     act(() => latest.jumpToNew())
     expect(mocks.requestNewPosition).toHaveBeenCalledWith("m1", undefined)
     expect(latest.newJumpPending).toBe(true)
+    act(() => latest.jumpToNew())
+    expect(mocks.requestNewPosition).toHaveBeenCalledOnce()
+    mocks.newDividerVisibility = "pending"
+    view.rerender(React.createElement(Probe, { value: { ...value, presentPending: true } }))
+    expect(latest.newJumpVisible).toBe(true)
+    expect(latest.newJumpPending).toBe(true)
+    mocks.newDividerVisibility = "above"
+    view.rerender(React.createElement(Probe, { value }))
     await act(async () => finish("error"))
     expect(latest.newLoadError).toBeInstanceOf(Error)
     expect(latest.newJumpVisible).toBe(true)

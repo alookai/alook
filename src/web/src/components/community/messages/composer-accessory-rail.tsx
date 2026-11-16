@@ -15,7 +15,6 @@ export function ComposerAccessoryRail({
   scrollCount,
   scrollMode,
   onScroll,
-  scrollPending = false,
   scrollError = false,
   newVisible = false,
   newPending = false,
@@ -25,15 +24,14 @@ export function ComposerAccessoryRail({
   scrollCount: number | undefined
   scrollMode: "scroll" | "jump"
   onScroll: () => void
-  scrollPending?: boolean
   scrollError?: boolean
   newVisible?: boolean
   newPending?: boolean
   onNew?: () => void
 }) {
   const hasTyping = typingNames.length > 0
-  const hasScroll = scrollPending || scrollError || scrollMode === "jump" || (scrollCount ?? 0) > 0
-  const hasNew = newVisible && !newPending && !!onNew
+  const hasScroll = scrollError || scrollMode === "jump" || (scrollCount ?? 0) > 0
+  const hasNew = newVisible && !!onNew
   const layout = allocateComposerAccessoryRail({
     left: hasTyping,
     center: hasScroll,
@@ -64,7 +62,7 @@ export function ComposerAccessoryRail({
         )}
         {hasScroll && (
           <div className="col-start-2 h-full min-w-0 max-w-full justify-self-center">
-            <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} pending={scrollPending} error={scrollError} />
+            <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} error={scrollError} />
           </div>
         )}
         {hasNew && (
@@ -74,13 +72,16 @@ export function ComposerAccessoryRail({
             size="sm"
             data-testid={tid.scrollToNew}
             aria-label="Jump to New"
+            aria-busy={newPending}
+            disabled={newPending}
             onClick={onNew}
             className={cn(
               "pointer-events-auto h-full min-w-11 max-w-full gap-1.5 justify-self-end rounded-full border-destructive px-2 text-xs font-medium text-destructive hover:text-destructive",
               layout === "centered" ? "col-start-3" : "col-start-2",
             )}
           >
-            <ArrowUp className="size-3.5 shrink-0" />
+            {newPending ? <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
+              : <ArrowUp aria-hidden="true" className="size-3.5 shrink-0" />}
             <span>New</span>
           </Button>
         )}
@@ -160,13 +161,11 @@ function ScrollControl({
   count,
   mode,
   onClick,
-  pending,
   error,
 }: {
   count: number | undefined
   mode: "scroll" | "jump"
   onClick: () => void
-  pending: boolean
   error: boolean
 }) {
   const knownCount = count !== undefined && count > 0
@@ -180,14 +179,13 @@ function ScrollControl({
       size="sm"
       data-testid={tid.scrollToPresent}
       onClick={onClick}
-      disabled={pending}
-      aria-busy={pending}
-      aria-label={pending ? "Loading messages" : error ? "Could not load recent messages. Retry" : aria}
-      className="pointer-events-auto h-full gap-1.5 justify-self-center rounded-full pl-2 pr-3 text-xs font-medium"
+      aria-label={error ? "Could not load recent messages. Retry" : aria}
+      className={cn("pointer-events-auto h-full min-w-11 gap-1.5 justify-self-center rounded-full text-xs font-medium",
+        mode === "jump" && !error ? "px-2" : "pl-2 pr-3")}
     >
-      {pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <ArrowDown className="size-3.5 text-muted-foreground" />}
-      {pending ? <span role="status">Loading messages…</span> : error ? <span>Could not load. Retry</span>
-        : knownCount ? <NumberTicker value={count} /> : <span>Jump to present</span>}
+      <ArrowDown aria-hidden="true" className="size-3.5 text-muted-foreground" />
+      {error ? <span>Could not load. Retry</span>
+        : mode === "scroll" && knownCount ? <NumberTicker value={count} /> : null}
     </Button>
   )
 }
