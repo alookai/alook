@@ -1625,6 +1625,31 @@ test("media attachments play, stop, recover and download through reachable mobil
   expect((await state(videoPlayer)).time).toBeCloseTo(videoPausedAt, 2)
   await video.block.getByRole("button", { name: "More", exact: true }).tap()
   const videoDownload = page.getByTestId(tid.mediaDownload(videoName))
+  const videoMenu = page.getByRole("menu")
+  const rateOptions = videoMenu.getByRole("menuitemradio")
+  await expect(rateOptions).toHaveCount(7)
+  await expect.poll(() => videoMenu.evaluate(element => element.getAnimations({ subtree: true }).some(animation => (
+    Number.isFinite(animation.effect?.getComputedTiming().endTime)
+    && (animation.pending || animation.playState === "running")
+  )))).toBe(false)
+  for (const item of [...await rateOptions.all(), videoDownload]) {
+    await item.scrollIntoViewIfNeeded()
+    await expect(item).toBeEnabled()
+    expect(await item.evaluate(element => {
+      const style = getComputedStyle(element)
+      return { top: style.paddingTop, bottom: style.paddingBottom, left: style.paddingLeft, right: style.paddingRight,
+        fontSize: style.fontSize, lineHeight: style.lineHeight }
+    })).toEqual({ top: "6px", bottom: "6px", left: "8px", right: "8px", fontSize: "13px", lineHeight: "19.5px" })
+    const itemRect = await boundingRect(item)
+    expect(itemRect.height).toBeCloseTo(31.5, 1)
+    const menuRect = await boundingRect(videoMenu)
+    expectWithinRect(menuRect, { x: 0, y: 0, width: 390, height: 844 })
+    expectWithinRect(itemRect, menuRect)
+    await expect.poll(() => item.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+    })).toBe(true)
+  }
   const videoDownloaded = page.waitForEvent("download")
   await videoDownload.tap()
   const videoFile = await videoDownloaded

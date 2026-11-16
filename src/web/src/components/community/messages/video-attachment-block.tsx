@@ -81,16 +81,16 @@ function VideoControls({ attachment, expanded, onExpand }: {
             <Menu.Popup className="media-popup media-menu-popup media-popup-surface">
               <Menu.Content className="media-menu-content thin-scrollbar">
                 <PlaybackRateRadioGroup.Root>
-                  <PlaybackRateRadioGroup.Options aria-label="Playback speed" renderItem={(props, state) => <Menu.RadioItem {...props} className="media-menu-item">
-                    <span className="media-menu-item-label">{state.label}</span>
-                    {state.checked && <Check className="media-menu-item-icon" />}
+                  <PlaybackRateRadioGroup.Options className="media-menu-radio-group" aria-label="Playback speed" renderItem={(props, state) => <Menu.RadioItem {...props} className="media-menu-radio-item">
+                    <span>{state.label}</span>
+                    <Menu.ItemIndicator forceMount className="media-menu-item-indicator"><Check className="media-menu-radio-item-icon" /></Menu.ItemIndicator>
                   </Menu.RadioItem>} />
                 </PlaybackRateRadioGroup.Root>
-                <Menu.Item className="media-menu-item" data-testid={tid.mediaDownload(attachment.name)} onSelect={() => {
+                <Menu.Item className="media-menu-trigger-item" data-testid={tid.mediaDownload(attachment.name)} onSelect={() => {
                   if (download.state.status === "downloading") download.cancel()
                   else void download.start()
                 }}>
-                  <Download className="media-menu-item-icon" />
+                  <Download className="media-menu-trigger-item-icon" />
                   <span>{download.state.status === "downloading" ? "Cancel download" : download.state.status === "error" ? "Retry download" : "Download"}</span>
                 </Menu.Item>
               </Menu.Content>
