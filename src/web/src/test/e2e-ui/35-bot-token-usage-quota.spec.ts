@@ -362,7 +362,7 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await expect(updateExtension).toHaveAttribute("data-extension", "update")
   await expect(quota).toHaveAttribute(
     "aria-label",
-    "Quota details: Claude 64% left; Codex 18% left; Grok 72% left. 4 limits",
+    "Quota details: Claude 64% left; Codex (automatic) 18% left; Grok 72% left. 4 limits",
   )
 
   await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-24")))

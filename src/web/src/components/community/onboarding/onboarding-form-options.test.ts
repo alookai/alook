@@ -13,7 +13,7 @@ describe("onboarding form options", () => {
       provider,
     }))).toEqual([
       { value: "claude", label: "Claude Code", provider: "claude" },
-      { value: "codex-app", label: "Codex", provider: "codex-app" },
+      { value: "codex-app", label: "Codex App", provider: "codex-app" },
       { value: "codex-cli", label: "Codex CLI", provider: "codex-cli" },
       { value: "grok", label: "Grok Build", provider: "grok" },
       { value: "cursor", label: "Cursor", provider: "cursor" },
