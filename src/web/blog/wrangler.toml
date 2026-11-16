@@ -39,5 +39,9 @@ pattern = "alook.ai/tutorials*"
 zone_name = "alook.ai"
 
 [[routes]]
+pattern = "alook.ai/usecases*"
+zone_name = "alook.ai"
+
+[[routes]]
 pattern = "alook.ai/og/blog*"
 zone_name = "alook.ai"

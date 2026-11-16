@@ -1,135 +1,16 @@
 @import "../../../src/app/globals.css";
+@import "../../../src/components/brand/blog-reading.css";
 @source "../**/*.{ts,tsx,mdx}";
 @source "../../../src/**/*.{ts,tsx,mdx}";
-
-.blog-prose {
-  font-family: var(--font-dm-sans);
-  font-size: 1rem;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-.blog-prose :where(p, ul, ol, blockquote, pre, table, figure) { margin-block: 1rem; }
-.blog-prose p, .blog-prose li { line-height: 1.7; }
-.blog-prose > :first-child { margin-top: 0; }
-.blog-prose :where(h2, h3, h4, h5, h6) {
-  font-family: var(--font-dm-sans);
-  font-weight: 600;
-  line-height: 1.3;
-  letter-spacing: -0.02em;
-  margin: 2.5rem 0 1rem;
-  scroll-margin-top: 5rem;
-}
-.blog-prose h2 { font-size: 1.5rem; }
-.blog-prose h3 { font-size: 1.25rem; margin-top: 2rem; }
-.blog-prose :where(h4, h5, h6) { font-size: 1.125rem; margin-top: 2rem; }
-.blog-prose a { text-decoration: underline; text-underline-offset: 0.2em; text-decoration-color: color-mix(in oklch, var(--foreground) 40%, transparent); }
-.blog-prose a:hover { text-decoration-color: currentColor; }
-.blog-prose :where(h2, h3, h4, h5, h6) a { text-decoration: none; }
-.blog-shell a:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 2px; }
-.blog-prose ul { list-style: disc; padding-left: 1.5rem; }
-.blog-prose ol { list-style: decimal; padding-left: 1.5rem; }
-.blog-prose li { margin-block: 0.5rem; }
-.blog-prose li > :where(p, ul, ol) { margin-block: 0.5rem; }
-.blog-prose blockquote { border-left: 1px solid var(--border); padding-left: 1rem; color: var(--foreground); }
-.blog-prose blockquote > :first-child { margin-top: 0; }
-.blog-prose blockquote > :last-child { margin-bottom: 0; }
-.blog-prose code { font-family: var(--font-dm-mono); font-size: 0.875em; background: var(--muted); border-radius: 0.25rem; padding: 0.125rem 0.25rem; }
-.blog-prose pre { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; border-radius: 0.5rem; background: var(--muted); padding: 1rem; }
-.blog-prose pre code { padding: 0; background: transparent; }
-.blog-prose img { width: 100%; height: auto; border-radius: 0.5rem; margin-block: 2rem; }
-.blog-prose table { display: block; max-width: 100%; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; border-collapse: collapse; font-size: 0.875rem; }
-.blog-prose :where(th, td) { border: 1px solid var(--border); padding: 0.5rem 1rem; text-align: left; }
-.blog-prose th { background: var(--muted); font-weight: 600; }
-.blog-prose hr { margin-block: 2rem; border-color: var(--border); }
-.blog-prose [data-footnote-ref] { padding-inline: 0.125rem; scroll-margin-top: 5rem; }
-.blog-prose [data-footnotes] {
-  margin-top: 3rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
-  font-size: 0.875rem;
-  font-style: italic;
-  color: var(--muted-foreground);
-}
-.blog-prose [data-footnotes] h2 {
-  position: static;
-  width: auto;
-  height: auto;
-  padding: 0;
-  margin: 0 0 1rem;
-  overflow: visible;
-  clip: auto;
-  clip-path: none;
-  white-space: normal;
-  font-size: 1rem;
-  font-style: normal;
-  letter-spacing: normal;
-  color: var(--foreground);
-}
-.blog-prose [data-footnotes] :where(p, li) { line-height: 1.6; }
-.blog-prose [data-footnotes] ol { margin: 0; }
-.blog-prose [data-footnotes] li { padding-left: 0.25rem; scroll-margin-top: 5rem; }
-.blog-prose [data-footnote-backref] { display: inline-block; padding: 0.25rem; font-style: normal; }
-.blog-prose [data-footnotes] li:target { background: var(--muted); border-radius: 0.25rem; }
-
-@media (min-width: 640px) {
-  .blog-prose { font-size: 1.125rem; }
-  .blog-prose h2 { font-size: 1.75rem; }
-  .blog-prose h3 { font-size: 1.375rem; }
-}
 
 /* ═════════ Technostalgia for Blog and Tutorials (Gus #2477–2478) ═════════
  * CSS only: no new fonts, images or scripts. The palette mirrors the main
  * site's theme tokens (paper, ink, hairline, brand blue) so the blog reads as
- * the same machine; the theme module itself is not loaded here. */
-.blog-shell {
-  --tn-paper: #faf6ee;
-  --tn-paper-raised: #fffdf8;
-  --tn-ink: #1f1a15;
-  --tn-muted: #6d6250;
-  --tn-line: oklch(0.86 0.012 80);
-  --tn-blue: #5f8bcf;
-  --tn-blue-side: #34588f;
-  --tn-well: #f3ecdf;
-  --background: var(--tn-paper);
-  --foreground: var(--tn-ink);
-  --muted: #efe7d8;
-  --muted-foreground: var(--tn-muted);
-  --border: var(--tn-line);
-  --card: var(--tn-paper-raised);
-  --landing-content-max: 1320px;
-  --landing-page-gutter: clamp(24px, 5vw, 72px);
-  --landing-section-bg: var(--tn-paper);
-  --landing-text: var(--tn-ink);
-  --landing-text-muted: var(--tn-muted);
-  --landing-accent: var(--tn-blue);
-  --landing-accent-dim: var(--tn-blue-side);
-  background-color: var(--tn-paper);
-  color: var(--tn-ink);
-}
-.dark .blog-shell {
-  --tn-paper: #050505;
-  --tn-paper-raised: #0f0f11;
-  --tn-ink: #eceef4;
-  --tn-muted: #9aa0ad;
-  --tn-line: rgb(255 255 255 / 10%);
-  --tn-blue: #7d97ff;
-  --tn-blue-side: #5b7cff;
-  --tn-well: #0b0b0c;
-  --muted: #18181b;
-}
+ * the same machine; the theme module itself is not loaded here.
+ * Shared reading tokens and prose live in src/components/brand/blog-reading.css. */
 .blog-shell nav.sticky {
   background: var(--tn-paper);
   border-bottom-color: var(--tn-line);
-}
-
-/* Page kicker: the machine-label line above a title. */
-.tn-blog-kicker {
-  margin-bottom: 0.75rem;
-  color: var(--tn-muted);
-  font-family: var(--font-dm-mono), ui-monospace, monospace;
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 /* Cards: raised reading surfaces with a hairline edge; they lift on hover and
@@ -146,8 +27,24 @@
 .dark .tn-blog-card { box-shadow: 0 0 0 1px rgb(255 255 255 / 4%), 0 8px 20px -14px rgb(91 124 255 / 30%); }
 .dark .tn-blog-card:hover { box-shadow: 0 0 0 1px rgb(125 151 255 / 18%), 0 14px 26px -16px rgb(91 124 255 / 40%); }
 .tn-blog-feature { padding: 12px; }
-.tn-blog-post { padding: 10px 10px 14px; }
-.tn-blog-post h3, .tn-blog-post > span:last-child { padding-inline: 4px; }
+.tn-blog-post-image { aspect-ratio: 1200 / 630; border-bottom: 1px solid var(--tn-line); }
+
+/* Gallery masonry: equal-width columns; card heights follow their own image
+ * and text, so neighbouring columns interleave. Newest posts run left to right.
+ * One copy per column count; only the copy for the current width is shown. */
+.tn-blog-masonry { display: none; gap: 20px; align-items: start; }
+.tn-blog-masonry-column { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.tn-blog-masonry[data-columns="1"] { display: grid; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 640px) {
+  .tn-blog-masonry[data-columns="1"] { display: none; }
+  .tn-blog-masonry[data-columns="2"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .tn-blog-masonry-column { gap: 24px; }
+}
+@media (min-width: 1024px) {
+  .tn-blog-masonry[data-columns="2"] { display: none; }
+  .tn-blog-masonry[data-columns="3"] { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+}
+
 
 /* Round keycap behind an arrow. */
 .tn-blog-key {
@@ -185,19 +82,6 @@
 .blog-shell nav.sticky :is(a, button) { transition: translate 90ms ease-out, opacity 120ms ease-out; }
 .blog-shell nav.sticky :is(a, button):hover { translate: 0 -1px; }
 .blog-shell nav.sticky :is(a, button):active { translate: 0 1px; }
-
-/* Reading surface: ink prose on paper, brand-blue links, recessed code. */
-.blog-prose a { text-decoration-color: color-mix(in oklab, var(--tn-blue) 55%, transparent); }
-.blog-prose a:hover { color: var(--tn-blue-side); text-decoration-color: currentColor; }
-.blog-prose code { background: var(--tn-well); box-shadow: inset 0 1px 1px rgb(60 45 20 / 10%); }
-.blog-prose pre { border: 1px solid var(--tn-line); border-radius: 14px; background: var(--tn-well); box-shadow: inset 0 1.5px 3px rgb(60 45 20 / 10%); }
-.blog-prose pre code { box-shadow: none; }
-.blog-prose blockquote { border-left: 3px solid var(--tn-blue); border-radius: 0 12px 12px 0; padding: 0.75rem 1rem; background: color-mix(in oklab, var(--tn-blue) 7%, transparent); }
-.blog-prose img { border: 1px solid var(--tn-line); border-radius: 14px; }
-.blog-prose table { border-radius: 12px; }
-.blog-prose th { background: var(--muted); }
-.dark .blog-prose :is(code, pre) { box-shadow: inset 0 1.5px 4px rgb(0 0 0 / 70%); }
-
 /* Footer: bold slogan, light links (matches the marketing footer). */
 .blog-footer { border-top-color: var(--tn-line); background: color-mix(in oklab, var(--tn-paper) 92%, transparent); }
 .blog-footer-slogan { color: var(--tn-ink); font-weight: 800; letter-spacing: -0.01em; }
@@ -209,3 +93,6 @@
   .tn-blog-card, .tn-blog-key, .tn-blog-filter, .tn-blog-back,
   .blog-shell nav.sticky :is(a, button), .blog-footer-navigation a, .blog-footer-socials a { transition: none; }
 }
+
+.tn-blog-usecase-hero { aspect-ratio: 1200 / 630; border: 1px solid var(--tn-line); border-radius: 14px; background: var(--muted); }
+[data-testid="blog-topic-scroller"][data-dragging] { cursor: grabbing; user-select: none; }

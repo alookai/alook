@@ -132,3 +132,7 @@
 .contents a:active { translate: 2px 1px; }
 .breadcrumb a { transition: color 120ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .contents a { transition: none; } }
+
+.conversationStage { height: auto; }
+.conversationStage [data-demo-frame] { position: relative; }
+.conversation { display: flex; flex: 1; flex-direction: column; justify-content: flex-end; min-height: 0; padding: 24px 16px 16px; overflow: hidden; }

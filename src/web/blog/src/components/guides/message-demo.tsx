@@ -19,10 +19,10 @@ import styles from "./guide.module.css";
 const ignore = () => {};
 const bots: MentionItem[] = ["Milo", "Nova"].map((name, index) => ({ kind: "member", id: `tutorial-${name.toLowerCase()}`, userId: `tutorial-${name.toLowerCase()}`, label: `${name}#100${index + 1}`, name, discriminator: `100${index + 1}`, avatar: `avatar:beam:${name.toLowerCase()}`, status: "online" }));
 const profiles = new Map<string, CommunityProfile>([["gus", { id: "gus", name: "Gus", avatar: "avatar:beam:tutorial-gus" }]]);
-const sentMessage: RenderMsg = { id: "tutorial-sent-message", type: "chat", authorId: "gus", authorName: "Gus", authorAvatar: "avatar:beam:tutorial-gus", content: `@Milo#1001 @Nova#1002 ${tutorialTask}`, createdAt: "2026-10-28T04:00:00.000Z", seq: 1, grouped: false };
+const sentMessage = (task: string): RenderMsg => ({ id: "tutorial-sent-message", type: "chat", authorId: "gus", authorName: "Gus", authorAvatar: "avatar:beam:tutorial-gus", content: `@Milo#1001 @Nova#1002 ${task}`, createdAt: "2026-10-28T04:00:00.000Z", seq: 1, grouped: false });
 type DraftState = { mentions: number; text: string; popup: number };
 
-function MessageChannel({ sent = false }: { sent?: boolean }) {
+function MessageChannel({ sent = false, task }: { sent?: boolean; task: string }) {
   const root = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<DraftState>({ mentions: 0, text: "", popup: -1 });
   useLayoutEffect(() => {
@@ -34,8 +34,8 @@ function MessageChannel({ sent = false }: { sent?: boolean }) {
   const hasText = draft.mentions > 0 || Boolean(draft.text);
   return <TutorialServerShell server><CommunityPreviewProfileOwner profiles={profiles}>
     <ChannelHeader channel="general" kind="text" rightPanel={null} onToggle={ignore} />
-    <div ref={root} data-message-channel className="flex min-h-0 flex-1 flex-col justify-end">
-      {sent && <div className={styles.messageResult} data-message-result><Message m={sentMessage} onOpenThread={ignore} /></div>}
+    <div ref={root} data-message-channel data-message-task={task} className="flex min-h-0 flex-1 flex-col justify-end">
+      {sent && <div className={styles.messageResult} data-message-result><Message m={sentMessage(task)} onOpenThread={ignore} /></div>}
       <div className={styles.messageComposer} data-message-composer data-tutorial-panel>
         {bots.map((bot, index) => <div key={bot.id} data-mention-choice={index} className={styles.mentionMenu} style={{ visibility: draft.popup === index ? "visible" : "hidden" }}><MentionRow item={bot} selected showMembersHeader={false} onSelect={ignore} /></div>)}
         <ComposerPreview hasText={hasText}>
@@ -50,10 +50,10 @@ function MessageChannel({ sent = false }: { sent?: boolean }) {
   </CommunityPreviewProfileOwner></TutorialServerShell>;
 }
 
-export function MessageDemo() {
-  return <DeferredDemo scene="message" label="Send your first message">
-    <div data-demo-frame data-motion-center-y><MessageChannel /></div>
-    <div data-demo-frame data-motion-center-y><MessageChannel sent /></div>
+export function MessageDemo({ task = tutorialTask, label = "Send your first message" }: { task?: string; label?: string }) {
+  return <DeferredDemo scene="message" label={label}>
+    <div data-demo-frame data-motion-center-y><MessageChannel task={task} /></div>
+    <div data-demo-frame data-motion-center-y><MessageChannel sent task={task} /></div>
     <MousePointer2 className={styles.pointer} data-demo-pointer size={30} fill="var(--background)" />
   </DeferredDemo>;
 }

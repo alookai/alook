@@ -1,9 +1,9 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import technostalgia from "@/components/brand/technostalgia.module.css";
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, useMemo, type Ref } from "react";
+import { useEffect, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -22,6 +22,9 @@ type BlogTopicFilter = {
 type RecentPostsProps = {
   posts: readonly BlogPostCard[];
   topics: readonly BlogTopicFilter[];
+  hrefBase?: string;
+  heading?: string;
+  filterLabel?: string;
 };
 
 const allTopicsId = "all";
@@ -52,7 +55,7 @@ export function replaceRecentPostsTopicUrl(topicId: string) {
   window.history.replaceState(null, "", nextUrl);
 }
 
-export function RecentPosts({ posts, topics }: RecentPostsProps) {
+export function RecentPosts({ posts, topics, hrefBase = "/blog", heading = "Recent posts", filterLabel = "Filter recent posts" }: RecentPostsProps) {
   const [selectedTopicId, setSelectedTopicId] = useAtom(useCreateAtom(allTopicsId));
   const breakpoint = useBreakpoint();
   const hoverCapable = useHoverCapable();
@@ -69,6 +72,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
     selectedKey: selectedTopicId,
     mapVerticalWheelToHorizontal:
       breakpoint === "desktop" && hoverCapable,
+    dragToScroll: true,
   });
   const visiblePosts =
     selectedTopicId === allTopicsId
@@ -90,7 +94,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
         id="recent-posts-heading"
         className="font-sans text-2xl font-semibold tracking-tight sm:text-3xl"
       >
-        Recent posts
+        {heading}
       </h2>
       <div className="relative mt-3 sm:mt-6">
         <div
@@ -98,58 +102,31 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
           data-testid="blog-topic-scroller"
           className="thin-scrollbar scrollbar-none overflow-x-auto scroll-fade-x scroll-fade-4 scroll-px-4 px-4"
         >
-          <nav
-            aria-label="Filter recent posts"
-            className={`${technostalgia.theme} flex w-max min-w-full flex-nowrap gap-2 py-1`}
-          >
-            <TopicButton
-              id={allTopicsId}
-              label="All"
-              selected={selectedTopicId === allTopicsId}
-              buttonRef={selectedTopicId === allTopicsId ? selectedRef : undefined}
-              onSelect={selectTopic}
-            />
-            {topics.map((topic) => (
-              <TopicButton
-                key={topic.id}
-                id={topic.id}
-                label={topic.label}
-                selected={selectedTopicId === topic.id}
-                buttonRef={selectedTopicId === topic.id ? selectedRef : undefined}
-                onSelect={selectTopic}
-              />
-            ))}
-          </nav>
+          <Tabs value={selectedTopicId} onValueChange={(value) => selectTopic(String(value))} className={`${technostalgia.theme} w-max min-w-full py-1`}>
+            <TabsList aria-label={filterLabel} className="overflow-visible">
+              <TabsTrigger value={allTopicsId} ref={selectedTopicId === allTopicsId ? selectedRef : undefined}>All</TabsTrigger>
+              {topics.map((topic) => (
+                <TabsTrigger key={topic.id} id={topic.id} value={topic.id} ref={selectedTopicId === topic.id ? selectedRef : undefined}>
+                  {topic.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         </div>
       </div>
 
       {visiblePosts.length > 0 ? (
-        <div className="mt-6 grid gap-x-8 gap-y-10 sm:mt-8 sm:grid-cols-3 sm:gap-y-12">
-          {visiblePosts.map((post) => (
-            <article key={post.slug}>
-              <Link
-                href={`/blog/${post.slug}`}
-                className="tn-blog-card tn-blog-post group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
-              >
-                <span className="relative block aspect-video overflow-hidden rounded-lg bg-muted">
-                  <Image
-                    src={post.imageUrl}
-                    alt=""
-                    fill
-                    sizes="(max-width: 639px) calc(100vw - 2rem), 20.5rem"
-                    className="object-cover transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transform-none"
-                  />
-                </span>
-                <h3 className="mt-4 font-sans text-lg font-semibold leading-snug tracking-tight">
-                  {post.title}
-                </h3>
-                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-sm text-muted-foreground">
-                  <span>{post.topicLabel}</span>
-                  <span aria-hidden="true">·</span>
-                  <time dateTime={post.date}>{formatBlogPostDate(post.date)}</time>
-                </span>
-              </Link>
-            </article>
+        <div className="mt-6 sm:mt-8">
+          {masonryColumnCounts.map((count) => (
+            <div key={count} className="tn-blog-masonry" data-columns={count}>
+              {Array.from({ length: count }, (_, column) => (
+                <div key={column} className="tn-blog-masonry-column">
+                  {visiblePosts.filter((_, index) => index % count === column).map((post) => (
+                    <PostCard key={post.slug} post={post} href={`${hrefBase}/${post.slug}`} />
+                  ))}
+                </div>
+              ))}
+            </div>
           ))}
         </div>
       ) : (
@@ -161,31 +138,31 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
   );
 }
 
-function TopicButton({
-  id,
-  label,
-  selected,
-  buttonRef,
-  onSelect,
-}: {
-  id: string;
-  label: string;
-  selected: boolean;
-  buttonRef?: Ref<HTMLButtonElement>;
-  onSelect: (id: string) => void;
-}) {
+const masonryColumnCounts = [1, 2, 3] as const;
+
+function PostCard({ post, href }: { post: BlogPostCard; href: string }) {
   return (
-    <Button
-      size="sm"
-      variant={selected ? "secondary" : "ghost"}
-      ref={buttonRef}
-      id={id === allTopicsId ? undefined : id}
-      type="button"
-      aria-pressed={selected}
-      onClick={() => onSelect(id)}
-      className="min-h-11 shrink-0 py-2 font-sans text-sm"
-    >
-      {label}
-    </Button>
+    <article>
+      <Link
+        href={href}
+        className="tn-blog-card tn-blog-post group flex flex-col overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+      >
+        <span className="tn-blog-post-image relative block overflow-hidden bg-muted">
+          <Image
+            src={post.imageUrl}
+            alt=""
+            fill
+            sizes="(max-width: 639px) calc(100vw - 2rem), (max-width: 1023px) 50vw, 21rem"
+            className="object-cover transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transform-none"
+          />
+        </span>
+        <span className="flex flex-col gap-2 p-4 sm:p-5">
+          <span className="text-xs font-medium text-muted-foreground">{post.topicLabel}</span>
+          <h3 className="font-sans text-lg font-semibold leading-snug tracking-tight text-pretty">{post.title}</h3>
+          <span className="text-sm leading-relaxed text-foreground/70">{post.excerpt}</span>
+          <time dateTime={post.date} className="pt-1 font-mono text-[13px] text-muted-foreground">{formatBlogPostDate(post.date)}</time>
+        </span>
+      </Link>
+    </article>
   );
 }

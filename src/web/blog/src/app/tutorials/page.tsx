@@ -11,7 +11,6 @@ export const metadata = buildPublicPageMetadata({ title: "Tutorials — Alook", 
 export default function TutorialsPage() {
   return <div className="mx-auto max-w-270 px-4 pb-24 pt-12 sm:px-6 sm:pt-20">
     <ObservedStaticContent key="/tutorials" pathname="/tutorials" />
-    <p className="tn-blog-kicker">Step by step</p>
     <h1 className="font-sans text-3xl font-semibold tracking-tight sm:text-[2.5rem]"><HandAccent>Tutorials</HandAccent></h1>
     <p className="mt-4 max-w-2xl text-muted-foreground">{description}</p>
     <div className="mt-12 grid gap-4">

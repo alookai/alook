@@ -44,7 +44,6 @@ export default async function BlogPage() {
       />
       <div className="mx-auto max-w-270 px-4 pb-24 pt-12 sm:px-6 sm:pt-20">
         <header>
-          <p className="tn-blog-kicker">From the Alook team</p>
           <h1 className="font-sans text-3xl font-semibold leading-none tracking-tight sm:text-[2.5rem] sm:leading-12">
             <HandAccent>Blog</HandAccent>
           </h1>

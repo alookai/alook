@@ -1,10 +1,9 @@
 import { demoMotion } from "./motion";
 
-import { tutorialTask } from "../example-data";
-
 export function createScene(root: HTMLElement, complete: () => void) {
   const { timeline, frames, click, move, frame, action, zoom } = demoMotion(root, complete);
-  const channel = frames[0].querySelector('[data-message-channel]')!;
+  const channel = frames[0].querySelector<HTMLElement>('[data-message-channel]')!;
+  const task = channel.dataset.messageTask ?? "";
   const editor = frames[0].querySelector('[data-tutorial-editor]')!;
   const choice = (index: number) => frames[0].querySelector(`[data-mention-choice="${index}"]`)!;
   const update = (detail: object) => channel.dispatchEvent(new CustomEvent("tutorial-draft", { detail }));
@@ -30,17 +29,18 @@ export function createScene(root: HTMLElement, complete: () => void) {
   zoom(0, 11.3, editor);
   move(editor, 12.1);
   action("write-task", 12.2);
-  for (let count = 1; count <= tutorialTask.length; count++) timeline.call(() => update({ text: tutorialTask.slice(0, count) }), [], 12.2 + count * 0.07);
+  for (let count = 1; count <= task.length; count++) timeline.call(() => update({ text: task.slice(0, count) }), [], 12.2 + count * 0.07);
+  const after = 12.2 + task.length * 0.07 + 0.44;
   const sendTarget = frames[0].querySelector('[data-message-composer]')!;
   const send = () => sendTarget.querySelector('[aria-label="Send message"]')!;
-  zoom(0, 15.3, send);
-  action("send-message", 16.2);
-  click(send, 16.2);
-  frame(0, 1, 17.6);
-  action("message-posted", 17.6);
+  zoom(0, after, send);
+  action("send-message", after + 0.9);
+  click(send, after + 0.9);
+  frame(0, 1, after + 2.3);
+  action("message-posted", after + 2.3);
   const result = frames[1].querySelector('[data-message-result]')!;
-  zoom(1, 18, result);
-  move(result, 18.9);
-  timeline.to({}, { duration: 3 }, 19.8);
+  zoom(1, after + 2.7, result);
+  move(result, after + 3.6);
+  timeline.to({}, { duration: 3 }, after + 4.5);
   return timeline;
 }
