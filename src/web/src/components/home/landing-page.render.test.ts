@@ -63,7 +63,7 @@ describe("landing identity profile preview", () => {
           { name: "Pricing", href: "/pricing" },
           { name: "Blog", href: "/blog" },
           { name: "Contact", href: "/contact" },
-          { name: "Tutorials", href: "/tutorials" },
+          { name: "Use Cases", href: "/usecases" },
         ])
       const ordered = [brand!, slogan!, social!, navigation!]
       for (let index = 1; index < ordered.length; index++) {

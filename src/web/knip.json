@@ -22,6 +22,7 @@
     "blog/open-next.config.ts",
     "blog/scripts/**/*.ts",
     "blog/src/content/**/*.mdx",
+    "blog/src/usecases/**/*.mdx",
     "auth/index.ts",
     "scripts/**/*.{ts,mjs}",
     "app-store-capture/capture.mjs",

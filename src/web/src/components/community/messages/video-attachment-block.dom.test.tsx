@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { VideoAttachmentBlock } from "./video-attachment-block"
+import { requestNativeBack } from "@/components/ui/native-back-layer"
 import type { FileAttachment } from "@/lib/community/models/message"
 
 const attachment: FileAttachment = { kind: "file", name: "clip.mp4", url: "/attachments/clip", contentType: "video/mp4", size: "1 KB", sizeBytes: 1024 }
@@ -104,6 +105,67 @@ describe("video attachment", () => {
     expect(video.volume).toBe(0.4)
     expect(video.playbackRate).toBe(1.25)
     expect(pause).not.toHaveBeenCalled()
+  })
+
+  it("preserves a new menu focus while the previous mask finishes leaving", async () => {
+    fallbackMenus()
+    const { screen, video } = setup()
+    metadata(video)
+    fireEvent.seeked(video)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Play video clip.mp4" })))
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Expand video" })))
+    const mask = screen.getByRole("dialog", { name: attachment.name })
+    await waitFor(() => expect(mask).not.toHaveAttribute("data-starting-style"))
+    let finishExit!: () => void
+    const finished = new Promise<void>(resolve => { finishExit = resolve })
+    Object.defineProperty(mask, "getAnimations", { configurable: true, value: () => [{ finished }] })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Shrink video" })))
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "More" })))
+    const download = await screen.findByRole("menuitem", { name: "Download" })
+    await act(async () => download.focus())
+    expect(download).toHaveFocus()
+    await act(async () => finishExit())
+    await waitFor(() => expect(mask).not.toBeInTheDocument())
+    expect(download).toHaveFocus()
+    expect(screen.getByRole("menu", { name: "More" })).toBeVisible()
+    expect(screen.container.querySelector("article video")).toBe(video)
+    expect(pause).not.toHaveBeenCalled()
+  })
+
+  it.each(["Escape", "native back"])("dismisses Speed, More and the mask in order with %s", async method => {
+    fallbackMenus()
+    const { screen, video } = setup()
+    metadata(video)
+    fireEvent.seeked(video)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Play video clip.mp4" })))
+    video.currentTime = 4
+    video.playbackRate = 1.25
+    video.volume = 0.4
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Expand video" })))
+    const mask = screen.getByRole("dialog", { name: attachment.name })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "More" })))
+    await act(async () => fireEvent.click(await screen.findByRole("menuitem", { name: /^Speed/ })))
+    const rate = await screen.findByRole("menuitemradio", { name: "1.25×" })
+    await act(async () => rate.focus())
+    const dismiss = async () => act(async () => {
+      if (method === "native back") expect(requestNativeBack(document)).toBe("requested")
+      else fireEvent.keyDown(document.activeElement!, { key: "Escape", code: "Escape" })
+    })
+    await dismiss()
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Playback speed" })).toBeNull())
+    expect(screen.getByRole("menu", { name: "More" })).toBeVisible()
+    expect(mask).toHaveAttribute("data-open")
+    await dismiss()
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+    expect(mask).toHaveAttribute("data-open")
+    await dismiss()
+    await waitFor(() => expect(mask).not.toBeInTheDocument())
+    expect(screen.container.querySelector("article video")).toBe(video)
+    expect(video.currentTime).toBe(4)
+    expect(video.playbackRate).toBe(1.25)
+    expect(video.volume).toBe(0.4)
+    expect(pause).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Expand video" })).toHaveFocus()
   })
 
   it("offers a fresh preview after media error and retires the failed node", async () => {

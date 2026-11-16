@@ -57,7 +57,7 @@ function recentPost(
 }
 
 function renderedTitles(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll("h3"), (heading) =>
+  return Array.from(container.querySelectorAll('[data-columns="1"] h3'), (heading) =>
     heading.textContent ?? "");
 }
 
@@ -99,21 +99,33 @@ describe("RecentPosts", () => {
 
     expect(renderedTitles(rendered.container)).toEqual(["newest", "middle", "oldest"]);
 
-    const codingButton = screen.getByRole("button", { name: "Coding" });
+    const codingButton = screen.getByRole("tab", { name: "Coding" });
     await user.click(codingButton);
-    expect(codingButton).toHaveAttribute("aria-pressed", "true");
+    expect(codingButton).toHaveAttribute("aria-selected", "true");
     expect(renderedTitles(rendered.container)).toEqual(["middle"]);
 
-    const emptyButton = screen.getByRole("button", { name: "Empty" });
+    const emptyButton = screen.getByRole("tab", { name: "Empty" });
     await user.click(emptyButton);
-    expect(emptyButton).toHaveAttribute("aria-pressed", "true");
+    expect(emptyButton).toHaveAttribute("aria-selected", "true");
     expect(renderedTitles(rendered.container)).toEqual([]);
     expect(screen.getByText("No recent stories in this topic yet.")).toBeVisible();
 
-    const allButton = screen.getByRole("button", { name: "All" });
+    const allButton = screen.getByRole("tab", { name: "All" });
     await user.click(allButton);
-    expect(allButton).toHaveAttribute("aria-pressed", "true");
+    expect(allButton).toHaveAttribute("aria-selected", "true");
     expect(renderedTitles(rendered.container)).toEqual(["newest", "middle", "oldest"]);
+  });
+
+  it("deals posts left to right into each masonry column count", () => {
+    const posts = ["a", "b", "c", "d", "e"].map((slug) => recentPost(slug, "foundations", "Foundations"));
+    const rendered = render(createElement(RecentPosts, { posts, topics: [{ id: "foundations", label: "Foundations" }] }));
+    const columns = (count: number) => Array.from(
+      rendered.container.querySelectorAll(`[data-columns="${count}"] > div`),
+      (column) => Array.from(column.querySelectorAll("h3"), (heading) => heading.textContent),
+    );
+    expect(columns(2)).toEqual([["a", "c", "e"], ["b", "d"]]);
+    expect(columns(3)).toEqual([["a", "d"], ["b", "e"], ["c"]]);
+    expect(rendered.container.querySelector('[data-columns="1"] a')).toHaveAttribute("href", "/blog/a");
   });
 
   it("syncs the selected topic with the URL hash and browser history", async () => {
@@ -134,18 +146,18 @@ describe("RecentPosts", () => {
 
     try {
       const rendered = render(createElement(RecentPosts, { posts, topics }));
-      const codingButton = screen.getByRole("button", { name: "Coding" });
-      expect(codingButton).toHaveAttribute("aria-pressed", "true");
+      const codingButton = screen.getByRole("tab", { name: "Coding" });
+      expect(codingButton).toHaveAttribute("aria-selected", "true");
       expect(renderedTitles(rendered.container)).toEqual(["middle"]);
 
-      await user.click(screen.getByRole("button", { name: "Foundations" }));
+      await user.click(screen.getByRole("tab", { name: "Foundations" }));
       expect(replaceState).toHaveBeenLastCalledWith(
         null,
         "",
         "/blog?source=qa#foundations",
       );
 
-      await user.click(screen.getByRole("button", { name: "All" }));
+      await user.click(screen.getByRole("tab", { name: "All" }));
       expect(replaceState).toHaveBeenLastCalledWith(null, "", "/blog?source=qa");
 
       window.history.replaceState(null, "", "/blog?source=qa#not-a-topic");
@@ -174,12 +186,12 @@ describe("RecentPosts", () => {
     expect(scroller.parentElement).toHaveClass("relative", "mt-3", "sm:mt-6");
     expect(scroller).toHaveClass("thin-scrollbar", "scrollbar-none", "overflow-x-auto");
 
-    const topicNav = within(scroller).getByRole("navigation", {
+    const topicList = within(scroller).getByRole("tablist", {
       name: "Filter recent posts",
     });
-    expect(topicNav).toHaveClass("w-max", "min-w-full");
-    for (const button of within(topicNav).getAllByRole("button")) {
-      expect(button).toHaveClass("shrink-0");
+    expect(topicList.closest('[data-slot="tabs"]')).toHaveClass("w-max", "min-w-full");
+    for (const tab of within(topicList).getAllByRole("tab")) {
+      expect(tab).toHaveClass("shrink-0");
     }
   });
 
@@ -198,7 +210,7 @@ describe("RecentPosts", () => {
       left: 0,
       right: 100,
     });
-    mockElementGeometry(screen.getByRole("button", { name: "All" }), {
+    mockElementGeometry(screen.getByRole("tab", { name: "All" }), {
       left: 0,
       right: 44,
     });

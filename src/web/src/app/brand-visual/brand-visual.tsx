@@ -29,6 +29,7 @@ import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview
 import tn from "@/components/brand/technostalgia.module.css"
 import { useTheme } from "next-themes"
 import { PaperStickerSpecimen } from "./paper-sticker-specimen"
+import { BlogReadingSpecimen } from "./blog-reading-specimen"
 import { AppComponents, FeatureMessages } from "./app-components"
 import { AppSettingsSpecimens } from "./app-settings"
 import { AppBotsSpecimens } from "./app-bots"
@@ -364,6 +365,10 @@ export function BrandVisual() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+        </Section>
+
+        <Section title="Blog reading" note="Shared with the Blog app">
+          <BlogReadingSpecimen />
         </Section>
 
         <Section title="Landing page">

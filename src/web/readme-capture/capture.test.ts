@@ -129,7 +129,7 @@ describe("standalone README capture app contract", () => {
     expect(memorySource).not.toContain('transform: none !important')
     expect(motionSource).toContain('scene === "continuity"')
     expect(motionSource).toContain('const OVERVIEW_SERVERS: Server[]')
-    expect(motionSource).toContain('rootChannels={overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS}')
+    expect(motionSource).toContain('rootChannels={previewChannels ?? (overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS)}')
     expect(motionSource).toContain('SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))')
     expect(memorySource).not.toContain("highlightAuthorId")
     expect(localSource).toContain('id="capture-local"')

@@ -118,7 +118,7 @@ describe("OpenNext and Wrangler refresh", () => {
 
     const blogToml = readRepositoryFile("src/web/blog/wrangler.toml")
     expect(bindingNames(blogToml)).toEqual(["ASSETS"])
-    for (const path of ["blog", "guides", "tutorials", "og/blog"]) {
+    for (const path of ["blog", "guides", "tutorials", "usecases", "og/blog"]) {
       expect(blogToml).toContain(`pattern = "alook.ai/${path}*"`)
     }
     expect(blogToml).toContain('html_handling = "none"')

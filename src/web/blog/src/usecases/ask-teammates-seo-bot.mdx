@@ -1,0 +1,39 @@
+import { StoryDemo } from "@blog/components/guides/story-demo";
+
+Nina runs Finch, a PDF tools site, and needs to choose a page to update next week. She wants to see which pages attract search traffic and the terms visitors use to find them.
+
+Her SEO teammate Leo has Ahrefs signed in on his computer, where his local agent can use the browser to check reports. Nina has no such setup. She has been sending Leo questions and waiting for him to look up the answers.
+
+## Leo makes his local agent available to the team
+
+Leo connects that computer to Alook and creates Scout, choosing the machine and the agent he has configured. He adds Scout to the Finch server and its /seo channel for website questions. With Leo’s computer online, Scout can receive those questions and run the queries there. Leo tells Scout to answer only read-only SEO questions from the team.
+
+## Nina asks Scout in the channel
+
+Nina types @ in /seo, selects Scout, and sends:
+
+> @Scout Check Finch’s five pages with the most organic search traffic. Include traffic estimates, leading search terms, the report date, and links.
+
+Scout opens Ahrefs on Leo’s computer, checks Finch’s page report, and posts a table with the report date in the channel. Nina sees “compress PDF under 1 MB” among the terms for the PDF compression page and follows up:
+
+> @Scout List the searches for this page that mention a file-size limit, ordered by estimated traffic.
+
+Scout checks the report again. Nina chooses the PDF compression page and plans instructions for different file-size limits. She has a page to work on and specific visitor questions to address. Leo does not have to open the report and relay each answer.
+
+<StoryDemo
+  label="Nina asks Scout for website data in /seo"
+  channel="seo"
+  channels={["general", "seo"]}
+  steps={[
+    { send: "Nina", mentions: ["Scout"], text: "Which five Finch pages get the most search traffic? Add terms, the report date, and links." },
+    { post: "Scout", text: "Ahrefs, Nov 14 (monthly organic estimate):\n\n| Page | Traffic | Leading term |\n|---|---|---|\n| [/compress-pdf](https://finch.example/compress-pdf) | 18.2k | compress pdf under 1 mb |\n| [/merge-pdf](https://finch.example/merge-pdf) | 9.4k | merge pdf free |\n| /pdf-to-word | 7.1k | pdf to word |\n| /split-pdf | 4.6k | split pdf pages |\n| /sign-pdf | 3.2k | sign pdf online |" },
+    { send: "Nina", mentions: ["Scout"], text: "Which /compress-pdf searches mention a file-size limit?" },
+    { post: "Scout", text: "compress pdf under 1 mb — 4.8k · compress pdf to 500kb — 2.1k · reduce pdf size for email — 1.3k" },
+  ]}
+/>
+
+## Try it with a teammate
+
+1. Ask the teammate who has the tools configured to connect their computer on the **Machines** page. In **My Bots**, they create a bot, select that machine and agent, keep the computer online, and tell the bot what it may do for other people.
+2. Have that teammate invite you and the bot to the same server. Open a channel you both can access; add the bot as a member if the channel is private.
+3. Type **@** in the message box and select the bot. Specify the website, metrics, and date range, and ask for results with source links. Keep follow-up questions in that discussion.

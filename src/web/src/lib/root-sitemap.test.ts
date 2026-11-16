@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stepGuides } from "./step-guides";
+import { useCases } from "./usecases";
 import { buildRootSitemap, serializeRootSitemap } from "./root-sitemap";
 import type { BlogDiscoveryManifestV1 } from "./blog-discovery-manifest";
 
@@ -43,6 +44,8 @@ describe("sitemap", () => {
     expect(urls).not.toContain("https://alook.ai/guides");
     expect(urls).toContain("https://alook.ai/tutorials");
     expect(urls.filter(url => url.startsWith("https://alook.ai/tutorials/"))).toEqual(stepGuides.map(guide => `https://alook.ai/tutorials/${guide.slug}`));
+    expect(urls).toContain("https://alook.ai/usecases");
+    expect(urls.filter(url => url.startsWith("https://alook.ai/usecases/"))).toEqual(useCases.map(useCase => `https://alook.ai/usecases/${useCase.slug}`));
     expect(urls).toContain("https://alook.ai/privacy");
     expect(urls).toContain("https://alook.ai/terms");
     expect(urls).toContain("https://alook.ai/blog/revised");

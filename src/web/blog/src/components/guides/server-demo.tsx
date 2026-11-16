@@ -9,7 +9,7 @@ import { CreateServerDialog } from "@/components/community/settings/create-serve
 import { ChannelHeader } from "@/components/community/channels/channel-header";
 import { MemberIdentityRow } from "@/components/community/members/member-identity-row";
 import { InviteFriendRow } from "@/components/community/social/invite-dialog";
-import type { Server } from "@/lib/community/models/navigation";
+import type { Category, Server } from "@/lib/community/models/navigation";
 import type { DM } from "@/lib/community/models/people";
 import { defaultTutorialPair, type TutorialPair } from "@/lib/step-guides";
 import { BotListContent } from "./mock-scenes";
@@ -22,8 +22,8 @@ const inviteLink = "https://alook.ai/c/invite/EXAMPLE";
 const dms: DM[] = ["Milo", "Nova"].map((name, index) => ({ id: `tutorial-dm-${name.toLowerCase()}`, userId: `tutorial-${name.toLowerCase()}`, name, discriminator: `100${index + 1}`, avatar: `avatar:beam:${name.toLowerCase()}`, avatarVersion: 0, status: "online", preview: "Available" }));
 const createdServers: Server[] = [{ id: "gus", name: "Gus", initial: "G", active: false, unread: false, mentions: 0, isOwner: true, icon: null }, { id: "work", name: "Studio", initial: "S", active: true, unread: false, mentions: 0, isOwner: true, icon: null }];
 const base = sceneSnapshot("provider", 0);
-export function TutorialServerShell({ server = false, activeDm, children }: { server?: boolean; activeDm?: string; children?: ReactNode }) {
-  return <CommunityPreviewNavigation value={true}><LandingShellMotion userAvatar="avatar:beam:tutorial-gus" scene={server ? "server" : "provider"} beat={0} previewServers={server || activeDm ? createdServers : undefined} dms={dms} activeDm={activeDm}>{children}</LandingShellMotion></CommunityPreviewNavigation>;
+export function TutorialServerShell({ server = false, activeDm, channels, children }: { server?: boolean; activeDm?: string; channels?: Category[]; children?: ReactNode }) {
+  return <CommunityPreviewNavigation value={true}><LandingShellMotion userAvatar="avatar:beam:tutorial-gus" scene={server ? "server" : "provider"} beat={0} previewServers={server || activeDm ? createdServers : undefined} previewChannels={channels} dms={dms} activeDm={activeDm}>{children}</LandingShellMotion></CommunityPreviewNavigation>;
 }
 function useSceneState<T extends object>(initial: T) {
   const ref = useRef<HTMLDivElement>(null);

@@ -25,12 +25,15 @@ function VideoControls({ attachment, download, expanded, onExpand }: {
     releaseControls.current?.()
   }, [])
   function toggleMask() {
+    const previousFocus = document.activeElement
     releaseControls.current?.()
     releaseControls.current = requestControlsLock()
     onExpand()
     if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current)
     focusFrame.current = requestAnimationFrame(() => {
-      expandButton.current?.focus({ preventScroll: true })
+      if (document.activeElement === previousFocus || document.activeElement === document.body) {
+        expandButton.current?.focus({ preventScroll: true })
+      }
       releaseControls.current?.()
       releaseControls.current = null
       focusFrame.current = null
@@ -211,10 +214,23 @@ function VideoAttachmentSession({ attachment }: { attachment: FileAttachment }) 
     </article>
     {!expanded && downloadError}
     {host && createPortal(player, host)}
-    <Dialog open={expanded} onOpenChange={setExpanded}>
+    <Dialog open={expanded} onOpenChange={(next, details) => {
+      if (!next && details.reason === "escape-key" && (details.event.defaultPrevented
+        || host?.querySelector('.media-menu-popup[data-open], .media-menu-popup[data-ending-style]'))) {
+        details.cancel()
+        details.allowPropagation()
+        return
+      }
+      setExpanded(next)
+    }}>
       <DialogContent className="alook-video-mask top-4 right-4 left-4 flex h-[calc(100%-2rem)] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-2 overflow-visible border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none" aria-label={attachment.name} showCloseButton={false}
         initialFocus={() => host?.querySelector<HTMLButtonElement>('[aria-label="Shrink video"]') ?? false}
-        finalFocus={() => host?.querySelector<HTMLButtonElement>('[aria-label="Expand video"]') ?? false}>
+        finalFocus={() => {
+          const focused = document.activeElement
+          const mask = maskSlot?.closest('[role="dialog"]')
+          if (focused && focused !== document.body && focused !== document.documentElement && !mask?.contains(focused)) return false
+          return host?.querySelector<HTMLButtonElement>('[aria-label="Expand video"]') ?? false
+        }}>
         <div ref={setMaskSlot} className="alook-video-slot" data-base-ui-swipe-ignore="" />
       </DialogContent>
     </Dialog>

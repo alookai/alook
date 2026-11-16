@@ -36,12 +36,14 @@ export function useHorizontalOverflowRail<
   scrollStep = 48,
   preserveChildKeyboard = false,
   mapVerticalWheelToHorizontal = false,
+  dragToScroll = false,
 }: {
   contentKey: string
   selectedKey: string | null
   scrollStep?: number
   preserveChildKeyboard?: boolean
   mapVerticalWheelToHorizontal?: boolean
+  dragToScroll?: boolean
 }) {
   const scrollerRef = useRef<TScroller>(null)
   const selectedRef = useRef<TSelected>(null)
@@ -102,6 +104,47 @@ export function useHorizontalOverflowRail<
     scroller.addEventListener("wheel", onWheel, { passive: false })
     return () => scroller.removeEventListener("wheel", onWheel)
   }, [mapVerticalWheelToHorizontal])
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller || !dragToScroll) return
+    let drag: { pointerId: number; startX: number; startScroll: number; moved: boolean } | null = null
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse" || event.button !== 0) return
+      drag = { pointerId: event.pointerId, startX: event.clientX, startScroll: scroller.scrollLeft, moved: false }
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag || event.pointerId !== drag.pointerId) return
+      const distance = event.clientX - drag.startX
+      if (!drag.moved && Math.abs(distance) < 4) return
+      if (!drag.moved) {
+        drag.moved = true
+        scroller.setPointerCapture(event.pointerId)
+        scroller.dataset.dragging = "true"
+      }
+      scroller.scrollLeft = drag.startScroll - distance
+    }
+    const onPointerEnd = (event: PointerEvent) => {
+      if (!drag || event.pointerId !== drag.pointerId) return
+      if (drag.moved) {
+        delete scroller.dataset.dragging
+        const suppress = (click: MouseEvent) => { click.preventDefault(); click.stopPropagation() }
+        scroller.addEventListener("click", suppress, { capture: true, once: true })
+        setTimeout(() => scroller.removeEventListener("click", suppress, { capture: true }), 0)
+      }
+      drag = null
+    }
+    scroller.addEventListener("pointerdown", onPointerDown)
+    scroller.addEventListener("pointermove", onPointerMove)
+    scroller.addEventListener("pointerup", onPointerEnd)
+    scroller.addEventListener("pointercancel", onPointerEnd)
+    return () => {
+      scroller.removeEventListener("pointerdown", onPointerDown)
+      scroller.removeEventListener("pointermove", onPointerMove)
+      scroller.removeEventListener("pointerup", onPointerEnd)
+      scroller.removeEventListener("pointercancel", onPointerEnd)
+    }
+  }, [dragToScroll])
 
   return { onKeyDown, scrollerRef, selectedRef }
 }

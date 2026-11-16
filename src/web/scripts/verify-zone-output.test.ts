@@ -14,6 +14,8 @@ const blogRoutes = {
 const blogAppPaths = {
   "/tutorials/page": "tutorials.js",
   "/tutorials/[slug]/page": "step-guide.js",
+  "/usecases/page": "usecases.js",
+  "/usecases/[slug]/page": "usecase.js",
   "/_not-found/page": "not-found.js",
   "/blog/(index)/page": "index.js",
   "/blog/[slug]/page": "post.js",
@@ -27,6 +29,12 @@ describe("zone output verifier", () => {
     const fixture = { mainAppPaths: { "/(home)/page": "home.js" }, mainRoutes, blogAppPaths, blogRoutes, blogPrerender: { routes: {} }, postSlugs: [], guideSlugs: ["two-agents"] };
     expect(() => verifyZoneManifests(fixture)).toThrow("missing step guide two-agents");
     expect(() => verifyZoneManifests({ ...fixture, blogPrerender: { routes: { "/tutorials/two-agents": {} } } })).not.toThrow();
+  })
+
+  it("requires every registered use case to be prerendered", () => {
+    const fixture = { mainAppPaths: { "/(home)/page": "home.js" }, mainRoutes, blogAppPaths, blogRoutes, blogPrerender: { routes: {} }, postSlugs: [], useCaseSlugs: ["review"] };
+    expect(() => verifyZoneManifests(fixture)).toThrow("missing use case review");
+    expect(() => verifyZoneManifests({ ...fixture, blogPrerender: { routes: { "/usecases/review": {} } } })).not.toThrow();
   })
 
   it("accepts disjoint main and Blog route inventories", () => {

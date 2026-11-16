@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 336,
+    "composition": 341,
     "environment": 10,
     "nonvisual": 31,
     "direct": 40
@@ -43,8 +43,8 @@
       "source": "src/web/blog/src/app/blog/(index)/recent-posts.tsx",
       "application": "Blog",
       "candidates": [
-        "RecentPosts",
-        "TopicButton"
+        "PostCard",
+        "RecentPosts"
       ],
       "kind": "composition",
       "examples": [
@@ -222,6 +222,51 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/blog/src/app/usecases/[slug]/page.tsx",
+      "application": "Blog",
+      "candidates": [
+        "UseCasePage"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--use-case",
+          "region": "Actual async use case page with original MDX body and guide scenes"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/app/usecases/layout.tsx",
+      "application": "Blog",
+      "candidates": [
+        "UseCasesLayout"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--use-cases",
+          "region": "Actual Use cases PublicLayout"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/app/usecases/page.tsx",
+      "application": "Blog",
+      "candidates": [
+        "UseCasesPage"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--use-cases",
+          "region": "Actual use case directory with original registry and shared gallery"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
       "source": "src/web/blog/src/components/company-introductions.tsx",
       "application": "Blog",
       "candidates": [
@@ -369,6 +414,24 @@
         {
           "story": "blog-components--server",
           "region": "Actual guide server scene and its shell"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/guides/story-demo.tsx",
+      "application": "Blog",
+      "candidates": [
+        "StoryChannel",
+        "StoryDemo",
+        "StoryForum",
+        "StoryMachines"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-components--use-case-story",
+          "region": "Actual use case story scene with real Message, composer and mention components"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -662,6 +725,21 @@
         {
           "story": "web-business-product-compositions--user-and-server-settings",
           "region": "Original named product specimens and their reused Query/DB/profile owners; no copied component implementations"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/app/brand-visual/blog-reading-specimen.tsx",
+      "application": "Web",
+      "candidates": [
+        "BlogReadingSpecimen"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-design-references--brand-board",
+          "region": "Original full brand reference board, including the Blog reading specimen"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -6839,6 +6917,12 @@
       "source": "src/storybook/stories/blog/components.stories.tsx"
     },
     {
+      "id": "blog-components--use-case-story",
+      "title": "Blog/Components",
+      "name": "Use Case Story",
+      "source": "src/storybook/stories/blog/components.stories.tsx"
+    },
+    {
       "id": "blog-components--requirements",
       "title": "Blog/Components",
       "name": "Requirements",
@@ -6884,6 +6968,18 @@
       "id": "blog-pages--tutorial",
       "title": "Blog/Pages",
       "name": "Tutorial",
+      "source": "src/storybook/stories/blog/pages.stories.tsx"
+    },
+    {
+      "id": "blog-pages--use-cases",
+      "title": "Blog/Pages",
+      "name": "Use Cases",
+      "source": "src/storybook/stories/blog/pages.stories.tsx"
+    },
+    {
+      "id": "blog-pages--use-case",
+      "title": "Blog/Pages",
+      "name": "Use Case",
       "source": "src/storybook/stories/blog/pages.stories.tsx"
     },
     {
