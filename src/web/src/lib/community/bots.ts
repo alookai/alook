@@ -63,9 +63,9 @@ export type BotsResourceResponse = Partial<BotPlanSummary> & { bots: BotResource
 
 export type BotsResponse = BotPlanSummary & { bots: Array<BotSummary & CommunityBotsProfileRead["bots"][number]> }
 
-export function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | "avatarVersion"> & { description?: string }): CommunityProfilePatch {
+export function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | "avatarVersion"> & { description?: string; runtime?: string }): CommunityProfilePatch {
   const identity = CommunityBotProfileSummarySchema.parse(bot)
-  return { id: identity.id, identityAbout: { name: identity.name, kind: "bot", ...(identity.discriminator === undefined ? {} : { discriminator: identity.discriminator }), ...(identity.description === undefined ? {} : { aboutMe: identity.description }) }, avatar: { avatar: identity.image, avatarVersion: identity.avatarVersion }, ...(identity.presence === undefined ? {} : { presence: identity.presence }) }
+  return { id: identity.id, identityAbout: { name: identity.name, kind: "bot", ...(identity.discriminator === undefined ? {} : { discriminator: identity.discriminator }), ...(identity.description === undefined ? {} : { aboutMe: identity.description }) }, avatar: { avatar: identity.image, avatarVersion: identity.avatarVersion }, ...(bot.runtime === undefined ? {} : { card: { botRuntime: bot.runtime } }), ...(identity.presence === undefined ? {} : { presence: identity.presence }) }
 }
 
 function botsResource(data: BotsResponse): BotsResourceResponse {
@@ -76,7 +76,13 @@ export const botsOptions = () => queryOptions({
   queryKey: communityKeys.bots(),
   queryFn: async ({ client, signal }): Promise<BotsResourceResponse> => {
     const registry = getCommunityDbRegistry(client)
-    const data = await apiFetchProfiles<BotsResponse>("/api/community/bots", data => parseCommunityBotsProfileRead(data, registry!.accountId!).bots.map(bot => { const patch = botProfilePatch(bot); return { ...patch, identityAbout: { ...patch.identityAbout, ownerUserId: bot.ownerUserId } } }), { signal }, registry)
+    const data = await apiFetchProfiles<BotsResponse>("/api/community/bots", data => {
+      const runtimeById = new Map(data.bots.map(bot => [bot.id, bot.runtime]))
+      return parseCommunityBotsProfileRead(data, registry!.accountId!).bots.map(bot => {
+        const patch = botProfilePatch({ ...bot, runtime: runtimeById.get(bot.id) })
+        return { ...patch, identityAbout: { ...patch.identityAbout, ownerUserId: bot.ownerUserId } }
+      })
+    }, { signal }, registry)
     return { ...botsResource(data), source: "network" }
   },
   staleTime: query => query.state.data?.observed === false ? 0 : 5_000,

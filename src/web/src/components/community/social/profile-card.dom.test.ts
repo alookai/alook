@@ -16,6 +16,7 @@ import type { Profile } from "@/components/community/social/profile-types"
 
 const mocks = vi.hoisted(() => ({
   profile: undefined as {
+    botRuntime?: string | null
     statusEmoji?: string | null
     statusText?: string | null
   } | undefined,
@@ -237,22 +238,62 @@ describe("ProfileCard contextual metadata", () => {
     expect(html).toContain("2 mutual servers")
   })
 
-  it("shows every bot's clickable owner but withholds preview from nonowners", () => {
+  it("shows every bot's clickable owner and backend badge while withholding preview from nonowners", () => {
     const html = renderProfile({
       identity: {
         kind: "bot",
+        runtime: "codex-app",
         ownerProfile: { id: "owner_1", handle: "Owner#0042" },
         ownedByViewer: false,
       },
     })
 
     expect(html).toContain('data-testid="community-profile-bot-badge"')
-    expect(html).toContain(">Bot</span>")
+    expect(html).toContain('data-provider-logo="codex"')
+    expect(html).toContain(">Codex App</span>")
+    expect(html).not.toContain(">Bot<")
     expect(html).toContain('data-testid="community-profile-owner-link"')
     expect(html).toContain(">@Owner</span>")
     expect(html).not.toContain(">@Owner#0042</span>")
     expect(html).toContain('aria-label="Open owner profile @Owner#0042"')
     expect(html).not.toContain("community-bot-mark-sticker")
+  })
+
+  it("prefers live canonical botRuntime updates and falls back to Bot only when runtime is absent", () => {
+    const fallback = renderProfile({
+      identity: {
+        kind: "bot",
+        runtime: null,
+        ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+        ownedByViewer: false,
+      },
+    })
+    expect(fallback).toContain('data-testid="community-profile-bot-badge"')
+    expect(fallback).toContain("Bot</span>")
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    mocks.profile = { botRuntime: "agy" }
+    const view = render(createElement(CommunityTestProvider, { client }, createElement(ProfileCard, {
+      embedded: true,
+      data: {
+        name: "Evan",
+        userId: "agent_1",
+        identity: {
+          kind: "bot",
+          runtime: "codex-app",
+          ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+          ownedByViewer: false,
+        },
+      },
+      x: 0,
+      y: 0,
+      bp: "desktop",
+      onClose: vi.fn(),
+    })))
+    const badge = view.getByTestId("community-profile-bot-badge")
+    expect(badge).toHaveTextContent("antigravity cli")
+    expect(badge.querySelector('[data-provider-logo="antigravity"]')).not.toBeNull()
+    view.unmount()
   })
 
   it("mounts the mark sticker only for the owning viewer", () => {

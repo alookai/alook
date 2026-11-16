@@ -19,7 +19,7 @@ const card = CommunitySelfProfileReadSchema.omit({ avatar: true }).extend({
 })
 export const CommunityUserCardReadSchema = z.discriminatedUnion("kind", [
   card.extend({ kind: z.literal("human") }),
-  card.extend({ kind: z.literal("bot"), ownerProfile: z.strictObject({ id: CommunityResourceProfileSchema.shape.id, handle: CommunityResourceProfileSchema.shape.ownerHandle.unwrap().unwrap() }), ownedByViewer: CommunityResourceProfileSchema.shape.ownedByViewer.unwrap() }),
+  card.extend({ kind: z.literal("bot"), runtime: CommunityResourceProfileSchema.shape.botRuntime, ownerProfile: z.strictObject({ id: CommunityResourceProfileSchema.shape.id, handle: CommunityResourceProfileSchema.shape.ownerHandle.unwrap().unwrap() }), ownedByViewer: CommunityResourceProfileSchema.shape.ownedByViewer.unwrap() }),
 ])
 
 export function parseCommunityUserCardRead(value: unknown, userId: string, viewerId: string) {

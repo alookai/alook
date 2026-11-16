@@ -5,7 +5,7 @@ import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { canonicalUserImage } from "@/lib/community/storage"
 
-export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
+export const GET = withAuth(humanAuthPolicy, async (req, ctx) => {
   const id = ctx.params?.userId
   if (!id) return writeError("missing user id", 400)
 
@@ -26,6 +26,10 @@ export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
 
   const viewerSet = new Set(viewerServerIds)
   const mutualServers = targetServerIds.filter((sid) => viewerSet.has(sid)).length
+  const includeRuntime = req.nextUrl.searchParams.get("runtime") === "1"
+  const identity = profile.identity.kind === "bot" && !includeRuntime
+    ? { kind: "bot" as const, ownerProfile: profile.identity.ownerProfile, ownedByViewer: profile.identity.ownedByViewer }
+    : profile.identity
 
   return writeJSON(parseCommunityUserCardRead({
     id: profile.id,
@@ -38,6 +42,6 @@ export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
     mutualServers,
     statusEmoji: profile.statusEmoji,
     statusText: profile.statusText,
-    ...profile.identity,
+    ...identity,
   }, id, ctx.userId))
 })

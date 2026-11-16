@@ -143,7 +143,7 @@ export function useShellProfileController({
       contextLabel: resolveProfileContextLabel(profileServerId, members.find((member) => member.userId === profileUserId)),
       mutual: canonicalProfile?.mutualServers ?? 0,
       identity: canonicalProfile?.kind === "bot" && canonicalProfile.ownerUserId && canonicalProfile.ownerHandle
-        ? { kind: "bot", ownerProfile: { id: canonicalProfile.ownerUserId, handle: canonicalProfile.ownerHandle }, ownedByViewer: canonicalProfile.ownedByViewer ?? false }
+        ? { kind: "bot", runtime: canonicalProfile.botRuntime ?? null, ownerProfile: { id: canonicalProfile.ownerUserId, handle: canonicalProfile.ownerHandle }, ownedByViewer: canonicalProfile.ownedByViewer ?? false }
         : canonicalProfile?.kind === "human" || profileUserId === currentUser.id ? { kind: "human" } : undefined,
     },
   } : null, [profileTarget, profileServerId, members, profileUserId, canonicalProfile, currentUser.id])

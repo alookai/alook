@@ -26,9 +26,11 @@ describe("named complete and subset profile reads", () => {
   it("binds self and card identity plus viewer-relative bot ownership", () => {
     expect(() => parseCommunitySelfProfileRead(self, "foreign")).toThrow()
     expect(() => parseCommunityUserCardRead(card, "foreign", "viewer")).toThrow()
-    const bot = { ...card, kind: "bot", ownerProfile: { id: "owner", handle: "Owner#0042" }, ownedByViewer: true }
+    const bot = { ...card, kind: "bot", runtime: "codex-app", ownerProfile: { id: "owner", handle: "Owner#0042" }, ownedByViewer: true }
     expect(parseCommunityUserCardRead(bot, "viewer", "owner")).toEqual(bot)
+    expect(parseCommunityUserCardRead({ ...bot, runtime: null }, "viewer", "owner")).toEqual({ ...bot, runtime: null })
     expect(() => parseCommunityUserCardRead(bot, "viewer", "foreign")).toThrow()
+    expect(() => parseCommunityUserCardRead({ ...bot, runtime: "" }, "viewer", "owner")).toThrow()
     expect(() => parseCommunityUserCardRead({ ...bot, ownerProfile: { id: "owner" } }, "viewer", "owner")).toThrow()
   })
   it.each(["server", "viewer", "later-core", "duplicate-member", "duplicate-user", "cursor", "owned-bot", "oversized"])("refuses the entire member page for %s", defect => {

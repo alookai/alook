@@ -88,10 +88,11 @@ export function communityUserProfilePatch(
       ...(row.ownerUserId === undefined ? {} : { ownerUserId: row.ownerUserId }),
     },
     ...(row.avatarVersion === undefined ? {} : { avatar: { avatarVersion: row.avatarVersion, ...(row.avatar === undefined ? {} : { avatar: row.avatar }) } }),
-    ...(row.ownerHandle === undefined && row.mutualServers === undefined && row.ownedByViewer === undefined ? {} : { card: {
+    ...(row.ownerHandle === undefined && row.mutualServers === undefined && row.ownedByViewer === undefined && row.botRuntime === undefined ? {} : { card: {
       ...(row.ownerHandle === undefined ? {} : { ownerHandle: row.ownerHandle }),
       ...(row.mutualServers === undefined ? {} : { mutualServers: row.mutualServers }),
       ...(row.ownedByViewer === undefined ? {} : { ownedByViewer: row.ownedByViewer }),
+      ...(row.botRuntime === undefined ? {} : { botRuntime: row.botRuntime }),
     } }),
     ...(row.statusEmoji === undefined && statusText === undefined
       ? {}

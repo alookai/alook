@@ -20,6 +20,17 @@ function createDatabase() {
         user_id TEXT PRIMARY KEY REFERENCES user(id) ON DELETE CASCADE,
         about_me TEXT DEFAULT '', banner_color TEXT, status_emoji TEXT, status_text TEXT DEFAULT ''
       );
+      CREATE TABLE community_bot_binding (
+        user_id TEXT PRIMARY KEY REFERENCES user(id) ON DELETE CASCADE,
+        machine_id TEXT NOT NULL,
+        runtime TEXT NOT NULL,
+        instruction TEXT NOT NULL DEFAULT '',
+        model_name TEXT,
+        reasoning_effort TEXT,
+        runtime_config_revision INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT '2026-01-01'
+      );
     `);
     const rawRows: unknown[][] = [];
     const client = {
@@ -56,12 +67,17 @@ function createDatabase() {
     insertUser.run("human_1", "Human", "human@example.com", "human.png", 0, null, null, "0002");
     insertUser.run("owner_1", "Owner", "owner@example.com", null, 0, null, null, "0042");
     insertUser.run("bot_1", "Helper", "bot@example.com", "bot.png", 1, "owner_1", null, "0100");
+    insertUser.run("unbound_bot", "Unbound", "unbound@example.com", null, 1, "owner_1", null, "0102");
     insertUser.run("deleted_target", "Gone", "gone@example.com", null, 0, null, "2026-02-01", "0003");
     insertUser.run("deleted_owner", "Old Owner", "old-owner@example.com", null, 0, null, "2026-02-01", "0004");
     insertUser.run("orphaned_bot", "Orphan", "orphan@example.com", null, 1, "deleted_owner", null, "0101");
     sqlite.prepare(`
       INSERT INTO community_user_profile (user_id,about_me,banner_color,status_emoji,status_text)
       VALUES ('bot_1','backend bot','#123456','🛠️','Working')
+    `).run();
+    sqlite.prepare(`
+      INSERT INTO community_bot_binding (user_id,machine_id,runtime)
+      VALUES ('bot_1','machine_1','codex-app')
     `).run();
     return { sqlite, db, rawRows };
   } catch (error) {
@@ -115,18 +131,22 @@ describe("getPublicProfileForViewer", () => {
     expect((await profileQueries.getPublicProfileForViewer(db, "human_1", "viewer_1"))?.statusText).toBe(statusText)
   });
 
-  it("returns canonical public owner navigation and SQL-derived viewer ownership", async () => {
+  it("returns canonical public owner navigation, bot runtime, and SQL-derived viewer ownership", async () => {
     sqlite.prepare("UPDATE user SET avatarVersion=7 WHERE id='bot_1'").run();
     const ownerView = await profileQueries.getPublicProfileForViewer(db, "bot_1", "owner_1");
     expect(ownerView).toEqual({
       id: "bot_1", name: "Helper", discriminator: "0100", image: "bot.png",
       avatarVersion: 7, aboutMe: "backend bot", bannerColor: "#123456",
       statusEmoji: "🛠️", statusText: "Working",
-      identity: { kind: "bot", ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: true },
+      identity: { kind: "bot", runtime: "codex-app", ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: true },
     });
     const otherView = await profileQueries.getPublicProfileForViewer(db, "bot_1", "viewer_1");
     expect(otherView?.identity).toEqual({
-      kind: "bot", ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: false,
+      kind: "bot", runtime: "codex-app", ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: false,
+    });
+    const unboundView = await profileQueries.getPublicProfileForViewer(db, "unbound_bot", "viewer_1");
+    expect(unboundView?.identity).toEqual({
+      kind: "bot", runtime: null, ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: false,
     });
     expect(otherView).not.toHaveProperty("ownerUserId");
     expect(otherView).not.toHaveProperty("email");

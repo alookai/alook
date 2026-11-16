@@ -52,7 +52,7 @@ describe("useUserProfile / userProfileQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce(profile)
     const key = communityKeys.profile(profile.id)
     expect(await client.query({ queryKey: key, queryFn: userProfileQueryFn(profile.id) })).toEqual({ id: profile.id })
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/u_1/profile", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/u_1/profile?runtime=1", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
     expect(registry.collections.profiles.get(profile.id)).toMatchObject({ id: profile.id, name: "Alice", aboutMe: "about", mutualServers: 2, avatarVersion: 2 })
     expect(client.getQueryData(key)).toEqual({ id: profile.id })
   })

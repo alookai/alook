@@ -116,14 +116,27 @@ describe("GET /api/community/users/[userId]/profile", () => {
       statusText: "",
       identity: {
         kind: "bot",
+        runtime: "codex-app",
         ownerProfile: { id: "u1", handle: "gus#1813" },
         ownedByViewer: true,
       },
     })
-    const res = await GET(req, { params: { userId: "b1" } } as never)
+    const legacyRes = await GET(req, { params: { userId: "b1" } } as never)
+    expect(legacyRes.status).toBe(200)
+    const legacyBody = await legacyRes.json() as Record<string, unknown>
+    expect(legacyBody).not.toHaveProperty("runtime")
+    expect(legacyBody).toEqual(expect.objectContaining({
+      kind: "bot",
+      ownerProfile: { id: "u1", handle: "gus#1813" },
+      ownedByViewer: true,
+    }))
+
+    const runtimeReq = new NextRequest("http://localhost/api/community/users/b1/profile?runtime=1")
+    const res = await GET(runtimeReq, { params: { userId: "b1" } } as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual(expect.objectContaining({
       kind: "bot",
+      runtime: "codex-app",
       ownerProfile: { id: "u1", handle: "gus#1813" },
       ownedByViewer: true,
     }))

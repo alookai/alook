@@ -63,7 +63,7 @@ function profileData(id: string): Profile {
   const person = DEMO_PROFILES.get(id) ?? DEMO_PROFILES.get("demo-gus")!
   return { userId: person.id, name: person.name ?? "", avatar: person.avatar ?? undefined, discriminator: person.discriminator ?? undefined,
     presence: person.presence, about: person.aboutMe ?? undefined,
-    identity: person.kind === "bot" ? { kind: "bot", ownerProfile: { id: person.ownerUserId ?? "demo-gus", handle: person.ownerHandle ?? "Gus#1813" }, ownedByViewer: false } : { kind: "human" } }
+    identity: person.kind === "bot" ? { kind: "bot", runtime: person.botRuntime ?? null, ownerProfile: { id: person.ownerUserId ?? "demo-gus", handle: person.ownerHandle ?? "Gus#1813" }, ownedByViewer: false } : { kind: "human" } }
 }
 const members: Member[] = [...DEMO_PROFILES.values()].map((person) => ({ id: person.id, userId: person.id, name: person.name!, avatar: person.avatar!, avatarVersion: 0, discriminator: person.discriminator ?? "", status: person.presence ?? "online", sub: person.aboutMe ?? "", role: person.id === "demo-gus" ? "owner" : "member" }))
 
