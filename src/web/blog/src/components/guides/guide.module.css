@@ -139,3 +139,4 @@
 @media (prefers-reduced-motion: reduce) { .storySlot { transition: none; } }
 .storyTyping { min-height: 24px; padding: 0 16px; }
 [data-demo-status="static"] .pointer { visibility: hidden; }
+.storyComposer { position: relative; width: 100%; }
