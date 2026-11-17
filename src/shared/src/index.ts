@@ -1,5 +1,6 @@
 
 export * from "./automation";
+export * from "./automation-setup";
 export * from "./diagnostics-contract";
 export * from "./community-attention";
 export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";

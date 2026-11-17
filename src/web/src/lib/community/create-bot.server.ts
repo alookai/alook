@@ -8,6 +8,7 @@ export interface ResourceCreationContext {
   env: Env
   userId: string
   beforeCreate?: () => Promise<Response | null>
+  onCreated?: (id: string) => void
 }
 
 export async function createBotForUser(req: NextRequest, ctx: ResourceCreationContext): Promise<Response> {
@@ -79,6 +80,8 @@ export async function createBotForUser(req: NextRequest, ctx: ResourceCreationCo
       activeCount: capacity.activeCount,
     }, 409)
   }
+
+  ctx.onCreated?.(created.botId)
 
   // The bot's owner is the authenticated caller — resolve their handle to
   // carry in the bot:added push so the daemon can tell the agent who owns it.

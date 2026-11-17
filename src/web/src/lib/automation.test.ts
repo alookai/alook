@@ -13,7 +13,7 @@ vi.mock("@/lib/middleware/auth", () => ({ humanAuthPolicy: {
 } }))
 vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(), queries: { automation: { authenticateAccessCode: authenticate, expireAccessCode: expire } } }))
 
-import { hashAutomationSecret, newAutomationSecret, automationPolicy, automationManagementPolicy } from "./automation"
+import { hashAutomationSecret, newAutomationSecret, automationPolicy, automationManagementPolicy, automationSetupPolicy } from "./automation"
 import { POST as expireCode } from "@/app/api/community/automation/expire/route"
 
 const secret = "aac_" + "a".repeat(64)
@@ -185,5 +185,29 @@ it("fails closed before expiry or permission lookup when request bindings are un
   expect(await response.json()).toEqual({ error: "Automation authentication unavailable" })
   expect(expire).not.toHaveBeenCalled()
   expect(authenticate).not.toHaveBeenCalled()
+  expect(transport).not.toHaveBeenCalled()
+})
+
+
+it("authorizes setup with exactly the four existing write grants and preserves each action quota", async () => {
+  authenticate.mockImplementation(async (_db, _hash, permission) => ({ codeId: "code", ownerId: "owner", permission, limit: 2, period: "hour" }))
+  const permissions = ["bot.create", "server.create", "server.invite", "message.send"] as const
+  const handler = vi.fn(async (_req, ctx) => {
+    for (const permission of permissions) { const denied = await ctx.beforeAction(permission); if (denied) return denied }
+    return Response.json({ owner: ctx.userId })
+  })
+  const response = await withAuth(automationSetupPolicy(), handler)(request())
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ owner: "owner" })
+  expect(authenticate.mock.calls.map(call => call[2])).toEqual(permissions)
+  expect(transport.mock.calls.map(call => JSON.parse(call[2].body))).toEqual(permissions.map(name => ({ name, key: "code", max: 2, period: "hour" })))
+  expect(response.headers.get("Cache-Control")).toBe("no-store")
+})
+
+it.each(["bot.create", "server.create", "server.invite", "message.send"])("denies setup before any action when its %s grant is absent", async absent => {
+  authenticate.mockImplementation(async (_db, _hash, permission) => permission === absent ? null : ({ codeId: "code", ownerId: "owner", permission, limit: 2, period: "hour" }))
+  const handler = vi.fn(async () => Response.json({ unexpected: true }))
+  expect((await withAuth(automationSetupPolicy(), handler)(request())).status).toBe(401)
+  expect(handler).not.toHaveBeenCalled()
   expect(transport).not.toHaveBeenCalled()
 })
