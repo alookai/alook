@@ -47,6 +47,7 @@ describe("removeMemberAndOwnerBots", () => {
     const botsStatement: any = {};
     botsStatement.where = vi.fn(() => botsStatement);
     const db: any = {
+      select: vi.fn(() => createSelectMock([])),
       update: vi.fn(() => handoffStatement),
       delete: vi
         .fn()
