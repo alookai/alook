@@ -176,7 +176,6 @@ export const apiRoutes = [
   "/api/community/users/search",
   "/api/daemon/latest-version",
   "/api/desktop/update/[target]/[arch]/[current_version]",
-  "/api/email/notify",
   "/api/health",
   "/api/internal/account-maintenance",
   "/api/pricing",
