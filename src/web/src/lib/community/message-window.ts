@@ -1,6 +1,6 @@
-import type { InitialMessageWindow } from "./message-window-persistence"
+import type { InitialMessageWindow, MessageWindowData } from "./message-window-contract"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
-import { hashKey, infiniteQueryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
+import { hashKey, infiniteQueryOptions, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { COMMUNITY_CONTRACT_HEADER, type CommunityMessageSurfaceReceipt } from "@alook/shared"
 import { actionAttributes } from "@/lib/observability/context"
@@ -98,8 +98,7 @@ export const channelMessagesQueryFn =
     return messageWindowPage(page)
   }
 
-export { messageWindowIdentity, type InitialMessageWindow } from "./message-window-persistence"
-export type MessageWindowData = InfiniteData<MessagesPage, MessagesPageParam>
+export { messageWindowIdentity, type InitialMessageWindow, type MessageWindowData } from "./message-window-contract"
 
 export function messagePageForReading(data: MessageWindowData, messageId: string, preferred?: string): string | undefined {
   const existing = data.pageParams.findIndex(param => hashKey([param]) === preferred)
