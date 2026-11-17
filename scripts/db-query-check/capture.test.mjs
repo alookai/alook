@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { runInThisContext } from 'node:vm'
-import { registerQuerySource, querySource } from './source-context.mjs'
+import { registerQuerySource, querySource, instrumentModule, sourceHook } from './source-context.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -232,4 +232,111 @@ test('injected test SQL stays separate; product SQL through adapters and unknown
   const fixturesOnly = buildReport(productDb, inventory, directory, 0)
   assert.equal(fixturesOnly.summary.observedSites, 0)
   assert.equal(fixturesOnly.outcome, 'failed')
+})
+
+test('source loading preserves raw data and optional short-circuiting while normal modules retain origins', t => {
+  const root = process.cwd()
+  const file = 'src/web/src/query-loader-probe.ts'
+  const source = 'function run(registry) { return registry?.runtime.lifecycle.get().active }'
+  const inventory = inventoryQueries(root, { [file]: source })
+  assert.equal(inventory.sites.length, 1)
+  assert.equal(inventory.sites[0].instrumentation, 'optional-chain-unverified')
+  assert.equal(instrumentModule(source, join(root, file), root, inventory.sites), undefined)
+  assert.equal(runInThisContext(`(${source})`)(undefined), undefined)
+  const normal = 'function run(db) { return db.prepare("SELECT 1") }'
+  const sites = inventoryQueries(root, { [file]: normal }).sites
+  for (const suffix of ['?raw', '?raw=false', '?v=1&raw', '?url']) {
+    assert.equal(instrumentModule(`export default ${JSON.stringify(normal)}`, join(root, file) + suffix, root, sites), undefined)
+  }
+  const previous = globalThis[sourceHook]
+  const observed = []
+  globalThis[sourceHook] = (builder, site) => { observed.push(site.key); return builder }
+  t.after(() => { globalThis[sourceHook] = previous })
+  const transformed = instrumentModule(normal, join(root, file) + '?v=1', root, sites)
+  const result = {}
+  assert.equal(runInThisContext(`(${transformed})`)({ prepare: () => result }), result)
+  assert.deepEqual(observed, [sites[0].key])
+})
+
+test('optional receivers and methods preserve argument/getter short-circuits at terminal calls', t => {
+  const root = process.cwd()
+  const file = 'src/shared/src/optional-boundary.ts'
+  const variants = [
+    ['db?.select().from(payload.table).get()', undefined],
+    ['db?.select().from(payload.table).get()', null],
+    ['db.select?.().from(payload.table).get()', {}],
+    ['db?.select?.().from(payload.table)?.get()', undefined],
+    ['db?.select?.().from(payload.table)?.get()', {}],
+    ['db?.select().from(payload.table)', undefined],
+  ]
+  const previous = globalThis[sourceHook]
+  globalThis[sourceHook] = () => { throw new Error('optional source must remain uninstrumented') }
+  t.after(() => { globalThis[sourceHook] = previous })
+  for (const [expression, receiver] of variants) {
+    const source = `function run(db, payload) { return ${expression} }`
+    const inventory = inventoryQueries(root, { [file]: source })
+    assert.equal(inventory.sites.length, 1)
+    assert.equal(inventory.sites[0].instrumentation, 'optional-chain-unverified')
+    const transformed = instrumentModule(source, join(root, file), root, inventory.sites)
+    assert.equal(transformed, undefined)
+    let reads = 0
+    const payload = { get table() { reads++; throw new Error('unreached argument getter') } }
+    assert.equal(runInThisContext(`(${transformed ?? source})`)(receiver, payload), undefined, expression)
+    assert.equal(reads, 0, expression)
+  }
+})
+
+test('optional real SQL retains binds, returned rows and lazy defaults; unknown scans still fail without coverage', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const file = 'src/shared/src/optional-native.ts'
+  const source = 'function run(db, table, payload) { return db?.insert(table).values(payload.value).returning().get() }'
+  const select = 'function scan(db, table) { return db?.select().from(table).get() }'
+  const inventory = inventoryQueries(root, { [file]: source + '\n' + select })
+  assert.equal(inventory.sites.length, 2)
+  assert.equal(inventory.sites.every(site => site.instrumentation === 'optional-chain-unverified'), true)
+  const transformed = instrumentModule(source + '\n' + select, join(root, file), root, inventory.sites)
+  assert.equal(transformed, undefined)
+  const capture = createCapture(root)
+  const directory = mkdtempSync(join(tmpdir(), 'query-optional-native-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  function execute(code, checked) {
+    const db = new Sqlite(':memory:')
+    db.exec('CREATE TABLE item(id TEXT PRIMARY KEY, value TEXT)')
+    let defaults = 0
+    let getters = 0
+    const table = sqliteTable('item', { id: text('id').primaryKey().$defaultFn(() => String(++defaults)), value: text('value') })
+    const payload = { get value() { getters++; return { value: 'actual-bound-value' } } }
+    const run = runInThisContext(`(${code})`, { filename: join(root, file) })
+    const records = []
+    const restore = instrumentDatabase(Sqlite.prototype, query => { records.push(query); if (checked) capture.collect(query) })
+    try {
+      assert.equal(run(undefined, table, payload), undefined)
+      assert.equal(getters, 0)
+      assert.equal(defaults, 0)
+      const returned = run(drizzle(db), table, payload)
+      const afterInsert = { getters, defaults, returned, queries: records.map(query => ({ sql: query.sql, params: query.params })) }
+      assert.deepEqual(afterInsert, { getters: 1, defaults: 1, returned: { id: '1', value: 'actual-bound-value' }, queries: [{ sql: 'insert into "item" ("id", "value") values (?, ?) returning "id", "value"', params: ['1', 'actual-bound-value'] }] })
+      if (checked) {
+        assert.deepEqual(runInThisContext(`(${select})`, { filename: join(root, file) })(drizzle(db), table), returned)
+        capture.write(directory)
+        // Even a stale or overlapping wrapper's identity cannot certify an optional construction.
+        const path = join(directory, readdirSync(directory)[0])
+        const raw = JSON.parse(readFileSync(path))
+        raw.records[0].siteKey = inventory.sites[0].key
+        writeFileSync(path, JSON.stringify(raw))
+        const report = buildReport(db, inventory, directory, 0)
+        assert.equal(report.summary.observedSites, 0)
+        assert.equal(report.summary.uncoveredSites, 2)
+        assert.equal(report.summary.unattributedStatements, 2)
+        assert.equal(report.summary.hazards, 1)
+        assert.equal(report.observations.every(query => query.classification === 'unverified-origin'), true)
+        assert.equal(report.outcome, 'failed')
+      }
+      return afterInsert
+    } finally { restore(); db.close() }
+  }
+  assert.deepEqual(execute(transformed ?? source, true), execute(source, false))
 })

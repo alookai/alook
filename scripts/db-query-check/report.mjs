@@ -21,7 +21,7 @@ export function buildReport(db, inventory, directory, testExitCode) {
       const identity = createHash('sha256').update(JSON.stringify(record)).digest('hex')
       if (seen.has(identity)) continue
       seen.add(identity)
-      const sites = inventory.sites.filter(site => site.key === record.siteKey)
+      const sites = inventory.sites.filter(site => site.key === record.siteKey && site.instrumentation !== 'optional-chain-unverified')
       const fixture = record.fixtureSqlVerified && inventory.fixtureSites?.find(site => site.key === record.siteKey && site.resolution === 'database-type' && ['literal-sql', 'orm-builder'].includes(site.proof))
       if (!sites.length && fixture) {
         const statement = { source: { file: fixture.file, line: fixture.line }, site: fixture.key, proof: `${fixture.proof}; actual SQL matched`, sql: normalizedSql(record.sql), bindShape: bindShape(record.params.map(revive)), classification: 'test-injection', coverage: 'none; test constructions never cover product sites' }
@@ -67,6 +67,6 @@ export function markdownReport(report) {
   sections.push('## Schema-only FK potential scans (not observed operations)', ...report.foreignKeys.filter(query => query.scans.length || query.unscopedSearches?.length || query.error).map(query => `- ${query.source}: ${JSON.stringify(query.scans)} ${query.error ?? ''}`))
   sections.push('## Unattributed observed statements', ...report.observations.filter(query => query.attribution === 'unknown').map(query => `- ${query.source.file}:${query.source.line}: ${query.sql}`))
   sections.push('## Proven test injections (not product coverage)', ...report.testStatements.map(query => `- ${query.source.file}:${query.source.line} (${query.proof}): ${query.sql}`))
-  sections.push('## Uncovered source sites', ...report.uncovered.map(site => `- ${site.file}:${site.line} ${site.key} (${site.resolution})`))
+  sections.push('## Uncovered source sites', ...report.uncovered.map(site => `- ${site.file}:${site.line} ${site.key} (${site.resolution}; ${site.instrumentation ?? 'construction'})`))
   return sections.join('\n\n') + '\n'
 }

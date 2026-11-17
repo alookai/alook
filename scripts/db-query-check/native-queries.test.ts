@@ -1,8 +1,25 @@
 import { expect, it } from "vitest"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { createMigratedDb } from "../../src/shared/test/helpers/migrated-db"
 import { hardDeleteMessage } from "../../src/shared/src/db/queries/community/message"
 import { deleteForumPost } from "../../src/shared/src/db/queries/community/forum-post-delete"
 import { deleteChannelWithMedia, deleteServerWithMedia } from "../../src/shared/src/db/queries/community/delete-media"
+
+it("loads a real query module as exact raw bytes without constructing a query", async () => {
+  const hook = Symbol.for("alook.db-query-check.source")
+  const hooks = globalThis as typeof globalThis & { [key: symbol]: ((...args: unknown[]) => unknown) | undefined }
+  const previous = hooks[hook]
+  let constructions = 0
+  hooks[hook] = (...args) => { constructions++; return previous?.(...args) ?? args[0] }
+  try {
+    const { default: raw } = await import("../../src/shared/src/db/queries/community/bot.ts?raw")
+    expect(raw).toBe(readFileSync(resolve(process.env.ALOOK_DB_QUERY_ROOT!, "src/shared/src/db/queries/community/bot.ts"), "utf8"))
+    expect(constructions).toBe(0)
+  } finally {
+    hooks[hook] = previous
+  }
+})
 
 it.each(["message", "forum", "channel", "server"] as const)("executes the real %s guard for index-scope analysis", async kind => {
   const { sqlite, db } = createMigratedDb()

@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { relative } from 'node:path'
-import { instrumentSource } from './source-context.mjs'
+import { instrumentModule } from './source-context.mjs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { defineConfig, mergeConfig } from 'vitest/config'
@@ -17,9 +16,8 @@ const projects = [['shared', shared, 'src/shared'], ['web', web, 'src/web'], ['a
 const inventory = JSON.parse(readFileSync(process.env.ALOOK_DB_QUERY_INVENTORY, 'utf8'))
 const sites = [...inventory.sites, ...(inventory.fixtureSites ?? [])]
 const plugin = { name: 'db-query-source', enforce: 'pre', transform(code, id) {
-  const file = relative(root, id.split('?')[0]).replaceAll('\\', '/')
-  const matches = sites.filter(site => site.file === file)
-  return matches.length ? { code: instrumentSource(code, matches), map: null } : undefined
+  const transformed = instrumentModule(code, id, root, sites)
+  return transformed === undefined ? undefined : { code: transformed, map: null }
 } }
 export default defineConfig({
   test: {

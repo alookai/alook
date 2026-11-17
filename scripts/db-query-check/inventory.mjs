@@ -79,7 +79,7 @@ export function inventoryQueries(root, override, { includeFixtures = false } = {
           ordinals.set(prefix, ordinal)
           const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1
           const endLine = source.getLineAndCharacterOfPosition(chain.getEnd()).line + 1
-          const site = { key: `${prefix}:${ordinal}`, file: path, functionName, method, line, endLine, start: node.getStart(), builderEnd: builder.getEnd(), resolution: isDb ? 'database-type' : 'unresolved-receiver' }
+          const site = { key: `${prefix}:${ordinal}`, file: path, functionName, method, line, endLine, start: node.getStart(), builderEnd: builder.getEnd(), resolution: isDb ? 'database-type' : 'unresolved-receiver', instrumentation: ts.isOptionalChain(builder) ? 'optional-chain-unverified' : 'construction' }
           if (fixture) fixtureSites.push({ ...site, kind: 'test-fixture', proof: fixtureProof, literalSql: fixtureProof === 'literal-sql' ? node.arguments[0].text : undefined })
           else sites.push(site)
         }

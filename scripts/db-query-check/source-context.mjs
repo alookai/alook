@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { relative } from 'node:path'
 
 export const querySource = new AsyncLocalStorage()
 const origins = new WeakMap()
@@ -45,9 +46,19 @@ export function registerQuerySource(builder, site) {
 export function instrumentSource(code, sites) {
   const inserts = []
   for (const site of sites) {
+    if (site.instrumentation === 'optional-chain-unverified') continue
     inserts.push([site.start, `globalThis[Symbol.for('alook.db-query-check.source')](`])
     inserts.push([site.builderEnd, `,${JSON.stringify({ key: site.key, file: site.file, line: site.line, kind: site.kind, proof: site.proof, literalSql: site.literalSql })})`])
   }
   for (const [position, text] of inserts.sort((a, b) => b[0] - a[0])) code = code.slice(0, position) + text + code.slice(position)
   return code
+}
+
+export function instrumentModule(code, id, root, sites) {
+  const separator = id.indexOf('?')
+  const query = new URLSearchParams(separator < 0 ? '' : id.slice(separator + 1))
+  if (query.has('raw') || query.has('url')) return undefined
+  const file = relative(root, separator < 0 ? id : id.slice(0, separator)).replaceAll('\\', '/')
+  const matches = sites.filter(site => site.file === file && site.instrumentation !== 'optional-chain-unverified')
+  return matches.length ? instrumentSource(code, matches) : undefined
 }
