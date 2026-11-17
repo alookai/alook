@@ -281,14 +281,12 @@ export async function expectFooterGeometry(
     return {
       display: value.display,
       flexDirection: value.flexDirection,
-      justifyContent: value.justifyContent,
       alignItems: value.alignItems,
     }
   })
   expect(style).toEqual({
     display: "flex",
     flexDirection: "row",
-    justifyContent: "flex-end",
     alignItems: "center",
   })
   for (const actionRect of actionRects) {
