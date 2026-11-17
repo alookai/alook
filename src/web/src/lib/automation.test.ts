@@ -189,9 +189,9 @@ it("fails closed before expiry or permission lookup when request bindings are un
 })
 
 
-it("authorizes setup with exactly the four existing write grants and preserves each action quota", async () => {
+it("authorizes setup with exactly the three server/message grants without bot creation and preserves each action quota", async () => {
   authenticate.mockImplementation(async (_db, _hash, permission) => ({ codeId: "code", ownerId: "owner", permission, limit: 2, period: "hour" }))
-  const permissions = ["bot.create", "server.create", "server.invite", "message.send"] as const
+  const permissions = ["server.create", "server.invite", "message.send"] as const
   const handler = vi.fn(async (_req, ctx) => {
     for (const permission of permissions) { const denied = await ctx.beforeAction(permission); if (denied) return denied }
     return Response.json({ owner: ctx.userId })
@@ -204,7 +204,7 @@ it("authorizes setup with exactly the four existing write grants and preserves e
   expect(response.headers.get("Cache-Control")).toBe("no-store")
 })
 
-it.each(["bot.create", "server.create", "server.invite", "message.send"])("denies setup before any action when its %s grant is absent", async absent => {
+it.each(["server.create", "server.invite", "message.send"])("denies setup before any action when its %s grant is absent", async absent => {
   authenticate.mockImplementation(async (_db, _hash, permission) => permission === absent ? null : ({ codeId: "code", ownerId: "owner", permission, limit: 2, period: "hour" }))
   const handler = vi.fn(async () => Response.json({ unexpected: true }))
   expect((await withAuth(automationSetupPolicy(), handler)(request())).status).toBe(401)

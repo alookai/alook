@@ -17,12 +17,13 @@ import { createBotForUser } from "./create-bot.server"
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite")
 let sqlite: InstanceType<typeof DatabaseSync>
 let db: Database
-const input = () => ({ server: { name: "Growth Lab" }, bots: ["Mireille", "Thiago"].map(name => ({ name, machineId: "m1", backendId: "claude" })), firstTask: "Review the current draft and agree the next step." })
+let botIds: string[]
+const input = () => ({ server: { name: "Growth Lab" }, botIds, firstTask: "Review the current draft and agree the next step." })
 const request = (body: unknown = input()) => new NextRequest("https://test.local/api/community/automation/onboard-setup", { method: "POST", body: JSON.stringify(body) })
 const context = () => ({ env: { DB: {} } as Env, userId: "owner", beforeAction: vi.fn(async (_permission: string): Promise<Response | null> => null) })
 const activeBots = () => (sqlite.prepare('SELECT count(*) AS n FROM user WHERE isBot=1 AND deletedAt IS NULL').get() as { n: number }).n
 const serverCount = () => (sqlite.prepare('SELECT count(*) AS n FROM community_server').get() as { n: number }).n
-beforeEach(() => {
+beforeEach(async () => {
   state.loseServerReceipt = false
   sqlite = new DatabaseSync(":memory:")
   sqlite.exec("PRAGMA foreign_keys=ON")
@@ -59,78 +60,104 @@ beforeEach(() => {
   sqlite.prepare('INSERT INTO community_machine(id,user_id,display_name,hostname,platform,arch,available_runtimes,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
     .run("m1", "owner", "Work Mac", "host", "darwin", "arm64", JSON.stringify([{ id: "claude", status: "healthy" }]), "online", "now", "now")
   sqlite.exec("UPDATE product_plan_entitlement SET value_json='10' WHERE entitlement_key='bots.max'")
+  botIds = []
+  for (const name of ["Mireille", "Thiago"]) {
+    const response = await createBotForUser(request({ name, machineId: "m1", runtime: "claude" }), { env: { DB: {} } as Env, userId: "owner" })
+    expect(response.status).toBe(201)
+    botIds.push((await response.json()).bot.id)
+  }
 })
 afterEach(() => sqlite?.close())
 
-it("uses the real creation and message APIs to join the team before committing a human task without a bot reply", async () => {
+it("creates only the server and joins existing bots before committing the human task", async () => {
   sqlite.exec("CREATE TRIGGER ensure_team_joined BEFORE INSERT ON community_message WHEN (SELECT count(*) FROM community_server_member WHERE server_id=(SELECT server_id FROM community_channel WHERE id=NEW.channel_id)) != 3 BEGIN SELECT RAISE(ABORT,'team not joined before task'); END")
   const ctx = context()
   const response = await runAutomationSetup(request(), ctx)
   expect(response.status, JSON.stringify(await response.clone().json())).toBe(200)
   const result = await response.json()
-  expect(result).toMatchObject({ state: "sent", message: { seq: "#1" }, server: { url: expect.stringContaining("https://test.local/c/channels/") } })
+  expect(result).toMatchObject({ state: "sent", message: { seq: "#1" }, server: { url: expect.stringContaining("https://test.local/c/channels/") }, bots: botIds.map(id => ({ id })) })
   expect(activeBots()).toBe(2)
   expect(serverCount()).toBe(1)
   expect(sqlite.prepare("SELECT c.name,k.private FROM community_channel c JOIN community_category k ON k.id=c.category_id WHERE c.name='all' AND c.server_id=?").get(result.server.id)).toEqual({ name: "all", private: 0 })
   expect(sqlite.prepare('SELECT count(*) AS n FROM community_server_member WHERE server_id=?').get(result.server.id)).toEqual({ n: 3 })
-  expect(sqlite.prepare('SELECT author_id,content FROM community_message').all()).toEqual([{ author_id: "owner", content: expect.stringContaining("Review the current draft") }])
-  expect(ctx.beforeAction.mock.calls.map(([permission]) => permission)).toEqual(["bot.create", "bot.create", "server.create", "server.invite", "server.invite", "message.send"])
+  const messages = sqlite.prepare('SELECT author_id,content FROM community_message').all()
+  expect(messages).toEqual([{ author_id: "owner", content: expect.stringContaining("Review the current draft") }])
+  expect(sqlite.prepare("SELECT user_id FROM community_mention WHERE kind='mention' ORDER BY user_id").all()).toEqual([...botIds].sort().map(user_id => ({ user_id })))
+  expect(ctx.beforeAction.mock.calls.map(([permission]) => permission)).toEqual(["server.create", "server.invite", "server.invite", "message.send"])
 })
 
-it("preserves the existing bot limit and cleans up a previously created bot when the next creation is denied", async () => {
-  sqlite.exec("UPDATE product_plan_entitlement SET value_json='1' WHERE entitlement_key='bots.max'")
+it("uses already-owned bots even when bot creation is unavailable and their machine is offline", async () => {
+  sqlite.exec("UPDATE product_plan_entitlement SET value_json='0' WHERE entitlement_key='bots.max'; UPDATE community_machine SET status='offline' WHERE id='m1'")
   const response = await runAutomationSetup(request(), context())
-  expect(response.status).toBe(409)
-  expect(await response.json()).toMatchObject({ error: "BOT_LIMIT_REACHED", cleanup: "complete" })
-  expect(activeBots()).toBe(0)
-  expect(serverCount()).toBe(0)
+  expect(response.status).toBe(200)
+  expect(activeBots()).toBe(2)
+  expect(serverCount()).toBe(1)
 })
 
-it.each(["server.create", "server.invite", "message.send"])("cleans up all new resources when %s is denied", async permission => {
+it.each(["server.create", "server.invite", "message.send"])("cleans up only its new server when %s is denied", async permission => {
   const ctx = context()
   ctx.beforeAction.mockImplementation(async action => action === permission ? Response.json({ error: "limited" }, { status: 429, headers: { "Retry-After": "9" } }) : null)
   const response = await runAutomationSetup(request(), ctx)
   expect(response.status).toBe(429)
   expect(response.headers.get("Retry-After")).toBe("9")
   expect(await response.json()).toMatchObject({ cleanup: "complete" })
-  expect(activeBots()).toBe(0)
+  expect(activeBots()).toBe(2)
   expect(serverCount()).toBe(0)
   expect(sqlite.prepare('SELECT count(*) AS n FROM community_message').get()).toEqual({ n: 0 })
+  for (const id of botIds) expect(sqlite.prepare('SELECT deletedAt FROM user WHERE id=?').get(id)).toEqual({ deletedAt: null })
 })
 
-it("preserves reused bots and reports actual remaining resources when cleanup fails", async () => {
-  const created = await createBotForUser(request({ name: "Existing", machineId: "m1", runtime: "claude" }), { env: { DB: {} } as Env, userId: "owner" })
-  const existing = (await created.json()).bot.id as string
+it("removes its partially joined server if a later invitation fails without deleting any bot", async () => {
+  const ctx = context()
+  let invites = 0
+  ctx.beforeAction.mockImplementation(async action => action === "server.invite" && ++invites === 2 ? Response.json({ error: "limited" }, { status: 429 }) : null)
+  const response = await runAutomationSetup(request(), ctx)
+  expect(response.status).toBe(429)
+  expect(await response.json()).toMatchObject({ cleanup: "complete" })
+  expect(serverCount()).toBe(0)
+  expect(activeBots()).toBe(2)
+  expect(sqlite.prepare('SELECT count(*) AS n FROM community_server_member').get()).toEqual({ n: 0 })
+})
+
+it("reports the remaining server accurately if cleanup fails and preserves both selected bots", async () => {
   sqlite.exec("CREATE TRIGGER injected_cleanup_failure BEFORE DELETE ON community_server BEGIN SELECT RAISE(ABORT,'injected cleanup failure'); END")
   const ctx = context()
   ctx.beforeAction.mockImplementation(async action => action === "message.send" ? Response.json({ error: "limited" }, { status: 429 }) : null)
-  const body = input()
-  const response = await runAutomationSetup(request({ ...body, bots: [{ existingBotId: existing }, body.bots[0]] }), ctx)
+  const response = await runAutomationSetup(request(), ctx)
   const result = await response.json()
   expect(response.status).toBe(429)
-  expect(result).toMatchObject({ cleanup: "incomplete", remaining: { serverId: expect.any(String), botIds: [] } })
-  expect(activeBots()).toBe(1)
-  expect(sqlite.prepare('SELECT deletedAt FROM user WHERE id=?').get(existing)).toEqual({ deletedAt: null })
+  expect(result.cleanup).toBe("incomplete")
+  expect(result.remaining).toEqual({ serverId: expect.any(String) })
+  expect(activeBots()).toBe(2)
   expect(sqlite.prepare('SELECT id FROM community_server').all()).toEqual([{ id: result.remaining.serverId }])
 })
 
-it("rejects foreign bots and unavailable machines without leaving newly created resources", async () => {
-  const foreign = await createBotForUser(request({ name: "Foreign", machineId: "m1", runtime: "claude" }), { env: { DB: {} } as Env, userId: "owner" })
-  const botId = (await foreign.json()).bot.id as string
-  sqlite.prepare('UPDATE user SET ownerUserId=? WHERE id=?').run("peer", botId)
-  expect((await runAutomationSetup(request({ ...input(), bots: [{ existingBotId: botId }] }), context())).status).toBe(404)
-  sqlite.exec("UPDATE community_machine SET status='offline' WHERE id='m1'")
-  expect((await runAutomationSetup(request(), context())).status).toBe(409)
-  expect(activeBots()).toBe(1)
+it("rejects foreign, human and missing bot IDs before creating a server", async () => {
+  sqlite.prepare('UPDATE user SET ownerUserId=? WHERE id=?').run("peer", botIds[0]!)
+  for (const id of [botIds[0]!, "owner", "missing-bot"]) {
+    const ctx = context()
+    expect((await runAutomationSetup(request({ ...input(), botIds: [id] }), ctx)).status).toBe(404)
+    expect(ctx.beforeAction).not.toHaveBeenCalled()
+  }
+  expect(activeBots()).toBe(2)
   expect(serverCount()).toBe(0)
 })
 
+it("rejects empty, repeated and creation-shaped bot selections without changing resources", async () => {
+  for (const bots of [[], [botIds[0], botIds[0]], [{ name: "New bot", machineId: "m1", backendId: "claude" }]]) {
+    const ctx = context()
+    expect((await runAutomationSetup(request({ ...input(), botIds: bots }), ctx)).status).toBe(400)
+    expect(ctx.beforeAction).not.toHaveBeenCalled()
+  }
+  expect(activeBots()).toBe(2)
+  expect(serverCount()).toBe(0)
+})
 
-it("reports an unknown outcome instead of claiming full cleanup when a creation handler loses its post-commit receipt", async () => {
+it("reports an unknown server outcome after a lost post-commit receipt without modifying selected bots", async () => {
   state.loseServerReceipt = true
   const response = await runAutomationSetup(request(), context())
   expect(response.status).toBe(503)
-  expect(await response.json()).toMatchObject({ code: "SETUP_OUTCOME_UNKNOWN", cleanup: "unknown", error: expect.stringContaining("check whether the server and bots were created") })
+  expect(await response.json()).toMatchObject({ code: "SETUP_OUTCOME_UNKNOWN", cleanup: "unknown", error: expect.stringContaining("check the server and its bot membership") })
   expect(serverCount()).toBe(1)
-  expect(activeBots()).toBe(0)
+  expect(activeBots()).toBe(2)
 })

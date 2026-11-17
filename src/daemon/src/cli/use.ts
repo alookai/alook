@@ -87,7 +87,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
     if (!response.ok) {
       const message = typeof result.error === "string" ? result.error.replaceAll(secret, "[redacted]") : `Automation failed: HTTP ${response.status}`
       const cleanup = path === "/api/community/automation/onboard-setup" && result.cleanup === "incomplete"
-        ? z.object({ serverId: z.string().min(1).max(128).optional(), botIds: z.array(z.string().min(1).max(128)).max(3) }).safeParse(result.remaining) : null
+        ? z.object({ serverId: z.string().min(1).max(128) }).safeParse(result.remaining) : null
       const cleanupHint = cleanup ? `Cleanup incomplete. Inspect remaining resources: ${cleanup.success ? JSON.stringify(cleanup.data).replaceAll(secret, "[redacted]") : "check servers and bots in Alook"}.` : undefined
       throw Object.assign(new Error(message), {
         ...(typeof result.code === "string" ? { code: result.code.replaceAll(secret, "[redacted]") } : {}),

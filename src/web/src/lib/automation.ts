@@ -113,7 +113,7 @@ export function automationSetupPolicy(): AuthPolicy<AutomationSetupContext> {
         if (resolved instanceof Response) return resolved
         contexts.set(permission, resolved.context)
       }
-      const first = contexts.get("bot.create")!
+      const first = contexts.get("server.create")!
       if ([...contexts.values()].some(context => context.userId !== first.userId)) return writeError("Automation authorization changed; try again", 401)
       return {
         context: { env: first.env, userId: first.userId, beforeAction: permission => contexts.get(permission)!.beforeCreate() },

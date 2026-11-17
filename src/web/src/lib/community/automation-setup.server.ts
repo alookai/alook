@@ -4,51 +4,30 @@ import { AutomationSetupInputSchema, AutomationSetupResultSchema, AutomationMess
 import type { AutomationSetupContext } from "@/lib/automation"
 import { getPrimaryDb } from "@/lib/db"
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers"
-import { projectMachineBackends } from "./machine-options.server"
-import { createBotForUser } from "./create-bot.server"
 import { createServerForUser } from "./create-server.server"
 import { sendAutomationMessage } from "./automation-message.server"
 import { broadcastToUserSafe, fanOutToServerMembers, fanOutToUsers } from "./fanout"
-import { pushBotEventToMachine } from "./bot-push"
 import { canonicalUserImage } from "./storage"
 
-const BotReceipt = z.object({ bot: z.object({ id: z.string(), name: z.string(), discriminator: z.string() }) })
 const ServerReceipt = z.object({ server: z.object({ id: z.string(), name: z.string(), discriminator: z.string() }) })
-
-export async function prepareAutomationSetup(_req: NextRequest, ctx: AutomationSetupContext) {
-  const machines = await queries.automation.listMachines(getPrimaryDb(ctx.env.DB), ctx.userId)
-  return writeJSON({ machines: machines.map(({ id, name, status, availableRuntimes }) => ({ id, name, status,
-    backends: projectMachineBackends(queries.communityBot.normalizeMachineRuntimes(availableRuntimes), { includeCatalogMetadata: false }),
-  })) })
-}
 
 export async function runAutomationSetup(req: NextRequest, ctx: AutomationSetupContext) {
   const [input, error] = await parseBody(req, AutomationSetupInputSchema)
   if (error) return error
   const db = getPrimaryDb(ctx.env.DB)
-  const createdBotIds: string[] = []
   let createdServerId: string | undefined
-  const bots: z.infer<typeof BotReceipt>["bot"][] = []
   const request = (body: unknown) => new NextRequest(req.url, { method: "POST", body: JSON.stringify(body) })
   const requireSuccess = async (response: Response) => {
     if (!response.ok) throw response
     return response.json()
   }
   try {
-    for (const bot of input.bots) {
-      if ("existingBotId" in bot) {
-        const owned = await queries.communityBot.getBotOwnedBy(db, bot.existingBotId, ctx.userId)
-        if (!owned) throw writeError("Owned bot not found", 404)
-        bots.push(owned)
-      } else {
-        const { backendId, ...body } = bot
-        const response = await createBotForUser(request({ ...body, runtime: backendId }), {
-          ...ctx, beforeCreate: () => ctx.beforeAction("bot.create"), onCreated: id => { createdBotIds.push(id) },
-        })
-        bots.push(BotReceipt.parse(await requireSuccess(response)).bot)
-      }
+    const bots = []
+    for (const id of input.botIds) {
+      const bot = await queries.communityBot.getBotOwnedBy(db, id, ctx.userId)
+      if (!bot) throw writeError("Owned bot not found", 404)
+      bots.push(bot)
     }
-    if (new Set(bots.map(bot => bot.id)).size !== bots.length) throw writeError("Choose each bot once", 400)
     const serverResponse = await createServerForUser(request(input.server), {
       ...ctx, beforeCreate: () => ctx.beforeAction("server.create"), onCreated: id => { createdServerId = id },
     })
@@ -74,7 +53,7 @@ export async function runAutomationSetup(req: NextRequest, ctx: AutomationSetupC
       channel: target, url: `${new URL(req.url).origin}/c/channels/${encodeURIComponent(server.id)}` },
     bots: bots.map(bot => ({ id: bot.id, handle: formatHandle(bot.name, bot.discriminator) })), message: { seq: sent.seq } }))
   } catch (failure) {
-    const remaining: { serverId?: string; botIds: string[] } = { botIds: [] }
+    let remainingServerId: string | undefined
     if (createdServerId) {
       try {
         const recipients = await queries.communityMember.listMemberUserIds(db, createdServerId)
@@ -85,22 +64,14 @@ export async function runAutomationSetup(req: NextRequest, ctx: AutomationSetupC
             type: WS_EVENTS.READ_STATE_ADVANCED, revision: revision.revision, inboxChanged: true,
           })),
         ])
-      } catch { remaining.serverId = createdServerId }
+      } catch { remainingServerId = createdServerId }
     }
-    for (const id of createdBotIds) {
-      try {
-        const bot = await queries.communityBot.getBotOwnedBy(db, id, ctx.userId)
-        await queries.communityBot.softDeleteBot(db, id, ctx.userId)
-        if (bot?.machineId) await pushBotEventToMachine(ctx.env, bot.machineId, { type: "bot:removed", botId: id })
-      } catch { remaining.botIds.push(id) }
-    }
-    const cleanupFailed = Boolean(remaining.serverId || remaining.botIds.length)
-    let detail: Record<string, unknown> = { error: "Setup outcome is unknown; check whether the server and bots were created before another attempt", code: "SETUP_OUTCOME_UNKNOWN" }
+    let detail: Record<string, unknown> = { error: "Setup outcome is unknown; check the server and its bot membership before another attempt", code: "SETUP_OUTCOME_UNKNOWN" }
     if (failure instanceof Response) {
       try { detail = await failure.json() as Record<string, unknown> } catch { }
     }
-    const response = writeJSON({ ...detail, cleanup: cleanupFailed ? "incomplete" : failure instanceof Response ? "complete" : "unknown", ...(cleanupFailed ? { remaining } : {}),
-      hint: cleanupFailed ? "Inspect the remaining resources before another setup attempt" : "If the command response was not received, check the server and bots before running setup again" },
+    const response = writeJSON({ ...detail, cleanup: remainingServerId ? "incomplete" : failure instanceof Response ? "complete" : "unknown", ...(remainingServerId ? { remaining: { serverId: remainingServerId } } : {}),
+      hint: remainingServerId ? "Inspect the remaining server before another setup attempt" : "If the command response was not received, check the server and its bot membership before running setup again" },
     failure instanceof Response ? failure.status : 503)
     if (failure instanceof Response && failure.headers.has("Retry-After")) response.headers.set("Retry-After", failure.headers.get("Retry-After")!)
     return response
