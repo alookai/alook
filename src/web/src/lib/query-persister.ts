@@ -12,6 +12,7 @@ import type {
 } from "@tanstack/react-query-persist-client"
 import { get, promisifyRequest } from "idb-keyval"
 import { isCommunityListResourceKey, persistentCommunityListResource } from "@/lib/community/list-persistence"
+import { isPageListQueryKey, pageListMessageIds, pageListWindowComplete, readPageListWindow } from "@/lib/community/page-list-persistence"
 import {
   communityCollectionSchemas,
   type CommunityCollectionName,
@@ -45,7 +46,7 @@ function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
 }
 
 export function shouldPersistQueryKey(queryKey: readonly unknown[]): boolean {
-  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey)
+  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isPageListQueryKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey)
 }
 
 export function shouldPersistQuery(
@@ -53,12 +54,13 @@ export function shouldPersistQuery(
   data: unknown,
 ): boolean {
   return isCommunityDbCollectionKey(queryKey) || persistentCommunityListResource(queryKey, data) !== undefined
+    || readPageListWindow(queryKey, data) !== undefined
     || isServerDirectoryWindowKey(queryKey) && readServerDirectoryWindow(data)?.serverId === queryKey[2]
     || isForumSidebarWindowKey(queryKey) && readForumSidebarWindowResult(data)?.window.serverId === queryKey[2]
 }
 
 export function shouldDehydrateCommunityQuery(query: { queryKey: readonly unknown[]; state: { status: string; data: unknown } }) {
-  return (query.state.status === "success" || isForumSidebarWindowKey(query.queryKey))
+  return (query.state.status === "success" || isForumSidebarWindowKey(query.queryKey) || isPageListQueryKey(query.queryKey))
     && shouldPersistQuery(query.queryKey, query.state.data)
 }
 
@@ -152,6 +154,18 @@ function scrubDehydratedClient(
       || retainedServerIds.has(row.serverId)
   ))
   const retainedChannelIds = new Set(retainedChannels.map((row) => row.id))
+  const retiredIds = new Set(retired.keys())
+  let forumWindows = 0
+  const pageLists = userId ? client.clientState.queries
+    .slice().sort((left, right) => right.state.dataUpdatedAt - left.state.dataUpdatedAt)
+    .flatMap(query => {
+      const window = readPageListWindow(query.queryKey, query.state.data)
+      if (!window || window.kind === "forum" && forumWindows >= 20
+        || !pageListWindowComplete(window, { servers: rows("servers"), channels: retainedChannels, messages: rows("messages"), profiles: rows("profiles"), friendships: rows("friendships") }, retiredIds)) return []
+      if (window.kind === "forum") forumWindows++
+      return [{ query, window }]
+    }) : []
+  const pageListDependencies = new Set(pageLists.flatMap(({ window }) => pageListMessageIds(window, retainedChannels, rows("messages"))))
   const retainedDmIds = new Set(
     retainedChannels.filter((row) => row.type === "dm").map((row) => row.id),
   )
@@ -179,7 +193,7 @@ function scrubDehydratedClient(
     .flatMap((rows) => rows.slice(0, MAX_PERSISTED_MESSAGES_PER_SCOPE))
   const retainedMessageIds = new Set(retainedMessages.map((row) => row.id))
   for (const message of allMessages) {
-    if (attentionMessageIds.has(message.id) && !retainedMessageIds.has(message.id)) {
+    if ((attentionMessageIds.has(message.id) || pageListDependencies.has(message.id)) && !retainedMessageIds.has(message.id)) {
       retainedMessages.push(message)
       retainedMessageIds.add(message.id)
     }
@@ -216,6 +230,11 @@ function scrubDehydratedClient(
     const collectionName = q.queryKey[3] as CommunityCollectionName
     const data = windowed[collectionName]
     if (data) queries.push({ ...q, state: { ...q.state, data } })
+  }
+  for (const { query, window } of pageLists) {
+    if (!pageListWindowComplete(window, { servers: rows("servers"), channels: retainedChannels, messages: retainedMessages, profiles: rows("profiles"), friendships: rows("friendships") }, retiredIds)) continue
+    queries.push({ ...query, state: { ...query.state, data: window.data, status: "success", error: null, errorUpdatedAt: 0,
+      errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
   }
   const qualifiedDirectories = new Map<string, ServerDirectoryWindow>()
   for (const q of client.clientState.queries) {

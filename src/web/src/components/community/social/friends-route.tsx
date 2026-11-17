@@ -21,7 +21,7 @@ import { toastApiError } from "@/lib/api/client"
 export default function MeFriendsPage() {
   const { router, searchParams } = useCommunityModuleLocation()
   const activeTab = searchParams.get("tab") === "new" ? "new" : "all"
-  const { friends, pending, blocked, isPending: isLoading, data, isError, isFetching, refetch } = useFriends({ enabled: false })
+  const { friends, pending, blocked, isDisplayReady, isInitialError, isFetching, refetch } = useFriends({ enabled: false })
   const uiHandlers = useUiHandlers()
 
 
@@ -34,7 +34,7 @@ export default function MeFriendsPage() {
   const unblockUser = useUnblockUser()
   const createOrGetDm = useCreateOrGetDm()
 
-  if (isError && data === undefined) {
+  if (isInitialError) {
     return <ConversationResolutionErrorFrame title="Couldn't load friends" retrying={isFetching} onRetry={() => { void refetch({ cancelRefetch: false }) }} />
   }
 
@@ -43,7 +43,7 @@ export default function MeFriendsPage() {
       friends={friends}
       pending={pending}
       blocked={blocked}
-      loading={isLoading}
+      loading={!isDisplayReady}
       activeTab={activeTab}
       onActiveTabChange={(tab) => {
         router.replace(tab === "new" ? "/c/me/friends?tab=new" : "/c/me/friends")

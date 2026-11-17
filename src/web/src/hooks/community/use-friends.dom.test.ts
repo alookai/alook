@@ -1,4 +1,5 @@
-import { friendBucketScenarioFixture } from "@/test/community-resource-fixtures"
+import { friendBucketScenarioFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
 import { type QueryClient } from "@tanstack/react-query"
@@ -27,6 +28,25 @@ beforeEach(() => {
 })
 
 describe("useFriends / friendsQueryFn", () => {
+  it.each(["canonical-row", "known-empty", "unread"])("keeps %s distinct through the first refresh failure", async mode => {
+    const { useFriends } = await import("./use-friends")
+    const { client, registry } = await createCommunityQueryOwner()
+    if (mode === "canonical-row") {
+      await writeCommunityCollectionRows(registry, "profiles", [profileResourceFixture({ id: "peer", name: "Cached peer" })], row => row.id)
+      await writeCommunityCollectionRows(registry, "friendships", [{ id: "friend", userId: "peer", kind: "accepted" }], row => row.id)
+    } else if (mode === "known-empty") client.setQueryData(communityKeys.friends(), { ids: [] })
+    let fail!: () => void
+    apiFetchMock.mockReturnValue(new Promise<never>((_resolve, reject) => { fail = () => reject(new Error("Refresh unavailable")) }))
+    const rendered = renderHook(() => useFriends(), { wrapper: wrapperFor(client) })
+    await waitFor(() => expect(rendered.result.current.isFetching).toBe(true))
+    await waitFor(() => expect(rendered.result.current.isDisplayReady).toBe(mode !== "unread"))
+    if (mode === "canonical-row") expect(rendered.result.current.friends[0]?.name).toBe("Cached peer")
+    await act(async () => { fail() })
+    await waitFor(() => expect(rendered.result.current.isError).toBe(true))
+    expect(rendered.result.current.isDisplayReady).toBe(mode !== "unread")
+    expect(rendered.result.current.isInitialError).toBe(mode === "unread")
+  })
+
   it("fetches accepted + blocked + pending buckets in parallel and merges", async () => {
     const byUrl: Record<string, unknown> = {
       "/api/community/friends/accepted": {

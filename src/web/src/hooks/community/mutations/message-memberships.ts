@@ -10,6 +10,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
 import { toastApiError } from "@/lib/api/client"
 import type { MarkMessageArgs, PinMessageArgs, UnmarkMessageArgs } from "./message-command-inputs"
+import type { Marked } from "@/lib/community/models/inbox"
 
 type OriginalView = (() => void) & { signal: AbortSignal }
 function current(assert?: OriginalView) { try { assert?.(); return true } catch { return false } }
@@ -56,6 +57,20 @@ function useMarkCommand<T extends { messageId: string; channelId?: string; asser
       const baseline = resource?.state.dataUpdateCount
       await origin.request(original, `/api/community/messages/${messageId}/marks`, { method: marked ? "PUT" : "DELETE", signal: assertActive?.signal, assertActive, ...(marked ? { body: JSON.stringify({ channelId }) } : {}) })
       assert()
+      const listKey = communityKeys.inboxMarked()
+      const list = resources.find(query => query.queryKey.length === listKey.length && listKey.every((part, index) => Object.is(part, query.queryKey[index])))
+      if (list && client.getQueryCache().find({ queryKey: listKey, exact: true }) === list) {
+        await client.cancelQueries({ queryKey: listKey, exact: true })
+        assert()
+        if (client.getQueryCache().find({ queryKey: listKey, exact: true }) === list) {
+          const data = list.state.data as { marked: Array<Omit<Marked, "m"> & { m: Pick<Marked["m"], "id"> }> } | undefined
+          if (data) {
+            const remaining = marked ? data.marked : data.marked.filter(row => row.m.id !== messageId)
+            if (marked && data.marked.length === 0 || !marked && data.marked.length > 0 && remaining.length === 0) void client.resetQueries({ queryKey: listKey, exact: true }).catch(() => undefined)
+            else if (!marked) client.setQueryData(listKey, { ...data, marked: remaining })
+          }
+        }
+      }
       if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === baseline) client.setQueryData(key, { marked })
       for (const query of resources) if (client.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void client.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
     },

@@ -36,6 +36,24 @@ const pendingApproval = { friendshipId: "friendship", status: "pending" as const
 const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
 
+describe("Marked membership after access retirement", () => {
+  it.each(["initial-empty", "removed-last", "survivor"])("keeps %s separate from a successful empty read", async mode => {
+    const db = await registry()
+    const server = serverResourceFixture({ id: "marked-server", ownerId: "viewer" })
+    const channels = ["lost", "kept"].map(id => channelResourceFixture({ id, serverId: server.id }))
+    const messages = channels.map(channel => messageResourceFixture({ id: `message-${channel.id}`, channelId: channel.id }))
+    await publishCommunityResourceBundle(db.queryClient, fullResourceBundleFixture("viewer", [server], channels, messages), { token: captureCommunityLiveSnapshotToken(db.queryClient) })
+    const key = communityKeys.inboxMarked()
+    const rows = channels.map(channel => ({ id: `mark-${channel.id}`, channelId: channel.id, serverId: server.id, server: "Server", channel: channel.name ?? "", m: { id: `message-${channel.id}` } }))
+    db.queryClient.setQueryData(key, { marked: mode === "initial-empty" ? [] : mode === "removed-last" ? [rows[0]] : rows })
+    const original = db.queryClient.getQueryCache().find({ queryKey: key, exact: true })
+    retireCommunityChannelReading(db, "lost", { reason: "read-denied" })
+    expect(db.queryClient.getQueryCache().find({ queryKey: key, exact: true })).toBe(original)
+    expect(db.queryClient.getQueryData(key)).toEqual(mode === "removed-last" ? undefined : { marked: mode === "initial-empty" ? [] : [rows[1]] })
+    expect(db.collections.messages.has("message-lost")).toBe(false)
+  })
+})
+
 async function registry(preload = true, accountId = "viewer") {
   const result = createCommunityDbRegistry(new QueryClient(), accountId)
   registries.push(result)

@@ -22,6 +22,7 @@ import {
   projectCommunityWsEventToDb,
   applyCommunityDmBlockAccess,
   ingestServers,
+  publishCommunityResourceBundle,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
@@ -645,6 +646,27 @@ describe("useInboxAttention", () => {
     } finally {
       harness.dispose()
     }
+  })
+
+  it.each(["nonempty", "known-empty", "unread", "missing-target"])("distinguishes %s Marked display from refresh failure", async mode => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const message = messageResourceFixture({ id: "cached-marked", channelId: "dm", content: "Cached marked body" })
+    await publishCommunityResourceBundle(client, fullResourceBundleFixture("viewer", [], [channelResourceFixture({ id: "dm", type: "dm", serverId: null })], mode === "nonempty" ? [message] : []), { token: captureCommunityLiveSnapshotToken(client) })
+    if (mode !== "unread") client.setQueryData(communityKeys.inboxMarked(), { marked: mode === "known-empty" ? [] : [{ id: "mark", server: "", serverId: null, channel: "DM", channelId: "dm", m: { id: message.id } }] })
+    let fail!: () => void
+    apiFetchMock.mockReturnValue(new Promise<never>((_resolve, reject) => { fail = () => reject(new Error("Refresh unavailable")) }))
+    const rendered = renderHook(() => useInboxMarked(true), {
+      wrapper: ({ children }: React.PropsWithChildren) => React.createElement(CommunityTestProvider, { client, registry, retainOwner: true }, children),
+    })
+    const display = mode === "nonempty" || mode === "known-empty"
+    await waitFor(() => expect(rendered.result.current.isFetching).toBe(true))
+    await waitFor(() => expect(rendered.result.current.isDisplayReady).toBe(display))
+    if (mode === "nonempty") expect(rendered.result.current.marked[0]?.m.content).toBe("Cached marked body")
+    if (mode === "missing-target") expect(rendered.result.current.canonicalPending).toBe(true)
+    await act(async () => { fail() })
+    await waitFor(() => expect(rendered.result.current.isError).toBe(true))
+    expect(rendered.result.current.isDisplayReady).toBe(display)
+    expect(rendered.result.current.isInitialError).toBe(!display)
   })
 
   it("publishes a canonical marked row when the marked surface is enabled", async () => {

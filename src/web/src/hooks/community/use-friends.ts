@@ -83,6 +83,8 @@ export function useFriends(options?: { enabled?: boolean }): UseQueryResult<{ id
   friends: Friend[]
   pending: PendingRequest[]
   blocked: BlockedUser[]
+  isDisplayReady: boolean
+  isInitialError: boolean
 } {
   const query = useQuery({
     queryKey: communityKeys.friends(),
@@ -103,7 +105,8 @@ export function useFriends(options?: { enabled?: boolean }): UseQueryResult<{ id
     }
     return { friends, pending, blocked }
   }, [rows, profilesByUserId, query.data?.ids])
-  return { ...query, friends, pending, blocked }
+  const isDisplayReady = rows.length > 0 || query.data?.ids.length === 0
+  return { ...query, friends, pending, blocked, isDisplayReady, isInitialError: query.isError && !isDisplayReady }
 }
 
 /**

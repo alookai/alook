@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 export const E2E_SPEC_ROOT = "src/web/src/test/e2e-ui"
-export const E2E_NATIVE_SHARDS = 24
+export const E2E_NATIVE_SHARDS = 27
 export const E2E_TARGET_SECONDS = 240
 export const PLAYWRIGHT_IMAGE_REPOSITORY = "mcr.microsoft.com/playwright"
 const sorted = values => [...new Set(values)].sort()

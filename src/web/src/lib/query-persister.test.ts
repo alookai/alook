@@ -62,7 +62,16 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.members("srv_1"))).toBe(false)
     expect(shouldPersistQuery(communityKeys.server("__none__"), undefined)).toBe(false)
     expect(shouldPersistQuery(communityKeys.server("__pending__"), undefined)).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.friends())).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.friendsPresence())).toBe(false)
+    expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
+  })
+
+  it("allows the three native page list keys while rejecting their transient parents and missing data", () => {
+    for (const key of [communityKeys.friends(), communityKeys.forumFeed("forum", null), communityKeys.inboxMarked()]) {
+      expect(shouldPersistQueryKey(key)).toBe(true)
+      expect(shouldPersistQuery(key, undefined)).toBe(false)
+    }
+    expect(shouldPersistQueryKey(communityKeys.threads("forum"))).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
   })
 
