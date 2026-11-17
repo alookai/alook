@@ -1634,6 +1634,114 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     h.root.removeEventListener("scroll", scroll)
   })
+  it.each(["touch", "pointer"].flatMap(input => [2, 20, 40, 41].map(distance => ({ input, distance }))))("retains the idle $input release policy at $distance px before peer append", ({ input, distance }) => {
+    const h = mount()
+    h.move(h.root.scrollHeight - h.root.clientHeight - distance)
+    const native = scrollFixture.latest.virtualizer
+    expect(native.isScrolling).toBe(false)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+    const pointer = (type: string) => {
+      const event = new Event(type, { bubbles: true })
+      Object.defineProperty(event, "pointerId", { value: 41 })
+      fireEvent(type === "pointerdown" ? h.root : document, event)
+    }
+    if (input === "touch") {
+      fireEvent.touchStart(h.root, { touches: [{ identifier: 1, clientY: 200 }] })
+      fireEvent.touchEnd(h.root, { touches: [] })
+    } else {
+      pointer("pointerdown")
+      pointer("pointerup")
+    }
+    expect(native.isScrolling).toBe(false)
+    const before = bodyTop(h.root, "m11")
+    const end = vi.spyOn(native, "scrollToEnd")
+    h.update({ items: [...h.input.items, message("received-after-idle-release")] })
+    expect(end).toHaveBeenCalledTimes(distance <= CONVERSATION_TAIL_SPACE_PX ? 1 : 0)
+    if (distance <= CONVERSATION_TAIL_SPACE_PX) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    else expect(bodyTop(h.root, "m11")).toBe(before)
+  })
+  it.each(["idle-only", "still scrolling"].flatMap(handoff => [
+    { input: "touch", change: "append" },
+    { input: "pointer", change: "append" },
+    { input: "touch", change: "viewport shrink" },
+    { input: "pointer", change: "viewport shrink" },
+  ].map(value => ({ ...value, handoff }))))("keeps the attained tail after $input release during scrolling, $handoff, then $change", ({ input, change, handoff }) => {
+    const h = mount()
+    const native = scrollFixture.latest.virtualizer
+    const pointer = (type: string) => {
+      const event = new Event(type, { bubbles: true })
+      Object.defineProperty(event, "pointerId", { value: 41 })
+      fireEvent(type === "pointerdown" ? h.root : document, event)
+    }
+    if (input === "touch") fireEvent.touchStart(h.root, { touches: [{ identifier: 1, clientY: 200 }] })
+    else pointer("pointerdown")
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - 80 }))
+    runFrames(1)
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight }))
+    runFrames(1)
+    expect(native.isAtEnd(1)).toBe(true)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    expect(native.isScrolling).toBe(true)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    const scroll = vi.fn()
+    h.root.addEventListener("scroll", scroll)
+    if (input === "touch") fireEvent.touchEnd(h.root, { touches: [] })
+    else pointer("pointerup")
+    expect(native.isScrolling).toBe(true)
+    if (handoff === "idle-only") {
+      runFrames()
+      expect(native.isScrolling).toBe(false)
+    }
+    expect(scroll).not.toHaveBeenCalled()
+    if (change === "append") {
+      h.update({ items: [...h.input.items, message("received-after-release")] })
+      expect(h.root.querySelector('[data-msg-id="received-after-release"]')).not.toBeNull()
+    } else {
+      const before = h.root.clientHeight
+      scrollFixture.height -= 160
+      resize()
+      expect(h.root.clientHeight).toBe(before - 160)
+    }
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    h.root.removeEventListener("scroll", scroll)
+  })
+  it.each(["touch", "pointer"].flatMap(input => ["held input", "history", "near-tail", "non-latest page", "later upward input"]
+    .map(boundary => ({ input, boundary }))))("preserves $boundary through $input motion ending idle before append and viewport shrink", ({ input, boundary }) => {
+    const h = mount(boundary === "non-latest page" ? { hasMoreNewer: true } : {})
+    const native = scrollFixture.latest.virtualizer
+    const pointer = (type: string) => {
+      const event = new Event(type, { bubbles: true })
+      Object.defineProperty(event, "pointerId", { value: 41 })
+      fireEvent(type === "pointerdown" ? h.root : document, event)
+    }
+    if (input === "touch") fireEvent.touchStart(h.root, { touches: [{ identifier: 1, clientY: 200 }] })
+    else pointer("pointerdown")
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - 200 }))
+    runFrames(1)
+    if (boundary !== "history") {
+      act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - (boundary === "near-tail" ? 2 : 0) }))
+      runFrames(1)
+    }
+    expect(native.isAtEnd(1)).toBe(boundary !== "history" && boundary !== "near-tail")
+    expect(native.isScrolling).toBe(true)
+    if (boundary !== "held input") {
+      if (input === "touch") fireEvent.touchEnd(h.root, { touches: [] })
+      else pointer("pointerup")
+    }
+    if (boundary === "later upward input") fireEvent.wheel(h.root, { deltaY: -20 })
+    runFrames()
+    expect(native.isScrolling).toBe(false)
+    const before = bodyTop(h.root, "m11")
+    const end = vi.spyOn(native, "scrollToEnd")
+    h.update({ items: [...h.input.items, message("received-behind-boundary")] })
+    scrollFixture.height -= 160
+    resize()
+    expect(end).not.toHaveBeenCalled()
+    expect(bodyTop(h.root, "m11")).toBeCloseTo(before, 0)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeGreaterThan(1)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+  })
   it.each(["wheel", "ArrowUp", "PageUp", "Home", "shift-space", "pointer", "touch", "unregistered-touch"])("protects %s departure before a physical scroll event", input => {
     const h = mount()
     const native = scrollFixture.latest.virtualizer
