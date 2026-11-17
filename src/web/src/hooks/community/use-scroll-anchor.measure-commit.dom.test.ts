@@ -377,6 +377,90 @@ describe("manual reading waits for the real matching row commit", () => {
       expect(scrollFixture.frames.size).toBe(0)
     } finally { commitGate.hold = false; h.view.unmount() }
   })
+  it.each(["window", "items", "both"] as const)("continues real displacement without a new wheel after commit-only %s acceptance", scope => {
+    const { h, reading } = pendingReader()
+    try {
+      h.stage({ ...(scope !== "items" ? { messageWindow: {} } : {}), ...(scope !== "window" ? { items: [...h.input.items] } : {}) })
+      runFrames(40)
+      expect(reading).not.toHaveBeenCalled()
+      expect(scrollFixture.frames.size).toBe(0)
+      const before = h.root.scrollTop
+      publishRows()
+      runFrames(2)
+      expect(h.root.scrollTop).toBe(before)
+      let previous = actualReadingBody(h.root)
+      expect(previous).toBeDefined()
+      expect(reading).toHaveBeenCalledExactlyOnceWith(previous)
+      for (const [index, offset] of [500, 900].entries()) {
+        act(() => h.root.scrollTo({ top: offset }))
+        resize(40)
+        expect(h.root.scrollTop).toBe(offset)
+        const current = actualReadingBody(h.root)
+        expect(current).toBeDefined()
+        expect(current).not.toBe(previous)
+        expect(reading).toHaveBeenCalledTimes(index + 2)
+        expect(reading).toHaveBeenLastCalledWith(current)
+        expect(scrollFixture.frames.size).toBe(0)
+        previous = current
+      }
+      fireEvent.scroll(h.root)
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(3)
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it.each(["viewport", "padding"] as const)("continues the same gesture after commit-only acceptance of changed %s geometry", geometry => {
+    const { h, reading } = pendingReader()
+    try {
+      if (geometry === "viewport") { scrollFixture.height = 620; scrollFixture.width = 400 }
+      else h.stage({ tailPaddingEnd: 80 })
+      resize(0)
+      runFrames(40)
+      expect(reading).not.toHaveBeenCalled()
+      expect(scrollFixture.frames.size).toBe(0)
+      const before = h.root.scrollTop
+      publishRows()
+      runFrames(2)
+      expect(h.root.scrollTop).toBe(before)
+      const first = actualReadingBody(h.root)
+      expect(first).toBeDefined()
+      expect(reading).toHaveBeenCalledExactlyOnceWith(first)
+      act(() => h.root.scrollTo({ top: 500 }))
+      resize(40)
+      expect(h.root.scrollTop).toBe(500)
+      const current = actualReadingBody(h.root)
+      expect(current).toBeDefined()
+      expect(current).not.toBe(first)
+      expect(reading).toHaveBeenCalledTimes(2)
+      expect(reading).toHaveBeenLastCalledWith(current)
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it("does not revive a reading owner hidden by its own acceptance callback", () => {
+    const { h, reading } = pendingReader()
+    try {
+      h.stage({ messageWindow: {}, items: [...h.input.items] })
+      reading.mockImplementationOnce(() => h.stage({ active: false }))
+      publishRows()
+      runFrames(2)
+      expect(reading).toHaveBeenCalledOnce()
+      act(() => h.root.scrollTo({ top: 500 }))
+      resize(40)
+      expect(reading).toHaveBeenCalledOnce()
+      expect(scrollFixture.frames.size).toBe(0)
+      h.update({ active: true })
+      expect(reading).toHaveBeenCalledTimes(2)
+      expect(reading).toHaveBeenLastCalledWith(actualReadingBody(h.root))
+      act(() => h.root.scrollTo({ top: 900 }))
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(2)
+      fireEvent.wheel(h.root, { deltaY: 800 })
+      act(() => h.root.scrollTo({ top: 1300 }))
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(3)
+      expect(reading).toHaveBeenLastCalledWith(actualReadingBody(h.root))
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
   it.each(["entry", "hidden", "retired"] as const)("does not revive published movement after %s ownership ends", retirement => {
     const { h, reading } = pendingReader()
     try {

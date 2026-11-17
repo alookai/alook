@@ -726,9 +726,12 @@ export function useScrollAnchor({
     if (context.dataState !== "ready" || paginationRef.current?.phase === "settling" || semanticIntentRef.current || projectionAnchorRef.current
       || viewportCorrectionRef.current) return
     const id = readReadingMessage()
-    if (!id) return
+    const committed = committedRowsRef.current
+    if (!id || !committed || userInputRef.current.reading !== reading) return
+    userInputRef.current.reading = { root, pending: false, messageId: id, epoch: reading.epoch, window: context.messageWindow,
+      items: currentItemsRef.current, offset: root.scrollTop, height: root.clientHeight, width: root.clientWidth,
+      scrollHeight: root.scrollHeight, total: committed.layout.totalSize, paddingEnd: native.options.paddingEnd ?? 0 }
     if (id !== reading.messageId) readingMessageRef.current?.(id)
-    reading.pending = false
   }, [positionKind, readReadingMessage])
   const updateNewDividerVisibility = useCallback((notifyBoundary = true) => {
     const root = scrollRef.current
