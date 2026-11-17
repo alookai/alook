@@ -60,7 +60,7 @@
     "turbo": "^2.11.10",
     "typescript": "^6.0.3",
     "vitest": "5.1.0",
-    "wrangler": "4.152.0"
+    "wrangler": "4.162.0"
   },
   "pnpm": {
     "patchedDependencies": {

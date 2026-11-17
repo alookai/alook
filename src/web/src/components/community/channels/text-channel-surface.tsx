@@ -234,8 +234,14 @@ export function TextChannelSurface({
               {...memberPanelProps}
               pinned={feed.pinned}
               pinnedLoading={feed.pinnedLoading}
+              pinnedKnown={feed.pinnedKnown}
+              pinnedError={feed.pinnedError}
+              onRetryPinned={feed.retryPinned}
               threads={feed.threads}
               threadsLoading={feed.threadsLoading}
+              threadsKnown={feed.threadsKnown}
+              threadsError={feed.threadsError}
+              onRetryThreads={feed.retryThreads}
               onOpenThread={onOpenThread}
               onOpenProfile={onOpenProfile}
               onJumpToMessage={controller.jumpToSeq}

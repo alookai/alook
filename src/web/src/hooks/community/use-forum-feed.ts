@@ -127,7 +127,7 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
     const args = mutation.state.variables as { serverId?: string; forumChannelId?: string } | undefined
     return args?.serverId === serverId && args.forumChannelId === channelId
   } })
-  useEffect(() => { if (selectionReady && !pendingTagCommands && tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [selectionReady, pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
+  useEffect(() => { if (selectionReady && !pendingTagCommands && tagsQuery.isSuccess && !tagsQuery.isFetching && tagsQuery.data.observed === true && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [selectionReady, pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.isFetching, tagsQuery.data, selectTag])
   const selectedTag = tag === "All" ? null : tag
   const entry = useConversationResource(selectionReady ? { channelId, serverId, tag: selectedTag } : null, null, "forum")
   const queryKey = communityKeys.forumFeed(entry.canRead ? channelId : "__none__", selectedTag)

@@ -156,13 +156,17 @@ function scrubDehydratedClient(
   const retainedChannelIds = new Set(retainedChannels.map((row) => row.id))
   const retiredIds = new Set(retired.keys())
   let forumWindows = 0
+  let auxiliaryWindows = 0
   const pageLists = userId ? client.clientState.queries
     .slice().sort((left, right) => right.state.dataUpdatedAt - left.state.dataUpdatedAt)
     .flatMap(query => {
       const window = readPageListWindow(query.queryKey, query.state.data)
+      const auxiliary = window && (window.kind === "pins" || window.kind === "threads" || window.kind === "forum-tags" || window.kind === "forum-counts")
       if (!window || window.kind === "forum" && forumWindows >= 20
+        || auxiliary && auxiliaryWindows >= MAX_PERSISTED_MESSAGE_SCOPES
         || !pageListWindowComplete(window, { servers: rows("servers"), channels: retainedChannels, messages: rows("messages"), profiles: rows("profiles"), friendships: rows("friendships") }, retiredIds)) return []
       if (window.kind === "forum") forumWindows++
+      if (auxiliary) auxiliaryWindows++
       return [{ query, window }]
     }) : []
   const pageListDependencies = new Set(pageLists.flatMap(({ window }) => pageListMessageIds(window, retainedChannels, rows("messages"))))

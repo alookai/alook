@@ -202,11 +202,18 @@ describe("Native forum tag transactions", () => {
     mocks.api.mockResolvedValue({ tags: ["bug"] })
     const view = await setup(undefined, true)
     await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["bug"]))
+    const key = communityKeys.forumTags("forum_1"), successful = view.client.getQueryData(key)
+    const updatedAt = view.client.getQueryState(key)!.dataUpdatedAt
+    const tags = [...view.registry.collections.channels.get("p2")!.tags!]
+    expect(successful).toEqual({ tags: ["bug"], observed: true })
     const pending = await begin(view, "tags")
     await act(() => view.view.unmount())
-    await act(async () => { pending.held.resolve({ tags: ["bug", "archived"] }); await pending.request })
+    await act(async () => { pending.held.resolve({ tags: ["bug", "archived", "late"] }); await pending.request })
     expect(mocks.api.mock.calls.filter(([path]) => path.endsWith("/messages/tags"))).toHaveLength(1)
-    expect(view.client.getQueryData(communityKeys.forumTags("forum_1"))).toEqual({ tags: ["bug"] })
+    expect(view.client.getQueryData(key)).toBe(successful)
+    expect(view.client.getQueryData(key)).toEqual({ tags: ["bug"], observed: true })
+    expect(view.client.getQueryState(key)!.dataUpdatedAt).toBe(updatedAt)
+    expect(view.registry.collections.channels.get("p2")?.tags).toEqual(tags)
   })
 
   it("does not publish an old opener ACK onto a reused child identity", async () => {

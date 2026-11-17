@@ -338,8 +338,14 @@ export function ThreadChannelSurface({
               {...memberPanelProps}
               pinned={controller.feed.pinned}
               pinnedLoading={controller.feed.pinnedLoading}
+              pinnedKnown={controller.feed.pinnedKnown}
+              pinnedError={controller.feed.pinnedError}
+              onRetryPinned={controller.feed.retryPinned}
               threads={controller.feed.threads}
               threadsLoading={controller.feed.threadsLoading}
+              threadsKnown={controller.feed.threadsKnown}
+              threadsError={controller.feed.threadsError}
+              onRetryThreads={controller.feed.retryThreads}
               onOpenThread={onOpenChild}
               onJumpToMessage={controller.jumpToSeq}
               onOpenProfile={onOpenProfile}

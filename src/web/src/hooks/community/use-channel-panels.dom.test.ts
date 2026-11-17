@@ -15,6 +15,21 @@ const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: api, toastApiError: vi.fn() }))
 
 describe("usePins", () => {
+  it("keeps a nonempty ID window pending while its canonical bodies are not projected", async () => {
+    const owner = await createCommunityQueryOwner("viewer")
+    owner.client.setQueryData(communityKeys.pins("c1"), { pins: [{ id: "saved" }] })
+    api.mockReset().mockImplementation(() => new Promise(() => {}))
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
+      { client: owner.client, registry: owner.registry, userId: "viewer", retainOwner: true }, children)
+    const rendered = renderHook(() => usePins("c1"), { wrapper })
+    await waitFor(() => expect(rendered.result.current.canonicalPending).toBe(true))
+    expect(rendered.result.current.pins).toEqual([])
+    act(() => ingestMessages(owner.registry, "c1", [messageResourceFixture({ id: "saved", channelId: "c1", content: "Saved body" })]))
+    await waitFor(() => expect(rendered.result.current.pins.map(row => row.content)).toEqual(["Saved body"]))
+    expect(rendered.result.current.canonicalPending).toBe(false)
+    rendered.unmount()
+  })
+
   it("includes the same-channel pending pin in the bounded native message selection", async () => {
     const owner = await createCommunityQueryOwner("viewer")
     ingestMessages(owner.registry, "c1", [messageResourceFixture({ id: "pending", channelId: "c1", content: "Pinned body" })])

@@ -12,6 +12,6 @@ packages:
   - "src/storybook"
 
 packageExtensions:
-  "@next/mdx@16.4.2":
+  "@next/mdx@16.4.6":
     peerDependencies:
-      next: "16.4.2"
+      next: "16.4.6"

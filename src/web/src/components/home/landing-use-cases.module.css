@@ -1,0 +1,149 @@
+.section {
+  display: flex;
+  align-items: center;
+  min-height: 100svh;
+  padding-block: clamp(72px, 8vw, 112px);
+  background:
+    radial-gradient(ellipse 100% 100% at 50% 100%, var(--landing-section-bg, var(--landing-surface)) 0%, var(--landing-section-bg, var(--landing-surface)) 46%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 99.1%, transparent) 51.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 94.2%, transparent) 56.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 83.7%, transparent) 62.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 68.3%, transparent) 67.6%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 50.0%, transparent) 73.0%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 31.7%, transparent) 78.4%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 16.3%, transparent) 83.8%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 5.8%, transparent) 89.2%, color-mix(in oklab, var(--landing-section-bg, var(--landing-surface)) 0.9%, transparent) 94.6%, transparent 100.0%) center calc(100% + 1px) / 100% var(--landing-section-fade, 128px) no-repeat,
+    var(--landing-bg);
+  color: var(--landing-text);
+  scroll-margin-top: 72px;
+}
+
+.container {
+  width: calc(100% - var(--landing-page-gutter) * 2);
+  max-width: var(--landing-content-max);
+  margin-inline: auto;
+}
+
+.intro {
+  margin-bottom: 32px;
+}
+
+.intro h2 {
+  max-width: 760px;
+  font-family: var(--font-crt);
+  font-size: clamp(3rem, 4.6vw, 5rem);
+  font-weight: 400;
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.intro p {
+  margin-top: 16px;
+  color: var(--landing-text-muted);
+  line-height: 1.6;
+}
+
+.section .tabs {
+  height: auto;
+  margin-bottom: 8px;
+  touch-action: pan-x pan-y;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tabs[data-overflow="true"] { cursor: grab; user-select: none; }
+.tabs[data-overflow="true"]:active { cursor: grabbing; }
+
+.slide {
+  min-width: 0;
+  margin: -24px;
+  padding: 24px;
+}
+/* DESIGN.md: 44px minimum target, same as the feature gallery tabs. */
+.section .tabs [data-slot="tabs-trigger"][role="tab"] {
+  min-height: 44px;
+  padding-inline: 16px;
+  white-space: nowrap;
+}
+
+.panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(32px, 5vw, 72px);
+}
+
+.art {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  aspect-ratio: 1200 / 675;
+}
+.artScene {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.art .sticker {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+}
+.image {
+  width: 100%;
+  height: auto;
+  user-select: none;
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 34rem;
+}
+
+.copy h3 {
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.copy p {
+  color: var(--landing-text-muted);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+.action {
+  height: 48px;
+  padding-inline: 24px;
+  font-size: 1rem;
+}
+
+@media (max-width: 1199px) {
+  .actions { gap: 8px; }
+  .action { height: 44px; padding-inline: 14px; font-size: 0.875rem; }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .panel { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .art { max-width: 360px; margin-inline: auto; width: 100%; }
+}
+
+@media (max-width: 767px) {
+  /* One phone screen holds heading, tabs, sticker, copy and both buttons. */
+  .section { padding-block: 56px 40px; }
+  .intro { margin-bottom: 20px; }
+  .intro h2 { font-size: 2.5rem; }
+  .panel { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .art { max-width: 320px; margin-inline: auto; width: 100%; }
+  .copy { gap: 8px; }
+  .copy h3 { font-size: 1.375rem; }
+  .copy p { font-size: 1rem; line-height: 1.55; }
+}
