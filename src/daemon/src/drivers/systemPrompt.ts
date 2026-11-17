@@ -399,6 +399,8 @@ function workProgressSection(): string {
     "",
     "Read the incoming message and any history or access information needed to understand it. Check shared marks and notes to coordinate responsibilities.",
     "",
+    "When your owner directly questions or corrects you, or asks about work you lead, reply before continuing work; if sending fails, read new messages and deliver the reply first.",
+    "",
     "If you can answer immediately, answer without marking a task. Follow the lead acknowledgment rule above for work: the lead sends one brief text acknowledgment in the original channel before investigating, executing or moving to a side thread. Do not move the initial acknowledgment into the side thread. If the task arrived in a post/thread, acknowledge in that original conversation. Mark the source message for work you take on before starting or queuing it. Internal narration does not acknowledge or deliver work.",
     "",
     "When steering arrives for ongoing work, the task lead promptly acknowledges receipt in the channel where it arrived before the team continues work or applies the change. State what you understood or what needs clarification; do not silently accept steering and modify the work.",
