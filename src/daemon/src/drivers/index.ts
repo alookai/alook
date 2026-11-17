@@ -30,5 +30,5 @@ export function getDriver(runtimeId: string): AgentBackend {
 }
 
 export function listRuntimeIds(): RuntimeId[] {
-  return BUILTIN_BACKEND_IDS.filter((id) => id !== "codex");
+  return [...BUILTIN_BACKEND_IDS];
 }
