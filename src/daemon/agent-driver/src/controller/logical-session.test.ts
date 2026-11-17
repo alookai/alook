@@ -425,6 +425,28 @@ describe("shared input responsibility and evidence", () => {
     expect(observed.filter((event) => event.type === "turn_completed")).toEqual([expect.objectContaining({ result: { outcome: "success", backendSessionId: "" } })]);
   });
 
+  it("retains attributed model facts without changing root work, text or terminal authority", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    const { session } = makeSession("codex", { lane, now: () => 1_000 });
+    const events: AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>[] = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event); })();
+    try {
+      await session.start({ id: "A", kind: "user", text: "root" });
+      lane.emit({ kind: "model_observed", observation: { model: "root", source: "response", responseId: "one" } });
+      lane.emit({ kind: "model_observed", observation: { model: "child", source: "response" }, attribution: { scope: "child", agentId: "child" } });
+      lane.emit({ kind: "model_observed", observation: { model: "summary", source: "aggregate" } });
+      expect(session.snapshot().observedModel).toEqual({ model: "root", source: "response", responseId: "one", observedAt: 1_000 });
+      expect(session.snapshot().state).toBe("working");
+      lane.emit({ kind: "assistant_message_completed", text: "reply" });
+      lane.emit({ kind: "turn_end", turnOwner: "codex:test:1", outcome: "success" });
+      expect(session.snapshot().state).toBe("idle");
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 10 }); await collecting; }
+    expect(events.filter((event) => event.type === "model_observed")).toHaveLength(3);
+    expect(events).toContainEqual(expect.objectContaining({ type: "assistant_message_completed", text: "reply" }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", result: expect.objectContaining({ outcome: "success" }) }));
+  });
+
   it("reports same-ID recovery and absent terminal evidence as unverified and unknown", async () => {
     const lane = new ControlledRuntimeLane();
     lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
@@ -1262,6 +1284,37 @@ describe("logical delivery diagnostics", () => {
 });
 
 describe("closed physical-lane tombstone", () => {
+  it.each<AdapterEvent>([
+    { kind: "tool_output", callId: "finished-tool", name: "shell", outcome: "success" },
+    { kind: "tool_output", name: "shell", outcome: "success" },
+    { kind: "compaction_finished" },
+    { kind: "review_finished" },
+  ])("keeps a closed persistent root idle after a delayed $kind and accepts the next prompt", async (tail) => {
+    const { session, driver } = makeSession("claude");
+    const first = await session.start({ id: "one", kind: "user", text: "first" });
+    await emit(driver, { kind: "tool_call", callId: "finished-tool", name: "shell", input: {} });
+    await emit(driver, { kind: "turn_end", sessionId: "root" });
+    await emit(driver, tail);
+    await emit(driver, tail);
+
+    expect(session.snapshot()).toMatchObject({
+      state: "idle",
+      activeTurn: undefined,
+      diagnostics: { metrics: { outstandingToolUses: 0 } },
+    });
+    const second = await session.send({ id: "two", kind: "user", text: "second" });
+    expect(second).toMatchObject({ status: "accepted", delivery: "prompt" });
+    if (first.status === "accepted" && second.status === "accepted") {
+      expect(second.turnId).not.toBe(first.turnId);
+    }
+    expect(session.snapshot().activeTurn?.commandIds).toEqual(["two"]);
+    expect(driver.processes).toHaveLength(1);
+    await emit(driver, { kind: "turn_end", sessionId: "root" });
+    expect(session.snapshot().state).toBe("idle");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await session.closed;
+  });
+
   it("drops every closed per-turn lane tail before it can poison the next turn boundary", async () => {
     const { session, driver } = makeSafeBoundarySession("claude", {
       execution: {

@@ -113,6 +113,13 @@ function patchReq(body: unknown) {
 const ctx = { params: { id: "b1" } } as any
 
 describe("PATCH /api/community/bots/[id]", () => {
+  it("rejects switching into the retired automatic backend before changing any row", async () => {
+    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ error: "Choose Codex App or Codex CLI" })
+    expect(mockUpdateBot).not.toHaveBeenCalled()
+    expect(mockUpdateBotRuntimeConfig).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetBotOwnedBy.mockResolvedValue({
@@ -130,7 +137,7 @@ describe("PATCH /api/community/bots/[id]", () => {
       id: "mac1",
       availableRuntimes: [
         { id: "claude", status: "healthy" },
-        { id: "codex", status: "healthy" },
+        { id: "codex-cli", status: "healthy" },
       ],
     })
     mockPushAgentModelSwitchToMachine.mockResolvedValue({ sent: 1, deliveryError: false })
@@ -264,11 +271,11 @@ describe("PATCH /api/community/bots/[id]", () => {
     mockUpdateBot.mockResolvedValue({
       id: "b1", name: "Old", discriminator: "0001", description: "old desc", image: null,
     })
-    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    const res = await PATCH(patchReq({ runtime: "codex-cli" }), ctx)
     expect(res.status).toBe(200)
     const body = (await res.json()) as { applied: boolean; bot: { runtime: string; modelName: string | null } }
     expect(body.applied).toBe(true)
-    expect(body.bot.runtime).toBe("codex")
+    expect(body.bot.runtime).toBe("codex-cli")
     expect(body.bot.modelName).toBe(null)
     expect(mockPushAgentProviderSwitchToMachine).toHaveBeenCalledWith(
       expect.anything(),
@@ -276,12 +283,12 @@ describe("PATCH /api/community/bots/[id]", () => {
       expect.objectContaining({
         agentId: "b1",
         from: "claude",
-        to: "codex",
-        config: expect.objectContaining({ runtime: "codex" }),
+        to: "codex-cli",
+        config: expect.objectContaining({ runtime: "codex-cli" }),
       }),
     )
     expect(mockUpdateBotRuntimeConfig).toHaveBeenCalledWith(expect.anything(), "b1", "u1", {
-      runtime: "codex",
+      runtime: "codex-cli",
       modelName: null,
       reasoningEffort: null,
     })
@@ -300,7 +307,7 @@ describe("PATCH /api/community/bots/[id]", () => {
       id: "b1", name: "Old", discriminator: "0001", description: "old desc", image: null,
     })
 
-    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    const res = await PATCH(patchReq({ runtime: "codex-cli" }), ctx)
 
     expect(res.status).toBe(200)
     expect(mockPushAgentProviderSwitchToMachine).toHaveBeenCalledWith(
@@ -309,12 +316,12 @@ describe("PATCH /api/community/bots/[id]", () => {
       expect.objectContaining({
         agentId: "b1",
         from: "gemini",
-        to: "codex",
-        config: expect.objectContaining({ runtime: "codex", model: { kind: "default" } }),
+        to: "codex-cli",
+        config: expect.objectContaining({ runtime: "codex-cli", model: { kind: "default" } }),
       }),
     )
     expect(mockUpdateBotRuntimeConfig).toHaveBeenCalledWith(expect.anything(), "b1", "u1", {
-      runtime: "codex",
+      runtime: "codex-cli",
       modelName: null,
       reasoningEffort: null,
     })
@@ -330,7 +337,7 @@ describe("PATCH /api/community/bots/[id]", () => {
 
   it("changed provider, daemon offline: 409, zero D1 write, no push", async () => {
     mockIsBotOnline.mockResolvedValue(false)
-    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    const res = await PATCH(patchReq({ runtime: "codex-cli" }), ctx)
     expect(res.status).toBe(409)
     expect(mockUpdateBotRuntimeConfig).not.toHaveBeenCalled()
     expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
@@ -359,12 +366,12 @@ describe("PATCH /api/community/bots/[id]", () => {
       runtime: "claude", modelName: "claude-opus-4-6",
     })
     mockPushAgentProviderSwitchToMachine.mockResolvedValue({ sent: 0, deliveryError: false })
-    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    const res = await PATCH(patchReq({ runtime: "codex-cli" }), ctx)
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toMatchObject({
       applied: false,
       application: "saved_not_applied",
-      bot: { runtime: "codex", runtimeConfigRevision: 1 },
+      bot: { runtime: "codex-cli", runtimeConfigRevision: 1 },
     })
     expect(mockUpdateBotRuntimeConfig).toHaveBeenCalledOnce()
   })
@@ -398,7 +405,7 @@ describe("PATCH /api/community/bots/[id]", () => {
 
   it("changed provider, desired-state write throws: logs, returns 500, and does not push", async () => {
     mockUpdateBotRuntimeConfig.mockRejectedValue(new Error("d1 down"))
-    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+    const res = await PATCH(patchReq({ runtime: "codex-cli" }), ctx)
     expect(res.status).toBe(500)
     expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
     expect(mockLogError).toHaveBeenCalledWith(
@@ -467,12 +474,12 @@ describe("PATCH /api/community/bots/[id]", () => {
   it("persists and forwards a supported reasoning-only edit with a server revision", async () => {
     mockGetBotOwnedBy.mockResolvedValue({
       id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
-      runtime: "codex", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
+      runtime: "codex-cli", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
     })
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
       availableRuntimes: [{
-        id: "codex",
+        id: "codex-cli",
         status: "healthy",
         reasoning: {
           updateMode: "live_next_turn",
@@ -496,7 +503,7 @@ describe("PATCH /api/community/bots/[id]", () => {
       bot: { reasoningEffort: "xhigh", runtimeConfigRevision: 4 },
     })
     expect(mockUpdateBotRuntimeConfig).toHaveBeenCalledWith(expect.anything(), "b1", "u1", {
-      runtime: "codex",
+      runtime: "codex-cli",
       modelName: "gpt-5",
       reasoningEffort: "xhigh",
     })
@@ -534,13 +541,13 @@ describe("PATCH /api/community/bots/[id]", () => {
   it("persists an offline reasoning edit and sends no control frame", async () => {
     mockGetBotOwnedBy.mockResolvedValue({
       id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
-      runtime: "codex", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
+      runtime: "codex-cli", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
     })
     mockIsBotOnline.mockResolvedValue(false)
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
       availableRuntimes: [{
-        id: "codex",
+        id: "codex-cli",
         status: "healthy",
         reasoning: {
           updateMode: "live_next_turn",
@@ -566,12 +573,12 @@ describe("PATCH /api/community/bots/[id]", () => {
   it("returns 500 when a reasoning-only tuple cannot be persisted", async () => {
     mockGetBotOwnedBy.mockResolvedValue({
       id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
-      runtime: "codex", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
+      runtime: "codex-cli", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
     })
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
       availableRuntimes: [{
-        id: "codex",
+        id: "codex-cli",
         status: "healthy",
         reasoning: {
           updateMode: "live_next_turn",
@@ -595,12 +602,12 @@ describe("PATCH /api/community/bots/[id]", () => {
   it("keeps a persisted reasoning edit recoverable when live delivery throws", async () => {
     mockGetBotOwnedBy.mockResolvedValue({
       id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
-      runtime: "codex", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
+      runtime: "codex-cli", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
     })
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
       availableRuntimes: [{
-        id: "codex",
+        id: "codex-cli",
         status: "healthy",
         reasoning: {
           updateMode: "live_next_turn",
@@ -638,12 +645,12 @@ describe("PATCH /api/community/bots/[id]", () => {
   it("falls back to Default when a model switch makes the stored effort incompatible", async () => {
     mockGetBotOwnedBy.mockResolvedValue({
       id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
-      runtime: "codex", modelName: "model-a", reasoningEffort: "high", runtimeConfigRevision: 7,
+      runtime: "codex-cli", modelName: "model-a", reasoningEffort: "high", runtimeConfigRevision: 7,
     })
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
       availableRuntimes: [{
-        id: "codex",
+        id: "codex-cli",
         status: "healthy",
         reasoning: {
           updateMode: "live_next_turn",
@@ -663,7 +670,7 @@ describe("PATCH /api/community/bots/[id]", () => {
       bot: { modelName: "model-b", reasoningEffort: null, runtimeConfigRevision: 8 },
     })
     expect(mockUpdateBotRuntimeConfig).toHaveBeenCalledWith(expect.anything(), "b1", "u1", {
-      runtime: "codex",
+      runtime: "codex-cli",
       modelName: "model-b",
       reasoningEffort: null,
     })

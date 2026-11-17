@@ -168,7 +168,7 @@ export function useUpdateBot() {
     const data = await context.request<UpdateBotResponse>("/api/community/bots/" + id, { method: "PATCH", body: JSON.stringify(input) })
     await context.publishProfile(botProfilePatch(data.bot))
     const key = communityKeys.bots(), resource = context.resources.find((resource) => context.client.getQueryCache().find({ queryKey: key, exact: true }) === resource)
-    if (resource) context.client.setQueryData<BotsResourceResponse>(key, (current) => current ? { ...current, bots: current.bots.map((bot) => bot.id === id && bot.runtimeConfigRevision <= data.bot.runtimeConfigRevision ? { ...bot, runtime: data.bot.runtime, modelName: data.bot.modelName, reasoningEffort: data.bot.reasoningEffort, runtimeConfigRevision: data.bot.runtimeConfigRevision } : bot) } : current)
+    if (resource) context.client.setQueryData<BotsResourceResponse>(key, (current) => current ? { ...current, bots: current.bots.map((bot) => bot.id === id && bot.runtimeConfigRevision <= data.bot.runtimeConfigRevision ? { ...bot, modelObservation: bot.runtime === data.bot.runtime ? bot.modelObservation : undefined, runtime: data.bot.runtime, modelName: data.bot.modelName, reasoningEffort: data.bot.reasoningEffort, runtimeConfigRevision: data.bot.runtimeConfigRevision } : bot) } : current)
     return data
   }, botIdSurfaceKeys)
 }

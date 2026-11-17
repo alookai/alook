@@ -1975,6 +1975,39 @@ describe("createDaemon — terminal usage shutdown contract", () => {
     return { daemon, sockets, sessions, logger, workingDirectoryBase, wake };
   }
 
+  it("piggybacks native model snapshots on existing heartbeat, idle and every resync state", async () => {
+    const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
+    const ctx = await setup({}, "codex");
+    const frames = () => ctx.sockets[0]!.sent.map(frame => JSON.parse(frame));
+    try {
+      ctx.wake();
+      await vi.waitFor(() => expect(ctx.sessions).toHaveLength(1));
+      await vi.waitFor(() => expect(frames().some(frame => frame.type === "agent_activity" && frame.state === "running")).toBe(true));
+      const session = ctx.sessions[0]!;
+      const snapshot = session.snapshot.bind(session);
+      const observedModel = { model: "native-served", source: "response" as const, responseId: "native-response", observedAt: Date.now() };
+      vi.spyOn(session, "snapshot").mockImplementation(() => ({ ...snapshot(), observedModel }));
+      const before = frames().filter(frame => frame.type === "agent_activity").length;
+      await session.fire("agent_event", { type: "model_observed", observation: observedModel, attribution: { scope: "root" } });
+      await drainEventTasks();
+      expect(frames().filter(frame => frame.type === "agent_activity")).toHaveLength(before);
+      await vi.waitFor(() => expect(frames().some(frame => frame.type === "agent_activity" && frame.state === "running" && frame.modelObservation?.model === "native-served")).toBe(true), { timeout: 6_500 });
+      const live = vi.spyOn(AgentProcessManager.prototype, "liveAgentActivities");
+      const current = vi.spyOn(AgentProcessManager.prototype, "agentActivity");
+      for (const state of ["starting", "running", "stopping", "idle"] as const) {
+        live.mockReturnValue([{ agentId: "bot_1", state }]);
+        current.mockReturnValue(state);
+        const activities = await resync.mock.calls[0]![0]().activities;
+        expect(activities).toMatchObject([{ agentId: "bot_1", state, modelObservation: { model: "native-served", responseId: "native-response" } }]);
+      }
+      live.mockRestore();
+      current.mockRestore();
+      await session.fire("runtime_event", { kind: "turn_end" });
+      await vi.waitFor(() => expect(frames().some(frame => frame.type === "agent_activity" && frame.state === "idle" && frame.modelObservation?.model === "native-served")).toBe(true));
+      expect(frames().some(frame => frame.type === "agent_model")).toBe(false);
+    } finally { await ctx.daemon.stop(); }
+  });
+
   it.each(["claude", "antigravity", "cursor", "cursor-sdk", "copilot", "qoder", "agy"] as const)("keeps %s turns and activity live while background quota is pending", async (backend) => {
     const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
     const quota = gate<null>();

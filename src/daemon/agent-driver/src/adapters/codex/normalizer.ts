@@ -1,3 +1,4 @@
+import { modelObservation } from "../../internal/model-observation.js";
 import type { AdapterEvent } from "../../internal/adapter.js";
 import { mapCodexQuotaSnapshots, mapCodexSettledUsage } from "./telemetry.js";
 import { SettledUsageProjector } from "../../internal/token-usage.js";
@@ -242,7 +243,7 @@ export class CodexEventNormalizer {
 
     if (msg?.result?.thread?.id) {
       const events = this.adoptAndInit(msg.result.thread.id);
-      if (typeof msg.result.model === "string") events.push({ kind: "configuration_observed", observation: { evidence: "observed", effective: "current", model: msg.result.model, ...(typeof msg.result.reasoningEffort === "string" || msg.result.reasoningEffort === null ? { reasoningEffort: msg.result.reasoningEffort } : {}) } });
+      if (typeof msg.result.model === "string") events.push({ kind: "configuration_observed", ...(msg.result.thread.id !== this.threadId ? { attribution: { scope: "unknown" as const, agentId: msg.result.thread.id } } : {}), observation: { evidence: "observed", effective: "current", model: msg.result.model, ...(typeof msg.result.reasoningEffort === "string" || msg.result.reasoningEffort === null ? { reasoningEffort: msg.result.reasoningEffort } : {}) } });
       return events;
     }
 
@@ -253,6 +254,11 @@ export class CodexEventNormalizer {
   private handleNotification(method: string, params: any): AdapterEvent[] {
     const notificationThreadId = typeof params?.threadId === "string" ? params.threadId : null;
     if (method === "rawResponse/completed") return this.handleSettledUsage(params);
+    if (method === "thread/settings/updated") {
+      const report = modelObservation(params.threadSettings?.model, "session");
+      if (!report) return [];
+      return notificationThreadId === this.threadId ? [report] : [{ ...report, attribution: { scope: "unknown", agentId: notificationThreadId ?? undefined } }];
+    }
     if (
       method === "turn/completed"
       && notificationThreadId !== null
@@ -382,14 +388,16 @@ export class CodexEventNormalizer {
       || typeof backendSessionId !== "string"
       || typeof providerRecordId !== "string"
     ) return [];
+    const model = modelObservation(params.model ?? params.response?.model, "response", undefined, providerRecordId);
+    const observed: AdapterEvent[] = model ? [{ ...model, ...(backendSessionId !== this.threadId ? { attribution: { scope: "unknown" as const, agentId: backendSessionId, nativeTurnId: notificationTurnId } } : {}) }] : [];
     const usage = mapCodexSettledUsage(params, this.usageProjector);
-    if (!usage) return [];
+    if (!usage) return observed;
     const recordsByTurn = this.usageRecordsBySessionAndTurn.get(backendSessionId) ?? new Map<string, Set<string>>();
     const recordIds = recordsByTurn.get(notificationTurnId) ?? new Set<string>();
     recordIds.add(providerRecordId);
     recordsByTurn.set(notificationTurnId, recordIds);
     this.usageRecordsBySessionAndTurn.set(backendSessionId, recordsByTurn);
-    return [usage];
+    return [...observed, usage];
   }
 
   private releaseUsageForTurn(backendSessionId: string, turnId: string): void {

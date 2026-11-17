@@ -38,7 +38,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
         hostname: `avatar-e2e-${Date.now()}`,
         platform: "darwin",
         arch: "arm64",
-        runtimeReport: [{ id: "codex", status: "healthy" }],
+        runtimeReport: [{ id: "codex-cli", status: "healthy" }],
       }),
     })
     expect(activate.status).toBe(200)
@@ -61,7 +61,7 @@ async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
     const response = await communityFixtureFetch(`${WEB_URL}/api/community/bots`, {
       method: "POST",
       headers: aliceHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ name, machineId, runtime: "codex" }),
+      body: JSON.stringify({ name, machineId, runtime: "codex-cli" }),
     })
     expect(response.status).toBe(201)
     const body = await response.json() as {

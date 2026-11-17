@@ -63,7 +63,7 @@ const definitions: readonly UseCaseDefinition[] = [
 
 export const useCases = definitions.map((useCase) => ({
   ...useCase,
-  image: `/usecases/${useCase.slug}/hero.webp`,
+  image: `/usecases/${useCase.slug}/hero-20261117-comic.webp`,
   categoryLabel: useCaseCategories.find(({ id }) => id === useCase.category)!.label,
 }));
 

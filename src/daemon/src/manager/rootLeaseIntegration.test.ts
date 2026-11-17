@@ -28,6 +28,91 @@ async function flushEvents(): Promise<void> {
 }
 
 describe("raw adapter → public session → manager root lease", () => {
+  it("starts a fresh native turn on the persistent lane after delayed completed-turn tool results", async () => {
+    const adapter = new CodexDriver();
+    const child = fakeProcess();
+    const spawn = vi.spyOn(adapter, "spawn").mockResolvedValue({ process: child });
+    const session = new LogicalAgentSession<BuiltinBackendSpecs, "codex">(
+      "codex",
+      { model: { kind: "default" }, mode: "default" },
+      { workingDirectory: process.cwd(), instructions: "", launchId: "late-tool" },
+      adapter,
+      createBuiltinAgentDriverRegistry().get("codex").capabilities,
+      createFakeAgentDriverHost(),
+      {
+        environmentLayers: {
+          base: {}, hostStatic: {}, identityProtected: {}, platformProtected: {},
+          runtimeProtected: {}, networkProtected: {}, credentialSensitive: {},
+        },
+        async release() {},
+      },
+      100,
+    );
+    const manager = new AgentProcessManager({
+      driverFor: () => ({ id: "codex" }),
+      baseContextFor: () => ({
+        workingDirectory: process.cwd(), agentId: "a1", standingPrompt: "",
+        config: {} as HostLaunchContext["config"], credentialProxy: {} as HostLaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => session,
+    });
+    const writes: string[] = [];
+    child.stdin.on("data", chunk => writes.push(chunk.toString()));
+    const raw = async (value: unknown) => {
+      child.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...value as object })}\n`);
+      await flushEvents();
+    };
+    try {
+      manager.register("a1");
+      manager.deliver("a1", { id: "one", seq: 1, text: "first" });
+      await flushEvents();
+      await raw({ id: 2, result: { thread: { id: "root-thread" } } });
+      await raw({ method: "turn/started", params: {
+        threadId: "root-thread", turn: { id: "first-native-turn", status: "inProgress" },
+      } });
+      const firstTurn = session.snapshot().activeTurn?.turnId;
+      await raw({ method: "item/started", params: {
+        threadId: "root-thread", turnId: "first-native-turn", item: { id: "slow-tool", type: "commandExecution" },
+      } });
+      await raw({ method: "turn/completed", params: {
+        threadId: "root-thread", turn: { id: "first-native-turn", status: "completed" },
+      } });
+      for (let duplicate = 0; duplicate < 2; duplicate++) {
+        await raw({ method: "item/completed", params: {
+          threadId: "root-thread", turnId: "first-native-turn",
+          item: { id: "slow-tool", type: "commandExecution", status: "completed", exitCode: 0 },
+        } });
+      }
+      expect(session.snapshot()).toMatchObject({ state: "idle", activeTurn: undefined });
+      expect(manager.snapshot().agents.a1).toMatchObject({ turnActive: false, execution: { lease: { state: "none" } } });
+
+      manager.deliver("a1", { id: "two", seq: 2, text: "next unread wake" });
+      await flushEvents();
+      expect(writes.map(line => JSON.parse(line)).filter(message => message.method?.startsWith("turn/")))
+        .toEqual([expect.objectContaining({ method: "turn/start", params: {
+          threadId: "root-thread", input: [{ type: "text", text: "next unread wake" }],
+        } })]);
+      await raw({ method: "turn/started", params: {
+        threadId: "root-thread", turn: { id: "second-native-turn", status: "inProgress" },
+      } });
+      const secondTurn = session.snapshot().activeTurn?.turnId;
+      expect(secondTurn).toBeTruthy();
+      expect(secondTurn).not.toBe(firstTurn);
+      expect(session.snapshot().activeTurn?.commandIds).toEqual(["two"]);
+      expect(manager.snapshot().agents.a1).toMatchObject({ turnActive: true, execution: {
+        lease: { state: "active", identity: { turnId: secondTurn } },
+      } });
+      await raw({ method: "turn/completed", params: {
+        threadId: "root-thread", turn: { id: "second-native-turn", status: "completed" },
+      } });
+      expect(session.snapshot().state).toBe("idle");
+      expect(spawn).toHaveBeenCalledOnce();
+    } finally {
+      await manager.stopAll();
+      await session.closed;
+    }
+  });
+
   it("keeps an explicitly deferred native input through root failure and cleanup, then replays its original input", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-13T07:00:00Z"));

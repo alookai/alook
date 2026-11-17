@@ -37,16 +37,21 @@
   --muted: #161a24;
 }
 
-.blog-prose {
+.blog-shell a:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 2px; }
+
+/* Prose styles stop at embedded product demos: guide/use case animations render real app
+   components (messages, tables, images) that must keep their own app styling (gus-issues/#274#169). */
+@scope (.blog-prose) to ([data-guide-demo]) {
+:scope {
   font-family: var(--font-dm-sans);
   font-size: 1rem;
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
-.blog-prose :where(p, ul, ol, blockquote, pre, table, figure) { margin-block: 1rem; }
-.blog-prose p, .blog-prose li { line-height: 1.7; }
-.blog-prose > :first-child { margin-top: 0; }
-.blog-prose :where(h2, h3, h4, h5, h6) {
+:scope :where(p, ul, ol, blockquote, pre, table, figure) { margin-block: 1rem; }
+:scope p, :scope li { line-height: 1.7; }
+:scope > :first-child { margin-top: 0; }
+:scope :where(h2, h3, h4, h5, h6) {
   font-family: var(--font-dm-sans);
   font-weight: 600;
   line-height: 1.3;
@@ -54,30 +59,29 @@
   margin: 2.5rem 0 1rem;
   scroll-margin-top: 5rem;
 }
-.blog-prose h2 { font-size: 1.5rem; }
-.blog-prose h3 { font-size: 1.25rem; margin-top: 2rem; }
-.blog-prose :where(h4, h5, h6) { font-size: 1.125rem; margin-top: 2rem; }
-.blog-prose a { text-decoration: underline; text-underline-offset: 0.2em; text-decoration-color: color-mix(in oklch, var(--foreground) 40%, transparent); }
-.blog-prose a:hover { text-decoration-color: currentColor; }
-.blog-prose :where(h2, h3, h4, h5, h6) a { text-decoration: none; }
-.blog-shell a:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 2px; }
-.blog-prose ul { list-style: disc; padding-left: 1.5rem; }
-.blog-prose ol { list-style: decimal; padding-left: 1.5rem; }
-.blog-prose li { margin-block: 0.5rem; }
-.blog-prose li > :where(p, ul, ol) { margin-block: 0.5rem; }
-.blog-prose blockquote { border-left: 1px solid var(--border); padding-left: 1rem; color: var(--foreground); }
-.blog-prose blockquote > :first-child { margin-top: 0; }
-.blog-prose blockquote > :last-child { margin-bottom: 0; }
-.blog-prose code { font-family: var(--font-dm-mono); font-size: 0.875em; background: var(--muted); border-radius: 0.25rem; padding: 0.125rem 0.25rem; }
-.blog-prose pre { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; border-radius: 0.5rem; background: var(--muted); padding: 1rem; }
-.blog-prose pre code { padding: 0; background: transparent; }
-.blog-prose img { width: 100%; height: auto; border-radius: 0.5rem; margin-block: 2rem; }
-.blog-prose table { display: block; max-width: 100%; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; border-collapse: collapse; font-size: 0.875rem; }
-.blog-prose :where(th, td) { border: 1px solid var(--border); padding: 0.5rem 1rem; text-align: left; }
-.blog-prose th { background: var(--muted); font-weight: 600; }
-.blog-prose hr { margin-block: 2rem; border-color: var(--border); }
-.blog-prose [data-footnote-ref] { padding-inline: 0.125rem; scroll-margin-top: 5rem; }
-.blog-prose [data-footnotes] {
+:scope h2 { font-size: 1.5rem; }
+:scope h3 { font-size: 1.25rem; margin-top: 2rem; }
+:scope :where(h4, h5, h6) { font-size: 1.125rem; margin-top: 2rem; }
+:scope a { text-decoration: underline; text-underline-offset: 0.2em; text-decoration-color: color-mix(in oklch, var(--foreground) 40%, transparent); }
+:scope a:hover { text-decoration-color: currentColor; }
+:scope :where(h2, h3, h4, h5, h6) a { text-decoration: none; }
+:scope ul { list-style: disc; padding-left: 1.5rem; }
+:scope ol { list-style: decimal; padding-left: 1.5rem; }
+:scope li { margin-block: 0.5rem; }
+:scope li > :where(p, ul, ol) { margin-block: 0.5rem; }
+:scope blockquote { border-left: 1px solid var(--border); padding-left: 1rem; color: var(--foreground); }
+:scope blockquote > :first-child { margin-top: 0; }
+:scope blockquote > :last-child { margin-bottom: 0; }
+:scope code { font-family: var(--font-dm-mono); font-size: 0.875em; background: var(--muted); border-radius: 0.25rem; padding: 0.125rem 0.25rem; }
+:scope pre { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; border-radius: 0.5rem; background: var(--muted); padding: 1rem; }
+:scope pre code { padding: 0; background: transparent; }
+:scope img { width: 100%; height: auto; border-radius: 0.5rem; margin-block: 2rem; }
+:scope table { display: block; max-width: 100%; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; border-collapse: collapse; font-size: 0.875rem; }
+:scope :where(th, td) { border: 1px solid var(--border); padding: 0.5rem 1rem; text-align: left; }
+:scope th { background: var(--muted); font-weight: 600; }
+:scope hr { margin-block: 2rem; border-color: var(--border); }
+:scope [data-footnote-ref] { padding-inline: 0.125rem; scroll-margin-top: 5rem; }
+:scope [data-footnotes] {
   margin-top: 3rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--border);
@@ -85,7 +89,7 @@
   font-style: italic;
   color: var(--muted-foreground);
 }
-.blog-prose [data-footnotes] h2 {
+:scope [data-footnotes] h2 {
   position: static;
   width: auto;
   height: auto;
@@ -100,31 +104,31 @@
   letter-spacing: normal;
   color: var(--foreground);
 }
-.blog-prose [data-footnotes] :where(p, li) { line-height: 1.6; }
-.blog-prose [data-footnotes] ol { margin: 0; }
-.blog-prose [data-footnotes] li { padding-left: 0.25rem; scroll-margin-top: 5rem; }
-.blog-prose [data-footnote-backref] { display: inline-block; padding: 0.25rem; font-style: normal; }
-.blog-prose [data-footnotes] li:target { background: var(--muted); border-radius: 0.25rem; }
+:scope [data-footnotes] :where(p, li) { line-height: 1.6; }
+:scope [data-footnotes] ol { margin: 0; }
+:scope [data-footnotes] li { padding-left: 0.25rem; scroll-margin-top: 5rem; }
+:scope [data-footnote-backref] { display: inline-block; padding: 0.25rem; font-style: normal; }
+:scope [data-footnotes] li:target { background: var(--muted); border-radius: 0.25rem; }
 
 @media (min-width: 640px) {
-  .blog-prose { font-size: 1.125rem; }
-  .blog-prose h2 { font-size: 1.75rem; }
-  .blog-prose h3 { font-size: 1.375rem; }
+  :scope { font-size: 1.125rem; }
+  :scope h2 { font-size: 1.75rem; }
+  :scope h3 { font-size: 1.375rem; }
 }
 
-.blog-prose a { text-decoration-color: color-mix(in oklab, var(--tn-blue) 55%, transparent); }
-.blog-prose a:hover { color: var(--tn-blue-side); text-decoration-color: currentColor; }
-.blog-prose code { background: var(--tn-well); box-shadow: inset 0 1px 1px rgb(60 45 20 / 10%); }
-.blog-prose pre { border: 1px solid var(--tn-line); border-radius: 14px; background: var(--tn-well); box-shadow: inset 0 1.5px 3px rgb(60 45 20 / 10%); }
-.blog-prose pre code { box-shadow: none; }
-.blog-prose blockquote { border: 1px solid var(--tn-line); border-left: 3px solid var(--tn-blue); border-radius: 0 12px 12px 0; padding: 0.75rem 1rem; background: var(--tn-well); box-shadow: inset 0 1px 2px rgb(60 45 20 / 8%); }
-.blog-prose img { border: 1px solid var(--tn-line); border-radius: 14px; }
-.dark .blog-prose :is(code, pre) { box-shadow: inset 0 1.5px 4px rgb(0 0 0 / 70%); }
+:scope a { text-decoration-color: color-mix(in oklab, var(--tn-blue) 55%, transparent); }
+:scope a:hover { color: var(--tn-blue-side); text-decoration-color: currentColor; }
+:scope code { background: var(--tn-well); box-shadow: inset 0 1px 1px rgb(60 45 20 / 10%); }
+:scope pre { border: 1px solid var(--tn-line); border-radius: 14px; background: var(--tn-well); box-shadow: inset 0 1.5px 3px rgb(60 45 20 / 10%); }
+:scope pre code { box-shadow: none; }
+:scope blockquote { border: 1px solid var(--tn-line); border-left: 3px solid var(--tn-blue); border-radius: 0 12px 12px 0; padding: 0.75rem 1rem; background: var(--tn-well); box-shadow: inset 0 1px 2px rgb(60 45 20 / 8%); }
+:scope img { border: 1px solid var(--tn-line); border-radius: 14px; }
+.dark :scope :is(code, pre) { box-shadow: inset 0 1.5px 4px rgb(0 0 0 / 70%); }
 
 /* Sections: each top-level H2 opens with a # keycap that is part of its
  * permalink; it hangs in the left margin when there is room. */
-.blog-prose > h2 { position: relative; }
-.blog-prose > h2 > a::before {
+:scope > h2 { position: relative; }
+:scope > h2 > a::before {
   content: "#";
   display: inline-grid;
   width: 1.4em;
@@ -145,18 +149,18 @@
   line-height: 1;
   transition: translate 90ms ease-out, color 120ms ease-out, box-shadow 90ms ease-out;
 }
-.dark .blog-prose > h2 > a::before { box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%), 0 2px 0 rgb(0 0 0 / 60%); }
-.blog-prose > h2 > a:hover::before { color: var(--tn-blue-side); translate: 0 -1px; }
-.blog-prose > h2 > a:active::before { translate: 0 1px; box-shadow: inset 0 1px 2px rgb(60 45 20 / 22%); }
+.dark :scope > h2 > a::before { box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%), 0 2px 0 rgb(0 0 0 / 60%); }
+:scope > h2 > a:hover::before { color: var(--tn-blue-side); translate: 0 -1px; }
+:scope > h2 > a:active::before { translate: 0 1px; box-shadow: inset 0 1px 2px rgb(60 45 20 / 22%); }
 @media (min-width: 900px) {
-  .blog-prose > h2 > a::before { position: absolute; left: -2.6rem; top: 0.36em; margin: 0; }
+  :scope > h2 > a::before { position: absolute; left: -2.6rem; top: 0.36em; margin: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .blog-prose > h2 > a::before { transition: none; } }
+@media (prefers-reduced-motion: reduce) { :scope > h2 > a::before { transition: none; } }
 
 /* Lists: brand-blue indicator squares; ordered numbers in mono figures. */
-.blog-prose > ul, .blog-prose li > ul { list-style: none; }
-:is(.blog-prose > ul, .blog-prose li > ul) > li { position: relative; }
-:is(.blog-prose > ul, .blog-prose li > ul) > li::before {
+:scope > ul, :scope li > ul { list-style: none; }
+:is(:scope > ul, :scope li > ul) > li { position: relative; }
+:is(:scope > ul, :scope li > ul) > li::before {
   content: "";
   position: absolute;
   left: -1.1rem;
@@ -166,20 +170,21 @@
   border-radius: 1.5px;
   background: var(--tn-blue);
 }
-.blog-prose ol > li::marker { color: var(--tn-muted); font-family: var(--font-dm-mono), ui-monospace, monospace; font-size: 0.875em; font-variant-numeric: tabular-nums; }
+:scope ol > li::marker { color: var(--tn-muted); font-family: var(--font-dm-mono), ui-monospace, monospace; font-size: 0.875em; font-variant-numeric: tabular-nums; }
 
 /* Tables: one hairline case with an unbroken rounded edge and a header seam. */
-.blog-prose table { width: fit-content; border: 1px solid var(--tn-line); border-collapse: separate; border-spacing: 0; border-radius: 12px; }
-.blog-prose :where(th, td) { border: 0; border-right: 1px solid var(--tn-line); border-bottom: 1px solid var(--tn-line); }
-.blog-prose tr > :last-child { border-right: 0; }
-.blog-prose tbody tr:last-child > * { border-bottom: 0; }
-.blog-prose th { background: var(--muted); }
-.blog-prose thead th { border-bottom: 1.5px solid color-mix(in oklab, var(--tn-ink) 18%, transparent); }
+:scope table { width: fit-content; border: 1px solid var(--tn-line); border-collapse: separate; border-spacing: 0; border-radius: 12px; }
+:scope :where(th, td) { border: 0; border-right: 1px solid var(--tn-line); border-bottom: 1px solid var(--tn-line); }
+:scope tr > :last-child { border-right: 0; }
+:scope tbody tr:last-child > * { border-bottom: 0; }
+:scope th { background: var(--muted); }
+:scope thead th { border-bottom: 1.5px solid color-mix(in oklab, var(--tn-ink) 18%, transparent); }
 
 /* Breaks: a dashed tear line. */
-.blog-prose hr { border: 0; border-top: 1px dashed color-mix(in oklab, var(--tn-ink) 24%, transparent); }
+:scope hr { border: 0; border-top: 1px dashed color-mix(in oklab, var(--tn-ink) 24%, transparent); }
 
 /* Sources: the footnote label reads as a machine label. */
-.blog-prose [data-footnotes] h2 { font-family: var(--font-dm-mono), ui-monospace, monospace; font-size: 0.875rem; font-weight: 500; letter-spacing: 0.02em; color: var(--tn-muted); }
+:scope [data-footnotes] h2 { font-family: var(--font-dm-mono), ui-monospace, monospace; font-size: 0.875rem; font-weight: 500; letter-spacing: 0.02em; color: var(--tn-muted); }
+}
 
 .blog-shell ::selection { background: color-mix(in oklab, var(--tn-blue) 28%, transparent); }

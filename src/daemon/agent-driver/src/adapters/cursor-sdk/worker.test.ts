@@ -53,6 +53,32 @@ async function waitUntil(predicate: () => boolean) {
 }
 
 describe("Cursor SDK public sessions through an owned worker", () => {
+  it("preserves response model evidence through the built worker and labels the session fallback", async () => {
+    const f = setup();
+    writeFileSync(join(f.root, "release"), "go");
+    const opened = await f.open();
+    if (!opened.ok) throw new Error(opened.error.message);
+    const session = opened.session;
+    const events: AgentEvent<BuiltinBackendSpecs, "cursor-sdk">[] = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event); })();
+    try {
+      await session.start({ id: "first", kind: "user", text: "fallback" });
+      await waitUntil(() => session.snapshot().state === "idle");
+      expect(session.snapshot().observedModel).toMatchObject({ model: "fixture-model", source: "session" });
+      await session.send({ id: "second", kind: "user", text: "served" });
+      await waitUntil(() => session.snapshot().state === "idle");
+      expect(session.snapshot().observedModel).toMatchObject({ model: "native-served", source: "response", responseId: "native-response" });
+      expect(events.filter(event => event.type === "model_observed")).toEqual(expect.arrayContaining([
+        expect.objectContaining({ observation: { model: "fixture-model", source: "session" }, attribution: { scope: "root" } }),
+        expect.objectContaining({ observation: { model: "native-served", source: "response", responseId: "native-response" }, attribution: { scope: "root" } }),
+      ]));
+      expect(events.filter(event => event.type === "model_observed" && event.observation.source === "response")).toHaveLength(1);
+    } finally {
+      await session.stop({ reason: "shutdown", forceAfterMs: 100 });
+      await collecting;
+    }
+  });
+
   it("keeps one worker across turns and queues undelivered steering for the next turn", async () => {
     const f = setup();
     const opened = await f.open();

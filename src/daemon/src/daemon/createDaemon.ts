@@ -373,20 +373,21 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const activityPayload = async (
     info: { agentId: string; state: HostAgentActivity["state"] },
   ): Promise<HostAgentActivity> => {
-    if (info.state !== "idle") return info;
     const backendId = managerRef?.agentBackendId(info.agentId) ?? undefined;
-    const quota = isProviderQuotaBackend(backendId)
+    const quota = info.state === "idle" && isProviderQuotaBackend(backendId)
       ? providerQuotaSnapshot(backendId)
       : undefined;
-    const usageWindow = backendId && tokenUsageCapability(backendId) === "supported"
+    const usageWindow = info.state === "idle" && backendId && tokenUsageCapability(backendId) === "supported"
       ? await dailyTokenUsage.usageWindow(info.agentId)
       : null;
     if (usageWindow && tokenUsageAvailability.get(info.agentId)?.backendId === backendId && tokenUsageAvailability.get(info.agentId)?.status === "unavailable") {
       usageWindow.snapshots = usageWindow.snapshots.filter((snapshot) => snapshot.day !== usageWindow.usageDay);
       usageWindow.snapshots.push({ botId: info.agentId, day: usageWindow.usageDay, metrics: { input: null, output: null, cache: null } });
     }
+    const modelObservation = managerRef?.modelReportFor(info.agentId);
     return {
       ...info,
+      ...(modelObservation ? { modelObservation } : {}),
       ...(usageWindow ? {
         usageTimeZone: usageWindow.usageTimeZone,
         usageDay: usageWindow.usageDay,

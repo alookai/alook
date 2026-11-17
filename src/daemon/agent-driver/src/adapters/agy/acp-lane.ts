@@ -1,3 +1,4 @@
+import { acpModelObservation } from "../../internal/model-observation.js";
 import { Utf8LineFramer, Utf8TextDecoder } from "../../internal/utf8-lines.js";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -343,6 +344,8 @@ export class AgyAcpLane implements RuntimeLane {
       }
       this.sessionId = returnedSessionId;
     }
+    const nativeModel = acpModelObservation(session);
+    if (nativeModel) this.events.emit("runtime_event", nativeModel);
     await this.configureModel(session, ctx);
   }
 
@@ -834,6 +837,8 @@ export class AgyAcpLane implements RuntimeLane {
       this.diagnostic("warning", "Agy ACP emitted an update for a different session");
       return;
     }
+    const observedModel = acpModelObservation(payload.update);
+    if (observedModel) this.events.emit("runtime_event", observedModel);
     const configuration = record(payload.update);
     if (configuration?.sessionUpdate === "config_option_update") {
       this.rememberConfig(configuration, true);

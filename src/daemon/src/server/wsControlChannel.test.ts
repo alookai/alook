@@ -464,6 +464,22 @@ describe("WsControlChannel — wake/stop acks", () => {
 });
 
 describe("WsControlChannel — agent activity reports", () => {
+  it("replays the latest native model on reconnect instead of buffering an old disconnected frame", async () => {
+    const { ch, sockets } = makeChannel();
+    let model = "latest";
+    const report = () => ({ agentId: "a1", backendId: "codex", runtimeConfigRevision: 0, sessionInstanceId: "epoch", model, source: "response" as const, observedAt: "2026-11-17T02:00:00.000Z" });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [{ agentId: "a1", state: "idle", modelObservation: report() }] }));
+    await ch.reportAgentActivity({ agentId: "a1", state: "idle", modelObservation: { ...report(), model: "disconnected-old" } });
+    ch.connect();
+    sockets[0].emit("open");
+    expect(sockets[0].frames().filter((frame) => frame.type === "agent_activity")).toEqual([{ type: "agent_activity", agentId: "a1", state: "idle", modelObservation: report() }]);
+    sockets[0].emit("close");
+    model = "replacement";
+    await vi.waitFor(() => expect(sockets).toHaveLength(2));
+    sockets[1].emit("open");
+    expect(sockets[1].frames().filter((frame) => frame.type === "agent_activity")).toEqual([{ type: "agent_activity", agentId: "a1", state: "idle", modelObservation: report() }]);
+    ch.close();
+  });
   it("sends agent_activity when open", async () => {
     const { ch, sockets } = makeChannel();
     ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [] }));

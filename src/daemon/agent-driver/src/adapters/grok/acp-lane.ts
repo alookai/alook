@@ -1,3 +1,4 @@
+import { acpModelObservation } from "../../internal/model-observation.js";
 import { Utf8LineFramer, Utf8TextDecoder } from "../../internal/utf8-lines.js";
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -352,6 +353,8 @@ export class GrokAcpLane implements RuntimeLane {
       this.sessionId = returnedSessionId;
     }
     this.catalog = parseGrokModelCatalog(session.models) ?? this.catalog;
+    const observedModel = acpModelObservation(session);
+    if (observedModel) this.events.emit("runtime_event", observedModel);
     await this.configureModel(ctx);
   }
 
@@ -386,11 +389,13 @@ export class GrokAcpLane implements RuntimeLane {
 
   private async setModel(modelId: string, reasoningEffort?: ReasoningEffort): Promise<void> {
     if (!this.sessionId) throw new Error("Grok ACP session is not ready");
-    await this.call("session/set_model", {
+    const response = await this.call("session/set_model", {
       sessionId: this.sessionId,
       modelId,
       ...(reasoningEffort ? { _meta: { reasoningEffort } } : {}),
     });
+    const observedModel = acpModelObservation(response);
+    if (observedModel) this.events.emit("runtime_event", observedModel);
   }
 
   private admitPrompt(text: string, requestedOwner?: string): LaneAdmission {
@@ -701,6 +706,8 @@ export class GrokAcpLane implements RuntimeLane {
       this.diagnostic("warning", "Grok ACP emitted a session update without an active prompt");
       return;
     }
+    const observedModel = acpModelObservation(update);
+    if (observedModel) this.events.emit("runtime_event", observedModel);
     const updateType = update?.sessionUpdate;
     switch (updateType) {
       case "agent_message_chunk":

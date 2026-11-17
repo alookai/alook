@@ -110,12 +110,20 @@ describe("POST /api/community/bots — model", () => {
     })
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1", status: "online",
-      availableRuntimes: [{ id: "claude", status: "healthy" }, { id: "codex", status: "healthy" }],
+      availableRuntimes: [{ id: "claude", status: "healthy" }, { id: "codex-cli", status: "healthy" }],
     })
     mockCreateBot.mockResolvedValue({ botId: "b1", name: "MyBot", discriminator: "0001", description: "", image: null })
     mockGetUserPublic.mockResolvedValue({ id: "u1", name: "Owner", discriminator: "9999" })
     mockListBotsForOwner.mockResolvedValue([{ id: "b1" }])
     mockEnsureNewSiblingBotFriendships.mockResolvedValue({ blocked: false })
+  })
+
+  it("rejects new automatic bots even if an old daemon advertises the alias", async () => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] })
+    const res = await POST(postReq(base(null, "codex")), ctx)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ code: "BACKEND_RETIRED" })
+    expect(mockCreateBot).not.toHaveBeenCalled()
   })
 
   it("propagates unexpected configuration failures before creating a bot", async () => {
@@ -308,7 +316,7 @@ describe("POST /api/community/bots — model", () => {
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1", status: "online",
       availableRuntimes: [{
-        id: "codex",
+        id: "codex-cli",
         status: "healthy",
         reasoning: {
           updateMode: "live_next_turn",
@@ -324,11 +332,11 @@ describe("POST /api/community/bots — model", () => {
       }],
     })
 
-    const res = await POST(postReq({ ...base("gpt-5", "codex"), reasoningEffort: "xhigh" }), ctx)
+    const res = await POST(postReq({ ...base("gpt-5", "codex-cli"), reasoningEffort: "xhigh" }), ctx)
 
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({
-      bot: { runtime: "codex", modelName: "gpt-5", reasoningEffort: "xhigh", runtimeConfigRevision: 0 },
+      bot: { runtime: "codex-cli", modelName: "gpt-5", reasoningEffort: "xhigh", runtimeConfigRevision: 0 },
     })
     expect(mockCreateBot).toHaveBeenCalledWith(
       expect.anything(),
@@ -340,7 +348,7 @@ describe("POST /api/community/bots — model", () => {
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1", status: "online",
       availableRuntimes: [{
-        id: "codex",
+        id: "codex-cli",
         status: "healthy",
         reasoning: {
           updateMode: "live_next_turn",
@@ -349,7 +357,7 @@ describe("POST /api/community/bots — model", () => {
       }],
     })
 
-    const res = await POST(postReq({ ...base("gpt-5", "codex"), reasoningEffort: "ultra" }), ctx)
+    const res = await POST(postReq({ ...base("gpt-5", "codex-cli"), reasoningEffort: "ultra" }), ctx)
 
     expect(res.status).toBe(400)
     expect(mockCreateBot).not.toHaveBeenCalled()
@@ -370,10 +378,10 @@ describe("GET /api/community/bots — heatmap activity", () => {
 
   it("projects the owner's bots for a runner without exposing private owner usage", async () => {
     mockResolveBotActor.mockResolvedValueOnce({ kind: "bot", actor: { botUserId: "requester", ownerUserId: "owner", machineId: "m1", isActive: true } })
-    mockListBotsForOwner.mockResolvedValueOnce([{ id: "sibling", name: "Reviewer", discriminator: "0042", machineId: "m2", runtime: "codex", modelName: "custom/model", reasoningEffort: "high", isActive: true, presence: "online", dailyActivity: ["private"], description: "private" }])
+    mockListBotsForOwner.mockResolvedValueOnce([{ id: "sibling", name: "Reviewer", discriminator: "0042", machineId: "m2", runtime: "codex-cli", modelName: "custom/model", reasoningEffort: "high", isActive: true, presence: "online", dailyActivity: ["private"], description: "private" }])
     const response = await GET(new NextRequest("http://localhost/api/community/bots", { headers: { Authorization: "Bearer crk_test_fixture" } }), ctx)
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ bots: [{ id: "sibling", handle: "Reviewer#0042", name: "Reviewer", machineId: "m2", backendId: "codex", model: "custom/model", reasoningEffort: "high", isActive: true, presence: "online" }] })
+    expect(await response.json()).toEqual({ bots: [{ id: "sibling", handle: "Reviewer#0042", name: "Reviewer", machineId: "m2", backendId: "codex-cli", model: "custom/model", reasoningEffort: "high", isActive: true, presence: "online" }] })
     expect(mockListBotsForOwner).toHaveBeenCalledWith({}, "owner")
     expect(mockGetBotDailyActivityForOwner).not.toHaveBeenCalled()
     expect(mockGetBotCapacitySummary).not.toHaveBeenCalled()
@@ -423,7 +431,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
     const today = new Date().toISOString().slice(0, 10)
     mockListBotsForOwner.mockResolvedValue([
       catalogBot("bot_claude", "claude"),
-      catalogBot("bot_codex", "codex"),
+      catalogBot("bot_codex", "codex-cli"),
       catalogBot("bot_cursor", "cursor"),
       catalogBot("bot_antigravity", "antigravity"),
       catalogBot("bot_agy", "agy"),
@@ -498,7 +506,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
     vi.setSystemTime(new Date("2026-08-29T16:00:01Z"))
     try {
       mockListBotsForOwner.mockResolvedValue([{
-        ...catalogBot("bot_1", "codex"),
+        ...catalogBot("bot_1", "codex-cli"),
         tokenUsageTimeZone: "Asia/Shanghai",
       }])
       mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
