@@ -467,7 +467,7 @@ describe("WsControlChannel — agent activity reports", () => {
   it("replays the latest native model on reconnect instead of buffering an old disconnected frame", async () => {
     const { ch, sockets } = makeChannel();
     let model = "latest";
-    const report = () => ({ agentId: "a1", backendId: "codex", sessionInstanceId: "epoch", model, source: "response" as const, observedAt: "2026-11-17T02:00:00.000Z" });
+    const report = () => ({ agentId: "a1", backendId: "codex", runtimeConfigRevision: 0, sessionInstanceId: "epoch", model, source: "response" as const, observedAt: "2026-11-17T02:00:00.000Z" });
     ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [], activities: [{ agentId: "a1", state: "idle", modelObservation: report() }] }));
     await ch.reportAgentActivity({ agentId: "a1", state: "idle", modelObservation: { ...report(), model: "disconnected-old" } });
     ch.connect();

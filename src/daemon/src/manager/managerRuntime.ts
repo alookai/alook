@@ -1001,7 +1001,7 @@ export class AgentProcessManager {
     const observedAt = new Date(observed.observedAt);
     if (!Number.isFinite(observedAt.getTime())) return undefined;
     return {
-      agentId, backendId, sessionInstanceId: snapshot.sessionInstanceId,
+      agentId, backendId, runtimeConfigRevision: this.appliedRuntimeConfigs.get(agentId)?.runtimeConfigRevision ?? 0, sessionInstanceId: snapshot.sessionInstanceId,
       ...(snapshot.backendSessionId ? { sessionId: snapshot.backendSessionId } : {}),
       ...(this.launchIds.get(agentId) ? { launchId: this.launchIds.get(agentId)! } : {}),
       model: observed.model, source: observed.source,

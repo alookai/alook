@@ -20,7 +20,7 @@ export function BotCardView({ bot, online, statusKnown, statusLabel, statusActio
   statusAction?: ReactNode
   actions?: ReactNode
 }) {
-  const modelName = bot.modelName ?? bot.modelObservation?.model ?? null
+  const modelName = bot.modelObservation?.model ?? bot.modelName ?? null
   const modelLabel = formatModelLabel(bot.runtime, modelName)
   return (
     <Card data-shell="cassette" className="flex flex-col gap-3 p-4">

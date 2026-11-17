@@ -41,7 +41,7 @@ describe("authenticated frame → migrated SQLite → bot list HTTP response", (
       let identity: { userId: string; machineId: string; credentialHash: string } | undefined
       const storageGet = vi.fn(async (key: string) => key === IDENTITY_KEY ? identity : undefined)
       const context = { env: { DB: {} }, ctx: { storage: { get: storageGet } }, log: { warn: vi.fn() } } as unknown as WsDurableContext
-      const report = { agentId: botId, backendId: "codex", sessionInstanceId: "epoch", sessionId: "native-session", model: "served", source: "response", responseId: "native-reply", observedAt: new Date().toISOString() }
+      const report = { agentId: botId, backendId: "codex", runtimeConfigRevision: 0, sessionInstanceId: "epoch", sessionId: "native-session", model: "served", source: "response", responseId: "native-reply", observedAt: new Date().toISOString() }
       const frame = { type: "agent_activity", agentId: botId, state: "idle", modelObservation: report }
       const receive = (payload: unknown) => handleCommunityMachineMessage(context, {} as WebSocket, payload, {} as MachineRestartHooks)
       const read = async () => {
@@ -74,6 +74,16 @@ describe("authenticated frame → migrated SQLite → bot list HTTP response", (
       await receive({ ...frame, modelObservation: { ...report, model: "foreign" } })
       expect((await read()).modelObservation.model).toBe("served")
       expect((await GET(new NextRequest("http://localhost/api/community/bots"))).status).toBe(401)
+      identity = { userId: "owner", machineId: "machine", credentialHash: "fixture" }
+      await queries.communityBot.updateBotRuntimeConfig(db, botId, "owner", { runtime: "claude", modelName: null, reasoningEffort: null })
+      expect((await read()).modelObservation).toBeUndefined()
+      await receive(frame)
+      expect((await read()).modelObservation).toBeUndefined()
+      await queries.communityBot.updateBotRuntimeConfig(db, botId, "owner", { runtime: "codex", modelName: null, reasoningEffort: null })
+      await receive({ ...frame, modelObservation: { ...report, observedAt: new Date().toISOString() } })
+      expect((await read()).modelObservation).toBeUndefined()
+      await receive({ ...frame, modelObservation: { ...report, runtimeConfigRevision: 2, sessionInstanceId: "new-epoch", model: "new-served" } })
+      expect((await read()).modelObservation).toMatchObject({ model: "new-served", runtimeConfigRevision: 2 })
       expect(sqlite.pragma("foreign_key_check")).toEqual([])
     } finally {
       fixture.db = undefined

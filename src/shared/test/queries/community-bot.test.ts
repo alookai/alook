@@ -309,6 +309,7 @@ describe("updateBotRuntimeConfig", () => {
         model_name TEXT,
         reasoning_effort TEXT,
         runtime_config_revision INTEGER NOT NULL DEFAULT 0,
+        model_observation TEXT,
         created_at TEXT NOT NULL
       );
       INSERT INTO user (id, isBot, ownerUserId, deletedAt)
@@ -548,12 +549,35 @@ describe("bumpBotDailyActivityStatement", () => {
 
 
 describe("native model observations", () => {
+  it("clears only on provider change, scopes clearing to the owner, and fences old reports after switching back", async () => {
+    const { sqlite, db } = createMigratedDatabase()
+    try {
+      const { botId } = await q.createBot(db, { ownerId: "owner_1", name: "switched", machineId: "machine_1", runtime: "codex-cli" })
+      const report = { agentId: botId, backendId: "codex-cli", runtimeConfigRevision: 0, sessionInstanceId: "old-epoch", model: "native-old", source: "response" as const, observedAt: "2026-11-17T02:00:00.000Z" }
+      const read = async () => (await q.listBotsForOwner(db, "owner_1")).find(bot => bot.id === botId)!
+      const desired = { runtime: "claude", modelName: "claude-opus-4-6", reasoningEffort: null }
+      await q.recordBotModelObservation(db, "owner_1", "machine_1", report)
+      expect(await q.updateBotRuntimeConfig(db, botId, "owner_2", desired)).toBeNull()
+      expect((await read()).modelObservation?.model).toBe("native-old")
+      await q.updateBotRuntimeConfig(db, botId, "owner_1", { ...desired, runtime: "codex-cli" })
+      expect((await read()).modelObservation?.model).toBe("native-old")
+      await q.updateBotRuntimeConfig(db, botId, "owner_1", desired)
+      expect(sqlite.prepare("SELECT model_observation FROM community_bot_binding WHERE user_id=?").get(botId)).toEqual({ model_observation: null })
+      await q.recordBotModelObservation(db, "owner_1", "machine_1", report)
+      expect((await read()).modelObservation).toBeUndefined()
+      await q.updateBotRuntimeConfig(db, botId, "owner_1", { ...desired, runtime: "codex-cli" })
+      await q.recordBotModelObservation(db, "owner_1", "machine_1", { ...report, observedAt: "2026-11-17T03:00:00.000Z" })
+      expect((await read()).modelObservation).toBeUndefined()
+      await q.recordBotModelObservation(db, "owner_1", "machine_1", { ...report, runtimeConfigRevision: 3, sessionInstanceId: "new-epoch", model: "native-new" })
+      expect((await read()).modelObservation?.model).toBe("native-new")
+    } finally { sqlite.close() }
+  })
   it("applies the additive migration, preserves requested intent, and rejects older or foreign observations atomically", async () => {
     const { sqlite, db } = createMigratedDatabase()
     try {
       const { botId } = await q.createBot(db, { ownerId: "owner_1", name: "observed", description: "", machineId: "machine_1", runtime: "codex", modelName: "requested" })
       expect(sqlite.prepare("SELECT model_observation FROM community_bot_binding WHERE user_id=?").get(botId)).toEqual({ model_observation: null })
-      const report = { agentId: botId, backendId: "codex", sessionInstanceId: "epoch", model: "served", provider: "upstream", source: "response" as const, responseId: "reply", observedAt: "2026-11-17T10:00:00.000+08:00" }
+      const report = { agentId: botId, backendId: "codex", runtimeConfigRevision: 0, sessionInstanceId: "epoch", model: "served", provider: "upstream", source: "response" as const, responseId: "reply", observedAt: "2026-11-17T10:00:00.000+08:00" }
       await q.recordBotModelObservation(db, "owner_1", "machine_1", report)
       const stored = () => sqlite.prepare("SELECT model_name,model_observation FROM community_bot_binding WHERE user_id=?").get(botId) as { model_name: string; model_observation: string }
       expect(stored().model_name).toBe("requested")

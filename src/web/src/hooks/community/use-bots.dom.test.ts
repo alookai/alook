@@ -567,3 +567,27 @@ it.each(["wrong-owner", "duplicate-id", "missing-catalog-discriminator"])("rejec
   await expect(client.query({ ...botsOptions(), staleTime: 0 })).rejects.toThrow()
   expect(communityRegistrySnapshot(registry)).toEqual(before)
 })
+
+it.each(["claude", "codex-cli"])("updates the provider cache without carrying a foreign observation (next=%s)", async runtime => {
+  const { useUpdateBot } = await import("./use-bots")
+  const qc = new QueryClient()
+  const registry = createCommunityDbRegistry(qc, "viewer")
+  const unregister = registerCommunityDbRegistry(registry)
+  const modelObservation = { agentId: "bot", machineId: "machine", backendId: "claude", runtimeConfigRevision: 0, sessionInstanceId: "epoch", model: "claude-sonnet-4-6", source: "response", observedAt: "2026-11-17T04:00:00.000Z" }
+  qc.setQueryData(communityKeys.bots(), { bots: [{ id: "bot", runtime: "claude", runtimeConfigRevision: 0, modelObservation }] })
+  apiFetchMock.mockResolvedValue({ bot: { id: "bot", name: "Bot", discriminator: "0042", image: null, avatarVersion: 0, runtime, modelName: null, reasoningEffort: null, runtimeConfigRevision: 1 } })
+  let update!: ReturnType<typeof useUpdateBot>
+  function Probe() { const value = useUpdateBot(); React.useLayoutEffect(() => { update = value }); return null }
+  const renderer = render(React.createElement(TanStackQueryClientProvider, { client: qc }, React.createElement(CommunityDbProvider, { registry }, React.createElement(Probe))))
+  try {
+    await act(async () => { await update.mutateAsync({ id: "bot", runtime }) })
+    const cached = qc.getQueryData<{ bots: Array<{ runtime: string; modelObservation?: unknown }> }>(communityKeys.bots())!.bots[0]!
+    expect(cached.runtime).toBe(runtime)
+    expect(cached.modelObservation).toEqual(runtime === "claude" ? modelObservation : undefined)
+  } finally {
+    renderer.unmount()
+    unregister()
+    await registry.cleanup()
+    qc.clear()
+  }
+})

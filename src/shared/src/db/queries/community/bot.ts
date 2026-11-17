@@ -171,6 +171,7 @@ export async function recordBotModelObservation(
       eq(communityBotBinding.userId, report.agentId),
       eq(communityBotBinding.machineId, machineId),
       eq(communityBotBinding.runtime, report.backendId),
+      eq(communityBotBinding.runtimeConfigRevision, report.runtimeConfigRevision),
       eq(communityBotBinding.isActive, true),
       exists(db.select({ id: user.id }).from(user).where(and(
         eq(user.id, report.agentId), eq(user.ownerUserId, ownerUserId), eq(user.isBot, true), isNull(user.deletedAt),
@@ -1174,6 +1175,7 @@ export async function updateBotRuntimeConfig(
     .update(communityBotBinding)
     .set({
       runtime: desired.runtime,
+      modelObservation: sql`CASE WHEN ${communityBotBinding.runtime} <> ${desired.runtime} THEN NULL ELSE ${communityBotBinding.modelObservation} END`,
       modelName: desired.modelName,
       reasoningEffort: desired.reasoningEffort,
       runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,

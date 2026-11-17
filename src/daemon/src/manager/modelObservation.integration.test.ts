@@ -42,7 +42,7 @@ readline.createInterface({input:process.stdin}).on("line", line => {
     const finals: string[] = [];
     const onError = vi.fn();
     const send = vi.fn((_report: HostAgentActivity) => failure === "pending" ? new Promise<void>(() => {}) : Promise.reject(new Error("offline")));
-    const runtimeConfig = { version: 1 as const, runtime: "claude", model: { kind: "default" as const }, mode: { kind: "default" as const } };
+    const runtimeConfig = { version: 1 as const, runtimeConfigRevision: 3, runtime: "claude", model: { kind: "default" as const }, mode: { kind: "default" as const } };
     const reportActivity = (info: { agentId: string; state: HostAgentActivity["state"] }): void => {
       void Promise.resolve().then(() => {
         const modelObservation = manager.modelReportFor(info.agentId);
@@ -73,6 +73,7 @@ readline.createInterface({input:process.stdin}).on("line", line => {
       manager.register("bot", { runtimeConfig, launchId: "first" });
       manager.deliver("bot", { id: "first-input", text: "first" });
       await vi.waitFor(() => expect(manager.modelReportFor("bot")?.model).toBe("old"), { timeout: 4_000 });
+      expect(manager.modelReportFor("bot")?.runtimeConfigRevision).toBe(3);
       const before = send.mock.calls.length;
       await new Promise(resolve => setTimeout(resolve, 20));
       expect(send).toHaveBeenCalledTimes(before);
@@ -84,8 +85,9 @@ readline.createInterface({input:process.stdin}).on("line", line => {
       await vi.waitFor(() => expect(finals).toHaveLength(1));
       expect(sessions[0]!.snapshot().state).toBe("idle");
       writeFileSync(join(directory, "model"), "new");
-      await manager.resetSession("bot", { runtimeConfig, launchId: "replacement", rewakePrompt: "next" });
+      await manager.resetSession("bot", { runtimeConfig: { ...runtimeConfig, runtimeConfigRevision: 4 }, launchId: "replacement", rewakePrompt: "next" });
       await vi.waitFor(() => expect(manager.modelReportFor("bot")?.model).toBe("new"), { timeout: 4_000 });
+      expect(manager.modelReportFor("bot")?.runtimeConfigRevision).toBe(4);
       expect((await sessions[0]!.closed).cleanup.status).toBe("released");
       expect(host.releases).toHaveLength(1);
       const priorReports = send.mock.calls.length;
