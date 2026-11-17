@@ -137,6 +137,163 @@ describe("manual reading waits for the real matching row commit", () => {
       return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
     })?.dataset.msgId
   }
+  function acceptedReader() {
+    const result = pendingReader()
+    publishRows()
+    runFrames(40)
+    expect(result.reading).toHaveBeenCalledExactlyOnceWith(actualReadingBody(result.h.root))
+    expect(scrollFixture.frames.size).toBe(0)
+    return result
+  }
+  it.each([false, true])("retains the actual automatic report through passive replacement=%s before the first manual displacement", replace => {
+    const reading = vi.fn()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), initialPositionMessageId: "m0", onReadingMessage: reading })
+    try {
+      const reported = actualReadingBody(h.root)
+      expect(reported).toBeDefined()
+      expect(reading).toHaveBeenCalledExactlyOnceWith(reported)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      if (replace) {
+        commitGate.hold = true
+        h.stage({ items: h.input.items.filter(item => item.kind !== "message" || item.m.id !== reported), messageWindow: {} })
+        resize(0)
+        publishRows()
+        resize(40)
+      }
+      const baseline = { id: actualReadingBody(h.root), offset: h.root.scrollTop }
+      expect(baseline.id).toBeDefined()
+      if (replace) expect(baseline.id).not.toBe(reported)
+      else expect(baseline.id).toBe(reported)
+      expect(reading).toHaveBeenCalledOnce()
+      fireEvent.wheel(h.root, { deltaY: 15 })
+      act(() => h.root.scrollTo({ top: baseline.offset + 15 }))
+      resize(40)
+      expect(h.root.scrollTop).toBe(baseline.offset + 15)
+      expect(actualReadingBody(h.root)).toBe(baseline.id)
+      expect(reading).toHaveBeenCalledTimes(replace ? 2 : 1)
+      expect(reading).toHaveBeenLastCalledWith(replace ? baseline.id : reported)
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(replace ? 2 : 1)
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it.each(["window", "items", "both", "viewport", "padding"] as const)("renews a consumed reading baseline after passive %s commit without creating credit", scope => {
+    const { h, reading } = acceptedReader()
+    try {
+      const before = { offset: h.root.scrollTop, id: actualReadingBody(h.root) }
+      commitGate.hold = true
+      if (scope === "viewport") { scrollFixture.height = 620; scrollFixture.width = 400 }
+      else if (scope === "padding") h.stage({ tailPaddingEnd: 80 })
+      else h.stage({ ...(scope !== "items" ? { messageWindow: {} } : {}), ...(scope !== "window" ? { items: [...h.input.items] } : {}) })
+      resize(0)
+      runFrames(40)
+      expect(reading).toHaveBeenCalledOnce()
+      publishRows()
+      resize(40)
+      expect(h.root.scrollTop).toBe(before.offset)
+      expect(actualReadingBody(h.root)).toBe(before.id)
+      expect(reading).toHaveBeenCalledOnce()
+      expect(scrollFixture.frames.size).toBe(0)
+      act(() => h.root.scrollTo({ top: 500 }))
+      resize(40)
+      const current = actualReadingBody(h.root)
+      expect(current).toBeDefined()
+      expect(current).not.toBe(before.id)
+      expect(reading).toHaveBeenCalledTimes(2)
+      expect(reading).toHaveBeenLastCalledWith(current)
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it.each([false, true])("reports a passively replaced body on its next real displacement with fresh intent=%s", fresh => {
+    const { h, reading } = acceptedReader()
+    try {
+      const previous = actualReadingBody(h.root)
+      commitGate.hold = true
+      h.stage({ items: h.input.items.filter(item => item.kind !== "message" || item.m.id !== previous), messageWindow: {} })
+      resize(0)
+      publishRows()
+      resize(40)
+      const current = actualReadingBody(h.root)
+      expect(current).toBeDefined()
+      expect(current).not.toBe(previous)
+      expect(h.root.scrollTop).toBe(0)
+      expect(reading).toHaveBeenCalledOnce()
+      if (fresh) fireEvent.wheel(h.root, { deltaY: 30 })
+      act(() => h.root.scrollTo({ top: 30 }))
+      resize(40)
+      expect(h.root.scrollTop).toBe(30)
+      expect(actualReadingBody(h.root)).toBe(current)
+      expect(reading).toHaveBeenCalledTimes(2)
+      expect(reading).toHaveBeenLastCalledWith(current)
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(2)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it("does not sample away an earlier-frame displacement before native scroll delivery", () => {
+    const { h, reading } = acceptedReader()
+    try {
+      const publish = commitGate.publish!
+      const before = h.root.scrollTop
+      act(() => {
+        window.requestAnimationFrame(() => h.root.scrollTo({ top: 350 }))
+        publish()
+      })
+      runFrames(1)
+      expect(h.root.scrollTop).toBe(350)
+      expect(h.root.scrollTop).not.toBe(before)
+      expect(reading).toHaveBeenCalledOnce()
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(2)
+      expect(reading).toHaveBeenLastCalledWith(actualReadingBody(h.root))
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it("renews a consumed baseline only after current data becomes ready", () => {
+    const { h, reading } = acceptedReader()
+    try {
+      commitGate.hold = true
+      h.stage({ positionDataState: "pending", items: [...h.input.items], messageWindow: {} })
+      publishRows()
+      resize(40)
+      expect(reading).toHaveBeenCalledOnce()
+      h.update({ positionDataState: "ready" })
+      expect(reading).toHaveBeenCalledOnce()
+      act(() => h.root.scrollTo({ top: 500 }))
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(2)
+      expect(reading).toHaveBeenLastCalledWith(actualReadingBody(h.root))
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it.each(["entry", "hidden"] as const)("does not renew consumed manual credit into a new %s owner", retirement => {
+    const { h, reading } = acceptedReader()
+    try {
+      if (retirement === "entry") h.stage({ positionEntry: {}, items: [...h.input.items], messageWindow: {} })
+      else { h.stage({ active: false }); h.stage({ active: true, items: [...h.input.items], messageWindow: {} }) }
+      resize(40)
+      expect(scrollFixture.latest.readPositionReady).toBe(true)
+      const afterAutomaticReading = reading.mock.calls.length
+      act(() => h.root.scrollTo({ top: 500 }))
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(afterAutomaticReading)
+      fireEvent.wheel(h.root, { deltaY: 800 })
+      act(() => h.root.scrollTo({ top: 900 }))
+      resize(40)
+      expect(reading).toHaveBeenCalledTimes(afterAutomaticReading + 1)
+      expect(reading).toHaveBeenLastCalledWith(actualReadingBody(h.root))
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it("does not revive a consumed baseline from a row callback after unmount", () => {
+    const { h, reading } = acceptedReader()
+    commitGate.hold = true
+    h.stage({ items: [...h.input.items], messageWindow: {} })
+    const publish = commitGate.publish!
+    h.view.unmount()
+    commitGate.hold = false
+    act(() => publish())
+    resize(40)
+    expect(reading).toHaveBeenCalledOnce()
+    expect(scrollFixture.frames.size).toBe(0)
+  })
   function movedBeforeWheelReader(offset = 0) {
     const reading = vi.fn()
     const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: reading })

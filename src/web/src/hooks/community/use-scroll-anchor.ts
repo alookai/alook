@@ -194,7 +194,8 @@ export function useScrollAnchor({
   const positionScopeRef = useRef(positionScope)
   const virtualizerRef = useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
   const readingMessageRef = useRef(onReadingMessage)
-  const reportedReadingEpochRef = useRef<number | null>(null)
+  const reportedReadingRef = useRef({ automaticEpoch: null as number | null,
+    latest: null as { epoch: number; root: HTMLDivElement; entry: typeof positionEntry; scope: typeof positionScope; messageId: string } | null })
   const positionOwnerRef = useRef({ epoch: 0, active: true, manualEpoch: null as number | null, presentEpoch: null as number | null })
   const suspendedTailRef = useRef<{ epoch: number; entry: typeof positionEntry; root: HTMLDivElement; native: ReactVirtualizer<HTMLDivElement, Element> } | null>(null)
   const positionObservationRef = useRef<{ epoch: number; finish: ReturnType<typeof beginPositionObservation>; decision: PositionDecision } | null>(null)
@@ -313,7 +314,7 @@ export function useScrollAnchor({
   const scheduleGeometryRef = useRef<() => void>(() => {})
   const reconcileViewportRef = useRef<() => void>(() => {})
   const userInputRef = useRef({ touch: false, pointers: new Set<number>(), handover: false,
-    reading: null as { root: HTMLDivElement; pending: boolean; messageId: string | null; epoch: number; window?: object; items: FlatItem[]; offset: number; height: number; width: number; scrollHeight: number; total: number; paddingEnd: number } | null })
+    reading: null as { root: HTMLDivElement; pending: boolean; messageId: string | null; reportedMessageId: string | null; epoch: number; window?: object; items: FlatItem[]; offset: number; height: number; width: number; scrollHeight: number; total: number; paddingEnd: number } | null })
   const hasMessages = items.some(item => item.kind === "message")
   const pendingLocalSubmit = (localSubmitVersion ?? 0) > consumedLocalSubmitVersionRef.current
   const holdNativeOrigin = useCallback((key: string | number | bigint | null) => {
@@ -708,13 +709,16 @@ export function useScrollAnchor({
   }, [hasCommittedRows, positionKind, readReady])
   const reportReadingMessage = useCallback(() => {
     const id = readReadingMessage()
-    if (!id) return false
-    readingMessageRef.current?.(id)
+    const root = scrollRef.current, report = readingMessageRef.current
+    if (!id || !root || !report) return false
+    const epoch = positionOwnerRef.current.epoch
+    reportedReadingRef.current = { automaticEpoch: epoch, latest: { epoch, root, entry: positionEntryRef.current, scope: positionScopeRef.current, messageId: id } }
+    report(id)
     return true
   }, [readReadingMessage])
   const reconcileManualReading = useCallback(() => {
     const reading = userInputRef.current.reading
-    if (!reading?.pending) return
+    if (!reading) return
     const root = scrollRef.current, native = virtualizerRef.current, owner = positionOwnerRef.current
     const context = contextRef.current
     if (!readingMessageRef.current || !root || !native || reading.root !== root || !owner.active || !context.active || !context.visible
@@ -725,13 +729,22 @@ export function useScrollAnchor({
     }
     if (context.dataState !== "ready" || paginationRef.current?.phase === "settling" || semanticIntentRef.current || projectionAnchorRef.current
       || viewportCorrectionRef.current) return
+    if (!reading.pending) {
+      if (Math.abs(reading.offset - root.scrollTop) > 1 || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1) return
+      if (reading.window === context.messageWindow && reading.items === currentItemsRef.current
+        && reading.height === root.clientHeight && reading.width === root.clientWidth && reading.scrollHeight === root.scrollHeight
+        && reading.total === committedRowsRef.current?.layout.totalSize && reading.paddingEnd === (native.options.paddingEnd ?? 0)) return
+    }
     const id = readReadingMessage()
     const committed = committedRowsRef.current
     if (!id || !committed || userInputRef.current.reading !== reading) return
-    userInputRef.current.reading = { root, pending: false, messageId: id, epoch: reading.epoch, window: context.messageWindow,
+    userInputRef.current.reading = { root, pending: false, messageId: id, reportedMessageId: reading.pending ? id : reading.reportedMessageId, epoch: reading.epoch, window: context.messageWindow,
       items: currentItemsRef.current, offset: root.scrollTop, height: root.clientHeight, width: root.clientWidth,
       scrollHeight: root.scrollHeight, total: committed.layout.totalSize, paddingEnd: native.options.paddingEnd ?? 0 }
-    if (id !== reading.messageId) readingMessageRef.current?.(id)
+    if (reading.pending && id !== reading.reportedMessageId) {
+      reportedReadingRef.current.latest = { epoch: reading.epoch, root, entry: positionEntryRef.current, scope: positionScopeRef.current, messageId: id }
+      readingMessageRef.current(id)
+    }
   }, [positionKind, readReadingMessage])
   const updateNewDividerVisibility = useCallback((notifyBoundary = true) => {
     const root = scrollRef.current
@@ -893,7 +906,7 @@ export function useScrollAnchor({
     observePageBody()
     updateNewDividerVisibility(false)
     if (layout && positionOwnerRef.current.active && semanticIntentRef.current) scheduleInitialPositionSettled()
-    if (layout && (paginationRef.current || userInputRef.current.reading?.pending)) scheduleGeometryRef.current()
+    if (layout && (paginationRef.current || userInputRef.current.reading)) scheduleGeometryRef.current()
   }, [items, observePageBody, positionEntry, scheduleInitialPositionSettled, setScrollMargin, updateNewDividerVisibility, virtualizer])
 
   const startIntent = useCallback((type: Intent["type"], id: string | null, behavior: ScrollBehavior = "auto", notifyTarget = false, loadedTailPresent = false) => {
@@ -1408,8 +1421,8 @@ export function useScrollAnchor({
 
   useEffect(() => {
     const owner = positionOwnerRef.current
-    if (!owner.active || reportedReadingEpochRef.current === owner.epoch || owner.manualEpoch === owner.epoch) return
-    if (reportReadingMessage()) reportedReadingEpochRef.current = owner.epoch
+    if (!owner.active || reportedReadingRef.current.automaticEpoch === owner.epoch || owner.manualEpoch === owner.epoch) return
+    reportReadingMessage()
   }, [items, ownerKind, positionEntry, positionOutcome, readPositionReady, reportReadingMessage, visible])
 
   useLayoutEffect(() => {
@@ -1418,7 +1431,8 @@ export function useScrollAnchor({
     const inputOwner = userInputRef.current
     const readingInput = (captureBody = true) => {
       const native = virtualizerRef.current
-      return native ? { root, pending: false, messageId: captureBody ? readReadingMessage() : null, epoch: positionOwnerRef.current.epoch, window: contextRef.current.messageWindow,
+      const messageId = native && captureBody ? readReadingMessage() : null
+      return native ? { root, pending: false, messageId, reportedMessageId: null as string | null, epoch: positionOwnerRef.current.epoch, window: contextRef.current.messageWindow,
         items: currentItemsRef.current, offset: root.scrollTop, height: root.clientHeight, width: root.clientWidth,
         scrollHeight: root.scrollHeight, total: native.getTotalSize(), paddingEnd: native.options.paddingEnd ?? 0 } : null
     }
@@ -1491,7 +1505,7 @@ export function useScrollAnchor({
       if (currentInput && positionOwnerRef.current.manualEpoch === currentInput.epoch) {
         currentInput.pending = !!reading?.pending && reading.epoch === currentInput.epoch
           && reading.root === root
-        if (currentInput.pending && reading) currentInput.messageId = reading.messageId
+        if (reading && reading.epoch === currentInput.epoch && reading.root === root) currentInput.reportedMessageId = reading.reportedMessageId
         inputOwner.reading = currentInput
       } else inputOwner.reading = null
       reconcileManualReading()
@@ -1517,6 +1531,13 @@ export function useScrollAnchor({
       const carry = previousReading?.pending && owner.active && contextRef.current.active && contextRef.current.visible
         && positionKind.get() === "idle" && owner.manualEpoch === owner.epoch && previousReading.epoch === owner.epoch
         ? previousReading : null
+      const previousReport = previousReading && owner.active && contextRef.current.active && contextRef.current.visible
+        && positionKind.get() === "idle" && owner.manualEpoch === owner.epoch && previousReading.epoch === owner.epoch && previousReading.root === root
+        ? previousReading : null
+      const reported = reportedReadingRef.current.latest
+      const reportedMessageId = owner.active && contextRef.current.active && contextRef.current.visible && positionKind.get() === "idle"
+        && reported?.epoch === owner.epoch && reported.root === root && reported.entry === positionEntryRef.current
+        && reported.scope === positionScopeRef.current ? reported.messageId : null
       const previous = acceptedGeometryRef.current, native = virtualizerRef.current, context = contextRef.current
       const fold = previous && native?.getVirtualItemForOffset(previous.scrollTop + 1)
       const moved = previous && owner.active && context.active && context.visible && context.dataState === "ready"
@@ -1532,16 +1553,15 @@ export function useScrollAnchor({
         && !(paginationRef.current?.phase === "settling" && paginationRef.current.restoringBody) ? previous : null
       releasePosition(true)
       const current = readingInput()
-      if (current && carry && carry.root === root) { current.pending = true; current.messageId = carry.messageId }
+      if (current) current.reportedMessageId = previousReport ? previousReport.reportedMessageId : reportedMessageId
+      if (current && carry && carry.root === root) current.pending = true
       else if (current && moved && moved.root === current.root && moved.native === virtualizerRef.current
         && moved.entry === positionEntryRef.current && moved.window === current.window && moved.items === current.items
         && moved.clientHeight === current.height && moved.clientWidth === current.width
         && moved.scrollHeight === current.scrollHeight && moved.total === current.total && moved.paddingEnd === current.paddingEnd
         && Math.abs(moved.scrollTop - current.offset) > 1) {
-        const item = moved.items.find(item => item.key === moved.key)
         current.pending = true
         current.offset = moved.scrollTop
-        current.messageId = item?.kind === "message" ? item.m.id : null
       }
       inputOwner.reading = current && positionOwnerRef.current.manualEpoch === current.epoch ? current : null
       setFollowSuspended(true)
