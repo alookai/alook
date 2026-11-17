@@ -74,6 +74,8 @@
   .stepHeading > span { left: -32px; width: 16px; }
   .step h2 { font-size: 23px; }
   .stage { height: 320px; --motion-sheet-width: 360px; }
+  /* Use case stories show only the app shell; keep its 1120:660 ratio so it fills the frame. */
+  [data-guide-demo="story"] .stage { height: 58.93cqw; }
 
   .mock { padding: 16px; }
   .field { gap: 8px; font-size: 13px; }
@@ -133,10 +135,14 @@
 .breadcrumb a { transition: color 120ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .contents a { transition: none; } }
 
-.storyMessages { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; padding: 12px 0 0; }
-.storySlot { opacity: 0; visibility: hidden; transform: translateY(10px); transition: transform 560ms cubic-bezier(0.4, 0, 0.2, 1), opacity 420ms cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 560ms; }
-.storySlot[data-visible="true"] { opacity: 1; visibility: visible; transform: none; transition: transform 560ms cubic-bezier(0.4, 0, 0.2, 1), opacity 420ms cubic-bezier(0.4, 0, 0.2, 1), visibility 0s; }
-@media (prefers-reduced-motion: reduce) { .storySlot { transition: none; } }
-.storyTyping { min-height: 24px; padding: 0 16px; }
+/* Story channel uses the real message list geometry: bottom-anchored rows, composer inline padding,
+ * 8px row padding (4px when grouped) and a fixed accessory row for typing. Unsent rows take no space. */
+.storyMessages { display: flex; flex: 1; flex-direction: column; justify-content: flex-end; min-height: 0; overflow: hidden; padding: 32px var(--community-composer-inline-end) 0 var(--community-composer-inline-start); }
+.storySlot { display: none; padding-block: var(--story-row-padding) var(--story-row-padding); }
+.storySlot[data-grouped="true"] { padding-top: calc(var(--story-row-padding) / 2); }
+.storySlot[data-visible="true"] { display: block; animation: storyRowIn 420ms cubic-bezier(0.4, 0, 0.2, 1); }
+@keyframes storyRowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .storySlot[data-visible="true"] { animation: none; } }
+.storyTyping { display: flex; align-items: center; height: var(--story-accessory-height); padding-inline: var(--community-composer-inline-start) var(--community-composer-inline-end); }
 [data-demo-status="static"] .pointer { visibility: hidden; }
 .storyComposer { position: relative; width: 100%; }
