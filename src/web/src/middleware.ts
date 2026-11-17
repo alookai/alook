@@ -51,5 +51,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next|favicon\\.ico|.*\\..*).*)"],
+  matcher: ["/sitemap.xml", "/robots.txt", "/((?!_next|favicon\\.ico|.*\\..*).*)"],
 }

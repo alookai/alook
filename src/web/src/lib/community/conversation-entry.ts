@@ -140,7 +140,11 @@ export function publishConversationEntry(
     }
     else {
       afterCommunityCollectionWrites(registry, () => {
-      if (conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) return
+      const retained = conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.find(window => hashKey(window.key) === hashKey(windowKey))
+      const anchor = target.anchorMessageId
+      const restoreAnchor = retained && anchor && entry.messages.some(message => message.id === anchor)
+        && !client.getQueryData<MessageWindowData>(windowKey)?.pages.some(page => page.messages.some(message => message.id === anchor))
+      if (retained && !restoreAnchor) return
       const page = messageWindowPage({ ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles })
       client.setQueryData<MessageWindowData>(windowKey, { pages: [page], pageParams: [initialWindow as MessagesPageParam] })
       })

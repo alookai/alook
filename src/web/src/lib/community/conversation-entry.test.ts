@@ -345,6 +345,23 @@ describe("conversation entry canonical publication", () => {
     expect(client.getQueryData(key)).toBe(previous)
   })
 
+  it.each([true, false])("preserves an explicit window when cached target coverage=%s has no new member proof to apply", async covered => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = entry()
+    value.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
+    const selected = { ...target, anchorMessageId: "m1" }
+    const resource = await publishConversationEntry(client, selected, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const other = { ...value.messages[0], id: "m2", seq: 2 }
+    await writeCommunityCollectionRows(registry, "messages", [...registry.collections.messages.values(), other], row => row.id)
+    const previous: MessageWindowData = {
+      pages: [{ messages: [{ id: covered ? "m1" : "m2", seq: covered ? 1 : 2 }], hasMoreOlder: true, olderCursor: "history" }],
+      pageParams: [{ mode: "newer", cursor: "retained-page" }],
+    }
+    const retained = client.setQueryData(resource.windowKey, previous)
+    await publishConversationEntry(client, selected, { ...value, messages: covered ? value.messages : [] }, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    expect(client.getQueryData(resource.windowKey)).toBe(retained)
+  })
+
   it("keeps an explicit missing anchor local to its window and does not retire readable history", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     await publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })

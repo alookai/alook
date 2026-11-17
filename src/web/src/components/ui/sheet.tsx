@@ -117,7 +117,7 @@ function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-body"
-      className={cn("flex-1 overflow-y-auto thin-scrollbar px-4 sm:px-6 py-4", className)}
+      className={cn("flex-1 overflow-x-hidden overflow-y-auto thin-scrollbar px-4 sm:px-6 py-4", className)}
       {...props}
     />
   )

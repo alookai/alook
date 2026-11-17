@@ -24,6 +24,7 @@ import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-pe
 import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
 import { communityKeys } from "@/lib/query-keys"
 import type { MessageWindowData } from "@/lib/community/message-window"
+import { messageWindowPage } from "@/lib/community/models/message"
 import { writeCommunityCollectionChanges } from "@/lib/community-db/write"
 
 const navigationMock = vi.hoisted(() => ({ href: "/c/channels/s1/c1", replace: vi.fn() }))
@@ -836,6 +837,47 @@ describe("conversation entry positioning through real reading owners", () => {
     resize()
     expect(view.visible("m12")).toBe(true)
     expect(view.root()).toBe(root)
+  })
+
+  it("shows the qualified newer window while explicit entry is held, then positions its recovered target", async () => {
+    const view = await setup("channel")
+    await view.navigate("/c/channels/s1/c2")
+    const fresh = entry("channel")
+    fresh.selection = { reason: "explicit_anchor", anchorMessageId: "m5" }
+    const target = { channelId: "c1", serverId: "s1", anchorMessageId: "m5" }
+    await seedConversationEntry(owner.client, fresh, target)
+    owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+    owner.client.removeQueries({ queryKey: communityKeys.channelMessages("c1") })
+    const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m5" })
+    const cursor = `${fresh.messages[21].createdAt}|m22`
+    const retained = { ...fresh.page, messages: fresh.messages.slice(22), profiles: fresh.profiles,
+      hasMoreOlder: true, olderCursor: cursor, newerCursor: fresh.page.newerCursor ?? undefined }
+    owner.client.setQueryData<MessageWindowData>(key, { pages: [messageWindowPage(retained)], pageParams: [{ mode: "newer", cursor }] })
+    const landing = deferredEntry()
+    const originalLoad = load.getMockImplementation()!
+    load.mockClear()
+    load.mockImplementation((url: string, ...args: unknown[]) => {
+      if (url.startsWith("/api/community/channels/c1/messages?")) {
+        const query = new URL(url, "https://test.invalid").searchParams
+        if (query.has("entry")) return landing.promise
+        if (query.get("since") === cursor) return Promise.resolve(retained)
+      }
+      return originalLoad(url, ...args)
+    })
+    await view.navigate("/c/channels/s1/c1?msg=m5")
+    expect(latest.feed.messages.map(message => message.id)).toEqual(fresh.messages.slice(22).map(message => message.id))
+    expect(view.root().querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "false")
+    expect(view.root().querySelectorAll("[data-msg-id]").length).toBeGreaterThan(0)
+    expect(latest.feed.targetPositionDataState).toBe("pending")
+    expect(latest.channel.scrollTargetId).toBe("m5")
+    expect(load.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false)
+    await act(async () => { landing.resolve(fresh); await vi.advanceTimersByTimeAsync(0) })
+    resize()
+    await act(async () => {})
+    expect(latest.feed.messages.some(message => message.id === "m5")).toBe(true)
+    expect(view.visible("m5")).toBe(true)
+    expect(latest.channel.scrollTargetId).toBeNull()
+    expect(view.root().querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
   })
 
   it.each([false, true])("cancels a target lost by the current ready query window without granting its old observer a read (StrictMode=%s)", async strict => {

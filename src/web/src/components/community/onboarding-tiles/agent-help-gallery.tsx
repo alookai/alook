@@ -56,6 +56,7 @@ export function AgentHelpGallery({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        data-own-padding=""
         showCloseButton={false}
         className="flex w-full max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
       >

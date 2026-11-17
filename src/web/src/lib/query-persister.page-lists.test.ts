@@ -1,13 +1,13 @@
 import { CommunityChannelResourceSchema, CommunityResourceProfileSchema } from "@alook/shared"
 import { conversationEntryFromChannel, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { messageWindowPage } from "@/lib/community/models/message"
-import type { MessageWindowData } from "@/lib/community/message-window"
+import { messageWindowOptions, type MessageWindowData } from "@/lib/community/message-window"
 import "fake-indexeddb/auto"
-import { afterEach, describe, expect, it } from "vitest"
-import { dehydrate, QueryClient } from "@tanstack/react-query"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { dehydrate, InfiniteQueryObserver, QueryClient } from "@tanstack/react-query"
 import { persistQueryClientRestore } from "@tanstack/react-query-persist-client"
 import { get } from "idb-keyval"
-import { channelResourceFixture, forumFeedScenarioFixture, fullResourceBundleFixture, messageResourceFixture, profileResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
+import { channelResourceFixture, forumFeedScenarioFixture, fullResourceBundleFixture, messageReadPageFixture, messageResourceFixture, profileResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, discardCommunityRestoreReplacements, publishCommunityForumFeed, publishCommunityFriendships, publishCommunityResourceBundle, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
@@ -18,6 +18,10 @@ import { communityKeys } from "./query-keys"
 import { cacheStore } from "./query-cache-store"
 import { blobKeyFor } from "./persisted-account-identity"
 import { clearPersistedCache, createCommunityRestorePersister, createIdbPersister, PERSIST_BUSTER, PERSIST_MAX_AGE_MS, shouldDehydrateCommunityQuery } from "./query-persister"
+import { conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationScope } from "./community/conversation-entry"
+
+const load = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
 
 const owners = new Set<CommunityDbRegistry>()
 const accounts = new Set<string>()
@@ -25,6 +29,7 @@ const persisters: ReturnType<typeof createIdbPersister>[] = []
 const keys = [communityKeys.forumFeed("forum", null), communityKeys.friends(), communityKeys.inboxMarked()]
 
 afterEach(async () => {
+  load.mockReset()
   for (const persister of persisters) persister.stopPersisting()
   persisters.length = 0
   for (const owner of owners) { await owner.cleanup(); owner.queryClient.clear() }
@@ -285,6 +290,66 @@ async function seedBodyWindow(owner: Awaited<ReturnType<typeof seed>>, count = 3
 }
 
 describe("actual body membership through IDB and new canonical owners", () => {
+  it("restores an explicit target after real newer pagination and bounded IDB replace its initial anchor page", async () => {
+    const owner = await seed(), { key, packet } = await seedBodyWindow(owner, 126)
+    const rows = packet.messages
+    const anchor = "read-50"
+    const target = { channelId: "post", serverId: "server", anchorMessageId: anchor }
+    const cursor = (seq: number) => `${rows[seq - 101].createdAt}|read-${seq - 100}`
+    const entry = { ...packet, messages: rows.filter(row => row.seq! >= 126 && row.seq! <= 176),
+      selection: { reason: "explicit_anchor" as const, anchorMessageId: anchor },
+      page: { olderCursor: cursor(125), newerCursor: cursor(175), hasMoreOlder: true, hasMoreNewer: true, latestSeq: 300 } }
+    owner.client.removeQueries({ queryKey: key, exact: true })
+    const seeded = await seedConversationEntry(owner.client, entry, target)
+    const newer = messageReadPageFixture({ messages: rows.filter(row => row.seq! >= 177), olderCursor: cursor(176),
+      newerCursor: cursor(225), hasMoreOlder: true, hasMoreNewer: true, latestSeq: 300 })
+    load.mockResolvedValueOnce(newer)
+    const observer = new InfiniteQueryObserver(owner.client, {
+      ...messageWindowOptions(owner.client, "post", { mode: "anchor", anchor }), enabled: false,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    try { await observer.fetchPreviousPage() } finally { unsubscribe() }
+    expect(load.mock.calls[0][0]).toBe(`/api/community/channels/post/messages?since=${encodeURIComponent(cursor(175))}`)
+    const paginated = owner.client.getQueryData<MessageWindowData>(seeded.resource.windowKey)!
+    expect(paginated.pages[0].messages.map(row => row.id)).not.toContain(anchor)
+    expect(paginated.pages[1].messages.map(row => row.id)).toContain(anchor)
+    expect(paginated.pageParams).toEqual([{ mode: "newer", cursor: cursor(175) }, { mode: "anchor", anchor }])
+
+    const next = await saveAndRestore(owner)
+    const restored = next.client.getQueryData<MessageWindowData>(seeded.resource.windowKey)!
+    expect(restored.pages).toHaveLength(1)
+    expect(restored.pages[0].messages.map(row => row.seq)).toEqual(Array.from({ length: 50 }, (_, index) => index + 177))
+    expect(restored.pageParams).toEqual([{ mode: "newer", cursor: cursor(175) }])
+    const scope = getQualifiedConversationScope(next.client, target)!
+    expect(findConversationDisplayWindow(next.client, target, scope)?.key).toEqual(seeded.resource.windowKey)
+    expect(findConversationEntryWindow(next.client, target, scope, currentConversationReadState(next.client, "post"))).toBeUndefined()
+
+    let release!: (value: typeof entry) => void
+    const held = new Promise<typeof entry>(resolve => { release = resolve })
+    load.mockReset()
+    load.mockImplementation((url: string) => {
+      const query = new URL(url, "https://alook.local").searchParams
+      if (query.has("entry")) return held
+      if (query.get("since") === cursor(175)) return Promise.resolve(newer)
+      if (query.get("since") === cursor(226)) return Promise.resolve(messageReadPageFixture({
+        messages: Array.from({ length: 50 }, (_, index) => messageResourceFixture({ id: `read-${index + 127}`, channelId: "post", seq: index + 227,
+          authorId: "peer", createdAt: new Date(Date.UTC(2026, 9, 1, 0, index + 126)).toISOString() })),
+        hasMoreOlder: true, hasMoreNewer: true, newerCursor: "after-276", latestSeq: 300,
+      }))
+      throw new Error(`Unexpected target repair read: ${url}`)
+    })
+    const received = next.client.query({ ...conversationEntryOptions(next.client, target), retry: false })
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce())
+    expect(next.client.getQueryData(seeded.resource.windowKey)).toBe(restored)
+    expect(findConversationDisplayWindow(next.client, target, scope)?.key).toEqual(seeded.resource.windowKey)
+    release(entry)
+    const resource = await received
+    await next.client.getQueryCache().find({ queryKey: [...resource.windowKey, "reconcile"], exact: true })?.promise
+    expect(next.registry.collections.messages.has(anchor)).toBe(true)
+    expect(next.client.getQueryData<MessageWindowData>(resource.windowKey)?.pages.flatMap(page => page.messages.map(row => row.id))).toContain(anchor)
+    expect(findConversationEntryWindow(next.client, target, resource, currentConversationReadState(next.client, "post"))?.key).toEqual(resource.windowKey)
+  })
+
   it.each([0, 1, 3, 80].flatMap(count => [false, true].map(failed => ({ count, failed }))))("keeps $count actual members apart from preview/extra entities after refresh failed=$failed", async ({ count, failed }) => {
     const owner = await seed(), { key, packet } = await seedBodyWindow(owner, count)
     const extra = messageResourceFixture({ id: "scatter", channelId: "post", seq: 9999, authorId: "peer", content: "Not a read-window member" })

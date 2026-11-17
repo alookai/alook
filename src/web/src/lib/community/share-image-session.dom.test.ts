@@ -1347,6 +1347,32 @@ describe("capturePreparedShareImage", () => {
     expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
   })
 
+  it("installs a die-cut sticker SVG frame and exports with a transparent canvas when data-share-sticker is set", async () => {
+    for (const dark of [false, true]) {
+      document.documentElement.classList.toggle("dark", dark)
+      const source = sourceCard("<span>sticker share card</span>")
+      source.setAttribute("data-share-sticker", "")
+      const prepared = await prepare(source)
+      expect(prepared.backgroundColor).toBe("transparent")
+      expect(prepared.markup).toContain("data-share-sticker-frame")
+      expect(prepared.markup).toContain(dark ? "#2c2f38" : "#fffdf8")
+
+      const parsed = document.createElement("div")
+      parsed.innerHTML = prepared.markup
+      const readyCard = parsed.firstElementChild as HTMLElement
+      document.body.appendChild(readyCard)
+      const rasterize = vi.fn().mockResolvedValue(new Blob(["png"], { type: "image/png" }))
+      await capturePreparedShareImage(readyCard, FONT_CSS, rasterize)
+      expect(rasterize).toHaveBeenCalledWith(
+        expect.any(HTMLElement),
+        expect.objectContaining({ backgroundColor: undefined, pixelRatio: 2 }),
+      )
+      readyCard.remove()
+      source.remove()
+    }
+    document.documentElement.classList.remove("dark")
+  })
+
   it("rejects a ready preview that still contains a URL-backed image", async () => {
     const preview = sourceCard('<img src="https://cdn.example/not-ready.png">')
     const rasterize = vi.fn()
