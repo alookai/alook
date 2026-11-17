@@ -74,6 +74,8 @@
   .stepHeading > span { left: -32px; width: 16px; }
   .step h2 { font-size: 23px; }
   .stage { height: 320px; --motion-sheet-width: 360px; }
+  /* Use case stories show only the app shell; keep its 1120:660 ratio so it fills the frame. */
+  [data-guide-demo="story"] .stage { height: 58.93cqw; }
 
   .mock { padding: 16px; }
   .field { gap: 8px; font-size: 13px; }
