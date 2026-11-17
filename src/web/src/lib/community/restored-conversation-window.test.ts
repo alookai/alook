@@ -28,13 +28,13 @@ async function setup() {
   return { ...owner, input, key, networkWindow }
 }
 
-it("restores only the newest contiguous canonical suffix without claiming either history boundary", async () => {
+it("restores actual saved membership including sequence gaps without claiming either live boundary", async () => {
   const { registry, client, input, key } = await setup()
   restoreConversationDisplayWindows(registry, input)
   const data = client.getQueryData<MessageWindowData>(key)!
-  expect(data.pages[0].messages.map(row => row.id)).toEqual(["m3", "m4"])
+  expect(data.pages[0].messages.map(row => row.id)).toEqual(["m1", "m3", "m4"])
   expect(data.pages[0]).toMatchObject({ hasMoreOlder: true, hasMoreNewer: true, latestSeq: 4,
-    olderCursor: "2026-10-01T00:00:03.000Z|m3", newerCursor: "2026-10-01T00:00:04.000Z|m4" })
+    olderCursor: "older", newerCursor: "2026-10-01T00:00:04.000Z|m4" })
   const target = { channelId: "c1", serverId: null }
   expect(findConversationEntryWindow(client, target, assessConversationScope(client, target).scope!, currentConversationReadState(client, "c1"))).toBeUndefined()
   expect(() => registry.assertOnlineAccount()).toThrow(expect.objectContaining({ name: "AbortError" }))

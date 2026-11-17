@@ -24,13 +24,7 @@ import {
 // ── shouldPersistQueryKey ─────────────────────────────────────────────────
 
 describe("shouldPersistQueryKey", () => {
-  it("does not persist channel transport message queries", () => {
-    expect(shouldPersistQueryKey(communityKeys.channelMessages("ch_1"))).toBe(false)
-  })
 
-  it("does not persist DM transport message queries", () => {
-    expect(shouldPersistQueryKey(communityKeys.dmMessages("dm_1"))).toBe(false)
-  })
 
   it("persists account-scoped canonical collections", () => {
     expect(shouldPersistQueryKey(

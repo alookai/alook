@@ -51,6 +51,48 @@ async function setup(sequences = [98, 99, 100], tag: string | null = null) {
 }
 
 describe("complete canonical coverage at the existing repair owner", () => {
+  it.each([
+    { latestSeq: 0, split: false, incoming: false }, { latestSeq: 0, split: true, incoming: false },
+    { latestSeq: 100, split: false, incoming: false }, { latestSeq: 100, split: true, incoming: false },
+    { latestSeq: 0, split: false, incoming: true }, { latestSeq: 0, split: true, incoming: true },
+    { latestSeq: 100, split: false, incoming: true }, { latestSeq: 100, split: true, incoming: true },
+  ])("closes a retained empty window from a complete live landing (seq=$latestSeq, split=$split, incoming=$incoming)", async ({ latestSeq, split, incoming }) => {
+    const h = await setup()
+    const empty = messageWindowPage({ messages: [], latestSeq, hasMoreOlder: true, hasMoreNewer: true })
+    h.client.setQueryData<MessageWindowData>(h.key, { pages: split ? [empty, { ...empty }] : [empty],
+      pageParams: split ? [{ mode: "newest" }, { mode: "older", cursor: "saved-range" }] : [{ mode: "newest" }] })
+    const params = h.read().pageParams
+    const messages = incoming ? [row(latestSeq + 1)] : []
+    try {
+      await reconcileConversationLanding(h.client, { kind: "channel", scopeId: "c1", serverId: "s1" }, h.key,
+        messageReadPageFixture({ messages, latestSeq: latestSeq + Number(incoming), hasMoreOlder: false, hasMoreNewer: false }),
+        { mode: "newest" }, h.repairOwner)
+      expect(load).not.toHaveBeenCalled()
+      expect(h.ids()).toEqual(messages.map(message => message.id))
+      expect(h.read().pages.at(-1)?.hasMoreOlder).toBe(false)
+      expect(h.read().pages[0].hasMoreNewer).toBe(false)
+      expect(h.read().pageParams).toEqual(params)
+    } finally { h.unsubscribe() }
+  })
+
+  it.each(["older-open", "older-unknown", "newer-open", "newer-unknown", "stale", "sequence-unknown"] as const)("keeps an empty window's history boundary unknown for %s evidence", async evidence => {
+    const h = await setup()
+    h.client.setQueryData<MessageWindowData>(h.key, { pages: [messageWindowPage({ messages: [], latestSeq: 100,
+      hasMoreOlder: true, hasMoreNewer: true })], pageParams: [{ mode: "newest" }] })
+    const fresh = messageReadPageFixture({ messages: [], latestSeq: evidence === "stale" ? 99 : 100,
+      hasMoreOlder: evidence === "older-open", hasMoreNewer: evidence === "newer-open" })
+    if (evidence === "older-unknown") delete fresh.hasMoreOlder
+    if (evidence === "newer-unknown") delete fresh.hasMoreNewer
+    if (evidence === "sequence-unknown") Reflect.deleteProperty(fresh, "latestSeq")
+    try {
+      await reconcileConversationLanding(h.client, { kind: "channel", scopeId: "c1", serverId: "s1" }, h.key,
+        fresh, { mode: "newest" }, h.repairOwner)
+      expect(load).not.toHaveBeenCalled()
+      expect(h.ids()).toEqual([])
+      expect(h.read().pages.at(-1)?.hasMoreOlder).toBe(true)
+    } finally { h.unsubscribe() }
+  })
+
   it.each([false, true])("preserves a completed empty history page when the fresh newest page hasMoreOlder=%s", async hasMoreOlder => {
     const h = await setup()
     h.client.setQueryData<MessageWindowData>(h.key, current => current && ({

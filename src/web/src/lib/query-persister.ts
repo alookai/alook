@@ -1,3 +1,4 @@
+import { messageWindowIdentity, readPersistedMessageWindow, persistedMessageWindowComplete, boundPersistedMessageWindow, messageWindowMessageIds, messageWindowDependencies, type PersistedMessageWindow } from "@/lib/community/message-window-persistence"
 import { isServerDirectoryWindowKey, readServerDirectoryWindow, serverDirectoryWindowComplete, type ServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { CommunitySelfProfileReadSchema } from "@alook/shared"
 import { forumSidebarWindowComplete, isForumSidebarWindowKey, readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
@@ -46,27 +47,27 @@ function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
 }
 
 export function shouldPersistQueryKey(queryKey: readonly unknown[]): boolean {
-  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isPageListQueryKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey)
+  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isPageListQueryKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey) || messageWindowIdentity(queryKey) !== undefined
 }
 
 export function shouldPersistQuery(
   queryKey: readonly unknown[],
   data: unknown,
 ): boolean {
-  return isCommunityDbCollectionKey(queryKey) || persistentCommunityListResource(queryKey, data) !== undefined
+  return isCommunityDbCollectionKey(queryKey) || readPersistedMessageWindow(queryKey, data, 0) !== undefined || persistentCommunityListResource(queryKey, data) !== undefined
     || readPageListWindow(queryKey, data) !== undefined
     || isServerDirectoryWindowKey(queryKey) && readServerDirectoryWindow(data)?.serverId === queryKey[2]
     || isForumSidebarWindowKey(queryKey) && readForumSidebarWindowResult(data)?.window.serverId === queryKey[2]
 }
 
 export function shouldDehydrateCommunityQuery(query: { queryKey: readonly unknown[]; state: { status: string; data: unknown } }) {
-  return (query.state.status === "success" || isForumSidebarWindowKey(query.queryKey) || isPageListQueryKey(query.queryKey))
+  return (query.state.status === "success" || isForumSidebarWindowKey(query.queryKey) || isPageListQueryKey(query.queryKey) || messageWindowIdentity(query.queryKey) !== undefined)
     && shouldPersistQuery(query.queryKey, query.state.data)
 }
 
 export type CommunityRestoredCollections = Partial<{
   [N in CommunityCollectionName]: { rows: CommunityCollectionRows[N][]; updatedAt: number }
-}>
+}> & { messageWindows?: PersistedMessageWindow[] }
 
 export function readCommunityRestoredCollections(snapshot: PersistedClient | undefined, userId: string | null): CommunityRestoredCollections {
   const collections: CommunityRestoredCollections = {}
@@ -80,6 +81,14 @@ export function readCommunityRestoredCollections(snapshot: PersistedClient | und
     if (!parsed.success) continue
     Object.assign(collections, { [name]: { rows: parsed.data, updatedAt: query.state.dataUpdatedAt } })
   }
+  const rows = { channels: collections.channels?.rows, servers: collections.servers?.rows,
+    channelMemberships: collections.channelMemberships?.rows, messages: collections.messages?.rows, profiles: collections.profiles?.rows }
+  const windows = snapshot.clientState.queries.flatMap(query => {
+    if (query.state.status !== "success" && !query.state.dataUpdatedAt) return []
+    const window = readPersistedMessageWindow(query.queryKey, query.state.data, query.state.dataUpdatedAt)
+    return window && persistedMessageWindowComplete(window, rows, userId) ? [window] : []
+  })
+  if (windows.length) collections.messageWindows = windows
   return collections
 }
 
@@ -98,7 +107,7 @@ export function createCommunityRestorePersister(original: Persister, userId: str
       collections = readCommunityRestoredCollections(restored, userId)
       return restored && { ...restored, clientState: {
         ...restored.clientState,
-        queries: restored.clientState.queries.filter((query) => !isCommunityDbCollectionKey(query.queryKey)),
+        queries: restored.clientState.queries.filter((query) => !isCommunityDbCollectionKey(query.queryKey) && !messageWindowIdentity(query.queryKey)),
       } }
     },
     removeClient: () => { collections = {}; return original.removeClient() },
@@ -186,14 +195,34 @@ function scrubDehydratedClient(
   const attentionMessageIds = new Set(retainedAttentionItems.flatMap((row) => (
     row.messageId ? [row.messageId] : []
   )))
-  const retainedMessages = [...messagesByScope.values()]
-    .map((rows) => rows.slice().sort(compareMessagesNewest))
+  const windowRows = { channels: retainedChannels, servers: rows("servers"), channelMemberships: rows("channelMemberships"), messages: allMessages, profiles: rows("profiles") }
+  const messageWindows: Array<{ query: typeof client.clientState.queries[number]; window: PersistedMessageWindow }> = []
+  const windowScopes = new Set<string>()
+  if (userId) for (const query of client.clientState.queries.slice().sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)) {
+    if (query.state.status !== "success" && !query.state.dataUpdatedAt) continue
+    const candidate = readPersistedMessageWindow(query.queryKey, query.state.data, query.state.dataUpdatedAt)
+    const window = candidate && boundPersistedMessageWindow(candidate, allMessages, MAX_PERSISTED_MESSAGES_PER_SCOPE)
+    if (!window || windowScopes.has(window.channelId) || windowScopes.size >= MAX_PERSISTED_MESSAGE_SCOPES
+      || !persistedMessageWindowComplete(window, windowRows, userId, retiredIds)) continue
+    windowScopes.add(window.channelId)
+    messageWindows.push({ query, window })
+  }
+  const ordinaryScopes = [...messagesByScope.values()].map(rows => rows.slice().sort(compareMessagesNewest))
     .sort((a, b) => compareMessagesNewest(a[0]!, b[0]!))
-    .slice(0, MAX_PERSISTED_MESSAGE_SCOPES)
-    .flatMap((rows) => rows.slice(0, MAX_PERSISTED_MESSAGES_PER_SCOPE))
+  const messageById = new Map(allMessages.map(row => [row.id, row]))
+  const retainedMessages = messageWindows.flatMap(({ window }) => messageWindowMessageIds(window).map(id => messageById.get(id)!))
+  const ordinaryScopeIds = new Set(windowScopes)
+  for (const scope of ordinaryScopes) {
+    const channelId = scope[0]!.channelId
+    if (!ordinaryScopeIds.has(channelId) && ordinaryScopeIds.size >= MAX_PERSISTED_MESSAGE_SCOPES) continue
+    ordinaryScopeIds.add(channelId)
+    const selected = new Set(retainedMessages.filter(row => row.channelId === channelId).map(row => row.id))
+    retainedMessages.push(...scope.filter(row => !selected.has(row.id)).slice(0, MAX_PERSISTED_MESSAGES_PER_SCOPE - selected.size))
+  }
+  const windowDependencies = new Set(messageWindows.flatMap(({ window }) => messageWindowDependencies(window, allMessages)))
   const retainedMessageIds = new Set(retainedMessages.map((row) => row.id))
   for (const message of allMessages) {
-    if ((attentionMessageIds.has(message.id) || pageListDependencies.has(message.id)) && !retainedMessageIds.has(message.id)) {
+    if ((attentionMessageIds.has(message.id) || pageListDependencies.has(message.id) || windowDependencies.has(message.id)) && !retainedMessageIds.has(message.id)) {
       retainedMessages.push(message)
       retainedMessageIds.add(message.id)
     }
@@ -233,6 +262,11 @@ function scrubDehydratedClient(
   }
   for (const { query, window } of pageLists) {
     if (!pageListWindowComplete(window, { servers: rows("servers"), channels: retainedChannels, messages: retainedMessages, profiles: rows("profiles"), friendships: rows("friendships") }, retiredIds)) continue
+    queries.push({ ...query, state: { ...query.state, data: window.data, status: "success", error: null, errorUpdatedAt: 0,
+      errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
+  }
+  for (const { query, window } of messageWindows) {
+    if (!userId || !persistedMessageWindowComplete(window, { ...windowRows, messages: retainedMessages, channelMemberships: retainedChannelMemberships }, userId, retiredIds)) continue
     queries.push({ ...query, state: { ...query.state, data: window.data, status: "success", error: null, errorUpdatedAt: 0,
       errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
   }
