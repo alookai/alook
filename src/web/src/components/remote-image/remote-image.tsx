@@ -6,6 +6,7 @@ import {
   useEffect,
   useEffectEvent,
   type CSSProperties,
+  type ReactNode,
   type ImgHTMLAttributes,
   type MouseEvent,
 } from "react"
@@ -91,7 +92,7 @@ type ContentImageProps = Omit<
   imageClassName?: string
   imageStyle?: CSSProperties
   loadingLabel?: string
-  errorLabel?: string
+  errorLabel?: ReactNode
   retryLabel?: string
   onActivate?: (event: MouseEvent<HTMLButtonElement>) => void
   activateLabel?: string

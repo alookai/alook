@@ -147,7 +147,7 @@ describe("Automation settings", () => {
     view.rerender(<AutomationSettings userId="owner" />)
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load access codes")
     expect(screen.queryByText(/No access codes yet/)).not.toBeInTheDocument()
-    await setupUser().click(screen.getByRole("button", { name: "Try again" }))
+    await setupUser().click(screen.getByRole("button", { name: "Retry" }))
     expect(state.refetch).toHaveBeenCalledOnce()
   })
   it("shows the secret only after creation and clears it with Done", async () => {

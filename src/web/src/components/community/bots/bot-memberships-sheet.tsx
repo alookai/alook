@@ -9,6 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { CommunitySheet } from "../shell/community-sheet"
 import { ServerIcon } from "../server-icon"
 import { EmptyState } from "../empty-state"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { EntityIcon } from "../entity-icon"
 import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
@@ -36,7 +37,7 @@ export function BotMembershipsSheet({ bot, open, onOpenChange }: {
   return <>
     <CommunitySheet open={open} onOpenChange={(next) => { if (!next) setTarget(null); onOpenChange(next) }} title="Servers & channels" description={<span className="flex min-w-0 items-center gap-2"><AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={24} /><span className="min-w-0 truncate" title={bot.name}>{bot.name}</span></span>} contentTestId={tid.botMembershipsSheet} bodyClassName="flex flex-col">
       {memberships.isPending ? <div className="space-y-6" aria-label="Loading servers and channels" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="space-y-3"><Skeleton className="h-4 w-36" /><Skeleton className="ml-6 h-9 w-3/4" /><Skeleton className="ml-6 h-9 w-2/3" /></div>)}</div>
-        : memberships.isError ? <div className="space-y-3 py-6"><p role="alert" className="text-sm text-muted-foreground">Could not load servers and channels.</p><Button variant="outline" disabled={memberships.isFetching} onClick={() => void memberships.refetch()}>Try again</Button></div>
+        : memberships.isError ? <ConversationResolutionErrorFrame as="div" title="Could not load servers and channels." retrying={memberships.isFetching} onRetry={() => { void memberships.refetch() }} />
         : memberships.data?.servers.length === 0 ? <EmptyState icon={Network} label={`${bot.name} hasn't joined any servers.`} />
         : <div className="space-y-6">{memberships.data?.servers.map((server) => <section key={server.id} data-testid={tid.botMembershipsServer(server.id)}>
           <div className="flex min-h-11 items-center gap-2">

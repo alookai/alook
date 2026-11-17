@@ -26,6 +26,8 @@ import { Badge } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
+import { EmptyState } from "../empty-state"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { ServerIcon } from "../server-icon"
 import { avatarInitial } from "@/lib/community/avatar"
 import { SlugHint } from "./slug-hint"
@@ -91,9 +93,10 @@ export function ServerSettings({
 
   // Invites are low-frequency, admin-only panel data. Fetch them only when
   // their tab is open, never on settings mount or via WS.
-  const { invites, isLoading: invitesLoading } = useInvites(serverId, section === "invites")
+  const { invites, isLoading: invitesLoading, isError: invitesError, isFetching: invitesFetching, refetch: retryInvites } = useInvites(serverId, section === "invites")
+  const invitesFailed = invitesError && invites.length === 0
 
-  useObservedRegion("settings", visibleSection === "members" ? !membersLoading : visibleSection === "invites" ? !invitesLoading : visibleSection !== "channels", visibleSection === "members" ? members.length : visibleSection === "invites" ? invites.length : 1)
+  useObservedRegion("settings", visibleSection === "members" ? !membersLoading : visibleSection === "invites" ? !invitesLoading && !invitesFailed : visibleSection !== "channels", visibleSection === "members" ? members.length : visibleSection === "invites" ? invites.length : 1)
 
   const nav: SettingsShellTab<SettingsSection>[] = [
     { value: "overview", label: "Overview", icon: Settings },
@@ -122,9 +125,9 @@ export function ServerSettings({
         onClose={onClose}
       >
         <SettingsShellPanel value="overview"><SettingsOverview key={serverId} serverId={serverId} serverIcon={serverIcon} onUploadIcon={onUploadIcon} editor={editor} captureSaveFeedback={captureSaveFeedback} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
-        {isAdmin && section === "channels" && <SettingsShellPanel value="channels"><ServerSettingsChannels key={serverId} serverId={serverId} /></SettingsShellPanel>}
+        {isAdmin && section === "channels" && <SettingsShellPanel value="channels" className="flex min-h-full flex-col"><ServerSettingsChannels key={serverId} serverId={serverId} /></SettingsShellPanel>}
         <SettingsShellPanel value="members" className="h-full"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
-        <SettingsShellPanel value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></SettingsShellPanel>
+        <SettingsShellPanel value="invites" className="flex min-h-full flex-col">{invitesFailed ? <ConversationResolutionErrorFrame as="div" title="Could not load invites." retrying={invitesFetching} onRetry={() => { void retryInvites() }} /> : <SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} />}</SettingsShellPanel>
         <SettingsShellPanel value="notifications"><SettingsNotifications serverId={serverId} level={notifLevel} onSetLevel={onSetNotifLevel} /></SettingsShellPanel>
       </SettingsShell>
     </>
@@ -319,9 +322,9 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   const [revokingCode, setRevokingCode] = useAtom(useCreateAtom<string | null>(null))
   if (loading && invites.length === 0) return <SettingsInvitesSkeleton />
   return (
-    <div className="w-full space-y-2">
+    <div className="flex w-full flex-1 flex-col gap-2">
       {invites.length === 0 && (
-        <p className="text-sm text-muted-foreground">No active invites — use the invite icon in the sidebar header to share this server.</p>
+        <EmptyState icon={Link2} label="No active invites" description="Use the invite icon in the sidebar header to share this server." />
       )}
       {invites.map((iv) => (
         <div key={iv.code} className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40">

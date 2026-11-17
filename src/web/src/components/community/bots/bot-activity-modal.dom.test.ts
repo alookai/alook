@@ -9,6 +9,7 @@ const {
   auditHook,
   profileHook,
   fetchNextPage,
+  refetch,
   sheetProps,
 } = vi.hoisted(() => ({
   auditState: {
@@ -21,6 +22,7 @@ const {
       createdAt: string
     }>,
     isLoading: false,
+    isError: false,
     isFetching: false,
     hasNextPage: false,
     isFetchingNextPage: false,
@@ -30,6 +32,7 @@ const {
   auditHook: vi.fn(),
   profileHook: vi.fn(),
   fetchNextPage: vi.fn(),
+  refetch: vi.fn(),
   sheetProps: { current: null as Record<string, unknown> | null },
 }))
 let scrollDescriptor: PropertyDescriptor | undefined
@@ -67,7 +70,7 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await 
 vi.mock("@/hooks/community/use-bot-audit-log", () => ({
   useBotAuditLog: (botId: string | null) => {
     auditHook(botId)
-    return { ...auditState, isFetching: auditState.isFetching || auditState.isFetchingNextPage, fetchNextPage }
+    return { ...auditState, isFetching: auditState.isFetching || auditState.isFetchingNextPage, fetchNextPage, refetch }
   },
 }))
 
@@ -189,6 +192,8 @@ function resizeBody(height: number, settle = true) {
 describe("BotActivityModal CommunitySheet contract", () => {
   beforeEach(() => {
     auditState.events = []
+    auditState.isError = false
+    refetch.mockReset()
     auditState.isLoading = false
     auditState.isFetching = false
     auditState.hasNextPage = false
@@ -343,6 +348,22 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(onOpenChangeComplete).toHaveBeenCalledWith(false)
   })
 
+  it("shows a retryable first-load failure instead of a false empty state", () => {
+    auditState.isError = true
+    const { renderer } = renderModal()
+    expect(renderer.queryByText("No activity yet")).not.toBeInTheDocument()
+    expect(renderer.getByRole("alert")).toHaveTextContent("Could not load activity.")
+    fireEvent.click(renderer.getByRole("button", { name: "Retry" }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+    auditState.isFetching = true
+    updateModal(renderer)
+    expect(renderer.getByRole("button", { name: "Retrying…" })).toBeDisabled()
+    auditState.isError = false
+    auditState.isFetching = false
+    updateModal(renderer)
+    expect(renderer.getByText("No activity yet")).toBeInTheDocument()
+  })
+
   it("keeps loading, empty, chronological day groups, and rows in the shared body", () => {
     auditState.isLoading = true
     const loading = renderModal().renderer
@@ -350,6 +371,8 @@ describe("BotActivityModal CommunitySheet contract", () => {
       .toHaveLength(8)
     loading.unmount()
 
+    auditState.isError = false
+    refetch.mockReset()
     auditState.isLoading = false
     const empty = renderModal().renderer
     expect(empty.getByText("No activity yet")).toBeInTheDocument()

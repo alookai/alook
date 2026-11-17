@@ -1,5 +1,6 @@
 "use client"
 
+import { AlertCircle } from "lucide-react"
 import { useEffect, useLayoutEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCommunityRouteFrame } from "../shell/community-route-context"
@@ -71,11 +72,12 @@ export function MessageRoute({ messageId }: { messageId: string }) {
 
   if (!active || !query.isError) return <CommunityPendingFrame href={href} />
   const unavailable = query.error instanceof ApiError && [403, 404].includes(query.error.status)
-  return <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6">
+  return <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+    <div data-slot="empty-state-icon" className="grid size-14 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"><AlertCircle className="size-7" aria-hidden /></div>
     <p role="alert" data-testid={tid.messageRouteAlert(messageId)} className="text-sm text-muted-foreground">{unavailable ? "This conversation is unavailable." : "Could not open this conversation."}</p>
     <div className="flex gap-2">
-      {!unavailable && <Button variant="outline" onClick={() => void query.refetch()}>Retry</Button>}
-      <Button onClick={openInbox}>Open Inbox</Button>
+      {!unavailable && <Button variant="outline" className="h-11 sm:h-9" disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? "Retrying…" : "Retry"}</Button>}
+      <Button className="h-11 sm:h-9" onClick={openInbox}>Open Inbox</Button>
     </div>
   </main>
 }

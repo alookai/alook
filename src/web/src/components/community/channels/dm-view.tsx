@@ -1,5 +1,7 @@
 "use client"
 
+import { Lock } from "lucide-react"
+import { EmptyState } from "../empty-state"
 import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 import { messagePreviewText } from "@alook/shared"
 
@@ -401,7 +403,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {dmBlocked ? null : readDenied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
+          {dmBlocked ? null : readDenied ? <div role="alert" className="flex min-h-0 flex-1 flex-col p-4"><EmptyState icon={Lock} label="You can no longer read this conversation." /></div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
             onOpenContextId={(id) => { setContextSheetSeq(null); setContextSheetId(id) }}
             key={dmId}
             variant="dm"

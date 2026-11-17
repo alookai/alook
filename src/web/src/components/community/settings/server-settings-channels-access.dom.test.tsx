@@ -7,9 +7,10 @@ import { tid } from "@/lib/community/testids"
 
 vi.mock("./settings-shell.module.css", () => ({ default: { shell: "settings-shell" } }))
 const apiFetchMock = vi.hoisted(() => vi.fn())
+const invitesState = vi.hoisted(() => ({ invites: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: apiFetchMock, toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false, useBreakpoint: () => "desktop" }))
-vi.mock("@/hooks/community/use-server-panels", () => ({ useInvites: () => ({ invites: [], isLoading: false }) }))
+vi.mock("@/hooks/community/use-server-panels", () => ({ useInvites: () => invitesState }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/hooks/community/use-notification-settings", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/hooks/community/use-notification-settings")>(),
@@ -74,4 +75,23 @@ describe("Channels tab access", () => {
     rendered.unmount()
     client.clear()
   })
+})
+
+it("shows failed invite reads with retry instead of an empty list", async () => {
+  const { client, wrapper } = setup()
+  invitesState.isError = true
+  const rendered = render(createElement(Settings, { ...props, isAdmin: true, section: "invites" }), { wrapper })
+  expect(screen.getByRole("alert")).toHaveTextContent("Could not load invites.")
+  expect(screen.queryByText(/No active invites/)).not.toBeInTheDocument()
+  await setupUser().click(screen.getByRole("button", { name: "Retry" }))
+  expect(invitesState.refetch).toHaveBeenCalledOnce()
+  invitesState.isFetching = true
+  rendered.rerender(createElement(Settings, { ...props, isAdmin: true, section: "invites" }))
+  expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled()
+  invitesState.isError = false
+  invitesState.isFetching = false
+  rendered.rerender(createElement(Settings, { ...props, isAdmin: true, section: "invites" }))
+  expect(screen.getByText(/No active invites/)).toBeInTheDocument()
+  rendered.unmount()
+  client.clear()
 })

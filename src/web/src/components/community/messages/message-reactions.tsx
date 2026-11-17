@@ -1,5 +1,7 @@
 "use client"
 
+import { Smile } from "lucide-react"
+import { EmptyState } from "../empty-state"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useMemo, useRef } from "react"
 import type React from "react"
@@ -279,9 +281,7 @@ function ReactionDetailsDialog({
             ))}
           </ul>
         ) : (
-          <p data-testid={tid.reactionEmpty(messageId)} className="py-8 text-center text-sm text-muted-foreground">
-            No reactions yet
-          </p>
+          <div data-testid={tid.reactionEmpty(messageId)} className="flex min-h-full flex-col"><EmptyState icon={Smile} label="No reactions yet" /></div>
         )}
       </div>
     </DialogContent>

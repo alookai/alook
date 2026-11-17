@@ -390,6 +390,19 @@ describe("InboxPopover friend requests", () => {
   })
 })
 
+it("keeps failed marked reads distinct from empty and disables pending retry", () => {
+  const onRetryMarked = vi.fn()
+  const props = { unreads: [], unreadDms: [], mentions: [], marked: [], markedError: true, onRetryMarked, hasProjectedUnreads: false, hasProjectedMentions: false }
+  const renderer = render(React.createElement(InboxPopover, props))
+  expect(renderer.queryByText("No marked messages")).toBeNull()
+  fireEvent.click(renderer.getByRole("button", { name: "Retry" }))
+  expect(onRetryMarked).toHaveBeenCalledOnce()
+  renderer.rerender(React.createElement(InboxPopover, { ...props, markedRetrying: true }))
+  expect(renderer.getByRole("button", { name: "Retrying…" })).toBeDisabled()
+  renderer.rerender(React.createElement(InboxPopover, { ...props, markedError: false }))
+  expect(renderer.getByText("No marked messages")).toBeInTheDocument()
+})
+
 describe("InboxPopover attention errors", () => {
   it("shows Marked failure and retries without claiming an empty list", () => {
     const onRetryMarked = vi.fn()

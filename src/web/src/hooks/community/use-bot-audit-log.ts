@@ -123,6 +123,7 @@ export function useBotAuditLog(botId: string | null | undefined, textOnly = fals
     events,
     error: query.error,
     isError: query.isError,
+    refetch: query.refetch,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     fetchNextPage: query.fetchNextPage,
