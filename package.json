@@ -47,7 +47,8 @@
     "app-store:creative": "node src/web/app-store-capture/creative/capture.mjs",
     "prepare": "simple-git-hooks",
     "check": "node scripts/ci/check-local.mjs",
-    "check:full": "node scripts/ci/check-local.mjs --full"
+    "check:full": "node scripts/ci/check-local.mjs --full",
+    "check:db-queries": "node scripts/db-query-check/run.mjs"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm check"

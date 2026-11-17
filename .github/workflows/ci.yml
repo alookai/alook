@@ -155,6 +155,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  db-query-check:
+    name: DB query scan check
+    needs: scope
+    if: needs.scope.outputs.run_linux == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @alook/agent-driver build
+      - run: pnpm check:db-queries
+      - name: Preserve query plans and coverage gaps
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: db-query-check-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/db-query-check/
+          if-no-files-found: error
+          retention-days: 14
+
   auth-build:
     name: Auth Worker build
     needs: scope
@@ -1017,6 +1042,7 @@ jobs:
       - blog-build
       - static-checks
       - test-linux
+      - db-query-check
       - test-windows
       - app-packed-artifact
       - e2e
@@ -1032,6 +1058,7 @@ jobs:
           {"name":"blog-build","expected":${{ needs.scope.outputs.run_blog_build == 'true' }},"result":"${{ needs.blog-build.result }}"},
           {"name":"static-checks","expected":${{ needs.scope.outputs.run_static_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.test-linux.result }}"},
+          {"name":"db-query-check","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.db-query-check.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
           {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' }},"result":"${{ needs.e2e.result }}"},
