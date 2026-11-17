@@ -21,6 +21,19 @@ test("local history submission and passive remote append use distinct owners", a
     const channelId = await seedChannel("alice", serverId, `scroll-passive-threshold-${Date.now()}`)
     await seedProfile(actors, channelId, 130, false, "rotate", 18)
     const alice = await asUser("alice")
+    let releaseLateOlder!: () => void
+    const olderGate = new Promise<void>(resolve => { releaseLateOlder = resolve })
+    let heldLateOlder = false
+    const olderHandler = async (route: import("@playwright/test").Route) => {
+      const url = new URL(route.request().url())
+      if (!heldLateOlder && url.searchParams.has("cursor") && !url.searchParams.has("direction")) {
+        heldLateOlder = true
+        await olderGate
+      }
+      await route.continue()
+    }
+    await alice.page.route(`**/api/community/channels/${channelId}/messages**`, olderHandler)
+    actors.onCleanup(async () => { releaseLateOlder(); if (!alice.page.isClosed()) await alice.page.unroute(`**/api/community/channels/${channelId}/messages**`, olderHandler) })
     await alice.page.setViewportSize(VIEWPORT)
     await installScrollTrace(alice.page)
     const proxy = await proxyCommunityWebSockets(alice.context)
@@ -65,6 +78,9 @@ test("local history submission and passive remote append use distinct owners", a
     actors.onCleanup(async () => { alice.page.off("request", countNewTargetRequest) })
     await newAction.click()
     await newTargetRequest.matched
+    expect(heldLateOlder).toBe(true)
+    await alice.page.waitForTimeout(75)
+    releaseLateOlder()
     await expect(newAction).toBeVisible()
     await expect(newAction).toHaveText("New")
     await expect(newAction).toHaveAccessibleName("Jump to New")
