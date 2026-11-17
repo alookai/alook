@@ -29,3 +29,9 @@ CREATE INDEX idx_community_read_state_last_read_message_id_lookup ON "community_
 CREATE INDEX idx_user_isBot_deletedAt_id_lookup ON "user" ("isBot", "deletedAt", "id");
 CREATE INDEX idx_user_pending_deletion ON "user" ("isBot", "updatedAt", "id") WHERE "deletedAt" IS NOT NULL;
 CREATE INDEX idx_product_plan_active_default ON product_plan(is_active, is_default, id);
+CREATE INDEX idx_community_machine_status_user ON community_machine(status, user_id);
+CREATE INDEX idx_community_bot_approval_server_lookup ON community_bot_approval_request(server_id);
+CREATE INDEX idx_community_bot_approval_requester_lookup ON community_bot_approval_request(requested_by_user_id);
+CREATE INDEX idx_community_bot_approval_message_lookup ON community_bot_approval_request(dm_message_id);
+CREATE INDEX idx_product_analytics_server_lookup ON product_analytics_event(server_id);
+CREATE INDEX idx_community_bot_binding_active_user ON community_bot_binding(is_active, user_id);

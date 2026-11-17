@@ -555,7 +555,12 @@ export const communityBotApprovalRequest = sqliteTable(
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
     resolvedAt: text("resolved_at"),
   },
-  (t) => [index("idx_community_bot_approval_bot").on(t.botId, t.status)]
+  (t) => [
+    index("idx_community_bot_approval_bot").on(t.botId, t.status),
+    index("idx_community_bot_approval_server_lookup").on(t.serverId),
+    index("idx_community_bot_approval_requester_lookup").on(t.requestedByUserId),
+    index("idx_community_bot_approval_message_lookup").on(t.dmMessageId),
+  ]
 );
 
 // Retain the last 500 audit events per bot.

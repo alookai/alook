@@ -32,7 +32,7 @@ describe("database query plans on current migrations", () => {
       const failures: string[] = []
       const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>
       for (const { name } of tables) {
-        if (!(name.startsWith("community_") && name !== "community_bot_approval_request") && name !== "billing_price") continue
+        if (!name.startsWith("community_") && name !== "billing_price" && name !== "product_analytics_event") continue
         const references = sqlite.pragma(`foreign_key_list(${JSON.stringify(name)})`) as Array<{ id: number; seq: number; from: string }>
         for (const id of new Set(references.map(row => row.id))) {
           const columns = references.filter(row => row.id === id).sort((a, b) => a.seq - b.seq).map(row => row.from)

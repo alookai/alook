@@ -11,7 +11,17 @@ it.each(["message", "forum", "channel", "server"] as const)("keeps %s deletion w
   const channel = `${prefix}_channel`
   const message = `${prefix}_message`
   const child = `${prefix}_child`
+  const foreignOwner = `${prefix}_retained_owner`
+  const foreignServer = `${prefix}_retained_server`
+  const foreignChannel = `${prefix}_retained_channel`
+  const foreignMessage = `${prefix}_retained_message`
   await raw.prepare("INSERT INTO user(id,name,email,discriminator) VALUES(?,?,?,'9999')").bind(owner, owner, `${owner}@test.example`).run()
+  await raw.batch([
+    raw.prepare("INSERT INTO user(id,name,email,discriminator) VALUES(?,?,?,'9998')").bind(foreignOwner, foreignOwner, `${foreignOwner}@test.example`),
+    raw.prepare("INSERT INTO community_server(id,name,discriminator,owner_id,created_at) VALUES(?,?,'1112',?,'2026-01-01')").bind(foreignServer, foreignServer, foreignOwner),
+    raw.prepare("INSERT INTO community_channel(id,server_id,type,created_at) VALUES(?,?,'text','2026-01-01')").bind(foreignChannel, foreignServer),
+    raw.prepare("INSERT INTO community_message(id,channel_id,author_id,created_at,seq) VALUES(?,?,?,'2026-01-01',1)").bind(foreignMessage, foreignChannel, foreignOwner),
+  ])
   const seedScope = async () => {
     await raw.batch([
       raw.prepare("INSERT OR IGNORE INTO community_server(id,name,discriminator,owner_id,created_at) VALUES(?,?,'1111',?,'2026-01-01')").bind(server, server, owner),
@@ -45,6 +55,8 @@ it.each(["message", "forum", "channel", "server"] as const)("keeps %s deletion w
     let previous = 0
     for (const count of [10, 1000, 10000]) {
       await raw.prepare("WITH RECURSIVE n(i) AS (SELECT ? UNION ALL SELECT i+1 FROM n WHERE i+1 <= ?) INSERT INTO user(id,name,email,discriminator) SELECT ?||i,?||i,?||i||'@test.example','0001' FROM n").bind(previous + 1, count, `${prefix}_foreign_`, `${prefix}_foreign_`, `${prefix}_foreign_`).run()
+      await raw.prepare("WITH RECURSIVE n(i) AS (SELECT ? UNION ALL SELECT i+1 FROM n WHERE i+1 <= ?) INSERT INTO community_bot_approval_request(id,bot_id,kind,server_id,requested_by_user_id,dm_message_id,status,created_at) SELECT ?||i,?,'join_server',?,?,?,'approved','2026-01-01' FROM n").bind(previous + 1, count, `${prefix}_approval_`, foreignOwner, foreignServer, foreignOwner, foreignMessage).run()
+      await raw.prepare("WITH RECURSIVE n(i) AS (SELECT ? UNION ALL SELECT i+1 FROM n WHERE i+1 <= ?) INSERT INTO product_analytics_event(id,event_name,actor_user_id,server_id,dedupe_key,client_id,session_id,created_at) SELECT ?||i,'test',?,?,?||i,'test','test','2026-01-01' FROM n").bind(previous + 1, count, `${prefix}_analytics_`, foreignOwner, foreignServer, `${prefix}_dedupe_`).run()
       await seedScope()
       const result = await raw.prepare(captured!.sql).bind(...captured!.params).all()
       expect(result.results).toEqual([kind === "server" ? { id: server, icon: null } : { id: kind === "channel" ? channel : message }])
@@ -56,6 +68,8 @@ it.each(["message", "forum", "channel", "server"] as const)("keeps %s deletion w
     expect(reads[2]).toBe(reads[0])
   } finally {
     await raw.prepare("DELETE FROM community_server WHERE id=?").bind(server).run()
+    await raw.prepare("DELETE FROM community_server WHERE id=?").bind(foreignServer).run()
+    await raw.prepare("DELETE FROM user WHERE id=?").bind(foreignOwner).run()
     await raw.prepare("DELETE FROM user WHERE id>=? AND id<?").bind(`${prefix}_foreign_`, `${prefix}_foreign_\uffff`).run()
     await raw.prepare("DELETE FROM user WHERE id=?").bind(owner).run()
   }

@@ -212,6 +212,15 @@ export async function getBotCapacitySummary(
   };
 }
 
+function activeLiveBotCondition(db: Database) {
+  return and(
+    eq(communityBotBinding.isActive, true),
+    exists(db.select({ one: sql<number>`1` }).from(user).where(and(
+      eq(user.id, communityBotBinding.userId), eq(user.isBot, true), isNull(user.deletedAt),
+    ))),
+  );
+}
+
 function reconcileActiveBotsBuilder(
   db: Database,
   ownerCondition: SQL<unknown>,
@@ -230,9 +239,7 @@ function reconcileActiveBotsBuilder(
       .innerJoin(user, eq(user.id, communityBotBinding.userId))
       .where(
         and(
-          eq(communityBotBinding.isActive, true),
-          eq(user.isBot, true),
-          isNull(user.deletedAt),
+          activeLiveBotCondition(db),
           ownerCondition,
         ),
       ),
@@ -258,9 +265,9 @@ export function reconcileOwnerActiveBotsBuilder(
   return reconcileActiveBotsBuilder(db, and(eq(user.ownerUserId, ownerUserId), guard)!, botsMax);
 }
 
-function planOwnerIds(db: Database, planId: string) {
+function planOwnerIds(db: Database, planId: string, resource: "bots" | "machines") {
   const explicit = db
-    .select({ id: userProductPlan.userId })
+    .select({ id: sql<string | null>`${userProductPlan.userId}`.as("id") })
     .from(userProductPlan)
     .where(eq(userProductPlan.planId, planId));
   const targetIsDefault = exists(
@@ -275,14 +282,21 @@ function planOwnerIds(db: Database, planId: string) {
         ),
       ),
   );
+  const resourceOwners = (resource === "bots"
+    ? db.select({ id: user.ownerUserId })
+      .from(communityBotBinding)
+      .innerJoin(user, eq(communityBotBinding.userId, user.id))
+      .where(activeLiveBotCondition(db))
+    : db.select({ id: communityMachine.userId }).from(communityMachine).where(eq(communityMachine.status, "online"))
+  ).as("plan_resource_owners");
   const ownerHasNoAssignment = notExists(
     db
       .select({ one: sql<number>`1` })
       .from(userProductPlan)
-      .where(eq(userProductPlan.userId, user.id)),
+      .where(eq(userProductPlan.userId, resourceOwners.id)),
   );
-  return explicit.union(db.select({ id: user.id }).from(user).where(and(
-    eq(user.isBot, false), targetIsDefault, ownerHasNoAssignment,
+  return explicit.union(db.select({ id: resourceOwners.id }).from(resourceOwners).where(and(
+    targetIsDefault, ownerHasNoAssignment,
   )));
 }
 
@@ -293,7 +307,7 @@ function reconcilePlanActiveBotsBuilder(
 ) {
   return reconcileActiveBotsBuilder(
     db,
-    inArray(user.ownerUserId, planOwnerIds(db, planId)),
+    inArray(user.ownerUserId, planOwnerIds(db, planId, "bots")),
     botsMax,
   );
 }
@@ -452,7 +466,7 @@ export async function setPlanEntitlement(
   if (entitlementKey === MACHINES_MAX_ENTITLEMENT_KEY) {
     const parsed = NonNegativeIntegerEntitlementSchema.safeParse(parsedValue);
     if (!parsed.success) throw new ProductEntitlementUnavailableError(entitlementKey, "entitlement_malformed");
-    const machines = reconcileOnlineMachinesBuilders(db, inArray(communityMachine.userId, planOwnerIds(db, planId)), parsed.data);
+    const machines = reconcileOnlineMachinesBuilders(db, inArray(communityMachine.userId, planOwnerIds(db, planId, "machines")), parsed.data);
     const results = await db.batch([write, ...machines]);
     return { deactivatedBotIds: [], disconnectedMachines: results[1] };
   }
