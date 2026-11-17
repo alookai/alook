@@ -9,7 +9,7 @@ globalThis[sourceHook] = registerQuerySource
 const previousStackLimit = Error.stackTraceLimit
 Error.stackTraceLimit = 100
 const capture = createCapture(process.env.ALOOK_DB_QUERY_ROOT)
-const restores = nativeDatabasePrototypes().map(prototype => instrumentDatabase(prototype, query => capture.collect(query)))
+const restores = nativeDatabasePrototypes(process.env.ALOOK_DB_QUERY_ROOT).map(prototype => instrumentDatabase(prototype, query => capture.collect(query)))
 afterAll(() => {
   for (const restore of restores.reverse()) restore()
   globalThis[sourceHook] = previousHook

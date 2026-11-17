@@ -62,6 +62,23 @@ test('captured source sites are exact; other branches stay uncovered and reports
   assert.equal(buildReport(db, inventory, directory, 1).outcome, 'failed')
 })
 
+test('fixture-only SQL does not run FK context probes; production context is sampled before execution', t => {
+  const root = process.cwd()
+  const directory = mkdtempSync(join(tmpdir(), 'query-context-'))
+  const db = new Sqlite(':memory:')
+  db.exec('CREATE TABLE item(id TEXT PRIMARY KEY)')
+  const capture = createCapture(root)
+  const restore = instrumentDatabase(Sqlite.prototype, query => capture.collect(query))
+  t.after(() => { restore(); db.close(); rmSync(directory, { recursive: true, force: true }) })
+  capture.collect({ sql: 'INSERT INTO item VALUES (?)', params: ['fixture'], stack: 'Error\n at fixture (/tmp/fixture.test.ts:1:1)', context: () => { throw new Error('fixture probe must not run') } })
+  db.transaction(() => registerQuerySource({ run: () => db.prepare('SELECT * FROM item WHERE id=?').all('fixture') }, { key: 'actual', file: 'src/shared/src/db/queries/example.ts', line: 1 }).run())()
+  capture.write(directory)
+  const records = JSON.parse(readFileSync(join(directory, readdirSync(directory)[0]))).records
+  assert.equal(records.length, 1)
+  assert.equal(records[0].context.inTransaction, true)
+  assert.equal(db.inTransaction, false)
+})
+
 test('source inventory uses DB method declarations and excludes Map/Array operations', () => {
   const file = 'src/shared/src/db/query-inventory-fixture.ts'
   const source = `import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'; type Database = BaseSQLiteDatabase<'sync', unknown>; export function query(db: Database) { const m = new Map(); m.delete('x'); Array.from(m); return db.select().from({} as never); }`
@@ -100,13 +117,15 @@ test('normal insert FK parents are proved from actual indexed fixture rows; miss
   t.after(() => { restore(); db.close() })
   const sql = 'INSERT INTO person (id, owner) VALUES (?, ?) RETURNING id'
   db.prepare(sql).run('bot', 'owner')
-  assert.equal(records[0].context.insertedParentsSatisfied, true)
-  const safe = analyzeQuery(db, sql, ['another', 'owner'], records[0].context)
+  const safeContext = records[0].context()
+  assert.equal(safeContext.insertedParentsSatisfied, true)
+  const safe = analyzeQuery(db, sql, ['another', 'owner'], safeContext)
   assert.deepEqual(safe.scans, [])
   assert.throws(() => db.prepare(sql).run('broken', 'missing'))
   const record = records.find(query => query.params[0] === 'broken')
-  assert.equal(record.context.insertedParentsSatisfied, false)
-  assert.equal(analyzeQuery(db, sql, record.params, record.context).scans.some(scan => scan.table === 'old_child'), true)
+  const missingContext = record.context()
+  assert.equal(missingContext.insertedParentsSatisfied, false)
+  assert.equal(analyzeQuery(db, sql, record.params, missingContext).scans.some(scan => scan.table === 'old_child'), true)
 })
 
 test('source frames preserve Windows drive paths and encoded file URLs', () => {

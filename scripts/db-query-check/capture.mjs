@@ -2,8 +2,19 @@ import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { sourceFrames } from './inventory.mjs'
+import { backendRoots, productionFile, sourceFrames } from './inventory.mjs'
 import { querySource } from './source-context.mjs'
+
+function nativeStack() {
+  const previous = Error.prepareStackTrace
+  try {
+    Error.prepareStackTrace = (_error, frames) => frames.flatMap(frame => {
+      const file = frame.getFileName()?.replaceAll('\\', '/')
+      return file && backendRoots.some(directory => file.includes(`/${directory}/`)) && productionFile(file) ? [` at (${file}:${frame.getLineNumber()}:${frame.getColumnNumber()})`] : []
+    }).join('\n')
+    return new Error().stack ?? ''
+  } finally { Error.prepareStackTrace = previous }
+}
 
 function insertedParentsSatisfied(database, prepare, sql, params) {
   const identifier = '("(?:""|[^""])+"|[a-zA-Z_][a-zA-Z_0-9]*)'
@@ -55,12 +66,12 @@ export function instrumentDatabase(prototype, collect) {
   const original = prototype.prepare
   const originalExec = prototype.exec
   if (originalExec) prototype.exec = function (sql, ...args) {
-    collect({ sql, params: [], stack: new Error().stack ?? "" })
+    collect({ sql, params: [], stack: nativeStack() })
     return originalExec.call(this, sql, ...args)
   }
   prototype.prepare = function (sql, ...options) {
-    const origin = new Error().stack ?? ''
     const source = querySource.getStore()
+    const origin = source ? '' : nativeStack()
     const database = this
     const context = params => {
       let deferForeignKeys
@@ -80,7 +91,7 @@ export function instrumentDatabase(prototype, collect) {
         if (typeof value !== 'function') return value
         return (...args) => {
           if (key === 'bind') bound = args
-          if (['all', 'get', 'run', 'iterate'].includes(key)) collect({ sql, params: bound ?? args, source, context: context(bound ?? args), stack: `${origin}\n${new Error().stack ?? ''}` })
+          if (['all', 'get', 'run', 'iterate'].includes(key)) collect({ sql, params: bound ?? args, source, context: () => context(bound ?? args), stack: source ? '' : `${origin}\n${nativeStack()}` })
           const result = Reflect.apply(value, target, args)
           return result === target ? proxy : result
         }
@@ -100,7 +111,7 @@ export function createCapture(root) {
       if (!frames.length || !/^\s*(?:select|insert|update|delete|replace|with)\b/i.test(query.sql)) return
       const params = query.params.length === 1 && Array.isArray(query.params[0]) ? query.params[0] : query.params
       const serializable = params.map(value => typeof value === 'bigint' ? { bigint: String(value) } : value instanceof Uint8Array ? { blob: Buffer.from(value).toString('base64') } : value)
-      const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.key, context: query.context }
+      const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.key, context: typeof query.context === 'function' ? query.context() : query.context }
       const key = JSON.stringify(record)
       records.set(key, record)
     },
@@ -110,7 +121,7 @@ export function createCapture(root) {
   }
 }
 
-export function nativeDatabasePrototypes() {
-  const require = createRequire(new URL('../../src/shared/package.json', import.meta.url))
+export function nativeDatabasePrototypes(root) {
+  const require = createRequire(join(root, 'src/shared/package.json'))
   return [require('better-sqlite3').prototype, require('node:sqlite').DatabaseSync.prototype]
 }
