@@ -1,7 +1,7 @@
 import { headers } from "next/headers"
 import { userAgent } from "next/server"
 import { DownloadPageView } from "@/components/download/download-page"
-import { readDownloadCatalog } from "@/lib/download-catalog"
+import { readCachedDownloadCatalog } from "@/lib/download-catalog-cache"
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
 import { downloadArchitecture, downloadPlatformFromOS } from "@/lib/download-platforms"
 
@@ -15,5 +15,5 @@ export default async function DownloadPage() {
   const agent = userAgent({ headers: await headers() })
   const platform = downloadPlatformFromOS(agent.os.name)
   const architecture = platform === "macos" ? "unknown" : downloadArchitecture(agent.cpu.architecture)
-  return <DownloadPageView catalog={await readDownloadCatalog()} initialEnvironment={{ platform, architecture }} />
+  return <DownloadPageView catalog={await readCachedDownloadCatalog()} initialEnvironment={{ platform, architecture }} />
 }
