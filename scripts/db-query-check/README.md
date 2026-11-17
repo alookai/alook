@@ -9,6 +9,8 @@ pnpm check:db-queries --require-complete
 
 Before a complete backend run, build existing prerequisites with `pnpm --filter @alook/agent-driver build`, as CI does. Normal test commands do not enable instrumentation.
 
+Before running tests, the checker verifies declared internal workspace links against the current checkout using the existing workspace manifest. A link to another checkout fails with setup evidence in `failure.json`; install this worktree's dependencies before retrying. External pnpm package stores may be shared. Successful reports retain internal link receipts. This prevents an inventory from one checkout being presented alongside execution of another checkout's shared queries.
+
 The command writes `.ci/db-query-check/report.json` and `report.md`. It exits nonzero for detected business table/index scans, SQL compilation errors, failed tests, or missing/empty capture. `--require-complete` also fails for uncovered query sites or unattributed observed SQL. Without that flag, a scan-free partial run says **observed-queries-passed-with-coverage-gaps**, not “all DB queries passed”. The JSON includes every discovered site, actual observed SQL shapes, bind types, query plans, source/migration/checker hashes, SQLite version, and uncovered sites.
 
 ## What it checks

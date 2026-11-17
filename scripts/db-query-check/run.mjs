@@ -7,6 +7,7 @@ import { spawnSync, execFileSync } from 'node:child_process'
 import { inventoryQueries } from './inventory.mjs'
 import { migratedDatabase } from './analyze.mjs'
 import { buildReport, markdownReport } from './report.mjs'
+import { verifyWorkspaceDependencies } from './workspace.mjs'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const args = process.argv.slice(2)
@@ -22,6 +23,7 @@ mkdirSync(output, { recursive: true })
 for (const file of ['report.json', 'report.md', 'failure.json']) rmSync(join(output, file), { force: true })
 let db
 try {
+  const workspaceDependencies = verifyWorkspaceDependencies(root)
   const selfTests = readdirSync(new URL('./', import.meta.url)).filter(file => file.endsWith('.test.mjs')).map(file => fileURLToPath(new URL(file, import.meta.url)))
   const checks = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...selfTests], { cwd: root, stdio: 'inherit' })
   if (checks.error || checks.status !== 0) throw new Error('DB query checker self-tests failed', { cause: checks.error })
@@ -34,7 +36,7 @@ try {
   const queryFiles = [...new Set(inventory.sites.map(site => site.file))].sort()
   const fixtureFiles = [...new Set(inventory.fixtureSites.map(site => site.file))].sort()
   const migrationFiles = readdirSync(resolve(root, 'src/web/migrations')).filter(file => file.endsWith('.sql')).sort().map(file => `src/web/migrations/${file}`)
-  const toolFiles = readdirSync(new URL('./', import.meta.url)).filter(file => /\.(?:mjs|json|ts)$/.test(file)).sort().map(file => `scripts/db-query-check/${file}`)
+  const toolFiles = [...readdirSync(new URL('./', import.meta.url)).filter(file => /\.(?:mjs|json|ts)$/.test(file)).sort().map(file => `scripts/db-query-check/${file}`), 'scripts/workspace-packages.mjs']
   const hashFiles = files => {
     const hash = createHash('sha256')
     for (const file of files) hash.update(file).update('\0').update(readFileSync(resolve(root, file)))
@@ -42,6 +44,7 @@ try {
   }
   report.source = { head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), querySourceSha256: hashFiles(queryFiles), testConstructionSourceSha256: hashFiles(fixtureFiles), migrationsSha256: hashFiles(migrationFiles), checkerSha256: hashFiles(toolFiles), sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version }
   report.command = [process.execPath, ...process.argv.slice(1)]
+  report.workspaceDependencies = workspaceDependencies
   writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n')
   writeFileSync(join(output, 'report.md'), markdownReport(report))
   console.log(JSON.stringify({ outcome: report.outcome, ...report.summary, report: join(output, 'report.md') }))
