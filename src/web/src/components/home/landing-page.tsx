@@ -12,6 +12,7 @@ import { HeroSection } from "./hero-section"
 import { PaperFlurry } from "./landing-sky"
 import { HomepageFaq } from "./homepage-faq"
 import { LandingTestimonials } from "./landing-testimonials"
+import { LandingUseCases } from "./landing-use-cases"
 import { LandingFeatureGallery } from "./landing-feature-gallery"
 import { MarketingNav } from "./marketing-nav"
 import { LandingInteractiveDemo } from "./landing-interactive-demo"
@@ -54,7 +55,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         onReady={handleHeroReady}
         staticPaper
         desktopSplit
-        nextSectionId="testimonials"
+        nextSectionId="use-cases"
         isLoggedIn={isLoggedIn}
         headline={(
           <>
@@ -88,6 +89,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
       <div className={styles.heroThemeToggle}>
         <ThemeToggle />
       </div>
+
+      <LandingUseCases isLoggedIn={isLoggedIn} />
 
       <LandingTestimonials />
 

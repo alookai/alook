@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 341,
+    "composition": 342,
     "environment": 10,
     "nonvisual": 31,
     "direct": 40
@@ -5489,8 +5489,8 @@
       "source": "src/web/src/components/home/landing-closing-collage.tsx",
       "application": "Web",
       "candidates": [
-        "LandingClosingCollage",
-        "Piece"
+        "CollagePiece",
+        "LandingClosingCollage"
       ],
       "kind": "composition",
       "examples": [
@@ -5699,6 +5699,21 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/home/landing-use-cases.tsx",
+      "application": "Web",
+      "candidates": [
+        "LandingUseCases"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-public-pages--home",
+          "region": "Original current homepage; scroll to the use cases section right below the hero and switch its tabs"
+        }
+      ],
+      "reason": "Landing use cases are a homepage section composed from shared tabs, button and the closing collage piece; the homepage story shows the real section."
     },
     {
       "source": "src/web/src/components/home/landing-value-sections.tsx",
