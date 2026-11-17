@@ -1,0 +1,115 @@
+export const metadata = {
+  "slug": "opencode-vs-claude-code",
+  "title": "OpenCode vs Claude Code (2026): Models, Cost, and Workflow",
+  "date": "2026-11-17",
+  "author": "Alook Team",
+  "excerpt": "Compare OpenCode and Claude Code by model choice, subscriptions, memory and permissions, and see what changes when you use Claude Agent.",
+  "readingTime": "8 min read",
+  "image": "/blog/opencode-vs-claude-code/hero.webp"
+};
+
+<style>{`.opencode-article .billing-v2 table{margin:24px 0;border:0;border-radius:0;max-width:100%;overflow:visible}.opencode-article .billing-v2 img{margin:0;border:0;border-radius:0;width:28px;height:28px}.opencode-article .billing-v2 .f0 img{width:28px;height:28px}.opencode-article .billing-v2 .f0{background:var(--muted)}.opencode-article .billing-v2 table{display:block;width:100%;border:0;table-layout:auto}.opencode-article .billing-v2 thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.opencode-article .billing-v2 tbody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.opencode-article .billing-v2 tr{display:flex;flex-direction:column;margin:0;min-width:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--card)}.opencode-article .billing-v2 th,.opencode-article .billing-v2 td{display:block;width:auto;padding:0;border:0;background:none;font-size:15px;line-height:1.5;overflow-wrap:normal}.opencode-article .billing-v2 td:before{content:none}.opencode-article .billing-v2 .f0{display:flex;align-items:center;gap:12px;padding:17px 20px;background:var(--secondary);font-size:20px;line-height:1.25;letter-spacing:-.35px;min-height:84px}.opencode-article .billing-v2 .route-number{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:30px;border:1px solid var(--border);border-radius:50%;font:12px var(--font-mono);color:var(--muted-foreground)}.opencode-article .billing-v2 .field-label{display:block;font:11px/1.3 var(--font-mono);letter-spacing:.8px;text-transform:uppercase;color:var(--muted-foreground);margin-bottom:8px}.opencode-article .billing-v2 .f1{padding:20px 20px 17px;min-height:132px;font-size:20px;line-height:1.35;letter-spacing:-.3px}.opencode-article .billing-v2 .amount{display:inline-block;font-size:36px;line-height:1.1;font-weight:700;white-space:nowrap;letter-spacing:-1.3px;margin:0 3px}.opencode-article .billing-v2 .amount span{font-size:14px;letter-spacing:0;font-weight:400}.opencode-article .billing-v2 .f2{padding:16px 20px;border-top:1px solid var(--border);flex:1}.opencode-article .billing-v2 .f3{padding:15px 20px 18px;background:var(--muted)}@media(max-width:640px){.opencode-article .billing-v2 tbody{grid-template-columns:1fr;gap:16px}.opencode-article .billing-v2 .f0{min-height:0;font-size:19px}.opencode-article .billing-v2 .f1{min-height:0;font-size:19px}.opencode-article .billing-v2 .f2{flex:auto}.opencode-article .billing-v2 .amount{font-size:34px}}
+ .opencode-article .billing-v2 .route-icons{display:flex;align-items:center;justify-content:center;width:32px;flex-shrink:0}.opencode-article .billing-v2 .route-icons img{object-fit:contain}.opencode-article .billing-v2 .amount{margin:0}.opencode-article .billing-v2 .f3{min-height:94px}
+
+.opencode-article .opencode-migration table{display:table;width:100%;table-layout:fixed}.opencode-article .opencode-migration th,.opencode-article .opencode-migration td{vertical-align:top}.opencode-article .num{display:block;font-size:12px;color:var(--muted-foreground);margin-bottom:7px}@media(max-width:640px){.opencode-article .opencode-migration thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.opencode-article .opencode-migration table,.opencode-article .opencode-migration tbody,.opencode-article .opencode-migration tr,.opencode-article .opencode-migration th,.opencode-article .opencode-migration td{display:block;width:100%}.opencode-article .opencode-migration tr{margin-bottom:16px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}.opencode-article .opencode-migration th,.opencode-article .opencode-migration td{border:0;padding:12px 16px}.opencode-article .opencode-migration td:before{content:attr(data-label);display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted-foreground);margin-bottom:4px}}`}</style>
+
+<div className="opencode-article">
+
+![OpenCode and Claude Code logos on a diagonal comparison cover, with Models, Cost, Workflow, and 2026.](/blog/opencode-vs-claude-code/hero.webp)
+
+Claude has handled the difficult part of a coding task, and you want to try a cheaper model from another provider for the remaining edits. Switching tools may mean explaining the task again: which changes are finished, what still needs work, and which test command to use.
+
+OpenCode lets you change providers inside the same conversation, including when you start with Claude. Claude Code works with Claude models and includes memory, hooks, and agent teams. Would access to another provider save you enough work to justify setting up a second tool? If you're already on OpenCode, the choice runs the other way: is Claude Code's built-in setup worth giving up model choice?
+
+## OpenCode vs Claude Code: Everyday Workflow
+
+### Switching Models and Continuing a Session
+
+Both tools work in a desktop app or a terminal. On desktop, use OpenCode Desktop or the Code tab in Claude Desktop. If the cheaper model comes from another provider, OpenCode lets you bring it into the same conversation. For a lighter Claude model, Claude Code's `/model` handles that switch too.
+
+In OpenCode, `/models` changes the model for the current session. You keep going in the same chat instead of copying the task into another tool.
+
+The next model may read the same discussion differently. Give it a short handoff: “Keep the database change; finish the error messages; run this test command.” That's a clearer job than “read all this and carry on.”
+
+### Starting a New Session: What Does Each Tool Remember?
+
+Claude Code can reopen a saved session. In a new one, it reads your project instructions and auto memory: notes it writes about your project and preferences. Our [guide to Claude Code memory](/blog/claude-code-memory) explains those notes.
+
+OpenCode saves conversations too, so you can continue the last one or pick an older one. OpenCode V2 has no built-in equivalent to Claude Code's cross-session auto memory. Lasting project rules go in `AGENTS.md`. For automatic notes across sessions, you'd need to add a memory plugin.
+
+If yesterday's discussion still matters, reopen the original session. Rules needed across future tasks go in `CLAUDE.md` or `AGENTS.md`, whichever the tool reads. A saved chat history on disk doesn't replace the project file that a fresh session loads.
+
+### Retrying a Change or Continuing Elsewhere
+
+We'd use Claude Code's `/rewind` to keep good code and drop a discussion that went off track, and OpenCode's `/undo` to roll back the affected files and try a step again. Both tools can fork a conversation to explore another approach. To continue working after closing your laptop, use a Claude Code cloud session or keep the OpenCode server running on another machine.
+
+### Subagents and Agent Teams
+
+A review is a good reason to use a subagent: the main agent finishes a change, then a separate worker looks for problems and reports back. Both tools can give the reviewer a separate conversation to work in. In OpenCode, you can set the model and permissions for each custom agent, so you could keep the main task on Claude and assign the review to another provider.
+
+Claude Code's experimental agent teams go further: teammates have their own sessions and can communicate directly. You enable teams by setting `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. They make sense when one agent's findings should change another's work. For a quick independent review, a single subagent is enough. Connecting through Claude Agent gives you OpenCode's subagents, rather than Claude Code agent teams.
+
+For hands-on editing with an agent beside you, our [Cursor and Claude Code workflow comparison](/blog/cursor-vs-claude-code) compares those two setups.
+
+### Finding Your Way Around an Unfamiliar Repository
+
+In a [June 2026 demonstration by fff developer Dmitriy Kovalenko](https://x.com/0xfflock/status/2066360746548842565), Claude Code and OpenCode 0.17.3 investigated how isolates and threads share memory in Chromium. That OpenCode version predates the V2 setup described in this article.
+
+The author reported using the same model, provider, effort and prompt. OpenCode used fff for file search. Claude Code did not access it through MCP in this test. The recording shows Claude Code delegating exploration and running shell searches. OpenCode read the relevant files through a different sequence. The author reported identical answers, with more round trips in Claude Code.
+
+For work in unfamiliar repositories, we'd look at the search path as well as the answer. Repeated searches can add waiting and context to each request. We'd favor a clear explanation tied to the relevant code over a long trail of repeated searches. For implementation work, the patch and its tests still matter more. We wouldn't choose an agent to make the change just because it finished the search sooner.
+
+## OpenCode and Claude Code Pricing: What Are You Paying For?
+
+OpenCode is free to install. You pay for the model through a plan, an API account, or the hardware you run it on. Claude Code accepts API accounts as well as Claude subscriptions. How you connect decides which allowance or bill you're spending:
+
+<div className="billing-v2"><table aria-label="Coding model billing routes" role="table"><thead role="rowgroup"><tr role="row"><th id="article-b2-h0" role="columnheader">Setup</th><th id="article-b2-h1" role="columnheader">What pays for requests</th><th id="article-b2-h2" role="columnheader">How you reach the model</th><th id="article-b2-h3" role="columnheader">When it fits</th></tr></thead><tbody role="rowgroup"><tr className="routecard route-0" role="row"><th className="field f0" headers="article-b2-h0" role="rowheader"><span className="route-icons"><img alt="" height="30" src="/blog/opencode-vs-claude-code/claude-mark.svg" width="30"/></span><span>Claude Code with a Claude plan</span></th><td className="field f1" headers="article-b2-h1" role="cell"><span aria-hidden="true" className="field-label">What pays for requests</span>Pro starts at <strong className="amount">$20<span>/month</span></strong>, sharing allowance with your Claude chats</td><td className="field f2" headers="article-b2-h2" role="cell"><span aria-hidden="true" className="field-label">How you reach the model</span>Claude Code's login and tools</td><td className="field f3" headers="article-b2-h3" role="cell"><span aria-hidden="true" className="field-label">When it fits</span>You use Claude daily and rely on its saved notes or hooks</td></tr><tr className="routecard route-1" role="row"><th className="field f0" headers="article-b2-h0" role="rowheader"><span className="route-icons"><img alt="" height="30" src="/blog/opencode-vs-claude-code/opencode-mark.svg" width="24"/></span><span>OpenCode with Claude Agent</span></th><td className="field f1" headers="article-b2-h1" role="cell"><span aria-hidden="true" className="field-label">What pays for requests</span>The account Claude Code is signed in with</td><td className="field f2" headers="article-b2-h2" role="cell"><span aria-hidden="true" className="field-label">How you reach the model</span>Claude Code on your machine calls the model; OpenCode supplies tools and permissions</td><td className="field f3" headers="article-b2-h3" role="cell"><span aria-hidden="true" className="field-label">When it fits</span>You have a Claude account and want another provider to finish part of a task</td></tr><tr className="routecard route-2" role="row"><th className="field f0" headers="article-b2-h0" role="rowheader"><span className="route-icons"><img alt="" height="30" src="/blog/opencode-vs-claude-code/opencode-mark.svg" width="24"/></span><span>OpenCode with Go</span></th><td className="field f1" headers="article-b2-h1" role="cell"><span aria-hidden="true" className="field-label">What pays for requests</span>Go starts at <strong className="amount">$10<span>/month</span></strong>, with model-specific limits</td><td className="field f2" headers="article-b2-h2" role="cell"><span aria-hidden="true" className="field-label">How you reach the model</span>OpenCode Go provider</td><td className="field f3" headers="article-b2-h3" role="cell"><span aria-hidden="true" className="field-label">When it fits</span>Go's models cover the work you repeat most</td></tr><tr className="routecard route-3" role="row"><th className="field f0" headers="article-b2-h0" role="rowheader"><span className="route-icons"><img alt="" height="30" src="/blog/opencode-vs-claude-code/opencode-mark.svg" width="24"/></span><span>OpenCode with a direct API or another provider</span></th><td className="field f1" headers="article-b2-h1" role="cell"><span aria-hidden="true" className="field-label">What pays for requests</span>Its API bill or account allowance</td><td className="field f2" headers="article-b2-h2" role="cell"><span aria-hidden="true" className="field-label">How you reach the model</span>That provider's connection</td><td className="field f3" headers="article-b2-h3" role="cell"><span aria-hidden="true" className="field-label">When it fits</span>You need a particular model or already have access through that provider</td></tr></tbody></table></div>
+
+### Can You Use a Claude Subscription in OpenCode?
+
+Yes, through [OpenCode's Claude Agent provider](https://opencode.ai/docs/claude-agent/). Install Claude Code 2.1.248 or later, sign in through `claude auth login`, then select **Claude Agent** in OpenCode's `/connect`. The Anthropic provider asks for an API key instead.
+
+<picture>
+  <source media="(max-width: 600px)" srcSet="/blog/opencode-vs-claude-code/responsibility-mobile.webp" />
+  <img width={1200} height={690} loading="lazy" decoding="async" src="/blog/opencode-vs-claude-code/responsibility.webp" alt="Claude Code handles model calls and tools in its native app. With Claude Agent, local Claude Code calls the model and OpenCode runs tools, permissions, and configuration. Other providers can supply models to OpenCode." />
+</picture>
+
+Claude Agent draws on the same account and allowance as your normal Claude Code use. Claude Pro and Max have five-hour and weekly limits. Verified Ultra accounts have no five-hour limit and get ten times Pro's weekly allowance. With an API account, you pay per use instead.
+
+Anthropic [permits personal subscription sign-in to unmodified Claude Code](https://code.claude.com/docs/en/legal-and-compliance), while requiring prior approval for third-party products that offer subscription login or rate limits. If a Claude subscription is your main source of coding access, we'd keep native Claude Code as the default.
+
+With an existing Claude account, you can try OpenCode's interface through Claude Agent. Switching providers in the same chat is a reason to keep using OpenCode. If Claude Code's saved notes, test hooks, or teams are what you rely on each day, keeping the native tool saves rebuilding that setup.
+
+### OpenCode Go, API Keys, and Local Models
+
+[OpenCode Go](https://opencode.ai/docs/go/) offers Go at $10/month and Go Plus at $40/month. Each model has its own allowance across five-hour, weekly, and monthly windows.
+
+At $10, Go gives you models such as Kimi K3.1 Pro, MiniMax M3.1 Flash, and DeepSeek V4.1 Flash. At $20, Claude Pro gives you an allowance for Claude models in Claude Code. Claude Code's memory and hooks work with API accounts too. For work covered by one of Go's models, the $10 plan is a cheaper starting point. With Claude Pro, you pay a fixed monthly price for the included usage instead of a per-token bill. The cheaper plan saves money when you can get everyday work done without spending the difference on corrections.
+
+With API keys, you pay for the context the agent sends with each request, including instructions, history, and tool results. A very short prompt can still arrive with substantial context. For a task you repeat, count the retries and corrections in its cost too. Local models swap that provider bill for spending on hardware and electricity.
+
+## Permissions, Project Rules, and Memory in OpenCode V2
+
+OpenCode V2 allows most actions by default, including access outside the project, but asks before directly reading sensitive environment files. The same Claude account won't bring over the permission rules you used in Claude Code.
+
+V2 reads `AGENTS.md` and doesn't automatically fall back to `CLAUDE.md`. A V1 setup guide can therefore leave your V2 project without the rules you expected it to load.
+
+<div className="opencode-migration"><table role="table"><thead role="rowgroup"><tr role="row"><th id="article-t1-h0" role="columnheader" scope="col">What you rely on</th><th id="article-t1-h1" role="columnheader" scope="col">What happens in OpenCode</th><th id="article-t1-h2" role="columnheader" scope="col">What to do</th><th id="article-t1-h3" role="columnheader" scope="col">How to check it</th></tr></thead><tbody role="rowgroup"><tr role="row"><th data-label="What you rely on" headers="article-t1-h0" role="rowheader" scope="row"><span className="num">01</span>Rules stored only in CLAUDE.md</th><td data-label="What happens in OpenCode" headers="article-t1-h1" role="cell">V2's default file search skips it</td><td data-label="What to do" headers="article-t1-h2" role="cell">Put shared rules in AGENTS.md, or list CLAUDE.md under instructions</td><td data-label="How to check it" headers="article-t1-h3" role="cell">Start a small task and check that it uses the test command written in that file</td></tr><tr role="row"><th data-label="What you rely on" headers="article-t1-h0" role="rowheader" scope="row"><span className="num">02</span>Claude Code auto memory</th><td data-label="What happens in OpenCode" headers="article-t1-h1" role="cell">Those notes stay in Claude Code</td><td data-label="What to do" headers="article-t1-h2" role="cell">Copy the guidance you need into AGENTS.md</td><td data-label="How to check it" headers="article-t1-h3" role="cell">Open a fresh session and check it applies that guidance</td></tr><tr role="row"><th data-label="What you rely on" headers="article-t1-h0" role="rowheader" scope="row"><span className="num">03</span>Claude Code hooks and permission settings</th><td data-label="What happens in OpenCode" headers="article-t1-h1" role="cell">OpenCode decides what runs</td><td data-label="What to do" headers="article-t1-h2" role="cell">Set those checks up in OpenCode</td><td data-label="How to check it" headers="article-t1-h3" role="cell">Trigger the check with a harmless task and inspect its output</td></tr><tr role="row"><th data-label="What you rely on" headers="article-t1-h0" role="rowheader" scope="row"><span className="num">04</span>Claude Code skills and MCP setup</th><td data-label="What happens in OpenCode" headers="article-t1-h1" role="cell">OpenCode loads its configuration</td><td data-label="What to do" headers="article-t1-h2" role="cell">Check its skills folders and configure the MCP servers again</td><td data-label="How to check it" headers="article-t1-h3" role="cell">Invoke a skill you use every day and make a read-only call to the server</td></tr></tbody></table></div>
+
+V2's new plugin API can also require porting an old plugin, even though supported old configuration fields convert automatically. For a project that depends on plugins, check for a V2 release before upgrading, then trigger the plugin and run your tests in the upgraded setup. You can keep a tested OpenCode version and inspect or modify its code while preparing that upgrade. Track the model and provider separately: a hosted model update can change results even when the OpenCode version stays fixed.
+
+If you move from OpenCode to Claude Code v2.1.281 or later, it reads `AGENTS.md` by default only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` takes precedence in the working directory or its parents. An `@AGENTS.md` import in a neighboring `CLAUDE.md` brings the shared rules in. Your OpenCode plugins and permission settings still need Claude Code counterparts.
+
+Anthropic maintains Claude Code's built-in tools, leaving you less setup to maintain when they cover your work. OpenCode gives you more room to change the tool when its built-in behavior falls short. A project using only provider connections has fewer extensions to look after.
+
+## Should You Choose OpenCode or Claude Code?
+
+Choose Claude Code if Claude does your work well and you want its native memory, hooks, or team workflow, whether you're keeping an existing setup or moving from OpenCode.
+
+Choose OpenCode if you have a concrete use for another provider, want to switch models mid-task, or need to inspect and modify the agent. You'll be the one setting up providers and project rules. If you've hit your Claude limit, switching to Claude Agent in OpenCode won't give you more allowance.
+
+### Use OpenCode and Claude Code Together with Your Team
+
+If you keep both tools and other people need to review the work, Alook gives you a shared channel for the discussion. For [multi agent collaboration](https://alook.ai), bring an OpenCode bot and a Claude Code bot into that channel, decide who takes each task, and review their work together. To connect both tools and start a shared conversation, follow our [OpenCode and Claude Code setup tutorial](/tutorials/opencode-and-claude-code).
+
+</div>
