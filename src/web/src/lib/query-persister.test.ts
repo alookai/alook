@@ -65,7 +65,8 @@ describe("shouldPersistQueryKey", () => {
       expect(shouldPersistQueryKey(key)).toBe(true)
       expect(shouldPersistQuery(key, undefined)).toBe(false)
     }
-    expect(shouldPersistQueryKey(communityKeys.threads("forum"))).toBe(false)
+    expect(shouldPersistQuery(communityKeys.threads("forum"), undefined)).toBe(false)
+    expect(shouldPersistQueryKey([...communityKeys.threads("forum"), "transport"])).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
   })
 
@@ -85,10 +86,18 @@ describe("shouldPersistQueryKey", () => {
     )).toBe(true)
   })
 
-  it("does NOT persist pins/threads/forum tags (message-related but ephemeral)", () => {
-    expect(shouldPersistQueryKey(communityKeys.pins("ch_1"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.threads("ch_1"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.forumTags("ch_1"))).toBe(false)
+  it.each([
+    { kind: "pins", key: communityKeys.pins("ch_1"), empty: { pins: [] }, invalid: { pins: [{ id: "" }] } },
+    { kind: "threads", key: communityKeys.threads("ch_1"), empty: { threads: [], serverId: "srv_1", parentType: "text", parentChannelId: "ch_1" },
+      invalid: { threads: [], serverId: "srv_1", parentType: "text", parentChannelId: "foreign" } },
+    { kind: "tags", key: communityKeys.forumTags("ch_1"), empty: { tags: [] }, invalid: { tags: [""] } },
+    { kind: "counts", key: communityKeys.forumPostCounts("srv_1"), empty: { ch_forum: 0 }, invalid: { ch_forum: -1 } },
+  ])("admits the known-empty $kind payload while rejecting unavailable or invalid data", ({ key, empty, invalid }) => {
+    expect(shouldPersistQuery(key, empty)).toBe(true)
+    expect(shouldPersistQuery(key, undefined)).toBe(false)
+    expect(shouldPersistQuery(key, invalid)).toBe(false)
+    expect(shouldPersistQuery([...key, "transport"], empty)).toBe(false)
+    expect(shouldPersistQuery([key[0], key[1], "", ...key.slice(3)], empty)).toBe(false)
   })
 
   it("returns false for keys outside the community namespace", () => {

@@ -29,6 +29,7 @@ import { tid } from "@/lib/community/testids"
 import type { ForumSidebarThread } from "@/hooks/community/use-forum-sidebar-threads"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { ChannelUnreadIndicator } from "./channel-unread-indicator"
+import { ForumPostCountsStatus } from "./forum-post-count"
 
 const FORUM_SIDEBAR_ROW_HEIGHT = 28
 
@@ -281,6 +282,7 @@ function ChannelSidebarContent({
           )}
         </header>
       )}
+      <ForumPostCountsStatus />
       <ContextMenu disabled={!isAdmin} actionsRef={menuActionsRef}>
         <ContextMenuTrigger
           onTouchStart={(event) => { if (isAdmin) event.preventBaseUIHandler() }}

@@ -7,6 +7,7 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { forumConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { useForumFeed } from "./use-forum-feed"
+import { communityKeys } from "@/lib/query-keys"
 
 const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: api }))
@@ -30,6 +31,30 @@ beforeEach(() => {
 })
 
 describe("Forum initial selection authority", () => {
+  it("keeps a selection while a restored observation is stale or fails, then accepts a current catalog", async () => {
+    const owner = await createCommunityQueryOwner()
+    localStorage.setItem("alook:forum-tag:forum", "bug")
+    owner.client.setQueryData(communityKeys.forumTags("forum"), { tags: ["cached-only"], observed: false })
+    let reject!: (error: Error) => void
+    api.mockImplementation((path: string) => path.endsWith("/messages/tags")
+      ? new Promise((_resolve, fail) => { reject = fail })
+      : Promise.resolve(entryFor(new URL(path, "https://local").searchParams.get("tag"))))
+    const wrapper = ({ children }: PropsWithChildren) => <CommunityTestProvider {...owner}>{children}</CommunityTestProvider>
+    const view = renderHook(() => useForumFeed("server", "forum"), { wrapper })
+    await waitFor(() => expect(view.result.current.posts.map(post => post.id)).toEqual(["post-bug"]))
+    expect(view.result.current.availableTags).toEqual(["cached-only"])
+    expect(view.result.current.tag).toBe("bug")
+    await act(async () => { reject(new Error("offline")) })
+    await waitFor(() => expect(view.result.current.tagsError).toBe(true))
+    expect(view.result.current.tag).toBe("bug")
+    expect(localStorage.getItem("alook:forum-tag:forum")).toBe("bug")
+    api.mockImplementation(async (path: string) => path.endsWith("/messages/tags") ? { tags: ["other"] } : entryFor(new URL(path, "https://local").searchParams.get("tag")))
+    await act(async () => { await view.result.current.retryTags() })
+    await waitFor(() => expect(view.result.current.tag).toBe("All"))
+    expect(localStorage.getItem("alook:forum-tag:forum")).toBeNull()
+    view.unmount()
+  })
+
   it.each([
     { routeTag: "bug", stored: "archived", expected: "bug", requestTag: "bug" },
     { routeTag: "", stored: "archived", expected: "All", requestTag: null },

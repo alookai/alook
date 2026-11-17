@@ -230,6 +230,7 @@ export function ForumView({
               onKeyDown={onTagRailKeyDown}
               className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain scroll-fade-x scroll-fade-4 scroll-px-4 px-4 thin-scrollbar scrollbar-none [&_button]:focus-visible:ring-inset"
             >
+              {tagsKnown && tagsError ? <Button variant="ghost" size="sm" type="button" className="h-7 shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</Button> : null}
               {!tagsKnown ? tagsError ? (
                 <Button variant="ghost" size="sm" type="button" className="h-7 shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 text-muted-foreground hover:text-foreground" onClick={onRetryTags}>Retry tags</Button>
               ) : (
