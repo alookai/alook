@@ -276,6 +276,7 @@ export async function searchUsersByName(
   if (opts?.discriminator !== undefined) {
     // Exact match — used by the `name#0042` add-friend search path.
     conditions.push(eq(user.name, name));
+    conditions.push(sql`${user.name} COLLATE NOCASE = ${name}`);
     conditions.push(eq(user.discriminator, opts.discriminator));
   } else {
     const pattern = `${escapeLikePattern(name)}%`;

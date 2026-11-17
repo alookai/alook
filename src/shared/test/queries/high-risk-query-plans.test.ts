@@ -61,6 +61,8 @@ describe("database query plans on current migrations", () => {
       sqlite.prepare("UPDATE community_user_profile SET status_emoji=?,status_text=? WHERE user_id=?").run(BOT_ACTIVITY_PRESETS.starting.emoji, BOT_ACTIVITY_PRESETS.starting.text, botId)
       await machine.reconcileBotActivityFromRunningAgents(db, "machine", [])
       await users.searchUsersByName(db, "Own")
+      expect(await users.searchUsersByName(db, "Owner", { discriminator: "9999" })).toHaveLength(1)
+      expect(await users.searchUsersByName(db, "owner", { discriminator: "9999" })).toEqual([])
       await users.getUserByProviderAccount(db, "github", "account")
       await listPendingAccountDeletions(db)
       await registerAttempt(db, { id: "indexed_attempt_123456789", instanceKeyHash: "a".repeat(64), stateHash: "b".repeat(64), pkceChallenge: "c".repeat(43), provider: "google", platform: "macos", redirectPath: "/c" })

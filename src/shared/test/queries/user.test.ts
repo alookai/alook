@@ -389,6 +389,7 @@ describe("searchUsersByName", () => {
       store.seed({ id: "other-number", name: "Alice", discriminator: "0009" });
       store.seed({ id: "prefix-only", name: "Alicia", discriminator: "0001" });
       expectUsers(await userQueries.searchUsersByName(store.db, "Alice", { discriminator: "0001" }), [publicUser()]);
+      expect(await userQueries.searchUsersByName(store.db, "alice", { discriminator: "0001" })).toEqual([]);
       expectNoDriverIdentities(store, ["other-number", "prefix-only", "other", "gone"]);
     });
   });
