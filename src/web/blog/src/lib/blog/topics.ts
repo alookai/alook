@@ -40,6 +40,7 @@ export const blogTopics = [
       "Coordinate coding agents across tools and repositories without duplicated work, lost decisions, or merge conflicts.",
     pillarSlug: "claude-code-and-codex-same-team",
     entries: [
+      { slug: "opencode-vs-claude-code", userJob: "Choose OpenCode or Claude Code by model choice, cost, memory and migration needs" },
       { slug: "cursor-vs-claude-code", userJob: "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs" },
       { slug: "claude-code-vs-codex", userJob: "Choose Claude Code or Codex by patch review, permissions, runtime and plan usage" },
       { slug: "claude-code-codex-cursor-grok-which-to-choose", userJob: "Choose a coding or personal-agent harness for a concrete task using reported strengths and weaknesses" },
