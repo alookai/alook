@@ -47,7 +47,7 @@
     "remark-cjk-friendly-gfm-strikethrough": "^2.3.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261023.1",
+    "@cloudflare/workers-types": "^5.20261114.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.4",
     "better-sqlite3": "^12.11.1",
