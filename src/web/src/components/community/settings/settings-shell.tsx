@@ -1,5 +1,6 @@
 "use client"
 
+import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
 import { X } from "lucide-react"
@@ -23,12 +24,16 @@ export type SettingsShellTab<Value extends string> = {
 }
 
 export function SettingsShellPanel(
-  props: Omit<ComponentProps<typeof TabsContent>, "keepMounted">,
+  props: Omit<ComponentProps<typeof TabsContent>, "keepMounted"> & {
+    /** Let the content fill the panel height so empty and error states center vertically. */
+    fill?: boolean
+  },
 ) {
-  const { children, ...rest } = props
+  const { children, fill = false, ...rest } = props
+  if (fill) rest.className = cn("flex min-h-full flex-col", rest.className)
   // One content column for every settings tab, so the left edge and width
   // never move when you switch tabs (QA #20).
-  return <TabsContent {...rest} keepMounted><div data-slot="settings-panel-column" className="mx-auto h-full w-full max-w-xl">{children}</div></TabsContent>
+  return <TabsContent {...rest} keepMounted><div data-slot="settings-panel-column" className={cn("mx-auto h-full w-full max-w-xl", fill && "flex flex-1 flex-col")}>{children}</div></TabsContent>
 }
 
 export function SettingsShell<Value extends string>({

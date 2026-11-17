@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "../empty-state"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Activity } from "lucide-react"
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react"
@@ -41,6 +42,8 @@ export function BotActivityModal({
   const {
     events,
     isLoading,
+    isError,
+    refetch,
     isFetching,
     fetchNextPage,
     hasNextPage,
@@ -167,6 +170,10 @@ export function BotActivityModal({
     >
       {isLoading && chronological.length === 0 ? (
         <SkeletonRows />
+      ) : isError && chronological.length === 0 ? (
+        <div className="flex h-full flex-col">
+          <ConversationResolutionErrorFrame as="div" title="Could not load activity." retrying={isFetching} onRetry={() => { void refetch() }} />
+        </div>
       ) : chronological.length === 0 ? (
         <div className="flex h-full flex-col">
           <EmptyState icon={Activity} label="No activity yet" description="This bot hasn&apos;t run since audit logging was enabled. New runs will stream in here as they happen." />

@@ -1,9 +1,10 @@
 "use client"
 
+import { EmptyState } from "../empty-state"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
-import { Users, Ban, Monitor, Bot, Shield, type LucideIcon } from "lucide-react"
+import { Users, Ban, Monitor, Bot, Shield, type LucideIcon, MessagesSquare } from "lucide-react"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -92,7 +93,7 @@ export const DmSidebar = memo(function DmSidebar({
         ) : loading && dms.length === 0 ? (
           <DmRowsSkeleton />
         ) : dms.length === 0 ? (
-          <p className="px-2 py-4 text-center text-xs text-muted-foreground">Your direct messages will appear here.</p>
+          <EmptyState icon={MessagesSquare} label="Your direct messages will appear here." />
         ) : null}
         {dms.map((d) => {
           const active = d.id === activeDm

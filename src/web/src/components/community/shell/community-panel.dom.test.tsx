@@ -51,13 +51,14 @@ describe("auxiliary panel read states", () => {
       pinnedError: true, threadsError: true, onRetryPinned: retry, onRetryThreads: retry }
     const view = render(<CommunityPanel {...props} pinnedKnown={false} threadsKnown={false} />)
     expect(view.getByRole("alert")).toHaveTextContent(`Could not load ${kind === "pinned" ? "pinned messages" : "threads"}`)
-    expect(view.queryByText("No pinned messages yet.")).toBeNull()
+    expect(view.queryByText("No pinned messages yet")).toBeNull()
     expect(view.queryByText("0 threads")).toBeNull()
+    expect(view.queryByText("No threads yet")).toBeNull()
     fireEvent.click(view.getByRole("button", { name: kind === "pinned" ? "Retry pinned messages" : "Retry threads" }))
     expect(retry).toHaveBeenCalledOnce()
     view.rerender(<CommunityPanel {...props} pinnedKnown threadsKnown />)
     expect(view.getByRole("alert")).toHaveTextContent("Could not refresh")
-    expect(view.getByText(kind === "pinned" ? "No pinned messages yet." : "0 threads")).toBeVisible()
+    expect(view.getByText(kind === "pinned" ? "No pinned messages yet" : "No threads yet")).toBeVisible()
   })
 
   it("retains the pinned row and exact Jump while its background read can be retried", () => {

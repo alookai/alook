@@ -1,8 +1,9 @@
 "use client"
 
+import { EmptyState } from "../empty-state"
 import type { PiiPlugin } from "@alook/shared"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { MoreHorizontal, Trash2 } from "lucide-react"
+import { MoreHorizontal, Trash2, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -35,10 +36,7 @@ export function BotPiiList({
       {unavailable ? <p role="status" className="text-sm text-muted-foreground">{unavailable}</p> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {plugins.length === 0 ? (
-        <div className="py-8">
-          <h4 className="font-medium">No filters</h4>
-          <p className="mt-1 max-w-prose text-sm text-muted-foreground">{botName} sends message text without PII filtering. Ask your bot to add a filter with Alook PII.</p>
-        </div>
+        <EmptyState icon={Shield} label="No filters" description={`${botName} sends message text without PII filtering. Ask your bot to add a filter with Alook PII.`} />
       ) : (
         <>
           <ol className="divide-y divide-border rounded-xl border border-border" aria-label="Filter execution order">

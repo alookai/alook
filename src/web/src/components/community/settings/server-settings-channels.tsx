@@ -3,9 +3,11 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { ChevronDown, Lock } from "lucide-react"
+import { ChevronDown, Hash, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EntityIcon } from "../entity-icon"
+import { EmptyState } from "../empty-state"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { MentionPill } from "../messages/inline-marks"
 import { useServerAdminChannels, type AdminChannel } from "@/hooks/community/use-server-admin-channels"
 import { tid } from "@/lib/community/testids"
@@ -26,18 +28,19 @@ export function ServerSettingsChannels({ serverId }: { serverId: string }) {
   const { channels, isError, isFetching, refetch, forbidden } = useServerAdminChannels(serverId, true)
   useObservedRegion("settings", !!channels && !forbidden, channels?.length ?? 0)
   const retry = () => { void refetch() }
-  if (forbidden) return <p role="alert" className="text-sm text-muted-foreground">Only server administrators can view channels.</p>
+  if (forbidden) return <div role="alert" className="flex flex-1 flex-col"><EmptyState icon={Lock} label="Only server administrators can view channels." /></div>
+  if (isError && !channels) return <ConversationResolutionErrorFrame as="div" title="Couldn’t load channels." retrying={isFetching} onRetry={retry} />
 
   return (
-    <div data-testid={tid.settingsChannels} className="space-y-4">
+    <div data-testid={tid.settingsChannels} className={channels?.length === 0 ? "flex flex-1 flex-col gap-4" : "space-y-4"}>
       {isError && (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
-          <p>{channels ? "Couldn’t refresh channels." : "Couldn’t load channels."}</p>
+          <p>Couldn’t refresh channels.</p>
           <Button variant="ghost" size="sm" className="h-11 sm:h-8" onClick={retry} disabled={isFetching}>Retry</Button>
         </div>
       )}
       {!channels && !isError && <p role="status" className="text-sm text-muted-foreground">Loading channels…</p>}
-      {channels?.length === 0 && <p className="text-sm text-muted-foreground">No channels yet.</p>}
+      {channels?.length === 0 && <EmptyState icon={Hash} label="No channels yet." />}
       {channels && groupChannels(channels).map(([id, group]) => (
         <section key={id} aria-label={`Group: ${group.name}`} className="mb-4">
           <button

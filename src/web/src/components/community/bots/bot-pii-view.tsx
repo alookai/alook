@@ -10,6 +10,7 @@ import { useBots } from "@/hooks/community/use-bots"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useBotPii } from "@/hooks/community/use-bot-pii"
 import { Button } from "@/components/ui/button"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Skeleton } from "@/components/ui/skeleton"
 import { HOME_TAB_COLUMN_CLASS } from "../home-tab-layout"
 import { BotPiiPanel, BotPiiWorkspace } from "./bot-pii-panel"
@@ -55,7 +56,7 @@ export function BotPiiView() {
   const [chosenId, setChosenId] = useAtom(useCreateAtom(""))
   const selected = bots.bots.find(bot => bot.id === chosenId) ?? bots.bots[0]
   if (bots.isPending || bots.profilesPending) return <div role="status" aria-label="Loading bots" className="p-6"><div data-slot="home-tab-column" className={HOME_TAB_COLUMN_CLASS}><Skeleton className="h-8 w-48" /></div></div>
-  if (bots.isError && !bots.data) return <div role="alert" className="p-6"><div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col items-start gap-3`}><p>Could not load your bots.</p><Button variant="outline" className="min-h-11" onClick={() => { void bots.refetch() }}>Retry</Button></div></div>
+  if (bots.isError && !bots.data) return <div className="flex min-h-0 flex-1 flex-col p-6"><div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex min-h-0 flex-1 flex-col`}><ConversationResolutionErrorFrame as="div" title="Could not load your bots." retrying={bots.isFetching} onRetry={() => { void bots.refetch() }} /></div></div>
   const machine = machines.machines.find(item => item.id === selected?.machineId)
   return (
     <BotPiiPanel bots={bots.bots} selectedId={selected?.id ?? ""} onSelect={setChosenId} emptyAction={<OpenBotsButton />}>

@@ -216,7 +216,8 @@ test.describe("direct messages", () => {
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
       expect(entryGets).toBe(1)
 
-      await verificationAlert.getByRole("button", { name: "Retry" }).click()
+      // The shared resolution frame keeps Retry next to (not inside) its alert text.
+      await alice.page.getByTestId(tid.conversationLoadRetry).click()
       await expect.poll(() => entryGets).toBe(2)
       expect(canonicalDmsGets).toBe(1)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")

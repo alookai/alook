@@ -111,8 +111,8 @@ async function prepare(actors: CaseActors, surface: Surface, empty: boolean) {
     } else {
       const panel = page.getByRole("dialog", { name: surface === "pins" ? "Pinned Messages" : "Threads", exact: true })
       await expect(panel).toBeVisible()
-      if (surface === "pins") await expect(panel.getByText(empty ? "No pinned messages yet." : body, { exact: true })).toBeVisible()
-      else await expect(panel.getByText(empty ? "0 threads" : "Saved ordinary thread", { exact: true })).toBeVisible()
+      if (surface === "pins") await expect(panel.getByText(empty ? "No pinned messages yet" : body, { exact: true })).toBeVisible()
+      else await expect(panel.getByText(empty ? "No threads yet" : "Saved ordinary thread", { exact: true })).toBeVisible()
     }
   }
   return { page, key, path, href, retry, open, assertKnown, channelId, targetId }
@@ -165,8 +165,8 @@ for (const surface of surfaces) {
     failure.release()
     await expect(retry).toBeVisible()
     expect(await persisted(page, actors.userId("alice"), key)).toBeUndefined()
-    if (surface === "pins") await expect(page.getByText("No pinned messages yet.", { exact: true })).toHaveCount(0)
-    if (surface === "threads") await expect(page.getByText("0 threads", { exact: true })).toHaveCount(0)
+    if (surface === "pins") await expect(page.getByText("No pinned messages yet", { exact: true })).toHaveCount(0)
+    if (surface === "threads") await expect(page.getByText("No threads yet", { exact: true })).toHaveCount(0)
     if (surface === "counts") await expect(page.getByTestId(tid.channelRow(channelId)).getByLabel("Unarchived post count unavailable")).toBeVisible()
     if (surface === "tags") await expect(page.getByTestId(tid.forumTagAll)).toHaveCount(0)
     failure.recover()

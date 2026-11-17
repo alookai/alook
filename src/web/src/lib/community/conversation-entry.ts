@@ -98,6 +98,17 @@ export function publishConversationEntry(
   proof: CommunityFreshQueryProof,
   source: "rsc" | "network" = "network",
 ): ConversationEntryResource | Promise<ConversationEntryResource> {
+  const published = publishConversationEntryResult(client, target, value, proof, source)
+  return published instanceof Promise ? published.then(result => result.resource) : published.resource
+}
+
+function publishConversationEntryResult(
+  client: QueryClient,
+  target: ConversationEntryTarget,
+  value: CommunityConversationEntryRead,
+  proof: CommunityFreshQueryProof,
+  source: "rsc" | "network" = "network",
+): { resource: ConversationEntryResource; retainedWindow: boolean } | Promise<{ resource: ConversationEntryResource; retainedWindow: boolean }> {
   assertCommunityLiveSnapshotTokenCurrent(client, proof.token, proof.signal)
   const entry = CommunityConversationEntryReadSchema.parse(value)
   const channel = entry.channel
@@ -115,6 +126,10 @@ export function publishConversationEntry(
   const initialWindow: InitialMessageWindow = entry.selection.anchorMessageId ? { mode: "anchor", anchor: entry.selection.anchorMessageId } : { mode: "newest" }
   const windowKey = entry.forumFeed ? communityKeys.forumFeed(target.channelId, target.tag ?? null) : communityKeys.channelMessagesWindow(target.channelId, initialWindow, target.tag)
   const qualified = { ...proof.token, channelLineage: { parentChannelId: parent } }
+  const publication = {
+    resource: { channelId: channel.id, source, initialWindow, windowKey, readStateAtEntry: entry.readState, readStateRevision: entry.readStateRevision, latestSeqAtEntry: entry.page.latestSeq, newBoundaryAtEntry: entry.newBoundary, selection: entry.selection, access: entry.access, proof: qualified },
+    retainedWindow: false,
+  }
   return withCommunityCollectionWrites(registry, () => {
   notifyManager.batch(() => {
     if (channel.serverId) registry.runtime.ws.actions.grantServerAccess(channel.serverId)
@@ -135,7 +150,8 @@ export function publishConversationEntry(
       const page = normalizeThreadResources(channel.id, entry.forumFeed)
       publishCommunityForumFeed(client, channel.id, page, proof)
       afterCommunityCollectionWrites(registry, () => {
-      if (!conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) client.setQueryData(windowKey, { pages: [forumFeedWindow(page)], pageParams: [null] })
+      if (conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) publication.retainedWindow = true
+      else client.setQueryData(windowKey, { pages: [forumFeedWindow(page)], pageParams: [null] })
       })
     }
     else {
@@ -144,13 +160,13 @@ export function publishConversationEntry(
       const anchor = target.anchorMessageId
       const restoreAnchor = retained && anchor && entry.messages.some(message => message.id === anchor)
         && !client.getQueryData<MessageWindowData>(windowKey)?.pages.some(page => page.messages.some(message => message.id === anchor))
-      if (retained && !restoreAnchor) return
+      if (retained && !restoreAnchor) { publication.retainedWindow = true; return }
       const page = messageWindowPage({ ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles })
       client.setQueryData<MessageWindowData>(windowKey, { pages: [page], pageParams: [initialWindow as MessagesPageParam] })
       })
     }
   })
-  return { channelId: channel.id, source, initialWindow, windowKey, readStateAtEntry: entry.readState, readStateRevision: entry.readStateRevision, latestSeqAtEntry: entry.page.latestSeq, newBoundaryAtEntry: entry.newBoundary, selection: entry.selection, access: entry.access, proof: qualified }
+  return publication
   }, () => assertCommunityLiveSnapshotTokenCurrent(client, proof.token, proof.signal))
 }
 
@@ -313,18 +329,15 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
             observation: { ...captured, role: "entry", windowMode: target.anchorMessageId ? "anchor" : "newest" } },
         ))
         assert()
-        const initial: InitialMessageWindow = entry.selection.anchorMessageId
-          ? { mode: "anchor", anchor: entry.selection.anchorMessageId } : { mode: "newest" }
-        const windowKey = communityKeys.channelMessagesWindow(target.channelId, initial, target.tag)
-        const hadWindow = !!client.getQueryData<MessageWindowData>(windowKey)?.pages.length
-        const resource = await publishConversationEntry(client, target, entry, { token, signal })
+        const publication = await publishConversationEntryResult(client, target, entry, { token, signal })
+        const resource = publication.resource
         record("validated")
         record("published")
-        if (hadWindow && !entry.forumFeed) {
+        if (publication.retainedWindow && !entry.forumFeed) {
           void reconcileConversationLanding(client, {
             kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
             serverId: target.serverId ?? undefined,
-          }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.channelId), profiles: entry.profiles }, initial,
+          }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.channelId), profiles: entry.profiles }, resource.initialWindow,
           { query: original!, signal, lifetime: "query", observation: captured }).catch(() => undefined)
         }
         record("delivered")

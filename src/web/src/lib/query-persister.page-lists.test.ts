@@ -348,6 +348,7 @@ describe("actual body membership through IDB and new canonical owners", () => {
     expect(next.registry.collections.messages.has(anchor)).toBe(true)
     expect(next.client.getQueryData<MessageWindowData>(resource.windowKey)?.pages.flatMap(page => page.messages.map(row => row.id))).toContain(anchor)
     expect(findConversationEntryWindow(next.client, target, resource, currentConversationReadState(next.client, "post"))?.key).toEqual(resource.windowKey)
+    expect(load.mock.calls.filter(([url]) => !new URL(url, "https://alook.local").searchParams.has("entry"))).toEqual([])
   })
 
   it.each([0, 1, 3, 80].flatMap(count => [false, true].map(failed => ({ count, failed }))))("keeps $count actual members apart from preview/extra entities after refresh failed=$failed", async ({ count, failed }) => {

@@ -264,9 +264,9 @@ test("membership loading and late responses stay bound to the selected bot on de
   await expect(sheet.getByLabel("Loading servers and channels")).toBeVisible()
   await page.screenshot({path:testInfo.outputPath("memberships-loading.png"),style})
   releaseFailure()
-  await expect(sheet.getByRole("alert")).toHaveText("Could not load servers and channels.")
+  await expect(sheet.getByRole("alert")).toContainText("Could not load servers and channels.")
   fail=false
-  await sheet.getByRole("button",{name:"Try again",exact:true}).click()
+  await sheet.getByRole("button",{name:"Retry",exact:true}).click()
   await expect(sheet.getByTestId(tid.botMembershipsServer(release.id))).toBeVisible()
   await page.keyboard.press("Escape")
   await expect(sheet).toHaveCount(0)

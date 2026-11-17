@@ -186,6 +186,23 @@ describe("conversation entry canonical publication", () => {
     expect(registry.collections.messages.has("m2")).toBe(!fail)
   })
 
+  it.each(["missing-body", "mismatched-params"] as const)("does not repair the fresh entry selected over a %s window before its reader requests pages", async defect => {
+    const { client } = await createCommunityQueryOwner()
+    const previous = await publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const retained = client.getQueryData<MessageWindowData>(previous.windowKey)!
+    client.setQueryData(previous.windowKey, defect === "missing-body"
+      ? { ...retained, pages: retained.pages.map(page => ({ ...page, messages: [{ id: "not-a-cached-member", seq: 2 }] })) }
+      : { ...retained, pageParams: [] })
+    const fresh = entry()
+    fresh.page = { ...fresh.page, latestSeq: 2, hasMoreNewer: true, newerCursor: "next" }
+    load.mockImplementation((url: string) => url.includes("entry=1") ? Promise.resolve(fresh) : Promise.reject(new Error("Fresh landing must wait for its reader")))
+    const resource = await client.query({ ...conversationEntryOptions(client, target), retry: false })
+    await client.getQueryCache().find({ queryKey: [...resource.windowKey, "reconcile"], exact: true })?.promise
+    expect(load).toHaveBeenCalledOnce()
+    expect(client.getQueryData<MessageWindowData>(resource.windowKey)?.pages[0].messages.map(message => message.id)).toEqual(["m1"])
+    expect(client.getQueryData<MessageWindowData>(resource.windowKey)?.pageParams).toEqual([{ mode: "newest" }])
+  })
+
   it("keeps one failed DM verification attempt local until an explicit retry", async () => {
     const { client } = await createCommunityQueryOwner()
     const temporary = new ApiError("temporary", 503)

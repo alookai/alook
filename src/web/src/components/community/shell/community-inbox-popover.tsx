@@ -1,5 +1,5 @@
 
-import { Bookmark, Check, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
+import { AlertCircle, Bookmark, Check, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
 import { formatHandle, messagePreviewText } from "@alook/shared"
 import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"
@@ -12,6 +12,7 @@ import { CommunityNavigationLink } from "./community-navigation-link"
 import { Avatar } from "../avatar"
 import { ChannelIcon } from "../channels/channel-icon"
 import { EmptyState } from "../empty-state"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import type { InboxFriendRequest, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import type { ActionableFriendRequest } from "@/hooks/community/use-friend-request-action-state"
@@ -117,21 +118,18 @@ function InboxCountBadge({ count }: { count: number }) {
   )
 }
 
-function AttentionLoadError({ onRetry }: { onRetry?: () => void }) {
-  return (
-    <div role="alert" className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
-      <span>Couldn&apos;t load Inbox</span>
-      {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>}
-    </div>
-  )
+function AttentionLoadError({ onRetry, retrying = false }: { onRetry?: () => void; retrying?: boolean }) {
+  if (onRetry) return <ConversationResolutionErrorFrame as="div" title="Couldn't load Inbox" retrying={retrying} onRetry={onRetry} />
+  return <div role="alert" className="flex flex-1 flex-col"><EmptyState icon={AlertCircle} label="Couldn't load Inbox" /></div>
 }
 
-function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   friendRequests: Array<ActionableFriendRequest<InboxFriendRequest>>
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
   error?: boolean
+  retrying?: boolean
   onRetry?: () => void
   onOpenFriendRequests?: () => void
   onAcceptFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
@@ -163,7 +161,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
   return (
     <InboxScrollBody tab="unreads" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && nothingUnread && <InboxUnreadsSkeleton />}
-      {error && nothingUnread && <AttentionLoadError onRetry={onRetry} />}
+      {error && nothingUnread && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
       {friendRequests.length > 0 && (
         <div className="mb-3">
@@ -310,10 +308,11 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
   )
 }
 
-function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDeleteMention, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function MentionsTab({ mentions, loading, error, retrying, onRetry, onOpenMention, onDeleteMention, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   mentions: Mention[]
   loading?: boolean
   error?: boolean
+  retrying?: boolean
   onRetry?: () => void
   onOpenMention?: (m: Mention) => void
   onDeleteMention?: (id: string) => void
@@ -325,7 +324,7 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
   return (
     <InboxScrollBody tab="mentions" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && visibleMentions.length === 0 && <InboxRowsSkeleton />}
-      {error && visibleMentions.length === 0 && <AttentionLoadError onRetry={onRetry} />}
+      {error && visibleMentions.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && visibleMentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
       {visibleMentions.map((mn) => {
         if (mn.pending) {
@@ -370,10 +369,11 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
   )
 }
 
-function MarkedTab({ marked, loading, error, onRetry, onOpenMarked, onUnmark, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, onUnmark, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   marked: Marked[]
   loading?: boolean
   error?: boolean
+  retrying?: boolean
   onRetry?: () => void
   onOpenMarked?: (m: Marked) => void
   onUnmark?: (messageId: string) => void
@@ -384,7 +384,7 @@ function MarkedTab({ marked, loading, error, onRetry, onOpenMarked, onUnmark, pr
   return (
     <InboxScrollBody tab="marked" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && marked.length === 0 && <InboxRowsSkeleton />}
-      {error && <AttentionLoadError onRetry={onRetry} />}
+      {error && marked.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
       {marked.map((mk) => {
         const author = readCommunityProfile(
@@ -437,9 +437,11 @@ export function InboxPopover({
   marked,
   markedLoading,
   markedError,
+  markedRetrying,
   onRetryMarked,
   loading,
   attentionError,
+  attentionRetrying,
   onRetryAttention,
   hasProjectedUnreads,
   hasProjectedMentions,
@@ -470,9 +472,11 @@ export function InboxPopover({
   marked: Marked[]
   markedLoading?: boolean
   markedError?: boolean
+  markedRetrying?: boolean
   onRetryMarked?: () => void
   loading?: boolean
   attentionError?: boolean
+  attentionRetrying?: boolean
   onRetryAttention?: () => void
   hasProjectedUnreads: boolean
   hasProjectedMentions: boolean
@@ -557,6 +561,7 @@ export function InboxPopover({
           dms={unreadDms}
           loading={loading}
           error={attentionError}
+          retrying={attentionRetrying}
           onRetry={onRetryAttention}
           onOpenFriendRequests={onOpenFriendRequests}
           onAcceptFriendRequest={onAcceptFriendRequest}
@@ -571,10 +576,10 @@ export function InboxPopover({
         />
       </TabsContent>
       <TabsContent value="mentions" className="min-h-0 flex-1">
-        <MentionsTab mentions={mentions} loading={loading} error={attentionError} onRetry={onRetryAttention} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
+        <MentionsTab mentions={mentions} loading={loading} error={attentionError} retrying={attentionRetrying} onRetry={onRetryAttention} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
       <TabsContent value="marked" className="min-h-0 flex-1">
-        <MarkedTab marked={marked} loading={markedLoading} error={markedError} onRetry={onRetryMarked} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
+        <MarkedTab marked={marked} loading={markedLoading} error={markedError} retrying={markedRetrying} onRetry={onRetryMarked} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
     </Tabs>
   )
