@@ -10,7 +10,7 @@ import type { BotSummary } from "@/lib/community/bots"
 import { PresenceStatus } from "../presence-status"
 import { BotTokenUsageHeatmap } from "./bot-token-usage-chart"
 
-type BotCardData = Pick<BotSummary, "id" | "name" | "image" | "runtime" | "modelName" | "lastRefreshContextAt" | "usage">
+type BotCardData = Pick<BotSummary, "id" | "name" | "image" | "runtime" | "modelName" | "modelObservation" | "lastRefreshContextAt" | "usage">
 
 export function BotCardView({ bot, online, statusKnown, statusLabel, statusAction, actions }: {
   bot: BotCardData
@@ -20,6 +20,8 @@ export function BotCardView({ bot, online, statusKnown, statusLabel, statusActio
   statusAction?: ReactNode
   actions?: ReactNode
 }) {
+  const modelName = bot.modelName ?? bot.modelObservation?.model ?? null
+  const modelLabel = formatModelLabel(bot.runtime, modelName)
   return (
     <Card data-shell="cassette" className="flex flex-col gap-3 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -39,9 +41,9 @@ export function BotCardView({ bot, online, statusKnown, statusLabel, statusActio
                 <span className="truncate" title={runtimeLabel(bot.runtime)}>{runtimeLabel(bot.runtime)}</span>
               </span>
               <span aria-hidden className="shrink-0">·</span>
-              {formatModelLabel(bot.runtime, bot.modelName) ? (
-                <span data-testid={tid.botCardModel} title={bot.modelName ?? undefined} className="min-w-0 max-w-full truncate font-mono">
-                  {formatModelLabel(bot.runtime, bot.modelName)}
+              {modelLabel ? (
+                <span data-testid={tid.botCardModel} title={modelName ?? undefined} className="min-w-0 max-w-full truncate font-mono">
+                  {modelLabel}
                 </span>
               ) : (
                 <span
