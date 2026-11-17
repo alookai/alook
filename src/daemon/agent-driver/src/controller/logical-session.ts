@@ -1064,11 +1064,8 @@ implements AgentSession<Specs, Id> {
     // effect in onAdapterEvent's switch can run.
     if (this.adapter.execution.lifetime === "turn") return undefined;
     const isRootWork = event.kind === "tool_call"
-      || event.kind === "tool_output"
       || event.kind === "compaction_started"
-      || event.kind === "compaction_finished"
       || event.kind === "review_started"
-      || event.kind === "review_finished"
       || event.kind === "internal_progress";
     if (!isRootWork) return undefined;
     const tombstone = this.closedLaneTombstone;

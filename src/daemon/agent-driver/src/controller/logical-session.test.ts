@@ -1284,6 +1284,37 @@ describe("logical delivery diagnostics", () => {
 });
 
 describe("closed physical-lane tombstone", () => {
+  it.each<AdapterEvent>([
+    { kind: "tool_output", callId: "finished-tool", name: "shell", outcome: "success" },
+    { kind: "tool_output", name: "shell", outcome: "success" },
+    { kind: "compaction_finished" },
+    { kind: "review_finished" },
+  ])("keeps a closed persistent root idle after a delayed $kind and accepts the next prompt", async (tail) => {
+    const { session, driver } = makeSession("claude");
+    const first = await session.start({ id: "one", kind: "user", text: "first" });
+    await emit(driver, { kind: "tool_call", callId: "finished-tool", name: "shell", input: {} });
+    await emit(driver, { kind: "turn_end", sessionId: "root" });
+    await emit(driver, tail);
+    await emit(driver, tail);
+
+    expect(session.snapshot()).toMatchObject({
+      state: "idle",
+      activeTurn: undefined,
+      diagnostics: { metrics: { outstandingToolUses: 0 } },
+    });
+    const second = await session.send({ id: "two", kind: "user", text: "second" });
+    expect(second).toMatchObject({ status: "accepted", delivery: "prompt" });
+    if (first.status === "accepted" && second.status === "accepted") {
+      expect(second.turnId).not.toBe(first.turnId);
+    }
+    expect(session.snapshot().activeTurn?.commandIds).toEqual(["two"]);
+    expect(driver.processes).toHaveLength(1);
+    await emit(driver, { kind: "turn_end", sessionId: "root" });
+    expect(session.snapshot().state).toBe("idle");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await session.closed;
+  });
+
   it("drops every closed per-turn lane tail before it can poison the next turn boundary", async () => {
     const { session, driver } = makeSafeBoundarySession("claude", {
       execution: {
