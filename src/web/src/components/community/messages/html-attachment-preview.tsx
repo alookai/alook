@@ -88,7 +88,6 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
     return () => { clearTimeout(timeout); cancelAnimationFrame(themeFrame); window.removeEventListener("message", message) }
   }, [mounted, error, resolvedTheme, fontSheet])
 
-  // A failed preview takes no space; surrounding message text reads straight through (Gus, gus-uiux#1525).
   if (error) return null
 
   return (
