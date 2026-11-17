@@ -117,6 +117,13 @@
 
 
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 @media (max-width: 767px) {
   .intro { margin-bottom: 28px; }
   .panel { grid-template-columns: minmax(0, 1fr); gap: 24px; margin-top: 24px; }

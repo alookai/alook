@@ -90,7 +90,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <ThemeToggle />
       </div>
 
-      <LandingUseCases />
+      <LandingUseCases isLoggedIn={isLoggedIn} />
 
       <LandingTestimonials />
 

@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react"
 import { HandAccent } from "@/components/brand/hand-accent"
 import { buttonVariants } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { trackLandingCtaClicked } from "@/lib/analytics"
 import { getUseCase } from "@/lib/usecases"
 import { cn } from "@/lib/utils"
 import { DocumentNavigationLink } from "./document-navigation-link"
@@ -18,31 +19,35 @@ import styles from "./landing-use-cases.module.css"
 const STORIES = [
   {
     slug: "ask-teammates-seo-bot",
+    cta: "Share a bot with your team",
     tab: "Marketing needs SEO data",
     title: "Get the traffic report without waiting for your SEO teammate",
     body: "Their bot already has Ahrefs open. Ask in the team channel and the table comes back while you’re still planning.",
   },
   {
     slug: "github-issue-to-reviewed-pr",
+    cta: "Put your bots on night shift",
     tab: "A bug fixed overnight",
     title: "Go to bed with a bug report. Wake up to a reviewed fix.",
     body: "Your bots pick up last night’s issue, pass the work between them, and leave a checked PR ready for your morning coffee.",
   },
   {
     slug: "agents-across-two-computers",
+    cta: "Connect your computers",
     tab: "Your Mac and your PC",
     title: "Your Mac writes the fix. Your Windows PC tests it.",
     body: "Send one message from your phone. The two computers trade the work until the tests pass.",
   },
   {
     slug: "hackathon-people-and-bots",
+    cta: "Start a community server",
     tab: "A hackathon help desk",
     title: "Answer a hackathon question once, for every team",
     body: "Participants and their bots read the same answer in one place and keep building.",
   },
 ].map((story) => ({ ...story, image: getUseCase(story.slug)!.image }))
 
-export function LandingUseCases() {
+export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [active, setActive] = useAtom(useCreateAtom<string>(STORIES[0].slug))
   const story = STORIES.find(({ slug }) => slug === active) ?? STORIES[0]
   return (
@@ -71,9 +76,18 @@ export function LandingUseCases() {
             <div className={styles.copy}>
               <h3>{story.title}</h3>
               <p>{story.body}</p>
-              <DocumentNavigationLink href={`/usecases/${story.slug}`} data-variant="default" className={cn(buttonVariants({ size: "lg" }), "h-12 px-6 text-base")}>
-                See the full story <ArrowRight size={16} aria-hidden="true" />
-              </DocumentNavigationLink>
+              {/* The action is the point; the story is the secondary way in (Gus #241). */}
+              <div className={styles.actions}>
+                <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default"
+                  className={cn(buttonVariants({ size: "lg" }), "h-12 px-6 text-base")}
+                  onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "use_cases_open_app" : "use_cases_get_started" })}>
+                  {isLoggedIn ? "Open Alook" : story.cta}
+                </DocumentNavigationLink>
+                <DocumentNavigationLink href={`/usecases/${story.slug}`} data-variant="secondary"
+                  className={cn(buttonVariants({ variant: "secondary", size: "lg" }), "h-12 px-6 text-base")}>
+                  Full story <ArrowRight size={16} aria-hidden="true" />
+                </DocumentNavigationLink>
+              </div>
             </div>
           </div>
         </Tabs>
