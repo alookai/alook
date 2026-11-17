@@ -14,6 +14,7 @@ export const productPlan = sqliteTable(
     updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
+    index("idx_product_plan_active_default").on(t.isActive, t.isDefault, t.id),
     uniqueIndex("uq_product_plan_active_default")
       .on(t.isDefault)
       .where(sql`${t.isDefault} = 1 AND ${t.isActive} = 1`),

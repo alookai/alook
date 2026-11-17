@@ -53,7 +53,12 @@ function makeDb(state: MockState): Database {
       const b: any = {};
       b.from = () => b;
       b.innerJoin = () => b;
-      b.where = () => Promise.resolve(state.impactedQueue?.shift() ?? []);
+      b.where = () => {
+        const rows = state.impactedQueue?.shift() ?? [];
+        b.then = (resolve: (value: unknown[]) => unknown, reject: (error: unknown) => unknown) => Promise.resolve(rows).then(resolve, reject);
+        return b;
+      };
+      b.union = () => b;
       return b;
     },
     delete: (table: any) => {

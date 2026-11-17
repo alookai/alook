@@ -548,6 +548,71 @@ describe("bumpBotDailyActivityStatement", () => {
 })
 
 
+describe("activation catch-up on migrated SQLite", () => {
+  it("uses indexed latest-message lookups only for the bot's participating scopes", async () => {
+    const { sqlite, db, batch } = createMigratedDatabase()
+    try {
+      const { botId } = await q.createBot(db, { ownerId: "owner_1", name: "activation", machineId: "machine_1", runtime: "codex-cli" })
+      sqlite.prepare("UPDATE community_bot_binding SET is_active=0 WHERE user_id=?").run(botId)
+      sqlite.exec(`
+        INSERT INTO community_server(id,name,discriminator,owner_id,created_at)
+          VALUES ('joined','Joined','1111','owner_1','2026-01-01'), ('foreign','Foreign','2222','owner_1','2026-01-01');
+        INSERT INTO community_category(id,server_id,name,private)
+          VALUES ('private','joined','Private',1);
+        INSERT INTO community_channel(id,server_id,type,created_at) VALUES
+          ('history','joined','text','2026-01-01'), ('legacy','joined','text','2026-01-01'),
+          ('empty','joined','text','2026-01-01'), ('foreign-history','foreign','text','2026-01-01');
+        INSERT INTO community_channel(id,server_id,type,parent_channel_id,created_at) VALUES
+          ('joined-thread','joined','thread','history','2026-01-01'),
+          ('unjoined-thread','joined','thread','history','2026-01-01');
+        INSERT INTO community_channel(id,server_id,type,category_id,created_at)
+          VALUES ('hidden','joined','text','private','2026-01-01');
+        INSERT INTO community_channel(id,type,created_at) VALUES ('blocked-dm','dm','2026-01-01');
+      `)
+      sqlite.prepare("INSERT INTO community_server_member(id,server_id,user_id,joined_at) VALUES('membership','joined',?,'2026-01-01')").run(botId)
+      sqlite.prepare("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES('notify','joined-thread',?,'notify','2026-01-01'),('self','blocked-dm',?,'access','2026-01-01'),('peer','blocked-dm','owner_1','access','2026-01-01')").run(botId, botId)
+      sqlite.prepare("INSERT INTO community_friendship(id,requester_id,addressee_id,status,created_at,updated_at) VALUES('block',?,'owner_1','blocked','2026-01-01','2026-01-01')").run(botId)
+      const insert = sqlite.prepare("INSERT INTO community_message(id,channel_id,author_id,created_at,seq) VALUES(?,?,'owner_1',?,?)")
+      sqlite.transaction(() => {
+        for (const channelId of ["history", "foreign-history"]) {
+          for (let seq = 1; seq <= 5000; seq++) insert.run(`${channelId}-${seq}`, channelId, "2026-01-01", seq)
+        }
+        for (const channelId of ["joined-thread", "unjoined-thread", "hidden", "blocked-dm"]) insert.run(channelId, channelId, "2026-01-01", 1)
+        insert.run("legacy-a", "legacy", "2026-01-01", 0)
+        insert.run("legacy-b", "legacy", "2026-01-02", 0)
+        insert.run("legacy-newer-date", "history", "2026-02-01", 0)
+      })()
+      batch.mockClear()
+
+      await expect(q.setBotActive(db, botId, "owner_1", true)).resolves.toMatchObject({ state: "updated", bot: { isActive: true } })
+      expect(sqlite.prepare("SELECT channel_id, last_read_message_id, last_read_seq FROM community_read_state WHERE user_id=? ORDER BY channel_id").all(botId)).toEqual([
+        { channel_id: "history", last_read_message_id: "history-5000", last_read_seq: 5000 },
+        { channel_id: "joined-thread", last_read_message_id: "joined-thread", last_read_seq: 1 },
+        { channel_id: "legacy", last_read_message_id: "legacy-b", last_read_seq: 0 },
+      ])
+      const query = batch.mock.calls[0]![0][0]!.toSQL()
+      const plan = sqlite.prepare(`EXPLAIN QUERY PLAN ${query.sql}`).all(...query.params) as Array<{ detail: string }>
+      expect(plan.some(row => /SEARCH activation_latest_message USING INDEX uq_community_message_channel_seq/.test(row.detail))).toBe(true)
+      expect(plan.some(row => /SCAN activation_(?:message|channel|latest_message)\b/.test(row.detail))).toBe(false)
+      expect(sqlite.prepare("SELECT revision FROM community_read_state_revision WHERE user_id=?").get(botId)).toEqual({ revision: 1 })
+      sqlite.prepare("UPDATE community_bot_binding SET is_active=0 WHERE user_id=?").run(botId)
+      insert.run("joined-thread-2", "joined-thread", "2026-01-02", 2)
+      const executeBatch = db.batch.bind(db)
+      db.batch = (async statements => {
+        sqlite.prepare("DELETE FROM community_channel_member WHERE id='notify'").run()
+        sqlite.exec("INSERT INTO community_channel(id,server_id,type,parent_channel_id,created_at) VALUES('late-thread','joined','thread','history','2026-01-02')")
+        sqlite.prepare("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES('late-notify','late-thread',?,'notify','2026-01-02')").run(botId)
+        insert.run("late-message", "late-thread", "2026-01-02", 1)
+        return executeBatch(statements)
+      }) as typeof db.batch
+      await expect(q.setBotActive(db, botId, "owner_1", true)).resolves.toMatchObject({ state: "updated" })
+      expect(sqlite.prepare("SELECT last_read_seq FROM community_read_state WHERE user_id=? AND channel_id='joined-thread'").get(botId)).toEqual({ last_read_seq: 1 })
+      expect(sqlite.prepare("SELECT last_read_message_id FROM community_read_state WHERE user_id=? AND channel_id='late-thread'").get(botId)).toEqual({ last_read_message_id: "late-message" })
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+    } finally { sqlite.close() }
+  })
+})
+
 describe("native model observations", () => {
   it("clears only on provider change, scopes clearing to the owner, and fences old reports after switching back", async () => {
     const { sqlite, db } = createMigratedDatabase()

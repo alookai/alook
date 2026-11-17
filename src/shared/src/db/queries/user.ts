@@ -278,7 +278,7 @@ export async function searchUsersByName(
     conditions.push(eq(user.name, name));
     conditions.push(eq(user.discriminator, opts.discriminator));
   } else {
-    const pattern = `%${escapeLikePattern(name)}%`;
+    const pattern = `${escapeLikePattern(name)}%`;
     conditions.push(sql`${user.name} LIKE ${pattern} ESCAPE '\\'`);
   }
   if (opts?.excludeUserId) {

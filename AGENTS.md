@@ -15,6 +15,7 @@ Alook's main purpose is to make the cli agent always on, and give it a email add
 - Run `pnpm check` before delivery. It uses the canonical impact plan and normal repository checks. Use `pnpm check:full` for an explicit complete check; policy, unknown or unresolved inputs fall back to full automatically. Record actual selected and executed checks, not a blanket all-tests claim.
 - service must be STATELESS! All the state must be in DB or local, never put important states in memory.
 - scope the queries before, not check the ownership after. don't query data then check if the data belongs to a workspace, use workspace id ahead to query the data.
+- Full-site database scans are forbidden. Scope queries by their user, owner, server, channel, resource key or indexed time range before reading business rows. Verify index use with the actual query plan for large tables and correlated subqueries; a trailing LIMIT does not make a scan bounded. Whole-dataset maintenance must use indexed cursors and bounded batches, never one unbounded scan.
 - respect others' works, don't reset any other git changes just because it's not done by you, others may working at the same time, never revert anything without asking the user.
   - don't stash others' works, you can wait, but stash others' work will cause many problems.
 

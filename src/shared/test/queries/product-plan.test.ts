@@ -405,7 +405,7 @@ describe("generic product plan entitlement queries", () => {
       .toEqual({ n: 3 })
   })
 
-  it("reactivates atomically after advancing every visible non-empty scope to its execution-time latest message", async () => {
+  it("reactivates atomically after advancing every participating non-empty scope to its execution-time latest message", async () => {
     seedPlan(sqlite, { id: "free", displayName: "Free", isDefault: true, botsMax: "5" })
     seedHuman(sqlite, "owner")
     seedBot(sqlite, "owner", "bot", "2026-01-01", false)
@@ -429,6 +429,7 @@ describe("generic product plan entitlement queries", () => {
       INSERT INTO community_channel_member (id, channel_id, user_id, relation)
       VALUES
         ('private_access', 'private', 'bot', 'access'),
+        ('thread_notify', 'thread', 'bot', 'notify'),
         ('dm_bot', 'dm', 'bot', 'access'),
         ('dm_peer', 'dm', 'peer', 'access');
       INSERT INTO community_message (id, author_id, created_at, channel_id, seq)

@@ -45,7 +45,10 @@ export const user = sqliteTable(
     // refreshed. Surfaced in the my-bots list as "last refreshed N ago".
     lastRefreshContextAt: text("lastRefreshContextAt"),
   },
-  (t) => [index("idx_user_ownerUserId_isBot").on(t.ownerUserId, t.isBot)]
+  (t) => [
+    index("idx_user_isBot_deletedAt_id_lookup").on(t.isBot, t.deletedAt, t.id),
+    index("idx_user_pending_deletion").on(t.isBot, t.updatedAt, t.id).where(sql`${t.deletedAt} IS NOT NULL`),
+    index("idx_user_ownerUserId_isBot").on(t.ownerUserId, t.isBot)]
 );
 
 export const session = sqliteTable(
@@ -81,7 +84,9 @@ export const account = sqliteTable("account", {
   password: text("password"),
   createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
-});
+}, (t) => [
+    index("idx_account_providerId_accountId_lookup").on(t.providerId, t.accountId),
+  ]);
 
 export const verification = sqliteTable("verification", {
   id: text("id").primaryKey().$defaultFn(() => nanoid()),
@@ -90,7 +95,11 @@ export const verification = sqliteTable("verification", {
   expiresAt: text("expiresAt").notNull(),
   createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
-});
+}, (t) => [
+    index("idx_verification_identifier_lookup").on(t.identifier),
+    index("idx_verification_value_lookup").on(t.value),
+    index("idx_verification_expiresAt_lookup").on(t.expiresAt),
+  ]);
 
 export type { NativeOauthProvider, NativeOauthPlatform, NativeOauthFailureCode } from "../lib/native-oauth-contract";
 import type { NativeOauthProvider, NativeOauthPlatform, NativeOauthFailureCode } from "../lib/native-oauth-contract";
@@ -133,6 +142,7 @@ export const nativeOauthAttempt = sqliteTable(
     replacedAt: integer("replaced_at"),
   },
   (t) => [
+    index("idx_native_oauth_attempt_attempt_expires_at_lookup").on(t.attemptExpiresAt),
     index("idx_native_oauth_attempt_instance_status").on(
       t.instanceKeyHash,
       t.status,

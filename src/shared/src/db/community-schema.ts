@@ -30,6 +30,7 @@ export const communityServer = sqliteTable(
   },
   /* istanbul ignore next -- exercised by real D1 migration/runtime */
   (t) => [
+    index("idx_community_server_owner_id_lookup").on(t.ownerId),
     // Unique server handle `name#discriminator` — the server-segment address
     // anchor, so a ref `/name#disc/...` resolves to exactly one server. Mirrors
     // the user `(name, discriminator)` handle. Source of truth:
@@ -56,7 +57,9 @@ export const communityCategory = sqliteTable(
     private: integer("private").default(0),
     creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
   },
-  (t) => [unique("uq_category_server_name").on(t.serverId, t.name)]
+  (t) => [
+    index("idx_community_category_creator_id_lookup").on(t.creatorId),
+    unique("uq_category_server_name").on(t.serverId, t.name)]
 );
 
 // 3. community_channel
@@ -90,6 +93,8 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
+    index("idx_community_channel_creator_id_lookup").on(t.creatorId),
+    index("idx_community_channel_category_id_lookup").on(t.categoryId),
     index("idx_channel_server_position").on(t.serverId, t.position),
     index("idx_channel_server_last_message").on(t.serverId, t.lastMessageAt),
     index("idx_channel_parent").on(t.parentChannelId),
@@ -131,6 +136,7 @@ export const communityChannelMember = sqliteTable(
     addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
+    index("idx_community_channel_member_added_by_lookup").on(t.addedBy),
     unique("uq_channel_member").on(t.channelId, t.userId, t.relation),
     index("idx_channel_member_user").on(t.userId),
   ]
@@ -180,6 +186,7 @@ export const communityMessage = sqliteTable(
     clientNonce: text("client_nonce"),
   },
   (t) => [
+    index("idx_community_message_author_id_lookup").on(t.authorId),
     index("idx_message_channel_created").on(t.channelId, t.createdAt),
     index("idx_message_channel_mention_created").on(
       t.channelId,
@@ -250,6 +257,7 @@ export const communityServerFolderItem = sqliteTable(
     position: integer("position").default(0),
   },
   (t) => [
+    index("idx_community_server_folder_item_server_id_lookup").on(t.serverId),
     primaryKey({ columns: [t.folderId, t.serverId] }),
     index("idx_server_folder_item_folder_position").on(t.folderId, t.position),
   ]
@@ -273,7 +281,9 @@ export const communityServerInvite = sqliteTable(
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
 
-  (t) => [index("idx_server_invite_server").on(t.serverId)]
+  (t) => [
+    index("idx_community_server_invite_created_by_lookup").on(t.createdBy),
+    index("idx_server_invite_server").on(t.serverId)]
 );
 
 // 11. community_friendship
@@ -307,6 +317,7 @@ export const communityFriendship = sqliteTable(
     resolvedAt: text("resolved_at"),
   },
   (t) => [
+    index("idx_community_friendship_needs_owner_approval_lookup").on(t.needsOwnerApproval),
     index("idx_friendship_addressee_status").on(t.addresseeId, t.status),
     index("idx_friendship_requester_status").on(t.requesterId, t.status),
   ]
@@ -331,7 +342,10 @@ export const communityReadState = sqliteTable(
     lastReadMessageId: text("last_read_message_id"),
     lastReadSeq: integer("last_read_seq").notNull().default(0),
   },
-  (t) => [index("idx_read_state_user").on(t.userId)]
+  (t) => [
+    index("idx_community_read_state_channel_id_lookup").on(t.channelId),
+    index("idx_community_read_state_last_read_message_id_lookup").on(t.lastReadMessageId),
+    index("idx_read_state_user").on(t.userId)]
 );
 
 export const communityReadStateRevision = sqliteTable("community_read_state_revision", {
@@ -355,6 +369,7 @@ export const communityReaction = sqliteTable(
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
+    index("idx_community_reaction_user_id_lookup").on(t.userId),
     unique("uq_reaction_message_user_emoji").on(t.messageId, t.userId, t.emoji),
     index("idx_reaction_message").on(t.messageId),
   ]
@@ -409,6 +424,8 @@ export const communityPin = sqliteTable(
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
+    index("idx_community_pin_pinned_by_lookup").on(t.pinnedBy),
+    index("idx_community_pin_message_id_lookup").on(t.messageId),
     unique("uq_pin_channel_message").on(t.channelId, t.messageId),
     index("idx_pin_channel").on(t.channelId),
   ]
@@ -470,7 +487,10 @@ export const communityNotificationSetting = sqliteTable(
     }),
     level: text("level").notNull().default("all"),
   },
-  (t) => [index("idx_notification_setting_user").on(t.userId)]
+  (t) => [
+    index("idx_community_notification_setting_channel_id_lookup").on(t.channelId),
+    index("idx_community_notification_setting_server_id_lookup").on(t.serverId),
+    index("idx_notification_setting_user").on(t.userId)]
 );
 
 // One durable row per native app installation. Tokens are encrypted before
@@ -626,6 +646,7 @@ export const communityMessageMark = sqliteTable(
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
+    index("idx_community_message_mark_channel_id_lookup").on(t.channelId),
     unique("uq_mark_user_message").on(t.userId, t.messageId),
     index("idx_mark_user_created").on(t.userId, t.createdAt),
     index("idx_mark_message_user").on(t.messageId, t.userId),

@@ -29,8 +29,9 @@ export async function registerAttempt(
   now = Date.now(),
 ): Promise<NativeOauthAttempt> {
   const cleanupBefore = now - RETENTION_MS;
-  const cleanup = db
-    .delete(nativeOauthAttempt)
+  const cleanupIds = db
+    .select({ id: nativeOauthAttempt.id })
+    .from(nativeOauthAttempt)
     .where(
       or(
         and(
@@ -44,7 +45,8 @@ export async function registerAttempt(
         ),
         lt(nativeOauthAttempt.attemptExpiresAt, cleanupBefore),
       ),
-    );
+    ).limit(100);
+  const cleanup = db.delete(nativeOauthAttempt).where(inArray(nativeOauthAttempt.id, cleanupIds));
   const replace = db
     .update(nativeOauthAttempt)
     .set({ status: "replaced", replacedAt: now, updatedAt: now })

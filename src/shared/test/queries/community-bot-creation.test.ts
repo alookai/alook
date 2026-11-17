@@ -46,7 +46,7 @@ describe("bot creation requests on real migrated SQLite", () => {
     const migrated = (sqlite.pragma("foreign_key_list(community_bot_creation_request)") as typeof declared).map(({ from, table, to, on_delete }) => ({ from, table, to, on_delete })).sort((a, b) => a.from.localeCompare(b.from))
     expect(declared).toHaveLength(4)
     expect(migrated).toEqual(declared)
-    expect(config.indexes.map((index) => index.config.name).sort()).toEqual(["idx_bot_creation_owner", "idx_bot_creation_requester"])
+    expect(config.indexes.map((index) => index.config.name).sort()).toEqual(["idx_bot_creation_owner", "idx_bot_creation_requester", "idx_community_bot_creation_request_channel_id_lookup"])
     for (const index of config.indexes) {
       const columns = index.config.columns.map((column) => "name" in column ? column.name : undefined)
       expect(sqlite.pragma(`index_info(${index.config.name})`)).toEqual(columns.map((name, seqno) => expect.objectContaining({ name, seqno })))

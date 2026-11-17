@@ -10,6 +10,7 @@ export const communityBotFeedback = sqliteTable("community_bot_feedback", {
   text: text("text").notNull(),
   createdAt: text("created_at").notNull(),
 }, (t) => [
+    index("idx_community_bot_feedback_bot_id_lookup").on(t.botId),
   index("idx_bot_feedback_owner_created").on(t.ownerId, t.createdAt),
   check("bot_feedback_text_bytes", sql`length(cast(${t.text} as blob)) between 1 and ${sql.raw(String(BOT_FEEDBACK_MAX_BYTES))}`),
 ]);

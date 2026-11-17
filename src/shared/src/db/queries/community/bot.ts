@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { type SQL, aliasedTable, and, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
+import { type SQL, aliasedTable, and, desc, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,
@@ -31,10 +31,8 @@ import {
   communityBotDailyActivity,
   communityBotDailyTokenUsage,
   communityBotActivityEvent,
-  communityCategory,
   communityChannel,
   communityChannelMember,
-  communityFriendship,
   communityMessage,
   communityReadStateRevision,
 } from "../../community-schema";
@@ -51,6 +49,9 @@ import { CommunityMachineRuntimeSchema, type CommunityMachineRuntime } from "../
 import { getBotCapacitySummary } from "../product-plan";
 import type { BotCapacitySummary } from "../../../product-entitlements";
 import { isPresenceOnline } from "../../../utils/status";
+import { channelReadableSql } from "./channel";
+import { dmPeerReadableSql } from "./dm";
+import { CHANNEL_TRAITS, reachIsParticipantSet } from "../../../utils/community-roles";
 
 export type BotRow = {
   id: string;
@@ -439,91 +440,27 @@ function activationCursorCatchupBuilder(
   ownerId: string,
 ) {
   const message = aliasedTable(communityMessage, "activation_message");
-  const newerMessage = aliasedTable(communityMessage, "activation_newer_message");
+  const latestMessage = aliasedTable(communityMessage, "activation_latest_message");
   const channel = aliasedTable(communityChannel, "activation_channel");
-  const parent = aliasedTable(communityChannel, "activation_parent_channel");
-  const category = aliasedTable(communityCategory, "activation_category");
-  const serverMember = aliasedTable(communityServerMember, "activation_server_member");
-  const anchorMember = aliasedTable(communityChannelMember, "activation_anchor_member");
-  const dmSelf = aliasedTable(communityChannelMember, "activation_dm_self");
-  const dmPeer = aliasedTable(communityChannelMember, "activation_dm_peer");
-  const blocked = aliasedTable(communityFriendship, "activation_dm_block");
-
-  const anchorId = sql<string>`COALESCE(${parent.id}, ${channel.id})`;
-  const anchorCreatorId = sql<string | null>`COALESCE(${parent.creatorId}, ${channel.creatorId})`;
-  const anchorCategoryId = sql<string | null>`COALESCE(${parent.categoryId}, ${channel.categoryId})`;
-  const ownerScopedInactive = exists(ownerScopedBotIds(db, botId, ownerId, false));
-
-  const dmVisible = and(
-    eq(channel.type, "dm"),
-    exists(
-      db
-        .select({ one: sql<number>`1` })
-        .from(dmSelf)
-        .where(
-          and(
-            eq(dmSelf.channelId, channel.id),
-            eq(dmSelf.userId, botId),
-            eq(dmSelf.relation, "access"),
-          ),
-        ),
-    ),
-    notExists(
-      db
-        .select({ one: sql<number>`1` })
-        .from(dmPeer)
-        .innerJoin(
-          blocked,
-          and(
-            eq(blocked.status, "blocked"),
-            or(
-              and(eq(blocked.requesterId, botId), eq(blocked.addresseeId, dmPeer.userId)),
-              and(eq(blocked.requesterId, dmPeer.userId), eq(blocked.addresseeId, botId)),
-            ),
-          ),
-        )
-        .where(
-          and(
-            eq(dmPeer.channelId, channel.id),
-            eq(dmPeer.relation, "access"),
-            ne(dmPeer.userId, botId),
-          ),
-        ),
-    ),
-  );
-
-  const serverVisible = and(
-    ne(channel.type, "dm"),
-    isNotNull(channel.serverId),
-    exists(
-      db
-        .select({ one: sql<number>`1` })
-        .from(serverMember)
-        .where(
-          and(
-            eq(serverMember.serverId, channel.serverId),
-            eq(serverMember.userId, botId),
-          ),
-        ),
-    ),
-    or(
-      isNull(anchorCategoryId),
-      eq(category.private, 0),
-      eq(anchorCreatorId, botId),
-      exists(
-        db
-          .select({ one: sql<number>`1` })
-          .from(anchorMember)
-          .where(
-            and(
-              eq(anchorMember.channelId, anchorId),
-              eq(anchorMember.userId, botId),
-              eq(anchorMember.relation, "access"),
-            ),
-          ),
-      ),
-    ),
-  );
+  const serverIds = db.select({ id: communityServerMember.serverId })
+    .from(communityServerMember).where(eq(communityServerMember.userId, botId));
+  const accessChannelIds = db.select({ id: communityChannelMember.channelId })
+    .from(communityChannelMember).where(and(eq(communityChannelMember.userId, botId), eq(communityChannelMember.relation, "access")));
+  const notifyChannelIds = db.select({ id: communityChannelMember.channelId })
+    .from(communityChannelMember).where(and(eq(communityChannelMember.userId, botId), eq(communityChannelMember.relation, "notify")));
+  const participantTypes = Object.keys(CHANNEL_TRAITS).filter(reachIsParticipantSet);
+  const latestSequencedId = db
+    .select({ id: latestMessage.id })
+    .from(latestMessage)
+    .where(and(eq(latestMessage.channelId, channel.id), gt(latestMessage.seq, 0)))
+    .orderBy(desc(latestMessage.seq))
+    .limit(1);
+  const latestLegacyId = db
+    .select({ id: latestMessage.id })
+    .from(latestMessage)
+    .where(and(eq(latestMessage.channelId, channel.id), eq(latestMessage.seq, 0)))
+    .orderBy(desc(latestMessage.createdAt), desc(latestMessage.id))
+    .limit(1);
 
   const latestVisibleMessages = db
     .select({
@@ -534,25 +471,18 @@ function activationCursorCatchupBuilder(
       lastReadMessageId: message.id,
       lastReadSeq: message.seq,
     })
-    .from(message)
-    .innerJoin(channel, eq(channel.id, message.channelId))
-    .leftJoin(parent, eq(parent.id, channel.parentChannelId))
-    .leftJoin(category, eq(category.id, anchorCategoryId))
+    .from(channel)
+    .innerJoin(message, eq(message.id, sql<string>`COALESCE((${latestSequencedId}), (${latestLegacyId}))`))
     .where(
       and(
-        ownerScopedInactive,
-        or(dmVisible, serverVisible),
-        notExists(
-          db
-            .select({ one: sql<number>`1` })
-            .from(newerMessage)
-            .where(
-              and(
-                eq(newerMessage.channelId, message.channelId),
-                gt(newerMessage.seq, message.seq),
-              ),
-            ),
-        ),
+        exists(ownerScopedBotIds(db, botId, ownerId, false)),
+        or(inArray(channel.serverId, serverIds), inArray(channel.id, accessChannelIds)),
+        or(notInArray(channel.type, participantTypes), inArray(channel.id, notifyChannelIds)),
+        channelReadableSql(botId, {
+          id: channel.id, type: channel.type,
+          serverId: channel.serverId, parentChannelId: channel.parentChannelId,
+        }),
+        or(ne(channel.type, "dm"), dmPeerReadableSql(db, botId, channel.id)),
       ),
     );
 

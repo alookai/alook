@@ -68,11 +68,7 @@ export async function removeMemberAndOwnerBots(
   const cleanupEmptyFolders = db
     .delete(communityServerFolder)
     .where(and(
-      sql`EXISTS (
-        SELECT 1
-        FROM json_each(${JSON.stringify(removedUserIds)}) AS removed_user
-        WHERE CAST(removed_user.value AS TEXT) = ${communityServerFolder.userId}
-      )`,
+      inArray(communityServerFolder.userId, jsonTextSet(db, removedUserIds)),
       sql`NOT EXISTS (
         SELECT 1
         FROM ${communityServerFolderItem}
@@ -91,17 +87,9 @@ export async function removeMemberAndOwnerBots(
   const cleanupChannelMemberships = db
     .delete(communityChannelMember)
     .where(and(
-      sql`EXISTS (
-        SELECT 1
-        FROM ${communityChannel}
-        WHERE ${communityChannel.id} = ${communityChannelMember.channelId}
-          AND ${communityChannel.serverId} = ${serverId}
-      )`,
-      sql`EXISTS (
-        SELECT 1
-        FROM json_each(${JSON.stringify(removedUserIds)}) AS removed_user
-        WHERE CAST(removed_user.value AS TEXT) = ${communityChannelMember.userId}
-      )`,
+      inArray(communityChannelMember.channelId, db.select({ id: communityChannel.id })
+        .from(communityChannel).where(eq(communityChannel.serverId, serverId))),
+      inArray(communityChannelMember.userId, jsonTextSet(db, removedUserIds)),
     ));
   const removeBots = removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
   const results = (await db.batch([

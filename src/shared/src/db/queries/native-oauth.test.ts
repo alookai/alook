@@ -84,12 +84,15 @@ describe("native oauth attempt queries", () => {
 
   it("fails closed when registration does not return the inserted row", async () => {
     const statement = {
+      from: vi.fn(() => statement),
+      limit: vi.fn(() => statement),
       where: vi.fn(() => statement),
       set: vi.fn(() => statement),
       values: vi.fn(() => statement),
       returning: vi.fn(() => statement),
     };
     const emptyDb = {
+      select: vi.fn(() => statement),
       delete: vi.fn(() => statement),
       update: vi.fn(() => statement),
       insert: vi.fn(() => statement),
@@ -103,6 +106,19 @@ describe("native oauth attempt queries", () => {
         NOW,
       ),
     ).rejects.toThrow("native oauth registration did not return a row");
+  });
+
+  it("bounds retention cleanup while admitting a new attempt and draining the remaining expired backlog", async () => {
+    const old = NOW - 3 * 24 * 60 * 60 * 1000;
+    for (let index = 0; index < 110; index++) {
+      await registerAttempt(db, registration(`expired_attempt_${String(index).padStart(12, "0")}`), old + index);
+    }
+    const expired = () => (sqlite.prepare("SELECT count(*) AS n FROM native_oauth_attempt WHERE attempt_expires_at < ?").get(NOW - 24 * 60 * 60 * 1000) as { n: number }).n;
+    expect(expired()).toBe(110);
+    await expect(registerAttempt(db, registration("fresh_attempt_12345678901"), NOW)).resolves.toMatchObject({ status: "pending" });
+    expect(expired()).toBe(10);
+    await registerAttempt(db, registration("next_attempt_123456789012"), NOW + 1);
+    expect(expired()).toBe(0);
   });
 
   it("reads and fails only a live opened attempt", async () => {

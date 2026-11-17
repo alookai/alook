@@ -1,4 +1,4 @@
-import { and, asc, eq, exists, lt, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { ServerRailProjection, ServerRailState } from "../../../community-server-rail";
 import {
@@ -124,6 +124,11 @@ function createFolderStatement(
   return db.insert(communityServerFolder).select(candidate);
 }
 
+function ownedFolderIds(db: Database, userId: string) {
+  return db.select({ id: communityServerFolder.id })
+    .from(communityServerFolder).where(eq(communityServerFolder.userId, userId));
+}
+
 function globalReassignedItemCleanupStatement(
   db: Database,
   userId: string,
@@ -133,15 +138,8 @@ function globalReassignedItemCleanupStatement(
   return db.with(moved)
     .delete(communityServerFolderItem)
     .where(and(
-      sql`EXISTS (
-        SELECT 1 FROM ${moved}
-        WHERE ${moved.id} = ${communityServerFolderItem.serverId}
-      )`,
-      sql`EXISTS (
-        SELECT 1 FROM ${communityServerFolder}
-        WHERE ${communityServerFolder.id} = ${communityServerFolderItem.folderId}
-          AND ${communityServerFolder.userId} = ${userId}
-      )`,
+      inArray(communityServerFolderItem.serverId, db.select({ id: moved.id }).from(moved)),
+      inArray(communityServerFolderItem.folderId, ownedFolderIds(db, userId)),
     ));
 }
 
@@ -154,15 +152,8 @@ function clearAffectedFolderItemsStatement(
   return db.with(affected)
     .delete(communityServerFolderItem)
     .where(and(
-      sql`EXISTS (
-        SELECT 1 FROM ${affected}
-        WHERE ${affected.id} = ${communityServerFolderItem.folderId}
-      )`,
-      sql`EXISTS (
-        SELECT 1 FROM ${communityServerFolder}
-        WHERE ${communityServerFolder.id} = ${communityServerFolderItem.folderId}
-          AND ${communityServerFolder.userId} = ${userId}
-      )`,
+      inArray(communityServerFolderItem.folderId, db.select({ id: affected.id }).from(affected)),
+      inArray(communityServerFolderItem.folderId, ownedFolderIds(db, userId)),
     ));
 }
 
@@ -197,11 +188,7 @@ function deleteEmptyFoldersStatement(db: Database, userId: string) {
 function deleteDanglingFolderItemsStatement(db: Database, userId: string) {
   return db.delete(communityServerFolderItem)
     .where(and(
-      sql`EXISTS (
-        SELECT 1 FROM ${communityServerFolder}
-        WHERE ${communityServerFolder.id} = ${communityServerFolderItem.folderId}
-          AND ${communityServerFolder.userId} = ${userId}
-      )`,
+      inArray(communityServerFolderItem.folderId, ownedFolderIds(db, userId)),
       sql`NOT EXISTS (
         SELECT 1 FROM ${communityServerMember}
         WHERE ${communityServerMember.serverId} = ${communityServerFolderItem.serverId}
@@ -214,18 +201,20 @@ function deleteDuplicateFolderItemsStatement(db: Database, userId: string) {
   const preferredItem = alias(communityServerFolderItem, "preferred_item");
   const preferredFolder = alias(communityServerFolder, "preferred_folder");
   const currentFolder = alias(communityServerFolder, "current_folder");
-  return db.delete(communityServerFolderItem).where(exists(
-    db.select({ serverId: preferredItem.serverId })
-      .from(preferredItem)
-      .innerJoin(preferredFolder, eq(preferredFolder.id, preferredItem.folderId))
-      .innerJoin(currentFolder, eq(currentFolder.id, communityServerFolderItem.folderId))
-      .where(and(
-        eq(preferredItem.serverId, communityServerFolderItem.serverId),
-        eq(preferredFolder.userId, userId),
-        eq(currentFolder.userId, userId),
-        lt(preferredFolder.id, currentFolder.id),
-      )),
-  ));
+  return db.delete(communityServerFolderItem).where(and(
+    inArray(communityServerFolderItem.folderId, ownedFolderIds(db, userId)),
+    exists(
+      db.select({ serverId: preferredItem.serverId })
+        .from(preferredItem)
+        .innerJoin(preferredFolder, eq(preferredFolder.id, preferredItem.folderId))
+        .innerJoin(currentFolder, eq(currentFolder.id, communityServerFolderItem.folderId))
+        .where(and(
+          eq(preferredItem.serverId, communityServerFolderItem.serverId),
+          eq(preferredFolder.userId, userId),
+          eq(currentFolder.userId, userId),
+          lt(preferredFolder.id, currentFolder.id),
+        )),
+  )));
 }
 
 function insertFolderItemsStatement(
@@ -288,11 +277,13 @@ function normalizeFolderItemPositionsStatement(db: Database, userId: string) {
           AND ${ranked.serverId} = ${communityServerFolderItem.serverId}
       )`,
     })
-    .where(sql`EXISTS (
+    .where(and(
+      inArray(communityServerFolderItem.folderId, ownedFolderIds(db, userId)),
+      sql`EXISTS (
       SELECT 1 FROM ${ranked}
       WHERE ${ranked.folderId} = ${communityServerFolderItem.folderId}
         AND ${ranked.serverId} = ${communityServerFolderItem.serverId}
-    )`);
+    )`));
 }
 
 export function buildServerRailWriteStatements(

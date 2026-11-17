@@ -28,7 +28,9 @@ export const billingPrice = sqliteTable("billing_price", {
   planId: text("plan_id").notNull().references(() => productPlan.id, { onDelete: "restrict" }),
   portalConfigurationId: text("portal_configuration_id"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-});
+}, (t) => [
+    index("idx_billing_price_plan_id_lookup").on(t.planId),
+  ]);
 
 export const userBilling = sqliteTable("user_billing", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),

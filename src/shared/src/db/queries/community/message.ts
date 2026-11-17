@@ -373,7 +373,7 @@ async function hardDeleteMessageAttempt(
     .limit(1);
   const prior = priorRows[0];
 
-  const [impactedPointers, impactedMentions] = await Promise.all([
+  const impactedHumanQueries = [
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
@@ -391,7 +391,9 @@ async function hardDeleteMessageAttempt(
         eq(user.isBot, false),
         eq(communityMention.messageId, messageId),
       )),
-  ]);
+  ] as const;
+  const [impactedPointers, impactedMentions] = await Promise.all(impactedHumanQueries);
+  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1]);
   const impactedUserIds = [...new Set([
     ...impactedPointers,
     ...impactedMentions,
@@ -418,7 +420,8 @@ async function hardDeleteMessageAttempt(
   )`;
   const impactedHumansStable = sql<boolean>`NOT EXISTS (
     SELECT 1 FROM ${user} AS current_user
-    WHERE current_user."isBot" = 0
+    WHERE current_user.id IN (${currentImpactedUserIds})
+      AND current_user."isBot" = 0
       AND current_user.id NOT IN (
         SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
       )

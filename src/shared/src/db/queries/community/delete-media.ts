@@ -57,7 +57,7 @@ async function deleteChannelWithMediaAttempt(
     .select({ id: communityMessage.id })
     .from(communityMessage)
     .where(inArray(communityMessage.channelId, scopedChannelIds))
-  const [impactedPointers, impactedMentions] = await Promise.all([
+  const impactedHumanQueries = [
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
@@ -74,7 +74,9 @@ async function deleteChannelWithMediaAttempt(
         eq(user.isBot, false),
         inArray(communityMention.messageId, scopedMessageIds),
       )),
-  ])
+  ] as const
+  const [impactedPointers, impactedMentions] = await Promise.all(impactedHumanQueries)
+  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1])
   const impactedUserIds = [...new Set([
     ...impactedPointers,
     ...impactedMentions,
@@ -110,7 +112,8 @@ async function deleteChannelWithMediaAttempt(
   )`
   const impactedHumansStable = sql<boolean>`NOT EXISTS (
     SELECT 1 FROM ${user} AS current_user
-    WHERE current_user."isBot" = 0
+    WHERE current_user.id IN (${currentImpactedUserIds})
+      AND current_user."isBot" = 0
       AND current_user.id NOT IN (
         SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
       )
@@ -189,7 +192,7 @@ async function deleteServerWithMediaAttempt(
     .select({ id: communityMessage.id })
     .from(communityMessage)
     .where(inArray(communityMessage.channelId, scopedChannelIds))
-  const [impactedPointers, impactedMentions] = await Promise.all([
+  const impactedHumanQueries = [
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
@@ -206,7 +209,9 @@ async function deleteServerWithMediaAttempt(
         eq(user.isBot, false),
         inArray(communityMention.messageId, scopedMessageIds),
       )),
-  ])
+  ] as const
+  const [impactedPointers, impactedMentions] = await Promise.all(impactedHumanQueries)
+  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1])
   const impactedUserIds = [...new Set([
     ...impactedPointers,
     ...impactedMentions,
@@ -234,7 +239,8 @@ async function deleteServerWithMediaAttempt(
   )`
   const impactedHumansStable = sql<boolean>`NOT EXISTS (
     SELECT 1 FROM ${user} AS current_user
-    WHERE current_user."isBot" = 0
+    WHERE current_user.id IN (${currentImpactedUserIds})
+      AND current_user."isBot" = 0
       AND current_user.id NOT IN (
         SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
       )
