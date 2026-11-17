@@ -125,6 +125,37 @@ describe("middleware", () => {
 
   });
 
+  describe("crawler metadata HTTPS routing", () => {
+    it.each(["/sitemap.xml", "/robots.txt"])("matches and redirects public HTTP metadata %s without session work", async path => {
+      const url = `http://alook.ai${path}?source=fixture`;
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(true);
+      const res = await middleware(makeReq(url, { "x-forwarded-proto": "http", Cookie: "session=fixture" }));
+      expect(res.status).toBe(301);
+      expect(res.headers.get("location")).toBe(`https://alook.ai${path}?source=fixture`);
+      expect(res.headers.get("set-cookie")).toBeNull();
+      expect(mockGetSession).not.toHaveBeenCalled();
+    });
+
+    it.each(["/sitemap.xml", "/robots.txt"])("passes HTTPS metadata %s through without a session lookup", async path => {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: `https://alook.ai${path}` })).toBe(true);
+      const res = await middleware(makeReq(`https://alook.ai${path}`, { "x-forwarded-proto": "https", Cookie: "session=fixture" }));
+      expect(res.headers.get("x-middleware-next")).toBe("1");
+      expect(res.headers.get("location")).toBeNull();
+      expect(res.headers.get("set-cookie")).toBeNull();
+      expect(mockGetSession).not.toHaveBeenCalled();
+    });
+
+    it.each(["localhost", "127.0.0.1"])("keeps metadata HTTP usable on %s", async host => {
+      for (const path of ["/sitemap.xml", "/robots.txt"]) {
+        const url = `http://${host}:3001${path}`;
+        expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(true);
+        const res = await middleware(makeReq(url, { "x-forwarded-proto": "http" }));
+        expect(res.headers.get("x-middleware-next")).toBe("1");
+        expect(res.headers.get("location")).toBeNull();
+      }
+    });
+  });
+
   describe("Next route matcher", () => {
     it.each(["/c/me", "/sign-in", "/w", "/studio/new"])("runs the ordinary middleware matcher for %s", url => {
       expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(true);
