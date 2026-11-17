@@ -1,6 +1,13 @@
-import { sql, type SQL } from "drizzle-orm";
+import { and, eq, exists, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { communityReadStateRevision } from "../../community-schema";
+import { user } from "../../schema";
 import type { Database } from "../../index";
+
+export function humanUserExistsCondition(db: Database, userId: SQLWrapper) {
+  return exists(db.select({ id: user.id }).from(user).where(and(
+    eq(user.id, userId), eq(user.isBot, false),
+  )));
+}
 
 /**
  * Bulk sibling used by destructive mutations that may replace/remove rows for

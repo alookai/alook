@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { type SQL, aliasedTable, and, desc, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import { type SQL, aliasedTable, and, desc, eq, exists, gt, gte, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,

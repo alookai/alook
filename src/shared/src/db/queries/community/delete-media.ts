@@ -1,5 +1,5 @@
-import { advanceReadStateRevisionsForUsersBuilder } from "./read-state-revision";
-import { and, eq, exists, inArray, or, sql } from "drizzle-orm"
+import { advanceReadStateRevisionsForUsersBuilder, humanUserExistsCondition } from "./read-state-revision";
+import { and, eq, exists, inArray, or, notExists, notInArray, sql } from "drizzle-orm"
 import {
   communityChannel,
   communityMention,
@@ -7,8 +7,8 @@ import {
   communityReadState,
   communityServer,
 } from "../../community-schema"
-import { user } from "../../schema"
 import type { Database } from "../../index"
+import { jsonTextSet } from "../_json-set"
 import {
   type AccountReadStateRevisionByUser,
 } from "./read-state"
@@ -61,27 +61,24 @@ async function deleteChannelWithMediaAttempt(
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
-      .innerJoin(user, eq(user.id, communityReadState.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityReadState.userId),
         inArray(communityReadState.channelId, scopedChannelIds),
       )),
     db
       .selectDistinct({ userId: communityMention.userId })
       .from(communityMention)
-      .innerJoin(user, eq(user.id, communityMention.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityMention.userId),
         inArray(communityMention.messageId, scopedMessageIds),
       )),
   ] as const
   const [impactedPointers, impactedMentions] = await Promise.all(impactedHumanQueries)
-  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1])
+  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1]).as("current_impacted_humans")
   const impactedUserIds = [...new Set([
     ...impactedPointers,
     ...impactedMentions,
   ].map((row) => row.userId))]
-  const impactedIdsJson = JSON.stringify(impactedUserIds)
   const scopedHumanEffectSql = (userIdSql: ReturnType<typeof sql>) => sql<boolean>`(
     EXISTS (
       SELECT 1 FROM ${communityReadState} AS current_state
@@ -110,15 +107,9 @@ async function deleteChannelWithMediaAttempt(
         )
     )
   )`
-  const impactedHumansStable = sql<boolean>`NOT EXISTS (
-    SELECT 1 FROM ${user} AS current_user
-    WHERE current_user.id IN (${currentImpactedUserIds})
-      AND current_user."isBot" = 0
-      AND current_user.id NOT IN (
-        SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
-      )
-      AND ${scopedHumanEffectSql(sql`current_user.id`)}
-  )`
+  const impactedHumansStable = notExists(db.select({ one: sql<number>`1` })
+    .from(currentImpactedUserIds)
+    .where(notInArray(currentImpactedUserIds.userId, jsonTextSet(db, impactedUserIds))))
   const enumeratedUserHasEffect = scopedHumanEffectSql(sql`CAST(value AS TEXT)`)
 
   const deleteRoot = db
@@ -196,27 +187,24 @@ async function deleteServerWithMediaAttempt(
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
-      .innerJoin(user, eq(user.id, communityReadState.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityReadState.userId),
         inArray(communityReadState.channelId, scopedChannelIds),
       )),
     db
       .selectDistinct({ userId: communityMention.userId })
       .from(communityMention)
-      .innerJoin(user, eq(user.id, communityMention.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityMention.userId),
         inArray(communityMention.messageId, scopedMessageIds),
       )),
   ] as const
   const [impactedPointers, impactedMentions] = await Promise.all(impactedHumanQueries)
-  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1])
+  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1]).as("current_impacted_humans")
   const impactedUserIds = [...new Set([
     ...impactedPointers,
     ...impactedMentions,
   ].map((row) => row.userId))]
-  const impactedIdsJson = JSON.stringify(impactedUserIds)
   const scopedHumanEffectSql = (userIdSql: ReturnType<typeof sql>) => sql<boolean>`(
     EXISTS (
       SELECT 1 FROM ${communityReadState} AS current_state
@@ -237,15 +225,9 @@ async function deleteServerWithMediaAttempt(
         )
     )
   )`
-  const impactedHumansStable = sql<boolean>`NOT EXISTS (
-    SELECT 1 FROM ${user} AS current_user
-    WHERE current_user.id IN (${currentImpactedUserIds})
-      AND current_user."isBot" = 0
-      AND current_user.id NOT IN (
-        SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
-      )
-      AND ${scopedHumanEffectSql(sql`current_user.id`)}
-  )`
+  const impactedHumansStable = notExists(db.select({ one: sql<number>`1` })
+    .from(currentImpactedUserIds)
+    .where(notInArray(currentImpactedUserIds.userId, jsonTextSet(db, impactedUserIds))))
   const enumeratedUserHasEffect = scopedHumanEffectSql(sql`CAST(value AS TEXT)`)
 
   const deleteServer = db

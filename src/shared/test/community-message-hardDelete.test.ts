@@ -59,6 +59,7 @@ function makeDb(state: MockState): Database {
         return b;
       };
       b.union = () => b;
+      b.as = () => b;
       return b;
     },
     delete: (table: any) => {
