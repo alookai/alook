@@ -25,6 +25,7 @@ import type { CommunityFreshQueryProof } from "@/lib/community-db/sync"
 import { normalizeThreadResources, projectThread } from "@/lib/community/forum-feed-window"
 import { type CommunityThreadsRead, type CommunityChannelResource, type CommunityMessageResource } from "@alook/shared"
 import type { ChannelRow } from "@/lib/community-db/schema"
+import { forumTagsReadSchema, type ForumTagsSnapshot } from "@/lib/community/page-list-persistence"
 
 export type ThreadsResponse = {
   threads: Array<Pick<CommunityChannelResource, "id"> & { openerMessageId?: CommunityMessageResource["id"] }>
@@ -63,6 +64,7 @@ export function materializeThreadsResponse(data: ThreadsResponse | undefined, me
 
 export function useThreads(channelId: string | null, requested = true): UseQueryResult<ThreadsResponse> & {
   threads: Thread[]
+  canonicalPending: boolean
 } {
   const queryClient = useQueryClient()
   const channels = useCanonicalChannelsById()
@@ -81,14 +83,27 @@ export function useThreads(channelId: string | null, requested = true): UseQuery
   return {
     ...query,
     threads,
+    canonicalPending: enabled && !!query.data?.threads.length && !query.isError
+      && (query.data.threads.some(row => !channels.has(row.id)) || messageIds.some(id => !canonicalMessages?.has(id))),
   }
 }
 
+export const forumTagsQueryFn = (channelId: string, queryClient: QueryClient) =>
+  async ({ signal }: { signal?: AbortSignal } = {}): Promise<ForumTagsSnapshot> => {
+    const token = captureCommunityLiveSnapshotToken(queryClient, channelId)
+    const data = forumTagsReadSchema.parse(await apiFetchCommunity<unknown>(
+      `/api/community/channels/${channelId}/messages/tags`, signal ? { signal } : undefined, token,
+    ))
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    return { ...data, observed: true }
+  }
+
 export function useForumTags(channelId: string | null, enabled: boolean) {
   const presented = useConversationPresentation()
+  const queryClient = useQueryClient()
   return useQuery({
     queryKey: communityKeys.forumTags(channelId ?? "__none__"),
-    queryFn: ({ client, signal }) => apiFetch<{ tags: string[] }>(`/api/community/channels/${channelId}/messages/tags`, communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal)),
+    queryFn: channelId ? forumTagsQueryFn(channelId, queryClient) : () => Promise.reject(new Error("disabled")),
     enabled: !!channelId && enabled && presented,
   })
 }
@@ -131,6 +146,6 @@ export function usePins(channelId: string | null): UseQueryResult<PinsWindowResp
   return {
     ...query,
     pins: materializeCanonicalMessages(ids.map((id) => ({ id })), canonicalMessages),
-    canonicalPending: enabled && !!query.data && !query.isError && canonicalMessages === undefined,
+    canonicalPending: enabled && ids.length > 0 && !!query.data && !query.isError && ids.some(id => !canonicalMessages?.has(id)),
   }
 }

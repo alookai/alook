@@ -37,7 +37,7 @@ it("renders a confirmed empty catalog without deriving categories from current p
   expect(view.getByTestId(tid.forumThreadCard("post"))).toBeVisible()
 })
 
-it("retries only unavailable tags and retains a complete cached catalog through errors", () => {
+it("retains a complete cached catalog and its Retry through refresh errors", () => {
   const retry = vi.fn()
   const view = render(<ForumView {...props} tagsKnown={false} tagsError onRetryTags={retry} />)
   expect(view.getByRole("button", { name: "Retry tags" })).toHaveClass("h-7", "leading-5")
@@ -46,5 +46,7 @@ it("retries only unavailable tags and retains a complete cached catalog through 
   expect(view.getByTestId(tid.forumThreadCard("post"))).toBeVisible()
   view.rerender(<ForumView {...props} tagsKnown tagsError availableTags={["cached"]} onRetryTags={retry} />)
   expect(view.getByTestId(tid.forumTagChip("cached"))).toBeVisible()
-  expect(view.queryByRole("button", { name: "Retry tags" })).toBeNull()
+  fireEvent.click(view.getByRole("button", { name: "Retry tags" }))
+  expect(retry).toHaveBeenCalledTimes(2)
+  expect(view.getByTestId(tid.forumTagChip("cached"))).toBeVisible()
 })

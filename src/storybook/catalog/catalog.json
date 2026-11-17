@@ -2428,7 +2428,8 @@
       "candidates": [
         "ForumPostCount",
         "ForumPostCounts",
-        "ForumPostCountsProvider"
+        "ForumPostCountsProvider",
+        "ForumPostCountsStatus"
       ],
       "kind": "composition",
       "examples": [

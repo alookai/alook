@@ -1,9 +1,18 @@
 import { z } from "zod"
-import { communityMessageProfileIds, type CommunityCollectionRows } from "@alook/shared"
+import { MAX_FORUM_TAG_LENGTH, communityMessageProfileIds, type CommunityCollectionRows } from "@alook/shared"
 
 const id = z.string().min(1)
 const ids = z.array(id).refine(rows => new Set(rows).size === rows.length)
 const friendsSchema = z.object({ ids })
+export const forumTagsReadSchema = z.object({ tags: z.array(z.string().min(1).max(MAX_FORUM_TAG_LENGTH)) })
+export type ForumTagsSnapshot = z.infer<typeof forumTagsReadSchema> & { observed?: boolean }
+export const forumPostCountsReadSchema = z.object({ serverId: id, counts: z.record(id, z.number().int().nonnegative()) })
+const pinsSchema = z.object({ pins: z.array(z.object({ id })) })
+  .refine(data => new Set(data.pins.map(row => row.id)).size === data.pins.length)
+const threadsSchema = z.object({
+  threads: z.array(z.object({ id, openerMessageId: id.optional() })),
+  serverId: id, parentType: z.literal("text"), parentChannelId: id,
+}).refine(data => new Set(data.threads.map(row => row.id)).size === data.threads.length)
 const forumEnvelopeSchema = z.object({ pages: z.array(z.unknown()).min(1), pageParams: z.array(z.unknown()).min(1) })
 const forumPageSchema = z.object({
   serverId: id,
@@ -22,6 +31,10 @@ export type PageListWindow =
   | { kind: "friends"; data: z.infer<typeof friendsSchema> }
   | { kind: "forum"; channelId: string; tag: string | null; data: { pages: [z.infer<typeof forumPageSchema>]; pageParams: [null] } }
   | { kind: "marked"; data: z.infer<typeof markedSchema> }
+  | { kind: "forum-tags"; channelId: string; data: ForumTagsSnapshot }
+  | { kind: "pins"; channelId: string; data: z.infer<typeof pinsSchema> }
+  | { kind: "threads"; channelId: string; data: z.infer<typeof threadsSchema> }
+  | { kind: "forum-counts"; serverId: string; data: z.infer<typeof forumPostCountsReadSchema>["counts"] }
 
 export function isPageListQueryKey(key: readonly unknown[]) {
   return key[0] === "community" && (
@@ -29,6 +42,9 @@ export function isPageListQueryKey(key: readonly unknown[]) {
     || key.length === 3 && key[1] === "inbox" && key[2] === "marked"
     || key.length === 6 && key[1] === "channel" && typeof key[2] === "string" && !!key[2]
       && key[3] === "threads" && key[4] === "feed" && (key[5] === null || typeof key[5] === "string")
+    || key.length === 4 && key[1] === "channel" && typeof key[2] === "string" && !!key[2]
+      && (key[3] === "forum-tags" || key[3] === "pins" || key[3] === "threads")
+    || key.length === 3 && key[1] === "forum-post-counts" && typeof key[2] === "string" && !!key[2]
   )
 }
 
@@ -40,6 +56,21 @@ export function readPageListWindow(key: readonly unknown[], value: unknown): Pag
   } else if (key[1] === "inbox") {
     const parsed = markedSchema.safeParse(value)
     if (parsed.success) return { kind: "marked", data: parsed.data }
+  } else if (key[1] === "forum-post-counts") {
+    const parsed = forumPostCountsReadSchema.shape.counts.safeParse(value)
+    if (parsed.success) return { kind: "forum-counts", serverId: key[2] as string, data: parsed.data }
+  } else if (key.length === 4) {
+    const channelId = key[2] as string
+    if (key[3] === "forum-tags") {
+      const parsed = forumTagsReadSchema.safeParse(value)
+      if (parsed.success) return { kind: "forum-tags", channelId, data: { ...parsed.data, observed: false } }
+    } else if (key[3] === "pins") {
+      const parsed = pinsSchema.safeParse(value)
+      if (parsed.success) return { kind: "pins", channelId, data: parsed.data }
+    } else {
+      const parsed = threadsSchema.safeParse(value)
+      if (parsed.success && parsed.data.parentChannelId === channelId) return { kind: "threads", channelId, data: parsed.data }
+    }
   } else {
     const envelope = forumEnvelopeSchema.safeParse(value)
     if (!envelope.success || envelope.data.pages.length !== envelope.data.pageParams.length || envelope.data.pageParams[0] !== null) return
@@ -53,9 +84,11 @@ type Rows = { [N in keyof PageListRows]: readonly PageListRows[N][] }
 
 function pageListRootMessageIds(window: PageListWindow, channels: readonly CommunityCollectionRows["channels"][]) {
   if (window.kind === "marked") return window.data.marked.map(row => row.m.id)
-  if (window.kind === "friends") return []
+  if (window.kind === "friends" || window.kind === "forum-tags" || window.kind === "forum-counts") return []
+  if (window.kind === "pins") return window.data.pins.map(row => row.id)
   const byId = new Map(channels.map(row => [row.id, row]))
-  return window.data.pages[0].threads.flatMap(row => [
+  const threads = window.kind === "forum" ? window.data.pages[0].threads : window.data.threads
+  return threads.flatMap(row => [
     ...(row.openerMessageId ? [row.openerMessageId] : []),
     ...(byId.get(row.id)?.firstMessageId ? [byId.get(row.id)!.firstMessageId!] : []),
   ])
@@ -85,6 +118,11 @@ export function pageListWindowComplete(window: PageListWindow, rows: Rows, retir
     const friends = new Map(rows.friendships.map(row => [row.id, row]))
     return window.data.ids.every(id => { const row = friends.get(id); return row && profiles.has(row.userId) })
   }
+  if (window.kind === "forum-tags") return channelAvailable(window.channelId) && channels.get(window.channelId)?.type === "forum"
+  if (window.kind === "forum-counts") return servers.has(window.serverId) && Object.keys(window.data).every(id => {
+    const channel = channels.get(id)
+    return channelAvailable(id) && channel?.type === "forum" && channel.serverId === window.serverId
+  })
   if (window.kind === "forum") {
     const page = window.data.pages[0], parent = channels.get(window.channelId)
     if (!channelAvailable(window.channelId) || parent?.type !== "forum" || parent.serverId !== page.serverId) return false
@@ -95,6 +133,20 @@ export function pageListWindowComplete(window: PageListWindow, rows: Rows, retir
         && opener?.channelId === parent.id && row.participantIds.every(id => profiles.has(id))
         && (!child.firstMessageId || messages.get(child.firstMessageId)?.channelId === child.id)
     })) return false
+  } else if (window.kind === "pins") {
+    const channel = channels.get(window.channelId)
+    if (!channelAvailable(window.channelId) || channel?.type !== "text" && channel?.type !== "thread"
+      || !window.data.pins.every(row => messages.get(row.id)?.channelId === window.channelId)) return false
+  } else if (window.kind === "threads") {
+    const parent = channels.get(window.channelId)
+    if (!channelAvailable(window.channelId) || parent?.type !== "text" || parent.serverId !== window.data.serverId
+      || !window.data.threads.every(row => {
+        const child = channels.get(row.id)
+        return channelAvailable(row.id) && child?.type === "thread" && child.serverId === parent.serverId
+          && child.parentChannelId === parent.id && (child.parentMessageId ?? undefined) === row.openerMessageId
+          && (!row.openerMessageId || messages.get(row.openerMessageId)?.channelId === parent.id)
+          && (!child.firstMessageId || messages.get(child.firstMessageId)?.channelId === child.id)
+      })) return false
   } else if (!window.data.marked.every(row => {
     const channel = channels.get(row.channelId)
     return channelAvailable(row.channelId) && (channel?.serverId ?? null) === row.serverId

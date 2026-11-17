@@ -9,6 +9,7 @@ import { MemberList } from "@/components/community/members/member-list"
 import { MessageAuthorLine } from "@/components/community/messages/message-author-line"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import type { MemberManageContext } from "@/components/community/members/member-management-types"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -34,8 +35,14 @@ export type CommunityPanelProps = {
   manageContext?: MemberManageContext
   pinned: Msg[]
   pinnedLoading?: boolean
+  pinnedKnown?: boolean
+  pinnedError?: boolean
+  onRetryPinned?: () => unknown
   threads: Thread[]
   threadsLoading?: boolean
+  threadsKnown?: boolean
+  threadsError?: boolean
+  onRetryThreads?: () => unknown
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
   onSetRole?: (memberId: string, role: Role) => void
@@ -85,8 +92,14 @@ function renderCommunityPanelBody({
   manageContext,
   pinned,
   pinnedLoading,
+  pinnedKnown = true,
+  pinnedError,
+  onRetryPinned,
   threads,
   threadsLoading,
+  threadsKnown = true,
+  threadsError,
+  onRetryThreads,
   onOpenThread,
   onOpenProfile,
   onSetRole,
@@ -114,12 +127,23 @@ function renderCommunityPanelBody({
     )
   }
 
+  const known = kind === "pinned" ? pinnedKnown : threadsKnown
+  const failed = kind === "pinned" ? pinnedError : threadsError
+  const retry = kind === "pinned" ? onRetryPinned : onRetryThreads
+  const resource = kind === "pinned" ? "pinned messages" : "threads"
+  const failure = failed ? (
+    <div role="alert" className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+      <span>Could not {known ? "refresh" : "load"} {resource}.</span>
+      <Button type="button" variant="ghost" size="sm" aria-label={`Retry ${resource}`} disabled={!retry} onClick={() => { void retry?.() }}>Retry</Button>
+    </div>
+  ) : null
+
   if (kind === "pinned") {
     if (pinnedLoading && pinned.length === 0) return <PinnedListSkeleton />
-    if (pinned.length === 0) {
-      return <div className="py-8 text-center text-sm text-muted-foreground">No pinned messages yet.</div>
-    }
-    return pinned.map((message) => {
+    return <>
+    {failure}
+    {pinnedKnown && pinned.length === 0 ? <div className="py-8 text-center text-sm text-muted-foreground">No pinned messages yet.</div> : null}
+    {pinned.map((message) => {
       const author = readCommunityProfile(
         message.authorId ? profilesByUserId.get(message.authorId) : undefined,
         message.authorId ?? "",
@@ -146,13 +170,15 @@ function renderCommunityPanelBody({
         </div>
       </button>
       )
-    })
+    })}
+    </>
   }
 
   if (threadsLoading && threads.length === 0) return <ThreadListSkeleton />
   return (
     <>
-      <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div>
+      {failure}
+      {threadsKnown ? <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div> : null}
       <div className="space-y-1">
         {threads.map((thread) => {
           const author = thread.parent.authorId
