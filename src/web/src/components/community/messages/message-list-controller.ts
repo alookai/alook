@@ -1,5 +1,7 @@
 "use client"
 
+import { paginationDiagnosticId, usePaginationDiagnosticSource } from "@/lib/community/message-pagination-diagnostics"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
@@ -282,7 +284,13 @@ export function useMessageListController({
     return () => onScrollRoot(null)
   }, [onScrollRoot, scrollRef])
 
+  usePaginationDiagnosticSource("controller", () => ({ scope: positionScope?.proof.channelId ?? null,
+    paginationEnabled, paginationRequestPending, initialLoadError: !!initialLoadError, neighborhood: !!messageNeighborhood,
+    readingPage: paginationDiagnosticId(messageNeighborhood?.page), older: messageNeighborhood?.older ?? null,
+    newer: messageNeighborhood?.newer ?? null, isFetching: !!isFetching, isFetchingOlder: !!isFetchingOlder,
+    isFetchingNewer: !!isFetchingNewer, olderError: !!olderLoadError, newerError: !!newerLoadError, count: items.length }))
   const retryOlder = useVirtualCursorPagination({
+    diagnosticScope: positionScope?.proof.channelId,
     virtualizer,
     count: items.length,
     enabled: paginationEnabled && !paginationRequestPending && !initialLoadError && !!messageNeighborhood,
@@ -296,6 +304,7 @@ export function useMessageListController({
     loadWhenReady: true,
   })
   const retryNewer = useVirtualCursorPagination({
+    diagnosticScope: positionScope?.proof.channelId,
     virtualizer,
     count: items.length,
     enabled: paginationEnabled && !paginationRequestPending && !initialLoadError && !!messageNeighborhood,

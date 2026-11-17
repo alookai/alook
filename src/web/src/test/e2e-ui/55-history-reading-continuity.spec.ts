@@ -1,3 +1,4 @@
+import { installPaginationDiagnostics } from "./_fixtures/message-pagination-diagnostics"
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import type { Locator, Page, Request, Response, TestInfo } from "@playwright/test"
 import { CommunityConversationEntryReadSchema, CommunityMessagesReadSchema, communityReadSchemas } from "@alook/shared"
@@ -109,6 +110,7 @@ async function returnToDmMiddle(value: ReadingCase, fast: boolean): Promise<Read
   await root.hover()
   for (let step = 0; step < 100; step++) {
     const current = await root.evaluate((element, ids) => {
+      window.__alookPaginationDiagnostics?.checkpoint(undefined, "newer-return-to-middle")
       const viewport = element.getBoundingClientRect()
       const bottom = viewport.bottom - Number((element as HTMLElement).dataset.composerOcclusion ?? 0)
       const rows = Array.from(element.querySelectorAll<HTMLElement>("[data-msg-id]"))
@@ -229,12 +231,21 @@ async function twoPages(page: Page, root: Locator, traffic: PageTraffic, directi
     await root.hover()
     for (let step = 0; step < 100; step++) {
       if (receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length >= initial + 2) break
-      const height = await root.evaluate(element => element.clientHeight)
+      const height = await root.evaluate((element, direction) => {
+        window.__alookPaginationDiagnostics?.checkpoint(undefined, `${direction}-pages`)
+        return element.clientHeight
+      }, direction)
       await page.mouse.wheel(0, (direction === "older" ? -1 : 1) * height * (fast ? 3 : 0.35))
       positions.push(await root.evaluate(element => ({ time: Date.now(), top: element.scrollTop, height: element.clientHeight, total: element.scrollHeight, admission: (element as HTMLElement).dataset.paginationEnabled })))
       await page.waitForTimeout(fast ? 8 : 32)
     }
-    await expect.poll(() => receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length).toBeGreaterThanOrEqual(initial + 2)
+    try {
+      await expect.poll(() => receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length).toBeGreaterThanOrEqual(initial + 2)
+    } finally {
+      await root.evaluate((_, direction) => {
+        window.__alookPaginationDiagnostics?.capture(undefined, "receipt-poll-final", { direction })
+      }, direction).catch(() => undefined)
+    }
     const accepted = receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).slice(initial)
     if (phase) expect(accepted.every(receipt => receipt.timing.startTime >= phase.startedAt)).toBe(true)
     expect(new Set(accepted.map(receipt => receipt.cursor)).size).toBe(accepted.length)
@@ -277,6 +288,7 @@ for (const kind of ["channel", "dm"] as const) {
         const actors = await caseActors(["alice", "bob"])
         const value = await prepare(actors, kind)
         const { page, context, path, ids, endpoint, channelId } = value
+        await installPaginationDiagnostics(page, channelId, info, actors.onCleanup)
         await page.setViewportSize(narrow ? { width: 390, height: 844 } : { width: 1280, height: 800 })
         const traffic = observePages(actors, page, endpoint)
         const { receipts } = traffic

@@ -1,3 +1,4 @@
+import { installMessagePaginationDiagnostics } from "@/test/e2e-ui/_fixtures/message-pagination-diagnostics"
 import type { MessageRequestResult } from "@/lib/community/message-position"
 import { createElement, useCallback } from "react"
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
@@ -358,5 +359,44 @@ describe("manual reading waits for the real matching row commit", () => {
       commitGate.hold = false
       h.view.unmount()
     }
+  })
+})
+
+
+describe("diagnostic observes original geometry evaluations only", () => {
+  afterEach(() => { delete window.__alookPaginationDiagnostics })
+  it("captures the real owner repeatedly without extra native or DOM geometry calls", () => {
+    installMessagePaginationDiagnostics()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: vi.fn() })
+    const observer = window.__alookPaginationDiagnostics!
+    const native = scrollFixture.latest.virtualizer
+    const items = vi.spyOn(native, "getVirtualItems"), total = vi.spyOn(native, "getTotalSize")
+    const rect = vi.spyOn(h.root, "getBoundingClientRect")
+    items.mockClear(); total.mockClear(); rect.mockClear()
+    try {
+      for (let index = 0; index < 20; index++) observer.capture(undefined, "same-owner")
+      expect(items).not.toHaveBeenCalled()
+      expect(total).not.toHaveBeenCalled()
+      expect(rect).not.toHaveBeenCalled()
+      const records = observer.packet().records as Array<{ readers: Array<Record<string, unknown>> }>
+      expect(records.at(-1)?.readers).toEqual(expect.arrayContaining([expect.objectContaining({
+        source: "scroll-owner", committedRowsLastEvaluation: expect.objectContaining({ state: "collected", value: true,
+          evaluatedAt: expect.any(Number), ownerEpoch: expect.any(Number) }),
+      })]))
+    } finally { items.mockRestore(); total.mockRestore(); rect.mockRestore(); h.view.unmount() }
+  })
+  it("marks a row check skipped by the original pending-data guard as uncollected", () => {
+    installMessagePaginationDiagnostics()
+    const h = mount({ items: Array.from({ length: 120 }, (_, index) => message(`m${index}`)), onReadingMessage: vi.fn() })
+    try {
+      h.stage({ positionDataState: "pending" })
+      fireEvent.wheel(h.root, { deltaY: -800 })
+      const observer = window.__alookPaginationDiagnostics!
+      observer.capture(undefined, "pending-guard")
+      const records = observer.packet().records as Array<{ readers: Array<Record<string, unknown>> }>
+      expect(records.at(-1)?.readers).toEqual(expect.arrayContaining([expect.objectContaining({ source: "scroll-owner",
+        readingEligibilityLastEvaluation: expect.objectContaining({ outcome: "rejected", rows: { state: "uncollected" } }),
+      })]))
+    } finally { h.view.unmount() }
   })
 })

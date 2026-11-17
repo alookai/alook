@@ -1,3 +1,4 @@
+import { paginationDiagnostic, paginationDiagnosticId, usePaginationDiagnosticSource } from "@/lib/community/message-pagination-diagnostics"
 import { beginPositionObservation, type PositionDecision, type PositionReason } from "@/lib/observability/position"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
@@ -664,6 +665,8 @@ export function useScrollAnchor({
       isScrolling: native.isScrolling,
     }
   }, [followSuspension, nativeOrigin])
+  const committedRowsDiagnosticRef = useRef<Record<string, unknown> | null>(null)
+  const readingEligibilityDiagnosticRef = useRef<Record<string, unknown> | null>(null)
   const hasCommittedRows = useCallback(() => {
     const root = scrollRef.current
     const native = virtualizerRef.current
@@ -671,7 +674,7 @@ export function useScrollAnchor({
     const layout = committed?.layout
     const rect = native?.scrollRect
     const rows = native?.getVirtualItems()
-    return !!root && !!native && committed?.native === native && committed.entry === positionEntryRef.current
+    const value = !!root && !!native && committed?.native === native && committed.entry === positionEntryRef.current
       && committed.items === currentItemsRef.current && native.scrollElement === root && root.isConnected
       && !!layout && !!rect && root.clientHeight > 0 && root.clientWidth > 0
       && rect.width === root.clientWidth && rect.height === root.clientHeight
@@ -687,13 +690,26 @@ export function useScrollAnchor({
           && row.start === current.start && row.size === current.size
           && row.end === current.end && row.lane === current.lane
       })
+    committedRowsDiagnosticRef.current = { state: "collected", value, evaluatedAt: performance.now(), timeOrigin: performance.timeOrigin,
+      ownerEpoch: positionOwnerRef.current.epoch, window: paginationDiagnosticId(contextRef.current.messageWindow),
+      native: paginationDiagnosticId(native), root: paginationDiagnosticId(root), items: paginationDiagnosticId(currentItemsRef.current) }
+    return value
   }, [])
   const readReadingMessage = useCallback((): string | null => {
     const root = scrollRef.current
     const native = virtualizerRef.current
     const context = contextRef.current
+    const beforeRows = committedRowsDiagnosticRef.current
     if (!readingMessageRef.current || !root || !native || !context.visible || !context.active
-      || context.dataState !== "ready" || positionKind.get() !== "idle" || !readReady.get() || !hasCommittedRows()) return null
+      || context.dataState !== "ready" || positionKind.get() !== "idle" || !readReady.get() || !hasCommittedRows()) {
+      readingEligibilityDiagnosticRef.current = { outcome: "rejected", evaluatedAt: performance.now(), ownerEpoch: positionOwnerRef.current.epoch,
+        rows: committedRowsDiagnosticRef.current === beforeRows ? { state: "uncollected" } : committedRowsDiagnosticRef.current }
+      paginationDiagnostic(positionScopeRef.current?.proof.channelId, "reading.body.rejected", () => ({ reason: "original-eligibility",
+        observed: readingEligibilityDiagnosticRef.current }))
+      return null
+    }
+    readingEligibilityDiagnosticRef.current = { outcome: "eligible", evaluatedAt: performance.now(), ownerEpoch: positionOwnerRef.current.epoch,
+      rows: committedRowsDiagnosticRef.current === beforeRows ? { state: "uncollected" } : committedRowsDiagnosticRef.current }
     const viewport = root.getBoundingClientRect()
     for (const row of native.getVirtualItems()) {
       const item = currentItemsRef.current[row.index]
@@ -702,8 +718,10 @@ export function useScrollAnchor({
       const rect = messageContentBounds(body ?? undefined)
       if (body?.dataset.msgId !== item.m.id || !rect || rect.height <= 0
         || Math.min(rect.bottom, viewport.bottom - context.viewportInsetEnd) - Math.max(rect.top, viewport.top) <= 1) continue
+      readingEligibilityDiagnosticRef.current = { ...readingEligibilityDiagnosticRef.current, messageId: item.m.id, bodyEvaluatedAt: performance.now() }
       return item.m.id
     }
+    paginationDiagnostic(positionScopeRef.current?.proof.channelId, "reading.body.rejected", () => ({ reason: "no-visible-body" }))
     return null
   }, [hasCommittedRows, positionKind, readReady])
   const reportReadingMessage = useCallback(() => {
@@ -722,11 +740,16 @@ export function useScrollAnchor({
       || reading.window !== context.messageWindow || reading.items !== currentItemsRef.current
       || reading.height !== root.clientHeight || reading.width !== root.clientWidth
       || reading.paddingEnd !== (native.options.paddingEnd ?? 0) || positionKind.get() !== "idle") {
+      paginationDiagnostic(positionScopeRef.current?.proof.channelId, "reading.manual.rejected", () => ({ reason: "original-manual-eligibility" }))
       userInputRef.current.reading = null
       return
     }
     if (paginationRef.current?.phase === "settling" || semanticIntentRef.current || projectionAnchorRef.current
-      || viewportCorrectionRef.current) return
+      || viewportCorrectionRef.current) {
+      paginationDiagnostic(positionScopeRef.current?.proof.channelId, "reading.manual.rejected", () => ({ reason: paginationRef.current?.phase === "settling"
+        ? "page-settling" : semanticIntentRef.current ? "semantic-intent" : projectionAnchorRef.current ? "projection-anchor" : "viewport-correction" }))
+      return
+    }
     const id = readReadingMessage()
     if (!id) return
     if (id !== reading.messageId) readingMessageRef.current?.(id)
@@ -1844,6 +1867,22 @@ export function useScrollAnchor({
     : -1
   const belowCount = root && virtualizer.isAtEnd(CONVERSATION_TAIL_SPACE_PX)
     ? 0 : computeBelowCount(items, lastVisibleIndex)
+  usePaginationDiagnosticSource("scroll-owner", () => {
+    const context = contextRef.current, owner = positionOwnerRef.current
+    const reading = userInputRef.current.reading, page = paginationRef.current
+    return { scope: positionScopeRef.current?.proof.channelId ?? null, epoch: owner.epoch, manualEpoch: owner.manualEpoch,
+      ownerActive: owner.active, active: context.active, visible: context.visible, dataState: context.dataState,
+      lastCommittedPositionKind: ownerKind, lastCommittedReadReady: readPositionReady,
+      committedRowsLastEvaluation: committedRowsDiagnosticRef.current ?? { state: "uncollected" },
+      readingEligibilityLastEvaluation: readingEligibilityDiagnosticRef.current ?? { state: "uncollected" },
+      geometry: { state: "uncollected", source: "existing scroll trace" }, domAttributes: { state: "uncollected" },
+      window: paginationDiagnosticId(context.messageWindow), items: paginationDiagnosticId(currentItemsRef.current),
+      page: page ? { direction: page.direction, phase: page.phase, receipt: !!page.receipt, result: page.receipt?.result?.status ?? null,
+        restoringBody: !!page.restoringBody } : null,
+      manualReadingInput: reading ? { pending: reading.pending, messageId: reading.messageId, epoch: reading.epoch,
+        root: paginationDiagnosticId(reading.root), window: paginationDiagnosticId(reading.window), items: paginationDiagnosticId(reading.items),
+        height: reading.height, width: reading.width, paddingEnd: reading.paddingEnd, offset: reading.offset, evaluatedAt: "uncollected" } : null }
+  })
   const paginationRequestPending = paginationDirection !== null
   return {
     scrollRef, virtualizer, onRowsLayoutCommit, readPositionReady: active && visible && dataState !== "pending" && dataState !== "error" && resumeValidated && !entryChanged && readPositionReady, paginationEnabled: active && visible && dataState !== "pending" && dataState !== "error" && !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,

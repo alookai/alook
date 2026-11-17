@@ -1,5 +1,7 @@
 "use client"
 
+import { paginationDiagnostic, paginationDiagnosticId, usePaginationDiagnosticSource } from "@/lib/community/message-pagination-diagnostics"
+
 import { useConversationPresentation } from "@/contexts/view-activity"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
@@ -184,31 +186,68 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const reading = selection.reading?.query === originalQuery ? selection.reading : null
   const messageNeighborhood = useMemo<MessageNeighborhood | undefined>(() => reading && query.data
     ? { page: reading, ...messagePageNeighbors(query.data, reading.key) } : undefined, [query.data, reading])
+  usePaginationDiagnosticSource("messages", () => {
+    const current = committed.current
+    const data = current?.query?.state.data as MessageWindowData | undefined
+    const accepted = present.get().reading
+    const index = accepted && data ? data.pageParams.findIndex(param => hashKey([param]) === accepted.key) : -1
+    const page = data?.pages[index]
+    return { scope: channelId, owner: paginationDiagnosticId(current), ownerMatches: current === owner,
+      enabled: current?.enabled ?? false, committedWindowReady: committedWindowReady.current,
+      query: paginationDiagnosticId(current?.query), window: paginationDiagnosticId(data),
+      readingQueryMatches: accepted?.query === current?.query, readingKey: accepted?.key ?? null, readingPageIndex: index,
+      readingPageHasMoreNewer: page?.hasMoreNewer ?? null, readingPageNewerCursor: page?.newerCursor ?? null,
+      firstPageHasMoreNewer: data?.pages[0]?.hasMoreNewer ?? null, firstPageNewerCursor: data?.pages[0]?.newerCursor ?? null,
+      queryHasPreviousPage: query.hasPreviousPage, queryFetchStatus: current?.query?.state.fetchStatus ?? null,
+      queryStatus: current?.query?.state.status ?? null, isFetchingPreviousPage: query.isFetchingPreviousPage,
+      pageCount: data?.pages.length ?? 0, renderWindow: paginationDiagnosticId(query.data) }
+  })
   const onReadingMessage = useCallback((messageId: string) => {
     const original = committed.current
-    if (!original?.enabled || original !== owner || !original.query || !committedWindowReady.current) return
+    if (!original?.enabled || original !== owner || !original.query || !committedWindowReady.current) {
+      paginationDiagnostic(channelId, "reading.accept.rejected", () => ({ messageId, reason: !original?.enabled ? "disabled"
+        : original !== owner ? "owner" : !original.query ? "query" : "window-not-ready" }))
+      return
+    }
     const data = original.query.state.data as MessageWindowData | undefined
-    if (!data) return
+    if (!data) { paginationDiagnostic(channelId, "reading.accept.rejected", () => ({ messageId, reason: "data" })); return }
     const current = present.get().reading
     const key = messagePageForReading(data, messageId, current?.query === original.query ? current.key : undefined)
-    if (!key || current?.query === original.query && current.key === key) return
+    if (!key || current?.query === original.query && current.key === key) {
+      paginationDiagnostic(channelId, key ? "reading.accept.unchanged" : "reading.accept.rejected", () => ({ messageId, key: key ?? null, reason: key ? "same-page" : "not-window-member" }))
+      return
+    }
     present.setState(state => ({ ...state, reading: { query: original.query!, key } }))
-  }, [owner, present])
+    paginationDiagnostic(channelId, "reading.accepted", () => ({ messageId, key }))
+  }, [channelId, owner, present])
   const fetchPage = useCallback((direction: "older" | "newer"): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) return { accepted: false }
-    if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) return { accepted: false }
+    if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) {
+      paginationDiagnostic(channelId, "fetch.rejected", () => ({ direction, reason: !channelId ? "scope" : !original?.enabled ? "disabled"
+        : !original.query ? "query" : original !== owner ? "owner" : "window-not-ready" }))
+      return { accepted: false }
+    }
+    if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) {
+      paginationDiagnostic(channelId, "fetch.rejected", () => ({ direction, reason: direction === "older"
+        ? !query.hasNextPage ? "no-cursor" : "fetching" : !query.hasPreviousPage ? "no-cursor" : "fetching" }))
+      return { accepted: false }
+    }
     const token = captureChannelMetadataToken(client, channelId)
     const isCurrent = () => committed.current === original && isChannelMetadataTokenCurrent(token)
       && client.getQueryCache().get(original.query!.queryHash) === original.query
     const fetch = async (): Promise<MessageRequestResult> => {
-      while (isCurrent() && original.query!.state.fetchStatus !== "idle") await query.refetch({ cancelRefetch: false })
+      while (isCurrent() && original.query!.state.fetchStatus !== "idle") {
+        paginationDiagnostic(channelId, "fetch.wait", () => ({ direction }))
+        await query.refetch({ cancelRefetch: false })
+      }
       if (!isCurrent()) return { status: "retired" }
+      paginationDiagnostic(channelId, "fetch.emit", () => ({ direction }))
       const result = direction === "older" ? await query.fetchNextPage({ cancelRefetch: false })
         : await query.fetchPreviousPage({ cancelRefetch: false })
       if (!isCurrent()) return { status: "retired" }
       return result.isError || !result.data ? { status: "error" } : { status: "success", window: result.data }
     }
+    paginationDiagnostic(channelId, "fetch.accepted", () => ({ direction }))
     return { accepted: true, completed: fetch().catch(() => ({ status: "error" })) }
   }, [channelId, client, owner, query])
   const fetchOlder = useCallback(() => fetchPage("older"), [fetchPage])
