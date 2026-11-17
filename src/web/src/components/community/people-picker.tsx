@@ -52,7 +52,7 @@ export function PeoplePickerHeader({
   subtitle?: string
 }) {
   return (
-    <header className="min-w-0 px-5 pt-5 pb-1 pr-12">
+    <header className="min-w-0 pt-5 pr-15 pb-1 pl-5 sm:pr-12">
       <h2
         data-slot="dialog-title"
         className="truncate font-heading text-[22px] leading-[1.2] font-bold tracking-[-0.02em]"

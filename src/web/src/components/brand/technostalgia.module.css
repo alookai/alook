@@ -438,6 +438,7 @@
 .theme {
   --tn-sticker-rim: #fffdf8;
   --tn-sticker-face: #f6efe2;
+  --tn-sticker-probe-bg: rgb(246 239 226 / 0.4%);
   --tn-sticker-sheen: linear-gradient(
     118deg,
     transparent 26%,
@@ -457,6 +458,7 @@
 :global(.dark) .theme:not([data-tn-mode="light"]) {
   --tn-sticker-rim: #2c2f38;
   --tn-sticker-face: #101114;
+  --tn-sticker-probe-bg: rgb(16 17 20 / 0.4%);
   --tn-sticker-sheen: linear-gradient(
     118deg,
     transparent 26%,
@@ -495,7 +497,7 @@
   border-width: 0;
   border-color: transparent;
   border-radius: 0;
-  background: transparent;
+  background-color: var(--tn-sticker-probe-bg);
   box-shadow: none;
   --tw-ring-shadow: 0 0 #0000;
   filter: var(--tn-sticker-shadow);
@@ -2659,11 +2661,19 @@
     font-size: 20px !important;
   }
 }
-/* The close key keeps clear of the sticker's die-cut rim. */
+/* The close key keeps clear of the sticker's die-cut rim on both 28px desktop
+ * and 44px mobile touch targets (centering the 16px X glyph 24px from top/right). */
 .theme [data-slot="dialog-content"] > [data-slot="dialog-close"],
 .theme:is([data-slot="dialog-content"]) > [data-slot="dialog-close"] {
   top: 18px !important;
   right: 18px !important;
+}
+@media (max-width: 39.99rem) {
+  .theme [data-slot="dialog-content"] > [data-slot="dialog-close"],
+  .theme:is([data-slot="dialog-content"]) > [data-slot="dialog-close"] {
+    top: 10px !important;
+    right: 10px !important;
+  }
 }
 
 /* #24 Dialogs that pad their own rows (the create/edit shell and people

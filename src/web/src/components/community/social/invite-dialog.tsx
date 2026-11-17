@@ -55,23 +55,17 @@ export function InviteFriendRow({
         ringColor="var(--tn-sticker-face, var(--popover))"
       />
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className="truncate text-[15px] font-semibold tracking-[-0.01em]">{friend.name}</span>
+        <div className="truncate text-[15px] font-semibold tracking-[-0.01em]">{friend.name}</div>
+        <div className="truncate text-xs text-muted-foreground">
           {friend.discriminator ? (
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">
-              #{friend.discriminator}
-            </span>
+            <span className="font-mono">#{friend.discriminator} · </span>
           ) : null}
+          {hasStatus(friend.statusEmoji, friend.statusText) ? (
+            `${friend.statusEmoji} ${friend.statusText}`
+          ) : (
+            <span className="capitalize">{friend.status}</span>
+          )}
         </div>
-        {hasStatus(friend.statusEmoji, friend.statusText) ? (
-          <div className="truncate text-xs text-muted-foreground">
-            {friend.statusEmoji} {friend.statusText}
-          </div>
-        ) : (
-          <div className="truncate text-xs capitalize text-muted-foreground">
-            {friend.status}
-          </div>
-        )}
       </div>
       <Button
         size="sm"
