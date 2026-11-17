@@ -33,9 +33,14 @@ function mergeHistoryBoundary(cache: MessageCache, refreshed: MessagesPage): Mes
   const boundary = cache.pages.at(-1)
   if (!boundary || (boundary.hasMoreOlder ?? boundary.hasMore) === false || (refreshed.hasMoreOlder ?? refreshed.hasMore) !== false) return cache
   const references = cache.pages.flatMap(page => page.messages)
-  if (!references.length || references.some(message => !Number.isSafeInteger(message.seq))) return cache
-  const oldest = references.reduce((first, message) => message.seq! < first.seq! ? message : first)
-  if (!refreshed.messages.some(message => message.id === oldest.id && message.seq === oldest.seq)) return cache
+  if (!references.length) {
+    if (refreshed.hasMoreNewer !== false || !Number.isSafeInteger(refreshed.latestSeq)
+      || (refreshed.latestSeq ?? -1) < latest(cache)) return cache
+  } else {
+    if (references.some(message => !Number.isSafeInteger(message.seq))) return cache
+    const oldest = references.reduce((first, message) => message.seq! < first.seq! ? message : first)
+    if (!refreshed.messages.some(message => message.id === oldest.id && message.seq === oldest.seq)) return cache
+  }
   const olderCursor = refreshed.olderCursor ?? refreshed.cursor
   return { ...cache, pages: cache.pages.map((page, index) => index === cache.pages.length - 1
     ? { ...page, hasMoreOlder: false, olderCursor, cursor: undefined } : page) }

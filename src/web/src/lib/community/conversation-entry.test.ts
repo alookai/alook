@@ -186,6 +186,23 @@ describe("conversation entry canonical publication", () => {
     expect(registry.collections.messages.has("m2")).toBe(!fail)
   })
 
+  it.each(["missing-body", "mismatched-params"] as const)("does not repair the fresh entry selected over a %s window before its reader requests pages", async defect => {
+    const { client } = await createCommunityQueryOwner()
+    const previous = await publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const retained = client.getQueryData<MessageWindowData>(previous.windowKey)!
+    client.setQueryData(previous.windowKey, defect === "missing-body"
+      ? { ...retained, pages: retained.pages.map(page => ({ ...page, messages: [{ id: "not-a-cached-member", seq: 2 }] })) }
+      : { ...retained, pageParams: [] })
+    const fresh = entry()
+    fresh.page = { ...fresh.page, latestSeq: 2, hasMoreNewer: true, newerCursor: "next" }
+    load.mockImplementation((url: string) => url.includes("entry=1") ? Promise.resolve(fresh) : Promise.reject(new Error("Fresh landing must wait for its reader")))
+    const resource = await client.query({ ...conversationEntryOptions(client, target), retry: false })
+    await client.getQueryCache().find({ queryKey: [...resource.windowKey, "reconcile"], exact: true })?.promise
+    expect(load).toHaveBeenCalledOnce()
+    expect(client.getQueryData<MessageWindowData>(resource.windowKey)?.pages[0].messages.map(message => message.id)).toEqual(["m1"])
+    expect(client.getQueryData<MessageWindowData>(resource.windowKey)?.pageParams).toEqual([{ mode: "newest" }])
+  })
+
   it("keeps one failed DM verification attempt local until an explicit retry", async () => {
     const { client } = await createCommunityQueryOwner()
     const temporary = new ApiError("temporary", 503)
@@ -343,6 +360,23 @@ describe("conversation entry canonical publication", () => {
     client.setQueryData(key, previous)
     await publishConversationEntry(client, target, entry(), { token: captureCommunityLiveSnapshotToken(client, "c1") })
     expect(client.getQueryData(key)).toBe(previous)
+  })
+
+  it.each([true, false])("preserves an explicit window when cached target coverage=%s has no new member proof to apply", async covered => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const value = entry()
+    value.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
+    const selected = { ...target, anchorMessageId: "m1" }
+    const resource = await publishConversationEntry(client, selected, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const other = { ...value.messages[0], id: "m2", seq: 2 }
+    await writeCommunityCollectionRows(registry, "messages", [...registry.collections.messages.values(), other], row => row.id)
+    const previous: MessageWindowData = {
+      pages: [{ messages: [{ id: covered ? "m1" : "m2", seq: covered ? 1 : 2 }], hasMoreOlder: true, olderCursor: "history" }],
+      pageParams: [{ mode: "newer", cursor: "retained-page" }],
+    }
+    const retained = client.setQueryData(resource.windowKey, previous)
+    await publishConversationEntry(client, selected, { ...value, messages: covered ? value.messages : [] }, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    expect(client.getQueryData(resource.windowKey)).toBe(retained)
   })
 
   it("keeps an explicit missing anchor local to its window and does not retire readable history", async () => {

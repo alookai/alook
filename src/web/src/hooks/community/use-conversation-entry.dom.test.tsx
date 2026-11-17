@@ -1,3 +1,12 @@
+import "fake-indexeddb/auto"
+import { MessageList } from "@/components/community/messages/message-list"
+import { persistQueryClientRestore } from "@tanstack/react-query-persist-client"
+import { createCommunityRestorePersister, createIdbPersister, clearPersistedCache, PERSIST_MAX_AGE_MS, shouldDehydrateCommunityQuery } from "@/lib/query-persister"
+import { discardCommunityRestoreReplacements, restoreCommunityCollections, publishCommunityForumFeed } from "@/lib/community-db/sync"
+import { channelResourceFixture, messageResourceFixture, forumFeedScenarioFixture } from "@/test/community-resource-fixtures"
+import { forumFeedWindow, normalizeThreadResources } from "@/lib/community/forum-feed-window"
+import { CommunityChannelResourceSchema, CommunityResourceProfileSchema } from "@alook/shared"
+import { conversationEntryFromChannel, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { resourceBundleFixture, fullResourceBundleFixture, serverResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
@@ -1491,5 +1500,101 @@ describe("native entry freshness with authoritative newer attention", () => {
     })
     expect(client.getQueryData(original.windowKey)).toBe(before)
     expect(registry.collections.messages.has("m2")).toBe(false)
+  })
+})
+
+describe("first body frame after actual disk save and a fresh owner", () => {
+  it.each(["preview-only", "single", "empty", "complete"] as const)("keeps %s membership through a held entry, failure and reconciliation", async kind => {
+    const account = `body-frame-${crypto.randomUUID()}`
+    const source = await createCommunityQueryOwner(account)
+    const forum = channelResourceFixture({ id: "forum", serverId: "s1", type: "forum", creatorId: account })
+    const post = channelResourceFixture({ id: "post", serverId: "s1", type: "thread", parentChannelId: "forum", parentMessageId: "title", creatorId: account })
+    const title = messageResourceFixture({ id: "title", channelId: "forum", authorId: "peer", content: "Saved title" })
+    const body = messageResourceFixture({ id: "preview-body", channelId: "post", authorId: "peer", content: "Saved preview body" })
+    await publishCommunityResourceBundle(source.client, fullResourceBundleFixture(account,
+      [serverResourceFixture({ id: "s1", ownerId: account })], [forum, post], [title, body], [profileResourceFixture({ id: account }), profileResourceFixture({ id: "peer" })]), { token: captureCommunityLiveSnapshotToken(source.client) })
+    const forumKey = communityKeys.forumFeed("forum", null)
+    const page = normalizeThreadResources("forum", forumFeedScenarioFixture("forum", { serverId: "s1", parentType: "forum", hasMore: false,
+      threads: [{ id: "post", creatorId: account, parentMessageId: "title" }], included: { parentMessages: [title], firstMessages: [body] } }))
+    await publishCommunityForumFeed(source.client, "forum", page, { token: captureCommunityLiveSnapshotToken(source.client) })
+    source.client.setQueryData(forumKey, { pages: [forumFeedWindow(page)], pageParams: [null] })
+    const packet = conversationEntryFromChannel(CommunityChannelResourceSchema.strip().parse(source.registry.collections.channels.get("post")), account)
+    packet.profiles = [...source.registry.collections.profiles.values()].map(row => CommunityResourceProfileSchema.strip().parse(row))
+    const count = kind === "empty" ? 0 : kind === "single" ? 1 : 3
+    packet.messages = Array.from({ length: count }, (_, i) => messageResourceFixture({ id: `actual-${i + 1}`, channelId: "post", authorId: "peer", seq: i + 2, content: `Actual body ${i + 1}` }))
+    packet.page.latestSeq = count ? count + 1 : 0
+    packet.channel.messageCount = count
+    if (kind !== "preview-only") await seedConversationEntry(source.client, packet)
+    const writer = createIdbPersister(account), reader = createIdbPersister(account)
+    let view: ReturnType<typeof render> | undefined
+    let installed = false
+    try {
+      await writer.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(source.client, { shouldDehydrateQuery: shouldDehydrateCommunityQuery }) })
+      writer.stopPersisting()
+      await source.registry.cleanup()
+      source.client.clear()
+      const next = await createCommunityQueryOwner(account)
+      const restore = createCommunityRestorePersister(reader, account)
+      await persistQueryClientRestore({ queryClient: next.client, persister: restore.persister, buster: PERSIST_BUSTER, maxAge: PERSIST_MAX_AGE_MS })
+      const input = restore.takeCollections()
+      await restoreCommunityCollections(next.registry, input)
+      next.registry.captureRestoredCollections(input)
+      next.registry.runtime.ws.actions.activateProfileAccount(account)
+      discardCommunityRestoreReplacements(next.registry)
+      restoreConversationDisplayWindows(next.registry, input)
+      expect(next.registry.collections.messages.get("preview-body")?.content).toBe("Saved preview body")
+      expect(next.client.getQueryData(forumKey)).toBeDefined()
+      expect(next.registry).not.toBe(source.registry)
+      const held = deferred<typeof packet>()
+      load.mockImplementation((_url, options?: { signal?: AbortSignal }) => { options?.signal?.addEventListener("abort", () => held.reject(new DOMException("Aborted", "AbortError")), { once: true }); return held.promise })
+      let feed!: ReturnType<typeof useMessages>
+      function Body() {
+        feed = useMessages("post", { serverId: "s1" })
+        return <MessageList channel="Post" variant="channel" messages={feed.messages} loading={feed.isLoading}
+          initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError} initialScrollReady={feed.initialDisplayReady}
+          preserveInitialPresentation={feed.preserveInitialPresentation} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+          positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+          messageNeighborhood={feed.messageNeighborhood} onReadingMessage={feed.onReadingMessage} latestSeq={feed.latestSeq}
+          hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer} historyStartKnown={feed.historyStartKnown} onUserTakeover={feed.onUserTakeover}
+          onRetryInitialLoad={feed.retryInitialLoad} retryingInitialLoad={feed.retryingInitialLoad} onOpenThread={() => {}} />
+      }
+      installMessageScrollFixture(); installed = true
+      view = render(<QueryClientProvider client={next.client}><CommunityDbProvider registry={next.registry}><Body /></CommunityDbProvider></QueryClientProvider>)
+      resize()
+      expect(load).toHaveBeenCalled()
+      const expected = kind === "preview-only" ? [] : packet.messages.map(row => row.id)
+      expect(feed.messages.map(row => row.id)).toEqual(expected)
+      expect(view.container.querySelector('[data-msg-id="preview-body"]')).toBeNull()
+      if (kind === "preview-only") expect(view.container.querySelector("[data-message-list-skeleton]")).toBeVisible()
+      else {
+        expect(view.container.querySelector("[data-message-list-content]")).toHaveAttribute("data-initial-position-phase", "revealed")
+        expect(view.getByTestId("community-message-scroller")).toHaveAttribute("aria-busy", "false")
+      }
+      for (const id of expected) expect(view.container.querySelector(`[data-msg-id="${id}"]`)).not.toBeNull()
+      expect(feed.readSnapshotFetching).toBe(true)
+      expect(feed.initialPositionKnown).toBe(false)
+      await act(async () => { held.reject(new Error("Entry unavailable")); await vi.advanceTimersByTimeAsync(2000) })
+      resize()
+      expect(feed.messages.map(row => row.id)).toEqual(expected)
+      expect(view.container.querySelector('[data-msg-id="preview-body"]')).toBeNull()
+      if (kind === "preview-only") expect(view.getByRole("button", { name: "Retry" })).toBeVisible()
+      else expect(view.getByTestId("community-message-scroller")).toHaveAttribute("aria-busy", "false")
+      load.mockImplementation(() => Promise.resolve(packet))
+      await act(async () => { feed.retryInitialLoad(); await vi.advanceTimersByTimeAsync(0) })
+      resize()
+      expect(feed.messages.map(row => row.id)).toEqual(packet.messages.map(row => row.id))
+      expect(view.getByTestId("community-message-scroller")).toHaveAttribute("aria-busy", "false")
+      for (const id of packet.messages.map(row => row.id)) expect(view.container.querySelector(`[data-msg-id="${id}"]`)).not.toBeNull()
+      if (kind === "empty") {
+        await act(async () => { await vi.waitFor(() => expect(feed.historyStartKnown).toBe(true)) })
+        resize()
+        expect(view.getByRole("heading", { name: /^Post$/ })).toBeVisible()
+      }
+    } finally {
+      view?.unmount()
+      if (installed) restoreMessageScrollFixture()
+      writer.stopPersisting(); reader.stopPersisting()
+      await clearPersistedCache(account)
+    }
   })
 })

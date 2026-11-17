@@ -500,7 +500,7 @@ export async function restoreCommunityCollections(registry: CommunityDbRegistry,
     completions.push(writeCommunityCollectionRows(registry, name, [...next.values()], getKey, { updatedAt: state && state.dataUpdatedAt > 0 ? state.dataUpdatedAt : restored.updatedAt }))
   }
   notifyManager.batch(() => {
-    for (const name of Object.keys(input) as CollectionName[]) merge(name)
+    for (const name of Object.keys(registry.collections) as CollectionName[]) merge(name)
   })
   await Promise.all(completions)
   assertCommunitySnapshotTokenCurrent(client, token, undefined)

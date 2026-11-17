@@ -1,9 +1,13 @@
+import { CommunityChannelResourceSchema, CommunityResourceProfileSchema } from "@alook/shared"
+import { conversationEntryFromChannel, seedConversationEntry } from "@/test/conversation-entry-fixtures"
+import { messageWindowPage } from "@/lib/community/models/message"
+import { messageWindowOptions, type MessageWindowData } from "@/lib/community/message-window"
 import "fake-indexeddb/auto"
-import { afterEach, describe, expect, it } from "vitest"
-import { dehydrate, QueryClient } from "@tanstack/react-query"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { dehydrate, InfiniteQueryObserver, QueryClient } from "@tanstack/react-query"
 import { persistQueryClientRestore } from "@tanstack/react-query-persist-client"
 import { get } from "idb-keyval"
-import { channelResourceFixture, forumFeedScenarioFixture, fullResourceBundleFixture, messageResourceFixture, profileResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
+import { channelResourceFixture, forumFeedScenarioFixture, fullResourceBundleFixture, messageReadPageFixture, messageResourceFixture, profileResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, discardCommunityRestoreReplacements, publishCommunityForumFeed, publishCommunityFriendships, publishCommunityResourceBundle, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
@@ -14,6 +18,10 @@ import { communityKeys } from "./query-keys"
 import { cacheStore } from "./query-cache-store"
 import { blobKeyFor } from "./persisted-account-identity"
 import { clearPersistedCache, createCommunityRestorePersister, createIdbPersister, PERSIST_BUSTER, PERSIST_MAX_AGE_MS, shouldDehydrateCommunityQuery } from "./query-persister"
+import { conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationScope } from "./community/conversation-entry"
+
+const load = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
 
 const owners = new Set<CommunityDbRegistry>()
 const accounts = new Set<string>()
@@ -21,6 +29,7 @@ const persisters: ReturnType<typeof createIdbPersister>[] = []
 const keys = [communityKeys.forumFeed("forum", null), communityKeys.friends(), communityKeys.inboxMarked()]
 
 afterEach(async () => {
+  load.mockReset()
   for (const persister of persisters) persister.stopPersisting()
   persisters.length = 0
   for (const owner of owners) { await owner.cleanup(); owner.queryClient.clear() }
@@ -89,6 +98,8 @@ async function saveAndRestore(source: Awaited<ReturnType<typeof seed>>) {
   const restore = createCommunityRestorePersister(reader, source.account)
   await persistQueryClientRestore({ queryClient: client, persister: restore.persister, buster: PERSIST_BUSTER, maxAge: PERSIST_MAX_AGE_MS })
   const input = restore.takeCollections()
+  for (const window of input.messageWindows ?? []) expect(client.getQueryData(window.key)).toBeUndefined()
+  for (const window of input.messageWindows ?? []) expect(client.getQueryData(window.key)).toBeUndefined()
   try { await restoreCommunityCollections(registry, input); registry.captureRestoredCollections(input); registry.runtime.ws.actions.activateProfileAccount(source.account) }
   finally { discardCommunityRestoreReplacements(registry); release() }
   await registry.preload()
@@ -263,5 +274,174 @@ describe("page lists through actual IDB and new canonical owners", () => {
     expect(next.registry.collections.messages.get("opener")?.content).toBe("Saved title")
     expect(next.registry.collections.messages.get("body")?.content).toBe("Saved first body")
     expect(next.registry.collections.messages.get("marked")?.content).toBe("Saved marked body")
+    expect(next.client.getQueryData(communityKeys.channelMessages("post"))).toBeUndefined()
   })
+})
+
+async function seedBodyWindow(owner: Awaited<ReturnType<typeof seed>>, count = 3) {
+  const packet = conversationEntryFromChannel(CommunityChannelResourceSchema.strip().parse(owner.registry.collections.channels.get("post")), owner.account)
+  packet.messages = Array.from({ length: count }, (_, index) => messageResourceFixture({ id: `read-${index + 1}`, channelId: "post", seq: index + 101,
+    authorId: "peer", content: `Actual read ${index + 1}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, index)).toISOString() }))
+  packet.profiles = [...owner.registry.collections.profiles.values()].map(row => CommunityResourceProfileSchema.strip().parse(row))
+  packet.channel.messageCount = count
+  packet.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: count ? 100 + count : 0 }
+  await seedConversationEntry(owner.client, packet)
+  return { key: communityKeys.channelMessages("post"), packet }
+}
+
+describe("actual body membership through IDB and new canonical owners", () => {
+  it("restores an explicit target after real newer pagination and bounded IDB replace its initial anchor page", async () => {
+    const owner = await seed(), { key, packet } = await seedBodyWindow(owner, 126)
+    const rows = packet.messages
+    const anchor = "read-50"
+    const target = { channelId: "post", serverId: "server", anchorMessageId: anchor }
+    const cursor = (seq: number) => `${rows[seq - 101].createdAt}|read-${seq - 100}`
+    const entry = { ...packet, messages: rows.filter(row => row.seq! >= 126 && row.seq! <= 176),
+      selection: { reason: "explicit_anchor" as const, anchorMessageId: anchor },
+      page: { olderCursor: cursor(125), newerCursor: cursor(175), hasMoreOlder: true, hasMoreNewer: true, latestSeq: 300 } }
+    owner.client.removeQueries({ queryKey: key, exact: true })
+    const seeded = await seedConversationEntry(owner.client, entry, target)
+    const newer = messageReadPageFixture({ messages: rows.filter(row => row.seq! >= 177), olderCursor: cursor(176),
+      newerCursor: cursor(225), hasMoreOlder: true, hasMoreNewer: true, latestSeq: 300 })
+    load.mockResolvedValueOnce(newer)
+    const observer = new InfiniteQueryObserver(owner.client, {
+      ...messageWindowOptions(owner.client, "post", { mode: "anchor", anchor }), enabled: false,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    try { await observer.fetchPreviousPage() } finally { unsubscribe() }
+    expect(load.mock.calls[0][0]).toBe(`/api/community/channels/post/messages?since=${encodeURIComponent(cursor(175))}`)
+    const paginated = owner.client.getQueryData<MessageWindowData>(seeded.resource.windowKey)!
+    expect(paginated.pages[0].messages.map(row => row.id)).not.toContain(anchor)
+    expect(paginated.pages[1].messages.map(row => row.id)).toContain(anchor)
+    expect(paginated.pageParams).toEqual([{ mode: "newer", cursor: cursor(175) }, { mode: "anchor", anchor }])
+
+    const next = await saveAndRestore(owner)
+    const restored = next.client.getQueryData<MessageWindowData>(seeded.resource.windowKey)!
+    expect(restored.pages).toHaveLength(1)
+    expect(restored.pages[0].messages.map(row => row.seq)).toEqual(Array.from({ length: 50 }, (_, index) => index + 177))
+    expect(restored.pageParams).toEqual([{ mode: "newer", cursor: cursor(175) }])
+    const scope = getQualifiedConversationScope(next.client, target)!
+    expect(findConversationDisplayWindow(next.client, target, scope)?.key).toEqual(seeded.resource.windowKey)
+    expect(findConversationEntryWindow(next.client, target, scope, currentConversationReadState(next.client, "post"))).toBeUndefined()
+
+    let release!: (value: typeof entry) => void
+    const held = new Promise<typeof entry>(resolve => { release = resolve })
+    load.mockReset()
+    load.mockImplementation((url: string) => {
+      const query = new URL(url, "https://alook.local").searchParams
+      if (query.has("entry")) return held
+      if (query.get("since") === cursor(175)) return Promise.resolve(newer)
+      if (query.get("since") === cursor(226)) return Promise.resolve(messageReadPageFixture({
+        messages: Array.from({ length: 50 }, (_, index) => messageResourceFixture({ id: `read-${index + 127}`, channelId: "post", seq: index + 227,
+          authorId: "peer", createdAt: new Date(Date.UTC(2026, 9, 1, 0, index + 126)).toISOString() })),
+        hasMoreOlder: true, hasMoreNewer: true, newerCursor: "after-276", latestSeq: 300,
+      }))
+      throw new Error(`Unexpected target repair read: ${url}`)
+    })
+    const received = next.client.query({ ...conversationEntryOptions(next.client, target), retry: false })
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce())
+    expect(next.client.getQueryData(seeded.resource.windowKey)).toBe(restored)
+    expect(findConversationDisplayWindow(next.client, target, scope)?.key).toEqual(seeded.resource.windowKey)
+    release(entry)
+    const resource = await received
+    await next.client.getQueryCache().find({ queryKey: [...resource.windowKey, "reconcile"], exact: true })?.promise
+    expect(next.registry.collections.messages.has(anchor)).toBe(true)
+    expect(next.client.getQueryData<MessageWindowData>(resource.windowKey)?.pages.flatMap(page => page.messages.map(row => row.id))).toContain(anchor)
+    expect(findConversationEntryWindow(next.client, target, resource, currentConversationReadState(next.client, "post"))?.key).toEqual(resource.windowKey)
+    expect(load.mock.calls.filter(([url]) => !new URL(url, "https://alook.local").searchParams.has("entry"))).toEqual([])
+  })
+
+  it.each([0, 1, 3, 80].flatMap(count => [false, true].map(failed => ({ count, failed }))))("keeps $count actual members apart from preview/extra entities after refresh failed=$failed", async ({ count, failed }) => {
+    const owner = await seed(), { key, packet } = await seedBodyWindow(owner, count)
+    const extra = messageResourceFixture({ id: "scatter", channelId: "post", seq: 9999, authorId: "peer", content: "Not a read-window member" })
+    await writeCommunityCollectionRows(owner.registry, "messages", [...owner.registry.collections.messages.values(), extra], row => row.id)
+    const updatedAt = owner.client.getQueryState(key)!.dataUpdatedAt
+    if (failed) await owner.client.query({ queryKey: key, staleTime: 0, retry: false, queryFn: async () => { throw new Error("Body refresh unavailable") } }).catch(() => undefined)
+    const next = await saveAndRestore(owner)
+    const expected = packet.messages.slice(-50).map(row => row.id)
+    expect(next.client.getQueryData<MessageWindowData>(key)?.pages.flatMap(page => page.messages.map(row => row.id))).toEqual(expected)
+    expect(next.client.getQueryData<MessageWindowData>(key)?.pageParams).toEqual([{ mode: "newest" }])
+    expect(next.client.getQueryState(key)?.dataUpdatedAt).toBe(updatedAt)
+    expect(next.registry.collections.messages.get("body")?.content).toBe("Saved first body")
+    const disk = JSON.parse((await get<string>(blobKeyFor(owner.account), cacheStore))!)
+    const saved = disk.clientState.queries.find((query: { queryKey: unknown[] }) => JSON.stringify(query.queryKey) === JSON.stringify(key))
+    expect(saved.state.data.pages.flatMap((page: { messages: unknown[] }) => page.messages)).toEqual(packet.messages.slice(-50).map(({ id, seq }) => ({ id, seq })))
+    if (count > 50) expect(saved.state.data.pages[0]).toMatchObject({ hasMoreOlder: true, olderCursor: `${packet.messages[30].createdAt}|read-31` })
+    else expect(saved.state.data.pages[0]).toMatchObject({ hasMoreOlder: false, hasMoreNewer: false })
+    const third = await saveAndRestore(next)
+    expect(third.client.getQueryData<MessageWindowData>(key)?.pages.flatMap(page => page.messages.map(row => row.id))).toEqual(expected)
+    expect(third.client.getQueryData(keys[0])).toBeDefined()
+  })
+
+  it.each(["missing-member", "wrong-scope", "duplicate", "missing-profile", "missing-access", "missing-parent", "page-param", "initial-error"])("rejects %s without assembling the remaining preview into a body window", async invalid => {
+    const owner = await seed(), { key } = await seedBodyWindow(owner)
+    const data = structuredClone(owner.client.getQueryData<MessageWindowData>(key)!)
+    if (invalid === "missing-member") await writeCommunityCollectionRows(owner.registry, "messages", [...owner.registry.collections.messages.values()].filter(row => row.id !== "read-2"), row => row.id)
+    if (invalid === "wrong-scope") data.pages[0].messages[1] = { id: "marked" }
+    if (invalid === "duplicate") data.pages[0].messages[1] = { ...data.pages[0].messages[0] }
+    if (invalid === "missing-profile") await writeCommunityCollectionRows(owner.registry, "profiles", [], row => row.id)
+    if (invalid === "missing-access") await writeCommunityCollectionRows(owner.registry, "channelMemberships", [...owner.registry.collections.channelMemberships.values()].filter(row => row.channelId !== "post"), row => row.id)
+    if (invalid === "missing-parent") await writeCommunityCollectionRows(owner.registry, "channels", [...owner.registry.collections.channels.values()].filter(row => row.id !== "forum"), row => row.id)
+    if (invalid === "page-param") data.pageParams = []
+    owner.client.setQueryData(key, data)
+    if (invalid === "initial-error") {
+      owner.client.removeQueries({ queryKey: key, exact: true })
+      await owner.client.query({ queryKey: key, retry: false, queryFn: async () => { throw new Error("No successful read") } }).catch(() => undefined)
+    }
+    const next = await saveAndRestore(owner)
+    expect(next.client.getQueryData(key)).toBeUndefined()
+  })
+
+  it("retains the actual anchor key and page parameter without borrowing preview membership", async () => {
+    const owner = await seed(), { key, packet } = await seedBodyWindow(owner)
+    owner.client.removeQueries({ queryKey: key })
+    const anchorKey = communityKeys.channelMessagesWindow("post", { mode: "anchor", anchor: "read-2" }, "tag")
+    owner.client.setQueryData(anchorKey, { pages: [messageWindowPage({ ...packet.page, olderCursor: "before", newerCursor: "after", hasMoreOlder: true, hasMoreNewer: true, messages: packet.messages })], pageParams: [{ mode: "anchor", anchor: "read-2" }] })
+    const next = await saveAndRestore(owner)
+    expect(next.client.getQueryData(key)).toBeUndefined()
+    expect(next.client.getQueryData<MessageWindowData>(anchorKey)?.pages[0]).toMatchObject({ messages: [{ id: "read-1" }, { id: "read-2" }, { id: "read-3" }], olderCursor: "before", newerCursor: "after" })
+    expect(next.client.getQueryData<MessageWindowData>(anchorKey)?.pageParams).toEqual([{ mode: "anchor", anchor: "read-2" }])
+  })
+
+  it.each(["post", "forum"])("fences a late saved body after durable %s retirement", async id => {
+    const owner = await seed(), { key } = await seedBodyWindow(owner)
+    const writer = createIdbPersister(owner.account), current = createIdbPersister(owner.account)
+    persisters.push(writer, current)
+    const snapshot = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(owner.client, { shouldDehydrateQuery: shouldDehydrateCommunityQuery }) }
+    await writer.persistClient(snapshot)
+    await current.retireChannels([id], true)
+    await writer.persistClient(snapshot)
+    const saved = await current.restoreClient()
+    expect(saved?.clientState.queries.some(query => JSON.stringify(query.queryKey) === JSON.stringify(key))).toBe(false)
+  })
+})
+
+it("retains twenty actual conversation scopes while preview dependencies remain separate", async () => {
+  const owner = await seed()
+  const channels = Array.from({ length: 21 }, (_, i) => channelResourceFixture({ id: `scope-${i}`, type: "dm", serverId: null, creatorId: owner.account }))
+  const messages = channels.map((channel, i) => messageResourceFixture({ id: `scope-message-${i}`, channelId: channel.id, seq: 1, authorId: "peer" }))
+  await publishCommunityResourceBundle(owner.client, fullResourceBundleFixture(owner.account, [], channels, messages,
+    [profileResourceFixture({ id: owner.account }), profileResourceFixture({ id: "peer" })]), { token: captureCommunityLiveSnapshotToken(owner.client) })
+  const now = Date.now()
+  channels.forEach((channel, i) => owner.client.setQueryData(communityKeys.channelMessages(channel.id), {
+    pages: [messageWindowPage({ messages: [messages[i]], hasMoreOlder: false, hasMoreNewer: false, latestSeq: 1 })], pageParams: [{ mode: "newest" }],
+  }, { updatedAt: now + i + 1 }))
+  const next = await saveAndRestore(owner)
+  expect(next.client.getQueryData(communityKeys.channelMessages("scope-0"))).toBeUndefined()
+  for (let i = 1; i <= 20; i++) expect(next.client.getQueryData<MessageWindowData>(communityKeys.channelMessages(`scope-${i}`))?.pages[0].messages.map(row => row.id)).toEqual([`scope-message-${i}`])
+  expect(next.registry.collections.messages.get("body")?.content).toBe("Saved first body")
+  expect(next.client.getQueryData(communityKeys.channelMessages("post"))).toBeUndefined()
+  expect(next.client.getQueryData(keys[0])).toBeDefined()
+})
+
+it("does not restore an actual reconnect delta as a display window", async () => {
+  const owner = await seed(), { key } = await seedBodyWindow(owner)
+  const data = owner.client.getQueryData(key)
+  owner.client.removeQueries({ queryKey: key })
+  const deltaKey = communityKeys.channelMessagesWindow("post", { mode: "since", since: "cursor" })
+  owner.client.setQueryData(deltaKey, data)
+  const next = await saveAndRestore(owner)
+  expect(next.client.getQueryData(key)).toBeUndefined()
+  expect(next.client.getQueryData(deltaKey)).toBeUndefined()
+  expect(next.registry.collections.messages.get("body")?.content).toBe("Saved first body")
 })
