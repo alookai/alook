@@ -6,7 +6,7 @@ import styles from "./landing-page.module.css"
 
 /** One cut-paper piece. It can be picked up and dropped anywhere, like paper
  * on a desk (Gus #2439): it lifts while held and stays where it lands. */
-function Piece({ className, children }: { className: string; children: ReactNode }) {
+export function CollagePiece({ className, children }: { className: string; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: number; x: number; y: number; dx: number; dy: number } | null>(null)
   const offset = useRef({ x: 0, y: 0 })
@@ -46,10 +46,10 @@ function Piece({ className, children }: { className: string; children: ReactNode
 export function LandingClosingCollage() {
   return (
     <div className={styles.closingCollage} aria-hidden="true">
-      <Piece className={styles.collageMac}><Mac className={styles.collageItem} label="Alook" labelFont="var(--font-brand)" /></Piece>
-      <Piece className={styles.collageCd}><CdPlayer className={styles.collageItem} /></Piece>
-      <Piece className={styles.collageCassette}><Cassette className={styles.collageItem} /></Piece>
-      <Piece className={styles.collagePhone}><FlipPhone className={styles.collageItem} /></Piece>
+      <CollagePiece className={styles.collageMac}><Mac className={styles.collageItem} label="Alook" labelFont="var(--font-brand)" /></CollagePiece>
+      <CollagePiece className={styles.collageCd}><CdPlayer className={styles.collageItem} /></CollagePiece>
+      <CollagePiece className={styles.collageCassette}><Cassette className={styles.collageItem} /></CollagePiece>
+      <CollagePiece className={styles.collagePhone}><FlipPhone className={styles.collageItem} /></CollagePiece>
     </div>
   )
 }

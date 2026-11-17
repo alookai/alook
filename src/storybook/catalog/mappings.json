@@ -4183,5 +4183,15 @@
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/home/landing-use-cases.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-public-pages--home",
+        "region": "Original current homepage; scroll to the use cases section right below the hero and switch its tabs"
+      }
+    ],
+    "reason": "Landing use cases are a homepage section composed from shared tabs, button and the closing collage piece; the homepage story shows the real section."
   }
 }
