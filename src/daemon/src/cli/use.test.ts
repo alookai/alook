@@ -44,13 +44,13 @@ describe("use automation CLI", () => {
     expect(url).toBe("http://localhost:4328/api/community/automation/bots")
     expect(init).toMatchObject({ method: "POST", redirect: "error", headers: { Authorization: `Bearer ${secret}` } })
     expect(JSON.parse(init!.body as string)).toMatchObject({ runtime: "codex", machineId: "mac1" })
-    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { bot: { id: "b1", handle: "Helper#0042" } } })
+    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { bot: { handle: "Helper#0042" } } })
   })
   it("returns a server URL, never the access code", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ server: { id: "s1", name: "demo", discriminator: "0042", ownerId: "private" } }, { status: 201 }))
     const { run, output } = program()
     await run(["use", "server", "--create", '{"name":"demo"}'])
-    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { server: { id: "s1", handle: "demo#0042", url: "http://localhost:4328/c/channels/s1" } } })
+    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { server: { handle: "demo#0042", url: "http://localhost:4328/c/channels/s1" } } })
     expect(JSON.stringify(output.mock.calls)).not.toContain(secret)
   })
   it("rejects invalid input and insecure remote targets before network I/O", async () => {

@@ -3,7 +3,7 @@ import { createRequire } from "node:module"
 import { readFileSync, readdirSync } from "node:fs"
 import type { SQLInputValue } from "node:sqlite"
 import { NextRequest } from "next/server"
-import { createDb, type Database } from "@alook/shared"
+import { createDb, formatHandle, type Database } from "@alook/shared"
 
 const state = vi.hoisted(() => ({ db: null as unknown, loseServerReceipt: false }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => state.db, getDb: () => state.db }))
@@ -18,7 +18,8 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof
 let sqlite: InstanceType<typeof DatabaseSync>
 let db: Database
 let botIds: string[]
-const input = () => ({ server: { name: "Growth Lab" }, botIds, firstTask: "Review the current draft and agree the next step." })
+let botHandles: string[]
+const input = () => ({ server: { name: "Growth Lab" }, bots: botHandles, firstTask: "Review the current draft and agree the next step." })
 const request = (body: unknown = input()) => new NextRequest("https://test.local/api/community/automation/onboard-setup", { method: "POST", body: JSON.stringify(body) })
 const context = () => ({ env: { DB: {} } as Env, userId: "owner", beforeAction: vi.fn(async (_permission: string): Promise<Response | null> => null) })
 const activeBots = () => (sqlite.prepare('SELECT count(*) AS n FROM user WHERE isBot=1 AND deletedAt IS NULL').get() as { n: number }).n
@@ -61,10 +62,13 @@ beforeEach(async () => {
     .run("m1", "owner", "Work Mac", "host", "darwin", "arm64", JSON.stringify([{ id: "claude", status: "healthy" }]), "online", "now", "now")
   sqlite.exec("UPDATE product_plan_entitlement SET value_json='10' WHERE entitlement_key='bots.max'")
   botIds = []
+  botHandles = []
   for (const name of ["Mireille", "Thiago"]) {
     const response = await createBotForUser(request({ name, machineId: "m1", runtime: "claude" }), { env: { DB: {} } as Env, userId: "owner" })
     expect(response.status).toBe(201)
-    botIds.push((await response.json()).bot.id)
+    const bot = (await response.json()).bot
+    botIds.push(bot.id)
+    botHandles.push(formatHandle(bot.name, bot.discriminator))
   }
 })
 afterEach(() => sqlite?.close())
@@ -75,11 +79,13 @@ it("creates only the server and joins existing bots before committing the human 
   const response = await runAutomationSetup(request(), ctx)
   expect(response.status, JSON.stringify(await response.clone().json())).toBe(200)
   const result = await response.json()
-  expect(result).toMatchObject({ state: "sent", message: { seq: "#1" }, server: { url: expect.stringContaining("https://test.local/c/channels/") }, bots: botIds.map(id => ({ id })) })
+  const server = sqlite.prepare('SELECT id,name,discriminator FROM community_server').get() as { id: string; name: string; discriminator: string }
+  const handle = formatHandle(server.name, server.discriminator)
+  expect(result).toEqual({ state: "sent", server: { handle, url: `https://test.local/c/channels/${server.id}`, channel: `/${handle}/all` }, bots: botHandles, message: { seq: "#1" } })
   expect(activeBots()).toBe(2)
   expect(serverCount()).toBe(1)
-  expect(sqlite.prepare("SELECT c.name,k.private FROM community_channel c JOIN community_category k ON k.id=c.category_id WHERE c.name='all' AND c.server_id=?").get(result.server.id)).toEqual({ name: "all", private: 0 })
-  expect(sqlite.prepare('SELECT count(*) AS n FROM community_server_member WHERE server_id=?').get(result.server.id)).toEqual({ n: 3 })
+  expect(sqlite.prepare("SELECT c.name,k.private FROM community_channel c JOIN community_category k ON k.id=c.category_id WHERE c.name='all' AND c.server_id=?").get(server.id)).toEqual({ name: "all", private: 0 })
+  expect(sqlite.prepare('SELECT count(*) AS n FROM community_server_member WHERE server_id=?').get(server.id)).toEqual({ n: 3 })
   const messages = sqlite.prepare('SELECT author_id,content FROM community_message').all()
   expect(messages).toEqual([{ author_id: "owner", content: expect.stringContaining("Review the current draft") }])
   expect(sqlite.prepare("SELECT user_id FROM community_mention WHERE kind='mention' ORDER BY user_id").all()).toEqual([...botIds].sort().map(user_id => ({ user_id })))
@@ -127,16 +133,17 @@ it("reports the remaining server accurately if cleanup fails and preserves both 
   const result = await response.json()
   expect(response.status).toBe(429)
   expect(result.cleanup).toBe("incomplete")
-  expect(result.remaining).toEqual({ serverId: expect.any(String) })
+  const server = sqlite.prepare('SELECT name,discriminator FROM community_server').get() as { name: string; discriminator: string }
+  expect(result.remaining).toEqual({ server: formatHandle(server.name, server.discriminator) })
   expect(activeBots()).toBe(2)
-  expect(sqlite.prepare('SELECT id FROM community_server').all()).toEqual([{ id: result.remaining.serverId }])
+  expect(serverCount()).toBe(1)
 })
 
-it("rejects foreign, human and missing bot IDs before creating a server", async () => {
+it("rejects foreign, human and missing bot handles before creating a server", async () => {
   sqlite.prepare('UPDATE user SET ownerUserId=? WHERE id=?').run("peer", botIds[0]!)
-  for (const id of [botIds[0]!, "owner", "missing-bot"]) {
+  for (const handle of [botHandles[0]!, "owner#0001", "Missing#9999"]) {
     const ctx = context()
-    expect((await runAutomationSetup(request({ ...input(), botIds: [id] }), ctx)).status).toBe(404)
+    expect((await runAutomationSetup(request({ ...input(), bots: [handle] }), ctx)).status).toBe(404)
     expect(ctx.beforeAction).not.toHaveBeenCalled()
   }
   expect(activeBots()).toBe(2)
@@ -144,9 +151,9 @@ it("rejects foreign, human and missing bot IDs before creating a server", async 
 })
 
 it("rejects empty, repeated and creation-shaped bot selections without changing resources", async () => {
-  for (const bots of [[], [botIds[0], botIds[0]], [{ name: "New bot", machineId: "m1", backendId: "claude" }]]) {
+  for (const bots of [[], [botHandles[0], botHandles[0]], [botHandles[0], botHandles[0]!.replace("#", " #")], [botIds[0]], [{ name: "New bot", machineId: "m1", backendId: "claude" }]]) {
     const ctx = context()
-    expect((await runAutomationSetup(request({ ...input(), botIds: bots }), ctx)).status).toBe(400)
+    expect((await runAutomationSetup(request({ ...input(), bots }), ctx)).status).toBe(400)
     expect(ctx.beforeAction).not.toHaveBeenCalled()
   }
   expect(activeBots()).toBe(2)

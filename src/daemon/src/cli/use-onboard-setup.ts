@@ -9,7 +9,7 @@ export function registerOnboardSetup(use: Command, request: AutomationRequest, o
   use.command("onboard-setup").description("create a server, join selected owned bots and send its first task")
     .requiredOption("--server <name>", "new server name")
     .option("--description <text>", "server description")
-    .requiredOption("--bot <id>", "existing owned bot ID; repeat for up to three bots", (value: string, previous: string[]) => [...previous, value], [])
+    .requiredOption("--bot <handle>", "owned bot name#NNNN; repeat for up to three bots", (value: string, previous: string[]) => [...previous, value], [])
     .requiredOption("--task-file <path>", "UTF-8 first task")
     .action(async (options: SetupOptions) => {
       const taskInfo = await stat(options.taskFile)
@@ -17,7 +17,7 @@ export function registerOnboardSetup(use: Command, request: AutomationRequest, o
       const bytes = await readFile(options.taskFile)
       if (bytes.length > (MAX_MESSAGE_CONTENT_LENGTH - 512) * 4) throw new Error("Task file is too large")
       const firstTask = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes).trim()
-      const input = AutomationSetupInputSchema.parse({ server: { name: options.server, ...(options.description ? { description: options.description } : {}) }, botIds: options.bot, firstTask })
+      const input = AutomationSetupInputSchema.parse({ server: { name: options.server, ...(options.description ? { description: options.description } : {}) }, bots: options.bot, firstTask })
       try {
         const { result } = await request("/api/community/automation/onboard-setup", input)
         output({ success: AutomationSetupResultSchema.parse(result) })

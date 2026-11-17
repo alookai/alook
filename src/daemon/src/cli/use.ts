@@ -87,7 +87,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
     if (!response.ok) {
       const message = typeof result.error === "string" ? result.error.replaceAll(secret, "[redacted]") : `Automation failed: HTTP ${response.status}`
       const cleanup = path === "/api/community/automation/onboard-setup" && result.cleanup === "incomplete"
-        ? z.object({ serverId: z.string().min(1).max(128) }).safeParse(result.remaining) : null
+        ? z.object({ server: z.string().max(128).refine(value => Boolean(parseNameAndTag(value))) }).safeParse(result.remaining) : null
       const cleanupHint = cleanup ? `Cleanup incomplete. Inspect remaining resources: ${cleanup.success ? JSON.stringify(cleanup.data).replaceAll(secret, "[redacted]") : "check servers and bots in Alook"}.` : undefined
       throw Object.assign(new Error(message), {
         ...(typeof result.code === "string" ? { code: result.code.replaceAll(secret, "[redacted]") } : {}),
@@ -189,7 +189,7 @@ export function registerUseCommands(program: Command, output: (value: { success:
       const { result, origin } = await request(`/api/community/automation/${kind}s`, body)
       const resource = result[kind]
       if (!resource || typeof resource !== "object" || !("id" in resource) || !("name" in resource) || !("discriminator" in resource) || typeof resource.id !== "string" || typeof resource.name !== "string" || typeof resource.discriminator !== "string") throw new Error("Automation returned an invalid result; do not retry automatically")
-      output({ success: { [kind]: { id: resource.id, handle: `${resource.name}#${resource.discriminator}`,
+      output({ success: { [kind]: { handle: `${resource.name}#${resource.discriminator}`,
         ...(kind === "server" ? { url: `${origin}/c/channels/${encodeURIComponent(resource.id)}` } : {}),
       } } })
     })
