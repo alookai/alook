@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { act } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
 import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, scrollFixture } from "@/test/message-scroll-fixture"
 import type { MessageRequest, MessageRequestResult, NewPositionRequest, NewPositionResult } from "@/lib/community/message-position"
 import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
@@ -237,6 +237,111 @@ it("waits for the exact main window and committed target rows after accepting a 
     const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m5"] [data-new-divider]')!
     expect(Math.abs(divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top)).toBeLessThanOrEqual(1)
   } finally { h.view.unmount() }
+})
+
+it.each(["tail", "history", "start"] as const)("keeps the %s reader on the same body when an older page arrives during New's data wait", async origin => {
+  const tail = Array.from({ length: 50 }, (_, index) => message(`m${index + 80}`))
+  const older = Array.from({ length: 50 }, (_, index) => message(`m${index + 30}`))
+  const h = mount({ items: tail, newDividerBefore: "m5", messageWindow: {} })
+  let complete!: (result: MessageRequestResult) => void
+  const loaded = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+  let finishOlder!: (result: MessageRequestResult) => void
+  const olderRequest = new Promise<MessageRequestResult>(resolve => { finishOlder = resolve })
+  try {
+    if (origin === "history") h.move(2100)
+    if (origin === "start") h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true, completed: olderRequest }))
+    h.update({ isFetchingOlder: true })
+    const body = Array.from(h.root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find(node => node.getBoundingClientRect().bottom > 0 && node.getBoundingClientRect().top < h.root.clientHeight)!
+    const id = body.dataset.msgId!
+    const before = body.getBoundingClientRect().top
+    let outcome: NewPositionResult | undefined
+    const request = start("m5", () => ({ accepted: true, completed: loaded }))
+    void request.completed.then(result => { outcome = result })
+    await act(async () => { await vi.advanceTimersByTimeAsync(75) })
+    const olderWindow = {}
+    await act(async () => { finishOlder({ status: "success", window: olderWindow }) })
+    h.update({ items: [...older, ...tail], messageWindow: olderWindow, isFetchingOlder: false })
+    const retained = h.root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
+    expect(retained).not.toBeNull()
+    expect(Math.abs(retained!.getBoundingClientRect().top - before)).toBeLessThanOrEqual(1)
+    expect(outcome).toBeUndefined()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.paginationEnabled).toBe(false)
+    if (origin === "tail") expect(scrollFixture.latest.belowCount).toBe(0)
+    const window = {}
+    await act(async () => { complete({ status: "success", window }) })
+    h.update({ items: items(), messageWindow: window })
+    await act(async () => {})
+    expect(await request.completed).toBe("success")
+    const divider = h.root.querySelector<HTMLElement>('[data-message-divider-for="m5"] [data-new-divider]')!
+    expect(Math.abs(divider.getBoundingClientRect().top - h.root.getBoundingClientRect().top)).toBeLessThanOrEqual(1)
+  } finally { h.view.unmount() }
+})
+
+it.each(["wheel", "touch", "pointer"] as const)("lets %s cancel New after a late prepend and ignores its later target completion", async input => {
+  const tail = Array.from({ length: 50 }, (_, index) => message(`m${index + 80}`))
+  const h = mount({ items: tail, newDividerBefore: "m5", messageWindow: {} })
+  let complete!: (result: MessageRequestResult) => void
+  const loaded = new Promise<MessageRequestResult>(resolve => { complete = resolve }), cancel = vi.fn()
+  try {
+    const request = start("m5", () => ({ accepted: true, completed: loaded, cancel }))
+    h.update({ items: [...Array.from({ length: 50 }, (_, index) => message(`m${index + 30}`)), ...tail], messageWindow: {} })
+    if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -24 })
+    else if (input === "touch") fireEvent.touchStart(h.root)
+    else fireEvent.pointerDown(h.root, { pointerId: 7, pointerType: "mouse", button: 0 })
+    expect(await request.completed).toBe("cancelled")
+    expect(cancel).toHaveBeenCalledOnce()
+    const before = h.root.scrollTop
+    await act(async () => { complete({ status: "success", window: {} }) })
+    resize()
+    expect(h.root.scrollTop).toBe(before)
+    if (input === "touch") fireEvent.touchEnd(h.root)
+    if (input === "pointer") fireEvent.pointerUp(h.root, { pointerId: 7 })
+  } finally { h.view.unmount() }
+})
+
+it.each(["error", "retired", "missing"] as const)("keeps the retained body when New ends with %s after the older page", async status => {
+  const tail = Array.from({ length: 50 }, (_, index) => message(`m${index + 80}`))
+  const h = mount({ items: tail, newDividerBefore: "m5", messageWindow: {} })
+  let complete!: (result: MessageRequestResult) => void
+  const loaded = new Promise<MessageRequestResult>(resolve => { complete = resolve })
+  try {
+    const body = Array.from(h.root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find(node => node.getBoundingClientRect().bottom > 0 && node.getBoundingClientRect().top < h.root.clientHeight)!
+    const id = body.dataset.msgId!, before = body.getBoundingClientRect().top
+    const request = start("m5", () => ({ accepted: true, completed: loaded }))
+    h.update({ items: [...Array.from({ length: 50 }, (_, index) => message(`m${index + 30}`)), ...tail], messageWindow: {} })
+    await act(async () => { complete({ status }) })
+    expect(await request.completed).toBe(status)
+    resize()
+    const retained = h.root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
+    expect(retained).not.toBeNull()
+    expect(Math.abs(retained!.getBoundingClientRect().top - before)).toBeLessThanOrEqual(1)
+  } finally { h.view.unmount() }
+})
+
+it.each(["entry", "hidden", "unmount"] as const)("retires New's retained older-page anchor on %s before late receipts", async reason => {
+  const tail = Array.from({ length: 50 }, (_, index) => message(`m${index + 80}`))
+  const h = mount({ items: tail, newDividerBefore: "m5", positionEntry: {}, messageWindow: {} })
+  let complete!: (result: MessageRequestResult) => void
+  let finishOlder!: (result: MessageRequestResult) => void
+  const loaded = new Promise<MessageRequestResult>(resolve => { complete = resolve }), cancel = vi.fn()
+  try {
+    act(() => scrollFixture.latest.captureOlderPageAnchor()({ accepted: true,
+      completed: new Promise<MessageRequestResult>(resolve => { finishOlder = resolve }) }))
+    const request = start("m5", () => ({ accepted: true, completed: loaded, cancel }))
+    if (reason === "entry") h.update({ positionEntry: {} })
+    else if (reason === "hidden") h.update({ active: false })
+    else h.view.unmount()
+    expect(await request.completed).toBe(reason === "unmount" ? "retired" : "cancelled")
+    expect(cancel).toHaveBeenCalledOnce()
+    const before = h.root.scrollTop
+    await act(async () => { finishOlder({ status: "success", window: {} }); complete({ status: "success", window: {} }) })
+    if (reason !== "unmount") resize()
+    expect(h.root.scrollTop).toBe(before)
+  } finally { if (reason !== "unmount") h.view.unmount() }
 })
 
 it("cancels the data selection and ignores late completion after the user takes over", async () => {
