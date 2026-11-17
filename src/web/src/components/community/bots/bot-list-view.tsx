@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { tid } from "@/lib/community/testids"
+import { HOME_TAB_COLUMN_CLASS } from "../home-tab-layout"
 import { BotActiveSummary } from "./bot-active-summary"
 import { renderBotMachineGroup } from "./bot-list-machine-group"
 import { renderBotListOverlaySlots } from "./bot-list-overlays"
@@ -59,29 +60,31 @@ export function BotListSkeleton({
     <div className="flex min-h-0 flex-1 flex-col">
       {botBackBar(undefined, reserveBackSlot || Boolean(onBack))}
       <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <Skeleton className="h-6 w-24 rounded" />
-            <Skeleton className="h-4 w-full max-w-80 rounded" />
-          </div>
-          <div className="flex items-center gap-1">
-            <Skeleton className="size-9 rounded-md" />
-            <Skeleton className="h-9 w-28 rounded-md" />
-          </div>
-        </header>
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-3 rounded-lg p-1">
-            <div className="flex h-7 items-center gap-2 px-1">
-              <Skeleton className="size-3 rounded" />
-              <Skeleton className="size-3.5 rounded" />
-              <Skeleton className="h-3 w-28 rounded" />
-              <Skeleton className="size-1.5 rounded-full" />
-              <Skeleton className="ml-auto h-7 w-20 rounded-md" />
+        <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
+          <header className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <Skeleton className="h-6 w-24 rounded" />
+              <Skeleton className="h-4 w-full max-w-80 rounded" />
             </div>
-            <div className="flex flex-col gap-3">
-              <BotCardSkeleton />
-              <BotCardSkeleton />
-              <BotCardSkeleton />
+            <div className="flex items-center gap-1">
+              <Skeleton className="size-9 rounded-md" />
+              <Skeleton className="h-9 w-28 rounded-md" />
+            </div>
+          </header>
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3 rounded-lg p-1">
+              <div className="flex h-7 items-center gap-2 px-1">
+                <Skeleton className="size-3 rounded" />
+                <Skeleton className="size-3.5 rounded" />
+                <Skeleton className="h-3 w-28 rounded" />
+                <Skeleton className="size-1.5 rounded-full" />
+                <Skeleton className="ml-auto h-7 w-20 rounded-md" />
+              </div>
+              <div className="flex flex-col gap-3">
+                <BotCardSkeleton />
+                <BotCardSkeleton />
+                <BotCardSkeleton />
+              </div>
             </div>
           </div>
         </div>
@@ -147,34 +150,36 @@ export function renderBotListView(
     <div className="flex min-h-0 flex-1 flex-col">
       {backBar}
       <div className="flex flex-1 flex-col gap-6 overflow-y-auto thin-scrollbar p-6">
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h1 className="text-xl font-medium text-foreground">My Bots</h1>
-            <BotActiveSummary onViewPlan={controller.viewPlan} summary={controller.planSummary} isFounder={controller.planSummary?.isFounder} />
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="How your agent works"
-              onClick={() => controller.setHelpOpen(true)}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <HelpCircle className="size-5" />
-            </Button>
-            <div data-onboarding-target="create-bot" className="w-fit">
-              <Button
-                onClick={controller.openCreate}
-                disabled={controller.isCreateDisabled && !controller.canShowLimit}
-                data-testid={tid.createBot}
-                title={controller.isCreateDisabled ? "Bot limit reached. Delete a bot or change plan to create another." : undefined}
-              >{controller.createLabel}</Button>
+        <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
+          <header className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <h1 className="text-xl font-medium text-foreground">My Bots</h1>
+              <BotActiveSummary onViewPlan={controller.viewPlan} summary={controller.planSummary} isFounder={controller.planSummary?.isFounder} />
             </div>
-          </div>
-        </header>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="How your agent works"
+                onClick={() => controller.setHelpOpen(true)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <HelpCircle className="size-5" />
+              </Button>
+              <div data-onboarding-target="create-bot" className="w-fit">
+                <Button
+                  onClick={controller.openCreate}
+                  disabled={controller.isCreateDisabled && !controller.canShowLimit}
+                  data-testid={tid.createBot}
+                  title={controller.isCreateDisabled ? "Bot limit reached. Delete a bot or change plan to create another." : undefined}
+                >{controller.createLabel}</Button>
+              </div>
+            </div>
+          </header>
 
-        <div className="flex flex-col gap-6">
-          {controller.groups.map((group) => renderBotMachineGroup(group, controller))}
+          <div className="flex flex-col gap-6">
+            {controller.groups.map((group) => renderBotMachineGroup(group, controller))}
+          </div>
         </div>
       </div>
 

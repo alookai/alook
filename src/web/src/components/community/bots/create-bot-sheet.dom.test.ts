@@ -16,7 +16,7 @@ import type { CommunityMachineSummary, RuntimeReasoningCatalog } from "@alook/sh
 import { hasBotCreateFieldErrors, validateBotCreateFields } from "./bot-form-validation"
 
 it("guards programmatic create submissions while preserving other backend defaults", () => {
-  for (const [runtime, model, invalid] of [["opencode", null, true], ["opencode", "   ", true], ["opencode", "provider/custom", false], ["pi-durable", null, true], ["pi-durable", "  ", true], ["pi-durable", "provider/custom", false], ["cursor-sdk", null, true], ["cursor-sdk", "  ", true], ["cursor-sdk", "provider/custom", false], ["codex", null, false]] as const) {
+  for (const [runtime, model, invalid] of [["opencode", null, true], ["opencode", "   ", true], ["opencode", "provider/custom", false], ["pi-durable", null, true], ["pi-durable", "  ", true], ["pi-durable", "provider/custom", false], ["cursor-sdk", null, true], ["cursor-sdk", "  ", true], ["cursor-sdk", "provider/custom", false], ["codex-cli", null, false]] as const) {
     const errors = validateBotCreateFields({ name: "Bot", machineId: "mac", runtime, model })
     expect(hasBotCreateFieldErrors(errors)).toBe(invalid)
     expect(errors.model).toBe(invalid ? "Choose a model before saving" : undefined)
@@ -353,7 +353,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
           id: "server",
           status: "online",
           availableRuntimes: [
-            { id: "codex", status: "healthy" },
+            { id: "codex-cli", status: "healthy" },
           ] as unknown as CommunityMachineSummary["availableRuntimes"],
         }),
       ],
@@ -369,9 +369,9 @@ describe("CreateBotSheet — auto-select defaults", () => {
     )!
     fireEvent.click(serverRadio)
     expect(checkedValue(renderer, "bot-machine")).toBe("server")
-    expect(checkedValue(renderer, "bot-runtime")).toBe("codex")
+    expect(checkedValue(renderer, "bot-runtime")).toBe("codex-cli")
     const last = modelFieldRenders.at(-1)!
-    expect(last.runtime?.id).toBe("codex")
+    expect(last.runtime?.id).toBe("codex-cli")
     expect(last.value).toBeNull()
   })
 
@@ -385,12 +385,12 @@ describe("CreateBotSheet — auto-select defaults", () => {
         machine({
           id: "machine-a",
           status: "online",
-          availableRuntimes: [{ id: "codex", status: "healthy", reasoning: catalog("a-model") }],
+          availableRuntimes: [{ id: "codex-cli", status: "healthy", reasoning: catalog("a-model") }],
         }),
         machine({
           id: "machine-b",
           status: "online",
-          availableRuntimes: [{ id: "codex", status: "healthy", reasoning: catalog("b-model") }],
+          availableRuntimes: [{ id: "codex-cli", status: "healthy", reasoning: catalog("b-model") }],
         }),
       ],
     })
@@ -457,7 +457,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
           id: "mac",
           status: "online",
           availableRuntimes: [{
-            id: "codex",
+            id: "codex-cli",
             status: "healthy",
             reasoning: {
               updateMode: "live_next_turn",
@@ -476,7 +476,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
     })
 
     expect(createMutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ machineId: "mac", runtime: "codex", reasoningEffort: "xhigh" }),
+      expect.objectContaining({ machineId: "mac", runtime: "codex-cli", reasoningEffort: "xhigh" }),
     )
   })
 
@@ -494,7 +494,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
           id: "server",
           status: "online",
           availableRuntimes: [
-            { id: "codex", status: "healthy" },
+            { id: "codex-cli", status: "healthy" },
           ] as unknown as CommunityMachineSummary["availableRuntimes"],
         }),
       ],
@@ -522,7 +522,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
           id: "server",
           status: "online",
           availableRuntimes: [
-            { id: "codex", status: "healthy" },
+            { id: "codex-cli", status: "healthy" },
           ] as unknown as CommunityMachineSummary["availableRuntimes"],
         }),
       ],
@@ -534,7 +534,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
     })
     // Choice stands.
     expect(checkedValue(renderer, "bot-machine")).toBe("server")
-    expect(checkedValue(renderer, "bot-runtime")).toBe("codex")
+    expect(checkedValue(renderer, "bot-runtime")).toBe("codex-cli")
   })
 })
 

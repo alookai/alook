@@ -73,6 +73,11 @@ export async function copilotWorker(init: SdkWorkerInit, emit: (event: SdkWorker
   session.on((event: any) => {
     const root = active;
     if (closed || !root) return;
+    const model = event.data?.model;
+    if (event.type === "assistant.usage" && typeof model === "string") emit({
+      kind: "model_observed", observation: { model, source: "response", ...(typeof event.data.responseId === "string" ? { responseId: event.data.responseId } : {}) },
+      ...(event.agentId || event.data?.agentId || event.data?.parentToolCallId ? { attribution: { scope: "child", agentId: event.agentId ?? event.data.agentId, parentCallId: event.data.parentToolCallId } as const } : {}),
+    });
     if (event.agentId || event.data?.agentId || event.data?.parentToolCallId) {
       emit({ kind: "internal_progress", source: "copilot", itemType: event.type, attribution: { scope: "child", agentId: event.agentId ?? event.data?.agentId, parentCallId: event.data?.parentToolCallId } });
       return;

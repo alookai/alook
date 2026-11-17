@@ -1,3 +1,4 @@
+import { messageModelObservation } from "../../internal/model-observation.js";
 import { readPiSdkVersion } from "./paths.js";
 
 import type {
@@ -76,7 +77,10 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: PiEventState
   switch (event?.type) {
     case "message_end": {
       const message = event.message;
-      if (message?.role !== "assistant" || !message.usage) return [];
+      if (message?.role !== "assistant") return [];
+      const model = messageModelObservation(message);
+      const observations: AdapterEvent[] = model ? [model] : [];
+      if (!message.usage) return observations;
       state.usageRecordSequence = (state.usageRecordSequence ?? 0) + 1;
       const providerRecordId = typeof message.responseId === "string" && message.responseId
         ? message.responseId
@@ -94,7 +98,7 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: PiEventState
         outputIncludesReasoning: true,
       });
       pending.add(providerRecordId);
-      return usage ? [usage] : [];
+      return usage ? [...observations, usage] : observations;
     }
     case "turn_end": {
       const { projector, pending } = piUsageState(state);

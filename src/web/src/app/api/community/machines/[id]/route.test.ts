@@ -232,10 +232,10 @@ describe("platform target machine queries", () => {
     expect(mockGetMachineForOwner).toHaveBeenLastCalledWith({}, "m1", "u1")
   })
   it("projects backend health and catalog provenance only for an online owned machine", async () => {
-    mockGetMachineForOwner.mockResolvedValueOnce({ id: "m1", status: "online", availableRuntimes: [{ id: "codex", version: "1.0", status: "healthy", reasoning: { catalogOrigin: "native_report" } }, { id: "opencode", status: "unhealthy" }] })
+    mockGetMachineForOwner.mockResolvedValueOnce({ id: "m1", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }, { id: "codex-cli", version: "1.0", status: "healthy", reasoning: { catalogOrigin: "native_report" } }, { id: "opencode", status: "unhealthy" }] })
     const response = await GET(new NextRequest("http://localhost/api/community/machines/m1"), ctx)
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ machineId: "m1", status: "online", backends: [{ id: "codex", version: "1.0", health: "healthy", modelRequired: false, catalogState: "reported", catalogOrigin: "native_report" }, { id: "opencode", health: "unhealthy", modelRequired: true, catalogState: "not_reported", catalogOrigin: "unknown" }] })
+    expect(await response.json()).toEqual({ machineId: "m1", status: "online", backends: [{ id: "codex-cli", version: "1.0", health: "healthy", modelRequired: false, catalogState: "reported", catalogOrigin: "native_report" }, { id: "opencode", health: "unhealthy", modelRequired: true, catalogState: "not_reported", catalogOrigin: "unknown" }] })
   })
   it.each([GET, modelOptionsGET])("rejects an offline target instead of returning cached capabilities", async (handler) => {
     mockGetMachineForOwner.mockResolvedValue({ id: "m1", status: "offline", availableRuntimes: [{ id: "codex", status: "healthy" }] })

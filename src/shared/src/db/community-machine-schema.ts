@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { user } from "./schema";
 import type { CommunityMachineRuntime } from "../schemas";
 import type { ProviderQuotaBackend, QuotaLimit } from "../provider-telemetry";
+import type { StoredModelObservation } from "../model-observation";
 
 import type { DiagnosticReportFailureCode } from "../diagnostics-contract";
 
@@ -250,6 +251,7 @@ export const communityBotBinding = sqliteTable(
     // stored. Hand-maintained in lockstep with migration 0063 (no drizzle-kit
     // generate in this repo).
     modelName: text("model_name"),
+    modelObservation: text("model_observation", { mode: "json" }).$type<StoredModelObservation>(),
     reasoningEffort: text("reasoning_effort"),
     runtimeConfigRevision: integer("runtime_config_revision").notNull().default(0),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),

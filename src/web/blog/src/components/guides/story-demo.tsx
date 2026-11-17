@@ -17,6 +17,9 @@ import type { ForumThread, RenderMsg } from "@/lib/community/models/message";
 import type { Category } from "@/lib/community/models/navigation";
 import type { CommunityProfile, Member } from "@/lib/community/models/people";
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview";
+import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX } from "@/lib/community/conversation-layout";
+import { MESSAGE_ROW_VERTICAL_PADDING_PX } from "@/lib/community/message-list-items";
+import type { CSSProperties } from "react";
 import { DeferredDemo } from "./deferred-demo";
 import { TutorialServerShell } from "./server-demo";
 import styles from "./guide.module.css";
@@ -44,12 +47,12 @@ function messages(steps: readonly StoryStep[], directory: Map<string, CommunityP
   return steps.map((step, index) => {
     const person = directory.get(`story-${slug(authorOf(step))}`)!;
     const mentions = (step.mentions ?? []).map((name) => { const target = directory.get(`story-${slug(name)}`)!; return `@${target.name}#${target.discriminator} `; }).join("");
-    return { id: `story-${index}`, type: "chat", authorId: person.id, authorName: person.name, authorAvatar: person.avatar ?? undefined, content: `${mentions}${step.text}`, ...("image" in step && step.image ? { attachments: [{ kind: "image" as const, name: step.image.name, url: step.image.url, contentType: "image/webp", width: step.image.width, height: step.image.height }] } : {}), createdAt: new Date(start + index * 90_000).toISOString(), seq: index + 1, grouped: false };
+    return { id: `story-${index}`, type: "chat", authorId: person.id, authorName: person.name, authorAvatar: person.avatar ?? undefined, content: `${mentions}${step.text}`, ...("image" in step && step.image ? { attachments: [{ kind: "image" as const, name: step.image.name, url: step.image.url, contentType: "image/webp", width: step.image.width, height: step.image.height }] } : {}), createdAt: new Date(start + index * 90_000).toISOString(), seq: index + 1, grouped: index > 0 && authorOf(steps[index - 1]) === authorOf(step) };
   });
 }
 
-function channelTree(channels: readonly string[], active: string): Category[] {
-  return [{ id: "story-public", name: "Public", channels: channels.map((name) => ({ id: `story-${slug(name)}`, name, active: name === active, unread: false, type: "text" as const })) }];
+function channelTree(channels: readonly string[], active: string, forum?: string): Category[] {
+  return [{ id: "story-public", name: "Public", channels: channels.map((name) => ({ id: `story-${slug(name)}`, name, active: name === active, unread: false, type: name === forum ? "forum" as const : "text" as const })) }];
 }
 
 type Person = ReturnType<typeof people>[number];
@@ -77,7 +80,7 @@ function StoryForum({ channel, channels, steps, post, earlier }: { channel: stri
   const members = roster.map((person) => ({ userId: person.id, name: person.name, discriminator: person.discriminator, avatar: person.avatar, avatarVersion: 0 })) as unknown as Member[];
   const posts = [...(posted ? [forumThread(post, find(post.author), 0, roster.filter((person) => steps.some((step) => authorOf(step) === person.name)))] : []), ...earlier.map((entry, index) => forumThread(entry, find(entry.author), index + 1, [find(entry.author)]))];
   const directory = new Map<string, CommunityProfile>(roster.map((person) => [person.id, person]));
-  return <TutorialServerShell server channels={channelTree(channels, channel)}><CommunityPreviewProfileOwner profiles={directory}>
+  return <TutorialServerShell server channels={channelTree(channels, channel, channel)}><CommunityPreviewProfileOwner profiles={directory}>
     <ChannelHeader channel={channel} kind="forum" rightPanel={null} onToggle={ignore} />
     <div ref={root} data-story-forum className="flex min-h-0 flex-1 flex-col">
       <ForumView forumChannelId={`story-${slug(channel)}`} members={members} posts={posts} tag="All" onTagChange={ignore} availableTags={[...new Set([post, ...earlier].flatMap((entry) => entry.tags ?? []))]} tagsKnown onOpenPost={ignore} />
@@ -117,11 +120,12 @@ function StoryChannel({ channel, channels, steps, title }: { channel: string; ch
     return { kind: "member", id: person.id, userId: person.id, label: `${person.name}#${person.discriminator}`, name: person.name, discriminator: person.discriminator, avatar: person.avatar, status: "online" };
   }) : [];
   const hasText = state.mentions > 0 || Boolean(state.text);
-  return <TutorialServerShell server channels={channelTree(channels, channel)}><CommunityPreviewProfileOwner profiles={directory}>
-    <ChannelHeader channel={title ?? channel} kind="text" rightPanel={null} onToggle={ignore} />
-    <div ref={root} data-story-channel data-story-steps={JSON.stringify(steps)} className="flex min-h-0 flex-1 flex-col">
+  return <TutorialServerShell server channels={channelTree(channels, channel, title ? channel : undefined)}><CommunityPreviewProfileOwner profiles={directory}>
+    {/* An opened forum post is a thread in the app: thread header with an always-visible back arrow. */}
+    <ChannelHeader channel={title ?? channel} kind={title ? "thread" : "text"} rightPanel={null} onToggle={ignore} {...(title ? { mobileBack: ignore, mobileBackDisplay: "always" as const } : {})} />
+    <div ref={root} data-story-channel data-story-steps={JSON.stringify(steps)} className="flex min-h-0 flex-1 flex-col" style={{ "--story-row-padding": `${MESSAGE_ROW_VERTICAL_PADDING_PX}px`, "--story-accessory-height": `${COMPOSER_ACCESSORY_ROW_HEIGHT_PX}px` } as CSSProperties}>
       <div className={styles.storyMessages}>
-        {rendered.map((message, index) => <div key={message.id} data-story-message={index} data-visible={index < state.shown} className={styles.storySlot}><Message m={message} onOpenThread={ignore} /></div>)}
+        {rendered.map((message, index) => <div key={message.id} data-story-message={index} data-visible={index < state.shown} data-grouped={message.grouped} className={styles.storySlot}><Message m={message} onOpenThread={ignore} /></div>)}
       </div>
       <div className={styles.storyTyping}>{state.typing && <TypingIndicator names={[state.typing]} />}</div>
       <div className={styles.storyComposer} data-message-composer data-tutorial-panel>

@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { Avatar } from "../avatar"
 import { EmptyState } from "../empty-state"
+import { HOME_TAB_COLUMN_CLASS } from "../home-tab-layout"
 import { FriendRowsSkeleton, FriendsPageSkeleton } from "./friends-page-skeleton"
 import { hasStatus } from "./status-presets"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
@@ -204,30 +205,33 @@ export function FriendsPage({
       onValueChange={(value) => onActiveTabChange?.(value as "all" | "new")}
       className="min-h-0 flex-1"
     >
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
-        {onBack && (
-          <Button variant="ghost" size="icon-sm" onClick={onBack} className="shrink-0 text-muted-foreground hover:text-foreground sm:hidden" aria-label="Back"><ChevronLeft className="size-5" /></Button>
-        )}
-        <TabsList variant="line">
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="new">
-            <span className="inline-flex items-center gap-1.5">
-              New
-              {incomingCount && (
-                <span
-                  data-testid={tid.friendsNewBadge}
-                  className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
-                >
-                  {incomingCount}
-                </span>
-              )}
-            </span>
-          </TabsTrigger>
-        </TabsList>
-      </header>
+      <div className="shrink-0 px-4">
+        <header data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex h-12 items-center gap-2 border-b border-border/40`}>
+          {onBack && (
+            <Button variant="ghost" size="icon-sm" onClick={onBack} className="shrink-0 text-muted-foreground hover:text-foreground sm:hidden" aria-label="Back"><ChevronLeft className="size-5" /></Button>
+          )}
+          <TabsList variant="line">
+            <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="new">
+              <span className="inline-flex items-center gap-1.5">
+                New
+                {incomingCount && (
+                  <span
+                    data-testid={tid.friendsNewBadge}
+                    className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+                  >
+                    {incomingCount}
+                  </span>
+                )}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+        </header>
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
-        <TabsContent value="all">
+        <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
+          <TabsContent value="all">
           <div className="mb-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -410,6 +414,7 @@ export function FriendsPage({
             </>
           )}
         </TabsContent>
+        </div>
       </div>
     </Tabs>
   )

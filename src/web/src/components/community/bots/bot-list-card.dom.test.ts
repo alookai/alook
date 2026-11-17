@@ -126,6 +126,21 @@ describe("BotList — card model segment", () => {
     expect(modelSegments(renderer)).toEqual(["local default"])
   })
 
+  it("shows the observed model ahead of defaults and configured models across explicit backends", () => {
+    const modelObservation = { agentId: "b1", machineId: "mac1", backendId: "claude", runtimeConfigRevision: 0, sessionInstanceId: "epoch", model: "claude-sonnet-4-6", source: "response" as const, observedAt: "2026-11-17T04:00:00.000Z" }
+    useBotsMock.mockReturnValue({ bots: [
+      bot({ modelName: null, modelObservation }),
+      bot({ id: "b2", modelName: "claude-opus-4-6", modelObservation: { ...modelObservation, agentId: "b2" } }),
+      bot({ id: "b3", runtime: "codex-cli", modelObservation: { ...modelObservation, agentId: "b3", backendId: "codex-cli", model: "gpt-5.4" } }),
+    ], isLoading: false })
+    const renderer = render()
+    expect(modelSegments(renderer)).toEqual(["sonnet-4-6", "sonnet-4-6", "gpt-5.4"])
+    const models = renderer.container.querySelectorAll(`[data-testid="${tid.botCardModel}"]`)
+    expect(models[0]).toHaveAttribute("title", "claude-sonnet-4-6")
+    expect(models[1]).toHaveAttribute("title", "claude-sonnet-4-6")
+    expect(models[2]).toHaveAttribute("title", "gpt-5.4")
+  })
+
   it("folds and reopens a machine category from its header", () => {
     useBotsMock.mockReturnValue({ bots: [bot({ modelName: null })], isLoading: false })
     const renderer = render()

@@ -953,6 +953,7 @@ export interface HostAgentActivity {
   usageDay?: string;
   dailyUsage?: DailyUsageSnapshot[];
   quota?: ProviderQuotaSnapshot;
+  modelObservation?: import("./model-observation").AgentModelReport;
 }
 
 /**

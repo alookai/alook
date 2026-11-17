@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import type { Page, TestInfo } from "@playwright/test"
+import { getPlatformProxy } from "wrangler"
+import { resolve } from "node:path"
+import { createDb, queries } from "@alook/shared"
 import { test, expect, type CaseActors, type CaseResources } from "./_fixtures/case-fixture"
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { connectMachine } from "./_fixtures/community-machine"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
-import { WEB_URL } from "./_setup/paths"
+import { REPO_ROOT, WEB_URL } from "./_setup/paths"
 
 const runtimeReport = ["codex", "codex-app", "codex-cli"].map(id => ({
   id, status: "healthy", version: id === "codex-app" ? "1.2.3" : "4.5.6",
@@ -99,10 +102,20 @@ test("editing a legacy codex bot preserves its original source binding", async (
   const actors = await caseActors(["alice"])
   const fixture = await prepareMachine(actors, caseResources)
   const name = `Legacy ${randomUUID().slice(0, 8)}`
-  const created = await fixture.call("/api/community/bots", "POST", { name, machineId: fixture.machineId, runtime: "codex" })
-  expect(created.status).toBe(201)
-  const { bot } = await created.json() as { bot: { id: string } }
+  expect(["localhost", "127.0.0.1"]).toContain(new URL(WEB_URL).hostname)
+  const proxyPending = getPlatformProxy<Pick<CloudflareEnv, "DB">>({
+    configPath: resolve(REPO_ROOT, "src/web/wrangler.toml"),
+    persist: { path: resolve(REPO_ROOT, "src/web/.wrangler/state/v3") },
+    remoteBindings: false,
+    envFiles: [],
+  })
+  const ownedProxy = caseResources.own(proxyPending, async pending => { await (await pending).dispose() })
+  const { botId } = await queries.communityBot.createBot(createDb((await proxyPending).env.DB), {
+    ownerId: actors.userId("alice"), name, machineId: fixture.machineId, runtime: "codex",
+  })
+  const bot = { id: botId }
   fixture.ownBot(bot.id)
+  await ownedProxy.close()
   const { page } = await actors.asUser("alice", { viewport: { width: 1280, height: 1000 }, reducedMotion: "reduce" })
   await gotoAfterUserWsAuth(page, "/c/me/bots")
   const card = page.locator('[data-slot="card"]').filter({ has: page.getByText(name, { exact: true }) })

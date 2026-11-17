@@ -6,8 +6,8 @@ describe("Codex source choices", () => {
   it("shows only explicit choices on new daemons and labels them distinctly", () => {
     expect(visibleRuntimes(runtimes).map(({ id }) => runtimeLabel(id))).toEqual(["Codex App", "Codex CLI", "claude"])
   })
-  it("retains the legacy choice for older daemons and existing bot edits", () => {
-    expect(visibleRuntimes([{ id: "codex" }])).toEqual([{ id: "codex" }])
+  it("never offers the legacy alias for new bots, including older daemon reports", () => {
+    expect(visibleRuntimes([{ id: "codex" }])).toEqual([])
     expect(visibleRuntimes(runtimes, "codex")).toEqual(runtimes)
     expect(runtimeLabel("codex")).toBe("Codex (automatic)")
   })

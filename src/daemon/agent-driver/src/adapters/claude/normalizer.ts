@@ -1,3 +1,4 @@
+import { messageModelObservation } from "../../internal/model-observation.js";
 /**
  * ClaudeEventNormalizer — turns Claude Code's stream-json output into the
  * uniform `AdapterEvent` vocabulary.
@@ -89,6 +90,8 @@ export class ClaudeEventNormalizer {
     if (typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id) {
       const attribution = { scope: "child", parentCallId: event.parent_tool_use_id } as const;
       const activity: AdapterEvent[] = [];
+      const model = event.type === "assistant" ? messageModelObservation(event.message) : undefined;
+      if (model) activity.push({ ...model, attribution });
       for (const block of event.message?.content ?? []) {
         if (block.type === "text") activity.push({ kind: "assistant_message_completed", text: block.text, attribution });
         else if (block.type === "thinking") activity.push({ kind: "assistant_reasoning_completed", text: block.thinking, attribution });
@@ -143,6 +146,8 @@ export class ClaudeEventNormalizer {
   }
 
   private handleAssistant(event: any, out: AdapterEvent[]): void {
+    const model = messageModelObservation(event.message);
+    if (model) out.push(model);
     const content = event?.message?.content;
     if (!Array.isArray(content)) return;
     const completedText: string[] = [];

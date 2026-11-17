@@ -5,6 +5,9 @@ const machine = { id: "machine", status: "online" }
 const backends = ["qoder", "copilot", "cursor-sdk", "pi-durable"]
 
 describe("new backend creation configuration", () => {
+  it("rejects the retired automatic alias even when an old machine advertises it", () => {
+    expect(() => resolveBotCreationConfiguration(machine, { id: "codex", status: "healthy" }, { backendId: "codex" })).toThrow("Choose Codex App or Codex CLI")
+  })
   it.each(backends)("preserves the reported %s model and effort", (backendId) => {
     const runtime = { id: backendId, status: "healthy" as const, reasoning: { updateMode: "unsupported" as const, models: [{ id: "provider/model", supportedReasoningEfforts: [{ value: "high" }] }] } }
     expect(resolveBotCreationConfiguration(machine, runtime, { backendId, model: "provider/model", reasoningEffort: "high" }).supported).toBe(true)
@@ -16,7 +19,7 @@ describe("new backend creation configuration", () => {
       expect(() => resolveBotCreationConfiguration(machine, { id: backendId, status: "healthy" }, { backendId, model })).toThrow("Choose a model before saving")
     }
   })
-  it.each(["qoder", "copilot", "codex"])("keeps %s native defaults", (backendId) => {
+  it.each(["qoder", "copilot", "codex-app", "codex-cli"])("keeps %s native defaults", (backendId) => {
     expect(resolveBotCreationConfiguration(machine, { id: backendId, status: "healthy" }, { backendId }).supported).toBe(true)
   })
 })
