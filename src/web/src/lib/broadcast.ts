@@ -1,6 +1,6 @@
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import type { WsMessage } from "@alook/shared"
+import type { CommunityWsEvent } from "@alook/shared"
 import {
   COMMUNITY_BULK_BODY_MAX_BYTES,
   COMMUNITY_CONTRACT_HEADER,
@@ -130,7 +130,7 @@ function safeLog(write: () => void): void {
 
 async function runBroadcastToUsers(
   userIds: string[],
-  message: WsMessage,
+  message: CommunityWsEvent,
   excludeUserId?: string,
 ): Promise<void> {
   const startedAt = Date.now()
@@ -224,7 +224,7 @@ async function runBroadcastToUsers(
   }
 }
 
-export function broadcastToUser(userId: string, message: WsMessage): Promise<void> {
+export function broadcastToUser(userId: string, message: CommunityWsEvent): Promise<void> {
   if (message.type.startsWith("community:")) {
     if (!isValidCommunityUserTarget(userId)) {
       return Promise.reject(new Error("invalid community broadcast target"))
@@ -263,7 +263,7 @@ function serializeBulkBroadcast(
 
 export function broadcastToUsers(
   userIds: string[],
-  message: WsMessage,
+  message: CommunityWsEvent,
   excludeUserId?: string,
 ): Promise<void> {
   const work = runBroadcastToUsers(userIds, message, excludeUserId)

@@ -18,59 +18,6 @@ import {
   MAX_SERVER_ICON_SIZE_BYTES,
 } from "./constants/community";
 
-export const ColleagueDataApiSchema = z.object({
-  name: z.string(),
-  email: z.string(),
-  description: z.string(),
-  instruction: z.string(),
-});
-
-export const TaskAgentDataApiSchema = z.object({
-  instructions: z.string(),
-  name: z.string(),
-  runtime_config: z.record(z.string(), z.unknown()).default({}),
-  email_handle: z.string().nullable().optional(),
-  email_addresses: z.array(z.string()).default([]),
-  user_email: z.string().nullable().optional(),
-  user_name: z.string().nullable().optional(),
-  colleagues: z.array(ColleagueDataApiSchema).default([]),
-});
-
-export const TaskApiBaseSchema = z.object({
-  id: z.string(),
-  agent_id: z.string(),
-  runtime_id: z.string(),
-  conversation_id: z.string(),
-  workspace_id: z.string(),
-  prompt: z.string(),
-  status: z.string(),
-  priority: z.number(),
-  dispatched_at: z.string().nullable(),
-  started_at: z.string().nullable(),
-  completed_at: z.string().nullable(),
-  result: z.unknown().nullable(),
-  error: z.string().nullable(),
-  created_at: z.string(),
-  type: z.string(),
-  context_key: z.string().nullable().optional(),
-  context: z.unknown().nullable().optional(),
-  trace_id: z.string().nullable().optional(),
-  parent_task_id: z.string().nullable().optional(),
-  channel: z.string().nullable().optional(),
-});
-
-export const TaskSenderApiSchema = z.object({
-  name: z.string(),
-  email: z.string(),
-  is_owner: z.boolean(),
-});
-
-export const TaskApiSchema = TaskApiBaseSchema.extend({
-  agent: TaskAgentDataApiSchema.nullable().optional(),
-  sender: TaskSenderApiSchema.nullable().optional(),
-});
-export type TaskApi = z.infer<typeof TaskApiSchema>;
-
 export const COMMUNITY_RUNTIME_ID_MAX = 64;
 export const COMMUNITY_RUNTIME_VERSION_MAX = 64;
 export const COMMUNITY_RUNTIME_LIST_MAX = 64;
@@ -86,37 +33,6 @@ export const MeetingInfoSchema = z.object({
   endTime: MeetingTimeSchema,
   attendees: z.array(z.object({ name: z.string(), email: z.string() })),
 });
-
-export const EmailNotifyRequestSchema = z.object({
-  agentId: z.string().min(1),
-  workspaceId: z.string().min(1),
-  r2Key: z.string().min(1),
-  from: z.string().min(1),
-  to: z.string().optional(),
-  subject: z.string(),
-  isWhitelisted: z.boolean(),
-  forwarded: z.boolean().optional().default(false),
-  messageId: z.string().optional().default(""),
-  inReplyTo: z.string().optional().default(""),
-  references: z.string().optional().default(""),
-  meetingInfo: MeetingInfoSchema.nullable().optional(),
-  attachments: z.string().optional(),
-  traceId: z.string().optional(),
-  sourceTaskId: z.string().optional(),
-  isInternal: z.boolean().optional().default(false),
-  senderConversationId: z.string().optional(),
-  senderAgentId: z.string().optional(),
-});
-export type EmailNotifyRequest = z.infer<typeof EmailNotifyRequestSchema>;
-
-export const WorkspaceFileEntrySchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  isDirectory: z.boolean(),
-  size: z.number(),
-  modifiedAt: z.string(),
-});
-export type WorkspaceFileEntry = z.infer<typeof WorkspaceFileEntrySchema>;
 
 // Runtime id charset: alnum + `._@/-`. Length capped at 64 to match the
 // on-wire, on-disk, and DB expectations. Version optional, length-capped.

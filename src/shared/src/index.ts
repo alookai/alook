@@ -1,34 +1,5 @@
 
 export * from "./automation";
-export type {
-  User,
-  Workspace,
-  Agent,
-  AgentRuntime,
-  RuntimeMetadata,
-  Machine,
-  Conversation,
-  Message,
-  TaskMessage,
-  TaskMessageResponse,
-  MachineToken,
-  Email,
-  EmailDirection,
-  EmailAttachment,
-  Artifact,
-  AgentEmailAccount,
-  LoginResponse,
-  CreateAgentRequest,
-  CalendarEvent,
-  Issue,
-  IssueComment,
-  AgentLink,
-  MeetingSession,
-  Channel,
-  WsMessage,
-  WorkspaceFileResult,
-} from "./types";
-
 export * from "./diagnostics-contract";
 export * from "./community-attention";
 export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
@@ -169,11 +140,6 @@ export type {
 } from "./constants";
 
 export {
-  TaskAgentDataApiSchema,
-  TaskApiBaseSchema,
-  TaskApiSchema,
-  EmailNotifyRequestSchema,
-  WorkspaceFileEntrySchema,
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
   ReasoningEffortSchema,
@@ -243,8 +209,6 @@ export {
 } from "./schemas";
 
 export type {
-  TaskApi,
-  WorkspaceFileEntry,
   CommunityDaemonReady,
   CommunityPairTokenResponse,
   CommunityDaemonActivateRequest,

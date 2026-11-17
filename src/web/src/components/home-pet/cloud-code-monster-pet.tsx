@@ -3,7 +3,6 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef } from "react";
 
-import type { WsMessage } from "@alook/shared";
 
 import styles from "./cloud-code-monster-pet.module.css";
 
@@ -29,9 +28,7 @@ import {
 import { CLOUD_CODE_MONSTER_ACTIVITIES } from "./cloud-code-monster-pet-activity-data";
 import {
   CLOUD_CODE_MONSTER_AUTO_WALK_STEP_MS,
-  CLOUD_CODE_MONSTER_ATTENTION_MS,
   CLOUD_CODE_MONSTER_DOZE_MS,
-  CLOUD_CODE_MONSTER_ERROR_MS,
   CLOUD_CODE_MONSTER_FAINT_MS,
   CLOUD_CODE_MONSTER_NO_WORK_SLEEP_MS,
   CLOUD_CODE_MONSTER_PEEK_INTERVAL_MS,
@@ -88,9 +85,7 @@ export {
 } from "./cloud-code-monster-pet-activity-data";
 export {
   CLOUD_CODE_MONSTER_ACTIVITY_REFRESH_MS,
-  CLOUD_CODE_MONSTER_ATTENTION_MS,
   CLOUD_CODE_MONSTER_DOZE_MS,
-  CLOUD_CODE_MONSTER_ERROR_MS,
   CLOUD_CODE_MONSTER_FAINT_MIN_EVENTS,
   CLOUD_CODE_MONSTER_FAINT_MS,
   CLOUD_CODE_MONSTER_NO_WORK_SLEEP_MS,
@@ -119,7 +114,6 @@ export type {
 export type CloudCodeMonsterPetProps = {
   inboxCount?: number;
   activeAgentTaskCount?: number;
-  subscribeWs?: (callback: (message: WsMessage) => void) => () => void;
   boundaryRef: RefObject<HTMLElement | null>;
   coordinateSpace?: PetCoordinateSpace;
   initialPosition?: PetPoint;
@@ -333,7 +327,6 @@ export function resolveCloudCodeMonsterMotionPose(
 export function CloudCodeMonsterPet({
   inboxCount = 0,
   activeAgentTaskCount = 0,
-  subscribeWs,
   boundaryRef,
   coordinateSpace = "viewport",
   initialPosition,
@@ -927,58 +920,6 @@ const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
     setPlatformActivity,
     stopTemporaryMotion,
   ]);
-
-  useEffect(() => {
-    if (!subscribeWs) {
-      return;
-    }
-
-    const showTransientActivity = (
-      activityId: CloudCodeMonsterActivityId,
-      durationMs = CLOUD_CODE_MONSTER_ATTENTION_MS
-    ) => {
-      stopTemporaryMotion();
-      const showActivity = () => {
-        setPlatformActivity(activityId);
-        setPetTimer("attention", () => {
-          setActivityState((current) => {
-            if (current?.activityId !== activityId) {
-              return current;
-            }
-            const nextState = createCloudCodeMonsterIdleState();
-            writeStoredActivity(nextState);
-            return nextState;
-          });
-        }, durationMs);
-      };
-
-      if (isSleepyActivity(activityState?.activityId ?? null)) {
-        setPlatformActivity("waking");
-        setPetTimer("attention", showActivity, CLOUD_CODE_MONSTER_WAKE_MS);
-        return;
-      }
-
-      showActivity();
-    };
-
-    return subscribeWs((msg) => {
-      if (msg.type === "task.created") {
-        showTransientActivity("carrying", 3_000);
-      } else if (msg.type === "artifact.uploaded" || msg.type === "workspace.files") {
-        showTransientActivity("carrying", 3_000);
-      } else if (msg.type === "email.received") {
-        showTransientActivity("notification", CLOUD_CODE_MONSTER_ATTENTION_MS);
-      } else if (msg.type === "task.updated") {
-        if (msg.status === "completed") {
-          showTransientActivity("attention", CLOUD_CODE_MONSTER_ATTENTION_MS);
-        } else if (msg.status === "failed") {
-          showTransientActivity("error", CLOUD_CODE_MONSTER_ERROR_MS);
-        } else if (msg.status === "cancelled" || msg.status === "superseded") {
-          showTransientActivity("sweeping", 3_000);
-        }
-      }
-    });
-  }, [activityState?.activityId, setActivityState, setPetTimer, setPlatformActivity, stopTemporaryMotion, subscribeWs]);
 
   const startShockReaction = useCallback(() => {
     setReacting(true);

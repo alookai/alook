@@ -13,7 +13,7 @@ import {
   isCommunityEventCandidate,
   isCommunityEventType,
   isUserWsConnectionPong,
-  type WsMessage,
+  type CommunityWsEvent,
 } from "@alook/shared"
 import {
   type CommunityWsFrameDropReason,
@@ -97,7 +97,7 @@ function normalizedCloseCode(code: number | undefined): number {
   return code
 }
 
-export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
+export type WsMessageIncoming = CommunityWsEvent & { [key: string]: unknown }
 
 export type UserWsConnectionPhase = "authenticated" | "reconnecting" | "suspended"
 
