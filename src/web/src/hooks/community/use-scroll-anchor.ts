@@ -717,15 +717,13 @@ export function useScrollAnchor({
     if (!reading?.pending) return
     const root = scrollRef.current, native = virtualizerRef.current, owner = positionOwnerRef.current
     const context = contextRef.current
-    if (!readingMessageRef.current || context.dataState !== "ready" || !root || !native || reading.root !== root || !owner.active || !context.active || !context.visible
+    if (!readingMessageRef.current || !root || !native || reading.root !== root || !owner.active || !context.active || !context.visible
       || owner.epoch !== reading.epoch || owner.manualEpoch !== reading.epoch
-      || reading.window !== context.messageWindow || reading.items !== currentItemsRef.current
-      || reading.height !== root.clientHeight || reading.width !== root.clientWidth
-      || reading.paddingEnd !== (native.options.paddingEnd ?? 0) || positionKind.get() !== "idle") {
+      || context.dataState === "error" || context.dataState === "empty" || positionKind.get() !== "idle") {
       userInputRef.current.reading = null
       return
     }
-    if (paginationRef.current?.phase === "settling" || semanticIntentRef.current || projectionAnchorRef.current
+    if (context.dataState !== "ready" || paginationRef.current?.phase === "settling" || semanticIntentRef.current || projectionAnchorRef.current
       || viewportCorrectionRef.current) return
     const id = readReadingMessage()
     if (!id) return
@@ -1489,9 +1487,7 @@ export function useScrollAnchor({
       const currentInput = readingInput()
       if (currentInput && positionOwnerRef.current.manualEpoch === currentInput.epoch) {
         currentInput.pending = !!reading?.pending && reading.epoch === currentInput.epoch
-          && reading.root === root && reading.window === currentInput.window && reading.items === currentInput.items
-          && reading.height === currentInput.height && reading.width === currentInput.width
-          && reading.paddingEnd === currentInput.paddingEnd
+          && reading.root === root
         if (currentInput.pending && reading) currentInput.messageId = reading.messageId
         inputOwner.reading = currentInput
       } else inputOwner.reading = null
@@ -1533,9 +1529,7 @@ export function useScrollAnchor({
         && !(paginationRef.current?.phase === "settling" && paginationRef.current.restoringBody) ? previous : null
       releasePosition(true)
       const current = readingInput()
-      if (current && carry && carry.root === root && carry.window === current.window && carry.items === current.items
-        && carry.height === current.height && carry.width === current.width
-        && carry.paddingEnd === current.paddingEnd) { current.pending = true; current.messageId = carry.messageId }
+      if (current && carry && carry.root === root) { current.pending = true; current.messageId = carry.messageId }
       else if (current && moved && moved.root === current.root && moved.native === virtualizerRef.current
         && moved.entry === positionEntryRef.current && moved.window === current.window && moved.items === current.items
         && moved.clientHeight === current.height && moved.clientWidth === current.width

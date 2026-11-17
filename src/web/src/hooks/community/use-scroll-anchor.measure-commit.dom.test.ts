@@ -359,4 +359,68 @@ describe("manual reading waits for the real matching row commit", () => {
       h.view.unmount()
     }
   })
+  it.each((["window", "items", "both"] as const).flatMap(scope => [false, true].map(continued => [scope, continued] as const)))("retains actual movement through same-owner %s publication with continued intent=%s", (scope, continued) => {
+    const { h, reading } = pendingReader()
+    try {
+      h.stage({ ...(scope !== "items" ? { messageWindow: {} } : {}), ...(scope !== "window" ? { items: [...h.input.items] } : {}) })
+      if (continued) fireEvent.wheel(h.root, { deltaY: -800 })
+      runFrames(40)
+      expect(reading).not.toHaveBeenCalled()
+      expect(scrollFixture.frames.size).toBe(0)
+      const before = h.root.scrollTop
+      publishRows()
+      runFrames(2)
+      expect(h.root.scrollTop).toBe(before)
+      expect(reading).toHaveBeenCalledExactlyOnceWith(actualReadingBody(h.root))
+      resize(40)
+      expect(reading).toHaveBeenCalledOnce()
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+  it.each(["entry", "hidden", "retired"] as const)("does not revive published movement after %s ownership ends", retirement => {
+    const { h, reading } = pendingReader()
+    try {
+      h.stage({ messageWindow: {}, items: [...h.input.items] })
+      const stale = commitGate.publish!
+      if (retirement === "retired") {
+        h.view.unmount()
+        commitGate.hold = false
+        act(() => stale())
+        runFrames(40)
+        expect(reading).not.toHaveBeenCalled()
+        expect(scrollFixture.frames.size).toBe(0)
+        return
+      }
+      if (retirement === "entry") h.stage({ positionEntry: {} })
+      else { h.stage({ active: false }); h.stage({ active: true }) }
+      fireEvent.wheel(h.root, { deltaY: -800 })
+      publishRows()
+      runFrames(40)
+      expect(reading).not.toHaveBeenCalled()
+      expect(scrollFixture.frames.size).toBe(0)
+      fireEvent.wheel(h.root, { deltaY: 800 })
+      act(() => h.root.scrollTo({ top: 500 }))
+      resize(40)
+      expect(reading).toHaveBeenCalledExactlyOnceWith(actualReadingBody(h.root))
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+
+  it("waits for current data after real movement and a committed replacement window", () => {
+    const { h, reading } = pendingReader()
+    try {
+      h.stage({ positionDataState: "pending", messageWindow: {}, items: [...h.input.items] })
+      publishRows()
+      runFrames(40)
+      expect(reading).not.toHaveBeenCalled()
+      expect(scrollFixture.frames.size).toBe(0)
+      const before = h.root.scrollTop
+      h.update({ positionDataState: "ready" })
+      expect(h.root.scrollTop).toBe(before)
+      expect(reading).toHaveBeenCalledExactlyOnceWith(actualReadingBody(h.root))
+      resize(40)
+      expect(reading).toHaveBeenCalledOnce()
+      expect(scrollFixture.frames.size).toBe(0)
+    } finally { commitGate.hold = false; h.view.unmount() }
+  })
+
 })
