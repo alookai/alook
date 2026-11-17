@@ -2,7 +2,7 @@ import { createRequire } from 'node:module'
 import { registerQuerySource } from './source-context.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Sqlite, analyzeQuery } from './analyze.mjs'
@@ -48,7 +48,7 @@ test('captured source sites are exact; other branches stay uncovered and reports
   const capture = createCapture(root)
   const file = 'src/shared/src/db/queries/example.ts'
   const stack = `Error\n at query (${join(root, file)}:10:5)`
-  capture.collect({ sql: 'SELECT * FROM item WHERE id = ?', params: ['private-bound-value'], stack })
+  capture.collect({ sql: 'SELECT * FROM item WHERE id = ?', params: ['private-bound-value'], stack, source: { key: 'observed', file, line: 10 } })
   capture.write(directory)
   assert.equal(readdirSync(directory).length, 1)
   assert.equal(JSON.parse(readFileSync(join(directory, readdirSync(directory)[0]))).records.length, 1)
@@ -107,4 +107,47 @@ test('normal insert FK parents are proved from actual indexed fixture rows; miss
   const record = records.find(query => query.params[0] === 'broken')
   assert.equal(record.context.insertedParentsSatisfied, false)
   assert.equal(analyzeQuery(db, sql, record.params, record.context).scans.some(scan => scan.table === 'old_child'), true)
+})
+
+test('source frames preserve Windows drive paths and encoded file URLs', () => {
+  const root = 'C:\\qa\\repo'
+  const expected = 'src/shared/src/db/queries/raw.ts'
+  for (const stack of ['Error\n at query (C:\\qa\\repo\\src\\shared\\src\\db\\queries\\raw.ts:12:3)', 'Error\n at query (file:///C:/qa/repo/src/shared/src/db/queries/raw.ts:12:3)']) {
+    assert.equal(sourceFrames(root, stack)[0].file, expected)
+  }
+  assert.equal(sourceFrames('/qa/my repo', 'Error\n at query (file:///qa/my%20repo/src/shared/src/raw.ts:5:2)')[0].file, 'src/shared/src/raw.ts')
+})
+
+test('same-line branches need their actual site identity; stack ranges never imply coverage', t => {
+  const db = new Sqlite(':memory:')
+  db.exec('CREATE TABLE item(id TEXT PRIMARY KEY)')
+  const directory = mkdtempSync(join(tmpdir(), 'query-branch-coverage-'))
+  t.after(() => { db.close(); rmSync(directory, { recursive: true, force: true }) })
+  const file = 'src/shared/src/db/queries/same-line.ts'
+  const inventory = { filesScanned: 1, sites: [{ key: 'executed', file, line: 1, endLine: 1 }, { key: 'unexecuted', file, line: 1, endLine: 1 }] }
+  const record = { sql: 'SELECT * FROM item WHERE id=?', params: ['fixture'], siteKey: 'executed', frames: [{ file, line: 1, column: 5 }] }
+  const path = join(directory, 'capture.json')
+  writeFileSync(path, JSON.stringify({ records: [record] }))
+  const exact = buildReport(db, inventory, directory, 0)
+  assert.equal(exact.summary.observedSites, 1)
+  assert.deepEqual(exact.uncovered.map(site => site.key), ['unexecuted'])
+  writeFileSync(path, JSON.stringify({ records: [{ ...record, siteKey: undefined }] }))
+  const ambiguous = buildReport(db, inventory, directory, 0)
+  assert.equal(ambiguous.summary.observedSites, 0)
+  assert.equal(ambiguous.summary.unattributedStatements, 1)
+  assert.equal(ambiguous.outcome, 'observed-queries-passed-with-coverage-gaps')
+})
+
+test('D1 receiver names and aliases cannot change inventory; R2 remains a different service', () => {
+  const sources = {
+    'src/web/src/d1-alias.ts': `import type {D1Database as Store} from '@cloudflare/workers-types'; export function q(connection: Store) { return connection.prepare('SELECT 1'); }`,
+    'src/web/src/d1-named.ts': `import type {D1Database} from '@cloudflare/workers-types'; export function q(db: D1Database) { return db.prepare('SELECT 1'); }`,
+    'src/web/src/d1-global.ts': `export function q(connection: D1DatabaseSession) { return connection.prepare('SELECT 1'); }`,
+    'src/web/src/r2-only.ts': `import type {R2Bucket} from '@cloudflare/workers-types'; export function q(connection: R2Bucket) { return connection.get('key'); }`,
+  }
+  const inventory = inventoryQueries(process.cwd(), sources)
+  assert.equal(inventory.sites.length, 3)
+  assert.equal(inventory.sites.every(site => site.method === 'prepare' && site.resolution === 'database-type'), true)
+  const anySources = { 'src/web/src/unresolved.ts': `export function q(db: any, connection: any) { db.prepare('SELECT 1'); connection.prepare('SELECT 1'); }` }
+  assert.equal(inventoryQueries(process.cwd(), anySources).sites.length, 2)
 })

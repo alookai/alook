@@ -44,7 +44,7 @@ try {
   writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n')
   writeFileSync(join(output, 'report.md'), markdownReport(report))
   console.log(JSON.stringify({ outcome: report.outcome, ...report.summary, report: join(output, 'report.md') }))
-  process.exitCode = report.outcome === 'failed' || requireComplete && report.uncovered.length ? 1 : 0
+  process.exitCode = report.outcome === 'failed' || requireComplete && (report.uncovered.length || report.summary.unattributedStatements) ? 1 : 0
 } catch (error) {
   writeFileSync(join(output, 'failure.json'), JSON.stringify({ error: String(error.stack ?? error) }, null, 2))
   console.error(error)

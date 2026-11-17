@@ -1,5 +1,6 @@
 import { readdirSync, existsSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { relative, resolve, win32 } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 export const backendRoots = ['src/shared/src', 'src/web/src', 'src/web/auth', 'src/ws-do/src', 'src/email-worker/src', 'src/queue-worker/src', 'src/daemon/src', 'src/app/src']
@@ -36,7 +37,8 @@ export function inventoryQueries(root, override) {
     const original = host.readFile
     host.readFile = file => override[relative(root, file).replaceAll('\\', '/')] ?? original(file)
   }
-  const program = ts.createProgram(files, { allowJs: true, target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, skipLibCheck: true, baseUrl: root, paths: { '@/*': ['src/web/src/*'] } }, host)
+  const workerTypes = resolve(root, 'src/shared/node_modules/@cloudflare/workers-types/index.d.ts')
+  const program = ts.createProgram(existsSync(workerTypes) ? [...files, workerTypes] : files, { allowJs: true, target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, skipLibCheck: true, baseUrl: root, paths: { '@/*': ['src/web/src/*'], '@cloudflare/workers-types': ['src/shared/node_modules/@cloudflare/workers-types/index.ts'] } }, host)
   const checker = program.getTypeChecker()
   const sites = []
   const ordinals = new Map()
@@ -50,8 +52,9 @@ export function inventoryQueries(root, override) {
         const fluentTerminal = ['all', 'get', 'run', 'execute'].includes(method) && ts.isCallExpression(receiver)
         const declarations = fluentTerminal ? [] : checker.getPropertyOfType(checker.getTypeAtLocation(receiver), method)?.declarations ?? []
         const declarationFiles = declarations.map(item => item.getSourceFile().fileName.replaceAll('\\', '/'))
-        const isDb = declarationFiles.some(path => /(?:drizzle-orm|better-sqlite3|@types\/node\/sqlite)/.test(path))
-        const unknown = !declarations.length && /(?:\bdb\b|\btx\b|\bDB\b|database|sqlite|storage\.sql)/i.test(receiver.getText(source))
+        const isWorkerSql = declarations.some((declaration, index) => declarationFiles[index].includes('@cloudflare/workers-types/') && /^(?:D1Database|D1DatabaseSession|D1PreparedStatement|SqlStorage)$/.test(declaration.parent?.name?.getText() ?? ''))
+        const isDb = isWorkerSql || declarationFiles.some(path => /(?:drizzle-orm|better-sqlite3|@types\/node\/sqlite)/.test(path))
+        const unknown = !declarations.length
         if ((isDb || unknown) && !fluentTerminal) {
           let chain = node
           while (chain.parent && (ts.isPropertyAccessExpression(chain.parent) || ts.isCallExpression(chain.parent) && chain.parent.expression === chain)) chain = chain.parent
@@ -79,10 +82,13 @@ export function inventoryQueries(root, override) {
 
 export function sourceFrames(root, stack) {
   const frames = []
+  const windows = /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('\\\\')
   for (const match of stack.matchAll(/\(?((?:file:\/\/\/|[A-Za-z]:[\\/]|\/)[^()\n]+?):(\d+):(\d+)\)?/g)) {
     let file = match[1]
-    if (file.startsWith('file:')) file = decodeURIComponent(new URL(file).pathname)
-    file = relative(root, file).replaceAll('\\', '/')
+    if (file.startsWith('file:')) {
+      try { file = fileURLToPath(file, { windows }) } catch { continue }
+    }
+    file = (windows ? win32.relative(root, file) : relative(root, file)).replaceAll('\\', '/')
     if (backendRoots.some(directory => file.startsWith(`${directory}/`)) && productionFile(file)) frames.push({ file, line: Number(match[2]), column: Number(match[3]) })
   }
   return frames
