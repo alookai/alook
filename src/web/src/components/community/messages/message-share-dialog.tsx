@@ -235,7 +235,7 @@ export function MessageShareDialog({ m, open, onClose }: {
           <DialogTitle>{messages.length > 1 ? `Share ${messages.length} messages` : "Share message"}</DialogTitle>
         </DialogHeader>
 
-        <div className="thin-scrollbar max-h-[60vh] overflow-y-auto bg-muted/40 px-6 py-6">
+        <div className="thin-scrollbar max-h-[60vh] overflow-x-hidden overflow-y-auto bg-muted/40 px-6 py-6">
           {session.status === "ready" ? (
             <div
               ref={previewRef}
@@ -265,12 +265,13 @@ export function MessageShareDialog({ m, open, onClose }: {
           {open && session.status !== "ready" && (
             <div
               aria-hidden
-              className="pointer-events-none fixed left-[-10000px] top-0 w-[calc(var(--app-safe-width)-5rem)] max-w-2xl opacity-0"
+              className="pointer-events-none fixed left-[-10000px] top-0 w-[calc(var(--app-safe-width)-5rem)] max-w-160 opacity-0"
             >
               <div
                 ref={setPreparationNode}
                 data-share-card-source
-                className="rounded-xl bg-card p-5 shadow-(--e1)"
+                data-share-sticker=""
+                className="relative isolate mx-auto rounded-[22px] bg-[#fffdf8]/[0.004] p-7 [--card:#f6efe2] dark:bg-[#121317]/[0.004] dark:[--card:#121317]"
               >
             <ShareImagePreparationContext value={true}>
             {messages.map((msg) => {

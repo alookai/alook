@@ -3226,6 +3226,7 @@ body {
   .app-safe-popup {
     max-height: calc(100% - 2rem);
     max-width: calc(100% - 2rem);
+    overflow-x: hidden;
     overflow-y: auto;
   }
 }

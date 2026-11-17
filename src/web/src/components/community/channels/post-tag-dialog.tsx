@@ -324,6 +324,7 @@ export function PostTagDialog({
         <DialogTrigger ref={triggerRef} render={trigger} />
         <DialogContent
           ref={surfaceRef}
+          data-own-padding=""
           tabIndex={-1}
           showCloseButton={false}
           data-testid={tid.forumTagDialog}

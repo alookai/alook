@@ -393,8 +393,8 @@
 }
 
 /* Surfaces: outline only, no shadow */
-.theme :is([data-slot="card"], [data-slot="dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="select-content"], [data-slot="popover-content"]),
-.theme:is([data-slot="dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="select-content"], [data-slot="popover-content"]) {
+.theme :is([data-slot="card"], [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"], [data-slot="popover-content"]),
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"], [data-slot="popover-content"]) {
   border: var(--tn-stroke) solid var(--tn-line);
   border-radius: 20px;
   background-color: var(--tn-surface);
@@ -403,27 +403,282 @@
   --tw-ring-shadow: 0 0 #0000;
 }
 
-.theme :is([data-slot="dropdown-menu-content"], [data-slot="select-content"]),
-.theme:is([data-slot="dropdown-menu-content"], [data-slot="select-content"]) {
+.theme :is([data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"]),
+.theme:is([data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"]) {
   min-width: 220px;
   padding: 6px;
   border-radius: 16px;
 }
 
-.theme [data-slot="dropdown-menu-item"] {
+.theme :is([data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-sub-content"]),
+.theme:is([data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-sub-content"]) {
+  padding: 6px;
+  border-radius: 16px;
+}
+
+.theme :is([data-slot="dropdown-menu-item"], [data-slot="context-menu-item"]) {
   border-radius: 10px;
   padding: 8px 10px;
 }
 
-.theme [data-slot="dropdown-menu-item"]:hover,
-.theme [data-slot="dropdown-menu-item"][data-highlighted] {
+.theme :is([data-slot="dropdown-menu-item"], [data-slot="context-menu-item"]):hover,
+.theme :is([data-slot="dropdown-menu-item"], [data-slot="context-menu-item"])[data-highlighted] {
   background: var(--tn-blue-tint);
 }
 
-.theme [data-slot="dialog-content"],
-.theme:is([data-slot="dialog-content"]) {
+.theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]),
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
   gap: 18px;
-  padding: 28px;
+  padding: 28px 30px 26px;
+}
+
+/* Modal popups (confirm/alert, create/edit server/channel/category, people
+ * pickers, limits, crop) share the Direction A die-cut paper sticker shell;
+ * full-screen settings panels, media stages and multi-step onboarding opt out. */
+.theme {
+  --tn-sticker-rim: #fffdf8;
+  --tn-sticker-face: #f6efe2;
+  --tn-sticker-probe-bg: rgb(246 239 226 / 0.4%);
+  --tn-sticker-sheen: linear-gradient(
+    118deg,
+    transparent 26%,
+    rgb(255 255 255 / 46%) 39%,
+    rgb(255 255 255 / 10%) 50%,
+    transparent 60%
+  );
+  --tn-sticker-shadow:
+    drop-shadow(0 1px 0.75px rgb(40 30 15 / 30%))
+    drop-shadow(0 12px 24px rgb(40 30 15 / 14%));
+  --tn-sticker-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22240%22%20height%3D%22240%22%20viewBox%3D%220%200%20240%20240%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M24%203L36%203.2L57%202.2L79%203.6L102%202.3L124%203.7L147%202.4L169%203.6L188%202.3L204%203.2L216%203Q236.5%203.5%20237%2024L236.8%2036L237.8%2058L236.4%2081L237.7%20104L236.3%20127L237.8%20150L236.4%20173L237.6%20191L236.8%20204L237%20216Q236.5%20236.5%20216%20237L204%20236.8L185%20237.7L163%20236.3L141%20237.8L118%20236.4L96%20237.7L73%20236.3L52%20237.6L36%20236.8L24%20237Q3.5%20236.5%203%20216L3.2%20204L2.3%20185L3.7%20162L2.2%20139L3.6%20116L2.3%2093L3.7%2071L2.4%2051L3.2%2036L3%2024Q3.5%203.5%2024%203Z%22%2F%3E%3C%2Fsvg%3E");
+  --tn-sticker-face-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22240%22%20height%3D%22240%22%20viewBox%3D%220%200%20240%20240%22%3E%3Cdefs%3E%3Cmask%20id%3D%22f%22%20maskUnits%3D%22userSpaceOnUse%22%20x%3D%220%22%20y%3D%220%22%20width%3D%22240%22%20height%3D%22240%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M24%203L36%203.2L57%202.2L79%203.6L102%202.3L124%203.7L147%202.4L169%203.6L188%202.3L204%203.2L216%203Q236.5%203.5%20237%2024L236.8%2036L237.8%2058L236.4%2081L237.7%20104L236.3%20127L237.8%20150L236.4%20173L237.6%20191L236.8%20204L237%20216Q236.5%20236.5%20216%20237L204%20236.8L185%20237.7L163%20236.3L141%20237.8L118%20236.4L96%20237.7L73%20236.3L52%20237.6L36%20236.8L24%20237Q3.5%20236.5%203%20216L3.2%20204L2.3%20185L3.7%20162L2.2%20139L3.6%20116L2.3%2093L3.7%2071L2.4%2051L3.2%2036L3%2024Q3.5%203.5%2024%203Z%22%2F%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%2213%22%20stroke-linejoin%3D%22round%22%20d%3D%22M24%203L36%203.2L57%202.2L79%203.6L102%202.3L124%203.7L147%202.4L169%203.6L188%202.3L204%203.2L216%203Q236.5%203.5%20237%2024L236.8%2036L237.8%2058L236.4%2081L237.7%20104L236.3%20127L237.8%20150L236.4%20173L237.6%20191L236.8%20204L237%20216Q236.5%20236.5%20216%20237L204%20236.8L185%20237.7L163%20236.3L141%20237.8L118%20236.4L96%20237.7L73%20236.3L52%20237.6L36%20236.8L24%20237Q3.5%20236.5%203%20216L3.2%20204L2.3%20185L3.7%20162L2.2%20139L3.6%20116L2.3%2093L3.7%2071L2.4%2051L3.2%2036L3%2024Q3.5%203.5%2024%203Z%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Crect%20width%3D%22240%22%20height%3D%22240%22%20fill%3D%22white%22%20mask%3D%22url%28%23f%29%22%2F%3E%3C%2Fsvg%3E");
+}
+
+.theme[data-tn-mode="dark"],
+[data-tn-mode="dark"] .theme,
+:global(.dark) .theme:not([data-tn-mode="light"]) {
+  --tn-sticker-rim: #2c2f38;
+  --tn-sticker-face: #101114;
+  --tn-sticker-probe-bg: rgb(16 17 20 / 0.4%);
+  --tn-sticker-sheen: linear-gradient(
+    118deg,
+    transparent 26%,
+    rgb(255 255 255 / 5.5%) 39%,
+    rgb(255 255 255 / 1.5%) 50%,
+    transparent 60%
+  );
+  --tn-sticker-shadow:
+    drop-shadow(0 1px 0.5px rgb(255 255 255 / 12%))
+    drop-shadow(0 18px 32px rgb(0 0 0 / 72%));
+}
+
+.theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+),
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+) {
+  isolation: isolate;
+  border-width: 0;
+  border-color: transparent;
+  border-radius: 0;
+  background-color: var(--tn-sticker-probe-bg);
+  box-shadow: none;
+  --tw-ring-shadow: 0 0 #0000;
+  filter: var(--tn-sticker-shadow);
+}
+
+.theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::after,
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::after,
+.theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::before,
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::before {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+.theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::after,
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::after {
+  inset: 0;
+  z-index: -2;
+  border-radius: 22px;
+  background: var(--tn-sticker-rim);
+}
+
+.theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::before,
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+  :has([data-testid="community-settings-shell"]),
+  :has([data-testid="community-image-lightbox"]),
+  :global(.alook-video-mask),
+  [data-testid^="onboarding-"],
+  [data-testid^="community-onboarding-"],
+  :has([data-slot="onboarding-progress"]),
+  :has([data-share-session-state]),
+  [class~="w-180"],
+  [class~="rounded-b-none"]
+)::before {
+  inset: 6.5px;
+  z-index: -1;
+  border-radius: 16px;
+  background: var(--tn-sticker-sheen), var(--tn-sticker-face);
+}
+
+@supports (-webkit-mask-box-image-source: none) or (mask-border-source: none) {
+  .theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+    :has([data-testid="community-settings-shell"]),
+    :has([data-testid="community-image-lightbox"]),
+    :global(.alook-video-mask),
+    [data-testid^="onboarding-"],
+    [data-testid^="community-onboarding-"],
+    :has([data-slot="onboarding-progress"]),
+  :has([data-slot="onboarding-progress"]),
+    :has([data-share-session-state]),
+    [class~="w-180"],
+    [class~="rounded-b-none"]
+  )::after,
+  .theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+    :has([data-testid="community-settings-shell"]),
+    :has([data-testid="community-image-lightbox"]),
+    :global(.alook-video-mask),
+    [data-testid^="onboarding-"],
+    [data-testid^="community-onboarding-"],
+    :has([data-slot="onboarding-progress"]),
+  :has([data-slot="onboarding-progress"]),
+    :has([data-share-session-state]),
+    [class~="w-180"],
+    [class~="rounded-b-none"]
+  )::after {
+    border-radius: 0;
+    -webkit-mask-box-image-source: var(--tn-sticker-mask);
+    -webkit-mask-box-image-slice: 36 fill;
+    -webkit-mask-box-image-width: 36px;
+    -webkit-mask-box-image-repeat: stretch;
+    mask-border-source: var(--tn-sticker-mask);
+    mask-border-slice: 36 fill;
+    mask-border-width: 36px;
+    mask-border-repeat: stretch;
+  }
+
+  .theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+    :has([data-testid="community-settings-shell"]),
+    :has([data-testid="community-image-lightbox"]),
+    :global(.alook-video-mask),
+    [data-testid^="onboarding-"],
+    [data-testid^="community-onboarding-"],
+    :has([data-slot="onboarding-progress"]),
+  :has([data-slot="onboarding-progress"]),
+    :has([data-share-session-state]),
+    [class~="w-180"],
+    [class~="rounded-b-none"]
+  )::before,
+  .theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
+    :has([data-testid="community-settings-shell"]),
+    :has([data-testid="community-image-lightbox"]),
+    :global(.alook-video-mask),
+    [data-testid^="onboarding-"],
+    [data-testid^="community-onboarding-"],
+    :has([data-slot="onboarding-progress"]),
+  :has([data-slot="onboarding-progress"]),
+    :has([data-share-session-state]),
+    [class~="w-180"],
+    [class~="rounded-b-none"]
+  )::before {
+    inset: 0;
+    border-radius: 0;
+    -webkit-mask-box-image-source: var(--tn-sticker-face-mask);
+    -webkit-mask-box-image-slice: 36 fill;
+    -webkit-mask-box-image-width: 36px;
+    -webkit-mask-box-image-repeat: stretch;
+    mask-border-source: var(--tn-sticker-face-mask);
+    mask-border-slice: 36 fill;
+    mask-border-width: 36px;
+    mask-border-repeat: stretch;
+  }
 }
 /* Image and video viewers use a frameless stage; their controls own the frame. */
 .theme :is([data-slot="dialog-content"]):has([data-testid="community-image-lightbox"]),
@@ -434,33 +689,32 @@
   border-width: 0;
   background-color: transparent;
 }
-/* Settings (user and server) is a full panel, not a card: no inner padding or
- * gap, so the content background runs to the dialog's right and bottom edges
- * and its corners follow the dialog's own radius (Gus #2369, #2370). */
-.theme :is([data-slot="dialog-content"]):has([data-testid="community-settings-shell"]),
-.theme:is([data-slot="dialog-content"]):has([data-testid="community-settings-shell"]) {
+/* Settings (user and server) and the 720px message-share export stage own
+ * their internal header/stage/footer layout: no outer dialog padding or gap. */
+.theme :is([data-slot="dialog-content"]):is(:has([data-testid="community-settings-shell"]), [class~="w-180"]),
+.theme:is([data-slot="dialog-content"]):is(:has([data-testid="community-settings-shell"]), [class~="w-180"]) {
   padding: 0;
   gap: 0;
   overflow: hidden;
 }
 
-.theme [data-slot="dialog-title"],
-.theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
+.theme :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"]),
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"]) {
   font-size: 22px;
 }
 
-.theme [data-slot="dialog-footer"],
-.theme:is([data-slot="dialog-content"]) [data-slot="dialog-footer"] {
-  margin: 4px -28px -28px;
-  padding: 14px 28px;
-  border-top: var(--tn-stroke) solid var(--tn-line);
-  border-radius: 0 0 18px 18px;
-  background: var(--tn-tray);
+.theme :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"]),
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"]) {
+  margin: 4px 0 0;
+  padding: 0;
+  border-top: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .theme [data-slot="card-title"],
-.theme [data-slot="dialog-title"],
-.theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
+.theme :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"]),
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"]) {
   font-weight: 750;
   letter-spacing: -0.02em;
 }
@@ -1125,7 +1379,7 @@
 }
 
 /* Frameless dialogs: the footer is a quiet shelf, no divider line */
-.theme [data-slot="dialog-footer"] {
+.theme :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"]) {
   border-top-color: transparent !important;
   background: color-mix(in oklab, var(--tn-text) 3%, transparent) !important;
 }
@@ -1712,7 +1966,7 @@
 }
 
 /* Dialog footer: same surface as the body, no band */
-.theme [data-slot="dialog-footer"] {
+.theme :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"]) {
   background: transparent !important;
 }
 
@@ -2394,8 +2648,8 @@
 }
 
 /* #24/#26 One dialog/sheet title style everywhere: same size, weight and ink. */
-.theme :is([data-slot="dialog-title"], [data-slot="sheet-title"]),
-.theme:is([data-slot="dialog-content"]) [data-slot="dialog-title"] {
+.theme :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"], [data-slot="sheet-title"]),
+.theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"]) {
   color: var(--tn-text) !important;
   font-size: 22px !important;
   font-weight: 750 !important;
@@ -2403,26 +2657,65 @@
   line-height: 1.2 !important;
 }
 @media (max-width: 39.99rem) {
-  .theme :is([data-slot="dialog-title"], [data-slot="sheet-title"]) {
+  .theme :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"], [data-slot="sheet-title"]) {
     font-size: 20px !important;
   }
 }
-/* The close key keeps clear of the dialog's rounded corner. */
-.theme [data-slot="dialog-content"] > [data-slot="dialog-close"] {
-  top: 14px !important;
-  right: 14px !important;
+/* The close key keeps clear of the sticker's die-cut rim on both 28px desktop
+ * and 44px mobile touch targets (centering the 16px X glyph 24px from top/right). */
+.theme [data-slot="dialog-content"] > [data-slot="dialog-close"],
+.theme:is([data-slot="dialog-content"]) > [data-slot="dialog-close"] {
+  top: 18px !important;
+  right: 18px !important;
+}
+@media (max-width: 39.99rem) {
+  .theme [data-slot="dialog-content"] > [data-slot="dialog-close"],
+  .theme:is([data-slot="dialog-content"]) > [data-slot="dialog-close"] {
+    top: 10px !important;
+    right: 10px !important;
+  }
 }
 
-/* #24 Dialogs that pad their own rows (the create/edit shell, px-5) don't also
- * take the theme's 28px, so left and right edges match. */
+/* #24 Dialogs that pad their own rows (the create/edit shell and people
+ * pickers, px-5) clear the 7px die-cut rim with an 8px outer inset (28px total),
+ * so left and right edges match standard sticker dialogs. */
 .theme [data-slot="dialog-content"][data-own-padding],
 .theme:is([data-slot="dialog-content"])[data-own-padding] {
-  padding: 0;
+  padding: 8px;
+}
+.theme [data-slot="dialog-content"][data-own-padding][class~="gap-0"],
+.theme:is([data-slot="dialog-content"])[data-own-padding][class~="gap-0"] {
+  gap: 0;
 }
 .theme [data-slot="dialog-content"][data-own-padding] > [data-slot="dialog-footer"],
 .theme:is([data-slot="dialog-content"])[data-own-padding] > [data-slot="dialog-footer"] {
   margin: 0;
   padding: 0 20px 20px;
+}
+
+/* People picker rows & recessed invite-link tray inside sticker dialogs */
+.theme [data-slot="people-picker-row"]:hover {
+  background-color: color-mix(in oklab, var(--tn-text) 5%, transparent) !important;
+}
+.theme[data-tn-mode="dark"] [data-slot="people-picker-row"]:hover,
+[data-tn-mode="dark"] .theme [data-slot="people-picker-row"]:hover,
+:global(.dark) .theme:not([data-tn-mode="light"]) [data-slot="people-picker-row"]:hover {
+  background-color: rgb(255 255 255 / 5.5%) !important;
+}
+
+.theme [data-slot="invite-link-well"] {
+  border: 1px solid color-mix(in oklab, var(--tn-line) 75%, transparent);
+  background: color-mix(in oklab, var(--tn-ink) 4.5%, var(--tn-paper-raised));
+  box-shadow:
+    inset 0 1.5px 3px -1px rgb(60 45 20 / 12%),
+    0 1px 0 rgb(255 255 255 / 65%);
+}
+.theme[data-tn-mode="dark"] [data-slot="invite-link-well"],
+[data-tn-mode="dark"] .theme [data-slot="invite-link-well"],
+:global(.dark) .theme:not([data-tn-mode="light"]) [data-slot="invite-link-well"] {
+  border-color: rgb(255 255 255 / 8%);
+  background: rgb(255 255 255 / 3.5%);
+  box-shadow: inset 0 1.5px 3px rgb(0 0 0 / 55%);
 }
 
 /* #32 Sidebar hover is a faint beige of the same family as the pressed-in

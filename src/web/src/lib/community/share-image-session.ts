@@ -654,6 +654,102 @@ function installImageBytes(image: HTMLImageElement, dataUrl: string): void {
   for (const status of frame.querySelectorAll(':scope > [role="status"]')) status.remove()
 }
 
+const STICKER_WOBBLE = [-0.55, 0.4, -0.2, 0.6, -0.45, 0.3, -0.5, 0.35] as const
+
+function buildDieCutStickerPath(
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  r: number,
+  nHoriz: number,
+  nVert: number,
+  amplitude: number,
+): string {
+  const safeR = Math.max(4, Math.min(r, w / 3, h / 3))
+  const f = (n: number) => Math.round(n * 100) / 100
+  const parts: string[] = [`M ${f(x0 + safeR)} ${f(y0)}`]
+  for (let i = 1; i < nHoriz; i += 1) {
+    const x = x0 + safeR + ((w - 2 * safeR) * i) / nHoriz
+    const dy = STICKER_WOBBLE[(i - 1) % STICKER_WOBBLE.length]! * amplitude
+    parts.push(`L ${f(x)} ${f(y0 + dy)}`)
+  }
+  parts.push(`L ${f(x0 + w - safeR)} ${f(y0)}`)
+  parts.push(`Q ${f(x0 + w - 0.4)} ${f(y0 + 0.4)} ${f(x0 + w)} ${f(y0 + safeR)}`)
+  for (let i = 1; i < nVert; i += 1) {
+    const y = y0 + safeR + ((h - 2 * safeR) * i) / nVert
+    const dx = STICKER_WOBBLE[(i + 2) % STICKER_WOBBLE.length]! * amplitude
+    parts.push(`L ${f(x0 + w + dx)} ${f(y)}`)
+  }
+  parts.push(`L ${f(x0 + w)} ${f(y0 + h - safeR)}`)
+  parts.push(`Q ${f(x0 + w - 0.4)} ${f(y0 + h - 0.4)} ${f(x0 + w - safeR)} ${f(y0 + h)}`)
+  for (let i = nHoriz - 1; i >= 1; i -= 1) {
+    const x = x0 + safeR + ((w - 2 * safeR) * i) / nHoriz
+    const dy = STICKER_WOBBLE[(i + 4) % STICKER_WOBBLE.length]! * amplitude
+    parts.push(`L ${f(x)} ${f(y0 + h + dy)}`)
+  }
+  parts.push(`L ${f(x0 + safeR)} ${f(y0 + h)}`)
+  parts.push(`Q ${f(x0 + 0.4)} ${f(y0 + h - 0.4)} ${f(x0)} ${f(y0 + h - safeR)}`)
+  for (let i = nVert - 1; i >= 1; i -= 1) {
+    const y = y0 + safeR + ((h - 2 * safeR) * i) / nVert
+    const dx = STICKER_WOBBLE[(i + 5) % STICKER_WOBBLE.length]! * amplitude
+    parts.push(`L ${f(x0 + dx)} ${f(y)}`)
+  }
+  parts.push(`L ${f(x0)} ${f(y0 + safeR)}`)
+  parts.push(`Q ${f(x0 + 0.4)} ${f(y0 + 0.4)} ${f(x0 + safeR)} ${f(y0)} Z`)
+  return parts.join(" ")
+}
+
+function isDarkShareTheme(root: HTMLElement): boolean {
+  const doc = root.ownerDocument.documentElement
+  if (doc.classList.contains("dark") || doc.getAttribute("data-tn-mode") === "dark") {
+    return true
+  }
+  return root.closest('[data-tn-mode="dark"], .dark') !== null
+}
+
+function installShareStickerFrame(root: HTMLElement, width: number, height: number): void {
+  root.querySelector("[data-share-sticker-frame]")?.remove()
+  const dark = isDarkShareTheme(root)
+  const w = Math.max(80, Math.round(width * 10) / 10)
+  const h = Math.max(60, Math.round(height * 10) / 10)
+  const nHoriz = Math.max(3, Math.round((w - 48) / 52))
+  const nVert = Math.max(2, Math.round((h - 48) / 52))
+  const outerD = buildDieCutStickerPath(3.5, 3, w - 7, h - 7.5, 21, nHoriz, nVert, 1)
+  const innerD = buildDieCutStickerPath(10, 9.5, w - 20, h - 20.5, 15, nHoriz, nVert, 1)
+
+  const rimFill = dark ? "#2c2f38" : "#fffdf8"
+  const rimStroke = dark ? "rgba(255, 255, 255, 0.13)" : "rgba(40, 30, 15, 0.14)"
+  const faceFill = dark ? "#121317" : "#f6efe2"
+  const shadowFill = dark ? "rgba(0, 0, 0, 0.46)" : "rgba(40, 30, 15, 0.16)"
+  const shadowHalo = dark ? "rgba(0, 0, 0, 0.22)" : "rgba(40, 30, 15, 0.06)"
+  const sheenPeak = dark ? "rgba(255, 255, 255, 0.055)" : "rgba(255, 255, 255, 0.44)"
+  const sheenMid = dark ? "rgba(255, 255, 255, 0.015)" : "rgba(255, 255, 255, 0.1)"
+  const gradId = `alook-share-sheen-${dark ? "d" : "l"}`
+
+  const ns = "http://www.w3.org/2000/svg"
+  const svg = root.ownerDocument.createElementNS(ns, "svg")
+  svg.setAttribute("data-share-sticker-frame", "")
+  svg.setAttribute("aria-hidden", "true")
+  svg.setAttribute("width", String(w))
+  svg.setAttribute("height", String(h))
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`)
+  svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;overflow:visible"
+  svg.innerHTML = [
+    `<defs><linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="62%">`,
+    `<stop offset="26%" stop-color="rgba(255, 255, 255, 0)"/>`,
+    `<stop offset="39%" stop-color="${sheenPeak}"/>`,
+    `<stop offset="50%" stop-color="${sheenMid}"/>`,
+    `<stop offset="60%" stop-color="rgba(255, 255, 255, 0)"/>`,
+    `</linearGradient></defs>`,
+    `<path d="${outerD}" transform="translate(0 1.75)" fill="${shadowFill}" stroke="${shadowHalo}" stroke-width="2.5" stroke-linejoin="round"/>`,
+    `<path d="${outerD}" fill="${rimFill}" stroke="${rimStroke}" stroke-width="0.8" stroke-linejoin="round"/>`,
+    `<path d="${innerD}" fill="${faceFill}"/>`,
+    `<path d="${innerD}" fill="url(#${gradId})"/>`,
+  ].join("")
+  root.insertBefore(svg, root.firstChild)
+}
+
 function freezeTree(root: HTMLElement): { width: number; height: number; backgroundColor: string } {
   const tables = [...root.querySelectorAll<HTMLTableElement>("table")]
   for (const table of tables) {
@@ -706,11 +802,17 @@ function freezeTree(root: HTMLElement): { width: number; height: number; backgro
     element.style.setProperty("transition", "none", "important")
     element.style.setProperty("caret-color", "transparent")
   }
+  const isSticker = root.hasAttribute("data-share-sticker")
+  if (isSticker) {
+    installShareStickerFrame(root, rect.width, rect.height)
+  }
   root.dataset.shareSessionState = "ready"
   return {
     width: rect.width,
     height: rect.height,
-    backgroundColor: rootStyle.getPropertyValue("--card").trim() || rootStyle.backgroundColor,
+    backgroundColor: isSticker
+      ? "transparent"
+      : rootStyle.getPropertyValue("--card").trim() || rootStyle.backgroundColor,
   }
 }
 
@@ -891,9 +993,12 @@ export async function capturePreparedShareImage(
         element.style.setProperty("transition", "none", "important")
       }
       throwIfAborted(signal)
+      const isSticker = card.hasAttribute("data-share-sticker")
       const rasterizeOptions = {
         pixelRatio: SHARE_IMAGE_PIXEL_RATIO,
-        backgroundColor: getComputedStyle(card).getPropertyValue("--card").trim() || undefined,
+        backgroundColor: isSticker
+          ? undefined
+          : getComputedStyle(card).getPropertyValue("--card").trim() || undefined,
         fontEmbedCSS,
         includeQueryParams: true,
         cacheBust: false,

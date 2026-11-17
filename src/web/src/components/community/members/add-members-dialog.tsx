@@ -43,9 +43,19 @@ export function AddMemberRow({
   onAdd: (userId: string) => void
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
-      <Avatar label={candidate.avatar || candidate.name || ""} seed={candidate.userId} size={32} />
-      <div className="min-w-0 flex-1 truncate text-sm font-medium">{displayName(candidate)}</div>
+    <div
+      data-slot="people-picker-row"
+      className="flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-accent/40"
+    >
+      <Avatar
+        label={candidate.avatar || candidate.name || ""}
+        seed={candidate.userId}
+        size={38}
+        ringColor="var(--tn-sticker-face, var(--popover))"
+      />
+      <div className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]">
+        {displayName(candidate)}
+      </div>
       <Button size="sm" disabled={adding} onClick={() => onAdd(candidate.userId)}>
         {adding ? <Loader2 className="size-4 animate-spin" /> : "Add"}
       </Button>
@@ -129,19 +139,25 @@ export function AddMembersDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) { source.retire(); onClose() } }}>
-      <DialogContent className="flex max-h-[min(80vh,calc(100%-2rem))] w-full flex-col gap-0 p-0 sm:max-w-md">
+      <DialogContent
+        data-own-padding=""
+        className="flex h-[max(75%,min(32rem,calc(100%-2rem)))] max-h-[calc(100%-2rem)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-120"
+      >
         <PeoplePickerHeader title={title} subtitle={subtitle} />
 
-        <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 py-2">
-          <label className="relative mx-2 mb-2 block">
-            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="px-5 pt-3 pb-2">
+          <label className="relative block">
+            <Search aria-hidden className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search members"
-              className="pl-9"
+              className="h-10 rounded-xl pl-9.5 text-sm"
             />
           </label>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto thin-scrollbar px-2 pt-1.5 pb-4">
           <PeoplePickerBody
             state={pickerState}
             loading={<PeoplePickerRowsSkeleton actionClassName="w-14" />}
@@ -150,14 +166,16 @@ export function AddMembersDialog({
             retrying={queryState.retrying}
             onRetry={() => { source.capture()(); queryState.retry?.() }}
           >
-            {filtered.map((m) => (
-              <AddMemberRow
-                key={m.userId}
-                candidate={m}
-                adding={addingIds.has(m.userId)}
-                onAdd={add}
-              />
-            ))}
+            <div className="flex flex-col gap-0.5">
+              {filtered.map((m) => (
+                <AddMemberRow
+                  key={m.userId}
+                  candidate={m}
+                  adding={addingIds.has(m.userId)}
+                  onAdd={add}
+                />
+              ))}
+            </div>
           </PeoplePickerBody>
         </div>
       </DialogContent>
