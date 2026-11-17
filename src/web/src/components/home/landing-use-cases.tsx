@@ -4,11 +4,13 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { ArrowRight } from "lucide-react"
 import { HandAccent } from "@/components/brand/hand-accent"
 import { buttonVariants } from "@/components/ui/button"
+import { StepSlide } from "@/components/ui/step-slide"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { trackLandingCtaClicked } from "@/lib/analytics"
 import { getUseCase } from "@/lib/usecases"
 import { cn } from "@/lib/utils"
 import { DocumentNavigationLink } from "./document-navigation-link"
+import { useTabTrayScroll } from "./use-tab-tray-scroll"
 import { CollagePiece } from "./landing-closing-collage"
 import landing from "./landing-page.module.css"
 import styles from "./landing-use-cases.module.css"
@@ -50,6 +52,8 @@ const STORIES = [
 export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [active, setActive] = useAtom(useCreateAtom<string>(STORIES[0].slug))
   const story = STORIES.find(({ slug }) => slug === active) ?? STORIES[0]
+  const index = STORIES.indexOf(story)
+  const { setList, overflow, handlers } = useTabTrayScroll(index)
   return (
     <section id="use-cases" tabIndex={-1} aria-labelledby="use-cases-heading" className={styles.section}>
       <div className={styles.container} data-landing-scroll-anchor>
@@ -57,38 +61,36 @@ export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
           <h2 id="use-cases-heading">What will you get done with <HandAccent>Alook</HandAccent>?</h2>
         </div>
         <Tabs value={story.slug} onValueChange={(value) => setActive(String(value))}>
-          <TabsList className={`${styles.tabs} thin-scrollbar`} aria-label="Use cases">
-            {STORIES.map(({ slug, tab }) => <TabsTrigger key={slug} value={slug}>{tab}</TabsTrigger>)}
+          <TabsList ref={setList} className={`${styles.tabs} thin-scrollbar`} aria-label="Use cases" data-overflow={overflow} {...handlers}>
+            {STORIES.map(({ slug, tab }) => <TabsTrigger key={slug} value={slug} id={`use-case-tab-${slug}`} aria-controls="use-case-panel">{tab}</TabsTrigger>)}
           </TabsList>
-          <div role="tabpanel" aria-label={story.tab} className={styles.panel}>
-            {/* Every sticker stays mounted at a fixed ratio so switching tabs never shifts the layout.
-                Like the closing collage, a sticker floats and can be picked up and moved. */}
+          <div id="use-case-panel" role="tabpanel" aria-labelledby={`use-case-tab-${story.slug}`} className={styles.panel}>
             <div className={styles.art} aria-hidden="true">
               {STORIES.map(({ slug, image }) => (
-                <div key={slug} className={styles.slot} data-active={slug === story.slug}>
+                <div key={slug} hidden={slug !== story.slug} className={styles.artScene}>
                   <CollagePiece className={styles.sticker}>
-                    {/* Plain img: Blog-zone asset; the main zone image optimizer cannot fetch it. */}
-                    <img src={image} alt="" width={1200} height={675} loading="lazy" decoding="async" draggable={false} className={cn(landing.collageItem, styles.image)} />
+                    <img src={image} alt="" width={1200} height={675} decoding="async" draggable={false} className={cn(landing.collageItem, styles.image)} />
                   </CollagePiece>
                 </div>
               ))}
             </div>
-            <div className={styles.copy}>
-              <h3>{story.title}</h3>
-              <p>{story.body}</p>
-              {/* The action is the point; the story is the secondary way in (Gus #241). */}
-              <div className={styles.actions}>
-                <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default"
-                  className={cn(buttonVariants({ size: "lg" }), "h-12 px-6 text-base")}
-                  onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "use_cases_open_app" : "use_cases_get_started" })}>
-                  {isLoggedIn ? "Open Alook" : story.cta}
-                </DocumentNavigationLink>
-                <DocumentNavigationLink href={`/usecases/${story.slug}`} data-variant="secondary"
-                  className={cn(buttonVariants({ variant: "secondary", size: "lg" }), "h-12 px-6 text-base")}>
-                  Full story <ArrowRight size={16} aria-hidden="true" />
-                </DocumentNavigationLink>
+            <StepSlide step={story.slug} order={index} className={styles.slide}>
+              <div className={styles.copy}>
+                <h3>{story.title}</h3>
+                <p>{story.body}</p>
+                <div className={styles.actions}>
+                  <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default"
+                    className={cn(buttonVariants({ size: "lg" }), styles.action)}
+                    onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "use_cases_open_app" : "use_cases_get_started" })}>
+                    {isLoggedIn ? "Open Alook" : story.cta}
+                  </DocumentNavigationLink>
+                  <DocumentNavigationLink href={`/usecases/${story.slug}`} data-variant="secondary"
+                    className={cn(buttonVariants({ variant: "secondary", size: "lg" }), styles.action)}>
+                    Full story <ArrowRight size={16} aria-hidden="true" />
+                  </DocumentNavigationLink>
+                </div>
               </div>
-            </div>
+            </StepSlide>
           </div>
         </Tabs>
       </div>

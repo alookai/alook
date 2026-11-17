@@ -55,7 +55,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         onReady={handleHeroReady}
         staticPaper
         desktopSplit
-        nextSectionId="testimonials"
+        nextSectionId="use-cases"
         isLoggedIn={isLoggedIn}
         headline={(
           <>
