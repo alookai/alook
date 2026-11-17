@@ -13,7 +13,8 @@ export const GET = withAuth(communityActorPolicy(), async (_req, ctx) => {
   if (ctx.actor.kind === "human") return writeJSON(await readCommunityBots(getDb(ctx.env.DB), ctx.actor.userId))
   const bots = await queries.communityBot.listBotsForOwner(getDb(ctx.env.DB), ctx.actor.ownerUserId)
   return writeJSON({ bots: bots.map((bot) => ({ id: bot.id, handle: `${bot.name}#${bot.discriminator}`, name: bot.name,
-    machineId: bot.machineId, backendId: bot.runtime, model: bot.modelName, reasoningEffort: bot.reasoningEffort, isActive: bot.isActive, presence: bot.presence })) })
+    machineId: bot.machineId, backendId: bot.runtime, model: bot.modelName, reasoningEffort: bot.reasoningEffort, isActive: bot.isActive, presence: bot.presence,
+    ...(bot.modelObservation ? { modelObservation: bot.modelObservation } : {}) })) })
 })
 
 export const POST = withAuth(humanAuthPolicy, createBotForUser)

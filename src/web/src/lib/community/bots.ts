@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query"
 import { parseCommunityBotsProfileRead, CommunityBotProfileSummarySchema, type CommunityBotsProfileRead } from "@alook/shared"
-import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
+import type { DailyUsageMetric, ReasoningEffort, StoredModelObservation } from "@alook/shared"
 import type { BotActivityDay, CommunityProfilePatch } from "./models/people"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
@@ -30,6 +30,7 @@ export type BotSummary = {
   machineId: string
   runtime: string
   modelName: string | null
+  modelObservation?: StoredModelObservation
   reasoningEffort: ReasoningEffort | null
   runtimeConfigRevision: number
   isActive?: boolean

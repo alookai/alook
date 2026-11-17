@@ -1,3 +1,4 @@
+import { AgentModelReportSchema } from "./model-observation";
 import { RuntimeModelDiscoveryRequestSchema, RuntimeModelDiscoveryErrorSchema } from "./runtime-models-contract";
 import { z } from "zod";
 import { BOT_MODEL_NAME_MAX_LENGTH } from "./community/bot-model";
@@ -333,6 +334,7 @@ export const AgentActivityMessageSchema = z.object({
   usageDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dailyUsage: z.array(DailyUsageSnapshotSchema).max(DAILY_TOKEN_USAGE_WINDOW_DAYS).optional(),
   quota: ProviderQuotaSnapshotSchema.optional(),
+  modelObservation: AgentModelReportSchema.optional(),
 });
 export type AgentActivityMessage = z.infer<typeof AgentActivityMessageSchema>;
 

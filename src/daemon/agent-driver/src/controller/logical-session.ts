@@ -25,6 +25,7 @@ import type {
   ExecutionOutcome,
   SessionAcquisition,
   RuntimeConfigurationObservation,
+  ModelObservation,
 } from "../contract.js";
 import type { AgentDriverHost } from "../contract.js";
 import type {
@@ -44,6 +45,7 @@ import { BufferedEventQueue } from "./event-queue.js";
 import { writeAgentFile } from "../internal/agentFile.js";
 import { scrubDriverErrorMessage, stableErrorCode } from "../internal/errors.js";
 import { mkdirSync } from "node:fs";
+import { modelObservation } from "../internal/model-observation.js";
 
 type SessionState = AgentSessionSnapshot["state"];
 
@@ -218,6 +220,7 @@ implements AgentSession<Specs, Id> {
   private backendSessionId?: string;
   private acquisition?: SessionAcquisition;
   private configuration?: RuntimeConfigurationObservation;
+  private observedModel?: ModelObservation & { readonly observedAt: number };
   private lane: RuntimeLane | null = null;
   private activeTurn?: ActiveTurn;
   private readonly queued: QueuedCommand[] = [];
@@ -446,6 +449,7 @@ implements AgentSession<Specs, Id> {
     return {
       ...(this.acquisition ? { acquisition: this.acquisition } : {}),
       ...(this.configuration ? { configuration: this.configuration } : {}),
+      ...(this.observedModel ? { observedModel: { ...this.observedModel } } : {}),
       sessionInstanceId: this.sessionInstanceId,
       state: this.state,
       backendSessionId: this.backendSessionId,
@@ -805,6 +809,15 @@ implements AgentSession<Specs, Id> {
   ): void {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
     if (this.isClosedPerTurnLaneTail(physicalOwner, generation)) return;
+    const observation = event.kind === "model_observed"
+      ? modelObservation(event.observation.model, event.observation.source, event.observation.provider, event.observation.responseId)
+      : event.kind === "configuration_observed" && event.observation.evidence === "observed" && event.observation.effective === "current"
+        ? modelObservation(event.observation.model, "session") : undefined;
+    if (observation) this.emit({ type: "model_observed", observation: observation.observation,
+      attribution: event.attribution ?? { scope: "root" },
+      ...(this.activeTurn ? { turnId: this.activeTurn.turnId } : {}),
+    });
+    if (event.kind === "model_observed") return;
     if (event.attribution?.scope === "child" || event.attribution?.scope === "unknown") {
       this.emit({
         type: "activity", attribution: event.attribution, kind: event.kind === "internal_progress" ? event.itemType ?? event.kind : event.kind,
@@ -1344,6 +1357,9 @@ implements AgentSession<Specs, Id> {
     if (payload.type === "session_acquired") this.acquisition = payload.acquisition;
     if (payload.type === "configuration_observed") this.configuration = payload.observation;
     const at = this.metricNow();
+    if (payload.type === "model_observed" && payload.attribution.scope === "root" && payload.observation.source !== "aggregate") {
+      this.observedModel = { ...payload.observation, observedAt: at };
+    }
     if (payload.type === "command_accepted" || payload.type === "command_failed") {
       const admittedAt = this.commandAdmittedAt.get(payload.commandId);
       if (admittedAt !== undefined) {

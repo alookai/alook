@@ -32,7 +32,7 @@ export class Agent {
         let finish;
         let timer;
         const result = new Promise((resolve) => { finish = resolve; });
-        const settle = (status) => { clearInterval(timer); finish({ status, result: "done" }); };
+        const settle = (status) => { clearInterval(timer); finish({ status, result: "done", ...(text === "served" ? { model: { id: "native-served" }, responseId: "native-response" } : {}) }); };
         if (text === "spawn") {
           const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
           child.unref();

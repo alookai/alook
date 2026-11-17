@@ -1,3 +1,4 @@
+import { messageModelObservation } from "../../internal/model-observation.js";
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
@@ -824,13 +825,16 @@ export class OpenCodeServiceLane implements RuntimeLane {
       return seq;
     }
     switch (event.type) {
-      case "session.next.step.started":
+      case "session.next.step.started": {
+        const model = messageModelObservation(data);
+        if (model) this.events.emit("runtime_event", { ...model, observation: { ...model.observation, source: "session" } });
         this.events.emit("runtime_event", {
           kind: "internal_progress",
           source: "opencode.service",
           itemType: "step_started",
         } satisfies AdapterEvent);
         break;
+      }
       case "session.next.text.ended":
         if (typeof data.text === "string" && data.text.length > 0) {
           this.events.emit("runtime_event", { kind: "assistant_message_completed", text: data.text } satisfies AdapterEvent);

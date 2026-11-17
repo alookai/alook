@@ -57,6 +57,10 @@ export async function piDurableWorker(init: SdkWorkerInit, emit: (event: Adapter
     if (!active) return;
     for (const message of value.model ?? []) {
       if (message.role === "assistant") {
+        if (typeof message.model === "string") emit({ kind: "model_observed", observation: {
+          model: message.model, source: "response", ...(typeof message.provider === "string" ? { provider: message.provider } : {}),
+          ...(typeof message.responseId === "string" ? { responseId: message.responseId } : {}),
+        }, attribution: { scope: "unknown" } });
         const text = (message.content ?? []).filter((block: any) => block.type === "text").map((block: any) => block.text).join("");
         const reasoning = (message.content ?? []).filter((block: any) => block.type === "thinking").map((block: any) => block.thinking).join("");
         if (text) emit({ kind: "assistant_message_completed", text });

@@ -77,6 +77,10 @@ export async function qoderWorker(init: SdkWorkerInit, emit: (event: AdapterEven
   const consuming = (async () => {
     for await (const frame of query) {
       if (closed) return;
+      if (frame.type === "assistant" && typeof frame.message?.model === "string") emit({
+        kind: "model_observed", observation: { model: frame.message.model, source: "response", ...(typeof frame.message.id === "string" ? { responseId: frame.message.id } : {}) },
+        ...(frame.parent_tool_use_id ? { attribution: { scope: "child", parentCallId: frame.parent_tool_use_id } as const } : {}),
+      });
       if (frame.parent_tool_use_id) {
         emit({ kind: "internal_progress", source: "qoder", itemType: frame.type, attribution: { scope: "child", parentCallId: frame.parent_tool_use_id } });
         continue;

@@ -7,7 +7,7 @@ import type {
   OpenCodeConfig,
   PiConfig,
   QoderConfig, CopilotConfig, CursorSdkConfig, PiDurableConfig,
-  InputReference, InputReturnEvidence, ExecutionOutcome, EventAttribution, SessionAcquisition, RuntimeConfigurationObservation,
+  InputReference, InputReturnEvidence, ExecutionOutcome, EventAttribution, SessionAcquisition, RuntimeConfigurationObservation, ModelObservation,
   PreparedExecutionResource,
   JsonValue,
   RuntimeReasoningCatalog,
@@ -62,6 +62,7 @@ export interface EncodeMessageOptions { mode?: InputMode; inputs?: readonly Inpu
 
 export type AdapterEvent = AdapterEventPayload & { readonly attribution?: EventAttribution };
 type AdapterEventPayload =
+  | { kind: "model_observed"; observation: ModelObservation }
   | { kind: "session_init"; sessionId: string; acquisition?: SessionAcquisition }
   | { kind: "configuration_observed"; observation: RuntimeConfigurationObservation }
   | { kind: "input_observed"; inputs: readonly InputReference[]; evidence: "native_ack" | "user_message" | "conversation" }

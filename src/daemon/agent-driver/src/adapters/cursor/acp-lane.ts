@@ -1,3 +1,4 @@
+import { acpModelObservation } from "../../internal/model-observation.js";
 import { Utf8LineFramer, Utf8TextDecoder } from "../../internal/utf8-lines.js";
 import { EventEmitter } from "node:events";
 import type {
@@ -294,6 +295,8 @@ export class CursorAcpLane implements RuntimeLane {
       }
       this.sessionId = returnedSessionId;
     }
+    const nativeModel = acpModelObservation(session);
+    if (nativeModel) this.events.emit("runtime_event", nativeModel);
     await this.configureModel(session, ctx);
   }
 
@@ -646,6 +649,8 @@ export class CursorAcpLane implements RuntimeLane {
       this.diagnostic("warning", "Cursor ACP emitted an update for a different session");
       return;
     }
+    const observedModel = acpModelObservation(payload.update);
+    if (observedModel) this.events.emit("runtime_event", observedModel);
     if (!this.ready || this.currentPromptRequestId === null) {
       this.diagnostic("warning", "Cursor ACP emitted a session update without an active prompt");
       return;

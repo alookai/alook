@@ -47,6 +47,7 @@ export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => 
     body.description !== undefined && body.description !== before.description
   const runtimeChanged = body.runtime !== undefined && body.runtime !== before.runtime
   const targetRuntime = body.runtime ?? before.runtime
+  if (runtimeChanged && targetRuntime === "codex") return writeError("Choose Codex App or Codex CLI", 400)
   const nextModel = body.model !== undefined
     ? (body.model ?? null)
     : runtimeChanged

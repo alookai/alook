@@ -1,4 +1,4 @@
-import { BOT_AUDIT_TEXT_MAX_BYTES } from "@alook/shared";
+import { BOT_AUDIT_TEXT_MAX_BYTES, type AgentModelReport } from "@alook/shared";
 import { MEMORY_MAINTENANCE_PROMPT } from "./memoryMaintenancePrompt.js";
 import {
   reduceManager,
@@ -990,6 +990,25 @@ export class AgentProcessManager {
   }
   agentBackendId(agentId: string): BuiltinBackendId | null {
     return this.liveBackendIds.get(agentId) ?? null;
+  }
+  modelReportFor(agentId: string): AgentModelReport | undefined {
+    const owner = this.activeSpawnState.get(agentId);
+    if (!owner || owner.superseded || owner.torndown || owner.discardEvents) return undefined;
+    const snapshot = owner.session?.snapshot();
+    const observed = snapshot?.observedModel;
+    const backendId = this.agentBackendId(agentId);
+    if (!observed || observed.source === "aggregate" || !backendId || snapshot?.sessionInstanceId !== owner.sessionInstanceId) return undefined;
+    const observedAt = new Date(observed.observedAt);
+    if (!Number.isFinite(observedAt.getTime())) return undefined;
+    return {
+      agentId, backendId, runtimeConfigRevision: this.appliedRuntimeConfigs.get(agentId)?.runtimeConfigRevision ?? 0, sessionInstanceId: snapshot.sessionInstanceId,
+      ...(snapshot.backendSessionId ? { sessionId: snapshot.backendSessionId } : {}),
+      ...(this.launchIds.get(agentId) ? { launchId: this.launchIds.get(agentId)! } : {}),
+      model: observed.model, source: observed.source,
+      ...(observed.provider ? { provider: observed.provider } : {}),
+      ...(observed.responseId ? { responseId: observed.responseId } : {}),
+      observedAt: observedAt.toISOString(),
+    };
   }
   statusProjection(nowMs: number): Array<{
     agentId: string;

@@ -1,3 +1,4 @@
+import { messageModelObservation } from "../../internal/model-observation.js";
 import type {
   AdapterEvent,
   LaneAdmission,
@@ -347,6 +348,8 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
     const time = record(message.time);
     if (time?.completed === undefined) return;
     this.projectedMessages.add(message.id);
+    const model = messageModelObservation(message);
+    if (model) this.events.emit("runtime_event", model);
     if (Array.isArray(message.content)) for (const value of message.content) {
       const content = record(value);
       if (typeof content?.text !== "string" || !content.text) continue;

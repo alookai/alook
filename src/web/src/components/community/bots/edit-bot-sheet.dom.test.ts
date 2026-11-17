@@ -41,7 +41,7 @@ const HEALTHY_MACHINES = {
       daemonVersion: "0.1.24",
       availableRuntimes: [
         { id: "claude", status: "healthy" },
-        { id: "codex", status: "healthy" },
+        { id: "codex-cli", status: "healthy" },
       ],
     },
   ],
@@ -405,7 +405,7 @@ describe("EditBotSheet — provider switch AlertDialog + toast", () => {
 
   it("Save with new provider opens confirm dialog and does not PATCH yet", () => {
     const renderer = renderSheet()
-    pickRuntime(renderer, "codex")
+    pickRuntime(renderer, "codex-cli")
     act(() => {
       fireEvent.click(saveButton(renderer))
     })
@@ -414,7 +414,7 @@ describe("EditBotSheet — provider switch AlertDialog + toast", () => {
     expect(toastSuccess).not.toHaveBeenCalled()
   })
 
-  it.each(["codex", "agy"])("confirm → PATCH with %s + cleared model, then dispatched toast", async (runtime) => {
+  it.each(["codex-cli", "agy"])("confirm → PATCH with %s + cleared model, then dispatched toast", async (runtime) => {
     useMachinesMock.mockReturnValue({ machines: [{
       id: "mac1", availableRuntimes: [{ id: "claude", status: "healthy" }, { id: runtime, status: "healthy" }],
     }] })
@@ -433,13 +433,13 @@ describe("EditBotSheet — provider switch AlertDialog + toast", () => {
         model: null,
       }),
     )
-    expect(toastSuccess).toHaveBeenCalledWith(`Provider switch to ${runtime === "agy" ? "antigravity cli" : runtime === "codex" ? "Codex (automatic)" : runtime} dispatched`)
+    expect(toastSuccess).toHaveBeenCalledWith(`Provider switch to ${runtime === "agy" ? "antigravity cli" : runtime === "codex-cli" ? "Codex CLI" : runtime} dispatched`)
     expect(toastSuccess.mock.calls.join(" ")).not.toMatch(/offline|next wake|applies when/i)
   })
 
   it("cancel dialog → no PATCH", () => {
     const renderer = renderSheet()
-    pickRuntime(renderer, "codex")
+    pickRuntime(renderer, "codex-cli")
     act(() => {
       fireEvent.click(saveButton(renderer))
     })
@@ -456,7 +456,7 @@ describe("EditBotSheet — current unhealthy runtime stays selectable (Alli #128
           id: "mac1",
           availableRuntimes: [
             { id: "claude", status: "unhealthy" },
-            { id: "codex", status: "healthy" },
+            { id: "codex-cli", status: "healthy" },
             { id: "cursor", status: "unhealthy" },
           ],
         },
@@ -468,7 +468,7 @@ describe("EditBotSheet — current unhealthy runtime stays selectable (Alli #128
     const renderer = renderSheet({ ...BOT, runtime: "claude" })
     const current = runtimeRadio(renderer, "claude")
     const otherUnhealthy = runtimeRadio(renderer, "cursor")
-    const healthy = runtimeRadio(renderer, "codex")
+    const healthy = runtimeRadio(renderer, "codex-cli")
     expect(current.checked).toBe(true)
     expect(current.disabled).toBe(false)
     expect(otherUnhealthy.disabled).toBe(true)
@@ -479,7 +479,7 @@ describe("EditBotSheet — current unhealthy runtime stays selectable (Alli #128
     useMachinesMock.mockReturnValue(HEALTHY_MACHINES)
     const renderer = renderSheet({ ...BOT, runtime: "gemini", modelName: "legacy-model" })
     const removed = runtimeRadio(renderer, "gemini")
-    const healthy = runtimeRadio(renderer, "codex")
+    const healthy = runtimeRadio(renderer, "codex-cli")
 
     expect(removed.checked).toBe(true)
     expect(removed.disabled).toBe(false)
@@ -487,7 +487,7 @@ describe("EditBotSheet — current unhealthy runtime stays selectable (Alli #128
     expect(healthy.disabled).toBe(false)
 
     fireEvent.click(healthy)
-    expect(runtimeRadio(renderer, "codex").checked).toBe(true)
+    expect(runtimeRadio(renderer, "codex-cli").checked).toBe(true)
     expect(updateMutateAsync).not.toHaveBeenCalled()
   })
 })
