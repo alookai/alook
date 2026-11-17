@@ -281,14 +281,12 @@ export async function expectFooterGeometry(
     return {
       display: value.display,
       flexDirection: value.flexDirection,
-      justifyContent: value.justifyContent,
       alignItems: value.alignItems,
     }
   })
   expect(style).toEqual({
     display: "flex",
     flexDirection: "row",
-    justifyContent: "flex-end",
     alignItems: "center",
   })
   for (const actionRect of actionRects) {
@@ -297,6 +295,8 @@ export async function expectFooterGeometry(
   }
   for (let index = 1; index < actionRects.length; index++) {
     expect(actionRects[index]!.x).toBeGreaterThan(actionRects[index - 1]!.x)
+    expect(actionRects[index]!.x - (actionRects[index - 1]!.x + actionRects[index - 1]!.width))
+      .toBe(8)
     expect(actionRects[index]!.y).toBeCloseTo(actionRects[0]!.y, 0)
   }
   const finalAction = actionRects.at(-1)!
