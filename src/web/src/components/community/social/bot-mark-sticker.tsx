@@ -187,7 +187,7 @@ export function BotMarkStickerView({
           </div>
         </div>
       ) : (
-        <div id={`${tabsId}-marks-panel`} role="tabpanel" aria-label="Marked messages" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1`}>
+        <div id={`${tabsId}-marks-panel`} role="tabpanel" aria-label="Marked messages" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1`}>
           {isLoading ? (
             <StickerState label="Loading marked messages" />
           ) : isError ? (

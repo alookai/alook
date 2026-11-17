@@ -37,7 +37,7 @@ export function ConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle className="wrap-anywhere">{title}</DialogTitle>
           <DialogDescription className="wrap-anywhere">{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>

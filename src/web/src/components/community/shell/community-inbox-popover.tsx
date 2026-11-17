@@ -95,7 +95,7 @@ function InboxScrollBody({
       ref={ref}
       data-testid={tid.inboxTabScroll(tab)}
       // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
-      className="flex h-full flex-col overflow-y-auto thin-scrollbar p-3"
+      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar p-3"
       onScroll={onScroll}
       onWheel={() => { transientScrollRef.current = true }}
       onKeyDown={onKeyDown}
