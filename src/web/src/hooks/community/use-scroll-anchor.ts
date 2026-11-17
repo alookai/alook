@@ -1496,11 +1496,15 @@ export function useScrollAnchor({
       const native = virtualizerRef.current
       if (input.touch || input.pointers.size > 0 || positionKind.get() !== "idle" || !readReady.get()
         || contextRef.current.hasMoreNewer || contextRef.current.isFetchingNewer || paginationRef.current?.direction === "newer"
-        || nativeOrigin.get() === currentItemsRef.current[0]?.key) return
+        || nativeOrigin.get() === currentItemsRef.current[0]?.key || !hasCommittedRows()) return
       const geometry = readGeometry()
-      if (!geometry || geometry.isScrolling || !native?.isAtEnd(CONVERSATION_TAIL_SPACE_PX)
+      if (!geometry || !native?.isAtEnd(CONVERSATION_TAIL_SPACE_PX)
         || Math.abs(Math.max(0, geometry.scrollHeight - geometry.clientHeight) - geometry.scrollTop) > CONVERSATION_TAIL_SPACE_PX) return
+      const atTail = native.isAtEnd(1)
+        && Math.abs(Math.max(0, geometry.scrollHeight - geometry.clientHeight) - geometry.scrollTop) <= 1
+      if (geometry.isScrolling && !atTail) return
       setFollowSuspended(false)
+      if (atTail) observeGeometry({ ...geometry, pinEligible: true })
     }
     const onUserIntent = (towardEnd = false) => {
       const previousReading = inputOwner.reading, owner = positionOwnerRef.current
@@ -1606,7 +1610,7 @@ export function useScrollAnchor({
       inputOwner.pointers.clear()
       inputOwner.reading = null
     }
-  }, [holdNativeOrigin, nativeOrigin, observeGeometry, observePageBody, positionKind, readGeometry, readReady, readReadingMessage, reconcileGeometry, releasePosition, reconcileManualReading, scheduleGeometry, scheduleInitialPositionSettled, setFollowSuspended])
+  }, [hasCommittedRows, holdNativeOrigin, nativeOrigin, observeGeometry, observePageBody, positionKind, readGeometry, readReady, readReadingMessage, reconcileGeometry, releasePosition, reconcileManualReading, scheduleGeometry, scheduleInitialPositionSettled, setFollowSuspended])
 
   const capturePageAnchor = useCallback((direction: "older" | "newer") => {
     let anchor: NonNullable<typeof paginationRef.current>["anchor"]
