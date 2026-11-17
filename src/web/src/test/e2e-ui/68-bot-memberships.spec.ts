@@ -18,7 +18,7 @@ async function prepareMembershipCase(actors: CaseActors, resources: CaseResource
   const pair = await call("/api/community/machines/pair", "POST")
   expect(pair.status).toBe(200)
   const { tokenId } = await pair.json() as { tokenId: string }
-  const activation = await fetch(`${WEB_URL}/api/community/daemon/activate`, {method:"POST",headers:{Authorization:`Bearer ${tokenId}`,Origin:WEB_URL,"Content-Type":"application/json"},body:JSON.stringify({hostname:`membership-qa-${Date.now()}`,platform:"darwin",arch:"arm64",runtimeReport:[{id:"codex",status:"healthy"}]})})
+  const activation = await fetch(`${WEB_URL}/api/community/daemon/activate`, {method:"POST",headers:{Authorization:`Bearer ${tokenId}`,Origin:WEB_URL,"Content-Type":"application/json"},body:JSON.stringify({hostname:`membership-qa-${Date.now()}`,platform:"darwin",arch:"arm64",runtimeReport:[{id:"codex-cli",status:"healthy"}]})})
   expect(activation.status).toBe(200)
   const {machineId,credential} = await activation.json() as {machineId:string;credential:string}
   resources.own(machineId, async id => {expect([204,404]).toContain((await call(`/api/community/machines/${id}`,"DELETE")).status)})
@@ -26,7 +26,7 @@ async function prepareMembershipCase(actors: CaseActors, resources: CaseResource
   await machine.opened
   const bots: Bot[] = []
   for (const name of ["Research companion", "Release assistant"]) {
-    const response = await call("/api/community/bots","POST",{name,machineId,runtime:"codex"})
+    const response = await call("/api/community/bots","POST",{name,machineId,runtime:"codex-cli"})
     expect(response.status).toBe(201)
     const {bot} = await response.json() as {bot:{id:string;name:string}}
     resources.own(bot.id,async id => {expect([204,404]).toContain((await call(`/api/community/bots/${id}`,"DELETE")).status)})
