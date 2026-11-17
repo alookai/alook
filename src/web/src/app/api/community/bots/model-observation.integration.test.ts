@@ -8,6 +8,7 @@ import type { MachineRestartHooks } from "../../../../../../ws-do/src/ws-durable
 
 const fixture = vi.hoisted(() => ({ db: undefined as Database | undefined, botId: "" }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), createDb: () => fixture.db }))
+vi.mock("../../../../../../ws-do/src/ws-durable/presence-typing", () => ({ broadcastToAudience: vi.fn(), fanOutTyping: vi.fn(), fanOutTypingStop: vi.fn(), notifyUserDO: vi.fn() }))
 vi.mock("@/lib/db", () => ({ getDb: () => fixture.db }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
 vi.mock("@/lib/middleware/community-agent-runner-auth", () => ({
@@ -40,7 +41,8 @@ describe("authenticated frame → migrated SQLite → bot list HTTP response", (
       let identity: { userId: string; machineId: string; credentialHash: string } | undefined
       const storageGet = vi.fn(async (key: string) => key === IDENTITY_KEY ? identity : undefined)
       const context = { env: { DB: {} }, ctx: { storage: { get: storageGet } }, log: { warn: vi.fn() } } as unknown as WsDurableContext
-      const frame = { type: "agent_model", agentId: botId, backendId: "codex", sessionInstanceId: "epoch", sessionId: "native-session", model: "served", source: "response", responseId: "native-reply", observedAt: new Date().toISOString() }
+      const report = { agentId: botId, backendId: "codex", sessionInstanceId: "epoch", sessionId: "native-session", model: "served", source: "response", responseId: "native-reply", observedAt: new Date().toISOString() }
+      const frame = { type: "agent_activity", agentId: botId, state: "idle", modelObservation: report }
       const receive = (payload: unknown) => handleCommunityMachineMessage(context, {} as WebSocket, payload, {} as MachineRestartHooks)
       const read = async () => {
         const response = await GET(new NextRequest("http://localhost/api/community/bots", { headers: { Authorization: "Bearer crk_test_fixture" } }))
@@ -55,11 +57,21 @@ describe("authenticated frame → migrated SQLite → bot list HTTP response", (
       identity = { userId: "owner", machineId: "machine", credentialHash: "fixture" }
       await receive(frame)
       const bot = await read()
-      const { type: _, ...report } = frame
       expect(bot).toMatchObject({ id: botId, model: "requested", backendId: "codex", modelObservation: { ...report, machineId: "machine" } })
-      await receive({ ...frame, model: "old", observedAt: "2020-01-01T00:00:00.000Z" })
+      await receive({ ...frame, modelObservation: { ...report, model: "old", observedAt: "2020-01-01T00:00:00.000Z" } })
+      for (const invalid of [{ model: "bad\nmodel" }, { backendId: "claude" }, { agentId: "other-bot" }, { observedAt: "2099-01-01T00:00:00.000Z" }]) {
+        await receive({ ...frame, modelObservation: { ...report, ...invalid } })
+        expect((await read()).modelObservation.model).toBe("served")
+      }
+      await queries.communityUserProfile.updateProfile(db, botId, { statusEmoji: null, statusText: null })
+      sqlite.exec("CREATE TRIGGER reject_model BEFORE UPDATE OF model_observation ON community_bot_binding BEGIN SELECT RAISE(ABORT, 'fixture model write failure'); END;")
+      await receive({ ...frame, state: "running", modelObservation: { ...report, model: "failed-write", observedAt: new Date(Date.now() + 1_000).toISOString() } })
+      expect((await queries.communityUserProfile.getProfile(db, botId))?.statusEmoji).not.toBeNull()
+      expect((await read()).modelObservation.model).toBe("served")
+      expect(context.log.warn).toHaveBeenCalledWith("agent model observation write failed", expect.objectContaining({ agentId: botId }))
+      sqlite.exec("DROP TRIGGER reject_model")
       identity = { ...identity, machineId: "foreign-machine" }
-      await receive({ ...frame, model: "foreign" })
+      await receive({ ...frame, modelObservation: { ...report, model: "foreign" } })
       expect((await read()).modelObservation.model).toBe("served")
       expect((await GET(new NextRequest("http://localhost/api/community/bots"))).status).toBe(401)
       expect(sqlite.pragma("foreign_key_check")).toEqual([])

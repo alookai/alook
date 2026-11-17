@@ -176,7 +176,7 @@ export async function recordBotModelObservation(
         eq(user.id, report.agentId), eq(user.ownerUserId, ownerUserId), eq(user.isBot, true), isNull(user.deletedAt),
       ))),
       or(isNull(communityBotBinding.modelObservation),
-        sql`json_extract(${communityBotBinding.modelObservation}, '$.observedAt') <= ${observedAt}`),
+        sql`json_extract(${communityBotBinding.modelObservation}, '$.observedAt') < ${observedAt}`),
     ));
 }
 

@@ -17,4 +17,3 @@ export const AgentModelReportSchema = z.object({
 
 export type AgentModelReport = z.infer<typeof AgentModelReportSchema>;
 export type StoredModelObservation = AgentModelReport & { machineId: string };
-export const AgentModelMessageSchema = AgentModelReportSchema.extend({ type: z.literal("agent_model") });

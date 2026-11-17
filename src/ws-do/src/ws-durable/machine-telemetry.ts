@@ -1,5 +1,6 @@
 import {
   AgentActivityMessageSchema,
+  AgentModelReportSchema,
   DAILY_TOKEN_USAGE_WINDOW_DAYS,
   DailyUsageSnapshotSchema,
   AgentTypingMessageSchema,
@@ -60,7 +61,7 @@ export async function handleActivityFrame(
   identity: CommunityMachineIdentity,
 ): Promise<boolean> {
   const activityParse = AgentActivityMessageSchema
-    .omit({ usageTimeZone: true, usageDay: true, dailyUsage: true, quota: true })
+    .omit({ usageTimeZone: true, usageDay: true, dailyUsage: true, quota: true, modelObservation: true })
     .passthrough()
     .safeParse(parsed)
   if (!activityParse.success) return false
@@ -125,6 +126,10 @@ export async function handleActivityFrame(
     ? null
     : ProviderQuotaSnapshotSchema.safeParse(raw.quota)
   const validQuota = quotaParse?.success ? quotaParse.data : undefined
+  const modelParse = AgentModelReportSchema.safeParse(raw.modelObservation)
+  const observedModel = modelParse.success && modelParse.data.agentId === agentId
+    && Date.parse(modelParse.data.observedAt) <= now.getTime() + IDLE_RESET_MAX_FUTURE_SKEW_MS
+    ? modelParse.data : undefined
   const db = createDb(context.env.DB)
   await handleFrameForBoundBot(context, {
     frameType: "agent_activity",
@@ -237,6 +242,12 @@ export async function handleActivityFrame(
       }
     },
   })
+  if (observedModel) {
+    try {
+      await withD1Retry(() => queries.communityBot.recordBotModelObservation(db, identity.userId, identity.machineId, observedModel),
+        { route: "ws-do:agent-activity-model" })
+    } catch (err) { context.log.warn("agent model observation write failed", { agentId, err: String(err) }) }
+  }
   return true
 }
 

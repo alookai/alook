@@ -560,6 +560,7 @@ describe("native model observations", () => {
       expect(JSON.parse(stored().model_observation)).toEqual({ ...report, machineId: "machine_1", observedAt: "2026-11-17T02:00:00.000Z" })
       for (const [owner, machine, payload] of [
         ["owner_2", "machine_1", report], ["owner_1", "machine_2", report],
+        ["owner_1", "machine_1", report],
         ["owner_1", "machine_1", { ...report, backendId: "claude" }],
         ["owner_1", "machine_1", { ...report, observedAt: "2026-11-17T01:59:59.000Z" }],
       ] as const) await q.recordBotModelObservation(db, owner, machine, { ...payload, model: "must-not-win" })

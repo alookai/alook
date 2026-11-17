@@ -244,7 +244,6 @@ export interface ManagerRuntimeOpts {
   onAgentActivity?: (info: { agentId: string; state: AgentActivityState }) => void;
   onTokenUsageStatus?: (info: { agentId: string; backendId: BuiltinBackendId; status: "available" | "unavailable" }) => void;
   onTokenUsage?: (info: { agentId: string; backendId: BuiltinBackendId; usage: TokenUsageDelta; identity?: TokenUsageIdentity }) => void;
-  onModelObserved?: (agentId: string) => void;
   onProviderQuota?: (info: { agentId: string; backendId: BuiltinBackendId; quota: ProviderQuotaObservation }) => void;
   onBotAuditEvent?: (
     agentId: string,
@@ -492,7 +491,6 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onTokenUsageStatus"
       | "onTokenUsage"
-      | "onModelObserved"
       | "onProviderQuota"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
@@ -514,7 +512,6 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onTokenUsageStatus"
       | "onTokenUsage"
-      | "onModelObserved"
       | "onProviderQuota"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
@@ -1012,12 +1009,6 @@ export class AgentProcessManager {
       ...(observed.responseId ? { responseId: observed.responseId } : {}),
       observedAt: observedAt.toISOString(),
     };
-  }
-  liveModelReports(): AgentModelReport[] {
-    return [...this.activeSpawnState.keys()].flatMap((agentId) => {
-      const report = this.modelReportFor(agentId);
-      return report ? [report] : [];
-    });
   }
   statusProjection(nowMs: number): Array<{
     agentId: string;
@@ -2039,9 +2030,6 @@ export class AgentProcessManager {
       return;
     }
     const sessionSuperseded = owner.superseded;
-    if (event.type === "model_observed" && event.attribution.scope === "root" && event.observation.source !== "aggregate") {
-      this.opts.onModelObserved?.(agentId);
-    }
     const runtimeError = event.type === "session_failed"
       ? event.error
       : event.type === "turn_completed" && event.result.outcome === "failed"

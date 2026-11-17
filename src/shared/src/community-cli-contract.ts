@@ -953,6 +953,7 @@ export interface HostAgentActivity {
   usageDay?: string;
   dailyUsage?: DailyUsageSnapshot[];
   quota?: ProviderQuotaSnapshot;
+  modelObservation?: import("./model-observation").AgentModelReport;
 }
 
 /**
@@ -1089,7 +1090,6 @@ export interface HostControlChannel {
    * local mock channel can omit it.
    */
   reportAgentActivity?(info: HostAgentActivity): Promise<void>;
-  reportAgentModel?(info: import("./model-observation").AgentModelReport): void;
   /**
    * Emit an `agent_typing` frame for the given (agentId, channelId) scope —
    * the daemon-metered heartbeat that keeps the "bot is typing…" pill lit for
@@ -1123,7 +1123,6 @@ export interface HostControlChannel {
     ready: HostReady;
     sessions: AgentSessionReport[];
     activities: HostAgentActivity[] | Promise<HostAgentActivity[]>;
-    models?: import("./model-observation").AgentModelReport[];
   }): void;
 }
 
