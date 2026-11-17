@@ -1,5 +1,7 @@
 "use client"
 
+import { Hash } from "lucide-react"
+import { EmptyState } from "../empty-state"
 import { useCommunityServerRoute } from "@/components/community/shell/community-route-context"
 import { useEffect, useRef } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
@@ -41,10 +43,7 @@ export default function ServerDefaultPage() {
   const allChannels = currentServer?.categories.flatMap((cat) => cat.channels) ?? []
   if (currentServer && allChannels.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-        <span className="text-sm">No channels yet</span>
-        <span className="text-xs">Create a channel from the sidebar to get started.</span>
-      </div>
+      <EmptyState icon={Hash} label="No channels yet" description="Create a channel from the sidebar to get started." />
     )
   }
 

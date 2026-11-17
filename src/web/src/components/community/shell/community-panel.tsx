@@ -1,5 +1,6 @@
 "use client"
 
+import { EmptyState } from "../empty-state"
 import { useLayoutEffect, useState } from "react"
 import { MessagesSquare, Pin, Users } from "lucide-react"
 import { messagePreviewText, type CommunityRole as Role } from "@alook/shared"
@@ -72,7 +73,7 @@ export function CommunityPanel(props: CommunityPanelProps) {
         </span>
       )}
       desktopWidth={kind === "members" ? 380 : undefined}
-      bodyClassName={kind === "members" ? "p-0 sm:p-0" : undefined}
+      bodyClassName={displayed === "members" ? "p-0 sm:p-0" : "flex flex-col"}
     >
       {renderCommunityPanelBody({ ...props, kind: displayed }, profilesByUserId)}
     </CommunitySheet>
@@ -142,7 +143,7 @@ function renderCommunityPanelBody({
     if (pinnedLoading && pinned.length === 0) return <PinnedListSkeleton />
     return <>
     {failure}
-    {pinnedKnown && pinned.length === 0 ? <div className="py-8 text-center text-sm text-muted-foreground">No pinned messages yet.</div> : null}
+    {pinnedKnown && pinned.length === 0 ? <EmptyState icon={Pin} label="No pinned messages yet" /> : null}
     {pinned.map((message) => {
       const author = readCommunityProfile(
         message.authorId ? profilesByUserId.get(message.authorId) : undefined,
@@ -178,7 +179,7 @@ function renderCommunityPanelBody({
   return (
     <>
       {failure}
-      {threadsKnown ? <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div> : null}
+      {threadsKnown ? threads.length === 0 ? <EmptyState icon={MessagesSquare} label="No threads yet" /> : <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div> : null}
       <div className="space-y-1">
         {threads.map((thread) => {
           const author = thread.parent.authorId

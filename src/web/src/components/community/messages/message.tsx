@@ -9,6 +9,7 @@ import { memo, useRef } from "react"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
 import {
+  ImageOff,
   MessagesSquare, UserPlus, SmilePlus, Reply,
   MoreHorizontal, X, Share, Check,
 } from "lucide-react"
@@ -794,7 +795,7 @@ function MessageImpl({
                       frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
                       frameStyle={frameStyle}
                       imageClassName="block rounded-lg object-contain"
-                      errorLabel="Attachment failed to load"
+                      errorLabel={<ImageOff role="img" aria-label="Image unavailable" className="size-7" />}
                       onReady={onImageLoad ? () => onImageLoad() : undefined}
                     />
                   )

@@ -1,8 +1,9 @@
 "use client"
 
+import { EmptyState } from "../empty-state"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, FileWarning } from "lucide-react"
 import {
   getDocument,
   GlobalWorkerOptions,
@@ -182,8 +183,8 @@ function PdfPage({
         </div>
       )}
       {status === "error" && (
-        <div role="alert" className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          Couldn’t render page {pageNumber}
+        <div role="alert" className="absolute inset-0 flex flex-col px-4">
+          <EmptyState icon={FileWarning} label={`Couldn’t render page ${pageNumber}`} />
         </div>
       )}
       <canvas
@@ -279,9 +280,9 @@ export function PdfPreview({ data }: { data: Uint8Array<ArrayBuffer> }) {
         <div
           data-testid={tid.pdfPreviewStatus}
           role="alert"
-          className="flex min-h-40 items-center justify-center text-sm text-muted-foreground"
+          className="flex min-h-full flex-col px-4"
         >
-          {state.error}
+          <EmptyState icon={FileWarning} label={state.error} />
         </div>
       )}
       {state.status === "ready" && (

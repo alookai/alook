@@ -18,7 +18,7 @@ export function ConversationResolutionErrorFrame({
   return (
     <Element data-testid={tid.conversationLoadError} data-slot="conversation-load-error" className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
       <div role="alert" className="flex w-full max-w-sm flex-col items-center gap-2">
-        <AlertCircle className="size-5 text-muted-foreground" aria-hidden />
+        <div data-slot="empty-state-icon" className="mb-1 grid size-14 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"><AlertCircle className="size-7" aria-hidden /></div>
         <p className="text-sm leading-snug font-medium">{title}</p>
         <p className="text-xs leading-relaxed text-muted-foreground">Check your connection and try again.</p>
       </div>

@@ -156,16 +156,16 @@ describe("HTML attachment frame", () => {
     frameMessage(current, { type: "alook-html-ready" })
     expect(view.getByTestId(tid.htmlPreview("a2"))).toHaveAttribute("data-html-preview-status", "ready")
   })
-  it("turns missing readiness into a single failure block", () => {
+  it("hides a preview that never becomes ready, keeping surrounding text", () => {
     vi.useFakeTimers()
-    const view = setup()
+    const view = setup(<MessageBodyView plugins={{}} text={"before\n\n[alook-html-preview](a1)\n\nafter"} attachments={[file]} />)
     act(() => vi.advanceTimersByTime(15_000))
     expect(view.queryByTestId(tid.htmlPreviewFrame("a1"))).toBeNull()
-    expect(view.getByRole("status").textContent).toBe("Preview unavailable.")
-    expect(view.getAllByTestId(tid.htmlPreview("a1"))).toHaveLength(1)
-    expect([...view.getByTestId(tid.htmlPreview("a1")).children]).toEqual([view.getByRole("status")])
-    expect(view.container.querySelectorAll("button, a[download], [data-html-preview-actions]")).toHaveLength(0)
-    expect(view.queryByRole("status", { name: "Loading preview" })).toBeNull()
+    expect(view.queryByTestId(tid.htmlPreview("a1"))).toBeNull()
+    expect(view.queryByRole("status")).toBeNull()
+    expect(view.container).not.toHaveTextContent("Preview unavailable")
+    expect(view.container).toHaveTextContent("before")
+    expect(view.container).toHaveTextContent("after")
   })
 })
 

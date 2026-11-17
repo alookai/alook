@@ -1,4 +1,5 @@
 import React from "react"
+import { ImageOff } from "lucide-react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { renderCommunity } from "@/test/community-owner-harness"
@@ -688,4 +689,21 @@ describe("remote image state adapters", () => {
     expect(wrapper.style.aspectRatio).toBe("4/3")
     expect(rendered.container.querySelector('[data-streamdown="image"]')).not.toHaveAttribute("width")
   })
+})
+
+it("retries an icon-only attachment failure without explanatory text", async () => {
+  const view = renderCommunity(React.createElement(RemoteContentImage, {
+    src: "/attachment.png", alt: "Attachment",
+    errorLabel: React.createElement(ImageOff, { role: "img", "aria-label": "Image unavailable" }),
+  }))
+  fireEvent.error(contentImage(view.container))
+  expect(view.getByRole("img", { name: "Image unavailable" })).toBeInTheDocument()
+  expect(view.getByRole("status").textContent).toBe("Retry")
+  fireEvent.click(view.getByRole("button", { name: "Retry" }))
+  const retried = contentImage(view.container)
+  expect(retried).toHaveAttribute("src", "/attachment.png")
+  setImageMetrics(retried)
+  await act(async () => { fireEvent.load(retried); await Promise.resolve() })
+  expect(retried).toHaveAttribute("data-remote-image-state", "ready")
+  expect(view.queryByRole("status")).toBeNull()
 })

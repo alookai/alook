@@ -40,7 +40,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
   children: React.ReactNode
 }) {
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="mb-2 text-xs font-semibold text-muted-foreground">{title}</div>
       {count === 0 ? <EmptyState icon={Users} label={emptyLabel} /> : <div className="flex flex-col gap-1">{children}</div>}
     </div>
@@ -231,7 +231,7 @@ export function FriendsPage({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
-          <TabsContent value="all">
+          <TabsContent value="all" className={blocked.length === 0 ? "flex flex-col" : undefined}>
           <div className="mb-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

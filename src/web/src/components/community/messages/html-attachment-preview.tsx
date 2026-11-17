@@ -88,6 +88,8 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
     return () => { clearTimeout(timeout); cancelAnimationFrame(themeFrame); window.removeEventListener("message", message) }
   }, [mounted, error, resolvedTheme, fontSheet])
 
+  if (error) return null
+
   return (
     <div
       ref={root}
@@ -97,29 +99,23 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
       data-testid={tid.htmlPreview(id)}
       data-html-preview-status={status}
       className="relative m-0 block w-full min-w-0 max-w-full overflow-hidden rounded-none border-0 bg-transparent p-0 text-foreground"
-      style={!mounted && !error ? { height } : undefined}
+      style={!mounted ? { height } : undefined}
     >
-      {error ? (
-        <div role="status" className="p-4 text-sm text-muted-foreground">Preview unavailable.</div>
-      ) : (
-        <>
-          {status === "loading" && <div role="status" aria-label="Loading preview" className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
-            <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
-          </div>}
-          {mounted && <iframe
-            ref={frame}
-            title={attachment.name}
-            data-testid={tid.htmlPreviewFrame(id)}
-            src={url}
-            sandbox={HTML_PREVIEW_SANDBOX}
-            referrerPolicy="no-referrer"
-            allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
-            onLoad={() => setLoaded(true)}
-            className="block w-full border-0 bg-transparent scheme-light"
-            style={{ height, colorScheme: loaded ? resolvedTheme === "dark" ? "dark" : "light" : undefined }}
-          />}
-        </>
-      )}
+      {status === "loading" && <div role="status" aria-label="Loading preview" className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
+        <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
+      </div>}
+      {mounted && <iframe
+        ref={frame}
+        title={attachment.name}
+        data-testid={tid.htmlPreviewFrame(id)}
+        src={url}
+        sandbox={HTML_PREVIEW_SANDBOX}
+        referrerPolicy="no-referrer"
+        allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
+        onLoad={() => setLoaded(true)}
+        className="block w-full border-0 bg-transparent scheme-light"
+        style={{ height, colorScheme: loaded ? resolvedTheme === "dark" ? "dark" : "light" : undefined }}
+      />}
     </div>
   )
 }

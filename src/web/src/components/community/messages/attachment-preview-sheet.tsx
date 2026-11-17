@@ -1,9 +1,10 @@
 "use client"
 
+import { EmptyState } from "../empty-state"
 import { useQuery } from "@tanstack/react-query"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import dynamic from "next/dynamic"
-import { CircleCheck, Download, Loader2, RefreshCw } from "lucide-react"
+import { CircleCheck, Download, Loader2, RefreshCw, FileWarning } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { cn } from "@/lib/utils"
@@ -216,10 +217,7 @@ export function AttachmentPreviewSheet({
         </div>
       )}
       {preview.status === "error" && (
-        <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center">
-          <p className="text-sm font-medium">Preview unavailable</p>
-          <p className="max-w-72 text-sm text-muted-foreground">{preview.error}</p>
-        </div>
+        <div role="alert" className="flex flex-1 flex-col px-4"><EmptyState icon={FileWarning} label="Preview unavailable" description={preview.error} /></div>
       )}
       {preview.status === "ready" && preview.kind === "text" && presentation?.previewKind === "markdown" && (
         <MessageBody text={preview.content} />

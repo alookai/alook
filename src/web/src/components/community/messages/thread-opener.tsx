@@ -2,7 +2,7 @@
 
 import { withImageGallery } from "./image-preview-gallery"
 
-import { Hash, ArrowUpRight } from "lucide-react"
+import { ImageOff, Hash, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
 import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
@@ -183,7 +183,7 @@ export function ThreadOpener({
                       frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
                       frameStyle={frameStyle}
                       imageClassName="block rounded-lg object-contain"
-                      errorLabel="Attachment failed to load"
+                      errorLabel={<ImageOff role="img" aria-label="Image unavailable" className="size-7" />}
                     />
                   )
                 }
