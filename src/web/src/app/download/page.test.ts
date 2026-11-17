@@ -6,9 +6,8 @@ import DownloadPage from "./page"
 
 const state = vi.hoisted(() => ({ agent: "" }))
 vi.mock("next/headers", () => ({ headers: async () => new Headers({ "user-agent": state.agent }) }))
-vi.mock("@/lib/download-catalog", async importOriginal => ({
-  ...await importOriginal<typeof import("@/lib/download-catalog")>(),
-  readDownloadCatalog: async () => ({ unavailable: false, installers: DOWNLOAD_TARGETS.map(target => ({ id: target.id, version: "1.0.0", bytes: 1000, url: `https://github.com/alookai/alook/releases/download/v1.0.0/${target.id}` })) }),
+vi.mock("@/lib/download-catalog-cache", () => ({
+  readCachedDownloadCatalog: async () => ({ unavailable: false, installers: DOWNLOAD_TARGETS.map(target => ({ id: target.id, version: "1.0.0", bytes: 1000, url: `https://github.com/alookai/alook/releases/download/v1.0.0/${target.id}` })) }),
 }))
 afterEach(() => { state.agent = "" })
 
