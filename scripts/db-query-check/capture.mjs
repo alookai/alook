@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { backendRoots, productionFile, sourceFrames } from './inventory.mjs'
-import { querySource } from './source-context.mjs'
+import { querySource, queryOrigin } from './source-context.mjs'
 
 function nativeStack() {
   const previous = Error.prepareStackTrace
@@ -71,7 +71,7 @@ export function instrumentDatabase(prototype, collect) {
   }
   prototype.prepare = function (sql, ...options) {
     const source = querySource.getStore()
-    const origin = source ? '' : nativeStack()
+    const origin = source && source.kind !== 'test-fixture' ? '' : nativeStack()
     const database = this
     const context = params => {
       let deferForeignKeys
@@ -91,7 +91,10 @@ export function instrumentDatabase(prototype, collect) {
         if (typeof value !== 'function') return value
         return (...args) => {
           if (key === 'bind') bound = args
-          if (['all', 'get', 'run', 'iterate'].includes(key)) collect({ sql, params: bound ?? args, source, context: () => context(bound ?? args), stack: source ? '' : `${origin}\n${nativeStack()}` })
+          if (['all', 'get', 'run', 'iterate'].includes(key)) {
+            const executingSource = source ?? queryOrigin(proxy) ?? querySource.getStore()
+            collect({ sql, params: bound ?? args, source: executingSource, context: () => context(bound ?? args), stack: executingSource && executingSource.kind !== 'test-fixture' ? '' : `${origin}\n${nativeStack()}` })
+          }
           const result = Reflect.apply(value, target, args)
           return result === target ? proxy : result
         }
@@ -107,11 +110,13 @@ export function createCapture(root) {
   return {
     collect(query) {
       const frames = sourceFrames(root, query.stack)
+      if (query.source?.kind === 'test-fixture' && !frames.length) return
       if (query.source) frames.unshift({ file: query.source.file, line: query.source.line, column: 1 })
       if (!frames.length || !/^\s*(?:select|insert|update|delete|replace|with)\b/i.test(query.sql)) return
       const params = query.params.length === 1 && Array.isArray(query.params[0]) ? query.params[0] : query.params
       const serializable = params.map(value => typeof value === 'bigint' ? { bigint: String(value) } : value instanceof Uint8Array ? { blob: Buffer.from(value).toString('base64') } : value)
-      const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.key, context: typeof query.context === 'function' ? query.context() : query.context }
+      const fixtureSqlVerified = query.source?.kind === 'test-fixture' && (query.source.literalSql === query.sql || query.source.preparedSql === query.sql)
+      const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.kind !== 'test-fixture' || fixtureSqlVerified ? query.source?.key : undefined, fixtureSqlVerified, context: typeof query.context === 'function' ? query.context() : query.context }
       const key = JSON.stringify(record)
       records.set(key, record)
     },

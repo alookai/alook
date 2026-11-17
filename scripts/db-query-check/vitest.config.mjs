@@ -14,7 +14,8 @@ import queue from '../../src/queue-worker/vitest.config.ts'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const setup = fileURLToPath(new URL('./setup.mjs', import.meta.url))
 const projects = [['shared', shared, 'src/shared'], ['web', web, 'src/web'], ['auth', auth, 'src/web/auth'], ['ws', ws, 'src/ws-do'], ['email', email, 'src/email-worker'], ['queue', queue, 'src/queue-worker']]
-const sites = JSON.parse(readFileSync(process.env.ALOOK_DB_QUERY_INVENTORY, 'utf8')).sites
+const inventory = JSON.parse(readFileSync(process.env.ALOOK_DB_QUERY_INVENTORY, 'utf8'))
+const sites = [...inventory.sites, ...(inventory.fixtureSites ?? [])]
 const plugin = { name: 'db-query-source', enforce: 'pre', transform(code, id) {
   const file = relative(root, id.split('?')[0]).replaceAll('\\', '/')
   const matches = sites.filter(site => site.file === file)

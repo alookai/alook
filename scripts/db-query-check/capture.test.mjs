@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
-import { registerQuerySource } from './source-context.mjs'
+import { runInThisContext } from 'node:vm'
+import { registerQuerySource, querySource } from './source-context.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -169,4 +170,66 @@ test('D1 receiver names and aliases cannot change inventory; R2 remains a differ
   assert.equal(inventory.sites.every(site => site.method === 'prepare' && site.resolution === 'database-type'), true)
   const anySources = { 'src/web/src/unresolved.ts': `export function q(db: any, connection: any) { db.prepare('SELECT 1'); connection.prepare('SELECT 1'); }` }
   assert.equal(inventoryQueries(process.cwd(), anySources).sites.length, 2)
+})
+
+test('test provenance needs a typed ORM construction or literal SQL; adapter variables remain unproved', () => {
+  const file = 'src/shared/test/provenance-fixture.test.ts'
+  const source = `import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'; import type Sqlite from 'better-sqlite3'; export function q(db: BaseSQLiteDatabase<'sync', unknown>, sqlite: Sqlite.Database, unresolved: any, sql: string) { db.update({} as never).set({}); sqlite.prepare('SELECT * FROM item'); sqlite.prepare(sql); unresolved.prepare('SELECT * FROM item'); }`
+  const inventory = inventoryQueries(process.cwd(), { [file]: source }, { includeFixtures: true })
+  assert.equal(inventory.sites.length, 0)
+  assert.deepEqual(inventory.fixtureSites.map(site => [site.method, site.proof]), [['update', 'orm-builder'], ['prepare', 'literal-sql']])
+})
+
+test('injected test SQL stays separate; product SQL through adapters and unknown SQL still fail the gate', t => {
+  const previousStackLimit = Error.stackTraceLimit
+  Error.stackTraceLimit = 100
+  t.after(() => { Error.stackTraceLimit = previousStackLimit })
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const fixtureDb = new Sqlite(':memory:')
+  const productDb = new Sqlite(':memory:')
+  fixtureDb.exec('CREATE TABLE fixture_only(id TEXT); CREATE TABLE item(id TEXT)')
+  productDb.exec('CREATE TABLE item(id TEXT)')
+  const directory = mkdtempSync(join(tmpdir(), 'query-injection-'))
+  const capture = createCapture(root)
+  const restore = instrumentDatabase(Sqlite.prototype, query => capture.collect(query))
+  t.after(() => { restore(); fixtureDb.close(); productDb.close(); rmSync(directory, { recursive: true, force: true }) })
+  const caller = runInThisContext('(execute) => execute()', { filename: join(root, 'src/shared/src/db/queries/injected-probe.ts') })
+  const file = 'src/shared/test/injected-probe.test.ts'
+  const ormSite = { key: 'fixture-orm', file, line: 1, kind: 'test-fixture', resolution: 'database-type', proof: 'orm-builder' }
+  const literalSite = { ...ormSite, key: 'fixture-literal', proof: 'literal-sql', literalSql: 'SELECT * FROM fixture_only' }
+  let allocations = 0
+  const table = sqliteTable('fixture_only', { id: text('id').$defaultFn(() => `test-only-value-${++allocations}`) })
+  const injected = registerQuerySource(drizzle(fixtureDb).insert(table).values({}), ormSite)
+  assert.equal(allocations, 0)
+  injected.run()
+  caller(() => injected.run())
+  assert.equal(allocations, 2)
+  const literal = registerQuerySource(fixtureDb.prepare('SELECT * FROM fixture_only'), literalSite)
+  caller(() => literal.all())
+  const production = { key: 'product', file: 'src/shared/src/db/queries/injected-probe.ts', line: 1 }
+  const productStatement = querySource.run(production, () => fixtureDb.prepare('SELECT * FROM item'))
+  registerQuerySource(productStatement, literalSite)
+  caller(() => productStatement.all())
+  const unknown = querySource.run(literalSite, () => fixtureDb.prepare('SELECT id FROM fixture_only'))
+  caller(() => unknown.all())
+  capture.write(directory)
+  const inventory = { filesScanned: 1, sites: [production], fixtureSites: [ormSite, literalSite] }
+  const report = buildReport(productDb, inventory, directory, 0)
+  assert.equal(report.testStatements.length, 2, JSON.stringify({ fixtures: report.testStatements, observations: report.observations }))
+  assert.equal(report.summary.observedSites, 1)
+  assert.equal(report.summary.hazards, 2)
+  assert.equal(report.observations.find(query => query.classification === 'product-query').scans.length, 1)
+  assert.match(report.observations.find(query => query.classification === 'unverified-origin').error, /no such table/)
+  assert.equal(report.outcome, 'failed')
+  assert.equal(JSON.stringify(report).includes('test-only-value'), false)
+  const path = join(directory, readdirSync(directory)[0])
+  const { records } = JSON.parse(readFileSync(path))
+  assert.equal(records.length, 4)
+  writeFileSync(path, JSON.stringify({ records: records.filter(record => record.siteKey?.startsWith('fixture-')) }))
+  const fixturesOnly = buildReport(productDb, inventory, directory, 0)
+  assert.equal(fixturesOnly.summary.observedSites, 0)
+  assert.equal(fixturesOnly.outcome, 'failed')
 })
