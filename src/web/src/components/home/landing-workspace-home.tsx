@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { ChevronLeft, Plus } from "lucide-react"
 import { FriendsPage } from "@/components/community/social/friends-page"
+import { HOME_TAB_COLUMN_CLASS } from "@/components/community/home-tab-layout"
 import { renderBotListView } from "@/components/community/bots/bot-list-view"
 import type { BotListController, BotListOverlaySlots } from "@/components/community/bots/bot-list-types"
 import { MachineCard } from "@/components/community/machines/machine-card"
@@ -82,8 +83,10 @@ export function WorkspaceHome({ page, onBack, onDm, onOpenProfile, onMachines }:
       : <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden"><Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back"><ChevronLeft className="size-5" /></Button><span className="text-base font-semibold">Machines</span></header>
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
-          <header className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 flex-col gap-1"><h1 className="text-xl font-medium">Machines</h1><p className="text-sm text-muted-foreground">Your computers running the alook daemon.</p></div><Button onClick={openPanel("Connect a machine")}><Plus className="size-4" />Connect machine</Button></header>
-          <div className="flex flex-col gap-3">{machines.map((machine) => <MachineCard key={machine.id} machine={machine} onDelete={() => setMachines((rows) => rows.filter((row) => row.id !== machine.id))} onReconnect={() => setMachines((rows) => rows.map((row) => ({ ...row, status: "online" })))} />)}</div>
+          <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
+            <header className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 flex-col gap-1"><h1 className="text-xl font-medium">Machines</h1><p className="text-sm text-muted-foreground">Your computers running the alook daemon.</p></div><Button onClick={openPanel("Connect a machine")}><Plus className="size-4" />Connect machine</Button></header>
+            <div className="flex flex-col gap-3">{machines.map((machine) => <MachineCard key={machine.id} machine={machine} onDelete={() => setMachines((rows) => rows.filter((row) => row.id !== machine.id))} onReconnect={() => setMachines((rows) => rows.map((row) => ({ ...row, status: "online" })))} />)}</div>
+          </div>
         </div>
       </div>}
     <Sheet open={panel !== null} onOpenChange={(open) => { if (!open) setPanel(null) }}>

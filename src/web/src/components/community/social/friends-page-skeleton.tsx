@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton"
+import { HOME_TAB_COLUMN_CLASS } from "../home-tab-layout"
 
 export function FriendsPageSkeleton({
   reserveBackSlot = false,
@@ -11,24 +12,28 @@ export function FriendsPageSkeleton({
       aria-label="Loading friends"
       className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
     >
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
-        {reserveBackSlot && (
-          <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-7 shrink-0 rounded-md sm:hidden" />
-        )}
-        <div aria-hidden className="inline-flex h-8 items-center gap-1 p-0.75 text-muted-foreground">
-          <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">All</span>
-          <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">New</span>
-        </div>
-      </header>
+      <div className="shrink-0 px-4">
+        <header data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex h-12 items-center gap-2 border-b border-border/40`}>
+          {reserveBackSlot && (
+            <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-7 shrink-0 rounded-md sm:hidden" />
+          )}
+          <div aria-hidden className="inline-flex h-8 items-center gap-1 p-0.75 text-muted-foreground">
+            <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">All</span>
+            <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">New</span>
+          </div>
+        </header>
+      </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
-        <Skeleton className="mb-4 h-11 w-full rounded-md" />
-        <div className="flex min-h-0 flex-col">
-          <div className="mb-2 text-xs font-semibold text-muted-foreground">All friends — …</div>
-          <FriendRowsSkeleton />
-        </div>
-        <div className="mt-8 flex min-h-0 flex-col">
-          <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — …</div>
-          <FriendRowsSkeleton withActions />
+        <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
+          <Skeleton className="mb-4 h-11 w-full rounded-md" />
+          <div className="flex min-h-0 flex-col">
+            <div className="mb-2 text-xs font-semibold text-muted-foreground">All friends — …</div>
+            <FriendRowsSkeleton />
+          </div>
+          <div className="mt-8 flex min-h-0 flex-col">
+            <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — …</div>
+            <FriendRowsSkeleton withActions />
+          </div>
         </div>
       </div>
       <span className="sr-only">Loading friends</span>
