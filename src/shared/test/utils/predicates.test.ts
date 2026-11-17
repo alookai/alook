@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest"
 import { isForum, isThread, canManageServer } from "../../src/utils/community-roles"
 import { isPresenceOnline, isPresenceOffline } from "../../src/utils/status"
 import { isAccepted, isPending, isBlocked } from "../../src/utils/friendship"
-import { isPublic } from "../../src/utils/visibility"
 
 describe("channel-type predicates", () => {
   it("isForum", () => {
@@ -55,13 +54,5 @@ describe("friendship-status predicates", () => {
   it("isBlocked", () => {
     expect(isBlocked("blocked")).toBe(true)
     expect(isBlocked("accepted")).toBe(false)
-  })
-})
-
-describe("visibility predicates", () => {
-  it("isPublic", () => {
-    expect(isPublic("public")).toBe(true)
-    expect(isPublic("private")).toBe(false)
-    expect(isPublic(null)).toBe(false)
   })
 })

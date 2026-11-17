@@ -22,18 +22,6 @@ export const COMMUNITY_RUNTIME_ID_MAX = 64;
 export const COMMUNITY_RUNTIME_VERSION_MAX = 64;
 export const COMMUNITY_RUNTIME_LIST_MAX = 64;
 
-const MeetingTimeSchema = z.iso.datetime()
-  .transform(value => new Date(value).toISOString())
-  .nullable();
-
-export const MeetingInfoSchema = z.object({
-  title: z.string(),
-  meetingUrl: z.string(),
-  startTime: MeetingTimeSchema,
-  endTime: MeetingTimeSchema,
-  attendees: z.array(z.object({ name: z.string(), email: z.string() })),
-});
-
 // Runtime id charset: alnum + `._@/-`. Length capped at 64 to match the
 // on-wire, on-disk, and DB expectations. Version optional, length-capped.
 const RUNTIME_ID_RE = /^[A-Za-z0-9._@/-]+$/;

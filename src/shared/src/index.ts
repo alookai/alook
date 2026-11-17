@@ -12,26 +12,9 @@ export {
 } from "./user-ws-validation";
 
 export {
-  AgentStatus,
-  RuntimeStatus,
-  TaskStatus,
-  TERMINAL_TASK_STATUSES,
-  isTerminalTaskStatus,
-  TASK_TYPES,
-  IssueStatus,
-  ACTIVE_ISSUE_STATUSES,
-  TERMINAL_ISSUE_STATUSES,
-  isTerminalIssueStatus,
-  MessageRole,
-  POLL_INTERVAL_MS,
-  OFFLINE_THRESHOLD_MS,
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   COMMUNITY_MACHINE_HEARTBEAT_MS,
   COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS,
-  EVENT_POLL_INTERVAL_MS,
-  MAX_MEETING_CLAIMS_PER_POLL,
-  AGENT_HANDLE_MIN_LENGTH,
-  MAX_TASKS_PER_TRACE,
   DEV_PASSWORD,
   DEV_PORTS,
   DEV_WEB_URL,
@@ -39,8 +22,6 @@ export {
   DEV_EMAIL_WORKER_URL,
   DEV_QUEUE_WORKER_URL,
   devWsDoPort,
-  MeetingStatus,
-  TERMINAL_MEETING_STATUSES,
   COMMUNITY_BOT_REQUEST_MAX_ITEMS,
   COMMUNITY_BOT_NAME_MIN,
   COMMUNITY_BOT_NAME_MAX,
@@ -48,8 +29,6 @@ export {
   COMMUNITY_BOT_IMAGE_URL_MAX,
   COMMUNITY_BOT_EMAIL_DOMAIN,
   COMMUNITY_BOT_EMAIL_PREFIX,
-  SENSITIVE_RECIPIENT_DOMAINS,
-  SENSITIVE_DOMAIN_LABELS,
   communityBotSyntheticEmail,
   SELF_BOT_FRIENDSHIP_PREFIX,
   isSelfBotFriendship,
@@ -129,13 +108,6 @@ export type {
 } from "./db/community-funnel-analytics-schema";
 
 export type {
-  AgentStatusType,
-  RuntimeStatusType,
-  TaskStatusType,
-  TaskType,
-  IssueStatusType,
-  MessageRoleType,
-  MeetingStatusType,
   DevPortProfile,
 } from "./constants";
 
@@ -559,17 +531,13 @@ export type { LogLevel, LoggerOptions } from "./logger"
 
 export { RATE_LIMITS } from "./lib/rate-limits";
 export type { RateLimitName, RateLimitPolicy, RateLimitResult } from "./lib/rate-limits";
-export { parseIcs } from "./lib/ics-parser";
-export type { MeetingInfo } from "./lib/ics-parser";
-export { buildMimeMessage, extractAttachmentMeta, filterDownloadableAttachments } from "./lib/mime";
-export type { MimeAttachment, BuildMimeOptions, InboundAttachmentMeta } from "./lib/mime";
 export { computeDiscriminator, parseNameAndTag, formatHandle } from "./lib/discriminator";
 export { validateCommunityName, sanitizeCommunityName } from "./lib/community-name";
 export type { CommunityNameValidation } from "./lib/community-name";
 export { parseInviteToken } from "./lib/invite-link";
 export { slugify } from "./lib/slugify";
 
-export { parseEmailHandle, toAlookAddress, isValidHandle, extractDomain, isSensitiveRecipient } from "./utils/email";
+export { toAlookAddress } from "./utils/email";
 export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
 export { isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
@@ -583,7 +551,6 @@ export { isPresenceOnline, isPresenceOffline } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export * from "./lib/native-oauth-contract";
 export * from "./lib/safe-redirect";
-export { generateWorkspaceSlug, sanitizeSlug, slugSuffix } from "./utils/slug";
 export { deriveThreadName } from "./utils/title";
 export {
   buildCommunityNotificationCopy,
@@ -633,7 +600,6 @@ export {
   FRIENDSHIP_STATUS,
 } from "./utils/friendship";
 export type { FriendshipStatus } from "./utils/friendship";
-export { isPublic } from "./utils/visibility";
 
 export { extractMentionedUserIds, MENTION_TYPES, isMentionType, MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary, isMentionEndBoundary } from "./utils/community-mentions";
 export type { MentionCandidate, MentionType } from "./utils/community-mentions";
