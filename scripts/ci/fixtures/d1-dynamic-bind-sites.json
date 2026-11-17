@@ -48,40 +48,7 @@
     "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:23"
   },
   {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:24"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:25"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:26"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:27"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:28"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:29"
-  },
-  {
     "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:3"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:30"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:31"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:32"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:33"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:34"
   },
   {
     "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:4"
@@ -129,49 +96,10 @@
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:17"
   },
   {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:18"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:19"
-  },
-  {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:2"
   },
   {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:20"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:21"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:22"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:23"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:24"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:25"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:26"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:27"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:28"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:29"
-  },
-  {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:3"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:30"
   },
   {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:4"
@@ -256,6 +184,18 @@
   },
   {
     "key": "src/shared/src/db/queries/community/bot-creation.ts:submitCreationRequest:values:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:activationCursorCatchupBuilder:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:activationCursorCatchupBuilder:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:activationCursorCatchupBuilder:inArray:3"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:activationCursorCatchupBuilder:notInArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/bot.ts:findWakeCandidates:inArray:1"
@@ -351,6 +291,9 @@
     "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:3"
   },
   {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:notInArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:1"
   },
   {
@@ -360,10 +303,19 @@
     "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:3"
   },
   {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:notInArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/dm.ts:dmChannelQuery:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/feedback.ts:submitFeedback:values:1"
   },
   {
     "key": "src/shared/src/db/queries/community/forum-post-delete.ts:deleteForumPostAttempt:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/forum-post-delete.ts:deleteForumPostAttempt:notInArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/friendship.ts:ensureNewSiblingBotFriendships:inArray:1"
@@ -417,6 +369,9 @@
     "key": "src/shared/src/db/queries/community/machine-session-epoch.ts:transitionLiveLease:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/machine.ts:reconcileBotActivityFromRunningAgents:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/mark.ts:countMarksForUser:inArray:1"
   },
   {
@@ -433,6 +388,15 @@
   },
   {
     "key": "src/shared/src/db/queries/community/member.ts:getMemberships:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/member.ts:removeMemberAndOwnerBots:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/member.ts:removeMemberAndOwnerBots:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/member.ts:removeMemberAndOwnerBots:inArray:3"
   },
   {
     "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentionScopes:inArray:1"
@@ -462,6 +426,9 @@
     "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIdsInChannels:inArray:2"
   },
   {
+    "key": "src/shared/src/db/queries/community/message.ts:hardDeleteMessageAttempt:notInArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:1"
   },
   {
@@ -484,6 +451,27 @@
   },
   {
     "key": "src/shared/src/db/queries/community/read-state.ts:advanceReadStateRevisionWhenAnyBuilder:or-map:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-rail.ts:clearAffectedFolderItemsStatement:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-rail.ts:clearAffectedFolderItemsStatement:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-rail.ts:deleteDanglingFolderItemsStatement:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-rail.ts:deleteDuplicateFolderItemsStatement:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-rail.ts:globalReassignedItemCleanupStatement:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-rail.ts:globalReassignedItemCleanupStatement:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-rail.ts:normalizeFolderItemPositionsStatement:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/server.ts:getServersByIds:inArray:1"
@@ -517,6 +505,9 @@
   },
   {
     "key": "src/shared/src/db/queries/native-oauth.ts:registerAttempt:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/native-oauth.ts:registerAttempt:inArray:3"
   },
   {
     "key": "src/shared/src/db/queries/product-plan.ts:reconcileActiveBotsBuilder:inArray:1"

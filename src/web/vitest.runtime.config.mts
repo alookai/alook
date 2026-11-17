@@ -20,6 +20,7 @@ export default defineProject({
       main: "./custom-worker.ts",
       wrangler: { configPath: "./wrangler.toml" },
       miniflare: {
+        d1Databases: ["MIGRATION_REVIEW_DB"],
         assets: {
           binding: "ASSETS",
           directory: path.resolve(import.meta.dirname, "test-runtime/assets"),

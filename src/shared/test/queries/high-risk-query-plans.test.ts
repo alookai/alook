@@ -10,7 +10,7 @@ import * as users from "../../src/db/queries/user"
 import * as plans from "../../src/db/queries/product-plan"
 import * as billing from "../../src/db/queries/billing"
 import { registerAttempt } from "../../src/db/queries/native-oauth"
-import { listPendingAccountDeletions } from "../../src/db/queries/account-deletion"
+import { getAccountDeletionSnapshot, deleteAccountRows, listPendingAccountDeletions } from "../../src/db/queries/account-deletion"
 import { BOT_ACTIVITY_PRESETS } from "../../src/community/bot-activity-presets"
 
 describe("database query plans on current migrations", () => {
@@ -74,6 +74,9 @@ describe("database query plans on current migrations", () => {
       const statements = rail.buildServerRailWriteStatements(db, "owner", { before: state, after: state, createdFolders: [], deletedFolderIds: ["folder"], affectedFolderIds: ["folder"], movedServerIds: ["server"], reorderTopLevel: false, createdFolderIds: {} })
       for (const statement of statements) executed.push(statement.toSQL())
       executed.push({ sql: "SELECT id FROM community_attachment WHERE r2_key = ? OR thumbnail_r2_key = ? LIMIT 1", params: ["object", "object"] })
+      const deletion = await getAccountDeletionSnapshot(db, "owner")
+      expect(deletion?.identity.id).toBe("owner")
+      expect((await deleteAccountRows(db, deletion!)).deleted).toBe(true)
       expect(executed).not.toHaveLength(0)
       const scans = executed.flatMap(query => businessTableScans(sqlite, query))
       expect(scans).toEqual([])

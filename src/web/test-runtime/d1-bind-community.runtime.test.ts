@@ -47,11 +47,6 @@ afterEach(async () => {
     await run("DELETE FROM community_machine WHERE id GLOB ?", `${prefix}*`);
     await run("DELETE FROM community_channel WHERE id GLOB ?", `${prefix}*`);
     await run("DELETE FROM community_server WHERE id GLOB ?", `${prefix}*`);
-    await run("DELETE FROM agent_task_queue WHERE id GLOB ?", `${prefix}*`);
-    await run("DELETE FROM conversation WHERE id GLOB ?", `${prefix}*`);
-    await run("DELETE FROM agent WHERE id GLOB ?", `${prefix}*`);
-    await run("DELETE FROM agent_runtime WHERE id GLOB ?", `${prefix}*`);
-    await run("DELETE FROM workspace WHERE id GLOB ?", `${prefix}*`);
     await run("DELETE FROM user WHERE id GLOB ?", `${prefix}*`);
     await run("DELETE FROM product_plan WHERE id GLOB ?", `${prefix}*`);
   }

@@ -6,7 +6,6 @@ export {
 } from "./seed"
 export { signUp, signIn, sessionRequest, tokenRequest } from "./auth"
 export { fetchWithRetry, isRetryableError } from "./fetch"
-export { rawEmail, postEmail, postEmailRaw } from "./email"
 export {
   pairAndActivateMachine,
   seedCommunityBot,

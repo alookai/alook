@@ -1,21 +1,11 @@
 import { advanceReadStateRevisionsForUsersBuilder } from "./community/read-state-revision";
-import { and, eq, inArray, isNull, isNotNull, notExists, or, sql } from "drizzle-orm"
+import { and, eq, exists, inArray, isNull, isNotNull, notExists, or, sql } from "drizzle-orm"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import {
   account,
-  agent,
-  agentRuntime,
-  artifact,
-  conversation,
-  emails,
-  issueComment,
-  machine,
-  meetingSession,
-  member,
   session,
   user,
   verification,
-  workspace,
 } from "../schema"
 import {
   communityAttachment,
@@ -123,8 +113,6 @@ export type AccountDeletionSnapshot = {
     accessToken: string | null
     refreshToken: string | null
   }>
-  ownedWorkspaceIds: string[]
-  ownedAgentIds: string[]
   machineDoNames: string[]
   botBindings: Array<{ botId: string; machineId: string }>
   ownedServers: Array<{ id: string; icon: string | null; memberIds: string[] }>
@@ -132,10 +120,6 @@ export type AccountDeletionSnapshot = {
   media: {
     communityExactKeys: string[]
     communityPrefixes: string[]
-    emailExactKeys: string[]
-    emailPrefixes: string[]
-    deletingEmailAttachments: string[]
-    survivingEmailAttachments: string[]
     bugReportExactKeys: string[]
     bugReportPrefixes: string[]
   }
@@ -156,18 +140,6 @@ export async function getAccountDeletionSnapshot(
       eq(user.id, userId),
       and(eq(user.ownerUserId, userId), eq(user.isBot, true)),
     ))
-  const ownedWorkspaceIdsQuery = db
-    .select({ id: member.workspaceId })
-    .from(member)
-    .where(and(inArray(member.userId, identitiesQuery), eq(member.role, "owner")))
-  const ownedAgentRowsQuery = db
-    .select({ id: agent.id, workspaceId: agent.workspaceId })
-    .from(agent)
-    .where(or(
-      inArray(agent.workspaceId, ownedWorkspaceIdsQuery),
-      inArray(agent.ownerId, identitiesQuery),
-    ))
-  const ownedAgentIdsQuery = ownedAgentRowsQuery.as("owned_agent")
   const ownedServerIdsQuery = db
     .select({ id: communityServer.id })
     .from(communityServer)
@@ -194,42 +166,15 @@ export async function getAccountDeletionSnapshot(
       inArray(communityMessage.authorId, identitiesQuery),
       inArray(communityMessage.channelId, doomedChannelIdsQuery),
     ))
-  const ownedConversationIdsQuery = db
-    .select({ id: conversation.id })
-    .from(conversation)
-    .where(or(
-      inArray(conversation.userId, identitiesQuery),
-      inArray(conversation.workspaceId, ownedWorkspaceIdsQuery),
-      inArray(conversation.agentId, db.select({ id: ownedAgentIdsQuery.id }).from(ownedAgentIdsQuery)),
-    ))
-  const affectedArtifactCondition = or(
-    inArray(artifact.workspaceId, ownedWorkspaceIdsQuery),
-    inArray(artifact.agentId, db.select({ id: ownedAgentIdsQuery.id }).from(ownedAgentIdsQuery)),
-    inArray(artifact.conversationId, ownedConversationIdsQuery),
-  )!
-  const affectedEmailCondition = or(
-    inArray(emails.workspaceId, ownedWorkspaceIdsQuery),
-    inArray(emails.agentId, db.select({ id: ownedAgentIdsQuery.id }).from(ownedAgentIdsQuery)),
-  )!
-  const affectedMeetingCondition = or(
-    inArray(meetingSession.workspaceId, ownedWorkspaceIdsQuery),
-    inArray(meetingSession.agentId, db.select({ id: ownedAgentIdsQuery.id }).from(ownedAgentIdsQuery)),
-  )!
-
   const [
     identities,
     providers,
-    ownedWorkspaceRows,
-    ownedAgentRows,
     machineCredentials,
     botBindings,
     serverRows,
     serverMemberRows,
     impactedReadStateRows,
     impactedMentionRows,
-    artifactRows,
-    deletingEmailRows,
-    meetingRows,
     diagnosticRows,
   ] = await Promise.all([
     db.select({
@@ -247,8 +192,6 @@ export async function getAccountDeletionSnapshot(
       accessToken: account.accessToken,
       refreshToken: account.refreshToken,
     }).from(account).where(inArray(account.userId, identitiesQuery)),
-    ownedWorkspaceIdsQuery,
-    ownedAgentRowsQuery,
     db.select({ doName: communityMachineCredential.doName })
       .from(communityMachineCredential)
       .where(inArray(communityMachineCredential.userId, identitiesQuery)),
@@ -263,10 +206,10 @@ export async function getAccountDeletionSnapshot(
       .where(inArray(communityServerMember.serverId, ownedServerIdsQuery)),
     db.selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
-      .innerJoin(user, eq(user.id, communityReadState.userId))
       .where(and(
-        eq(user.isBot, false),
-        isNull(user.deletedAt),
+        exists(db.select({ id: user.id }).from(user).where(and(
+          eq(user.id, communityReadState.userId), eq(user.isBot, false), isNull(user.deletedAt),
+        ))),
         or(
           inArray(communityReadState.channelId, doomedChannelIdsQuery),
           inArray(communityReadState.channelId, authoredChannelIdsQuery),
@@ -275,51 +218,16 @@ export async function getAccountDeletionSnapshot(
       )),
     db.selectDistinct({ userId: communityMention.userId })
       .from(communityMention)
-      .innerJoin(user, eq(user.id, communityMention.userId))
       .where(and(
-        eq(user.isBot, false),
-        isNull(user.deletedAt),
+        exists(db.select({ id: user.id }).from(user).where(and(
+          eq(user.id, communityMention.userId), eq(user.isBot, false), isNull(user.deletedAt),
+        ))),
         inArray(communityMention.messageId, doomedMessageIdsQuery),
       )),
-    db.select({ r2Key: artifact.r2Key, thumbnailR2Key: artifact.thumbnailR2Key })
-      .from(artifact)
-      .where(affectedArtifactCondition),
-    db.select({ r2Key: emails.r2Key, attachments: emails.attachments })
-      .from(emails)
-      .where(affectedEmailCondition),
-    db.select({ transcriptR2Key: meetingSession.transcriptR2Key })
-      .from(meetingSession)
-      .where(affectedMeetingCondition),
     db.select({ r2Key: communityDiagnosticReport.r2Key })
       .from(communityDiagnosticReport)
       .where(inArray(communityDiagnosticReport.ownerUserId, identitiesQuery)),
   ])
-
-  const candidateAttachmentKeys = unique(deletingEmailRows.flatMap((row) => {
-    try {
-      const parsed: unknown = JSON.parse(row.attachments)
-      return Array.isArray(parsed)
-        ? parsed.map((value) => value && typeof value === "object" && "key" in value
-          ? (value as { key?: unknown }).key
-          : null).filter((value): value is string => typeof value === "string")
-        : []
-    } catch {
-      return []
-    }
-  }))
-  const survivingEmailRows = candidateAttachmentKeys.length > 0
-    ? await db.select({ attachments: emails.attachments })
-      .from(emails)
-      .where(and(
-        sql<boolean>`NOT (${affectedEmailCondition})`,
-        sql<boolean>`EXISTS (
-          SELECT 1 FROM json_each(${emails.attachments}) AS attachment
-          WHERE json_extract(attachment.value, '$.key') IN (
-            SELECT CAST(value AS TEXT) FROM json_each(${JSON.stringify(candidateAttachmentKeys)})
-          )
-        )`,
-      ))
-    : []
 
   const identity = identities.find((row) => row.id === userId)
   if (!identity || identity.isBot) return null
@@ -334,8 +242,6 @@ export async function getAccountDeletionSnapshot(
     identity,
     identities,
     providers,
-    ownedWorkspaceIds: ownedWorkspaceRows.map((row) => row.id),
-    ownedAgentIds: ownedAgentRows.map((row) => row.id),
     machineDoNames: unique(machineCredentials.map((row) => row.doName)),
     botBindings,
     ownedServers: serverRows.map((row) => ({
@@ -356,14 +262,6 @@ export async function getAccountDeletionSnapshot(
         ...identities.map((row) => `${row.isBot ? "bot" : "user"}-avatar/${row.id}/`),
         ...serverRows.map((row) => `server-icon/${row.id}/`),
       ]),
-      emailExactKeys: unique([
-        ...artifactRows.flatMap((row) => [row.r2Key, row.thumbnailR2Key]),
-        ...deletingEmailRows.map((row) => row.r2Key),
-        ...meetingRows.map((row) => row.transcriptR2Key),
-      ]),
-      emailPrefixes: ownedWorkspaceRows.map((row) => `artifacts/${row.id}/`),
-      deletingEmailAttachments: deletingEmailRows.map((row) => row.attachments),
-      survivingEmailAttachments: survivingEmailRows.map((row) => row.attachments),
       bugReportExactKeys: unique(diagnosticRows.map((row) => row.r2Key)),
       bugReportPrefixes: identities.map((row) => `bug-reports/${row.id}/`),
     },
@@ -382,17 +280,6 @@ export async function deleteAccountRows(
       eq(user.id, userId),
       and(eq(user.ownerUserId, userId), eq(user.isBot, true)),
     ))
-  const ownedWorkspaceIdsQuery = db
-    .select({ id: member.workspaceId })
-    .from(member)
-    .where(and(inArray(member.userId, identitiesQuery), eq(member.role, "owner")))
-  const ownedAgentIdsQuery = db
-    .select({ id: agent.id })
-    .from(agent)
-    .where(or(
-      inArray(agent.workspaceId, ownedWorkspaceIdsQuery),
-      inArray(agent.ownerId, identitiesQuery),
-    ))
   const ownedServerIdsQuery = db
     .select({ id: communityServer.id })
     .from(communityServer)
@@ -405,15 +292,6 @@ export async function deleteAccountRows(
     .select({ id: communityMessage.channelId })
     .from(communityMessage)
     .where(inArray(communityMessage.authorId, identitiesQuery))
-  const ownedRuntimeIdsQuery = db
-    .select({ id: agentRuntime.id })
-    .from(agentRuntime)
-    .innerJoin(machine, and(
-      eq(machine.workspaceId, agentRuntime.workspaceId),
-      eq(machine.daemonId, agentRuntime.daemonId),
-    ))
-    .where(inArray(machine.ownerId, identitiesQuery))
-
   const statements = [
     db.update(communityChannel).set({
       messageCount: sql<number>`(
@@ -482,15 +360,6 @@ export async function deleteAccountRows(
         )`,
       )]
       : []),
-    db.delete(issueComment).where(or(
-      and(eq(issueComment.authorType, "user"), inArray(issueComment.authorId, identitiesQuery)),
-      and(eq(issueComment.authorType, "agent"), inArray(issueComment.authorId, ownedAgentIdsQuery)),
-    )),
-    db.update(agent).set({ runtimeId: null }).where(inArray(agent.runtimeId, ownedRuntimeIdsQuery)),
-    db.delete(agentRuntime).where(inArray(agentRuntime.id, ownedRuntimeIdsQuery)),
-    db.delete(machine).where(inArray(machine.ownerId, identitiesQuery)),
-    db.delete(workspace).where(inArray(workspace.id, ownedWorkspaceIdsQuery)),
-    db.delete(agent).where(inArray(agent.ownerId, identitiesQuery)),
     db.delete(communityServer).where(inArray(communityServer.ownerId, identitiesQuery)),
     db.delete(communityAttachment).where(and(
       inArray(communityAttachment.uploaderId, identitiesQuery),

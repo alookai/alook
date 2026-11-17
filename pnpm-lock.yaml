@@ -172,15 +172,6 @@ importers:
       '@alook/shared':
         specifier: workspace:*
         version: link:../shared
-      nanoid:
-        specifier: ^5.1.16
-        version: 5.1.16
-      postal-mime:
-        specifier: ^2.7.6
-        version: 2.7.6
-      worker-mailer:
-        specifier: ^1.3.0
-        version: 1.3.0
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: 1.4.7
@@ -10434,9 +10425,6 @@ packages:
   word-wrap@1.2.5:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
-
-  worker-mailer@1.3.0:
-    resolution: {integrity: sha512-VGbZC7mqOFq91cJOqphqVYX1Hk/Lf61sqLyByAwlG5QDtheiTaAJsfWQzxJewTmgxrrAecd1F9uStuIXBiLg8w==}
 
   workerd@1.20261019.1:
     resolution: {integrity: sha512-UUYRUq/7DmeCl11YriNbcVbjUZVLtt8uuCXFu+nz77hGFf8d4DEVXoCYtnA+MlBatE4+wxoj47DVqzK3xGBAiw==}
@@ -21623,8 +21611,6 @@ snapshots:
   why-is-node-running@3.2.1: {}
 
   word-wrap@1.2.5: {}
-
-  worker-mailer@1.3.0: {}
 
   workerd@1.20261019.1:
     optionalDependencies:
