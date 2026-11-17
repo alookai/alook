@@ -147,13 +147,13 @@ it("skips another author's, expired and exhausted invitations before reusing a v
   expect(mocks.message.mock.lastCall?.[0].body).toEqual({ content: "http://localhost/c/invite/valid" })
 })
 
-it("normalizes legacy backends and strips runtime diagnostics and model bodies from the machine list", async () => {
-  mocks.machines.mockResolvedValue([{ id: "m", name: "M", status: "online", availableRuntimes: ["codex", "", null,
+it("omits the retired alias, normalizes backend IDs and strips runtime diagnostics and model bodies from the machine list", async () => {
+  mocks.machines.mockResolvedValue([{ id: "m", name: "M", status: "online", availableRuntimes: ["codex", "codex-cli", "", null,
     { id: "opencode", status: "unhealthy", version: "1", lastError: "private", reasoning: { updateMode: "unsupported", catalogOrigin: "adapter_suggestions", models: [] } },
     { id: "bad runtime", status: "healthy" },
   ] }])
   expect(await (await readAutomationMachines(request(), context())).json()).toEqual({ machines: [{ id: "m", name: "M", status: "online", backends: [
-    { id: "codex", health: "healthy", modelRequired: false },
+    { id: "codex-cli", health: "healthy", modelRequired: false },
     { id: "opencode", version: "1", health: "unhealthy", modelRequired: true },
   ] }] })
 })

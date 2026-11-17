@@ -65,7 +65,7 @@ export async function prepareCase(actors: CaseActors, caseResources: CaseResourc
         hostname: `profile-preview-e2e-${Date.now()}`,
         platform: "darwin",
         arch: "arm64",
-        runtimeReport: [{ id: "codex", status: "healthy" }],
+        runtimeReport: [{ id: "codex-cli", status: "healthy" }],
       }),
     })
     expect(response.status).toBe(200)
@@ -90,7 +90,7 @@ export async function prepareCase(actors: CaseActors, caseResources: CaseResourc
       }
     }>("alice", "/api/community/bots", {
       method: "POST",
-      body: JSON.stringify({ name, machineId, runtime: "codex" }),
+      body: JSON.stringify({ name, machineId, runtime: "codex-cli" }),
     })
     createdBotIds.set(data.bot.id, caseResources.own(data.bot.id, async (botId) => {
       const response = await communityFixtureFetch(`${WEB_URL}/api/community/bots/${botId}`, { method: "DELETE", headers: headersFor("alice") })
