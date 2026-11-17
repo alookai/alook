@@ -66,6 +66,8 @@ function fakeManager(
     interrupt,
     stop() {},
     liveSessionReports: () => [],
+    liveModelReports: vi.fn(() => []),
+    liveAgentActivities: () => [],
     snapshot() {
       const agents: Record<string, { status: string }> = {};
       for (const [id, status] of Object.entries(statuses)) agents[id] = { status };
@@ -78,6 +80,7 @@ function fakeManager(
 /** Fake channel capturing acks + the command handler the router registers. */
 function fakeChannel() {
   let handler: ((c: HostCommand) => void | Promise<void>) | null = null;
+  let resync: Parameters<NonNullable<HostControlChannel["onResync"]>>[0] | undefined;
   const wakeAcks: Array<{ agentId: string; launchId: string; status: string }> = [];
   const readys: Array<Parameters<HostControlChannel["reportReady"]>[0]> = [];
   const sessionErrors: SessionErrorFrame[] = [];
@@ -99,10 +102,21 @@ function fakeChannel() {
     reportAgentTyping(info) {
       typings.push(info);
     },
-    onResync() {},
+    onResync(cb) { resync = cb; },
   };
-  return { ch, wakeAcks, readys, sessionErrors, typings, fire: (c: HostCommand) => handler?.(c) };
+  return { ch, wakeAcks, readys, sessionErrors, typings, fire: (c: HostCommand) => handler?.(c), resync: () => resync?.() };
 }
+
+it("rereads live model observations on every reconnect resync", async () => {
+  const { mgr } = fakeManager();
+  const { ch, resync } = fakeChannel();
+  const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
+  await router.start();
+  expect(resync()?.models).toEqual([]);
+  const report = { agentId: "bot", backendId: "claude", sessionInstanceId: "new", model: "served", source: "response" as const, observedAt: "2026-11-17T02:00:00.000Z" };
+  vi.mocked(mgr.liveModelReports).mockReturnValue([report]);
+  expect(resync()?.models).toEqual([report]);
+});
 
 describe("AgentRouter — agent:interrupt", () => {
   it("passes the one-way command to the manager", async () => {

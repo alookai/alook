@@ -87,6 +87,10 @@ export async function cursorSdkWorker(init: SdkWorkerInit, emit: (event: Adapter
       void Promise.resolve().then(() => run.wait()).then(async (result: any) => {
         if (closed || active !== run) return;
         terminal = true; active = undefined;
+        if (typeof result.model?.id === "string" || typeof result.model === "string") emit({ kind: "model_observed", observation: {
+          model: typeof result.model === "string" ? result.model : result.model.id, source: "response", ...(typeof result.responseId === "string" ? { responseId: result.responseId } : {}),
+        } });
+        else if (typeof agent.model?.id === "string") emit({ kind: "model_observed", observation: { model: agent.model.id, source: "session" } });
         if (!textSeen && typeof result.result === "string") emit({ kind: "assistant_message_completed", text: result.result });
         if (result.usage) {
           const metric = (value: unknown): number | null => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;

@@ -42,6 +42,7 @@ import {
   type DaemonSelfSleepClock,
 } from "./daemonSelfSleep.js";
 import { DailyTokenUsageStore } from "../telemetry/index.js";
+import { ModelObservationReporter } from "../telemetry/modelObservations.js";
 import { createRecentContextPromptAppender } from "./recentContextPrompt.js";
 
 // Cold-start warmup backoff schedule (ms).
@@ -347,6 +348,11 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   });
 
   let channelRef: WsControlChannel | null = null;
+  const modelReporter = new ModelObservationReporter(
+    (agentId) => managerRef?.modelReportFor(agentId),
+    (report) => channelRef?.reportAgentModel(report),
+    () => log.warn("agent model observation report failed"),
+  );
 
   const providerQuotaSnapshot = (backend: ProviderQuotaSnapshot["agentBackendId"]): ProviderQuotaSnapshot | undefined => {
     const saved = providerQuotaByBackend.get(backend);
@@ -938,6 +944,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
     },
     onTokenUsageStatus: ({ agentId, backendId, status }) => { tokenUsageAvailability.set(agentId, { backendId, status }); reportTelemetryForIdleAgent(agentId); },
+    onModelObserved: (agentId) => modelReporter.schedule(agentId),
     onTokenUsage: ({ agentId, usage, identity }) => {
       if (usageSealed) return;
       trackTelemetry(dailyTokenUsage.record(agentId, usage, identity)
@@ -1157,6 +1164,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     stop: () => {
       if (stopPromise) return stopPromise;
       stopping = true;
+      modelReporter.stop();
       clearInterval(quotaRefreshTimer);
       const failures: unknown[] = [];
       stopPromise = Promise.resolve().then(async () => {

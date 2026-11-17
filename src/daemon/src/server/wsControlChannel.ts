@@ -1,5 +1,5 @@
 
-import { type PiiResultFrame, BotAuditEventAckFrameSchema } from "@alook/shared";
+import { type PiiResultFrame, BotAuditEventAckFrameSchema, type AgentModelReport } from "@alook/shared";
 import type {
   HostControlChannel,
   HostCommand,
@@ -123,6 +123,7 @@ type OutboundFrame =
   | { type: "machine_heartbeat_ack"; nonce: string }
   | { type: "diagnostics_ack"; reportId: string }
   | HostBotAuditEventFrame
+  | ({ type: "agent_model" } & AgentModelReport)
   | HostRuntimeModelsFrame
   | PiiResultFrame
   | SessionErrorFrame;
@@ -131,6 +132,7 @@ type ResyncProvider = () => {
   ready: HostReady;
   sessions: AgentSessionReport[];
   activities?: HostAgentActivity[] | Promise<HostAgentActivity[]>;
+  models?: AgentModelReport[];
 };
 
 function describeErr(err: unknown): string {
@@ -285,6 +287,9 @@ export class WsControlChannel implements HostControlChannel {
     this.wakeCoordinator.recordAgentActivity(info.agentId, info.state);
     this.sendFrame({ type: "agent_activity", ...info });
   }
+  reportAgentModel(info: AgentModelReport): void {
+    this.sendFrame({ type: "agent_model", ...info });
+  }
 
   /**
    * Emit an `agent_typing` frame (daemon → server). Sync + fire-and-forget:
@@ -414,6 +419,7 @@ export class WsControlChannel implements HostControlChannel {
       for (const session of snapshot.sessions) {
         sendFrame({ type: "agent_session", ...session });
       }
+      for (const report of snapshot.models ?? []) sendFrame({ type: "agent_model", ...report });
       // Re-assert each live agent's current activity: `agent_activity` is
       // edge-triggered, so a frame dropped during the disconnect window is
       // otherwise lost forever, stranding the pill on a stale state.

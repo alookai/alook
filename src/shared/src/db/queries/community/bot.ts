@@ -39,6 +39,7 @@ import {
   communityReadStateRevision,
 } from "../../community-schema";
 import type { DailyUsageSnapshot } from "../../../provider-telemetry";
+import type { AgentModelReport, StoredModelObservation } from "../../../model-observation";
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
 import { communityBotSyntheticEmail } from "../../../constants";
@@ -99,6 +100,7 @@ export async function listBotsForOwner(
   isActive: boolean;
   presence: "online" | "offline";
   tokenUsageTimeZone: string | null;
+  modelObservation?: StoredModelObservation;
 }>> {
   const rows = await db
     .select({
@@ -120,6 +122,7 @@ export async function listBotsForOwner(
       isActive: communityBotBinding.isActive,
       machineStatus: communityMachine.status,
       tokenUsageTimeZone: communityMachine.timeZone,
+      modelObservation: communityBotBinding.modelObservation,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -150,7 +153,31 @@ export async function listBotsForOwner(
     isActive: r.isActive,
     presence: r.isActive && isPresenceOnline(r.machineStatus) ? "online" : "offline",
     tokenUsageTimeZone: r.tokenUsageTimeZone ?? null,
+    ...(r.modelObservation?.machineId === r.machineId && r.modelObservation.backendId === r.runtime
+      ? { modelObservation: r.modelObservation } : {}),
   }));
+}
+
+export async function recordBotModelObservation(
+  db: Database,
+  ownerUserId: string,
+  machineId: string,
+  report: AgentModelReport,
+): Promise<void> {
+  const observedAt = new Date(report.observedAt).toISOString();
+  await db.update(communityBotBinding)
+    .set({ modelObservation: { ...report, observedAt, machineId } })
+    .where(and(
+      eq(communityBotBinding.userId, report.agentId),
+      eq(communityBotBinding.machineId, machineId),
+      eq(communityBotBinding.runtime, report.backendId),
+      eq(communityBotBinding.isActive, true),
+      exists(db.select({ id: user.id }).from(user).where(and(
+        eq(user.id, report.agentId), eq(user.ownerUserId, ownerUserId), eq(user.isBot, true), isNull(user.deletedAt),
+      ))),
+      or(isNull(communityBotBinding.modelObservation),
+        sql`json_extract(${communityBotBinding.modelObservation}, '$.observedAt') <= ${observedAt}`),
+    ));
 }
 
 export async function getBotDailyTokenUsageForOwner(

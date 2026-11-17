@@ -1,5 +1,6 @@
 import { handlePiiResultFrame } from "./machine-pii"
 import { handleRuntimeModelsFrame } from "./machine-models"
+import { handleModelObservationFrame } from "./machine-model-observation"
 import { IDENTITY_KEY } from "./internal"
 import type { CommunityMachineIdentity, WsDurableContext } from "./internal"
 import { handleReadyFrame } from "./machine-ready"
@@ -34,6 +35,7 @@ export async function handleCommunityMachineMessage(
 
   if (await handleMachineHeartbeatAck(context, ws, parsed, identity)) return
   if (handleDiagnosticCommandAck(context, ws, parsed, identity)) return
+  if (await handleModelObservationFrame(context, parsed, identity)) return
 
   // The router is intentionally first-match. Keep identity before every
   // frame and preserve ack → session error → activity → typing → typing stop

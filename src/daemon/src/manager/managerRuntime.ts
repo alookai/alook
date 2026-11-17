@@ -1,4 +1,4 @@
-import { BOT_AUDIT_TEXT_MAX_BYTES } from "@alook/shared";
+import { BOT_AUDIT_TEXT_MAX_BYTES, type AgentModelReport } from "@alook/shared";
 import { MEMORY_MAINTENANCE_PROMPT } from "./memoryMaintenancePrompt.js";
 import {
   reduceManager,
@@ -244,6 +244,7 @@ export interface ManagerRuntimeOpts {
   onAgentActivity?: (info: { agentId: string; state: AgentActivityState }) => void;
   onTokenUsageStatus?: (info: { agentId: string; backendId: BuiltinBackendId; status: "available" | "unavailable" }) => void;
   onTokenUsage?: (info: { agentId: string; backendId: BuiltinBackendId; usage: TokenUsageDelta; identity?: TokenUsageIdentity }) => void;
+  onModelObserved?: (agentId: string) => void;
   onProviderQuota?: (info: { agentId: string; backendId: BuiltinBackendId; quota: ProviderQuotaObservation }) => void;
   onBotAuditEvent?: (
     agentId: string,
@@ -491,6 +492,7 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onTokenUsageStatus"
       | "onTokenUsage"
+      | "onModelObserved"
       | "onProviderQuota"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
@@ -512,6 +514,7 @@ export class AgentProcessManager {
       | "onAgentActivity"
       | "onTokenUsageStatus"
       | "onTokenUsage"
+      | "onModelObserved"
       | "onProviderQuota"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
@@ -990,6 +993,31 @@ export class AgentProcessManager {
   }
   agentBackendId(agentId: string): BuiltinBackendId | null {
     return this.liveBackendIds.get(agentId) ?? null;
+  }
+  modelReportFor(agentId: string): AgentModelReport | undefined {
+    const owner = this.activeSpawnState.get(agentId);
+    if (!owner || owner.superseded || owner.torndown || owner.discardEvents) return undefined;
+    const snapshot = owner.session?.snapshot();
+    const observed = snapshot?.observedModel;
+    const backendId = this.agentBackendId(agentId);
+    if (!observed || observed.source === "aggregate" || !backendId || snapshot?.sessionInstanceId !== owner.sessionInstanceId) return undefined;
+    const observedAt = new Date(observed.observedAt);
+    if (!Number.isFinite(observedAt.getTime())) return undefined;
+    return {
+      agentId, backendId, sessionInstanceId: snapshot.sessionInstanceId,
+      ...(snapshot.backendSessionId ? { sessionId: snapshot.backendSessionId } : {}),
+      ...(this.launchIds.get(agentId) ? { launchId: this.launchIds.get(agentId)! } : {}),
+      model: observed.model, source: observed.source,
+      ...(observed.provider ? { provider: observed.provider } : {}),
+      ...(observed.responseId ? { responseId: observed.responseId } : {}),
+      observedAt: observedAt.toISOString(),
+    };
+  }
+  liveModelReports(): AgentModelReport[] {
+    return [...this.activeSpawnState.keys()].flatMap((agentId) => {
+      const report = this.modelReportFor(agentId);
+      return report ? [report] : [];
+    });
   }
   statusProjection(nowMs: number): Array<{
     agentId: string;
@@ -2011,6 +2039,9 @@ export class AgentProcessManager {
       return;
     }
     const sessionSuperseded = owner.superseded;
+    if (event.type === "model_observed" && event.attribution.scope === "root" && event.observation.source !== "aggregate") {
+      this.opts.onModelObserved?.(agentId);
+    }
     const runtimeError = event.type === "session_failed"
       ? event.error
       : event.type === "turn_completed" && event.result.outcome === "failed"

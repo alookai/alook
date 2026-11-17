@@ -230,6 +230,13 @@ export interface RuntimeConfigurationObservation {
   readonly reasoningEffort?: ReasoningEffort | null;
 }
 
+export interface ModelObservation {
+  readonly model: string;
+  readonly provider?: string;
+  readonly source: "response" | "session" | "aggregate";
+  readonly responseId?: string;
+}
+
 export interface AgentMessage {
   readonly id: string;
   readonly kind: "user" | "system" | "recovery";
@@ -416,6 +423,7 @@ export type ProviderQuotaObservation =
     };
 
 export type CoreAgentEventPayload =
+  | { readonly type: "model_observed"; readonly observation: ModelObservation; readonly attribution: EventAttribution; readonly turnId?: string }
   | { readonly type: "session_acquired"; readonly backendSessionId: string; readonly acquisition: SessionAcquisition }
   | { readonly type: "configuration_observed"; readonly observation: RuntimeConfigurationObservation }
   | { readonly type: "input_observed"; readonly input: InputReference; readonly evidence: "native_ack" | "user_message" | "conversation" }
@@ -532,6 +540,7 @@ export type AgentEvent<Specs, Id extends BackendId<Specs>> =
   AgentEventEnvelope & (CoreAgentEventPayload | ExtraEventOf<Specs, Id>);
 
 export interface AgentSessionSnapshot {
+  readonly observedModel?: ModelObservation & { readonly observedAt: number };
   readonly acquisition?: SessionAcquisition;
   readonly configuration?: RuntimeConfigurationObservation;
   readonly sessionInstanceId: string;
