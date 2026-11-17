@@ -125,9 +125,9 @@ export function ServerSettings({
         onClose={onClose}
       >
         <SettingsShellPanel value="overview"><SettingsOverview key={serverId} serverId={serverId} serverIcon={serverIcon} onUploadIcon={onUploadIcon} editor={editor} captureSaveFeedback={captureSaveFeedback} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
-        {isAdmin && section === "channels" && <SettingsShellPanel value="channels" className="flex min-h-full flex-col"><ServerSettingsChannels key={serverId} serverId={serverId} /></SettingsShellPanel>}
+        {isAdmin && section === "channels" && <SettingsShellPanel value="channels" fill><ServerSettingsChannels key={serverId} serverId={serverId} /></SettingsShellPanel>}
         <SettingsShellPanel value="members" className="h-full"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
-        <SettingsShellPanel value="invites" className="flex min-h-full flex-col">{invitesFailed ? <ConversationResolutionErrorFrame as="div" title="Could not load invites." retrying={invitesFetching} onRetry={() => { void retryInvites() }} /> : <SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} />}</SettingsShellPanel>
+        <SettingsShellPanel value="invites" fill>{invitesFailed ? <ConversationResolutionErrorFrame as="div" title="Could not load invites." retrying={invitesFetching} onRetry={() => { void retryInvites() }} /> : <SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} />}</SettingsShellPanel>
         <SettingsShellPanel value="notifications"><SettingsNotifications serverId={serverId} level={notifLevel} onSetLevel={onSetNotifLevel} /></SettingsShellPanel>
       </SettingsShell>
     </>

@@ -304,7 +304,7 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
               </div>
             </div>
           </SettingsShellPanel>
-          <SettingsShellPanel value="automation" className="flex min-h-full flex-col">
+          <SettingsShellPanel value="automation" fill>
             {tab === "automation" && userId ? <AutomationSettings key={userId} userId={userId} /> : null}
           </SettingsShellPanel>
           <SettingsShellPanel value="appearance">
