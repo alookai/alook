@@ -66,8 +66,14 @@ export function useChannelMessageFeed({
     scrollRootEl,
     setScrollRootEl,
     threads: threadsQuery.threads,
-    threadsLoading: threadsQuery.isLoading,
+    threadsKnown: threadsQuery.data !== undefined,
+    threadsLoading: threadsQuery.data === undefined && !threadsQuery.isError || threadsQuery.canonicalPending,
+    threadsError: threadsQuery.isError,
+    retryThreads: threadsQuery.refetch,
     pinned: pinsQuery.pins,
-    pinnedLoading: pinsQuery.isLoading || pinsQuery.canonicalPending,
+    pinnedKnown: pinsQuery.data !== undefined,
+    pinnedLoading: pinsQuery.data === undefined && !pinsQuery.isError || pinsQuery.canonicalPending,
+    pinnedError: pinsQuery.isError,
+    retryPinned: pinsQuery.refetch,
   }
 }

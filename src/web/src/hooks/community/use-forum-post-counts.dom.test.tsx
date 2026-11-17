@@ -2,12 +2,12 @@ import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { communityKeys } from "@/lib/query-keys"
 import { refreshForumPostCounts, useForumPostCounts } from "./use-forum-post-counts"
-import { ForumPostCount, ForumPostCountsProvider } from "@/components/community/channels/forum-post-count"
+import { ForumPostCount, ForumPostCountsProvider, ForumPostCountsStatus } from "@/components/community/channels/forum-post-count"
 
 const fetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: fetch }))
@@ -26,6 +26,37 @@ async function setup(account = "viewer") {
 }
 
 describe("independent forum count query", () => {
+  it.each([12, 0])("retains the known %s count and a working Retry through a background failure", async count => {
+    const { client, wrapper } = await setup()
+    fetch.mockResolvedValue({ serverId: "s1", counts: { f1: count } })
+    const view = render(<ForumPostCountsProvider serverId="s1" enabled><ForumPostCountsStatus /><button>Channel<ForumPostCount channelId="f1" /></button></ForumPostCountsProvider>, { wrapper })
+    await waitFor(() => expect(client.getQueryData(communityKeys.forumPostCounts("s1"))).toEqual({ f1: count }))
+    fetch.mockRejectedValue(new Error("offline"))
+    await act(async () => { await client.refetchQueries({ queryKey: communityKeys.forumPostCounts("s1") }) })
+    const retry = await waitFor(() => view.getByRole("button", { name: "Retry post counts" }))
+    expect(view.getByRole("alert")).toHaveTextContent("Could not refresh post counts")
+    expect(view.queryByLabelText("Loading unarchived post count")).toBeNull()
+    expect(view.queryByText("Unknown")).toBeNull()
+    if (count) expect(view.getByText("12 open")).toBeVisible()
+    else expect(view.getByText("Channel").textContent).toBe("Channel")
+    fetch.mockResolvedValue({ serverId: "s1", counts: { f1: 11 } })
+    fireEvent.click(retry)
+    await waitFor(() => expect(view.getByText("11 open")).toBeVisible())
+    expect(view.queryByRole("alert")).toBeNull()
+    view.unmount()
+  })
+
+  it("shows unavailable rather than zero or a permanent spinner after a first-read failure", async () => {
+    const { wrapper } = await setup()
+    fetch.mockRejectedValue(new Error("offline"))
+    const view = render(<ForumPostCountsProvider serverId="s1" enabled><ForumPostCountsStatus /><button>Channel<ForumPostCount channelId="f1" /></button></ForumPostCountsProvider>, { wrapper })
+    await waitFor(() => expect(view.getByLabelText("Unarchived post count unavailable")).toHaveTextContent("Unknown"), { timeout: 3000 })
+    expect(view.queryByLabelText("Loading unarchived post count")).toBeNull()
+    expect(view.getByRole("button", { name: "Retry post counts" })).toBeEnabled()
+    expect(view.container.querySelector("button button")).toBeNull()
+    view.unmount()
+  })
+
   it("does not fetch before primary readiness; pending counts leave navigation mounted and caches intact", async () => {
     const { client, wrapper } = await setup()
     const directory = { cached: "directory" }, messages = { cached: "messages" }

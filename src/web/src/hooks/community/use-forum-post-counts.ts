@@ -1,16 +1,12 @@
 "use client"
 
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
-import { z } from "zod"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
-import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityOnlineAccount } from "./community-origin"
-
-const envelope = z.object({ serverId: z.string(), counts: z.record(z.string(), z.number().int().nonnegative()) })
+import { forumPostCountsReadSchema } from "@/lib/community/page-list-persistence"
 
 export function refreshForumPostCounts(queryClient: QueryClient, serverId: string) {
   const queryKey = communityKeys.forumPostCounts(serverId)
@@ -19,26 +15,27 @@ export function refreshForumPostCounts(queryClient: QueryClient, serverId: strin
   ).catch(() => undefined)
 }
 
+export const forumPostCountsQueryFn = (serverId: string, queryClient: QueryClient) =>
+  async ({ signal }: { signal?: AbortSignal } = {}) => {
+    const token = captureCommunityLiveSnapshotToken(queryClient)
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    const result = forumPostCountsReadSchema.parse(await apiFetch(`/api/community/servers/${serverId}/forum-counts`,
+      communityRequestOptions(queryClient, token, signal)))
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    if (result.serverId !== serverId) throw new Error("Forum count scope mismatch")
+    return result.counts
+  }
+
 export function useForumPostCounts(serverId: string, enabled: boolean) {
   const queryClient = useQueryClient()
-  const registry = useOptionalCommunityDbRegistry()
   const online = useCommunityOnlineAccount()
-  const accessEpoch = useCommunityWsStore(state => state.accessEpoch)
   return useQuery({
-    queryKey: [...communityKeys.forumPostCounts(serverId), registry?.accountId, accessEpoch],
+    queryKey: communityKeys.forumPostCounts(serverId),
     enabled: enabled && online && !!serverId,
     staleTime: 30_000,
     retry: 1,
     refetchOnWindowFocus: true,
     throwOnError: false,
-    queryFn: async ({ signal }) => {
-      const token = captureCommunityLiveSnapshotToken(queryClient)
-      assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
-      const result = envelope.parse(await apiFetch(`/api/community/servers/${serverId}/forum-counts`,
-        communityRequestOptions(queryClient, token, signal)))
-      assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
-      if (result.serverId !== serverId) throw new Error("Forum count scope mismatch")
-      return result.counts
-    },
+    queryFn: forumPostCountsQueryFn(serverId, queryClient),
   })
 }
