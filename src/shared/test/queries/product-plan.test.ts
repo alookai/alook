@@ -369,7 +369,7 @@ describe("generic product plan entitlement queries", () => {
     sqlite.prepare("UPDATE user_product_plan SET is_founder=1 WHERE user_id='owner'").run()
     await expect(productPlanQuery.assignUserPlan(db as never, "owner", "free"))
       .rejects.toThrow("PLAN_ASSIGNMENT_PROTECTED")
-    await productPlanQuery.setPlanEntitlement(db as never, "house", "bots.max", 50)
+    sqlite.prepare("UPDATE product_plan_entitlement SET value_json='50' WHERE plan_id='house' AND entitlement_key='bots.max'").run()
     await expect(productPlanQuery.getBotCapacitySummary(db as never, "owner")).resolves.toMatchObject({
       plan: { id: "house" }, isFounder: true, limit: 50,
     })
@@ -476,75 +476,18 @@ describe("generic product plan entitlement queries", () => {
     `).get()).toEqual({ last_read_seq: 2 })
   })
 
-  it("reconciles both explicit and default-plan owners when bots.max itself is lowered", async () => {
-    seedPlan(sqlite, { id: "target", displayName: "Target", isDefault: true, botsMax: "5" })
-    seedPlan(sqlite, { id: "other", displayName: "Other", botsMax: "5" })
-    seedHuman(sqlite, "default_owner")
-    seedHuman(sqlite, "explicit_owner", "target")
-    seedHuman(sqlite, "other_owner", "other")
-    for (const owner of ["default_owner", "explicit_owner", "other_owner"]) {
-      seedBot(sqlite, owner, `${owner}_a`, "2026-01-01", true)
-      seedBot(sqlite, owner, `${owner}_b`, "2026-01-02", true)
-      seedBot(sqlite, owner, `${owner}_c`, "2026-01-03", true)
-    }
-
-    const result = await productPlanQuery.setPlanEntitlement(db as never, "target", "bots.max", 2)
-
-    expect(new Set(result.deactivatedBotIds)).toEqual(new Set([
-      "default_owner_c",
-      "explicit_owner_c",
-    ]))
-    const counts = sqlite.prepare(`
-      SELECT u.ownerUserId AS ownerId, SUM(b.is_active) AS activeCount
-      FROM user u JOIN community_bot_binding b ON b.user_id = u.id
-      GROUP BY u.ownerUserId ORDER BY u.ownerUserId
-    `).all()
-    expect(counts).toEqual([
-      { ownerId: "default_owner", activeCount: 2 },
-      { ownerId: "explicit_owner", activeCount: 2 },
-      { ownerId: "other_owner", activeCount: 3 },
-    ])
-    expect(sqlite.prepare(`
-      SELECT value_json FROM product_plan_entitlement
-      WHERE plan_id = 'target' AND entitlement_key = 'bots.max'
-    `).get()).toEqual({ value_json: "2" })
-
-    await productPlanQuery.setPlanEntitlement(db as never, "target", "bots.max", 5)
-    expect(sqlite.prepare(`
-      SELECT is_active FROM community_bot_binding
-      WHERE user_id IN ('default_owner_c', 'explicit_owner_c') ORDER BY user_id
-    `).all()).toEqual([{ is_active: 0 }, { is_active: 0 }])
-  })
-
   it("fails closed when plan-targeted mutations cannot resolve a valid bots.max", async () => {
     seedPlan(sqlite, { id: "inactive", isActive: false, botsMax: "3" })
     seedPlan(sqlite, { id: "missing" })
-    seedPlan(sqlite, { id: "active", botsMax: "3" })
+    seedPlan(sqlite, { id: "active", botsMax: '"bad"' })
     seedHuman(sqlite, "owner")
 
     await expect(productPlanQuery.assignUserPlan(db as never, "owner", "inactive"))
       .rejects.toMatchObject({ reason: "plan_unavailable" })
     await expect(productPlanQuery.assignUserPlan(db as never, "owner", "missing"))
       .rejects.toMatchObject({ reason: "entitlement_missing" })
-    await expect(productPlanQuery.setPlanEntitlement(db as never, "inactive", "bots.max", 2))
-      .rejects.toMatchObject({ reason: "plan_unavailable" })
-    await expect(productPlanQuery.setPlanEntitlement(db as never, "active", "bots.max", "bad"))
+    await expect(productPlanQuery.assignUserPlan(db as never, "owner", "active"))
       .rejects.toMatchObject({ reason: "entitlement_malformed" })
-  })
-
-  it("updates a non-capacity entitlement without reconciling bots", async () => {
-    seedPlan(sqlite, { id: "active", botsMax: "3" })
-
-    await expect(productPlanQuery.setPlanEntitlement(
-      db as never,
-      "active",
-      "feature.workflow",
-      { enabled: true },
-    )).resolves.toEqual({ deactivatedBotIds: [] })
-    expect(sqlite.prepare(`
-      SELECT value_json FROM product_plan_entitlement
-      WHERE plan_id = 'active' AND entitlement_key = 'feature.workflow'
-    `).get()).toEqual({ value_json: '{"enabled":true}' })
   })
 
   it("keeps activation owner-scoped and deactivation idempotent", async () => {

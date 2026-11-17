@@ -197,7 +197,6 @@ export const communityMachine = sqliteTable(
     index("idx_community_machine_user_last_seen").on(t.userId, t.lastSeenAt),
     index("idx_community_machine_user_updated").on(t.userId, t.updatedAt),
     index("idx_community_machine_user_status").on(t.userId, t.status),
-    index("idx_community_machine_status_user").on(t.status, t.userId),
   ]
 );
 
@@ -263,7 +262,6 @@ export const communityBotBinding = sqliteTable(
   },
   (t) => [
     index("idx_community_bot_binding_machine").on(t.machineId),
-    index("idx_community_bot_binding_active_user").on(t.isActive, t.userId),
   ]
 );
 

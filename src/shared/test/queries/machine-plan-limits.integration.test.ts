@@ -151,16 +151,6 @@ describe("machine plan SQL boundaries", () => {
     expect(sqlite.prepare("SELECT revoked_at FROM community_machine_credential WHERE credential_hash=?").get(hash)).toEqual({ revoked_at: null });
   });
 
-  it("changing a default machine allowance reconciles unassigned owners but not another plan", async () => {
-    await plans.setPlanEntitlement(db, "free", "machines.max", 2);
-    machine("a", "online"); machine("b", "online");
-    await plans.assignUserPlan(db, "other", "studio"); machine("other-a", "online", "other"); machine("other-b", "online", "other");
-    expect(await plans.setPlanEntitlement(db, "free", "machines.max", 1)).toMatchObject({ disconnectedMachines: [{ machineId: "b" }] });
-    expect(await plans.getMachineCapacitySummary(db, "other")).toMatchObject({ onlineCount: 2, limit: 5 });
-    await expect(plans.setPlanEntitlement(db, "free", "machines.max", "invalid")).rejects.toBeInstanceOf(plans.ProductEntitlementUnavailableError);
-    expect(await plans.getMachineCapacitySummary(db, "owner")).toMatchObject({ limit: 1 });
-  });
-
   it("rolls back billing, assignment, credential and runner writes when offline projection fails", async () => {
     await plans.assignUserPlan(db, "owner", "house"); machine("a", "online"); machine("b", "online");
     const row = (await billing.ensureBilling(db, "owner"))!;

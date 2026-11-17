@@ -1,5 +1,6 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { user } from "./schema";
+import { isNotNull } from "drizzle-orm";
 import { productPlan } from "./product-plan-schema";
 import type { BillingSubscription } from "../billing";
 
@@ -44,6 +45,7 @@ export const userBilling = sqliteTable("user_billing", {
 }, (t) => [
   uniqueIndex("uq_user_billing_customer").on(t.customerId),
   uniqueIndex("uq_user_billing_subscription").on(t.subscriptionId),
+  index("idx_user_billing_recovery_cursor").on(t.updatedAt, t.userId).where(isNotNull(t.customerId)),
 ]);
 
 export const billingAnalyticsConsent = sqliteTable("billing_analytics_consent", {

@@ -534,9 +534,6 @@
     "key": "src/shared/src/db/queries/product-plan.ts:reconcileOnlineMachinesBuilders:inArray:4"
   },
   {
-    "key": "src/shared/src/db/queries/product-plan.ts:setPlanEntitlement:inArray:1"
-  },
-  {
     "key": "src/shared/src/db/queries/user.ts:getUsersByIds:inArray:1"
   }
 ]

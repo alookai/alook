@@ -8,6 +8,7 @@ import { removeMemberAndOwnerBots } from "../../src/db/queries/community/member"
 import * as rail from "../../src/db/queries/community/server-rail"
 import * as users from "../../src/db/queries/user"
 import * as plans from "../../src/db/queries/product-plan"
+import * as billing from "../../src/db/queries/billing"
 import { registerAttempt } from "../../src/db/queries/native-oauth"
 import { listPendingAccountDeletions } from "../../src/db/queries/account-deletion"
 import { BOT_ACTIVITY_PRESETS } from "../../src/community/bot-activity-presets"
@@ -64,10 +65,10 @@ describe("database query plans on current migrations", () => {
       expect(await users.searchUsersByName(db, "Owner", { discriminator: "9999" })).toHaveLength(1)
       expect(await users.searchUsersByName(db, "owner", { discriminator: "9999" })).toEqual([])
       await users.getUserByProviderAccount(db, "github", "account")
+      await billing.listBillingRecoveryPage(db)
       await listPendingAccountDeletions(db)
       await registerAttempt(db, { id: "indexed_attempt_123456789", instanceKeyHash: "a".repeat(64), stateHash: "b".repeat(64), pkceChallenge: "c".repeat(43), provider: "google", platform: "macos", redirectPath: "/c" })
-      await plans.setPlanEntitlement(db, "free", "bots.max", 5)
-      await plans.setPlanEntitlement(db, "free", "machines.max", 5)
+      await plans.assignUserPlan(db, "owner", "free")
       await removeMemberAndOwnerBots(db, "membership", "server", "owner", [botId])
       const state = { serverIds: [], folderIds: [], folders: {} }
       const statements = rail.buildServerRailWriteStatements(db, "owner", { before: state, after: state, createdFolders: [], deletedFolderIds: ["folder"], affectedFolderIds: ["folder"], movedServerIds: ["server"], reorderTopLevel: false, createdFolderIds: {} })
