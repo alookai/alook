@@ -1,7 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { Sqlite, migratedDatabase, analyzeQuery, foreignKeyQueries, normalizedSql } from './analyze.mjs'
+import { Sqlite, analyzeQuery, foreignKeyQueries, normalizedSql } from './analyze.mjs'
 
 function fixture(t) {
   const db = new Sqlite(':memory:')
@@ -91,13 +90,11 @@ test('PRAGMA-deferred immediate constraints prevent a false zero-counter proof',
   db.exec('COMMIT')
 })
 
-test('issue282 original actual activation SQL is rejected without a WHERE/LIMIT heuristic', t => {
-  const db = migratedDatabase(process.cwd())
-  t.after(() => db.close())
-  const queries = JSON.parse(readFileSync(new URL('./old-activation.json', import.meta.url), 'utf8'))
-  const old = analyzeQuery(db, queries[0].sql, queries[0].params)
-  assert.equal(old.scans.some(scan => scan.table === 'community_message'), true)
-  assert.equal(old.error, undefined)
+test('a filtered anti-join with a limit can still scan the entire outer table', t => {
+  const db = fixture(t)
+  const result = analyzeQuery(db, 'SELECT id FROM item WHERE NOT EXISTS (SELECT 1 FROM owner WHERE owner.id = item.owner_id) LIMIT 10')
+  assert.equal(result.scans.some(scan => scan.table === 'item'), true)
+  assert.equal(result.error, undefined)
 })
 
 test('one-sided index and integer-primary-key ranges are bounded despite Rewind/Last starts', t => {

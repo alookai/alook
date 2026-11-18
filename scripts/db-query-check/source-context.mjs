@@ -5,10 +5,36 @@ export const querySource = new AsyncLocalStorage()
 const origins = new WeakMap()
 const wrapped = new WeakSet()
 const wrappedSessions = new WeakSet()
+const wrappedCompilers = new WeakSet()
+const fragmentOrigins = new WeakMap()
 export const sourceHook = Symbol.for('alook.db-query-check.source')
 
 export function queryOrigin(builder) {
   return origins.get(builder)
+}
+
+function trackSqlFragment(fragment, source) {
+  const compiler = fragment && Object.getPrototypeOf(fragment)
+  if (!source || source.kind === 'test-fixture' || !Array.isArray(fragment?.queryChunks) ||
+      typeof compiler?.toQuery !== 'function' || typeof compiler?.buildQueryFromSourceParams !== 'function') return
+  fragmentOrigins.set(fragment.queryChunks, source.key)
+  if (wrappedCompilers.has(compiler)) return
+  wrappedCompilers.add(compiler)
+  const toQuery = compiler.toQuery
+  const build = compiler.buildQueryFromSourceParams
+  compiler.toQuery = function (...args) {
+    const source = querySource.getStore()
+    if (!source || source.kind === 'test-fixture') return toQuery.apply(this, args)
+    const consumed = new Set()
+    const result = querySource.run({ ...source, consumed }, () => toQuery.apply(this, args))
+    source.compiled = { sql: result.sql, siteKeys: [...consumed].filter(key => key !== source.key) }
+    return result
+  }
+  compiler.buildQueryFromSourceParams = function (chunks, config) {
+    const key = fragmentOrigins.get(chunks)
+    if (key) querySource.getStore()?.consumed?.add(key)
+    return build.call(this, chunks, config)
+  }
 }
 
 export function registerQuerySource(builder, site) {
@@ -29,12 +55,20 @@ export function registerQuerySource(builder, site) {
   }
   if (wrapped.has(builder)) return builder
   wrapped.add(builder)
+  if (typeof builder.getSQL === 'function') {
+    const getSql = builder.getSQL
+    builder.getSQL = function (...args) {
+      const fragment = getSql.apply(this, args)
+      trackSqlFragment(fragment, origins.get(this) ?? origins.get(builder))
+      return fragment
+    }
+  }
   for (const method of ['_prepare', 'toSQL', 'bind', 'all', 'get', 'run', 'first', 'raw', 'execute']) {
     if (typeof builder[method] !== 'function') continue
     const original = builder[method]
     builder[method] = function (...args) {
       const source = origins.get(this) ?? origins.get(builder)
-      return querySource.run(source, () => {
+      return querySource.run(source && { ...source }, () => {
         const result = original.apply(this, args)
         return method === 'bind' ? registerQuerySource(result, source) : result
       })

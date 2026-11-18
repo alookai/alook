@@ -364,3 +364,35 @@ test('optional real SQL retains binds, returned rows and lazy defaults; unknown 
   }
   assert.deepEqual(execute(transformed ?? source, true), execute(source, false))
 })
+
+test('a final SQL plan covers only subqueries consumed by the real compiler', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { eq, exists } = require('drizzle-orm')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const sqlite = new Sqlite(':memory:')
+  sqlite.exec('CREATE TABLE entry(id TEXT PRIMARY KEY); CREATE TABLE member(id TEXT PRIMARY KEY)')
+  const db = drizzle(sqlite)
+  const entry = sqliteTable('entry', { id: text('id').primaryKey() })
+  const member = sqliteTable('member', { id: text('id').primaryKey() })
+  const file = 'src/shared/src/db/queries/composition-probe.ts'
+  const outerSite = { key: 'outer', file, line: 10 }
+  const consumedSite = { key: 'consumed', file, line: 11 }
+  const unusedSite = { key: 'unused', file, line: 12 }
+  const capture = createCapture(root)
+  const restore = instrumentDatabase(Sqlite.prototype, capture.collect)
+  const directory = mkdtempSync(join(tmpdir(), 'db-composition-test-'))
+  t.after(() => { restore(); sqlite.close(); rmSync(directory, { recursive: true, force: true }) })
+
+  const consumed = registerQuerySource(db.select({ id: member.id }).from(member).where(eq(member.id, entry.id)), consumedSite)
+  const unused = registerQuerySource(db.select({ id: member.id }).from(member).where(eq(member.id, 'other')), unusedSite)
+  unused.getSQL()
+  const statement = registerQuerySource(db.select().from(entry).where(exists(consumed)), outerSite)
+  assert.deepEqual(statement.all(), [])
+
+  capture.write(directory)
+  const report = buildReport(sqlite, { filesScanned: 1, sites: [outerSite, consumedSite, unusedSite] }, directory, 0)
+  assert.deepEqual(report.observations.map(query => query.sites), [[outerSite.key, consumedSite.key]])
+  assert.deepEqual(report.uncovered.map(site => site.key), [unusedSite.key])
+})

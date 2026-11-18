@@ -70,7 +70,10 @@ export function instrumentDatabase(prototype, collect) {
     return originalExec.call(this, sql, ...args)
   }
   prototype.prepare = function (sql, ...options) {
-    const source = querySource.getStore()
+    const scope = querySource.getStore()
+    const compiled = scope?.compiled
+    if (compiled) delete scope.compiled
+    const source = compiled?.sql === sql ? { ...scope, compiled } : scope
     const origin = source && source.kind !== 'test-fixture' ? '' : nativeStack()
     const database = this
     const context = params => {
@@ -117,7 +120,8 @@ export function createCapture(root) {
       const params = query.params.length === 1 && Array.isArray(query.params[0]) ? query.params[0] : query.params
       const serializable = params.map(value => typeof value === 'bigint' ? { bigint: String(value) } : value instanceof Uint8Array ? { blob: Buffer.from(value).toString('base64') } : value)
       const fixtureSqlVerified = query.source?.kind === 'test-fixture' && (query.source.literalSql === query.sql || query.source.preparedSql === query.sql)
-      const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.kind !== 'test-fixture' || fixtureSqlVerified ? query.source?.key : undefined, fixtureSqlVerified, context: typeof query.context === 'function' ? query.context() : query.context }
+      const composedSiteKeys = query.source?.kind !== 'test-fixture' && query.source?.compiled?.sql === query.sql ? query.source.compiled.siteKeys : undefined
+      const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.kind !== 'test-fixture' || fixtureSqlVerified ? query.source?.key : undefined, fixtureSqlVerified, composedSiteKeys, context: typeof query.context === 'function' ? query.context() : query.context }
       const key = JSON.stringify(record)
       records.set(key, record)
     },
