@@ -70,6 +70,31 @@ const quotaLimit = (id: string, window: string, seconds: number, used: number, r
 })
 const QUOTA: MachineBackendQuota[] = [
   {
+    scope: { kind: "machine_backend", machineId: "m-mac", agentBackendId: "agy" },
+    capability: "supported", runtimeState: "healthy",
+    snapshot: {
+      status: "available",
+      observedAt: iso(0),
+      limits: [
+        {
+          bucket: { limitId: "agy-weekly", product: { kind: "reported", id: "antigravity", displayName: "Antigravity" }, model: { kind: "unknown" }, window: { kind: "provider_defined", id: "weekly", displayName: "Weekly Limit Remaining" } },
+          usedPercent: 8.102625608444,
+          resetsAt: new Date(Date.now() + 160 * 36e5).toISOString(),
+        },
+        {
+          bucket: { limitId: "agy-five-hour", product: { kind: "reported", id: "antigravity", displayName: "Antigravity" }, model: { kind: "unknown" }, window: { kind: "provider_defined", id: "five_hour", displayName: "Five Hour Limit Remaining" } },
+          usedPercent: 28.828197717667,
+          resetsAt: new Date(Date.now() + 2 * 36e5).toISOString(),
+        },
+        {
+          bucket: { limitId: "agy-full", product: { kind: "reported", id: "antigravity", displayName: "Antigravity" }, model: { kind: "unknown" }, window: { kind: "provider_defined", id: "weekly-secondary", displayName: "Weekly Limit Remaining" } },
+          usedPercent: 0,
+          resetsAt: new Date(Date.now() + 160 * 36e5).toISOString(),
+        },
+      ],
+    },
+  },
+  {
     scope: { kind: "machine_backend", machineId: "m-mac", agentBackendId: "claude" },
     capability: "supported", runtimeState: "healthy",
     snapshot: { status: "available", observedAt: iso(3), planName: "Max", limits: [quotaLimit("five-hour", "5-hour", 18000, 42, 2), quotaLimit("weekly", "Weekly", 604800, 71, 70)] },
