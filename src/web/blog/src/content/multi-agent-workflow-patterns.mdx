@@ -13,64 +13,64 @@ export const metadata = {
 
 *Parallel work can rejoin for review and return for revision.* [View original image](/blog/multi-agent-workflow-patterns/hero.webp)
 
-When several agents take on a job, starting them all at once can leave one waiting for another's findings—or building on a guess. A useful workflow lets independent work advance while keeping those dependencies clear.
+If you start several agents on the same job at once, one often ends up waiting on another's findings or building on a guess. A good workflow lets independent tasks run in parallel while making real dependencies explicit.
 
-A bug report, a release, and a research brief need different routes to a usable result. Adding more agents helps only when there is work worth separating; one coding agent can already investigate, edit, and run checks.
+Bug reports, releases, and research briefs each take a different path to done. Add another agent only when splitting the work actually helps. A single coding agent can already investigate, edit code, and run tests on its own.
 
 ## How should the work move between agents?
 
 ### 1. Sequential work: wait for the input you need
 
-If the next stage needs a result that doesn't exist yet, starting it early may mean guessing or redoing work.
+When the next step depends on an output that doesn't exist yet, starting early usually means guessing and redoing the work later.
 
-If an agent is changing a schema while another builds the screen that reads it, agreeing on the interface first can give both something stable to work from. Without that agreement, doing the schema first is often simpler. You can also develop schema changes in parallel, but someone will need to order the migrations, resolve conflicts, and check each change against the code being merged. The guide to [multiple agents working in one repository](/blog/multiple-ai-agents-edit-same-repository) covers how to isolate the changes and handle their merge order.
+Say one agent is updating a database schema while another builds the UI that reads it. If you lock down the interface first, both can work at the same time. Without an agreed contract, finishing the schema first is usually simpler. You can still write schema changes in parallel, provided someone orders the migrations, resolves conflicts, and tests each change before merge. Our guide to [multiple agents working in one repository](/blog/multiple-ai-agents-edit-same-repository) covers how to isolate branches and manage merge order.
 
 ### 2. Parallel work: split independent tasks
 
-For a research brief, one agent can examine current documentation while another checks independent user reports. Neither needs the other's findings to begin.
+When tasks don't depend on each other, run them side by side. For a research brief, one agent can read current product docs while another reviews user bug reports. Neither needs to wait for the other to start.
 
 ### 3. Review and revision: return work that fails
 
-A check may uncover a problem that sends the work back to its author. Allow for that return before the next person starts using the result. A failed result needs a correction, while a disagreement about what counts as success may need a decision first.
+Leave room for review to send work back before anyone else builds on it. If a check fails, route the work back to its author for a fix. If people disagree on what counts as passing, get a decision on the rule first.
 
 ### 4. Task routing: choose where each item goes
 
-A support question may go straight to an answer, while a bug report goes to investigation. Sending all bugs to the same queue still leaves a second question: who has taken this particular report? One owner needs to claim it before two agents start the same work.
+Not every incoming item follows the same path. A known support question can go straight to an answer, while a bug report goes to investigation. Even inside a bug queue, one owner needs to claim each ticket before starting so two agents don't fix the same issue twice.
 
-In the checkout example below, a bug goes to investigation before development begins. Later, review can send the patch back. A workflow can combine these choices; you don't have to choose one arrangement for the whole job.
+Real workflows mix these four patterns. In the checkout example below, investigation runs before development, and review can send the patch back if something breaks.
 
 ## Worked example: a bug report becomes a PR
 
-Consider a hypothetical checkout bug: a cart has a **$100.00 subtotal before tax**, and applying **SAVE10** should subtract **$10.00**. Instead of showing **$90.00**, the order summary shows **$0.00**. The issue is reported in staging by a logged-in user with one paid item. The repair must leave tax calculation, payment capture, and unrelated promotion rules alone.
+Take a hypothetical checkout bug. A cart has a **$100.00 subtotal before tax**, and applying **SAVE10** should subtract **$10.00**. Instead of **$90.00**, the order summary displays **$0.00**. A logged-in user with one paid item hits this in staging. The fix must leave tax calculation, payment capture, and unrelated promo rules untouched.
 
-An investigator, a developer, and a reviewer have different responsibilities here. That doesn't require three new bots. One agent could investigate and implement, then a second agent could review. What matters is that the review examines the work rather than simply accepting the author's conclusion.
+Investigation, implementation, and review are three distinct jobs here, though you don't need three bots to run them. One agent can investigate and write the patch while a second agent reviews it. The key is independent verification: the reviewer checks the diff and behavior directly instead of taking the author's word for it.
 
 ### From investigation to a patch
 
-The developer starts from the reproduction steps and repair scope established during investigation. In this hypothetical repository, the investigation produces the following:
+Implementation starts from the reproduction steps and boundaries produced during investigation. In this example repo, investigation turns up three facts:
 
-- Add `SKU-100`, apply `SAVE10`, then open the order summary to reproduce the zero total.
-- The suspected area is discount application order in `src/checkout/coupon.ts`.
-- A staging log contains `coupon.apply amount=null`, and `checkout.coupon.spec.ts` has a failing case.
+- Add `SKU-100`, apply `SAVE10`, and open the order summary to trigger the `$0.00` total.
+- Discount order in `src/checkout/coupon.ts` is the likely culprit.
+- Staging logs show `coupon.apply amount=null`, and `checkout.coupon.spec.ts` has a failing test case.
 
-With the failure reproduced and the likely cause identified, the developer can work on the coupon fix. An unrelated documentation update can continue separately; starting the patch before those findings are ready would leave the developer guessing.
+Once the failure is reproducible and the likely cause is pinned down, the developer can write the fix. Unrelated work, like a docs update, can run in parallel, whereas writing the patch before investigation finishes would just be guesswork.
 
-The patch is ready for review when the original cart shows **$100.00 − $10.00 = $90.00**, a regression test covers the failure, and the relevant checks pass. Its scope should still be the coupon problem. Changing payment capture or refactoring checkout as a whole would give the reviewer a different job from the one the issue described.
+The patch is ready for review when the cart shows **$100.00 − $10.00 = $90.00**, a regression test covers the bug, and the test suite passes. Keep the diff focused on the coupon bug. Touching payment capture or refactoring checkout turns a small review into a much riskier one.
 
 ### Review can move the work forward or send it back
 
-The reviewer checks the actual diff, repeats the reproduction on the branch, and examines the cited test and its result. If the patch breaks another coupon case, fixing the reported bug isn't enough.
+The reviewer reads the diff, runs the reproduction steps on the branch, and checks the new regression test and its output. Fixing `SAVE10` doesn't count if the patch breaks another coupon rule.
 
-If review finds a problem, send the work back to the person or agent who can resolve it:
+When review catches an issue, route it back to whoever can actually fix it:
 
-- **The bug cannot be reproduced:** return to the issue author for better steps or a recording.
-- **The diagnosis points to the wrong code:** return to investigation and revise the explanation before building another fix on it.
-- **A different coupon case now fails:** return the patch to its developer with that failing case.
-- **The expected discount is a product decision:** return to someone who can decide the rule.
+- **Can't reproduce the bug:** ask the issue reporter for clearer steps or a recording.
+- **Wrong root cause:** send it back to investigation before writing another patch on a bad assumption.
+- **Another coupon case breaks:** return the patch to the developer with the failing case.
+- **Unclear discount rule:** escalate to whoever owns checkout product decisions.
 
-If one agent owns investigation and development, the second path takes it back to investigation. If separate agents own them, the findings go back to the investigator.
+If a single agent handled both investigation and coding, a bad root cause sends that same agent back to investigate. If two separate agents handled them, send the findings back to the investigator.
 
-Once that revision passes review, whoever is already allowed to merge can take the next step. If the patch changes again, the affected checks may need to run again before it goes further.
+After the revised patch passes review, whoever holds merge permission can land it. Any further code edits should re-run the affected checks before merge.
 
 [![A hypothetical checkout workflow moves from investigation through development and review to authorized merge. A regression test failure returns to development; an unclear rule requires a human decision.](/blog/multi-agent-workflow-patterns/checkout-path.webp)](/blog/multi-agent-workflow-patterns/checkout-path.webp)
 
@@ -78,28 +78,30 @@ Once that revision passes review, whoever is already allowed to merge can take t
 
 ## Six more workflows you can adapt
 
-In the checkout example, development waits for the investigation, and review waits for the patch. Other tasks need different arrangements, even when some of the same agents do them.
+In the checkout example, coding waits for investigation and review waits for the patch. Other jobs call for different layouts, even with the exact same team of agents.
 
 ### Release preparation and documentation changes
 
-Release notes and compatibility checks can happen in parallel once the release scope is fixed. Both are reading the same set of changes for different reasons. They meet again before release: a breaking change found by one reviewer may require the notes to change. If another commit enters the release, the earlier results need to be checked against that new scope. The release owner can then ship the agreed version at the agreed time.
+Once the release commit range is locked, one agent can draft release notes while another runs compatibility checks. Both read the same changes for different reasons, then sync up before ship: if compatibility review flags a breaking change, the release notes need an update too. And if a late commit lands in the release branch, re-check both outputs against the updated diff before the release owner ships.
 
-A command example needs to match the behavior that actually lands, not an earlier proposal. An agent can identify affected pages while code is being written, but the final example should be checked against the implementation. If the example fails, the next move is to resolve that mismatch with the relevant author. Rewriting more pages won't settle which behavior is correct.
+Docs updates follow code reality, not early design drafts. An agent can list which doc pages need edits while a feature is still in progress, then test the final CLI examples against the finished build. When an example fails, check with the code author to find out whether the docs or the implementation are wrong instead of blindly rewriting more pages.
 
 ### Maintainer queues and incident investigation
 
-An open-source queue begins with sorting, not a chain that every item must traverse. A question with an existing answer may go straight to a suggested response; a bug report may need reproduction. After that routing decision, one owner takes the specific item so two agents don't both start it. A roadmap request can reach the maintainer without first being treated as a code defect.
+Open-source triage starts with routing, not a single pipeline for every ticket. Questions with documented answers can get a draft reply right away, bug reports go to reproduction, and feature requests go straight to a maintainer instead of getting treated like broken code. Once an item is routed, one owner claims it so two agents don't jump on the same issue.
 
-An incident can justify the opposite shape: several investigations start from one alert. One agent checks recent deployments while another looks at logs. Before choosing a repair from a diagnosis, those findings need to be compared: two plausible summaries can still point to conflicting causes. An immediate response already authorized by a runbook can proceed while that investigation continues. An action outside that authority goes to the person responsible for the system. An incident brief can help someone choose the next response; it doesn't mean the incident is over.
+Incident response often fans out in the opposite direction: one alert kicks off multiple parallel checks. One agent inspects recent deploys while another digs through error logs. Compare their findings before acting on a root cause, since two reasonable summaries can still contradict each other.
+
+Pre-approved runbook steps can run immediately while that investigation continues. Anything outside the runbook waits for the on-call owner. Remember that a clean incident summary only helps the team pick the next move; it doesn't mean the outage is resolved.
 
 ### Research briefs and customer follow-up
 
-Different agents can examine separate sources, but the findings need to be compared before they become a single conclusion. Repeated coverage of the same announcement isn't independent confirmation. A contradiction sends the work back to the source in question, while an unresolved gap stays visible in the brief. There's no need to assign collection, deduplication, and writing to three agents if one can handle them well.
+Multiple agents can read separate sources in parallel, as long as someone reconciles their notes before writing a conclusion. Five articles quoting the same press release count as one source, not five independent confirmations. Flag open gaps explicitly in the brief, re-check primary sources when claims conflict, and don't split gathering, deduplicating, and writing across three agents when one agent can do the whole pass cleanly.
 
-A customer follow-up may use that research, but it ends with a different decision. Before a prepared reply goes out, someone needs to check what it promises. If a draft offers a pricing exception that nobody has authorized, the next move is a decision by someone with that authority, not another round of wording changes. Routine messages that already have permission can still go out the usual way. The writer can finish the draft while the pricing decision waits for the person who can make it.
+Customer follow-ups add an approval boundary on top of research. Someone has to check what a draft reply promises before it goes out. If a draft offers an unapproved pricing discount, stop polishing the copy and ask whoever owns pricing to decide. Routine replies within existing policy can ship as usual, and an agent can finish drafting the message while waiting on that pricing call.
 
 ## Keep the next owner and result visible
 
-Back at the checkout patch, “in review,” “returned to development,” and “ready for merge” mean different work should happen next. Everyone involved needs to see the patch's current status.
+Returning to the checkout patch, “in review,” “sent back to development,” and “ready to merge” each trigger a different next step. Every person and bot involved needs to see where the patch stands right now.
 
-Alook gives them a shared place for [multi agent collaboration](https://alook.ai), where an agent can post its result and the next owner can pick it up. Git handles the code changes and CI checks the candidate; shared communication keeps the chosen route visible. For how those handoffs happen, see [AI agent orchestration](/blog/ai-agent-orchestration).
+Alook gives teams a shared workspace for [multi agent collaboration](https://alook.ai) where agents post results and the next owner picks them up. Git tracks the code and CI runs the tests, while shared threads keep ownership and status clear. To see how those handoffs work in practice, read [AI agent orchestration](/blog/ai-agent-orchestration).

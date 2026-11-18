@@ -44,7 +44,7 @@ export const jsonLd = [
         name: "Is there an OpenCode dynamic workflow like Claude Code?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "OpenCode does not ship Claude's named JavaScript workflow engine. It does have native agents and subagents, plus ecosystem or third-party runners for multi-step work. That path covers similar jobs on OpenCode without requiring a chat room.",
+          text: "OpenCode does not ship Claude's named JavaScript workflow engine. It does have native agents and subagents, plus community or third-party runners for multi-step work. That path covers similar jobs on OpenCode without requiring a chat room.",
         },
       },
       {
@@ -67,53 +67,53 @@ export const jsonLd = [
   },
 ];
 
-When a large coding job needs many agents at once, decide **who will orchestrate the run**, who must join the decision, and how the result reaches the next person. **Claude Code dynamic workflows** answer the first part inside Claude Code: a script fans out subagents, and you can pause, resume, save, and rerun that orchestration. Other harnesses cover similar execution jobs with their own agents and tools. A shared room answers a different job: durable handoffs across people and runtimes.
+When a big coding job needs many agents working in parallel, three questions come up: **who will orchestrate the run**, who joins the decision, and how the result reaches the next person. **Claude Code dynamic workflows** handle the first part inside Claude Code. A script fans out subagents, and you can pause, resume, save, and rerun the whole job. Other coding harnesses run similar parallel work with their own agents and tools. A shared room solves a different problem: passing results and decisions cleanly across people and runtimes.
 
 ![Scripted parallel agents produce a report, then people and bots continue the work in a shared channel](/blog/claude-code-dynamic-workflow-alternative/hero.webp)
 
 ## What Claude Code dynamic workflows are for
 
-Claude Code already has subagents, skills, and agent teams. Those keep Claude as the turn-by-turn orchestrator. A dynamic workflow moves the plan into a script: loops, branching, and intermediate results live in script variables instead of one crowded context window. Anthropic documents the feature for audits, migrations, and cross-checked research in the [workflows docs](https://code.claude.com/docs/en/workflows).
+Claude Code already has subagents, skills, and agent teams, where Claude coordinates the work turn by turn. A dynamic workflow moves the plan into a script instead. Loops, branches, and intermediate results live in script variables rather than filling up a single context window. Anthropic covers how to use them for audits, migrations, and cross-checked research in the [workflows docs](https://code.claude.com/docs/en/workflows).
 
-That shape fights failure modes that show up in long single-window runs: stopping early on a huge checklist, preferring its own findings when asked to judge them, and drifting from the original goal after compaction. Separate subagents get focused contexts; the script holds the schedule.
+Putting the schedule in code avoids common failure modes from long single-window runs: stopping early on a big checklist, grading its own findings too generously, or drifting from the original goal after context compaction. Each subagent gets a clean, focused context while the script tracks the overall plan.
 
-Reach for a workflow when parallelism has to earn its cost: dozens of file audits, adversarial review of findings, research that must cross-check sources. For a small edit or a single review, an ordinary chat or one subagent is usually enough. Workflows often use more tokens; treat them as compute you spend on purpose.
+Use a workflow when the parallel work justifies the extra tokens, such as auditing dozens of files, running adversarial reviews on findings, or cross-checking research sources. For a small edit or a quick review, a normal chat or a single subagent is plenty. Workflows burn more tokens, so save them for jobs that genuinely need the scale.
 
 ## Run a dynamic workflow: Claude Code steps
 
 Dynamic workflows are available on all paid Claude plans, with Anthropic API access, and on Amazon Bedrock, Google Cloud's Agent Platform, and Microsoft Foundry. On Pro, turn them on from the Dynamic workflows row in `/config`.
 
-Ways to start:
+You can start one in three ways:
 
 - Ask in plain language (“run a workflow to…”) or include the keyword `ultracode` in a human-typed prompt.
 - Run a bundled command such as `/deep-research`.
-- Turn on session ultracode with `/effort ultracode` when you want Claude to plan workflows for substantive tasks automatically (higher token use). Confirmation rules differ in that mode; follow the current permission mode instead of assuming every launch shows the same approve prompt.
+- Turn on session ultracode with `/effort ultracode` if you want Claude to plan workflows automatically for larger tasks (this uses more tokens). Confirmation rules differ in that mode, so follow your active permission mode instead of expecting the same approval prompt every time.
 
-Watch progress with `/workflows`. The run continues in the background while you keep using the session. Allow or confirm the run according to your permission mode.
+Run `/workflows` to check progress. The workflow keeps running in the background while you continue using the session, asking for confirmation based on your permission mode.
 
-Once a run does what you wanted, press `s` in the workflow UI to save the script. You can keep it in the project's `.claude/workflows/` (shares with the repo) or in your personal `~/.claude/workflows/`. Cross-team distribution goes through a plugin. Anthropic's [harness blog post](https://claude.dev/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code/) treats save and share as part of the feature, not an afterthought.
+When a run works the way you want, press `s` in the workflow UI to save the script. Store it in `.claude/workflows/` to share it through the repo, or in `~/.claude/workflows/` to keep it personal. Cross-team distribution goes through a plugin. Anthropic's [harness blog post](https://claude.dev/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code/) walks through saving and sharing reusable scripts as core parts of the workflow design.
 
 ## Pause, background, and resume
 
-Leaving the UI is not the same as throwing the run away.
+Closing the workflow UI does not throw away an active run.
 
-- **Pause / resume in place:** from `/workflows`, `p` pauses or resumes a run.
-- **Background on exit:** if you quit while a workflow is running and agent view is on, the exit dialog may offer “Move to background and exit.” That carries the run across the exit. “Exit and stop tasks” (or no background option) stops the run with the session.
-- **Same session later:** Claude Code keeps saved results under that session's directory in `~/.claude/projects/`. Resuming with `claude --resume` can replay them when you ask Claude to relaunch the workflow.
-- **Fresh session:** a brand-new session has no earlier run to relaunch. The workflow starts over as a new run.
+- **Pause / resume in place:** press `p` inside `/workflows` to pause or resume a run.
+- **Background on exit:** if you quit while a workflow is running and agent view is on, the exit dialog may offer “Move to background and exit” so the run keeps going. Choosing “Exit and stop tasks” (or exiting without a background option) stops the run along with the session.
+- **Same session later:** Claude Code stores saved results under that session's directory in `~/.claude/projects/`. Reopening that session with `claude --resume` lets Claude replay those saved results when you ask to relaunch the workflow.
+- **Fresh session:** a brand-new session has no earlier run to resume, so the workflow starts fresh.
 
-If Claude Code cannot find saved results for a relaunch, you get a `nothing to resume` error rather than a silent restart. Ask for a new run explicitly. Paid plans and API setups still bill tokens; “available on all paid plans” is not unlimited usage.
+If Claude Code cannot find saved results during a relaunch, it returns a `nothing to resume` error instead of restarting silently. Ask for a new run explicitly when that happens. Keep in mind that paid plans and API accounts still count workflow tokens against your usage limits. Being available on all paid plans does not mean unlimited usage.
 
 ## A concrete path: auth audit, then handoff
 
-The following scene is illustrative, not a benchmark.
+Here is an illustrative walkthrough (not a benchmark) of how an audit run and team handoff fit together:
 
-1. **Ask for a workflow** in Claude Code: audit `src/routes/` for missing auth checks; fan out one agent per file; adversarially verify findings; return a merged report.
-2. **Watch** `/workflows` while the run works in the background. Pause if you need to.
-3. **Save** the script if the shape is worth reusing next week.
-4. **Hand off for review:** put the report in a place others can open (PR comment, shared repo path with commit SHA, or an uploaded file), then @mention the reviewer or their bot in a shared channel with that link. Merge judgment stays with a person.
+1. **Ask for a workflow** in Claude Code: audit `src/routes/` for missing auth checks, fan out one agent per file, run an adversarial check on the findings, and return a merged report.
+2. **Watch** `/workflows` while it runs in the background, pausing if you need to.
+3. **Save** the script if you want to rerun the same audit next week.
+4. **Hand off for review:** put the report somewhere others can open (a PR comment, a shared repo path with its commit SHA, or an uploaded file), then @mention the reviewer or their bot in a shared channel with that link. A person still makes the merge call.
 
-Steps 1 to 3 are in-task orchestration inside Claude Code. Step 4 is communication across people or harnesses. A local path on your disk is not a handoff; teammates and bots on other machines cannot read it unless you publish or share it.
+Steps 1 through 3 run inside Claude Code. Step 4 crosses over to other people or harnesses. A local file path on your laptop is not a handoff, because teammates and bots on other machines cannot read it until you publish or upload it.
 
 ![Audit report handed to a named reviewer, followed by a recorded decision and next owner](/blog/claude-code-dynamic-workflow-alternative/audit-to-handoff.webp)
 
@@ -121,27 +121,26 @@ Steps 1 to 3 are in-task orchestration inside Claude Code. Step 4 is communicati
 
 ## Looking for an OpenCode dynamic workflow?
 
-If you want Claude-like parallel orchestration on OpenCode, start with what OpenCode actually ships. Claude Code has a named dynamic-workflow runtime with `/workflows`, pause/resume, and savable scripts. OpenCode has native agents and subagents for multi-step work on that host. Its [ecosystem docs](https://opencode.ai/docs/ecosystem/) also list workflow, scheduling, and context extensions; community plugins such as [opencode-dynamic-workflows](https://github.com/vogtsw/opencode-dynamic-workflows) run parallel or sequential worker sessions from JSON workflow definitions. Those are separate installs, not Claude's workflow runtime under another logo.
+If you want similar parallel orchestration in OpenCode, start with what OpenCode ships out of the box. Claude Code has a built-in dynamic-workflow runtime with `/workflows`, pause/resume, and savable scripts. OpenCode uses native agents and subagents for multi-step work on that host. Its [ecosystem docs](https://opencode.ai/docs/ecosystem/) also list extensions for workflows, scheduling, and context, while community plugins like [opencode-dynamic-workflows](https://github.com/vogtsw/opencode-dynamic-workflows) run parallel or sequential worker sessions from JSON workflow definitions. Those are separate community installs rather than Claude's workflow runtime.
 
-- **Claude Code dynamic workflows:** first-party script orchestration inside Claude Code.
-- **OpenCode path:** native agents/subagents, plus optional ecosystem runners. Multi-step work there does not require a chat room. Pi has a similar third-party extension ([pi-dynamic-workflows](https://github.com/Michaelliv/pi-dynamic-workflows)); it is not built-in. Its README describes a prototype without persisted runs or resume; this article did not install or benchmark it.
+- **Claude Code dynamic workflows:** first-party script orchestration built into Claude Code.
+- **OpenCode path:** native agents and subagents, plus optional community runners. Running multi-step work there does not require a chat room. Pi has a similar third-party extension ([pi-dynamic-workflows](https://github.com/Michaelliv/pi-dynamic-workflows)), though it is not built in; its README describes a prototype without persisted runs or resume, and this article did not install or benchmark it.
 
-Stay on OpenCode when the job fits that host. Move to a shared room only when people and bots on different machines need a durable thread.
+Stick with OpenCode when the whole job fits on that host. Bring in a shared room only when people and bots on different machines need a persistent thread.
 
 ## What about Codex or Cursor workflows?
 
-Other harnesses have **related** orchestration. They are not Claude Code's named JavaScript dynamic-workflow engine.
+Other harnesses handle **related** parallel orchestration in their own ways rather than copying Claude Code's JavaScript workflow engine.
 
-**Codex:** OpenAI documents native subagent workflows that can split work in parallel and roll results up ([subagents docs](https://learn.chatgpt.com/docs/agent-configuration/subagents)), plus the [Codex SDK](https://learn.chatgpt.com/docs/codex-sdk) for programmatic task orchestration.
+**Codex:** OpenAI documents native subagent workflows that split work in parallel and roll up the results ([subagents docs](https://learn.chatgpt.com/docs/agent-configuration/subagents)), along with the [Codex SDK](https://learn.chatgpt.com/docs/codex-sdk) for scripting task orchestration in code.
 
-**Cursor:** Cursor documents parallel and background subagents, and Automations that run Cloud Agents on a schedule or event ([subagents](https://cursor.com/docs/subagents), [Automations](https://cursor.com/docs/cloud-agent/automations)). These tools cover parallel execution and scheduled work within Cursor.
+**Cursor:** Cursor provides parallel and background subagents, plus Automations that trigger Cloud Agents on a schedule or event ([subagents](https://cursor.com/docs/subagents), [Automations](https://cursor.com/docs/cloud-agent/automations)). Together, these tools cover parallel execution and scheduled jobs inside Cursor.
 
-For day-to-day coding, see [Cursor vs Claude Code: editing workflows and costs](/blog/cursor-vs-claude-code).
-
+For everyday editing tradeoffs, see [Cursor vs Claude Code: editing workflows and costs](/blog/cursor-vs-claude-code).
 
 ## How to choose
 
-Compare three paths on execution, participation, handoffs, and permissions.
+Compare the three setups by who runs the job, who joins decisions, how results get handed off, and where permissions live.
 
 ### Claude Code dynamic workflows
 
@@ -154,7 +153,7 @@ Compare three paths on execution, participation, handoffs, and permissions.
 
 ### Other harness path (OpenCode, Codex, Cursor)
 
-- **Who orchestrates execution?** That product's agents, subagents, SDK, Automations, and/or ecosystem runners.
+- **Who orchestrates execution?** That tool's agents, subagents, SDK, Automations, or community runners.
 - **Who joins decisions?** Whoever uses that harness setup.
 - **Cross-runtime?** Usually one host product unless you add bridges.
 - **How do results hand off?** That harness's logs, exports, or cloud-agent outputs.
@@ -166,16 +165,16 @@ Compare three paths on execution, participation, handoffs, and permissions.
 - **Who orchestrates execution?** People and bots decide next steps in messages; each harness still runs its own tools.
 - **Who joins decisions?** Several humans and bots can address each other.
 - **Cross-runtime?** Yes: Claude Code, Codex, Cursor CLI, and OpenCode seats can share a channel.
-- **How do results hand off?** Durable threads, @mentions, shared links, owned next steps.
+- **How do results hand off?** Durable threads, @mentions, shared links, and clear next owners.
 - **Where do permissions apply?** Conversation access in the room; tool authority stays on each bot's host.
 
 ## From audit report to release decision
 
-The audit ends with a report, but the release still needs a reviewer and a decision. Share the report and commit, name the reviewer, and record what happens next. In [Alook](https://alook.ai), that exchange stays in a channel thread: a Codex bot can review the findings, a person decides whether to merge, and the next session can return to the same record.
+An audit finishes when it outputs a report, but shipping still takes a reviewer and a decision. Share the report and commit, name the reviewer, and write down what happens next. In [Alook](https://alook.ai), that handoff stays in a channel thread: a Codex bot can check the findings, a person decides whether to merge, and the next session can pick up from the same record.
 
-Bots keep distinct identities on local runtimes. You pick a computer, then a healthy runtime on that machine (Claude Code, Codex, Cursor CLI, OpenCode where supported). Server, channel, and thread rules decide who can read; local files and tools stay under each owner's runtime. Open-source self-host and online signup with a connected local runtime both exist. Rooms coordinate that handoff; they do not become the subagent scheduler inside Claude Code, Codex, Cursor, or OpenCode.
+Each bot keeps its own identity on a local runtime. You choose a computer and a healthy runtime on that machine (Claude Code, Codex, Cursor CLI, or OpenCode where supported). Server, channel, and thread rules control who can read the conversation, while local files and tools stay under each owner's runtime. You can self-host the open-source server or sign up online with a connected local runtime. Rooms coordinate the handoff between people and agents; they do not replace the subagent scheduler inside Claude Code, Codex, Cursor, or OpenCode.
 
-For dual-runtime seats under one owner, see [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team). For multi-owner rooms, see [humans and AI agents in one room](/blog/introducing-alook).
+For running two runtimes under one owner, see [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team). For multi-owner rooms, see [humans and AI agents in one room](/blog/introducing-alook).
 
 ## Claude Code dynamic workflows FAQ
 
@@ -193,7 +192,7 @@ Yes, within the same session path. You can pause and resume from `/workflows`. I
 
 ### Is there an OpenCode dynamic workflow like Claude Code?
 
-OpenCode does not ship Claude's named JavaScript workflow engine. It does have native agents and subagents, plus ecosystem or third-party runners for multi-step work. That path covers similar jobs on OpenCode without requiring a chat room.
+OpenCode does not ship Claude's named JavaScript workflow engine. It does have native agents and subagents, plus community or third-party runners for multi-step work. That path covers similar jobs on OpenCode without requiring a chat room.
 
 ### Is there a Codex dynamic workflow equivalent?
 

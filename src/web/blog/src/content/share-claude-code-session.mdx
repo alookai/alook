@@ -40,16 +40,15 @@ export const jsonLd = [
 
 *Illustrative interface. /export saves the conversation as text; the code file is shared separately.*
 
-**To share a Claude Code session, use a session link for cloud work or `/export` for a conversation in the local CLI.** If your teammate will continue the task, also provide the relevant files, current state, and next action. A conversation record alone does not give someone your working environment.
+**To share a Claude Code session, send a session link for cloud work or run `/export` in the local CLI.** If your teammate is taking over the task, include the working files, current state, and next action too. A chat transcript on its own does not give someone your local setup or uncommitted code.
 
-For example, you have been changing a signup flow with Claude Code, and a teammate asks why you added an email check. Send them the conversation that led to it. If they will take over the remaining work, include the code and explain what is unfinished.
+Say you have been updating a signup flow in Claude Code, and a teammate asks why you added an email check. If they just want the reasoning, send them the conversation. If they are picking up the remaining work, include the code and spell out what is still unfinished.
 
-Before setting up access or exporting files, ask whether they need to read the discussion or continue the work. If they are taking over an unfinished task, start with the handoff steps below.
+Before changing link permissions or exporting files, figure out whether your teammate is simply reading along or taking over the work. When someone is picking up an unfinished task, start with the handoff steps below.
 
 ## Choose what to share from Claude Code
 
-For a decision review, the conversation may be enough. Someone preparing the next patch will need the working files too. Choose what to send based on the task.
-
+For a quick decision review, the conversation log is usually enough. Someone writing the next patch will need the working files too. Match what you send to the job:
 
 <div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Session sharing choices; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto" }}>
 <div style={{ minWidth: "620px" }}>
@@ -65,22 +64,19 @@ For a decision review, the conversation may be enough. Someone preparing the nex
 </div>
 </div>
 
+If you just want to control your own local session from your phone or another browser, use [Claude Code Remote Control](https://code.claude.com/docs/en/remote-control) instead. Claude stays running on your original computer, which must stay online with the process open. That is built for remote access by you, not handing a task to a teammate.
 
-
-
-If you only want to continue your own local session from your phone or another browser, use [Claude Code Remote Control](https://code.claude.com/docs/en/remote-control). Claude keeps running on the original machine, which must stay online with its process running. That is a different job from giving a teammate access.
-
-[Cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) lets Claude send text between sessions. Each message carries text; it does not include the sender's full conversation history or project files.
+[Cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) lets Claude pass text notes between sessions, without copying the sender's full chat history or project files.
 
 ### Share work from Claude Code Desktop
 
-In the [Desktop app](https://code.claude.com/docs/en/desktop), cloud sessions use the sharing steps below. For a local session, a handoff note saved by Claude in the project folder can travel with the files your teammate needs. You can find them through the session menu beside its title: **Open in** → your file manager. Review the note and send it with the relevant files.
+In the [Desktop app](https://code.claude.com/docs/en/desktop), cloud sessions use the link-sharing steps below. For a local session, ask Claude to save a handoff note inside the project folder so it travels alongside the files your teammate needs. You can jump straight to those files from the menu next to the session title (**Open in** → your file manager), check the note, and send everything together.
 
 ## How do I hand off a coding agent session to a teammate?
 
-**Send the current code revision, any unfinished changes, and a short note explaining what is done and what needs to happen next.** Include the reasoning behind decisions your teammate needs to review, along with the checks you actually ran. If your teammate needs to read the original discussion, use a cloud-session link or CLI export as described below. Your teammate then opens the shared work in their own environment and checks it against the note before continuing.
+**Send the current code revision, any uncommitted changes, and a short note covering what is done and what needs to happen next.** Include the reasoning behind decisions your teammate needs to review, plus which checks you actually ran. If they also want to read the original discussion, attach a cloud-session link or CLI `/export` file. Your teammate then opens the shared work in their own workspace and verifies it against your note before editing.
 
-For the signup example, a handoff note could look like this:
+For the signup example, a solid handoff note looks like this:
 
 ```text
 Task: Finish the signup email check.
@@ -98,12 +94,12 @@ Decision needed: Product owner
 approves the user-facing behavior.
 ```
 
-Replace each line with the actual state of your work. Include unfinished changes that are not in the linked revision, and say so if you have not run checks.
+Swap in the actual state of your branch. Include any local edits that are not pushed to the linked revision yet, and be upfront if you have not run tests.
 
-Your teammate can then pick up the signup work like this:
+On the receiving end, your teammate can pick up the signup work in four steps:
 
-1. Open the named code revision and any shared unfinished changes. Compare them with the note, including which revision the test log describes.
-2. Ask your coding agent to inspect that work and explain the current state. For this example, you can use:
+1. Open the linked code revision and any shared unfinished changes, then compare them against the note and confirm which commit the test log covers.
+2. Ask their coding agent to inspect the files and summarize the current state. For this example, they can run:
 
 ```text
 Read the handoff note and inspect
@@ -119,52 +115,52 @@ Wait for me to resolve the product
 decision before implementing it.
 ```
 
-3. Resolve the timeout behavior with the product owner, then have the agent implement the agreed change.
-4. Check the changed timeout path against the agreed behavior, and record the revision and actual check result.
+3. Settle the timeout behavior with the product owner, then ask the agent to implement the agreed change.
+4. Test the updated timeout path against the agreed behavior, and record the commit and actual test result.
 
-If your teammate uses another Claude account or Codex, they can use the shared code and handoff record in their own tools. For the concrete cross-tool workflow, see [how to use Claude Code and Codex together](https://alook.ai/blog/claude-code-and-codex-same-team).
+Because the handoff lives in files and commits, your teammate does not need the same account or harness. Someone on another Claude login or on Codex can drop the shared code and handoff note straight into their own setup. For the concrete cross-tool workflow, see [how to use Claude Code and Codex together](https://alook.ai/blog/claude-code-and-codex-same-team).
 
-If the reviewer uses Cursor, our [Cursor vs Claude Code](/blog/cursor-vs-claude-code) comparison explains which one fits the reviewer's editor and subscription.
+If the reviewer works in Cursor, our [Cursor vs Claude Code](/blog/cursor-vs-claude-code) comparison breaks down how each tool fits their editor and plan.
 
 ## Share a Claude Code cloud session
 
-For work in a Claude Code cloud session, follow the official [session-sharing instructions](https://code.claude.com/docs/en/claude-code-on-the-web#share-sessions). Check your account type; this section applies to cloud sessions, not local CLI or regular Claude Chat conversations.
+When your work runs in a Claude Code cloud session, follow Anthropic's [session-sharing instructions](https://code.claude.com/docs/en/claude-code-on-the-web#share-sessions). Check your account tier first; these steps apply to cloud sessions, not local CLI runs or regular Claude Chat conversations.
 
-1. Open the cloud session you intend to share and review its contents.
-2. Set its visibility for the intended audience. Team and Enterprise accounts have Private and Team options; Pro and Max accounts have Private and Public options.
-3. Send the session link to your teammate. Ask them to open it from their own account and confirm they can access the material.
+1. Open the cloud session you want to share and review its contents first.
+2. Pick the visibility setting for your audience: Team and Enterprise accounts offer Private and Team; Pro and Max accounts offer Private and Public.
+3. Send the session link to your teammate and ask them to open it from their own account to confirm access works.
 
-Team visibility applies to members of your Claude organization. Repository-access verification defaults to on for Team and Enterprise and off for Pro and Max. Public links are accessible to users logged into claude.ai; check settings before treating a link as recipient-only.
+Team visibility applies to members of your Claude organization. Repository-access verification defaults to on for Team and Enterprise plans and off for Pro and Max. Public links can be opened by anyone logged into claude.ai, so double-check your settings before treating a link as private to one recipient.
 
-Recipients see the latest state when they open the link; their view does not update in real time. For a review without running commands, send this view or a CLI export rather than access to the terminal.
+When someone opens your link, they see the latest saved state rather than a live-updating feed. When a teammate only needs to review what happened without running commands, send this cloud view or a CLI text export rather than terminal access.
 
 ## Export a Claude Code conversation from the CLI
 
-In the local CLI, `/export` creates a plain-text conversation record you can send to a teammate. The [official command reference](https://code.claude.com/docs/en/commands) documents both direct file export and the interactive copy/save option.
+In the local CLI, `/export` writes a plain-text transcript you can send to a teammate. Anthropic's [official command reference](https://code.claude.com/docs/en/commands) covers both direct file export and the interactive copy/save menu.
 
-Inside the conversation you want to share, enter a filename:
+Inside the conversation you want to share, pass a filename:
 
 ```text
 /export signup-review.txt
 ```
 
-With a filename, Claude Code writes the export directly to that file. If you enter `/export` alone, it opens a dialog to copy the conversation to your clipboard or save it to a file.
+Passing a filename writes the transcript straight to disk. Entering `/export` with no filename opens a prompt to copy the conversation to your clipboard or save it to a file.
 
-Read the exported file to make sure it includes the discussion your teammate needs. Attach it in your team's usual channel with a specific request: "Please read the discussion about the email check and tell me whether the product requirement matches it."
+Skim the exported text first to make sure it covers the discussion your teammate needs. Then attach it in your team's usual channel with a clear ask: "Please read the discussion on the email check and let me know if it matches the product requirement."
 
-If your teammate needs to review a document or diff mentioned in the transcript, send that artifact as well. Claude Code also supports [Artifacts](https://code.claude.com/docs/en/artifacts) for sharing generated pages and other outputs, subject to availability and sharing settings. Sharing an output is distinct from exporting the conversation that produced it.
+If the transcript mentions a generated document or diff that your teammate needs to inspect, send that file along too. Depending on availability and sharing settings, Claude Code also supports [Artifacts](https://code.claude.com/docs/en/artifacts) for sharing generated pages and outputs, which is separate from exporting the chat transcript itself.
 
 ## Let teammates work with your Claude Code bot in Alook
 
-After reading the signup discussion, your teammate may ask what changed after the review or which requirement still needs a decision. Passing each question back to the bot adds another round of messages.
+Once your teammate reads the signup transcript, follow-up questions usually come up: what changed after review, or which edge case still needs a product call? Relaying every follow-up question between your coworker and your terminal adds unnecessary round trips.
 
-In Alook, teammates can ask a connected bot directly in a shared conversation. Before starting, have an online Claude Code bot and the relevant task record ready to share. An old CLI conversation does not automatically come with the bot.
+In Alook, teammates can ask a connected bot directly inside a shared channel. Before starting, make sure your Claude Code bot is online and have the task handoff ready to post, since connecting a bot does not automatically pull in old private CLI chats.
 
-If you need to connect a bot first, start from Home: open **Machines** in the left sidebar to connect your computer, then **My Bots** to create a bot using Claude Code. Keep its computer online. If you already have the right bot, reuse it.
+If you need to set up a bot first, start from Home: open **Machines** in the left sidebar to link your computer, then open **My Bots** to create a bot backed by Claude Code. Keep that computer online, or reuse an existing bot if you already have one running.
 
-1. Open your project server. Click the person-plus **Invite to server** button beside its name and use **Copy** to get an invite link. Invite your teammate and send your bot the link with a request to join. Choose a channel both can access; for a private channel, add them through **Add members**.
-2. Post the current handoff note and necessary files in that channel. Include the revision and unresolved question, rather than expecting the bot to recover an unrelated private session.
-3. Have your teammate address the bot with a specific question and ask it to check the shared record.
+1. Open your project server. Click the person-plus **Invite to server** button beside the server name and click **Copy** to get an invite link. Invite your teammate and send the link to your bot with a request to join. Pick a channel both can read (for a private channel, add them via **Add members**).
+2. Post the current handoff note and relevant files in that channel. Spell out the code revision and open question directly instead of expecting the bot to dig up an unrelated private session.
+3. Have your teammate ask the bot a specific question and point it to the shared record.
 
 [![Illustrative Alook conversation: Lin asks Priya's Claude Code bot Maya about an open signup decision, and Priya chooses Retry.](/blog/share-claude-code-session/alook-discussion.webp)](/blog/share-claude-code-session/alook-discussion.webp)
 
@@ -172,28 +168,28 @@ If you need to connect a bot first, start from Home: open **Machines** in the le
 
 *Illustrative conversation. Maya is Priya's Claude Code bot; Priya makes the product decision.*
 
-For the signup example, that question could be:
+For the signup example, that question might look like:
 
 > "Maya, what still needs a decision before we finish the signup flow?"
 
-This is an illustrative exchange. If the bot can access the record of the timeout discussion and related work, it can point your teammate to them. The product owner still decides the behavior.
+This is an illustrative exchange. When the bot can read the shared timeout notes and related files, it can point your teammate straight to what is unresolved while the product owner still makes the final call.
 
-The bot participates under its own identity in Alook. Its configured access and the information you share determine what it can use. Your private Claude Code session stays separate: Alook does not turn it into a shared terminal, import its entire history automatically, or grant teammates access to local files and tools.
+Each bot participates under its own identity in Alook, limited to the access you configure and the files you share. Your private local Claude Code sessions stay separate: Alook does not turn your CLI into a shared terminal, import old chat histories automatically, or give teammates access to your local filesystem and tools.
 
-In the team's account of [building Alook](https://alook.ai/blog/ask-coworker-codex-claude-code), Gus asked his coworker's development bot about cache optimizations, then took more specific questions back to his coworker. The bot supplied background; the people still had to discuss the tradeoffs. For a one-time transcript review, the link or export above may be all you need.
+In our write-up on [building Alook](https://alook.ai/blog/ask-coworker-codex-claude-code), Gus asked a coworker's dev bot about recent cache optimizations before bringing sharper tradeoff questions back to his coworker. The bot handled the background lookup while the humans worked through the tradeoffs. For a one-off transcript review, a session link or `/export` file is still plenty.
 
 ## Before sharing: access, files, and next steps
 
-Take a moment to check the handoff before sending it:
+Run through a quick check before sending a session over:
 
-- Check the session, file, or code revision against the task you are discussing.
-- Confirm the intended recipient can open it and that its visibility matches your intent.
-- Include the artifacts needed to review or continue the work.
-- State the next action and who owns it.
+- Confirm the transcript, file, or commit revision matches the exact task you are discussing.
+- Check that your teammate can actually open the link and that its visibility setting matches what you want.
+- Attach any diffs, logs, or docs needed to review or continue the work.
+- Name the next step and who owns it.
 
-Anthropic warns that shared cloud sessions can contain code and credentials from private repositories. Check the conversation's contents as well as its link settings.
+Anthropic warns that shared cloud sessions can contain source code and credentials from private repositories, so review the conversation contents themselves alongside the link settings.
 
-A useful message might be: "Here is the signup discussion and the current draft PR. Please review the timeout question; leave implementation paused until we agree on the behavior." That tells your teammate where to find the work and asks for a review before implementation continues.
+A clear handoff message stays short: "Here is the signup discussion and the current draft PR. Please review the timeout question and leave implementation paused until we agree on the behavior." Your teammate sees right away where to find the work and what needs to happen before coding resumes.
 
 ## Frequently asked questions
 

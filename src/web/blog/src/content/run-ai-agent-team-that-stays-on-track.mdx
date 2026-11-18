@@ -11,39 +11,39 @@ export const metadata = {
 
 ![A blue pencil crosses out part of an AI team task draft and redirects it to revised work.](/blog/run-ai-agent-team-that-stays-on-track/hero.webp)
 
-One agent is working from the new decision. Another is still carrying out the old one. Both can produce reasonable results, and the team can still be heading in two directions.
+One agent is working from your updated plan. Another is still executing yesterday's version. Each one can turn out sensible-looking work while pulling the project in two opposite directions.
 
-At that point, another reminder to “stay focused” gives neither agent much to work with. The immediate problem is the work still being built on that decision. Until the affected agents change course, even a corrected plan can leave the team producing the wrong thing.
+Telling the team to “stay focused” doesn't fix that. The real problem is active work still building on an outdated decision. Until every affected agent switches over, updating a plan doc on its own won't stop the wrong output from shipping.
 
-A clear [brief for the agent](/blog/how-to-delegate-tasks-to-ai-agents) helps at the start. Once several agents are already working, a changed decision has to reach the work in progress, too.
+Starting with a clear [brief for the agent](/blog/how-to-delegate-tasks-to-ai-agents) sets the direction up front. Once multiple agents are mid-flight, any change in direction has to reach the runs already in progress.
 
 ## When should a human step in to redirect an AI agent team?
 
-You don't have to read every message to spot this split. An agent may cite a plan you replaced, deliver something outside the agreed scope, or start rewriting work another agent still owns. Those are reasons to intervene before the next handoff turns the mistake into somebody else's starting point.
+You don't need to watch every message to spot drift. Maybe an agent quotes a plan you already scrapped, edits files outside its scope, or starts rewriting code another agent owns. Step in right there, before a handoff turns that mistake into the next agent's starting input.
 
-When two agents are following different decisions, human in the loop AI means having a person settle which one applies before they continue. The team can keep doing routine work under its existing instructions; a person steps in when those instructions no longer give it a clear answer.
+In practice, human in the loop AI means a person steps in to settle conflicting directions when existing instructions fall short, while letting routine work run uninterrupted.
 
-The first draft or working change gives you something to judge before another agent builds on it. A changed goal is another reason to look again. A short, reversible research task needs a different level of attention from a task that can change production. What the next action could affect is a better guide than checking every few minutes by habit.
+Check in at natural handoff points, like a first draft or an initial diff, before downstream agents build on top of it. Check again whenever the goal itself changes. Match your attention to the blast radius rather than polling on a timer: a reversible research note needs far less oversight than a script touching production.
 
-A teammate may spot an error and supply the missing fact; a change to the goal belongs to whoever has authority over that goal. Without an agreed person to settle changes, the latest message can become the plan simply because it arrived last.
+Keep authority clear, too. Any teammate can flag a bug or drop a missing fact into the thread, while actual goal changes come from whoever owns the task. Without a clear decision-maker, bots end up treating whichever message arrived last as the new plan.
 
 ## How to pause AI agents without losing good work
 
-A draft based on a rejected conclusion can keep growing while someone investigates the error. More output makes the repair larger. The useful pause is around that draft and anything about to use it; unrelated source gathering may still be worth continuing.
+If an agent keeps expanding a draft built on a bad assumption while you investigate, cleanup only gets harder. Pause that draft and any downstream tasks waiting on it, while letting unrelated work like background source gathering continue.
 
-A pause message alone isn't enough for work already in progress. Use the stop or interrupt control in the tool running the work, then confirm that the affected action has stopped before repairing it. A job running separately may need to be stopped separately. Knowing what is still active matters more here than receiving a polite acknowledgment.
+Typing “hold on” in chat won't stop a tool call that is already running. Hit stop or interrupt in the runtime itself, and verify the process actually halted before touching the files. Background jobs or separate workers often need to be stopped individually. Confirming nothing is still writing matters much more than getting a polite “understood” in chat.
 
-After it stops, what has the agent already made, and what was it about to do? Those answers show how far the error has traveled. Another agent may still be working on something that looks wrong simply because it isn't finished. An incomplete result is not an invitation for a second agent to replace it.
+Once the run stops, check two things: what did the agent already change, and what was it about to do next? That tells you how far the mistake spread. Be careful not to mistake half-finished work on another bot for broken work, either; an in-progress branch isn't a signal for a second agent to jump in and overwrite it.
 
-We want to keep the good work on the near side of the mistake. In a repository, that means looking at the changes and saving a recoverable version before repairing them. For research or writing, the useful starting point is the last sound draft or report, together with the decision it followed. Wiping everything loses that distinction.
+Save the good work completed before the wrong turn. In code, inspect the diff and stash or commit a backup ref before cleaning up. In research or writing, go back to the last solid draft and note which decision it followed. Throwing the whole session away wastes everything that worked.
 
-A pause also needs a clear reason to end. Someone needs to answer the question that stopped the work, and the team needs to know who that is. Their answer will determine whether the agent can continue or needs a new start. Anything already sent or published has to be dealt with separately: stopping the next action doesn't undo the previous one.
+Every pause also needs a clear owner to resolve it. Name who will answer the open question so the team knows whether to resume or restart once they weigh in. And remember that stopping an agent only prevents the next step; if it already sent a message or published a change, you still have to handle that separately.
 
 ## Correct, roll back, or restart: choosing a repair for the team
 
-The latest bad result is where the problem became visible. It may have begun earlier, when a tentative finding became an accepted fact or a temporary restriction became a permanent rule.
+Where you first notice a bad output isn't always where the mistake started. Often the drift began several steps back, when a rough guess hardened into a fact or a temporary workaround turned into a permanent rule.
 
-The last decision you can still support gives you a place to start looking. What changed after that? Did the goal change? Was the agent using information you'd already replaced? Did it understand the goal but carry out one step incorrectly? Each answer points to a different repair.
+Trace back to the last decision that still holds up and see what went sideways after it. Did the goal shift? Did the agent read stale context? Or did it have the right goal and botch one step? Your repair depends on which one happened.
 
 <div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[680px]">
 
@@ -57,56 +57,54 @@ The last decision you can still support gives you a place to start looking. What
 
 <p className="text-sm text-muted-foreground">On small screens, scroll the table sideways to compare all three columns.</p>
 
-A usable result is worth keeping. There's no need to redo it just to get a clean conversation. Once you are spending every message arguing against the session's original premise, though, a new start can be easier to inspect. The next run needs the correct starting point, including which earlier conclusion to leave behind.
+Keep solid work whenever you can; there's no prize for redoing good code just to have a tidy chat log. Still, if every new prompt turns into an argument with the session's original assumptions, starting a fresh session is usually faster and easier to verify. Pass the fresh run the valid inputs, the updated goal, and the old conclusion it should ignore.
 
-Starting a session, restarting a task, and restoring files do different things. In Claude Code, for example, you can restore a conversation while leaving the code as it is. File recovery has its own limits, covered in the [checkpoint documentation](https://code.claude.com/docs/en/checkpointing). Before restoring shared files, other contributors' changes need to be saved somewhere recoverable. A clean-looking conversation is not evidence that their work is safe.
+Watch the difference between rewinding chat history, restarting a task, and reverting files on disk. In Claude Code, for instance, you can rewind the conversation while leaving working tree edits untouched, and file rollback has specific limits covered in the [checkpoint documentation](https://code.claude.com/docs/en/checkpointing). Before reverting shared files, make sure teammates' or other bots' edits are backed up first. A rewound chat window doesn't mean shared files on disk are untouched.
 
 ## How to send new instructions to running AI agents
 
-A corrected plan on disk can coexist with an agent still following the version it read earlier. Updating the record and delivering the correction are separate jobs.
+Editing a plan file on disk doesn't update an agent that already read the old version ten minutes ago. Updating the source of truth and delivering the change to active sessions are two separate steps.
 
 ![The owner notifies both bots of decision v2. Bot A corrects the sources and sends them to Bot B, which revises the draft before the new result is checked.](/blog/run-ai-agent-team-that-stays-on-track/decision-delivery.webp)
 
 Both bots need the new decision. The writer also needs the corrected sources before revising the draft. [View original image](/blog/run-ai-agent-team-that-stays-on-track/decision-delivery.webp)
 
-Everyone working on the task needs a place to find the current decision, along with what it replaces and which work is still useful. The agents following the old version also need the change sent to the conversation or tool they're working in. A message waiting for a later turn can't stop an action happening now. When the change can't wait, the affected work needs to stop before the new instructions go out.
+Put the updated decision somewhere everyone on the task can read it, noting what it replaces and which existing outputs still stand. Then send that update directly into the active session of each agent still running on the old assumption. If an agent is mid-execution and the change can't wait, interrupt the run first; a queued message won't stop a command that's already executing.
 
-What the agent plans to do next tells you more than an acknowledgment. “Received” tells you the message arrived. “I will use the revised source list and replace the unsupported comparison” gives you something to check. And a corrected researcher doesn’t automatically repair the draft already handed to a writer. The writer needs the change, too.
+Ask the agent to state its next step rather than just saying “got it.” “Received” only proves delivery, whereas “I'll swap in the revised source list and rewrite the comparison table” shows it understood the change. Remember downstream handoffs, too: correcting a research bot doesn't fix a draft it already passed to a writing bot unless you notify the writer as well.
 
-In Alook, people and bots running through Claude Code, Cursor, or Codex can take part in the same discussion. The people and bots allowed into that discussion can see the new decision and the drafts or files shared with it. You can address the affected bots there and keep their replies beside the correction. That makes [multi agent collaboration](https://alook.ai/) less dependent on one person repeating the same update in separate terminals.
+In Alook, teammates and bots running on Claude Code, Cursor, or Codex share the same channel or thread. Everyone with access to that conversation sees the updated decision alongside the latest files and drafts, so you can @mention the affected bots in one place and read their responses right underneath. That keeps [multi agent collaboration](https://alook.ai/) from turning into one human copy-pasting updates across four terminal windows.
 
-The person responsible for the goal can settle the change in that discussion. Someone else supplying a missing fact doesn't, by itself, give them permission to direct another person's bot.
+Permissions stay clear in shared threads as well: the goal owner sets direction, and another teammate sharing a helpful fact doesn't automatically gain authority to redirect someone else's bot.
 
-For recurring work, [planning how agents coordinate](/blog/ai-agent-orchestration) covers who passes work to whom ahead of time. A changed decision still needs to reach the agents already in the middle of that work.
+For repeatable workflows, [planning how agents coordinate](/blog/ai-agent-orchestration) covers how to structure handoffs ahead of time. Even with good routing, mid-flight plan changes still have to be pushed to the agents actively doing the work.
 
 ## Why do AI agents repeat mistakes after a correction?
 
-Some corrections belong only to the current task. “Use this revised source list” should replace an input for this job. It doesn't need to become a rule for every future session.
+Separate one-off fixes from standing rules. “Use this updated source list” only applies to today's task; putting it into global project memory just clutters future sessions.
 
-Other corrections describe a repeatable failure. If an agent keeps treating a search summary as a verified source, a rule can name the check: open the source and confirm it supports the claim before using it. That is easier to apply and verify than “be more careful with research.”
+Save persistent rules for recurring failure modes, and write them as concrete checks. If an agent keeps citing search snippets without reading the linked page, “open every source and confirm it backs the claim before citing it” works much better than “be more careful with research.”
 
-A new rule can leave an older, conflicting instruction in place. Keeping both leaves the next agent to choose between them. Reusable instructions need an owner who revisits them when the workflow changes or the same failure comes back. A rule written for an old approval process can block today's authorized work just as effectively as it once prevented a mistake.
+When you add a standing rule, delete or update any older instruction it replaces. Leaving two contradictory lines in `AGENTS.md` or `CLAUDE.md` forces the next session to guess which one wins. Someone should prune those files as workflows evolve, because an outdated approval rule will block valid work just as reliably as it once stopped mistakes.
 
-When a correction doesn't stick, did the agent receive it at all? It may still be working from an older set of instructions. Or the new rule may conflict with one that's still in place. Adding a stronger adjective to the same reminder will not resolve those problems. The guide to [carrying decisions across coding sessions](/blog/keep-context-across-coding-agent-sessions) covers where durable instructions and handoff records belong.
+If an agent ignores a correction, check delivery and conflicts before rewriting the prompt in all caps. Did the running session actually load the updated file, or is an older rule overriding it? Stronger wording won't fix a stale context window. Our guide to [carrying decisions across coding sessions](/blog/keep-context-across-coding-agent-sessions) explains where to keep durable rules versus task handoffs.
 
-Some limits need to stop an action, even when the model decides it should go ahead. Writing a sentence in a file won't do that on its own. In Claude Code, written instructions guide the model, while a hook can block an action, as its [memory guidance](https://code.claude.com/docs/en/memory) explains. Permissions and required checks are worth using when a reminder isn't enough.
+Hard boundaries belong in enforcement, not prose. A line in a markdown file advises the model; tool permissions, CI gates, and hooks actually block forbidden actions, as Claude Code's [memory guidance](https://code.claude.com/docs/en/memory) notes. When an action must never happen, enforce it in tooling rather than hoping a prompt reminder holds.
 
 ## How to check that an AI agent followed a correction
 
-The correction is done when the next result follows the new decision. A revised rules file, a fresh session, or a confident acknowledgment is an intermediate step.
+A correction hasn't landed until the next output reflects it. Editing a rules file, starting a clean session, and getting a confident “will do” are all just setup.
 
-For a stale source list, the evidence is in the sources used by the new result. An agent can repeat the corrected instruction perfectly and still hand over a comparison built from the old material. That is the gap this check needs to catch.
+Match your check to the original mistake. If the problem was a stale source list, inspect the citations in the revised output; agents routinely repeat your new rule back to you and still generate a table from cached notes. If an agent edited files outside its scope, check the new diff to confirm unrelated files are untouched. If one bot overwrote another's changes, verify the lost work is restored and has a clear owner again. Focus on proving the specific failure is gone rather than running busywork checks.
 
-When an agent has changed more than it was asked to, the revised files or draft show whether it now does only what was agreed. After one agent overwrites another's work, the missing contribution needs to be back in place, with someone clearly responsible for continuing it. The original failure tells you where to look. Repeating unrelated checks just to appear thorough adds little.
+Watch out for stale copies sitting in downstream tasks, too. Even after a draft is fixed, another person or bot may still have the old version open. Post a link to the replacement directly in the main thread so everyone knows which file is live and which one is dead.
 
-Even a repaired draft can leave an old copy in someone else's task. The next person needs to know which version to use and which one to put aside. A link in the original discussion keeps that decision beside the work, instead of leaving someone to reconstruct it from scattered messages.
+Five quick lines are enough to close the loop:
 
-A short record is enough to carry this forward:
+- **Decision and owner:** what changed, and who approved it.
+- **Affected work:** what was paused and what can continue.
+- **Valid material:** existing files, drafts, and findings safe to keep using.
+- **Recipients:** every bot or teammate that needs the update before moving on.
+- **Result:** the updated output plus the check proving the fix stuck.
 
-- **Decision and owner:** what applies now, and who settled it.
-- **Affected work:** what paused and what can resume.
-- **Valid material:** the drafts, files, and findings still worth using.
-- **Recipients:** who needs the correction before continuing.
-- **Result:** the new draft or files and the check that shows the correction worked.
-
-The next agent can then see which decision applies to its work, and the result that shows the team is following it.
+Anyone picking up the thread next can immediately see the active decision and the proof that the team is back on track.

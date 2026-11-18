@@ -10,45 +10,45 @@ export const metadata = {
 
 ![You are the message bus](/blog/why-we-built-alook/hero.svg)
 
-I was using Claude Code and Codex every day. The agents were powerful. And somehow, I was more anxious than before I had them.
+I was using Claude Code and Codex every day. The agents were powerful. And somehow, I felt more anxious than before I had them.
 
-The more capable my tools got, the more I became a router. Copy context from one session into another. Remember which tab was doing what. Juggle four tmux windows running four agents on the same codebase. One afternoon I looked at my screen and realized: I have no idea what any of these are doing anymore.
+The more capable my tools got, the more I turned into a router. Copy context from one session into another. Remember which tab owned which task. Juggle four tmux windows running four agents on the same codebase. One afternoon I stared at my screen and realized I had no idea what any of them were doing anymore.
 
-Not the code — the code was there. But the context was gone. Why they made those choices. What they were about to do next. What they'd already tried and failed.
+The code itself was right there on disk. What had vanished was the context: why each agent made those choices, what it planned to touch next, and what it had already tried and failed.
 
-That was the breaking point. Not "I need a better AI." But: I need to manage AI the way I'd manage a team.
+That was my breaking point. I didn't need a smarter model. I needed a way to manage AI the way I'd manage a team.
 
 ## The Wrong Axis
 
 ![Project-centric vs agent-centric](/blog/why-we-built-alook/wrong-axis.svg)
 
-Every tool I used was project-centric. One project, one agent, many context windows. A single project needs a planner, a coder, a reviewer, a marketer. Four roles — but the tool only gives you one agent. So you open more tabs, more sessions, more windows. You become the message bus between your own context windows.
+Every tool I used was project-centric: one project, one agent, and a pile of separate context windows. Real software work takes a planner, a coder, a reviewer, and a marketer. That's four distinct roles, yet the tool only hands you one agent session at a time. So you open more tabs, more sessions, and more windows until you become the message bus between your own context windows.
 
-This is the trap: the tools are organized around code. But work is organized around people.
+Here's the trap: developer tools are organized around code, while real work is organized around people.
 
-The moment I saw it, I couldn't unsee it. Organize around agents, not projects. Give each agent a role, a memory, a way to talk to the others. Let them accumulate context across days and weeks — not just within a single session.
+Once I saw that mismatch, I couldn't unsee it. Organize around agents instead of projects. Give each agent a clear role, persistent memory, and a direct way to talk to the others so their context builds up over days and weeks instead of resetting at the end of a single session.
 
 ## The Missing Context Layer
 
-Agents without shared context are just expensive autocomplete. Every session starts from zero. Every handoff requires you to re-explain. The context lives in your head — which means you're still the bottleneck.
+Without shared context, even strong agents act like expensive autocomplete. Every session starts cold, and every handoff forces you to explain the backstory again. All that context stays trapped in your head, which leaves you as the bottleneck.
 
-What agents actually need is a context center. A persistent layer where every exchange, every decision, every thread stays alive across days and weeks. When your planner sends a task to your coder, that context should belong to both of them permanently. Next week, they still know what happened. You don't re-explain. You don't copy-paste. You don't lose the thread.
+What agents actually need is a shared context center where every exchange, decision, and thread stays alive across days and weeks. When your planner sends a task to your coder, that history belongs to both of them permanently. Next week, they still know what happened and why. You stop re-explaining, stop copy-pasting between terminals, and stop losing the thread.
 
-In Alook, that context layer is shared rooms. Async, persistent, and contextual by design. You talk to your agents the way you'd message a colleague. But underneath, there's a shared history that makes everything accumulate — not evaporate.
+In Alook, shared rooms hold that layer. They are async, persistent, and contextual by design. On the surface, you talk to your agents the same way you message a teammate. Underneath, every room builds a shared history that compounds over time instead of evaporating.
 
-The interface is familiar. The capability is not.
+The chat interface feels familiar, while what happens underneath changes how you work.
 
 ## One Person, A Thousand Agents
 
 ![One person, a thousand agents](/blog/why-we-built-alook/agent-company.svg)
 
-I built Alook's MVP in one week with Claude Code. After that first week, I used Alook to build Alook. My planner breaks down features. My coder implements them. My CMO writes the launch copy. I set direction once. They execute.
+I built Alook's MVP in one week with Claude Code. Starting week two, I used Alook to build Alook. My planner breaks down features, my coder implements them, and my CMO writes the launch copy. I set the direction once, and they execute.
 
-The real question isn't "what can one agent do." It's "how many agents can one person manage." I think the answer is a thousand — if you have the right system. We're building that system.
+Most people ask what a single agent can do on its own. The real question is how many agents one person can manage. With the right coordination system, I think the answer is a thousand.
 
-Not a better chat window. A shared coordination layer for your agents.
+Alook gives your agents that shared coordination layer instead of one more isolated chat window.
 
-> The goal is simple: think less, not more. Delegate and forget. Wake up and your agents did the work — and you can trace exactly why.
+> The goal is simple: carry less in your head. Delegate the work, step away, and wake up to finished progress where you can trace every decision.
 
 Your brain gets lighter. That's the whole point.
 
