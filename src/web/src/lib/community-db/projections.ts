@@ -7,9 +7,9 @@ import { communityKeys } from "@/lib/query-keys"
 import { useQueryClient } from "@tanstack/react-query"
 import { forumSidebarWindowComplete, type ForumSidebarWindow } from "@/lib/community/forum-sidebar-window"
 
-import { createContext, createElement, useContext, useMemo, useCallback, useSyncExternalStore, type Context, type ReactNode } from "react"
+import { createContext, createElement, useContext, useEffect, useMemo, useCallback, useSyncExternalStore, type Context, type ReactNode } from "react"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
-import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
+import { DbProvider, and, eq, inArray, useLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { serverRailTopOrder, sortServerRailRows, notifLevelDisplay } from "@alook/shared"
@@ -26,7 +26,6 @@ import type { CommunityMessageResource } from "@alook/shared"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { CommunityDbRegistry } from "./collections"
 import { communityCollectionQuery, communityJoinedMessagesQuery } from "./queries"
-import { communityProjection } from "./live-query"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 
 import type {
@@ -60,12 +59,6 @@ export function useOptionalCommunityDbRegistry() {
 }
 
 
-const useLiveQuery = ((options: unknown) => {
-  const registry = useOptionalCommunityDbRegistry()
-  const view = communityProjection(registry, options)
-  const useOwnedCollection = useNativeLiveQuery as (value: NonNullable<ReturnType<typeof communityProjection>>["collection"] | (() => undefined)) => ReturnType<typeof useNativeLiveQuery>
-  return useOwnedCollection(view?.collection ?? (() => undefined))
-}) as typeof useNativeLiveQuery
 
 const absentPresence = createStore({ presenceByUserId: new Map<string, "online" | "offline">() })
 
@@ -92,10 +85,22 @@ export function CommunityDbProvider({
 
 type CollectionWhere<N extends CommunityCollectionName> = WhereCallback<ContextFromSource<{ row: CommunityDbRegistry["collections"][N] }>>
 
+function useProjectionRecovery(registry: CommunityDbRegistry | null, result: {
+  isLoadingError: boolean
+  health: ReturnType<typeof useLiveQuery>["health"]
+  collection?: { reload: () => Promise<void> }
+}) {
+  const recover = result.isLoadingError && !!result.health?.sources.length && result.health.sources.every(source => source.status === "ready" && !source.hasErrors)
+  useEffect(() => {
+    if (recover && registry?.runtime.lifecycle.get().active) void result.collection?.reload().catch(() => undefined)
+  }, [recover, registry, result.collection])
+}
+
 function useCollectionQuery<N extends CommunityCollectionName>(name: N, where?: CollectionWhere<N>, enabled = true) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery(communityCollectionQuery(registry, name, where, enabled))
-  return { ...result, registry, data: result.data as CommunityCollectionRows[N][] | undefined }
+  useProjectionRecovery(registry, result)
+  return { ...result, registry, isError: result.isLoadingError || result.isCrashed || result.isSyncError, data: result.data as CommunityCollectionRows[N][] | undefined }
 }
 
 function useCollectionRows<N extends CommunityCollectionName>(name: N, where?: CollectionWhere<N>) {
@@ -339,6 +344,7 @@ export function useRouteChannelProjection(channelId: string | null) {
 function useJoinedMessageQuery(channelId: string | null | undefined, ids?: readonly string[]) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery(communityJoinedMessagesQuery(registry, channelId, ids))
+  useProjectionRecovery(registry, result)
   return { registry, data: result.data as Array<{ message: MessageRow; child?: ChannelRow; reply?: MessageRow }> | undefined, status: result.status }
 }
 

@@ -131,40 +131,51 @@ export function runFrames(count = 26) {
     })
   }
 }
+function measureResizeObservers() {
+  for (const observer of [...resizeObservers]) {
+    const entries: ResizeObserverEntry[] = []
+    for (const [target, observation] of observer.elements) {
+      const node = target as HTMLElement
+      const style = window.getComputedStyle(node)
+      const rendered = node.isConnected && style.display !== "none"
+      const padding = (value: string) => Number.parseFloat(value) || 0
+      const borderBoxSize = {
+        inlineSize: rendered ? node.offsetWidth : 0,
+        blockSize: rendered ? node.offsetHeight : 0,
+      }
+      const contentBoxSize = {
+        inlineSize: rendered ? Math.max(0, node.clientWidth - padding(style.paddingLeft) - padding(style.paddingRight)) : 0,
+        blockSize: rendered ? Math.max(0, node.clientHeight - padding(style.paddingTop) - padding(style.paddingBottom)) : 0,
+      }
+      const size = observation.box === "border-box" ? borderBoxSize : contentBoxSize
+      if (size.inlineSize === observation.lastSize.inlineSize && size.blockSize === observation.lastSize.blockSize) continue
+      observation.lastSize = size
+      entries.push({
+        target, borderBoxSize: [borderBoxSize], contentBoxSize: [contentBoxSize], devicePixelContentBoxSize: [],
+        contentRect: DOMRect.fromRect({
+          x: rendered ? padding(style.paddingLeft) : 0, y: rendered ? padding(style.paddingTop) : 0,
+          width: contentBoxSize.inlineSize, height: contentBoxSize.blockSize,
+        }),
+      })
+    }
+    if (entries.length) observer.callback(entries, observer.observer)
+  }
+}
 export function resize(frameCount = 26) {
   act(() => {
     deliverScrollEvents()
-    for (const observer of [...resizeObservers]) {
-      const entries: ResizeObserverEntry[] = []
-      for (const [target, observation] of observer.elements) {
-        const node = target as HTMLElement
-        const style = window.getComputedStyle(node)
-        const rendered = node.isConnected && style.display !== "none"
-        const padding = (value: string) => Number.parseFloat(value) || 0
-        const borderBoxSize = {
-          inlineSize: rendered ? node.offsetWidth : 0,
-          blockSize: rendered ? node.offsetHeight : 0,
-        }
-        const contentBoxSize = {
-          inlineSize: rendered ? Math.max(0, node.clientWidth - padding(style.paddingLeft) - padding(style.paddingRight)) : 0,
-          blockSize: rendered ? Math.max(0, node.clientHeight - padding(style.paddingTop) - padding(style.paddingBottom)) : 0,
-        }
-        const size = observation.box === "border-box" ? borderBoxSize : contentBoxSize
-        if (size.inlineSize === observation.lastSize.inlineSize && size.blockSize === observation.lastSize.blockSize) continue
-        observation.lastSize = size
-        entries.push({
-          target, borderBoxSize: [borderBoxSize], contentBoxSize: [contentBoxSize], devicePixelContentBoxSize: [],
-          contentRect: DOMRect.fromRect({
-            x: rendered ? padding(style.paddingLeft) : 0, y: rendered ? padding(style.paddingTop) : 0,
-            width: contentBoxSize.inlineSize, height: contentBoxSize.blockSize,
-          }),
-        })
-      }
-      if (entries.length) observer.callback(entries, observer.observer)
-    }
+    measureResizeObservers()
   })
   runFrames(frameCount)
 }
+export function resizeMeasureBeforeScroll(frameCount = 26, onMeasured?: (pending: number) => void) {
+  act(() => {
+    measureResizeObservers()
+    onMeasured?.(pendingScrollEvents.size)
+  })
+  runFrames(frameCount)
+}
+
 export function mount(overrides: Partial<Input> = {}, strict = false, onLayout?: (result: Result) => void, wrapper?: RenderOptions["wrapper"], initialFrames = 26) {
   const input: Input = { items: Array.from({ length: 14 }, (_, i) => message(`m${i}`)), initialScrollReady: true, hasMoreOlder: true, ...overrides }
   const element = () => strict ? createElement(StrictMode, null, createElement(Probe, { input, onLayout })) : createElement(Probe, { input, onLayout })

@@ -57,7 +57,7 @@ it("retains real ready time before a delayed SDK and records each later route on
   expect(navigationForHref(window.location.href)).toBeUndefined()
   expect(sent).toEqual([])
   now = 900
-  await act(async () => { native.release?.(); await vi.advanceTimersByTimeAsync(1500) })
+  await act(async () => { native.release?.(); await vi.dynamicImportSettled(); await vi.advanceTimersByTimeAsync(1500) })
   const exported = () => sent.flatMap(body => body.events ?? [])
   const metrics = () => exported().filter(event => event.name === "navigation.ready")
   expect(metrics()).toHaveLength(1)

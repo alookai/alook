@@ -98,10 +98,54 @@ describe("community DB projections", () => {
       await act(async () => reject(new Error("controlled profile restore failure")))
       await waitFor(() => expect(rendered.result.current.profiles.isError).toBe(true))
       expect(rendered.result.current.state).toEqual({ loading: false, failed: true })
-      await act(async () => client.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })]))
+      await act(async () => writeCommunityCollectionRows(registry, "profiles", [profileSchema.parse({ id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })], row => row.id))
       await waitFor(() => expect(rendered.result.current.state).toEqual({ loading: false, failed: false }))
       expect(rendered.result.current.profiles.data.get("peer")?.discriminator).toBe("0042")
     } finally { rendered.unmount(); await registry.cleanup(); client.clear() }
+  })
+
+  it("keeps ready profile rows visible through native sync failure and clears the problem on canonical recovery", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(client, "viewer")
+    const key = communityKeys.communityDbCollection(registry.scopeId, "profiles")
+    const profile = profileSchema.parse({ id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })
+    client.setQueryData(key, [profile])
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const view = renderHook(() => {
+      const profiles = useCanonicalProfilesProjection(["peer"])
+      return { profiles, state: getMemberReadState(true, { pending: false, failed: false }, [profiles], ["peer"], profiles.resourceProfiles) }
+    }, { wrapper })
+    try {
+      await waitFor(() => expect(view.result.current.state).toEqual({ loading: false, failed: false }))
+      await act(async () => {
+        await expect(client.query({ queryKey: key, queryFn: async () => { throw new Error("controlled profile sync failure") }, staleTime: 0 })).rejects.toThrow("controlled profile sync failure")
+      })
+      await waitFor(() => expect(view.result.current.state).toEqual({ loading: false, failed: true }))
+      expect(view.result.current.profiles).toMatchObject({ isReady: true, isSyncError: true, isLoadingError: false, isCrashed: false })
+      expect(view.result.current.profiles.data.get("peer")).toMatchObject({ name: "Peer", discriminator: "0042" })
+      await act(async () => client.setQueryData(key, [{ ...profile, name: "Recovered" }]))
+      await waitFor(() => expect(view.result.current.state).toEqual({ loading: false, failed: false }))
+      expect(view.result.current.profiles.data.get("peer")?.name).toBe("Recovered")
+    } finally { view.unmount(); await registry.cleanup(); client.clear() }
+  })
+
+  it("recovers the native message join after every required source receives canonical data", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let reject!: (error: Error) => void
+    const registry = createCommunityDbRegistry(client, "viewer", { waitForRestore: new Promise<void>((_resolve, fail) => { reject = fail }) })
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const view = renderHook(() => useMessageWindowProjection("c1", ["selected"], []), { wrapper })
+    try {
+      await act(async () => reject(new Error("controlled joined restore failure")))
+      await waitFor(() => expect(view.result.current.status).toBe("error"))
+      await act(async () => ingestMessages(registry, "c1", messageSeedFixture("c1", [{ id: "selected", type: "chat", content: "Recovered" }])))
+      expect(view.result.current.status).toBe("error")
+      await act(async () => ingestServerDetail(registry, serverDirectoryFixture({ id: "srv", name: "Server", categories: [
+        { id: "cat", name: "Category", channels: [{ id: "c1", name: "Text", active: false, unread: false }] },
+      ] })))
+      await waitFor(() => expect(view.result.current.status).toBe("ready"))
+      expect(view.result.current.canonicalMessages).toMatchObject([{ id: "selected", content: "Recovered" }])
+    } finally { view.unmount(); await registry.cleanup(); client.clear() }
   })
 
   it("does not turn presence-only or disabled snapshots into complete member handles", async () => {

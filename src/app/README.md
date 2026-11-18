@@ -10,7 +10,7 @@ npx @alook/app onboard
 
 This will:
 
-1. Check your environment (Node.js >= 20, AI runtime)
+1. Check your environment (Node.js >= 22.12, AI runtime)
 2. Install Alook to `~/.alook/self-hosted/`
 3. Generate secrets (`BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`)
 4. Run database migrations (SQLite via Cloudflare D1 local)
@@ -113,7 +113,7 @@ ALOOK_PROJECT_ROOT=/path/to/alook npx @alook/app onboard
 
 ## Requirements
 
-- Node.js >= 20.9
+- Node.js >= 22.12
 - A supported agent runtime such as Claude Code, Codex, OpenCode, Pi, or Cursor
 
 ## Limitations

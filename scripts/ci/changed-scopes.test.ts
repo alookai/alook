@@ -974,7 +974,28 @@ describe("compatibility and CLI fail-closed behavior", () => {
     }
   })
 
-  it("keeps Blog hashes independent of generated images while retaining canonical image inputs", () => {
+  it("ignores generated Web outputs through the capture public alias and hashes real public and capture inputs", () => {
+    const fixture = gitDiffFixture()
+    const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/web#build", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/web#build")
+    try {
+      const web = join(fixture.root, "src/web")
+      const alias = join(web, "readme-capture/public")
+      rmSync(alias, { force: true })
+      symlinkSync(join(web, "public"), alias, process.platform === "win32" ? "junction" : "dir")
+      const before = dry()
+      writeFileSync(join(web, "public/sw.js"), "generated service worker")
+      mkdirSync(join(web, "public/community-shell"), { recursive: true })
+      writeFileSync(join(web, "public/community-shell/shell.html"), "generated app shell")
+      expect(dry().hash).toBe(before.hash)
+      writeFileSync(join(web, "public/alook.svg"), "changed canonical public asset")
+      const changedPublic = dry()
+      expect(changedPublic.hash).not.toBe(before.hash)
+      writeFileSync(join(web, "readme-capture/next.config.ts"), "changed capture configuration")
+      expect(dry().hash).not.toBe(changedPublic.hash)
+    } finally { fixture.cleanup() }
+  })
+
+  it("ignores untracked generated Blog images and hashes tracked manifests and canonical image inputs", () => {
     const fixture = gitDiffFixture()
     const dry = () => JSON.parse(execFileSync(process.execPath, [realpathSync(join(fixture.root, "scripts/ci/run-turbo.mjs")), "run", "@alook/web#build:blog", "--dry=json"], { cwd: fixture.root, env: cleanGitEnvironment(), encoding: "utf8" })).tasks.find(task => task.taskId === "@alook/web#build:blog")
     try {
@@ -984,10 +1005,12 @@ describe("compatibility and CLI fail-closed behavior", () => {
       const canonical = Object.keys(JSON.parse(readFileSync(manifest, "utf8")))[0]!
       mkdirSync(generated, { recursive: true })
       writeFileSync(join(generated, "derived.webp"), "generated output bytes")
-      writeFileSync(manifest, '{"derived":true}\n')
       expect(dry().hash).toBe(before.hash)
+      writeFileSync(manifest, '{"derived":true}\n')
+      const changedManifest = dry()
+      expect(changedManifest.hash).not.toBe(before.hash)
       writeFileSync(join(fixture.root, "src/web/blog/public", canonical), "changed canonical image bytes")
-      expect(dry().hash).not.toBe(before.hash)
+      expect(dry().hash).not.toBe(changedManifest.hash)
     } finally { fixture.cleanup() }
   })
 

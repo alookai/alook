@@ -24,7 +24,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20.9"
+    "node": ">=22.12"
   },
   "publishConfig": {
     "access": "public"
@@ -39,9 +39,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "commander": "^15.0.0",
+    "commander": "^15.1.0",
     "sharp": "^0.35.5",
-    "ws": "^8.22.0",
+    "ws": "^8.23.0",
     "wrangler": "4.162.0"
   },
   "devDependencies": {
@@ -50,7 +50,7 @@
     "eslint": "^9.39.5",
     "knip": "^6.32.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.0",
+    "typescript-eslint": "^8.72.2",
     "vitest": "5.1.0"
   }
 }
