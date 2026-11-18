@@ -9,6 +9,7 @@ import {
 } from "@/lib/community-db/collections"
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
 import { readCommunityCollectionRow, writeCommunityCollectionChanges } from "@/lib/community-db/write"
+import { retireBotDirectoryScopes } from "./bot-directory-lifecycle"
 
 
 type ProfileFieldRevisions = {
@@ -60,6 +61,7 @@ export function retireCommunityProfile(userId: string, registry: CommunityDbRegi
   deletedByUserId.set(userId, revision)
   pendingFieldsByUserId.delete(userId)
   store.setState(() => ({ ...previous, revision, fieldsByUserId, deletedByUserId, pendingFieldsByUserId }))
+  void retireBotDirectoryScopes(registry, [{ kind: "bot", id: userId }]).catch(error => console.error("Bot directory retirement failed", error))
   registry.runtime.ws.actions.forgetPresence(userId)
   return writeCommunityCollectionChanges(registry, "profiles", [], [userId])
 }
@@ -213,6 +215,9 @@ export function writeCommunityProfilePatches(
     if (!facts.success) continue
     const parsed = profileSchema.safeParse(facts.data)
     if (parsed.success) {
+      if (current?.kind === "bot" && current.ownerUserId === registry.accountId
+        && (parsed.data.kind !== "bot" || parsed.data.ownerUserId !== registry.accountId || current.ownedByViewer === true && parsed.data.ownedByViewer === false))
+        void retireBotDirectoryScopes(registry, [{ kind: "bot", id: patch.id }]).catch(error => console.error("Bot directory retirement failed", error))
       profiles.set(patch.id, parsed.data)
       revisions.deletedByUserId.delete(patch.id)
       revisions.pendingFieldsByUserId.delete(patch.id)

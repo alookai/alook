@@ -43,7 +43,8 @@ describe("membership facade composition", () => {
     const rendered = renderHook(() => useAddableMembers("s1", "c1"), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.members).toEqual([{ userId: "bob", name: "Bob", discriminator: "0002", avatar: "b", avatarVersion: 0 }]))
     expect(apiFetchMock.mock.calls.filter(([url]) => String(url).includes("/servers/s1/members?"))).toHaveLength(2)
-    expect(client.getQueryData(communityKeys.channelAddableMembers("c1"))).toEqual({ serverId: "s1", relation: "access", members: [{ id: alice.id, userId: alice.userId }, { id: bob.id, userId: bob.userId }] })
+    expect(client.getQueryData(communityKeys.channelAddableMembers("c1"))).toEqual({ serverId: "s1", relation: "access", members: [{ id: bob.id, userId: bob.userId }], observed: true })
+    expect(registry.collections.serverMemberships.get("s1:alice")).toMatchObject({ memberId: alice.id })
     expect(registry.collections.profiles.get("bob")?.name).toBe("Bob")
   })
 
@@ -55,7 +56,8 @@ describe("membership facade composition", () => {
     })
     const rendered = renderHook(() => useInvitableFriends("s1"), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.friends.map((friend) => friend.userId)).toEqual(["bob"]))
-    expect(client.getQueryData(communityKeys.invitableFriends("s1"))).toEqual({ serverId: "s1", friendIds: ["friend_1", "friend_2"] })
+    expect(client.getQueryData(communityKeys.invitableFriends("s1"))).toEqual({ serverId: "s1", friendIds: ["friend_2"], totalFriends: 2, observed: true })
+    expect(registry.collections.friendships.get("friend_1")).toMatchObject({ userId: "alice", kind: "accepted" })
     expect(registry.collections.friendships.get("friend_2")).toMatchObject({ userId: "bob", kind: "accepted" })
   })
 

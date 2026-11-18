@@ -4,9 +4,15 @@ import { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { useBotMemberships } from "./use-bot-memberships"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { retireBotDirectoryScopes } from "@/lib/community/bot-directory-lifecycle"
+import { ApiError } from "@/lib/errors"
 
 const apiFetch = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
+
+const memberships = { servers: [{ id: "server_1", handle: "studio#0042", name: "studio", canLeave: true, icon: null }],
+  groups: [{ category: null, channels: [{ id: "channel_1", ref: "/studio#0042/work", name: "work", type: "text", visibility: "private" }] }] }
 
 function setup(botId = "bot_1", open = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
@@ -27,28 +33,28 @@ describe("owned bot memberships", () => {
   })
 
   it("flattens categories into their server and keeps empty servers and public restrictions", async () => {
-    apiFetch.mockResolvedValue({ servers: [{ id: "s1", handle: "studio#0042", name: "studio", canLeave: true, icon: null }, { id: "s2", handle: "empty#0043", name: "empty", canLeave: false, icon: null }], groups: [{ category: { name: "hidden grouping", private: true }, channels: [{ ref: "/studio#0042/work", name: "work", type: "forum", visibility: "private" }] }, { category: null, channels: [{ ref: "/studio#0042/all", name: "all", type: "text", visibility: "public" }] }] })
+    apiFetch.mockResolvedValue({ servers: [{ id: "s1", handle: "studio#0042", name: "studio", canLeave: true, icon: null }, { id: "s2", handle: "empty#0043", name: "empty", canLeave: false, icon: null }], groups: [{ category: { name: "hidden grouping", private: true }, channels: [{ id: "work-resource", ref: "/studio#0042/work", name: "work", type: "forum", visibility: "private" }] }, { category: null, channels: [{ id: "all-resource", ref: "/studio#0042/all", name: "all", type: "text", visibility: "public" }] }] })
     const view = setup()
     await waitFor(() => expect(view.result.current.isSuccess).toBe(true))
-    expect(view.result.current.data?.servers[0].channels).toEqual([{ id: "/studio#0042/work", name: "work", type: "forum", canLeave: true }, { id: "/studio#0042/all", name: "all", type: "text", canLeave: false }])
+    expect(view.result.current.data?.servers[0].channels).toEqual([{ id: "/studio#0042/work", channelId: "work-resource", name: "work", type: "forum", visibility: "private", canLeave: true }, { id: "/studio#0042/all", channelId: "all-resource", name: "all", type: "text", visibility: "public", canLeave: false }])
     expect(view.result.current.data?.servers[1]).toMatchObject({ canLeave: false, channels: [] })
   })
 
   it("preserves membership data when leave fails and allows a retry", async () => {
-    apiFetch.mockImplementation((_path: string, options: RequestInit = {}) => options.method === "DELETE" ? Promise.reject(new Error("try again")) : Promise.resolve({ servers: [], groups: [] }))
+    apiFetch.mockImplementation((_path: string, options: RequestInit = {}) => options.method === "DELETE" ? Promise.reject(new Error("try again")) : Promise.resolve(memberships))
     const view = setup()
     await waitFor(() => expect(view.result.current.isSuccess).toBe(true))
-    await act(async () => { await expect(view.result.current.leave({ kind: "channel", id: "c1", ref: "/studio#0042/work", name: "work" })).rejects.toThrow("try again") })
+    await act(async () => { await expect(view.result.current.leave({ kind: "channel", id: "/studio#0042/work", resourceId: "channel_1", ref: "/studio#0042/work", name: "work" })).rejects.toThrow("try again") })
     await waitFor(() => expect(view.result.current.pending).toBe(false))
-    expect(view.result.current.data).toEqual({ servers: [] })
+    expect(view.result.current.data).toMatchObject({ observed: true, servers: [{ id: "server_1", channels: [{ channelId: "channel_1", name: "work" }] }] })
   })
 
   it("blocks duplicate exits and refreshes only the selected bot after success", async () => {
     let finish!: () => void
-    apiFetch.mockImplementation((_path: string, options: RequestInit = {}) => options.method === "DELETE" ? new Promise<void>((resolve) => { finish = resolve }) : Promise.resolve({ servers: [], groups: [] }))
+    apiFetch.mockImplementation((_path: string, options: RequestInit = {}) => options.method === "DELETE" ? new Promise<void>((resolve) => { finish = resolve }) : Promise.resolve(memberships))
     const view = setup()
     await waitFor(() => expect(view.result.current.isSuccess).toBe(true))
-    const target = { kind: "channel" as const, id: "channel_1", ref: "/studio#0042/work", name: "work" }
+    const target = { kind: "channel" as const, id: "/studio#0042/work", resourceId: "channel_1", ref: "/studio#0042/work", name: "work" }
     let first!: Promise<boolean>
     act(() => { first = view.result.current.leave(target) })
     await waitFor(() => expect(view.result.current.pending).toBe(true))
@@ -60,7 +66,7 @@ describe("owned bot memberships", () => {
 
   it("keeps a late exit bound to its original bot and rejects closed-view completion", async () => {
     let finish!: () => void
-    apiFetch.mockImplementation((_path: string, options: RequestInit = {}) => options.method === "POST" ? new Promise<void>((resolve) => { finish = resolve }) : Promise.resolve({ servers: [], groups: [] }))
+    apiFetch.mockImplementation((_path: string, options: RequestInit = {}) => options.method === "POST" ? new Promise<void>((resolve) => { finish = resolve }) : Promise.resolve(memberships))
     const view = setup()
     await waitFor(() => expect(view.result.current.isSuccess).toBe(true))
     let outcome!: Promise<unknown>
@@ -69,6 +75,36 @@ describe("owned bot memberships", () => {
     view.rerender({ botId: "bot_2", open: true })
     await act(async () => { finish(); expect(await outcome).toMatchObject({ name: "AbortError" }) })
     expect(apiFetch).toHaveBeenCalledWith("/api/community/servers/resolve/leave?server=studio%230042", expect.objectContaining({ method: "POST" }))
-    await waitFor(() => expect(view.result.current.data).toEqual({ servers: [] }))
+    await waitFor(() => expect(view.result.current.data).toMatchObject({ observed: true, servers: [{ id: "server_1", channels: [{ channelId: "channel_1", name: "work" }] }] }))
+  })
+
+  it.each([false, true])("keeps a committed exit receipt separate from membership retirement while in flight; HTTP failure=%s", async failed => {
+    let resolve!: () => void, reject!: (error: unknown) => void
+    let refresh!: (value: typeof memberships) => void
+    const refreshed = new Promise<typeof memberships>(done => { refresh = done })
+    let leaving = false
+    apiFetch.mockImplementation((_path: string, options: RequestInit = {}) => {
+      if (options.method === "DELETE") { leaving = true; return new Promise<void>((done, no) => { resolve = done; reject = no }) }
+      return leaving ? refreshed : Promise.resolve(memberships)
+    })
+    const view = setup()
+    await waitFor(() => expect(view.result.current.confirmed).toBe(true))
+    let outcome!: Promise<unknown>, settled = false
+    act(() => { outcome = view.result.current.leave({ kind: "channel", id: "/studio#0042/work", resourceId: "channel_1", ref: "/studio#0042/work", name: "work" }).catch(error => error).then(value => { settled = true; return value }) })
+    try {
+      await waitFor(() => expect(apiFetch.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(true))
+      const registry = getCommunityDbRegistry(view.client)!
+      await act(async () => { await retireBotDirectoryScopes(registry, [{ kind: "bot-channel", botId: "bot_1", id: "channel_1" }]) })
+      await waitFor(() => expect(view.result.current.confirmed).toBe(false))
+      act(() => { if (failed) reject(new ApiError("QA temporary failure", 503)); else resolve() })
+      await waitFor(() => expect(settled).toBe(true))
+      const value = await outcome
+      if (failed) expect(value).toMatchObject({ message: "QA temporary failure", status: 503 })
+      else expect(value).toBe(true)
+      expect(apiFetch.mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(1)
+    } finally {
+      await act(async () => { refresh({ servers: [], groups: [] }); await outcome; await view.client.cancelQueries() })
+      view.unmount(); view.client.clear()
+    }
   })
 })

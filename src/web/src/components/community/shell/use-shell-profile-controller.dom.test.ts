@@ -190,7 +190,7 @@ describe("useShellProfileController", () => {
     await waitFor(() => expect(mocks.query.mock.calls.some(([path]) => path.startsWith("/api/community/users/search?"))).toBe(true))
     if (mode === "newer") writeCommunityProfilePatches([{ id: "lookup", identityAbout: { name: "Newer Alice" }, avatar: { avatar: "newer-image", avatarVersion: 3 }, status: { statusText: "Newer status" } }], hook.registry, { command: true })
     await act(async () => request.resolve({ users: [{ id: "lookup", name: "Alice", discriminator: "0042", image: null, avatarVersion: 2 }] }))
-    await waitFor(() => expect(hook.queryClient.getQueryData(["community", "user-search", "Alice#0042"])).toEqual(["lookup"]))
+    await waitFor(() => expect(hook.queryClient.getQueryData(["community", "user-search", "Alice#0042"])).toEqual({ ids: ["lookup"], observed: true }))
     expect(hook.registry.collections.profiles.get("lookup")).toMatchObject({ avatar: mode === "newer" ? "newer-image" : null, avatarVersion: mode === "newer" ? 3 : 2, name: mode === "newer" ? "Newer Alice" : "Alice", discriminator: "0042", ...(mode !== "cold" ? { aboutMe: "Keep complete", bannerColor: "#123456", statusText: mode === "newer" ? "Newer status" : "Keep status" } : {}) })
     hook.renderer.unmount()
   })

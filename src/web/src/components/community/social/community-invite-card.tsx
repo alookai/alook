@@ -2,7 +2,7 @@
 
 import { useCommunityRouter } from "@/contexts/community/module-route"
 import { useUiHandlers } from "@/stores/community"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -14,6 +14,11 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import type { MessagePerspective } from "@/components/community/messages/message-presentation-types"
+import { inviteInfoReadSchema, type InviteInfoWindow } from "@/lib/community/directory-window-persistence"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { ApiError, isAbortError } from "@/lib/errors"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 
 export function resolveInviteCardPresentation(
   perspective: MessagePerspective,
@@ -27,19 +32,6 @@ export function resolveInviteCardPresentation(
   }
 }
 
-type InviteInfo = {
-  serverId: string
-  serverName: string
-  serverIcon: string | null
-  memberCount: number
-}
-
-/**
- * Inline join card rendered for messages with `type === "community_invite"`.
- * The embed carries only the invite token; server metadata is fetched on
- * mount so the card stays live (revoked/expired invites render an error
- * state instead of showing stale info from a snapshot).
- */
 export function CommunityInviteCard({
   token,
   perspective,
@@ -48,16 +40,49 @@ export function CommunityInviteCard({
   perspective: MessagePerspective
 }) {
   const router = useCommunityRouter()
+  const client = useQueryClient()
+  const view = useCommunityViewSource("invite-card:" + token)
   const uiHandlers = useUiHandlers()
   const { servers } = useServers()
   const joinServer = useJoinServer()
 
-  const { data, isLoading, isError } = useQuery({
+  const query = useQuery({
     queryKey: communityKeys.inviteInfo(token),
-    queryFn: () => apiFetch<InviteInfo>(`/api/community/invites/${token}/info`),
+    queryFn: async ({ signal }) => {
+      const original = captureCommunityLiveSnapshotToken(client)
+      const key = communityKeys.inviteInfo(token)
+      const resource = client.getQueryCache().find({ queryKey: key, exact: true })
+      const assert = () => {
+        assertCommunityLiveSnapshotTokenCurrent(client, original, signal)
+        if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) !== resource) throw new DOMException("Retired invite card", "AbortError")
+      }
+      await original.registry?.ready
+      const auxiliaryReadEpoch = await original.registry?.captureAuxiliaryReadEpoch()
+      assert()
+      try {
+        const data = inviteInfoReadSchema.parse(await apiFetch<unknown>(`/api/community/invites/${encodeURIComponent(token)}/info`, communityRequestOptions(client, original, signal, assert)))
+        assert()
+        return { ...data, observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
+      } catch (error) {
+        assert()
+        if (error instanceof ApiError && [404, 410].includes(error.status)) {
+          await original.registry!.retireAuxiliaryDisk([{ kind: "invite", id: token }])
+          assert()
+          if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource) resource.setState({ data: undefined, dataUpdatedAt: 0 })
+        }
+        throw error
+      }
+    },
     staleTime: 60_000,
     retry: false,
   })
+  const { data, isLoading, isError } = query
+  const isCurrentInfo = () => {
+    const current = client.getQueryState<InviteInfoWindow>(communityKeys.inviteInfo(token))
+    return !!data && current?.status === "success" && !current.isInvalidated && current.data === data && current.data.observed === true
+  }
+  const currentInfo = isCurrentInfo()
+  const rejected = query.error instanceof ApiError && [404, 410].includes(query.error.status)
 
   const alreadyMemberServerId = data
     ? servers.find((s) => s.id === data.serverId)?.id
@@ -68,12 +93,18 @@ export function CommunityInviteCard({
   )
 
   const onJoin = async () => {
+    if (!isCurrentInfo()) return
+    const assert = view.tryCapture()
+    if (!assert) return
     uiHandlers.cancelPendingNavigation?.()
     try {
       const result = await joinServer.mutateAsync({ inviteCode: token })
+      assert()
       toast("Joined server")
       router.push(`/c/channels/${result.serverId}`)
     } catch (err) {
+      try { assert() } catch { return }
+      if (isAbortError(err)) return
       const msg =
         err instanceof Error ? err.message : "Couldn't join the server — try again"
       toast(msg)
@@ -100,14 +131,15 @@ export function CommunityInviteCard({
     )
   }
 
-  if (isError || !data) {
+  if (!data) {
     return (
       <div
         className={`${cardBase} text-sm text-muted-foreground`}
         data-testid={tid.inviteCard(token)}
         data-perspective={perspective}
       >
-        This invite has expired or is no longer valid.
+        <span>{rejected ? "This invite has expired or is no longer valid." : "Couldn't load invite."}</span>
+        {!rejected && <Button size="sm" variant="outline" disabled={query.isFetching} onClick={() => { void query.refetch() }}>{query.isFetching ? "Retrying…" : "Retry"}</Button>}
       </div>
     )
   }
@@ -134,6 +166,7 @@ export function CommunityInviteCard({
         <div className="text-xs text-muted-foreground">
           {data.memberCount} {data.memberCount === 1 ? "member" : "members"}
         </div>
+        {isError && <div className="text-xs text-muted-foreground">{rejected ? "This invite has expired or is no longer valid." : "Couldn't refresh invite."}</div>}
       </div>
       {presentation.action === "open" && alreadyMemberServerId ? (
         <Button
@@ -151,11 +184,12 @@ export function CommunityInviteCard({
           size="sm"
           data-testid={tid.inviteCardAction(token)}
           onClick={onJoin}
-          disabled={joinServer.isPending}
+          disabled={!currentInfo || joinServer.isPending}
         >
           {joinServer.isPending ? "Joining…" : "Join"}
         </Button>
       ) : null}
+      {isError && <Button size="sm" variant="outline" disabled={query.isFetching} onClick={() => { void query.refetch() }}>{query.isFetching ? "Retrying…" : "Retry"}</Button>}
     </div>
   )
 }

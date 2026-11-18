@@ -141,7 +141,7 @@ export function InviteDialog({
   const { accept: acceptDmMessage } = useDmMessageSender()
   const currentResolution = resolver.variables?.assert.signal === view.signal
   const selectedCode = currentResolution ? resolver.data?.token : undefined
-  const token = invitesQuery.invites.find((row) => row.code === selectedCode)?.code
+  const token = invitesQuery.observed ? invitesQuery.invites.find((row) => row.code === selectedCode)?.code : undefined
   const resolveError = currentResolution && resolver.error && !isAbortError(resolver.error) ? resolver.error.message : null
   const resolveInvite = resolver.mutate
   useEffect(() => {
@@ -158,6 +158,7 @@ export function InviteDialog({
     gcTime: 0,
     mutationFn: async ({ userId, token, author, assert }: SendIntent) => {
       assert()
+      if (!friendsQuery.isCurrentRead() || !invitesQuery.isCurrentRead()) throw new DOMException("Invite inputs changed", "AbortError")
       const { conversation } = await createOrGetDm.mutateAsync({ userId, assertActive: assert })
       assert()
       const receipt = acceptDmMessage({ dmId: conversation.id, content: inviteUrl(token), author, assertActive: assert })
@@ -176,6 +177,7 @@ export function InviteDialog({
     gcTime: 0,
     mutationFn: async ({ token, assert }: { token: string; assert: ReturnType<typeof view.capture> }) => {
       assert()
+      if (!invitesQuery.isCurrentRead()) throw new DOMException("Invite changed", "AbortError")
       await copyInviteLink(inviteUrl(token), (value) => { assert(); return navigator.clipboard.writeText(value) }, () => { assert(); void captureProductAnalytics({ event: "human_invitation_copied" }, assert) })
       assert()
       toast("Invite link copied")
@@ -198,13 +200,13 @@ export function InviteDialog({
     query,
   })
   const inviteFriend = (friend: Friend) => {
-    if (!token || !friend.userId || ui.get().invitedUserIds.has(friend.userId)) return
+    if (!token || !friendsQuery.isCurrentRead() || !invitesQuery.isCurrentRead() || !friend.userId || !friendsQuery.friends.some(row => row.userId === friend.userId) || ui.get().invitedUserIds.has(friend.userId)) return
     const assert = view.capture()
     const pending = client.getMutationCache().findAll({ mutationKey: sendKey, status: "pending" })
     if (pending.some((mutation) => { const intent = mutation.state.variables as SendIntent | undefined; return intent && intent.userId === friend.userId && intent.assert.signal === assert.signal })) return
     sender.mutate({ userId: friend.userId, token, author: { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }, assert })
   }
-  const copyLink = () => { if (token && !copier.isPending) copier.mutate({ token, assert: view.capture() }) }
+  const copyLink = () => { if (token && invitesQuery.isCurrentRead() && !copier.isPending) copier.mutate({ token, assert: view.capture() }) }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -242,7 +244,8 @@ export function InviteDialog({
             )}
             errorMessage="Couldn't load friends."
             emptyMessage={friendsQuery.totalFriends === 0 ? "You don't have any friends to invite yet." : "No friends to invite — everyone you know is already here."}
-            retrying={friendsQuery.data === undefined && friendsQuery.isFetching}
+            retrying={friendsQuery.isFetching}
+            refreshFailed={friendsQuery.data !== undefined && friendsQuery.isError}
             onRetry={() => { void friendsQuery.refetch() }}
           >
             <div className="flex flex-col gap-0.5">
@@ -253,7 +256,7 @@ export function InviteDialog({
                   <InviteFriendRow
                     key={f.id}
                     friend={f}
-                    tokenReady={Boolean(token)}
+                    tokenReady={Boolean(token) && friendsQuery.observed}
                     inviting={inviting}
                     invited={invited}
                     onInvite={(candidate) => void inviteFriend(candidate)}

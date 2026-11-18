@@ -2,6 +2,7 @@ import { createOwnerServerDeleteStore, emptyOwnerServerDeleteState } from "@/sto
 import type { z } from "zod"
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import { clearPersistedCache, type QualifiedPersister, type CommunityRestoredCollections } from "@/lib/query-persister"
+import type { AuxiliaryWindowScope } from "@/lib/community/auxiliary-window-contract"
 import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import {
   DbClient,
@@ -129,7 +130,7 @@ function buildCommunityDbRegistry(
     lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },
   }
 
-  const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), retireReadingDisk: (() => Promise.resolve()) as QualifiedPersister["retireChannels"], sessionViewer: options.sessionViewer ?? (() => accountId as string | null | undefined), confirmed: false })
+  const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), retireReadingDisk: (() => Promise.resolve()) as QualifiedPersister["retireChannels"], retireAuxiliaryDisk: (() => Promise.resolve()) as QualifiedPersister["retireAuxiliaryScopes"], captureAuxiliaryReadEpoch: (() => Promise.resolve(undefined)) as QualifiedPersister["captureAuxiliaryReadEpoch"], sessionViewer: options.sessionViewer ?? (() => accountId as string | null | undefined), confirmed: false })
   const isOnlineAccount = () => {
     const state = authenticationBindings.get(), viewer = state.sessionViewer()
     return !!accountId && (viewer === accountId || viewer === undefined && state.confirmed)
@@ -141,8 +142,10 @@ function buildCommunityDbRegistry(
     authenticationView: createStore({ active: false, generation: 0 }),
     retireDisk: () => authenticationBindings.get().retireDisk(),
     retireReadingDisk: (ids: Iterable<string>, deleted = false) => authenticationBindings.get().retireReadingDisk(ids, deleted),
+    retireAuxiliaryDisk: (scopes: Iterable<AuxiliaryWindowScope>) => authenticationBindings.get().retireAuxiliaryDisk(scopes),
+    captureAuxiliaryReadEpoch: () => authenticationBindings.get().captureAuxiliaryReadEpoch(),
     sessionViewer: () => authenticationBindings.get().sessionViewer(),
-    bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>, retireReadingDisk: QualifiedPersister["retireChannels"] = () => Promise.resolve()) => authenticationBindings.setState((state) => ({ ...state, sessionViewer, retireDisk, retireReadingDisk })),
+    bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>, retireReadingDisk: QualifiedPersister["retireChannels"] = () => Promise.resolve(), retireAuxiliaryDisk: QualifiedPersister["retireAuxiliaryScopes"] = () => Promise.resolve(), captureAuxiliaryReadEpoch: QualifiedPersister["captureAuxiliaryReadEpoch"] = () => Promise.resolve(undefined)) => authenticationBindings.setState((state) => ({ ...state, sessionViewer, retireDisk, retireReadingDisk, retireAuxiliaryDisk, captureAuxiliaryReadEpoch })),
     confirmAuthentication: () => {
       const state = authenticationBindings.get()
       if (!accountId || state.confirmed || state.sessionViewer() !== accountId) return false

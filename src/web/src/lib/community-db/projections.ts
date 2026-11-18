@@ -374,8 +374,12 @@ function useCollectionById<N extends "channels" | "servers">(name: N) {
 
 export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> { return useCollectionById("channels") }
 
+export function useFriendshipProjection(ids?: readonly string[]) {
+  return useCollectionQuery("friendships", ({ row }) => ids === undefined ? eq(1, 1) : inArray(row.id, [...ids]))
+}
+
 export function useFriendshipRows(ids?: readonly string[]) {
-  return useCollectionQuery("friendships", ({ row }) => ids === undefined ? eq(1, 1) : inArray(row.id, [...ids])).data ?? []
+  return useFriendshipProjection(ids).data ?? []
 }
 
 export function useCanonicalServersById(): ReadonlyMap<string, ServerRow> { return useCollectionById("servers") }

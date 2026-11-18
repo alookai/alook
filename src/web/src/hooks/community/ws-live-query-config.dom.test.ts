@@ -1,5 +1,6 @@
 import { serverMembersReadFixture, invitesReadFixture, serverRailResponseFixture } from "@/test/community-resource-fixtures"
 import { createElement, type PropsWithChildren } from "react"
+import type { QueryObserverOptions } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
@@ -40,7 +41,11 @@ describe("Native WS-live query options", () => {
     await waitFor(() => {
       const resource = owner.client.getQueryCache().find({ queryKey: key })
       expect(resource?.state.status).toBe("success")
-      expect(resource?.options).toMatchObject({ staleTime: _name === "server detail" || _name === "server rail" ? 30_000 : Infinity, refetchOnReconnect: true })
+      if (!resource) throw new Error("Missing live query")
+      const options = resource.options as QueryObserverOptions
+      const staleTime = typeof options.staleTime === "function" ? options.staleTime(resource) : options.staleTime
+      expect(staleTime).toBe(_name === "server detail" || _name === "server rail" ? 30_000 : Infinity)
+      expect(options.refetchOnReconnect).toBe(true)
     })
   })
 
@@ -49,8 +54,9 @@ describe("Native WS-live query options", () => {
     await waitFor(() => {
       const resource = owner.client.getQueryCache().find({ queryKey: communityKeys.invites("srv_1"), exact: true })
       expect(resource?.state.status).toBe("success")
-      expect(resource?.options.staleTime).toBe(60_000)
-      expect(resource?.options.staleTime).not.toBe(Infinity)
+      const options = resource?.options as QueryObserverOptions | undefined
+      expect(options?.staleTime).toBe(60_000)
+      expect(options?.staleTime).not.toBe(Infinity)
     })
   })
 })

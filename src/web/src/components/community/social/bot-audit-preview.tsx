@@ -28,7 +28,7 @@ export function BotAuditPreview({
   active: boolean
   onOpen: () => void
 }) {
-  const { events, isLoading, isError, isNotFound } = useBotAuditPreview(botId)
+  const { events, isLoading, isError, isNotFound, hasData } = useBotAuditPreview(botId)
 
   if (isNotFound) return null
 
@@ -68,6 +68,7 @@ export function BotAuditPreview({
         events={visibleEvents}
         isLoading={isLoading}
         isError={isError}
+        hasData={hasData}
         active={active}
       />
     </button>
@@ -78,6 +79,7 @@ function BotAuditTimeline({
   events,
   isLoading,
   isError,
+  hasData = events.length > 0,
   active,
   tone = "default",
   showEarlier = false,
@@ -85,6 +87,7 @@ function BotAuditTimeline({
   events: Array<Pick<AuditEvent, "id" | "kind" | "payload" | "createdAt">>
   isLoading: boolean
   isError: boolean
+  hasData?: boolean
   active: boolean
   tone?: BotAuditTone
   showEarlier?: boolean
@@ -102,9 +105,10 @@ function BotAuditTimeline({
           …
         </div>
       )}
-      {isLoading ? (
+      {isError && hasData && <PreviewStateRow label="Could not refresh activity" tone={tone} />}
+      {isLoading && !hasData ? (
         <PreviewSkeleton />
-      ) : isError ? (
+      ) : isError && !hasData ? (
         <PreviewStateRow label="Activity unavailable" tone={tone} />
       ) : events.length > 0 ? (
         events.map((event) => (

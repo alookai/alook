@@ -10,7 +10,11 @@ const apiFetchMock = vi.hoisted(() => vi.fn())
 const invitesState = vi.hoisted(() => ({ invites: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: apiFetchMock, toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false, useBreakpoint: () => "desktop" }))
-vi.mock("@/hooks/community/use-server-panels", () => ({ useInvites: () => invitesState }))
+vi.mock("@/hooks/community/use-server-panels", () => ({ useInvites: () => ({ ...invitesState,
+  data: invitesState.isError ? undefined : { invites: [], observed: true },
+  loading: invitesState.isLoading, failed: invitesState.isError, refreshFailed: false,
+  observed: !invitesState.isError, isCurrentRead: () => !invitesState.isError,
+}) }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/hooks/community/use-notification-settings", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/hooks/community/use-notification-settings")>(),

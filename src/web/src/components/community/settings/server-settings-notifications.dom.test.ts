@@ -1,6 +1,8 @@
 import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, setupUser } from "@/test/react-dom-harness"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
 
 vi.mock("./settings-shell.module.css", () => ({ default: { shell: "settings-shell" } }))
 
@@ -28,11 +30,12 @@ describe("SettingsNotifications server default", () => {
 
   it("shows All Messages for no setting row and sends the first explicit choice", async () => {
     const user = setupUser()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(createElement(SettingsNotifications, {
       serverId: "server_no_setting",
       level: undefined,
       onSetLevel,
-    }))
+    }), { wrapper: ({ children }) => createElement(CommunityTestProvider, { client }, children) })
 
     const all = screen.getByRole("radio", { name: /Every message/ })
     const mentions = screen.getByRole("radio", { name: /Mentions only/ })

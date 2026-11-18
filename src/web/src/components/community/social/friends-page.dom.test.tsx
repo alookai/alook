@@ -145,7 +145,7 @@ describe("FriendsPage search owner", () => {
       await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
       if (mode === "newer") writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Newer Alice" }, avatar: { avatar: "newer-image", avatarVersion: 3 }, status: { statusText: "Newer status" } }], registry, { command: true })
       await act(async () => release())
-      await waitFor(() => expect(client.getQueryData(["community", "user-search", "alice"])).toEqual(["alice"]))
+      await waitFor(() => expect(client.getQueryData(["community", "user-search", "alice"])).toEqual({ ids: ["alice"], observed: true }))
       expect(registry.collections.profiles.get("alice")).toMatchObject({ avatar: mode === "newer" ? "newer-image" : null, avatarVersion: mode === "newer" ? 3 : 2, name: mode === "newer" ? "Newer Alice" : "Alice", discriminator: "0042", ...(mode !== "cold" ? { aboutMe: "Keep complete", bannerColor: "#123456", statusText: mode === "newer" ? "Newer status" : "Keep status" } : {}) })
     } finally { view.unmount(); vi.unstubAllGlobals() }
   })

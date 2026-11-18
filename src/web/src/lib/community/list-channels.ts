@@ -29,6 +29,7 @@ export async function buildServerChannelGroups(
   db: ReturnType<typeof getDb>,
   server: { id: string; name: string; discriminator: string },
   memberUserId: string,
+  includeResourceIds = false,
 ): Promise<ChannelGroup[]> {
   const [rows, categories] = await Promise.all([
     queries.communityChannel.listChannelsForMember(db, server.id, memberUserId),
@@ -50,6 +51,7 @@ export async function buildServerChannelGroups(
       name: c.name,
     })
     const item: ChannelListItem = {
+      ...(includeResourceIds ? { id: c.id } : {}),
       ref: ref!,
       name: c.name,
       type: c.type,

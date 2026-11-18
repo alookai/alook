@@ -225,6 +225,15 @@ describe("BotAuditPreview", () => {
     expect(text).not.toContain("/private/")
   })
 
+  it.each([false, true])("keeps known activity on refresh failure, empty=%s", (empty) => {
+    Object.assign(mocks.result, { events: empty ? [] : [event("e1")], hasData: true, isError: true })
+    const renderer = render(React.createElement(BotAuditPreview, { botId: "bot-1", active: false, onOpen: vi.fn() }))
+    expect(renderer.container).toHaveTextContent("Could not refresh activity")
+    expect(renderer.container).toHaveTextContent(empty ? "No recent activity" : "tool 1")
+    expect(renderer.container).not.toHaveTextContent("Activity unavailable")
+    expect(renderer.container.querySelector("button button")).toBeNull()
+  })
+
   it("keeps the active row visible while persisted rows load or fail", () => {
     mocks.result.isLoading = true
     const props = { botId: "b1", active: true, onOpen: vi.fn() }
