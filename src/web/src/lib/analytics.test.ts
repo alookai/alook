@@ -23,11 +23,13 @@ afterEach(() => vi.unstubAllGlobals())
 describe("analytics utility", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal("window", { location: new URL("https://alook.ai/") })
     mocks.hasAnalyticsConsent.mockReturnValue(true)
   })
 
   it("retains the original consent gate outside public Web", () => {
     mocks.hasAnalyticsConsent.mockReturnValue(false)
+    vi.stubGlobal("window", { location: new URL("https://alook.ai/sign-in") })
     trackPricingView({ auth_state: "guest", current_plan: "none" })
     trackCommunityRuntimeConnected()
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
@@ -39,11 +41,11 @@ describe("analytics utility", () => {
     vi.stubGlobal("window", { location: new URL(`https://alook.ai${path}?private=query`) })
     trackPricingView({ auth_state: "guest", current_plan: "none" })
     trackLandingCtaClicked({ cta_name: "get_started" })
-    trackTemplatesBrowsed({ category_filter: "engineering" })
+    trackTemplatesBrowsed({ category_filter: "Developer" })
     trackGithubOutboundClicked("blog")
     expect(mockSendGTMEvent.mock.calls).toEqual([
       [{ event: "pricing_view", auth_state: "guest", current_plan: "none" }],
-      [{ event: "templates_browsed", category_filter: "engineering" }],
+      [{ event: "templates_browsed", category_filter: "Developer" }],
       [{ event: "github_outbound_clicked", surface: "blog", destination: "alook_repo" }],
     ])
   })
@@ -102,9 +104,9 @@ describe("analytics utility", () => {
       trackCommunityOnboardingSkipped("initializing")
 
       expect(mocks.product.mock.calls).toEqual([
-        [{ event: "community_onboarding_started" }],
-        [{ event: "community_onboarding_stage_completed", stage: "harness" }],
-        [{ event: "community_onboarding_skipped", stage: "initializing" }],
+        [{ event: "community_onboarding_started" }, undefined],
+        [{ event: "community_onboarding_stage_completed", stage: "harness" }, undefined],
+        [{ event: "community_onboarding_skipped", stage: "initializing" }, undefined],
       ])
       expect(mockSendGTMEvent).not.toHaveBeenCalled()
     })
@@ -137,10 +139,10 @@ describe("analytics utility", () => {
     })
 
     it("trackTemplatesBrowsed sends templates_browsed event", () => {
-      trackTemplatesBrowsed({ category_filter: "Engineering" })
+      trackTemplatesBrowsed({ category_filter: "Developer" })
       expect(mockSendGTMEvent).toHaveBeenCalledWith({
         event: "templates_browsed",
-        category_filter: "Engineering",
+        category_filter: "Developer",
       })
     })
   })
@@ -206,4 +208,35 @@ describe("analytics utility", () => {
   })
 
 
+})
+
+it("does not queue public business events after explicit denial", () => {
+  vi.clearAllMocks()
+  vi.stubGlobal("window", { location: new URL("https://alook.ai/pricing") })
+  vi.stubGlobal("document", { cookie: "alook_analytics_consent=v1.denied" })
+  trackPricingView({ auth_state: "guest", current_plan: "none" })
+  trackTemplatesBrowsed({ category_filter: "Developer" })
+  trackGithubOutboundClicked("blog")
+  expect(mockSendGTMEvent).not.toHaveBeenCalled()
+})
+
+it.each(["http://localhost:3000", "https://preview.alook.ai"])("does not queue production public GA events on %s", origin => {
+  vi.clearAllMocks()
+  vi.stubGlobal("window", { location: new URL(origin + "/pricing") })
+  trackPricingView({ auth_state: "guest", current_plan: "none" })
+  expect(mockSendGTMEvent).not.toHaveBeenCalled()
+})
+
+it("sends only the template category without spreading extra input", () => {
+  vi.clearAllMocks()
+  vi.stubGlobal("window", { location: new URL("https://alook.ai/templates") })
+  trackTemplatesBrowsed({ category_filter: "Developer", email: "private@example.test" } as never)
+  expect(mockSendGTMEvent).toHaveBeenCalledExactlyOnceWith({ event: "templates_browsed", category_filter: "Developer" })
+})
+
+it("keeps checkout behavior fail-open if currency validation throws", () => {
+  const supported = vi.spyOn(Intl, "supportedValuesOf").mockImplementation(() => { throw new Error("unavailable") })
+  try {
+    expect(() => trackBeginCheckout({ plan_id: "studio", currency: "USD", value: 20, entry_point: "pricing_page" })).not.toThrow()
+  } finally { supported.mockRestore() }
 })

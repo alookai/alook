@@ -36,7 +36,7 @@ describe("SignupTracker account-owned initiation", () => {
     mocks.replace.mockImplementation(() => expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" }))
     render(<CommunityTestProvider client={client}><SignupTracker redirectTo="/c/me/machines" /></CommunityTestProvider>)
     expect(document.cookie).not.toContain("is_new_signup=")
-    expect(mocks.track).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", method: "email" })
+    expect(mocks.track).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", method: "email" }, expect.any(Function))
     expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" })
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
   })
@@ -47,7 +47,7 @@ describe("SignupTracker account-owned initiation", () => {
     const { registry, rerender } = mount("/c/me/machines")
     mocks.breakpoint = "desktop"; rerender()
     mocks.breakpoint = "mobile"; rerender()
-    expect(mocks.track).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", method: "email" })
+    expect(mocks.track).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", method: "email" }, expect.any(Function))
     expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" })
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
   })
@@ -71,7 +71,7 @@ describe("SignupTracker account-owned initiation", () => {
     document.cookie = "is_new_signup=email; path=/"
     const { rerender } = mount("/c/me/machines")
     rerender()
-    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" }, expect.any(Function))
     expect(mocks.replace).toHaveBeenCalledOnce()
   })
 
@@ -104,10 +104,20 @@ describe("SignupTracker account-owned initiation", () => {
     const { registry, rerender } = mount("/c/me/machines")
     rerender()
     expect(mocks.track).toHaveBeenCalledOnce()
-    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_in_success", method: "email_otp" })
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_in_success", method: "email_otp" }, expect.any(Function))
     expect(document.cookie).not.toContain("is_sign_in=")
     expect(registry.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
+})
+
+it.each(["is_new_signup", "is_sign_in"])("keeps a delayed %s event with its original community owner", async marker => {
+  document.cookie = `${marker}=email; path=/`
+  const { registry } = mount()
+  const guard = mocks.track.mock.calls[0]?.[1]
+  expect(guard).toBeTypeOf("function")
+  expect(() => guard()).not.toThrow()
+  await registry.cleanup()
+  expect(() => guard()).toThrow()
 })

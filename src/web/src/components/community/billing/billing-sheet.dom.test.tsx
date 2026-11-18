@@ -1,4 +1,7 @@
 import React from "react"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BillingSummary } from "@alook/shared"
 import { fireEvent, render } from "@/test/react-dom-harness"
@@ -174,4 +177,18 @@ it("explains ownership limits without promising an upgrade", () => {
   expect(ui.getByRole("button", { name: "View plan" })).toBeInTheDocument()
   expect(ui.queryByText(/upgrade your plan/i)).toBeNull()
   expect(ui.getByRole("button", { name: "Got it" })).toBeInTheDocument()
+})
+
+it("binds a billing CTA to the community owner that handled the click", async () => {
+  const client = new QueryClient()
+  const registry = createCommunityDbRegistry(client, "billing-owner")
+  const studio = { ...free.offers[0]!, plan: { id: "studio", displayName: "Studio" } }
+  const billing = state({ data: { ...free, offers: [studio] } })
+  const ui = render(<CommunityTestProvider client={client} registry={registry}><BillingContent billing={billing} /></CommunityTestProvider>)
+  fireEvent.click(ui.getByRole("button", { name: "Choose Studio" }))
+  expect(analytics.cta).toHaveBeenCalledExactlyOnceWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "billing_sheet" }, expect.any(Function))
+  const guard = analytics.cta.mock.calls[0][1]
+  expect(() => guard()).not.toThrow()
+  await registry.cleanup()
+  expect(() => guard()).toThrow()
 })

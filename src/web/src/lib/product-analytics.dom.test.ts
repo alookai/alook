@@ -11,7 +11,7 @@ vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@
 vi.mock("@/lib/analytics-consent", async original => ({ ...await original<typeof import("@/lib/analytics-consent")>(), readAnalyticsConsent: () => mocks.consent }))
 import { ONBOARDING_ANALYTICS_STAGES } from "./product-analytics-contract"
 import { beginOnboardingAnalytics, captureOnboardingFirstMessage, captureProductAnalytics, type ProductAnalyticsInput } from "./product-analytics"
-import { trackCommunityRuntimeConnected, trackFirstAgentReplyPersisted } from "./analytics"
+import { trackCommunityRuntimeConnected, trackFirstAgentReplyPersisted, trackPricingCtaClick, trackBeginCheckout } from "./analytics"
 
 function setOrigin(origin: string) {
   Reflect.get(globalThis, "jsdom").reconfigure({ url: origin })
@@ -337,4 +337,68 @@ it.each([
   mocks.native = false; mocks.consent = "denied"
   await captureProductAnalytics(input)
   expect(document.getElementById("alook-product-events")).toBeNull()
+})
+
+it("carries real billing helpers through the private document with ecommerce fields", () => {
+  window.history.replaceState(null, "", "/c/me/bots?settings=billing")
+  trackPricingCtaClick({ plan_id: "studio", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "billing_sheet" })
+  trackBeginCheckout({ plan_id: "studio", currency: "usd", value: 20, entry_point: "billing_sheet" })
+  expect(document.getElementById("alook-product-events")).not.toBeNull()
+  const { send } = loadFrame()
+  expect(send.mock.calls.map(([input]) => input)).toEqual([
+    { event: "pricing_cta_click", params: { plan_id: "studio", cta_id: "billing_studio", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "billing_sheet" } },
+    { event: "begin_checkout", params: { currency: "USD", value: 20, items: [{ item_id: "studio", item_name: "Studio", price: 20, quantity: 1 }], entry_point: "billing_sheet" } },
+  ])
+  expect(window.dataLayer).toEqual([])
+})
+
+it.each(["start", "stage", "skip"] as const)("fences delayed onboarding %s events after owner retirement", async action => {
+  const registry = createCommunityDbRegistry(new QueryClient(), "onboarding-owner")
+  const retire = registerCommunityDbRegistry(registry)
+  window.history.replaceState(null, "", "/c/me/machines")
+  try {
+    startCommunityOnboarding(registry.runtime)
+    if (action === "stage") advanceCommunityOnboarding(registry.runtime, "harness", "machine")
+    if (action === "skip") skipCommunityOnboarding(registry.runtime)
+    retire()
+    const { send } = loadFrame()
+    expect(send).not.toHaveBeenCalled()
+  } finally { await registry.cleanup() }
+})
+
+it("drops an invalid CTA instead of emitting an unqualified bare click", async () => {
+  await captureProductAnalytics({ event: "landing_cta_clicked", ctaName: "private@example.test" })
+  expect(document.getElementById("alook-product-events")).toBeNull()
+  expect(window.dataLayer).toEqual([])
+})
+
+it.each(["cta", "checkout"] as const)("suppresses a delayed billing %s after the captured owner retires", async event => {
+  window.history.replaceState(null, "", "/c/me/bots")
+  let active = true
+  const guard = () => { if (!active) throw new DOMException("retired", "AbortError") }
+  if (event === "cta") trackPricingCtaClick({ plan_id: "house", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "billing_sheet" }, guard)
+  else trackBeginCheckout({ plan_id: "house", currency: "USD", value: 40, entry_point: "billing_sheet" }, guard)
+  active = false
+  const { send } = loadFrame()
+  expect(send).not.toHaveBeenCalled()
+})
+
+it.each(["cta", "checkout"] as const)("does not create a private billing %s document under denial or Native", async event => {
+  window.history.replaceState(null, "", "/c/me/bots")
+  const send = () => event === "cta"
+    ? trackPricingCtaClick({ plan_id: "studio", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "billing_sheet" })
+    : trackBeginCheckout({ plan_id: "studio", currency: "USD", value: 20, entry_point: "billing_sheet" })
+  mocks.consent = "denied"; await send()
+  mocks.consent = null; mocks.native = true; await send()
+  expect(document.getElementById("alook-product-events")).toBeNull()
+})
+
+it.each(["enter", "first_message"] as const)("fences the active legacy onboarding %s helper at delayed document load", phase => {
+  let active = true
+  const guard = () => { if (!active) throw new DOMException("retired", "AbortError") }
+  beginOnboardingAnalytics("owner", "server", guard)
+  if (phase === "first_message") captureOnboardingFirstMessage("owner", "server", guard)
+  active = false
+  const { send } = loadFrame()
+  expect(send).not.toHaveBeenCalled()
 })

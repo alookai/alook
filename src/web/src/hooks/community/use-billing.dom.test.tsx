@@ -264,10 +264,13 @@ describe("billing queries and redirects", () => {
     })
 
     expect(mocks.beginCheckout).toHaveBeenCalledOnce()
-    expect(mocks.beginCheckout).toHaveBeenCalledWith({ plan_id: "studio", currency: "usd", value: 20, entry_point: "pricing_page" })
+    expect(mocks.beginCheckout).toHaveBeenCalledWith({ plan_id: "studio", currency: "usd", value: 20, entry_point: "pricing_page" }, expect.any(Function))
     expect(mocks.beginCheckout.mock.invocationCallOrder[0]).toBeLessThan(assign.mock.invocationCallOrder[0]!)
     expect(assign).toHaveBeenCalledOnce()
+    const guard = mocks.beginCheckout.mock.calls[0][1]
+    expect(() => guard()).not.toThrow()
     view.unmount()
+    expect(() => guard()).toThrow("Retired billing view")
   })
 
   it.each([

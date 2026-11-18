@@ -26,7 +26,7 @@ const authReasons = {
 };
 gtag('config', 'G-STBCL8F4ZY', { send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false, ...fields });
 window.sendProductEvent = function ({ event, params }) {
-  if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_started', 'community_onboarding_stage_completed', 'community_onboarding_skipped', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined', 'runtime_connected', 'first_agent_reply_persisted'].includes(event)) return;
+  if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_started', 'community_onboarding_stage_completed', 'community_onboarding_skipped', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined', 'runtime_connected', 'first_agent_reply_persisted', 'pricing_cta_click', 'begin_checkout'].includes(event)) return;
   const safe = {};
   if (event === 'runtime_connected') Object.assign(safe, { surface: 'community', connection_type: 'local_daemon' });
   if (event === 'first_agent_reply_persisted') {
@@ -37,7 +37,24 @@ window.sendProductEvent = function ({ event, params }) {
     if (!['harness', 'machine', 'model', 'identity', 'initializing'].includes(params?.stage)) return;
     safe.stage = params.stage;
   }
-  if (event === 'landing_cta_clicked' && typeof params?.cta_name === 'string') safe.cta_name = params.cta_name;
+  if (event === 'landing_cta_clicked') {
+    const names = ['open_app', 'get_started', 'templates', 'public_nav_open_app', 'public_nav_get_started', 'pricing_open_app', 'pricing_get_started', 'templates_open_app', 'templates_get_started', 'closing_open_app', 'closing_get_started', ...['product', 'identity', 'continuity', 'reach', 'ownership', 'value_context', 'value_flows', 'value_attention', 'use_cases'].flatMap(section => [section + '_open_app', section + '_get_started'])];
+    if (!names.includes(params?.cta_name)) return;
+    safe.cta_name = params.cta_name;
+  }
+  if (event === 'pricing_cta_click') {
+    const ids = { pricing_page: { free: 'pricing_free', studio: 'pricing_studio', house: 'pricing_house' }, billing_sheet: { studio: 'billing_studio', house: 'billing_house' } };
+    const cta_id = Object.hasOwn(ids, params?.entry_point ?? '') ? ids[params.entry_point][params.plan_id] : undefined;
+    if (!['free', 'studio', 'house'].includes(params?.plan_id) || !cta_id || params.cta_id !== cta_id || !['start_free', 'open_app', 'manage_cancellation', 'choose_plan'].includes(params.cta_action) || !['guest', 'signed_in'].includes(params.auth_state) || !['none', 'free', 'studio', 'house', 'founder', 'unknown'].includes(params.current_plan)) return;
+    Object.assign(safe, { plan_id: params.plan_id, cta_id, cta_action: params.cta_action, auth_state: params.auth_state, current_plan: params.current_plan, entry_point: params.entry_point });
+  }
+  if (event === 'begin_checkout') {
+    const item = Array.isArray(params?.items) && params.items.length === 1 ? params.items[0] : null;
+    if (!item || !['studio', 'house'].includes(item.item_id) || item.quantity !== 1 || !Number.isFinite(params.value) || params.value < 0 || item.price !== params.value || !['pricing_page', 'billing_sheet'].includes(params.entry_point) || typeof params.currency !== 'string') return;
+    const currency = params.currency.toUpperCase();
+    if (!Intl.supportedValuesOf('currency').includes(currency)) return;
+    Object.assign(safe, { currency, value: params.value, items: [{ item_id: item.item_id, item_name: { studio: 'Studio', house: 'House' }[item.item_id], price: params.value, quantity: 1 }], entry_point: params.entry_point });
+  }
   if (['sign_up', 'sign_in_success', 'sign_in_failed'].includes(event) && ['email', 'email_otp', 'github', 'google', 'apple', 'development_password'].includes(params?.method)) safe.method = params.method;
   if (event === 'sign_in_failed' && ['send_code', 'verify_code', 'social_start', 'provider_callback'].includes(params?.failure_stage)) safe.failure_stage = params.failure_stage;
   if (event === 'sign_in_failed') {

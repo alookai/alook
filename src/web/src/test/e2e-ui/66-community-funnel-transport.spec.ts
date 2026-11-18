@@ -14,6 +14,53 @@ const source = buildSync({
 }).outputFiles[0].text
 const eventDocument = readFileSync(resolve(webRoot, 'public/analytics-events.html'), 'utf8')
 
+test('billing intent and checkout use the finite document without preloading', async ({ page }) => {
+  let documents = 0
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url())
+    if (url.origin !== 'https://alook.ai') { await route.abort(); return }
+    if (url.pathname === '/analytics-events.html') { documents++; await route.fulfill({ contentType: 'text/html', body: eventDocument }) }
+    else await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Controlled billing transport</title>' })
+  })
+  await page.goto('https://alook.ai/c/me/bots?settings=billing&token=private-token')
+  await page.addScriptTag({ content: source })
+  expect(documents).toBe(0)
+  await expect(page.locator('#alook-product-events')).toHaveCount(0)
+  await page.evaluate(() => Reflect.get(window, 'conversionQA').trackPricingCtaClick({ plan_id: 'studio', cta_action: 'choose_plan', auth_state: 'signed_in', current_plan: 'free', entry_point: 'billing_sheet' }))
+  const frame = page.frameLocator('#alook-product-events')
+  await expect.poll(() => frame.locator('body').evaluate(() => Array.from((window.dataLayer ?? []) as ArrayLike<unknown>[], c => Array.from(c)).filter(c => c[0] === 'event').length)).toBe(1)
+  await page.evaluate(() => Reflect.get(window, 'conversionQA').trackBeginCheckout({ plan_id: 'studio', currency: 'usd', value: 20, entry_point: 'billing_sheet' }))
+  const commands = await frame.locator('body').evaluate(() => Array.from((window.dataLayer ?? []) as ArrayLike<unknown>[], c => Array.from(c)).filter(c => c[0] === 'event'))
+  const fixed = { page_location: 'https://alook.ai/analytics/product', page_referrer: '', page_title: 'Alook', send_to: 'G-STBCL8F4ZY' }
+  expect(commands).toEqual([
+    ['event', 'pricing_cta_click', { ...fixed, plan_id: 'studio', cta_id: 'billing_studio', cta_action: 'choose_plan', auth_state: 'signed_in', current_plan: 'free', entry_point: 'billing_sheet' }],
+    ['event', 'begin_checkout', { ...fixed, currency: 'USD', value: 20, items: [{ item_id: 'studio', item_name: 'Studio', price: 20, quantity: 1 }], entry_point: 'billing_sheet' }],
+  ])
+  expect(JSON.stringify(commands)).not.toContain('private-')
+  expect(await page.evaluate(() => window.dataLayer ?? [])).toEqual([])
+  expect(documents).toBe(1)
+})
+
+for (const pathname of ['/tutorials/first-agent', '/usecases/team-updates', '/terms']) {
+  test(`public analytics recognize ${pathname} without query leakage`, async ({ page }) => {
+    await page.route('**/*', route => new URL(route.request().url()).origin === 'https://alook.ai'
+      ? route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Controlled public analytics</title>' }) : route.abort())
+    await page.goto('https://alook.ai' + pathname + '?private=query#private-fragment')
+    await page.addScriptTag({ content: source })
+    const result = await page.evaluate(() => {
+      const qa = Reflect.get(window, 'conversionQA')
+      qa.bootstrapGoogleAnalytics()
+      qa.trackPricingView({ auth_state: 'guest', current_plan: 'none' })
+      return { disabled: Reflect.get(window, 'ga-disable-G-STBCL8F4ZY'), commands: Array.from((window.dataLayer ?? []) as ArrayLike<unknown>[], c => Array.from(c)), pricing: (window.dataLayer ?? []).filter(c => Reflect.get(c, 'event') === 'pricing_view') }
+    })
+    expect(result.disabled).toBe(false)
+    expect(result.commands).toContainEqual(['set', { page_location: 'https://alook.ai' + pathname, page_referrer: '' }])
+    expect(result.pricing).toEqual([{ event: 'pricing_view', auth_state: 'guest', current_plan: 'none' }])
+    expect(JSON.stringify(result)).not.toContain('private')
+    await expect(page.locator('#alook-product-events')).toHaveCount(0)
+  })
+}
+
 test('private connection and reply facts use the finite document without private page metadata', async ({ page }) => {
   let claims = 0
   let documents = 0

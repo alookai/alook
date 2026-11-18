@@ -1,10 +1,12 @@
 import faroPackage from "@grafana/faro-web-sdk/package.json"
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initializeFaro, InternalLoggerLevel, SessionInstrumentation, VolatileSessionsManager } from "@grafana/faro-web-sdk";
 import { act, render } from "@/test/react-dom-harness";
 import { announceAnalyticsConsent } from "@/lib/analytics-consent";
 
 vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useSearchParams: () => new URLSearchParams(window.location.search) }));
+
+beforeEach(() => { Reflect.get(globalThis, "jsdom").reconfigure({ url: "https://alook.ai/" }); });
 
 afterEach(async () => {
   await act(async () => {
@@ -43,7 +45,7 @@ it("boots the actual Blog entry with the native resumed session and exports its 
   const view = render(<ObservedStaticContent key="/blog" pathname="/blog" />);
   const route = render(<ObservedRouteCommit />);
   await act(async () => { onRouterTransitionStart("/blog/introducing-alook?private=article-title"); });
-  expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/introducing-alook`, page_referrer: `${window.location.origin}/` }]);
+  expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/introducing-alook`, page_referrer: "" }]);
   const navigation = navigationForHref("/blog/introducing-alook?private=article-title")!;
   expect(navigation).toBeDefined();
   expect(navigation.done).toBe(false);
@@ -79,12 +81,28 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog do
   const { onRouterTransitionStart } = await import("./instrumentation-client");
   expect(window.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
     ["consent", "default", { analytics_storage: value === "v1.denied" ? "denied" : "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
-    ["set", { page_location: `${window.location.origin}/blog/public`, page_referrer: `${window.location.origin}/` }],
+    ["set", { page_location: `${window.location.origin}/blog/public`, page_referrer: "" }],
   ]);
   onRouterTransitionStart("/blog/other?secret=route#hash");
   onRouterTransitionStart("/c/me?secret=private");
   expect(window.dataLayer).toHaveLength(3);
-  expect(Array.from(window.dataLayer.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/other`, page_referrer: `${window.location.origin}/` }]);
+  expect(Array.from(window.dataLayer.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/other`, page_referrer: "" }]);
+  expect(JSON.stringify(window.dataLayer)).not.toMatch(/secret|page_view/);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+
+it.each(["http://localhost:3000", "https://preview.alook.test"])("keeps production Google collection disabled on %s in the real Blog entry", async origin => {
+  vi.resetModules();
+  vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "");
+  Reflect.get(globalThis, "jsdom").reconfigure({ url: `${origin}/blog/public?secret=query#hash` });
+  document.cookie = "alook_analytics_consent=v1.granted; path=/";
+  window.dataLayer = [];
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  await import("./instrumentation-client");
+  expect(Array.from(window.dataLayer[0] as IArguments)).toEqual(["consent", "default", { analytics_storage: "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }]);
+  expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(true);
   expect(JSON.stringify(window.dataLayer)).not.toMatch(/secret|page_view/);
   expect(fetcher).not.toHaveBeenCalled();
 });

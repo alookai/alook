@@ -2,49 +2,24 @@
 
 import { sendGTMEvent } from "@next/third-parties/google";
 import { isTauri } from "@alook/shared"
-import { hasAnalyticsConsent, isPublicAnalyticsPath } from "@/lib/analytics-consent"
+import { hasAnalyticsConsent, isPublicAnalyticsPath, readAnalyticsConsent } from "@/lib/analytics-consent"
 
 import { captureProductAnalytics } from "@/lib/product-analytics"
-import { LANDING_CTA_NAMES, type ONBOARDING_ANALYTICS_STAGES } from "@/lib/product-analytics-contract"
-
-const analyticsPlanIds = ["free", "studio", "house"] as const
-
-export type AnalyticsAuthState = "guest" | "signed_in"
-export type AnalyticsPlanId = typeof analyticsPlanIds[number]
-export type AnalyticsCurrentPlan = "none" | "free" | "studio" | "house" | "founder" | "unknown"
-export type BillingEntryPoint = "pricing_page" | "billing_sheet"
-export type PricingCtaAction = "start_free" | "open_app" | "manage_cancellation" | "choose_plan"
-type PricingCtaId = "pricing_free" | "pricing_studio" | "pricing_house" | "billing_studio" | "billing_house"
-
-const analyticsPlanNames: Record<AnalyticsPlanId, string> = {
-  free: "Free",
-  studio: "Studio",
-  house: "House",
-}
-
-const pricingCtaIdByEntryPoint: Record<BillingEntryPoint, Partial<Record<AnalyticsPlanId, PricingCtaId>>> = {
-  pricing_page: {
-    free: "pricing_free",
-    studio: "pricing_studio",
-    house: "pricing_house",
-  },
-  billing_sheet: {
-    studio: "billing_studio",
-    house: "billing_house",
-  },
-}
+import { LANDING_CTA_NAMES, ANALYTICS_ORIGIN, analyticsPlanIds, pricingCtaParams, checkoutParams, type ONBOARDING_ANALYTICS_STAGES, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
+import { TEMPLATE_CATEGORIES } from "@/lib/templates/types"
+export type { AnalyticsAuthState, AnalyticsPlanId, AnalyticsCurrentPlan, BillingEntryPoint, PricingCtaAction } from "@/lib/product-analytics-contract"
+import type { AnalyticsPlanId, AnalyticsAuthState, AnalyticsCurrentPlan } from "@/lib/product-analytics-contract"
 
 const analyticsPlanIdSet = new Set<string>(analyticsPlanIds)
 
-function sendConsentAwareGTMEvent(payload: Record<string, unknown>) {
+function sendConsentAwareGTMEvent(payload: Record<string, unknown>, assertCurrent?: () => void) {
   try {
-    if (typeof window !== "undefined" && /^\/c(?:\/|$)/u.test(window.location.pathname)) return
-    const publicWeb = typeof window !== "undefined" && !isTauri() && isPublicAnalyticsPath(window.location.pathname)
-    if (!publicWeb && !hasAnalyticsConsent()) return
+    if (typeof window === "undefined" || !isPublicAnalyticsPath(window.location.pathname)
+      || readAnalyticsConsent() === "denied") return
+    if (isTauri() ? !hasAnalyticsConsent() : window.location.origin !== ANALYTICS_ORIGIN) return
+    assertCurrent?.()
     sendGTMEvent(payload)
-  } catch {
-    return
-  }
+  } catch {}
 }
 
 export function toAnalyticsPlanId(value: string): AnalyticsPlanId | null {
@@ -61,33 +36,26 @@ export function trackPricingView(params: {
   current_plan: AnalyticsCurrentPlan
 }) {
   const { auth_state, current_plan } = params
+  if (!["guest", "signed_in"].includes(auth_state) || !["none", ...analyticsPlanIds, "founder", "unknown"].includes(current_plan)) return
   sendConsentAwareGTMEvent({ event: "pricing_view", auth_state, current_plan })
 }
 
-export function trackPricingCtaClick(params: {
-  plan_id: AnalyticsPlanId
-  cta_action: PricingCtaAction
-  auth_state: AnalyticsAuthState
-  current_plan: AnalyticsCurrentPlan
-  entry_point: BillingEntryPoint
-}) {
-  const { plan_id, cta_action, auth_state, current_plan, entry_point } = params
-  const cta_id = pricingCtaIdByEntryPoint[entry_point][plan_id]
-  if (!cta_id) return
-  sendConsentAwareGTMEvent({ event: "pricing_cta_click", plan_id, cta_id, cta_action, auth_state, current_plan, entry_point })
+export function trackPricingCtaClick(params: PricingCtaFields, assertCurrent?: () => void) {
+  const safe = pricingCtaParams(params)
+  if (!safe) return
+  if (typeof window !== "undefined" && /^\/c(?:\/|$)/u.test(window.location.pathname)) {
+    return captureProductAnalytics({ event: "pricing_cta_click", ...params }, assertCurrent)
+  }
+  sendConsentAwareGTMEvent({ event: "pricing_cta_click", ...safe }, assertCurrent)
 }
 
-export function trackBeginCheckout(params: {
-  plan_id: Exclude<AnalyticsPlanId, "free">
-  currency: string
-  value: number
-  entry_point: BillingEntryPoint
-}) {
-  const { plan_id, value, entry_point } = params
-  const currency = params.currency.toUpperCase()
-  if (!Intl.supportedValuesOf("currency").includes(currency) || !Number.isFinite(value) || value < 0) return
-  const item = { item_id: plan_id, item_name: analyticsPlanNames[plan_id], price: value, quantity: 1 as const }
-  sendConsentAwareGTMEvent({ event: "begin_checkout", currency, value: item.price * item.quantity, items: [item], entry_point })
+export function trackBeginCheckout(params: CheckoutFields, assertCurrent?: () => void) {
+  const safe = checkoutParams(params)
+  if (!safe) return
+  if (typeof window !== "undefined" && /^\/c(?:\/|$)/u.test(window.location.pathname)) {
+    return captureProductAnalytics({ event: "begin_checkout", ...params }, assertCurrent)
+  }
+  sendConsentAwareGTMEvent({ event: "begin_checkout", ...safe }, assertCurrent)
 }
 
 export type GithubOutboundSurface = "landing" | "blog" | "public_nav" | "public_footer"
@@ -104,6 +72,7 @@ export function trackFirstAgentReplyPersisted(
 }
 
 export function trackGithubOutboundClicked(surface: GithubOutboundSurface) {
+  if (!["landing", "blog", "public_nav", "public_footer"].includes(surface)) return
   sendConsentAwareGTMEvent({
     event: "github_outbound_clicked",
     surface,
@@ -113,20 +82,22 @@ export function trackGithubOutboundClicked(surface: GithubOutboundSurface) {
 
 export type CommunityOnboardingStage = (typeof ONBOARDING_ANALYTICS_STAGES)[number];
 
-export function trackCommunityOnboardingStarted() {
-  void captureProductAnalytics({ event: "community_onboarding_started" });
+export function trackCommunityOnboardingStarted(assertCurrent?: () => void) {
+  void captureProductAnalytics({ event: "community_onboarding_started" }, assertCurrent);
 }
 
 export function trackCommunityOnboardingStageCompleted(
   stage: CommunityOnboardingStage,
+  assertCurrent?: () => void,
 ) {
-  void captureProductAnalytics({ event: "community_onboarding_stage_completed", stage });
+  void captureProductAnalytics({ event: "community_onboarding_stage_completed", stage }, assertCurrent);
 }
 
 export function trackCommunityOnboardingSkipped(
   stage: CommunityOnboardingStage | "complete",
+  assertCurrent?: () => void,
 ) {
-  void captureProductAnalytics({ event: "community_onboarding_skipped", stage });
+  void captureProductAnalytics({ event: "community_onboarding_skipped", stage }, assertCurrent);
 }
 
 export function trackLandingCtaClicked(params: { cta_name: string }) {
@@ -136,5 +107,6 @@ export function trackLandingCtaClicked(params: { cta_name: string }) {
 }
 
 export function trackTemplatesBrowsed(params: { category_filter: string }) {
-  sendConsentAwareGTMEvent({ event: "templates_browsed", ...params });
+  if (!["All", ...TEMPLATE_CATEGORIES].includes(params.category_filter)) return
+  sendConsentAwareGTMEvent({ event: "templates_browsed", category_filter: params.category_filter });
 }
