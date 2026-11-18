@@ -153,6 +153,87 @@ test('SEARCH by a boolean prefix does not prove user scope; primary-key and name
   assert.deepEqual(analyzeQuery(db, 'SELECT id FROM user WHERE name>=? AND name<?', ['ali', 'alj']).unscopedSearches, [])
 })
 
+test('an equality seek using only a flag and a literal NULL can traverse all live users', t => {
+  const db = fixture(t)
+  db.exec(`
+    CREATE TABLE user(id TEXT PRIMARY KEY, isBot INTEGER, retired_at TEXT);
+    CREATE INDEX user_active ON user(isBot, retired_at, id);
+    CREATE INDEX user_retired ON user(retired_at);
+  `)
+  const broad = analyzeQuery(db, 'SELECT id FROM user INDEXED BY user_active WHERE isBot=? AND retired_at IS NULL AND substr(id, 1, 1)=? LIMIT ?', [1, 'a', 5])
+  assert.equal(broad.error, undefined)
+  assert.deepEqual(broad.unscopedSearches.map(({index, columns}) => ({index, columns})), [
+    {index: 'user_active', columns: ['isBot', 'retired_at']},
+  ])
+  const reverse = analyzeQuery(db, 'SELECT id FROM user INDEXED BY user_active WHERE isBot=? AND retired_at IS NULL ORDER BY id DESC', [1])
+  assert.equal(reverse.unscopedSearches.length, 1)
+  const bounded = analyzeQuery(db, 'SELECT id FROM user INDEXED BY user_active WHERE isBot=? AND retired_at IS NULL LIMIT ?', [1, 5])
+  assert.deepEqual(bounded.unscopedSearches, [])
+  assert.equal(bounded.boundedSearches[0].maxRows, 5)
+
+  const timestamp = analyzeQuery(db, `SELECT id, NULL,
+    (SELECT count(*) FROM user INDEXED BY user_retired WHERE retired_at IS NULL)
+    FROM user INDEXED BY user_active WHERE isBot=? AND retired_at=?`, [1, '2026-01-01'])
+  assert.equal(timestamp.error, undefined)
+  assert.deepEqual(timestamp.unscopedSearches.map(({index}) => index), ['user_retired'])
+  const scoped = analyzeQuery(db, 'SELECT id FROM user INDEXED BY user_active WHERE isBot=? AND retired_at IS NULL AND id=?', [1, 'one'])
+  assert.deepEqual(scoped.unscopedSearches, [])
+  const range = analyzeQuery(db, 'SELECT id FROM user INDEXED BY user_active WHERE isBot=? AND retired_at IS NULL AND id>?', [1, 'one'])
+  assert.deepEqual(range.unscopedSearches, [])
+})
+
+test('a literal NULL seek is attributed to its own cursor when two aliases use the same index', t => {
+  const db = fixture(t)
+  db.exec('CREATE TABLE user(id TEXT PRIMARY KEY, isBot INTEGER, retired_at TEXT); CREATE INDEX user_active ON user(isBot, retired_at, id)')
+  const sql = `SELECT id, (SELECT count(*) FROM user AS live_users INDEXED BY user_active WHERE isBot=? AND retired_at IS NULL)
+    FROM user AS dated_users INDEXED BY user_active WHERE isBot=? AND retired_at=?`
+  const args = [1, 1, '2026-01-01']
+  const result = analyzeQuery(db, sql, args)
+  assert.equal(result.error, undefined)
+  assert.equal(result.plan.filter(row => row.detail.includes('USING COVERING INDEX user_active (isBot=? AND retired_at=?)')).length, 2)
+  assert.equal(result.unscopedSearches.length, 1)
+  const [{ cursor, address, opcode }] = result.unscopedSearches
+  const instructions = db.prepare(`EXPLAIN ${sql}`).all(...args)
+  const seek = instructions.findIndex(row => row.addr === address && row.p1 === cursor && row.opcode === opcode)
+  assert.ok(seek >= 2)
+  assert.equal(opcode, 'SeekGE')
+  assert.equal(instructions[seek - 2].opcode, 'Null')
+  assert.equal(instructions[seek - 2].p2, instructions[seek].p3 + 1)
+})
+
+test('a scalar seek can return after the first visit even though it has no inner ResultRow', t => {
+  const db = fixture(t)
+  db.exec('CREATE TABLE user(id TEXT PRIMARY KEY, isBot INTEGER, retired_at TEXT); CREATE INDEX user_active ON user(isBot, retired_at, id)')
+  const from = 'FROM user INDEXED BY user_active WHERE isBot=? AND retired_at IS NULL'
+  const limited = analyzeQuery(db, `SELECT (SELECT id ${from} LIMIT ?)`, [1, 1])
+  assert.equal(limited.error, undefined)
+  assert.deepEqual(limited.unscopedSearches, [])
+  assert.equal(limited.boundedSearches[0].maxRows, 1)
+  const exists = analyzeQuery(db, `SELECT EXISTS (SELECT 1 ${from})`, [1])
+  assert.deepEqual(exists.unscopedSearches, [])
+  assert.equal(exists.boundedSearches[0].maxRows, 1)
+  const residual = analyzeQuery(db, `SELECT (SELECT id ${from} AND substr(id, 1, 1)=? LIMIT ?)`, [1, 'z', 1])
+  assert.equal(residual.unscopedSearches.length, 1)
+  const offset = analyzeQuery(db, `SELECT (SELECT id ${from} ORDER BY id DESC LIMIT ? OFFSET ?)`, [1, 1, 10])
+  assert.equal(offset.unscopedSearches.length, 1)
+})
+
+test('a scalar seek proves only its own bound when another iterator uses the same index', t => {
+  const db = fixture(t)
+  db.exec('CREATE TABLE user(id TEXT PRIMARY KEY, isBot INTEGER, retired_at TEXT); CREATE INDEX user_active ON user(isBot, retired_at, id)')
+  const from = 'FROM user INDEXED BY user_active WHERE isBot=? AND retired_at'
+  const bothLimited = analyzeQuery(db, `SELECT id, (SELECT id ${from} IS NULL LIMIT ?) ${from}=? LIMIT ?`, [1, 1, 1, '2026-01-01', 1])
+  assert.equal(bothLimited.error, undefined)
+  assert.deepEqual(bothLimited.unscopedSearches, [])
+  assert.equal(bothLimited.boundedSearches[0].maxRows, 1)
+
+  const bothNull = analyzeQuery(db, `SELECT id, (SELECT id ${from} IS NULL LIMIT ?) ${from} IS NULL AND substr(id, 1, 1)=? LIMIT ?`, [1, 1, 1, 'z', 1])
+  assert.equal(bothNull.error, undefined)
+  assert.equal(bothNull.unscopedSearches.length, 1)
+  assert.equal(bothNull.boundedSearches.length, 1)
+  assert.notEqual(bothNull.unscopedSearches[0].cursor, bothNull.boundedSearches[0].cursor)
+})
+
 test('a limited index stream is bounded only when no residual filter can skip output', t => {
   const db = fixture(t)
   db.exec('CREATE TABLE user(id TEXT PRIMARY KEY, isBot INTEGER); CREATE INDEX user_kind ON user(isBot)')
