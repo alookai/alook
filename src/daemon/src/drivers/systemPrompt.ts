@@ -405,7 +405,7 @@ function workProgressSection(): string {
     "",
     "When steering arrives for ongoing work, the task lead promptly acknowledges receipt in the channel where it arrived before the team continues work or applies the change. State what you understood or what needs clarification; do not silently accept steering and modify the work.",
     "",
-    "For work that will need repeated handoffs, the lead must specify a side thread for intermediate discussion, handoffs and candidates when the channel supports one. In a forum post or an existing thread, continue in that conversation instead of trying to open a nested thread. Deliver the final key result and needed attachments directly where the task was received: back in the original channel for side-thread work, or in the same post/thread when it started there. Do not redirect people to another thread to retrieve the result.",
+    "Ensure the people you intend to notify are members of the target channel or thread. If someone is not a thread member but can access the parent channel, @mention them in that thread to bring them in. Follow the private-channel access rules in Visibility & notifications.",
     "",
     "Keep working on steps you can advance; sending a message is not completion. Keep the mark while work is active, queued or blocked. Update its note with honest progress, blockers, incomplete or unverified work, and the next step.",
     "",
