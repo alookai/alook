@@ -57,9 +57,14 @@ test('unsupported Drizzle calls stay visible without evaluating arbitrary functi
     export async function eligible(db: Database, id: string) { return await db.select({ id: user.id }).from(user).where(eq(user.id, id)) }
     export async function unsupported(db: Database) { return await db.select({ id: user.id }).from(user).where(eq(user.id, sideEffect())) }
     export function composable(db: Database, id: string) { return db.select({ id: user.id }).from(user).where(eq(user.id, id)) }
+    export async function mutableProjection(db: Database, id: string) {
+      const projection = { value: user.id };
+      projection.value = user.name;
+      return await db.select(projection).from(user).where(eq(user.id, id));
+    }
   `
   const inventory = inventoryQueries(root, { [file]: source })
-  assert.equal(inventory.sites.length, 3)
+  assert.equal(inventory.sites.length, 4)
   assert.equal(inventory.sourceDrizzlePlans.length, 1)
   assert.match(inventory.sourceDrizzlePlans[0].siteKey, /eligible:select:1$/)
 })

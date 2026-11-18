@@ -60,7 +60,6 @@ export function sourceDrizzleRead(node, builder, checker, root) {
   if (!dbType?.declarations?.some(declaration => declaration.getSourceFile().fileName === resolve(root, 'src/shared/src/db/index.ts'))) return undefined
   const inputs = new Map([[receiver.text, { db: true }]])
   const symbols = new Map([[receiver.text, checker.getSymbolAtLocation(receiver)]])
-  const visiting = new Set()
   const calls = methods(builder)
   if (!query(builder) || new Set(calls).size !== calls.length || !calls.includes('from') ||
       [...inputs.values()].filter(input => input.table).length !== 1) return undefined
@@ -118,7 +117,7 @@ export function sourceDrizzleRead(node, builder, checker, root) {
     const name = expr.text
     const symbol = checker.getSymbolAtLocation(expr)
     if (inputs.has(name)) return symbols.get(name) === symbol && !inputs.get(name).db
-    if (!symbol || visiting.has(symbol)) return false
+    if (!symbol) return false
     symbols.set(name, symbol)
     const declaration = symbol.declarations?.[0]
     if (declaration && ts.isParameter(declaration)) {
@@ -143,17 +142,6 @@ export function sourceDrizzleRead(node, builder, checker, root) {
         inputs.set(name, { table: imported })
         return true
       }
-    }
-    const original = declaration && ts.isVariableDeclaration(declaration) && declaration.initializer
-    const initializer = original && ts.isAsExpression(original) && original.type.getText() === 'const' ? original.expression : original
-    if (declaration && ts.isVariableDeclaration(declaration) && declaration.parent.flags & ts.NodeFlags.Const &&
-        initializer && ts.isObjectLiteralExpression(initializer)) {
-      visiting.add(symbol)
-      const safe = value(initializer)
-      visiting.delete(symbol)
-      if (!safe) return false
-      inputs.set(name, { initializer: initializer.getText() })
-      return true
     }
     return false
   }
