@@ -38,7 +38,7 @@ describe("bot creation request gallery", () => {
     </QueryClientProvider>
     const swipe = (target: HTMLElement) => {
       let move!: Event
-      for (const [type, x] of [["pointerdown", 100], ["pointermove", 190], ["pointerup", 190]] as const) {
+      for (const [type, x] of [["pointerdown", 100], ["pointermove", 10], ["pointerup", 10]] as const) {
         const event = new Event(type, { bubbles: true, cancelable: true })
         Object.defineProperties(event, { pointerType: { value: "touch" }, pointerId: { value: 1 }, clientX: { value: x }, clientY: { value: 100 } })
         fireEvent(target, event)
