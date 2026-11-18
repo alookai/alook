@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowDown, ArrowUp, LoaderCircle, ImageIcon, X } from "lucide-react"
+import { ArrowDown, ArrowUp, LoaderCircle, ImageIcon, X } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"

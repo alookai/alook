@@ -16,15 +16,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createPortal } from "react-dom"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import {
-  Activity,
-  Check,
-  MoreVertical,
-  MousePointer2,
-  RotateCcw,
-  Search,
-  UserPlus,
-} from "lucide-react"
+import { MousePointer2 } from "lucide-react";
+import { Activity, Check, MoreVertical, RotateCcw, Search, UserPlus } from "@/components/icons/lucide";
 import type { CommunityMachineSummary } from "@alook/shared"
 import type { AvatarDraft } from "@/components/avatar"
 import { Button } from "@/components/ui/button"

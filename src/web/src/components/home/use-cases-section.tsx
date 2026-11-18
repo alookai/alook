@@ -8,7 +8,7 @@ import { useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Calendar, DollarSign, BarChart3, Bug, MessageSquare, Brain } from "lucide-react";
+import { Calendar, DollarSign, BarChart3, Bug, MessageSquare, Brain } from "@/components/icons/lucide";
 import { DemoWindow } from "./demo-window";
 import { UseCaseDemo } from "./demo-pad/use-case-demo";
 import {

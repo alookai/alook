@@ -5,7 +5,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { AuditLogTextPayloadSchema } from "@alook/shared"
 import { compareAuditEventsNewestFirst } from "@/lib/community/models/audit"
-import { CircleStop, LoaderCircle, Lock, Square } from "lucide-react"
+import { CircleStop, LoaderCircle, Lock, Square } from "@/components/icons/lucide";
 import { useEffect, useId, useLayoutEffect, useRef } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
 import { useBotMarks } from "@/hooks/community/use-bot-marks"

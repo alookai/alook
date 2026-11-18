@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertCircle } from "lucide-react"
+import { AlertCircle } from "@/components/icons/lucide";
 import { useEffect, useLayoutEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCommunityRouteFrame } from "../shell/community-route-context"

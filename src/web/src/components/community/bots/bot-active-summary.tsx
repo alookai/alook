@@ -1,5 +1,5 @@
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ArrowRight } from "lucide-react"
+import { ArrowRight } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import type { BotPlanSummary } from "@/hooks/community/use-bots"

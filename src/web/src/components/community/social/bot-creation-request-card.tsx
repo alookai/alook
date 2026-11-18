@@ -1,6 +1,6 @@
 "use client"
 
-import { Monitor, Box, Gauge } from "lucide-react"
+import { Monitor, Box, Gauge } from "@/components/icons/lucide";
 import { ScrollArea } from "@base-ui/react/scroll-area"
 import type { BotCreationItem, BotCreationPayload } from "@alook/shared"
 import { Button } from "@/components/ui/button"

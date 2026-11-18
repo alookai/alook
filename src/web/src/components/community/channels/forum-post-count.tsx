@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useMemo, type ReactNode } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2 } from "@/components/icons/lucide";
 import { useForumPostCounts } from "@/hooks/community/use-forum-post-counts"
 import { Button } from "@/components/ui/button"
 

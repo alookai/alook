@@ -7,7 +7,7 @@ import { useEffect, useRef } from "react"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { isTauri, type NativeOauthProvider } from "@alook/shared"
 import { SiApple, SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
-import { Loader2 } from "lucide-react"
+import { Loader2 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
 import { signIn } from "@/lib/auth-client"

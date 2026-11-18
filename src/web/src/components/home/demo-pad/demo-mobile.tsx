@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Home, CalendarDays, CircleDot } from "lucide-react";
+import { ArrowUp, Home, CalendarDays, CircleDot } from "@/components/icons/lucide";
 import { MessageBubble } from "@/components/chat-primitives/message-bubble";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { GeneratedAvatar } from "@/components/avatar/generated-avatar";

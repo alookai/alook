@@ -1,6 +1,6 @@
 "use client"
 
-import { Plus } from "lucide-react"
+import { Plus } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useStartBotChat } from "@/hooks/community/use-start-bot-chat"

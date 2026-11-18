@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { Mac, CdPlayer, Cassette, FlipPhone } from "@/components/brand/retro-objects"
 import { HomepageFaqList } from "@/components/home/homepage-faq"
-import { ArrowRight, Inbox, Mail, Settings, Users, X } from "lucide-react"
+import { ArrowRight, Inbox, Mail, Settings, Users, X } from "@/components/icons/lucide";
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"

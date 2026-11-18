@@ -6,7 +6,7 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
 
 import { cn } from "@/lib/utils"
-import { ChevronRightIcon, CheckIcon } from "lucide-react"
+import { ChevronRightIcon, CheckIcon } from "@/components/icons/lucide";
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {

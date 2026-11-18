@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
 
 import Image from "next/image"
-import { ArrowDown, ArrowUpRight, Globe, Monitor, Smartphone } from "lucide-react"
+import { ArrowDown, ArrowUpRight, Globe, Monitor, Smartphone } from "@/components/icons/lucide";
 import { SiApple, SiLinux, SiAndroid, SiGoogleplay } from "@icons-pack/react-simple-icons"
 import { PublicSiteHeader } from "@/components/home/public-site-header"
 import { LandingFooter } from "@/components/home/landing-footer"

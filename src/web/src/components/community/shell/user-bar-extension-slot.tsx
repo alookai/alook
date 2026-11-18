@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useId, useRef, type ReactNode } from "react"
-import { CircleAlert, Download, LoaderCircle } from "lucide-react"
+import { CircleAlert, Download, LoaderCircle } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import type { MachineSummary } from "@/hooks/community/use-machines"
 import { tid } from "@/lib/community/testids"

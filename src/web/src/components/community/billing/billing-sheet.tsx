@@ -5,7 +5,7 @@ import { captureAnalyticsOwner } from "@/lib/analytics-owner"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { FounderPlanChangeDialog } from "./founder-plan-change-dialog"
-import { ExternalLink, RefreshCw } from "lucide-react"
+import { ExternalLink, RefreshCw } from "@/components/icons/lucide";
 import type { BillingSummary } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"

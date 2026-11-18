@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useLayoutEffect } from "react"
-import { Loader2, Lock, LogOut, Network } from "lucide-react"
+import { Loader2, Lock, LogOut, Network } from "@/components/icons/lucide";
 import { AgentAvatar } from "@/components/avatar"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"

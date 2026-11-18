@@ -8,7 +8,7 @@ import { saveFile, fileSaveMessage } from "@/lib/file-save"
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
-import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
+import { Check, Copy, Download, Highlighter, Loader2 } from "@/components/icons/lucide";
 import { writeImage } from "@tauri-apps/plugin-clipboard-manager"
 import { isDesktop, isMobile, isTauri } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"

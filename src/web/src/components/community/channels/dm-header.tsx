@@ -1,4 +1,4 @@
-import { Bell, BellOff, Check, RotateCcw } from "lucide-react"
+import { Bell, BellOff, Check, RotateCcw } from "@/components/icons/lucide";
 import { NOTIF_LEVELS, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"

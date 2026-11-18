@@ -8,7 +8,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react"
-import { CircleAlert, Download, LoaderCircle, Settings } from "lucide-react"
+import { CircleAlert, Download, LoaderCircle, Settings } from "@/components/icons/lucide";
 import { isMobile } from "@alook/shared"
 import { InboxUnreadIndicator } from "./inbox-unread-indicator"
 import { Avatar } from "../avatar"

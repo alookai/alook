@@ -16,7 +16,7 @@ import { finishCommunityOnboardingAgentSetup, switchCommunityOnboardingSetup, ad
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { X } from "lucide-react"
+import { X } from "@/components/icons/lucide";
 import { Dialog as SetupDialog } from "@base-ui/react/dialog"
 import { AppEdgeFade, appBackdropClassName } from "@/components/ui/app-edge-fade"
 import { StepSlide } from "@/components/ui/step-slide"

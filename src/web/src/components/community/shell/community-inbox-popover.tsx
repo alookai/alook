@@ -1,5 +1,5 @@
 
-import { AlertCircle, Bookmark, Check, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
+import { AlertCircle, Bookmark, Check, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "@/components/icons/lucide";
 import { formatHandle, messagePreviewText } from "@alook/shared"
 import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"

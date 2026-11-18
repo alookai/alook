@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { Folder } from "lucide-react"
+import { Folder } from "@/components/icons/lucide";
 import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { ServerIcon } from "@/components/community/server-icon"

@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { ListFilter } from "lucide-react"
+import { ListFilter } from "@/components/icons/lucide";
 import { AgentAvatar } from "@/components/avatar"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"

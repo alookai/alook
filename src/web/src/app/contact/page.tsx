@@ -1,7 +1,7 @@
 import { DISCORD_INVITE_URL } from "@/lib/discord-invite"
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
 import Image from "next/image"
-import { ArrowUpRight, CalendarDays, Mail } from "lucide-react"
+import { ArrowUpRight, CalendarDays, Mail } from "@/components/icons/lucide";
 import { SiDiscord, SiX } from "@icons-pack/react-simple-icons"
 import { PublicSiteHeader } from "@/components/home/public-site-header"
 import { LandingFooter } from "@/components/home/landing-footer"

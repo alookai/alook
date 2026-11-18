@@ -1,6 +1,6 @@
 "use client"
 
-import { Lock } from "lucide-react"
+import { Lock } from "@/components/icons/lucide";
 import { EmptyState } from "../empty-state"
 import { useCanonicalMessagesById } from "@/lib/community-db/projections"
 import { messagePreviewText } from "@alook/shared"

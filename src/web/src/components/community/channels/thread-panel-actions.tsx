@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Maximize2, X } from "lucide-react"
+import { Maximize2, X } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 

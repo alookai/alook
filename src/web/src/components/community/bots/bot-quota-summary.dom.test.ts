@@ -4,7 +4,7 @@ import { fireEvent, render as renderDom } from "@/test/react-dom-harness"
 import type { QuotaLimit } from "@alook/shared"
 import type { MachineBackendQuota } from "@/hooks/community/use-machines"
 
-vi.mock("lucide-react", () => ({ ChevronDown: "chevron-icon" }))
+vi.mock("@/components/icons/lucide", () => ({ ChevronDown: "chevron-icon" }))
 vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: ({ provider }: { provider: string }) => React.createElement("div", {
     "data-provider-logo": provider,

@@ -3,7 +3,8 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useRef, type MouseEvent } from "react"
 import { flushSync } from "react-dom"
-import { CircleCheck, Download, FileAudio, FileVideo, LoaderCircle, Pause, Play, RefreshCw, Square } from "lucide-react"
+import { FileAudio, FileVideo } from "lucide-react";
+import { CircleCheck, Download, LoaderCircle, Pause, Play, RefreshCw, Square } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment } from "@/lib/community/models/message"

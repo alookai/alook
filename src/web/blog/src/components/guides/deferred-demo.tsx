@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Pause, Play, RotateCcw } from "lucide-react";
+import { Pause, Play, RotateCcw } from "@/components/icons/lucide";
 import { claimGuidePlayback, refreshGuidePlayback, registerGuidePlayback } from "./playback";
 import styles from "./guide.module.css";
 import technostalgia from "@/components/brand/technostalgia.module.css";

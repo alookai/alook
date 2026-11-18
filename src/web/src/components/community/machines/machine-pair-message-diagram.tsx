@@ -3,7 +3,7 @@
 import { useId, useRef } from "react"
 import gsap from "gsap"
 import { useGSAP } from "@gsap/react"
-import { FolderLock, MessageSquare } from "lucide-react"
+import { FolderLock, MessageSquare } from "@/components/icons/lucide";
 import { TileDefs, tileIds } from "../onboarding-tiles/tile-defs"
 import { OT_EASE, comeOnline } from "../onboarding-tiles/tile-motion"
 

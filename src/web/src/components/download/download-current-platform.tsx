@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { ArrowDown, ArrowUpRight } from "lucide-react"
+import { ArrowDown, ArrowUpRight } from "@/components/icons/lucide";
 import { IOS_TESTFLIGHT_URL, currentDownloadTargets, downloadArchitecture, downloadPlatformFromOS, UNKNOWN_DOWNLOAD_ENVIRONMENT, type DownloadEnvironment, type DownloadInstaller } from "@/lib/download-platforms"
 import { buttonVariants } from "@/components/ui/button"
 

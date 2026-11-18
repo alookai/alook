@@ -1,5 +1,5 @@
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
-import { ChevronLeft, HelpCircle } from "lucide-react"
+import { ChevronLeft, HelpCircle } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"

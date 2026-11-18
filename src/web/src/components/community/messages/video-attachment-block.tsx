@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Container, Controls, Menu, MuteButton, PlayButton, PlaybackRateRadioGroup, Time, TimeSlider, VolumePopover, VolumeSlider } from "@videojs/react"
 import { Video, VideoPlayer, usePlayer } from "@videojs/react/video"
-import { Check, ChevronLeft, ChevronRight, Download, Gauge, Maximize, Minimize, MoreHorizontal, Pause, Play, RotateCcw, Volume1, Volume2, VolumeX } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, Download, Gauge, Maximize, Minimize, MoreHorizontal, Pause, Play, RotateCcw, Volume1, Volume2, VolumeX } from "@/components/icons/lucide";
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { fileDownloadStatusText, useFileDownload } from "@/lib/file-download"

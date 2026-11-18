@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { ChevronLeft, ChevronRight, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, X } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import {
   Dialog,

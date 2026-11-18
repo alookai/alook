@@ -1,4 +1,4 @@
-import { ExternalLink, Reply, Pin, Share } from "lucide-react"
+import { ExternalLink, Reply, Pin, Share } from "@/components/icons/lucide";
 import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import type { MessageExternalLinkTarget } from "./message-external-link"

@@ -6,7 +6,7 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
 
 import { cn } from "@/lib/utils"
-import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
+import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "@/components/icons/lucide";
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 function Select<Value, Multiple extends boolean | undefined = false>({ ...props }: SelectPrimitive.Root.Props<Value, Multiple>) {
