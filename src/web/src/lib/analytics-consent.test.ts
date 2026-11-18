@@ -172,3 +172,23 @@ describe("analytics consent browser contract", () => {
     })
   })
 })
+
+it.each(["/terms", "/tutorials", "/tutorials/first-agent", "/usecases", "/usecases/team-updates"])("recognizes the published public route %s", path => {
+  expect(isPublicAnalyticsPath(path)).toBe(true)
+})
+
+it.each(["http://localhost:3000", "https://preview.alook.ai", "https://alook.ai.evil.test"])("disables production GA bootstrap on %s", origin => {
+  const browser = { location: new URL(origin + "/pricing"), dataLayer: [] as unknown[] }
+  vi.stubGlobal("window", browser)
+  vi.stubGlobal("document", { cookie: "alook_analytics_consent=v1.granted", referrer: "" })
+  bootstrapGoogleAnalytics()
+  expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(true)
+})
+
+it("keeps a direct visit referrer empty instead of inventing a home referral", () => {
+  const browser = { location: new URL("https://alook.ai/tutorials"), dataLayer: [] as unknown[] }
+  vi.stubGlobal("window", browser)
+  vi.stubGlobal("document", { cookie: "", referrer: "" })
+  updateGooglePageFields(browser.location.href)
+  expect(Array.from(browser.dataLayer[0] as IArguments)).toEqual(["set", { page_location: "https://alook.ai/tutorials", page_referrer: "" }])
+})

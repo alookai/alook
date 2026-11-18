@@ -1,3 +1,5 @@
+import { ANALYTICS_ORIGIN } from "./product-analytics-contract"
+
 export const ANALYTICS_CONSENT_COOKIE = "alook_analytics_consent"
 export const ANALYTICS_CONSENT_PROOF_COOKIE = "alook_analytics_consent_proof"
 export const ANALYTICS_CONSENT_VERSION = "v1"
@@ -6,7 +8,7 @@ export const ANALYTICS_CONSENT_CHANGE_EVENT = "alook:analytics-consent-change"
 
 export type AnalyticsConsentDecision = "granted" | "denied"
 
-export const isPublicAnalyticsPath = (path: string) => /^\/(?:download|pricing|contact|privacy|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
+export const isPublicAnalyticsPath = (path: string) => /^\/(?:download|pricing|contact|privacy|terms|tutorials(?:\/[^/]+)?|usecases(?:\/[^/]+)?|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
 
 export function googleCommand(..._args: unknown[]): void {
   window.dataLayer ??= []
@@ -14,18 +16,20 @@ export function googleCommand(..._args: unknown[]): void {
   window.dataLayer.push(arguments)
 }
 
+export function publicAnalyticsReferrer(referrer: string, origin: string): string {
+  if (!referrer) return ""
+  try {
+    const url = new URL(referrer)
+    return url.origin !== origin || isPublicAnalyticsPath(url.pathname) ? `${url.origin}${url.pathname}` : ""
+  } catch { return "" }
+}
+
 export function updateGooglePageFields(href: string): void {
   if (typeof window === "undefined" || typeof document === "undefined") return
   try {
     const location = new URL(href, window.location.origin)
     if (location.origin !== window.location.origin || !isPublicAnalyticsPath(location.pathname)) return
-    let safeReferrer = ""
-    try {
-      const referrer = new URL(document.referrer || window.location.origin)
-      if (referrer.origin !== window.location.origin || isPublicAnalyticsPath(referrer.pathname)) {
-        safeReferrer = `${referrer.origin}${referrer.pathname}`
-      }
-    } catch {}
+    const safeReferrer = publicAnalyticsReferrer(document.referrer, window.location.origin)
     googleCommand("set", {
       page_location: `${location.origin}${location.pathname}`,
       page_referrer: safeReferrer,
@@ -37,9 +41,9 @@ export function bootstrapGoogleAnalytics(): void {
   if (typeof window === "undefined") return
   Object.defineProperty(window, "ga-disable-G-STBCL8F4ZY", {
     configurable: true,
-    get: () => !isPublicAnalyticsPath(window.location.pathname),
+    get: () => window.location.origin !== ANALYTICS_ORIGIN || !isPublicAnalyticsPath(window.location.pathname),
   })
-  applyGoogleConsent(isPublicAnalyticsPath(window.location.pathname) ? readAnalyticsConsent() ?? "granted" : "denied", "default")
+  applyGoogleConsent(window.location.origin === ANALYTICS_ORIGIN && isPublicAnalyticsPath(window.location.pathname) ? readAnalyticsConsent() ?? "granted" : "denied", "default")
   updateGooglePageFields(window.location.href)
 }
 

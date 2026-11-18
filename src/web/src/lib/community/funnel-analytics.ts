@@ -9,8 +9,6 @@ import {
   trackFirstAgentReplyPersisted,
 } from "@/lib/analytics"
 
-let inFlight: Promise<void> | null = null
-let rerun = false
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -59,85 +57,50 @@ export function decodeCommunityFunnelEvents(value: unknown): CommunityFunnelAnal
   })
 }
 
-function publishCommunityFunnelEvent(event: CommunityFunnelAnalyticsEvent) {
-  if (event.event === "runtime_connected") {
-    trackCommunityRuntimeConnected()
-  } else if (event.event === "first_agent_reply_persisted") {
-    trackFirstAgentReplyPersisted(event.conversation_type)
-  }
-}
-
-async function drainOnce() {
-  const response = await fetch("/api/community/analytics/funnel-events", {
-    method: "POST",
-    headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
-    cache: "no-store",
-    credentials: "same-origin",
-  })
-  if (!response.ok || response.headers.get(COMMUNITY_CONTRACT_HEADER) !== String(BUSINESS_SCHEMA_VERSION)) return
-  const payload: unknown = await response.json()
-  for (const event of decodeCommunityFunnelEvents(payload)) {
-    publishCommunityFunnelEvent(event)
-  }
-}
-
-export function drainCommunityFunnelEvents(): Promise<void> {
-  if (inFlight) {
-    rerun = true
-    return inFlight
-  }
-  inFlight = (async () => {
-    do {
-      rerun = false
-      try {
-        await drainOnce()
-      } catch {
-        return
-      }
-    } while (rerun)
-  })().finally(() => {
-    inFlight = null
-  })
-  return inFlight
-}
-
 export function _resetCommunityFunnelAnalyticsForTesting() {
-  inFlight = null
-  rerun = false
+  legacyDrains = new WeakMap()
   joinDrains = new WeakMap()
 }
 
-
 type Lifecycle = CommunityRuntime["lifecycle"]
-type JoinDrain = { generation: number; rerun: boolean; inFlight: Promise<void> }
-let joinDrains = new WeakMap<Lifecycle, JoinDrain>()
+type FunnelDrain = { generation: number; rerun: boolean; inFlight: Promise<void> }
+let legacyDrains = new WeakMap<Lifecycle, FunnelDrain>()
+let joinDrains = new WeakMap<Lifecycle, FunnelDrain>()
+
+export function drainCommunityFunnelEvents(lifecycle: Lifecycle): Promise<void> {
+  return drainFunnelEvents(lifecycle, "legacy", legacyDrains)
+}
 
 export function drainInvitedHumanJoined(lifecycle: Lifecycle): Promise<void> {
+  return drainFunnelEvents(lifecycle, "invited_human_joined", joinDrains)
+}
+
+function drainFunnelEvents(lifecycle: Lifecycle, scope: "legacy" | "invited_human_joined", drains: WeakMap<Lifecycle, FunnelDrain>): Promise<void> {
   const generation = lifecycle.get().generation
-  const eligible = () => typeof window !== "undefined" && !isTauri()
+  const eligible = () => typeof window !== "undefined" && window.location.origin === "https://alook.ai" && !isTauri()
     && readAnalyticsConsent() !== "denied"
     && lifecycle.get().active && lifecycle.get().generation === generation
   if (!eligible()) return Promise.resolve()
-  const existing = joinDrains.get(lifecycle)
+  const existing = drains.get(lifecycle)
   if (existing?.generation === generation) {
     existing.rerun = true
     return existing.inFlight
   }
   const assertCurrent = () => {
-    if (!eligible()) throw new DOMException("Retired invitation analytics owner", "AbortError")
+    if (!eligible()) throw new DOMException("Retired community analytics owner", "AbortError")
   }
   const controller = new AbortController()
   const subscription = lifecycle.subscribe(() => {
     if (!lifecycle.get().active || lifecycle.get().generation !== generation) controller.abort()
   })
-  const drain: JoinDrain = { generation, rerun: false, inFlight: Promise.resolve() }
+  const drain: FunnelDrain = { generation, rerun: false, inFlight: Promise.resolve() }
   drain.inFlight = (async () => {
     do {
       drain.rerun = false
       assertCurrent()
-      const response = await fetch("/api/community/analytics/funnel-events?event=invited_human_joined", {
+      const response = await fetch(scope === "legacy" ? "/api/community/analytics/funnel-events" : "/api/community/analytics/funnel-events?event=invited_human_joined", {
         method: "POST",
-    headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+        headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
         cache: "no-store",
         credentials: "same-origin",
         signal: controller.signal,
@@ -147,16 +110,20 @@ export function drainInvitedHumanJoined(lifecycle: Lifecycle): Promise<void> {
       const payload: unknown = await response.json()
       assertCurrent()
       for (const event of decodeCommunityFunnelEvents(payload)) {
-        if (event.event === "invited_human_joined") {
+        if (scope === "invited_human_joined" && event.event === "invited_human_joined") {
           await captureProductAnalytics({ event: "invited_human_joined" }, assertCurrent)
+        } else if (scope === "legacy" && event.event === "runtime_connected") {
+          await trackCommunityRuntimeConnected(assertCurrent)
+        } else if (scope === "legacy" && event.event === "first_agent_reply_persisted") {
+          await trackFirstAgentReplyPersisted(event.conversation_type, assertCurrent)
         }
       }
     } while (drain.rerun)
   })().catch(() => undefined).finally(() => {
     subscription.unsubscribe()
     controller.abort()
-    if (joinDrains.get(lifecycle) === drain) joinDrains.delete(lifecycle)
+    if (drains.get(lifecycle) === drain) drains.delete(lifecycle)
   })
-  joinDrains.set(lifecycle, drain)
+  drains.set(lifecycle, drain)
   return drain.inFlight
 }
