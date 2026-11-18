@@ -877,7 +877,7 @@ jobs:
           pnpm --filter @alook/web exec playwright test "${specs[@]}" --shard=${{ matrix.native_shard }}/${{ matrix.native_total }}
       - name: Restore browser services
         if: ${{ always() && contains(fromJSON('["success","failure","cancelled"]'), steps.playwright.outcome) }}
-        run: pnpm --filter @alook/web exec tsx -e 'import teardown from "./src/test/e2e-ui/_setup/global-teardown.ts"; teardown().catch(error => { console.error(error); process.exitCode = 1 })'
+        run: pnpm --filter @alook/web exec tsx -e 'import teardown from "./src/test/e2e-ui/_setup/global-teardown.ts"; teardown().catch(error => { console.error(error); process.exitCode = 1 })' && node -e 'const fs=require("node:fs");const p="src/web/src/test/e2e-ui/.auth/service-state.json";const present=fs.existsSync(p);const s=present?JSON.parse(fs.readFileSync(p,"utf8")):null;const alive=pid=>{try{process.kill(-pid,0);return true}catch(e){if(e.code==="ESRCH")return false;throw e}};const services=(s?.services??[]).map(v=>({name:v.name,pid:v.pid,startedAt:v.startedAt,groupAlive:alive(v.pid)}));const r={run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,head:process.env.GITHUB_SHA,playwrightOutcome:"${{ steps.playwright.outcome }}",at:new Date().toISOString(),statePresent:present,status:s?.status,restorePending:s?.restorePending,services};console.log("ALOOK_CANCEL_QA_RECEIPT "+JSON.stringify(r));if(s&&(s.status!=="stopped"||s.restorePending||services.some(v=>v.groupAlive)))process.exitCode=1;'
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -963,7 +963,7 @@ jobs:
             --grep 'preserves Marked tab, scroll, and request ownership across 639↔640|restores fresh and saved mobile-first desktop entries before paint'
       - name: Restore browser services
         if: ${{ always() && contains(fromJSON('["success","failure","cancelled"]'), steps.playwright.outcome) }}
-        run: pnpm --filter @alook/web exec tsx -e 'import teardown from "./src/test/e2e-ui/_setup/global-teardown.ts"; teardown().catch(error => { console.error(error); process.exitCode = 1 })'
+        run: pnpm --filter @alook/web exec tsx -e 'import teardown from "./src/test/e2e-ui/_setup/global-teardown.ts"; teardown().catch(error => { console.error(error); process.exitCode = 1 })' && node -e 'const fs=require("node:fs");const p="src/web/src/test/e2e-ui/.auth/service-state.json";const present=fs.existsSync(p);const s=present?JSON.parse(fs.readFileSync(p,"utf8")):null;const alive=pid=>{try{process.kill(-pid,0);return true}catch(e){if(e.code==="ESRCH")return false;throw e}};const services=(s?.services??[]).map(v=>({name:v.name,pid:v.pid,startedAt:v.startedAt,groupAlive:alive(v.pid)}));const r={run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,head:process.env.GITHUB_SHA,playwrightOutcome:"${{ steps.playwright.outcome }}",at:new Date().toISOString(),statePresent:present,status:s?.status,restorePending:s?.restorePending,services};console.log("ALOOK_CANCEL_QA_RECEIPT "+JSON.stringify(r));if(s&&(s.status!=="stopped"||s.restorePending||services.some(v=>v.groupAlive)))process.exitCode=1;'
       - if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
