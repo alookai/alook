@@ -1,12 +1,38 @@
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS, confirmCommunityFixtureApiResponse } from "./_fixtures/business-contract"
 import type { Page } from "@playwright/test"
+import type { PersistedClient } from "@tanstack/react-query-persist-client"
+import { blobKeyFor } from "@/lib/persisted-account-identity"
+import { readCommunityRestoredCollections } from "@/lib/query-persister"
 import { test, expect } from "./_fixtures/case-fixture"
 import { holdRoute } from "./_fixtures/held-route"
 import { sendMessage } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 
 import type { CaseActors } from "./_fixtures/case-fixture"
+
+async function hasPersistedPostWindow(page: Page, viewerId: string, channelId: string) {
+  const snapshot = await page.evaluate(key => new Promise<PersistedClient | undefined>((resolve, reject) => {
+    const open = indexedDB.open("keyval-store")
+    open.onerror = () => reject(open.error)
+    open.onsuccess = () => {
+      const db = open.result
+      if (!db.objectStoreNames.contains("keyval")) { db.close(); resolve(undefined); return }
+      const transaction = db.transaction("keyval", "readonly")
+      const read = transaction.objectStore("keyval").get(key)
+      transaction.onabort = () => { db.close(); reject(transaction.error) }
+      transaction.oncomplete = () => {
+        db.close()
+        try { resolve(typeof read.result === "string" ? JSON.parse(read.result) as PersistedClient : undefined) }
+        catch (error) { reject(error) }
+      }
+    }
+  }), blobKeyFor(viewerId))
+  const restored = readCommunityRestoredCollections(snapshot, viewerId)
+  const bodyIds = new Set(restored.messages?.rows.filter(row => row.channelId === channelId && row.content === "post body").map(row => row.id))
+  return restored.messageWindows?.some(window => window.channelId === channelId
+    && window.data.pages.some(page => page.messages.some(ref => bodyIds.has(ref.id)))) ?? false
+}
 
 async function prepareCase(_actors: CaseActors) {
   async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
@@ -166,7 +192,12 @@ test.describe("forum sidebar Stage B request shape", () => {
       requests.length = 0
       successfulResponses.length = 0
       const combined = page.waitForResponse(response => response.ok() && isSidebarRequest(response.url(), serverId))
-      if (refresh) await page.reload({ waitUntil: "commit" })
+      if (refresh) {
+        // Entity previews can reach disk before the entry's actual window.
+        // Establish a restorable window before testing its refresh display.
+        await expect.poll(() => hasPersistedPostWindow(page, actors.userId("alice"), threadId)).toBe(true)
+        await page.reload({ waitUntil: "commit" })
+      }
       else await page.goto(`/c/channels/${serverId}/${threadId}`)
       await expect.poll(entryGate.held).toBe(1)
       if (sidebarGate) {
