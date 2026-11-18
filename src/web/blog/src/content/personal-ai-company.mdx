@@ -16,33 +16,33 @@ export const metadata = {
 
 ![One owner and four Alook agent roles form a company team](/blog/personal-ai-company/company-team.webp)
 
-Running a company on your own means doing work you haven't had to do before, often with nobody to ask. Even if you know your trade, there are only so many hours to learn everything else. Hiring a full team may be out of reach.
+Running a company on your own means doing jobs you've never had to do before, usually with nobody around to ask. Even when you know your craft well, there are only so many hours in the day to learn everything else, and hiring a full team is often out of reach.
 
-A few AI agents seem like a way to get help. Then you find yourself explaining the same background in different chats, copying one agent's answer to another, and checking whether anyone picked up the next step. You still have several jobs on your desk, including managing the agents.
+Spinning up a few AI agents looks like an easy way to get help. Pretty quickly, though, you find yourself repeating the same background across separate chats, copying one agent's output into another window, and checking whether anyone picked up the next step. Instead of clearing your plate, you've added one more job: managing the agents.
 
-For your own agent company, the practical goal is a team that picks up each other's work and shows you what still needs a decision. The roles and customer job in this guide give you a starting point, including setup in a [multi agent collaboration workspace](https://alook.ai).
+For a solo business, the real goal is an agent team that hands work directly to each other and brings you only what needs a decision. Below, we walk through four practical roles and a real customer job from start to finish, including how to set them up in a [multi agent collaboration workspace](https://alook.ai).
 
 ## What Should Your Team Know About Your Business?
 
-Suppose you run a website-maintenance service for local shops, helping customers change opening hours and fix broken links on existing sites.
+Say you run a website-maintenance service for local shops, updating opening hours and fixing broken links on existing sites.
 
-A shop asking for a new website may sound like a promising lead, but that's a different service. If Sales treats maintenance and a redesign alike, you could end up discussing work you haven't priced or planned to deliver.
+When a shop asks for a brand-new website, that sounds like a great lead on the surface, except it's a different service altogether. If Sales treats routine maintenance and full redesigns the same way, you end up discussing work you haven't priced or planned to deliver.
 
-The **company brief** gives Sales a place to check what you offer and when a request needs your attention. It also explains which customers the service is for. A **job brief** then holds one customer's agreed work, such as the pages to change, the correct hours, and the booking URL. You can reuse the company brief with a new agent. The customer's hours and booking URL stay with that customer's job.
+A **company brief** gives Sales a clear reference for what you offer, who it's for, and when to pull you in. A **job brief** holds one customer's agreed task, like which pages to edit, the updated hours, and the confirmed booking URL. You can reuse the company brief whenever you add a new agent, while customer-specific details stay attached to that customer's job.
 
 ## How Many Agents Do You Need to Start?
 
-For this example, our starting recommendation is four: Sales, Delivery, Review, and Customer Ops. Finding new work and following up on an existing job pull attention in different directions. A website change also needs someone to check it.
+For a business like this, four roles make a strong starting point: Sales, Delivery, Review, and Customer Ops. Chasing new leads and tending to active jobs pull attention in opposite directions, and every website change needs a second pair of eyes before a client sees it.
 
-Review is the role we're most reluctant to fold into Delivery. If Review relies on Delivery's summary, it may accept the very mistake it was meant to catch. A separate reviewer compares the customer's request with the actual preview.
+Review is the one role we'd resist folding into Delivery. An agent grading its own work tends to trust its own summary and miss the exact mistake it was supposed to catch. A separate Reviewer compares the customer's original request against the actual preview.
 
-Four isn't a minimum for every business. Early on, Sales and Customer Ops might share one agent. Prospect research holding up replies to existing customers is a reason to split them. Adding another agent just to make the company look bigger isn't.
+Four isn't a hard minimum for every business. Early on, one agent can cover both Sales and Customer Ops. Once prospect research starts slowing down replies to existing customers, split them up. Just don't add extra agents solely to make the company look bigger.
 
 ## How to Structure AI Agents Into Departments and Roles
 
 ### Give Each Role Something You Can Check
 
-“Sales” might mean researching prospects or promising a price. Asking what the agent will bring back gives you a chance to catch that misunderstanding before a customer is involved.
+“Sales” could mean researching local leads, or it could mean quoting prices to buyers. Defining concrete deliverables upfront lets you catch that gap before a real customer gets the wrong promise.
 
 <CompanyRoles avatars={[
   <img key="role-0" src="/blog/personal-ai-company/sales.webp" width={104} height={104} alt="" />,
@@ -51,41 +51,41 @@ Four isn't a minimum for every business. Early on, Sales and Customer Ops might 
   <img key="role-3" src="/blog/personal-ai-company/customer-ops.webp" width={104} height={104} alt="" />
 ]} />
 
-Sales starts with prospect research and incoming inquiries. If research delays replies to people who already want to buy, we'd separate Prospecting from Intake. Prospecting's lead notes give Intake the background for handling inquiries and preparing job briefs. Both still report to you. One summarizes their sales work for Customer Ops, so you don't end up with another pair of chats to check each morning.
+Sales handles prospect research and incoming inquiries first. If outbound research starts delaying replies to people ready to buy, split Prospecting from Intake. Prospecting passes lead notes to Intake so it has context when handling inquiries and drafting job briefs. Both still report to you, and one summarizes sales activity for Customer Ops so you don't wake up to two more chat threads every morning.
 
 ### Reporting Lines and Direct Handoffs
 
-All four agents report to you, but their work doesn't need to pass through your hands at every step:
+All four agents report to you, yet you shouldn't have to sit in the middle of every handoff:
 
 **Sales → Delivery → Review → Customer Ops**
 
-When Review finds a broken link, Delivery needs that finding without waiting for you to copy it across. Customer Ops brings progress and questions together, saving you four separate requests for updates.
+When Review catches a broken link, Delivery gets that feedback directly without waiting on you to copy it over. Customer Ops pulls progress and open questions into one summary, saving you from polling four separate bots for status updates.
 
-Promises to customers and requests for more work need particular care. Customer Ops can pass a correction to Delivery, but a new page goes back to Sales for a proposal. You decide the price and any change in scope. A passing review also doesn't mean the site goes live: publishing, invoices, and payment decisions still wait for you.
+Promises to customers and changes in scope are where you draw firm lines. Customer Ops can pass a typo or hour correction back to Delivery, while a request for a brand-new page goes back to Sales for a quote. You set every price and approve every scope change. Passing review doesn't push changes live automatically, either: publishing, invoices, and payment calls always wait for you.
 
-A vague “continue” can leave two agents waiting for each other. Naming the next agent and the work to pick up settles that question. More complex [agent orchestration](/blog/ai-agent-orchestration) still depends on that basic clarity.
+Vague prompts like “continue” often leave two agents politely waiting on each other. Naming the next agent and the exact step to pick up removes the guesswork. Even complex [agent orchestration](/blog/ai-agent-orchestration) comes down to getting that handoff clear.
 
 ### Set Each Agent's Tool Access
 
-Delivery needs a place to prepare changes, with a preview Review can open. Neither needs permission to publish just to do those jobs. A broad permission could let an agent change the live site while you're still checking its work.
+Delivery needs a staging space where it can prepare edits and share a preview link with Review. Neither agent needs permission to publish to production just to do those jobs. Broad publish access makes it way too easy for an agent to update a live site while you're still checking the preview.
 
-For Sales and Customer Ops, drafting a customer reply doesn't require sending it. Their instructions need to say which accounts they may use and whether you're reviewing messages first. The accounts and tools need to enforce those permissions. Writing “don't publish” in a role description won't remove access to the publish button.
+The same applies to Sales and Customer Ops: drafting a customer email doesn't require permission to send it. Spell out which accounts each role may touch and whether messages wait for your review, then enforce those boundaries in the tools themselves. Writing “don't publish” in a role prompt won't take away access to a live publish button.
 
 ## Run a Customer Job Through the Team
 
 ### Sales Hands Over the Job Brief
 
-A shop asks for new opening hours and a repaired booking link, but hasn't sent the replacement URL. That's worth catching in Sales's proposed job brief. Otherwise, Delivery may spend time guessing which booking page is right.
+Suppose a shop asks for updated opening hours and a fixed booking link, without sending the replacement URL. Sales should flag that gap in the draft job brief right away so Delivery doesn't waste time guessing which booking page is right.
 
-Sales passes your approved brief to Delivery. A quick reply from Delivery tells the others it's on the job. If the customer changes the hours later, the team needs the new version of the job brief, not another loose instruction buried in chat.
+Once you approve the brief, Sales hands it off to Delivery, which replies quickly to confirm it's on the task. If the customer messages later to change Saturday's hours, update the job brief itself instead of letting a loose correction get buried in chat scrollback.
 
-We've run into this version problem in our own article workflow. We send the draft and its version to a reviewing agent, but we've still had feedback refer to text we'd already changed. We had to check which draft the comments referred to before deciding what still needed fixing. The same problem arises when a customer's latest request differs from the one Delivery first saw.
+We ran into this exact version drift in our own article workflow. Even when we sent both a draft and its version number to a reviewing agent, we still got comments pointing at lines we'd already rewritten. We had to stop and check which draft the reviewer actually read before fixing anything. Delivery hits the same snag whenever a customer's latest message doesn't match the brief it started from.
 
 ### Send the Website Preview for Review
 
 ![Six handoff requirements: scope, input, output, completion criteria, failure path, and approval boundary](/blog/personal-ai-company/handoff-contract.webp)
 
-For Delivery, the shop's job brief makes the work and expected return specific:
+For Delivery, the shop's job brief spells out both the work and what to hand back:
 
 <CompanyJobBrief>
 
@@ -100,56 +100,56 @@ For Delivery, the shop's job brief makes the work and expected return specific:
 
 </CompanyJobBrief>
 
-Review has to open that preview. The booking link needs to open the URL in the job brief. A summary saying “link fixed” isn't enough to establish that.
+Review has to actually open that preview and verify that the booking button opens the URL in the job brief. Taking Delivery's summary of “link fixed” at face value misses the whole point of independent review.
 
-“Looks wrong” leaves Delivery with another guessing job. A useful reply is: “The booking link still opens the old destination. Use the URL in job brief v2, then return the updated preview and link-check result.” The next review can check that same link again.
+Feedback like “looks wrong” just gives Delivery another guessing game. A useful review note sounds like: “The booking link still opens the old destination. Use the URL in job brief v2, then return the updated preview and link-check result.” On the next pass, Review checks that exact link again.
 
 ### When the Job Gets Stuck
 
-A missing booking URL doesn't make the hours change impossible. Delivery prepares that part and tells Customer Ops: “Hours ready in preview; booking link waiting for the confirmed destination.” Customer Ops has a specific question for the customer. If it isn't allowed to send customer messages yet, the question waits for you to send it.
+A missing booking URL doesn't stop Delivery from finishing the rest of the work. Delivery updates the hours first and tells Customer Ops: “Hours ready in preview; booking link waiting for the confirmed destination.” That gives Customer Ops one clear question for the client. If Customer Ops isn't allowed to email clients directly yet, it queues that question up for you to send.
 
-With the URL confirmed and the change reviewed, Customer Ops brings you the preview and findings for approval. The customer might still spot a wrong hour afterward; that correction needs another check. A new page is a different conversation about price and scope.
+Once the URL is confirmed and Review signs off, Customer Ops brings you the preview and check results for final approval. If the customer spots a wrong closing hour afterward, that fix goes back through another quick check. A request for a whole new page starts a separate conversation about price and scope.
 
 ## Keep Customer Jobs Moving
 
-With two shops waiting, a reply or booking URL could get used for the wrong customer. Each job needs its own brief and conversation, and the agent picking it up needs to read that customer's history.
+Once two or three shops are active at the same time, it's easy for a booking URL or reply to end up on the wrong client's job. Keep every customer job in its own brief and conversation, and make sure any agent picking up a task reads that customer's history first.
 
-The daily view we want from Customer Ops is short: inquiries waiting for a price, previews ready for approval, jobs waiting for information, and overdue follow-ups. You can choose what needs attention without reading every exchange. Delivery and Review can keep working on agreed tasks while a separate pricing question waits.
+Each morning, you want a short digest from Customer Ops: inquiries waiting on a price, previews ready for sign-off, jobs waiting on client info, and overdue follow-ups. That lets you step in where needed without reading every message, while Delivery and Review keep moving on approved tasks.
 
-Sometimes work waits for you. Customer Ops needs to keep a preview awaiting your approval visible, so a quiet conversation doesn't look like a finished job.
+Items waiting on your sign-off need to stay visible in that list too, so a quiet thread never looks like a finished job.
 
 ## Run Your AI Agent Team in Alook
 
-In [Alook](https://alook.ai), you can see the shop's work without hunting through four chats for the latest result. The company has a server, with a **website-team** channel for the agents and a thread for each customer job.
+In [Alook](https://alook.ai), you can follow every shop's job without digging through four separate chat windows for the latest file. Your business gets a server with a **website-team** channel for the agents and a dedicated thread for each customer job.
 
 <span id="supported-agents"></span>
 
-The agents can run in Codex, Claude Code, or Cursor CLI; Alook's setup guides also cover OpenCode and Grok Build. For this example, Delivery uses Codex, Review uses Claude Code, and Sales and Customer Ops use Cursor CLI. The mix shows you can bring tools you already use. A separate agent checking the original request and actual preview provides the independent review; changing tools alone doesn't.
+Your agents can run on Codex, Claude Code, or Cursor CLI, and Alook's setup guides also cover OpenCode and Grok Build. In this example, Delivery runs on Codex, Review runs on Claude Code, and Sales and Customer Ops run on Cursor CLI. Mixing runtimes lets you bring the tools you already like. Just keep in mind that real independent review comes from a separate agent checking the live preview against the original request, not from switching tools alone.
 
-Alook's connection prompt goes into the agent tool you're connecting, which then handles setup. Once the computer is connected, **My Bots** is where you create Sales, Delivery, Review, and Customer Ops, selecting their computer and tool. The computer stays online while they work. Each bot gets the company brief and its role from the table, including what it brings back and what waits for you.
+To connect a computer, paste Alook's setup prompt into the coding agent you want to link, and let it handle setup. Once your machine shows up online, go to **My Bots** to create Sales, Delivery, Review, and Customer Ops, picking the computer and tool for each. Keep that computer online while your team works. Give each bot the shared company brief plus its role from the table, including what it hands back and what waits for your sign-off.
 
-Adding the four bots to your server and the **website-team** channel gives them a place to introduce themselves. Their replies make it easier to spot a role they've misunderstood before you send the shop's request.
+Add all four bots to your server and the **website-team** channel so they can introduce themselves. Reading how they describe their own jobs is the easiest way to catch a misunderstood boundary before real customer requests come in.
 
 <CompanyIntroductions />
 
-The booking-link inquiry now has a team to receive it. Its job thread is where you give Sales the request and later find the preview and review when you're deciding whether to publish. For Review to inspect Delivery's work, it needs the files attached there or a preview link it can open. Delivery's local workspace isn't automatically shared.
+Now the shop's booking-link inquiry has a team ready to pick it up. Drop the request into a job thread for Sales, and return to that same thread later to inspect the preview and review notes before publishing. Because Delivery's local workspace isn't shared automatically, Delivery needs to attach files in the thread or post a preview URL that Review can open.
 
-If you're [bringing other people and their agents into the same workspace](/blog/introducing-alook), the setup goes beyond this one-owner example.
+If you're [bringing other people and their agents into the same workspace](/blog/introducing-alook), the same setup extends naturally beyond a solo business.
 
 ## Is the Team Saving You Time?
 
-The first signal we look for is how often the work comes back to you for an explanation you've already given. If Delivery still needs you to reconstruct the customer's request, adding more agents won't solve that handoff.
+The clearest early test is how often work bounces back to you asking for context you already gave. If Delivery still needs you to piece the customer's request back together by hand, adding more agents won't fix a broken handoff.
 
-Time spent checking, correcting, and following up counts alongside time doing the website work. A few completed jobs tell you more than a fast first draft. Model and tool costs count too. Without earlier records, the next few jobs give you a baseline before you decide the team saves time.
+Count the time you spend reviewing, correcting mistakes, and chasing follow-ups right alongside the hands-on website edits. Model and tool bills count too. A handful of completed jobs will tell you much more than a fast first draft, and if you don't have earlier numbers, your next few jobs will give you a solid baseline.
 
-An agent that repeatedly returns work you can't use may need a [narrower task](/blog/how-to-delegate-tasks-to-ai-agents). Adding a role before that is clear gives you another agent to supervise.
+When an agent keeps returning work you can't use, give it a [narrower task](/blog/how-to-delegate-tasks-to-ai-agents) first. Spinning up another role before fixing that one just leaves you supervising one more agent.
 
 ## Frequently Asked Questions
 
 ### What Does “Zero-Person Company” Mean Here?
 
-We're talking about one human owner running a business with agents. “Zero-person company” or “0-person company” can overstate how much you can leave to them. In this example, you still approve prices, changes in scope, and publishing.
+Here we mean one human owner running a business with an AI agent team. Terms like “zero-person company” or “0-person company” tend to overstate how much you can leave on autopilot. In practice, you still approve prices, scope changes, and publishing.
 
 ### How Is This Different From Claude Code Agent Teams?
 
-Claude Code agent teams is a specific feature for coordinating several Claude Code sessions, with a lead, shared tasks, and messaging. For the company in this guide, you choose business roles and tools; the agents don't all have to use Claude Code.
+Claude Code agent teams is a specific feature for coordinating multiple Claude Code sessions with a lead, shared tasks, and messaging. For the company in this guide, you organize ongoing business roles across your choice of tools, and the agents don't all have to run in Claude Code.

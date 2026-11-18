@@ -9,17 +9,17 @@ export const metadata = {
   "readingTime": "6 min read"
 };
 
-Our authoring bot had handed an article's PR and files to an engineering review bot. The reviewer could open them. What it couldn't open was the editorial discussion where the owner had approved the final version and its scope.
+Our authoring bot handed an article's PR and files to an engineering review bot. The reviewer could open the code and markdown files fine. What it couldn't open was the editorial channel where our owner had approved the final copy and scope.
 
-The handoff had carried the work, but left a decision behind. The reviewer still needed the record of what the owner had approved.
+The handoff carried the files while leaving a key decision behind. Without that approval record, the reviewer had no way to verify whether the PR matched what was agreed.
 
-That's the part of AI agent orchestration we spend time on: getting another participant enough context to continue the job, with a clear place for the person's decision.
+That is the unglamorous core of AI agent orchestration: giving the next participant enough context to actually continue the job, while keeping human sign-off clearly anchored.
 
 ![An authoring bot passes a PR, files, and the owner's approved scope to a review bot.](/blog/ai-agent-orchestration/hero.webp)
 
 ## What is AI agent orchestration?
 
-AI agent orchestration connects a task to the agent doing it, then determines how the result moves on. That might mean sending a draft to review, returning a failed check to its author, or waiting for someone to approve a change.
+AI agent orchestration assigns a job to the right agent and governs how its output moves to the next step. That might mean routing a finished draft to a reviewer, kicking a failed test run back to the author, or pausing until a human approves a merge.
 
 <div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration table 1; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
 <div style={{ minWidth: "640px", overflowWrap: "normal", wordBreak: "normal" }}>
@@ -34,21 +34,21 @@ AI agent orchestration connects a task to the agent doing it, then determines ho
 </div>
 </div>
 
-A normal workflow can run steps in order and wait for approval. An agent gets to choose how to investigate or review the work. You can leave that choice open while keeping a simple rule: a failed check goes back to whoever prepared the change.
+An ordinary script runs fixed steps in sequence and pauses at predetermined gates. An agent gets leeway to decide how it investigates or checks the work. You can keep that investigative freedom inside each step while enforcing a simple routing rule outside it: any failed check goes straight back to whoever wrote the change.
 
 ## When do you need multi-agent orchestration?
 
-We separate authoring and review because we want another examination of the work. The authoring bot knows why it made its choices. The review bot has to inspect the submitted result and question anything that doesn't add up.
+We split authoring and review across two bots because we want a second, independent look at the work. The authoring bot is steeped in why it wrote things a certain way. A separate review bot reads only what was submitted and flags anything that doesn't hold up.
 
-That division gives the second agent a reason to be there. Splitting reading, writing, and running a check into three separate assignments often just creates more context to pass around. If one agent can finish the work and you can check it, we'd keep it together.
+That separation gives the second bot a real job. By contrast, chopping reading, drafting, and running a linter into three separate bots mostly creates extra handoff tax. Whenever a single agent can finish the task cleanly and show you its work, keep it as one agent.
 
-Independent investigations are worth separating when each has its own question to answer. We keep edits to the same files with one owner until those findings come back.
+Spinning up parallel agents does help when you have genuinely independent questions to investigate. Even then, keep file edits with a single owner until those parallel findings come back.
 
-We'd reduce the work arriving for review before increasing the number of agents producing it. A person facing a queue of unreviewed changes needs fewer things to check at once.
+One practical rule we follow: shrink the pile of unreviewed work before adding more bots that generate output. A human staring at ten open PRs needs smaller, cleaner batches, rather than faster output generation.
 
 ## Agent orchestration patterns: rules, a lead, or peer handoffs
 
-For an article moving from authoring to review, the next recipient is usually known. We can name that role in the assignment. A manager agent would need to solve another problem to justify sitting between them.
+When a draft moves from writing to engineering review, everyone already knows who gets it next. Naming that reviewer directly in the handoff is enough. Putting a manager agent in the middle only pays off if there is a real routing decision to make.
 
 <div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration table 2; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
 <div style={{ minWidth: "640px", overflowWrap: "normal", wordBreak: "normal" }}>
@@ -62,34 +62,34 @@ For an article moving from authoring to review, the next recipient is usually kn
 </div>
 </div>
 
-The review bot already knew who had prepared the article and could send its question straight back. We had no new assignment for a manager to make. The next step depended on the author's reply.
+In our case, the review bot knew which bot opened the PR and asked it directly for the missing context. A manager bot wouldn't have added anything; the review was simply waiting on the author's answer.
 
-The authoring bot needed to return the approval record, whether the request came through a person, a manager agent, or [AI agent orchestration tools](/blog/ai-agent-collaboration-platforms).
+Whether that request travels through a human, a lead agent, or dedicated [AI agent orchestration tools](/blog/ai-agent-collaboration-platforms), the authoring bot still had to supply the missing approval record.
 
 ## How does AI agent orchestration work? A review handoff
 
-The review bot reported `server not found` when it tried to reach the editorial space. It asked the authoring bot to bring the owner's approval and later scope changes into the engineering discussion, as a readable summary or attachment.
+When our review bot tried to look up the original editorial thread, it hit `server not found`. Instead of guessing, it asked the authoring bot to bring the owner's approval and scope notes into the engineering channel as a readable summary or attachment.
 
-It was specific about what it lacked. The PR and submitted files were already available, and the review could continue on those. The missing part was the record of which final copy and images the owner had approved, and what the next action was meant to include.
+Because the request was specific, nothing stalled from confusion. The reviewer already had the PR and changed files, so it kept checking those. What it lacked was proof of which final copy and images the owner had signed off on, plus what the current step covered.
 
-The authoring bot brought that record across. It summarized the approved images, the heading and anchor-text changes, and the final package. It also made clear that approval to submit the PR wasn't yet approval to merge it. The review bot then confirmed that the scope had been supplied.
+The authoring bot bridged the gap. It posted a summary of the approved images, the agreed heading and anchor-text edits, and the final file bundle. It also noted explicitly that approval to open the PR did not equal approval to merge it. Once that landed, the review bot confirmed it had the scope and wrapped up its check.
 
-The owner didn't have to repeat every instruction to the reviewer. A bot with access to the original discussion moved the needed decisions to the place where review was happening. The review continued with the existing files and completed checks.
+Notice what didn't happen: our human owner never had to copy-paste old chat messages between rooms. A bot with access to the editorial server carried the decision record over to engineering, keeping all prior checks intact.
 
-The handoff needed four things:
+Every clean handoff carries four pieces:
 
-- A reference to the exact version being submitted
-- Files the recipient can actually open
-- The brief and decisions that determine what is being reviewed
-- Completed checks and the next action that needs an owner
+- A pointer to the exact commit or version under review
+- Files the receiving agent actually has permission to open
+- The brief and human decisions that define what "done" looks like
+- Checks already run, plus the specific next action and its owner
 
-A discussion link is enough only when the recipient can read it. The missing approval belonged in the [handoff to the review bot](/blog/how-to-delegate-tasks-to-ai-agents), alongside the files. Once it arrived, the reviewer could check the scope as well as the submitted work.
+Dropping a channel link only works if the receiver belongs to that server. Otherwise, put the approval summary right inside the [handoff to the review bot](/blog/how-to-delegate-tasks-to-ai-agents) alongside the files so the reviewer can check both the code and the agreed scope.
 
 ![A review bot receives a PR and files but lacks the approved scope. The authoring bot brings the human owner's approval record into the review discussion, and the review continues.](/blog/ai-agent-orchestration/handoff-record.webp)
 
 ## How should agents handle timeouts, retries, and approvals?
 
-The review bot had asked for missing context. Sending the same PR again or rerunning a build would have left that request unanswered.
+When our review bot paused to ask for missing scope, blindly re-sending the PR link or re-running CI wouldn't have unstuck anything. Different stalls call for different responses.
 
 <div className="overflow-x-auto thin-scrollbar" role="region" tabIndex={0} aria-label="Orchestration table 3; scroll horizontally to read" style={{ maxWidth: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
 <div style={{ minWidth: "640px", overflowWrap: "normal", wordBreak: "normal" }}>
@@ -105,18 +105,18 @@ The review bot had asked for missing context. Sending the same PR again or rerun
 </div>
 </div>
 
-For our review, the right response was to supply the missing record while preserving the checks already done. A second agent helped because it identified a precise gap and asked for it to be filled.
+Here, the right move was fetching the missing approval record without throwing away the checks the reviewer had already finished. Having a second bot paid off precisely because it named the exact gap instead of rubber-stamping the PR.
 
-After an interruption, the returning bot needs to find the submitted version, completed checks, and the unanswered request. A code-based workflow also needs to save where execution stopped so it can resume there. That's worth settling when you choose the [multi-agent workflow pattern](/blog/multi-agent-workflow-patterns): where does the bot pick up after it stops?
+Whenever a run pauses or restarts, the waking bot needs to see the submitted version, completed checks, and any open question right away. In a code-driven workflow, you also have to persist execution state so the job resumes from the right step. Decide how recovery works early when picking a [multi-agent workflow pattern](/blog/multi-agent-workflow-patterns).
 
 ## How does multi-agent collaboration work across a team?
 
-Our authoring and review bots belonged to the same owner. Across owners, the reviewer still needs to know whose bot supplied the finding and which person can approve the next action. We keep the finding tied to the bot that produced it and the decision with the person responsible for the work.
+In the story above, one person owned both the authoring bot and the review bot. Once teammates bring their own bots into the mix, everyone also needs to see whose bot raised an issue and which human has authority to approve the next step. Tying every message to a named bot account while keeping sign-off with the responsible human keeps accountability clear.
 
-We built Alook for [multi agent collaboration](https://alook.ai/) where colleagues can question each other's bots. An engineer keeps Codex connected to their project. A colleague asks it what it checked, and the engineer joins the discussion about whether the change is ready.
+We built Alook for [multi agent collaboration](https://alook.ai/) where teammates can talk directly with each other's bots in shared channels. An engineer connects Codex to their local repo, a teammate asks that bot what edge cases it tested, and the engineer steps into the same thread to decide whether to ship.
 
 ![Alook UI illustration showing two people and their bots discussing an approved brief, a follow-up question, and a draft in one channel.](/blog/ai-agent-orchestration/alook-two-bot-handoff.webp)
 
 [View the full-size Alook UI illustration](/blog/ai-agent-orchestration/alook-two-bot-handoff.webp)
 
-We want the person reviewing a change to spend their attention on the change. Carrying the current version and the decisions behind it is work the bots can do for them.
+Humans reviewing a change should spend their energy judging the change itself. Carrying file versions, test logs, and prior decisions across the room is legwork the bots can handle.

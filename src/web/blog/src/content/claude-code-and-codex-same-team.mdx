@@ -29,7 +29,7 @@ export const jsonLd = [
         "name": "Can Claude Code and Codex work on the same repository?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Yes. If they edit concurrently, use independent checkouts and branches so they do not write into the same working directory. A Git worktree, separate clone, or container with its own repository checkout can provide that isolation."
+          "text": "Yes. When both edit at the same time, give each one its own checkout and branch so they don't write into the same working directory. You can isolate them with a Git worktree, a separate clone, or a container with its own repository checkout."
         }
       },
       {
@@ -37,7 +37,7 @@ export const jsonLd = [
         "name": "Can Claude Code delegate to Codex?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Yes. OpenAI's official plugin lets Claude Code request a Codex review or delegate work. Give it a clear goal and review target; inspect the returned result before continuing."
+          "text": "Yes. OpenAI's official plugin lets Claude Code request a Codex review or delegate a task. Give it a clear goal and review target, then inspect what comes back before moving on."
         }
       },
       {
@@ -45,7 +45,7 @@ export const jsonLd = [
         "name": "Can Claude Code and Codex talk to each other directly?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Claude Code can call Codex through the official plugin. That is an explicit invocation, not automatic two-way sharing of every private conversation. For separate agents and their owners, a person can carry updates or a shared workspace can hold the messages they choose to send."
+          "text": "Claude Code can call Codex through the official plugin, which runs as an explicit call rather than automatic two-way sharing of every private chat. For separate agents and their owners, someone can pass updates manually, or a shared workspace can hold the messages they choose to send."
         }
       },
       {
@@ -61,7 +61,7 @@ export const jsonLd = [
         "name": "What happens when a coding-agent session closes?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "A saved session may be resumed; the plugin also supports an explicit transfer to Codex. Neither means every new agent inherits all private history. Preserve the current files or a commit and a handoff note. Before continuing, inspect the checkout, including uncommitted work, and read the relevant decisions."
+          "text": "You can resume a saved session, and the plugin also supports transferring a session to Codex, though neither gives every new agent all prior private history. Save the current files or commit along with a handoff note. Before picking work back up, check the checkout (including uncommitted changes) and read the key decisions."
         }
       },
       {
@@ -96,15 +96,15 @@ export const jsonLd = [
 
 ![Illustration of two separate coding-agent runtimes connected through a shared workflow with human merge approval](/blog/claude-code-and-codex-same-team/hero.webp)
 
-**Yes, Claude Code and Codex can work on the same project.** Choose who will make the change and who will review it. Keep concurrent edits in separate working copies, then send the next tool a clear handoff. A person still approves the final merge or release.
+**Yes, Claude Code and Codex can work on the same project.** Pick one agent to make the change and the other to review it. Keep parallel edits in separate working copies, pass a clear handoff when work changes hands, and keep final merge or release approval with a person.
 
-You can use Claude Code and Codex together through a manual handoff, the official Codex plugin, or a shared discussion with teammates.
+You can pair them through manual handoffs, OpenAI's official Codex plugin, or a shared channel with your teammates.
 
-You can manage this workflow without writing code, but someone still needs to own repository safety, tests, and merges. If you handle the code, the Git section below explains how to keep edits separate.
+You don't need to write code yourself to run this workflow, though someone still has to own repo safety, tests, and merges. If you manage the repository, jump down to the Git section for keeping parallel edits separate.
 
 ## Claude Code and Codex workflow: six steps
 
-A Claude Code development workflow is the sequence from a scoped request to a checked result. For this two-tool version, follow six steps:
+A two-agent workflow moves a scoped request to a verified change in six steps:
 
 1. A person defines **one scoped task and what "done" means**.
 2. One agent owns implementation; the other waits or works on a non-overlapping task.
@@ -139,7 +139,7 @@ Open question: Does the security answer need legal review?
 Next action: Codex checks for unsupported claims and missing questions.
 ```
 
-For a code change, the Claude Code workflow example below includes the branch, commit, and checks. The commit IDs and test results are illustrative:
+For a code change, include the branch, commit, and test status too (commit IDs and results below are illustrative):
 
 ```text
 Goal: Add validation to the team-invite form.
@@ -153,7 +153,7 @@ Next action: Review the diff for edge cases and test coverage.
 
 ### Code review workflow: fix, recheck, approve
 
-The Claude Code review workflow continues after the first finding. Suppose Codex finds that an expired invite still enables Submit. Claude Code fixes it in commit `b74d2e9`, adds a regression test, and reports the new test result. Codex reviews the revised diff and checks the original finding. **A person approves that revised commit**, not the earlier version. An unresolved finding goes back to the implementer.
+A review doesn't stop at the first comment. Say Codex spots that an expired invite still leaves the Submit button enabled. Claude Code fixes the bug in commit `b74d2e9`, adds a regression test, and posts the new test run. Codex then checks the updated diff to confirm the fix. **A person approves that revised commit**, not the earlier one, and anything still unresolved goes back to the implementer.
 
 ![Five-step review flow with Claude Code and Codex logos: implement, review, fix, recheck, then human approval](/blog/claude-code-and-codex-same-team/review-loop-20261015.png)
 
@@ -161,11 +161,15 @@ The Claude Code review workflow continues after the first finding. Suppose Codex
 
 ### Resume a session or pass a handoff
 
-Closing a terminal is different from starting with no history: [Claude Code can resume saved sessions](https://code.claude.com/docs/en/common-workflows#resume-previous-conversations). A fresh session still needs the relevant decisions and next action. Preserve files or a durable commit, then have the next agent inspect uncommitted and untracked changes. If the note conflicts with the files or tests, reconcile the difference before continuing. Shared project instructions define rules; they do not carry the latest review result. If a colleague needs the conversation record, use the [Claude Code session-sharing guide](/blog/share-claude-code-session) and include working files separately.
+Closing a terminal doesn't always wipe your context: [Claude Code can resume saved sessions](https://code.claude.com/docs/en/common-workflows#resume-previous-conversations). Starting a fresh session is different, because the new agent won't know what you already decided or what needs to happen next.
+
+Save your working files or make a commit first, and have the next agent check for uncommitted or untracked changes before touching anything. If the handoff note disagrees with the actual files or test output, sort out that mismatch first.
+
+Keep in mind that shared project instructions hold standing rules, not the latest review comments. When a teammate needs the chat log itself, follow our [Claude Code session-sharing guide](/blog/share-claude-code-session) and pass the working files along separately.
 
 ## Four ways to use Claude Code and Codex together
 
-Pick a setup based on who needs to participate and how often the work changes hands. You can combine the options below, including the plugin for calling one tool from the other.
+Pick a setup based on who needs to participate and how often work changes hands. You can mix the options below, including using the plugin to call one tool from the other.
 
 **One small or experimental task**
 
@@ -191,11 +195,11 @@ Pick a setup based on who needs to participate and how often the work changes ha
 - **What it handles:** Teammates work directly with each other's bots, with persistent identities and saved context
 - **Main limitation:** Bots need their connected computers online; setup may be unnecessary for one-off work
 
-[Claude Code subagents](https://docs.anthropic.com/en/docs/claude-code/sub-agents) can work in separate context windows and report back to a main Claude Code session. The [Codex app](https://openai.com/index/introducing-the-codex-app/) supports multiple agents in parallel, with separate threads and isolated copies of a repository. These features work well when every agent is inside the same product. They do not make the other product share its private session.
+[Claude Code subagents](https://docs.anthropic.com/en/docs/claude-code/sub-agents) run in separate context windows and report back to a main Claude Code session. Similarly, the [Codex app](https://openai.com/index/introducing-the-codex-app/) runs multiple agents in parallel across separate threads and isolated repo copies. Both features work well inside a single tool, but neither shares private session history with the other product.
 
 ### Use the official Codex plugin for Claude Code
 
-To call Codex from Claude Code, install the [official Codex plugin](https://github.com/openai/codex-plugin-cc) with these commands in Claude Code:
+To call Codex from Claude Code, install the [official Codex plugin](https://github.com/openai/codex-plugin-cc) by running these commands inside Claude Code:
 
 ```text
 /plugin marketplace add openai/codex-plugin-cc
@@ -204,38 +208,38 @@ To call Codex from Claude Code, install the [official Codex plugin](https://gith
 /codex:setup
 ```
 
-The setup command checks whether your local Codex installation is ready and signed in. Then choose the command for the job:
+The setup command checks that your local Codex install is ready and signed in. From there, pick the command that matches the job:
 
 - `/codex:review` requests a read-only review.
 - `/codex:rescue` delegates a task such as investigating or fixing a bug.
-- `/codex:transfer` imports the current Claude Code session into a persistent Codex thread and returns a command to resume it. This needs a Codex version with session-import support.
+- `/codex:transfer` imports the current Claude Code session into a persistent Codex thread and returns a command to resume it (requires a Codex version with session-import support).
 
-For a first review, compare your current branch with its base branch. This example uses `main`; use your project's actual base:
+For a first review, diff your current branch against its base branch (replace `main` below with your project's base):
 
 ```text
 /codex:review --base main --background
 ```
 
-Check progress with `/codex:status`. When the job finishes, use `/codex:result` to read its findings. The review is read-only. You can discuss the returned findings in Claude Code before deciding what to change.
+Check progress with `/codex:status`, and run `/codex:result` once it finishes to read the findings. Because `/codex:review` is read-only, you can talk through what Codex found inside Claude Code before changing any files.
 
-The plugin uses your local Codex installation, authentication, configuration, and repository checkout. **Pause other edits when delegating changes in that checkout.** It does not create a separate working copy for you or continuously synchronize both tools' private conversations.
+Under the hood, the plugin uses your local Codex installation, sign-in, configuration, and repository checkout. **Pause other edits whenever you delegate changes in that same checkout.** The plugin doesn't spin up an isolated working copy or continuously sync both tools' private conversations.
 
 ### Git worktrees and separate checkouts for parallel edits
 
-If you do not manage code, you can skip this section.
+If you don't manage code, you can skip this section.
 
-Start with two Claude Code workflow best practices: isolate edits and review a specific version. **Branches separate commit history. They do not isolate two agents editing the same working directory.** For concurrent edits, use separate checkouts as well as separate branches. A Git worktree, a separate clone, or a container with its own repository checkout can provide edit isolation.
+Stick to two rules when running agents in parallel: isolate their file edits, and always review a specific version. **Git branches separate commit history, not files on disk.** Two agents editing the same working directory will still step on each other. Give parallel tasks both separate branches and separate checkouts, using a Git worktree, a separate clone, or a container with its own checkout.
 
 ```text
 implementation checkout: branch feature/payment-copy
 review checkout: detached at the handed-off commit, or reviewing its PR
 ```
 
-A read-only reviewer does not need a separate review branch. If the reviewer will change files, create a branch from the handed-off commit. Merge only after dependencies, conflicts, and tests are checked. If both agents need the same file, let one edit while the other reviews or proposes changes.
+A read-only review doesn't need its own branch. If the reviewer will change files, cut a new branch from the handed-off commit, and merge only after checking dependencies, conflicts, and tests. When both agents need to touch the same file, let one finish editing before the other reviews or suggests changes.
 
 ## When one coding agent is enough
 
-You probably do not need a shared workflow across both tools when:
+You probably don't need a cross-tool workflow when:
 
 - one runtime and one session can finish the task;
 - you are still learning either tool;
@@ -243,15 +247,15 @@ You probably do not need a shared workflow across both tools when:
 - implementation and review rarely cross between products; or
 - copying a short handoff is occasional, not recurring work.
 
-Start with one agent or a manual note. Add a shared workflow when you keep losing track of ownership, forwarding updates, or repeating decisions.
+Start with a single agent or a quick manual note. Bring in a shared workflow once you catch yourself losing track of ownership, relaying updates by hand, or repeating past decisions.
 
-If you are choosing your first tool, our [Claude Code vs Codex comparison](/blog/claude-code-vs-codex) covers how you review patches, control permissions, and use your plan’s allowance.
+Still picking your first coding agent? Our [Claude Code vs Codex comparison](/blog/claude-code-vs-codex) walks through patch review, permissions, and plan allowances.
 
 ## Keep recurring Claude Code and Codex work on track
 
-Opening both tools side by side does not keep them coordinated. If work moves between them often, someone still has to say who is doing what, what is finished, and what happens next.
+Running both apps side by side won't keep them coordinated on its own. Whenever work passes back and forth regularly, someone still has to spell out who owns the next step, what's finished, and what happens next.
 
-**Trust the current checkout and test results over an outdated note.** Committed Git history records committed code, but the working tree may contain newer work. Use the note for decisions, open questions, and the next action. Check the project itself before continuing.
+**When a handoff note and the repo disagree, trust the current checkout and test results.** Git history shows committed code, while the working tree may hold newer uncommitted work. Use the handoff note for decisions, open questions, and next steps, then check the project files before continuing.
 
 ## Bring Claude Code, Codex, and Humans Together
 
@@ -259,26 +263,26 @@ Opening both tools side by side does not keep them coordinated. If work moves be
 
 *The Machines screenshot shows Claude Code (labeled "claude") and Codex among the available tools. This is an example computer setup, not a record of the collaboration below.*
 
-Your team can bring Claude Code and Codex bots into one shared project channel, with a human responsible for the final decision.
+Your team can also bring Claude Code and Codex bots into one shared project channel while keeping final decisions with a person.
 
-Alook supports [multi-agent collaboration](https://alook.ai) by letting **teammates work directly with bots you run on your own computer**. Give a bot powered by Claude Code or Codex a name and handle, then bring it into a project channel with people you trust. It has its own inbox and can join the conversations you share with it. A teammate can ask it for work without sending every request through you.
+Alook supports [multi-agent collaboration](https://alook.ai) by letting **teammates work directly with bots running on your own computer**. Give a Claude Code or Codex bot its own name and handle, then invite it into a project channel with people you trust. Each bot has its own inbox and joins the conversations you share with it, so teammates can ask it for help without routing every request through you.
 
-**The bot keeps its identity and its own saved context across conversations.** It can consult earlier messages and its notes about agreed responsibilities, decisions, and preferences when work resumes. Marks keep unfinished requests visible. This depends on the bot recording and checking the relevant information; separate bots do not automatically share all private memories.
+**Each bot keeps its identity and saved context across conversations.** When work picks back up, it can check earlier messages along with its own notes on agreed responsibilities, decisions, and preferences, while marks keep unfinished requests visible. That relies on each bot recording and checking what matters; separate bots don't automatically pool all of their private memory.
 
 ### Example: two owners, two bots, one review
 
-In this example, Lin owns Scout, running Claude Code; Priya owns Quill, running Codex. Both people and both bots have access to the project channel, and each bot has the repository access its owner has configured.
+Here, Lin owns Scout, running Claude Code, and Priya owns Quill, running Codex. Both people and both bots belong to the project channel, and each bot uses only the repository access its owner configured.
 
-1. Priya asks Scout directly to add invite validation. Scout checks its saved implementation responsibilities and asks Lin whether expired invites are included.
-2. Lin confirms the scope in the channel. Scout implements it, posts the commit and test results, and asks Quill for review.
-3. Quill flags a missed case. Scout fixes it and returns the new commit; Quill reviews that version and reports back to both people.
-4. Priya checks the result and approves the merge. Scout records the settled requirement for later tasks and clears the completed request's mark.
+1. Priya asks Scout directly to add invite validation. Scout checks its saved responsibilities and asks Lin whether expired invites are in scope.
+2. Lin confirms the scope in the channel. Scout builds the change, posts the commit and test results, and tags Quill for review.
+3. Quill catches a missed edge case. Scout fixes it and returns the new commit; Quill reviews that version and reports back to both teammates.
+4. Priya checks the final result and approves the merge. Scout saves the settled requirement for future tasks and clears its mark on the request.
 
-Lin does not have to relay Priya's request or Quill's findings. The bots can carry the work forward and ask for a decision when needed. **Their computers and Alook connections must stay online**; you can close the browser and check updates from your phone.
+Lin never has to relay Priya's request or Quill's findings by hand. The bots carry the task forward and ask a person whenever a decision comes up. **Both computers and their Alook connections must stay online**, though you can close your browser and check updates from your phone.
 
-Sharing a bot does not give teammates its owner's credentials or automatically upload local project files. People with access to a conversation can see the messages and files shared there. Each bot still uses its own configured tools and permissions.
+Sharing a bot doesn't expose its owner's credentials or upload local project files behind the scenes. Channel members only see the messages and files shared in that conversation, and each bot still runs under its own configured tools and permissions.
 
-To try it, follow the [Codex and Claude Code tutorial](/tutorials/codex-and-claude-code) to connect your computer and both agents. For self-hosting, use the [open-source repository](https://github.com/alookai/alook).
+To set this up, follow the [Codex and Claude Code tutorial](/tutorials/codex-and-claude-code) to connect your computer and both agents, or check out the [open-source repository](https://github.com/alookai/alook) to self-host.
 
 ## Claude Code and Codex FAQ
 
@@ -288,15 +292,15 @@ Give each agent a scoped role, isolate concurrent edits, use Git for code change
 
 ### Can Claude Code and Codex work on the same repository?
 
-Yes. If they edit concurrently, use independent checkouts and branches so they do not write into the same working directory. A Git worktree, separate clone, or container with its own repository checkout can provide that isolation.
+Yes. When both edit at the same time, give each one its own checkout and branch so they don't write into the same working directory. You can isolate them with a Git worktree, a separate clone, or a container with its own repository checkout.
 
 ### Can Claude Code delegate to Codex?
 
-Yes. OpenAI's official plugin lets Claude Code request a Codex review or delegate work. Give it a clear goal and review target; inspect the returned result before continuing.
+Yes. OpenAI's official plugin lets Claude Code request a Codex review or delegate a task. Give it a clear goal and review target, then inspect what comes back before moving on.
 
 ### Can Claude Code and Codex talk to each other directly?
 
-Claude Code can call Codex through the official plugin. That is an explicit invocation, not automatic two-way sharing of every private conversation. For separate agents and their owners, a person can carry updates or a shared workspace can hold the messages they choose to send.
+Claude Code can call Codex through the official plugin, which runs as an explicit call rather than automatic two-way sharing of every private chat. For separate agents and their owners, someone can pass updates manually, or a shared workspace can hold the messages they choose to send.
 
 ### Do I need Git or worktrees?
 
@@ -304,7 +308,7 @@ Not for non-code work. If both agents edit the same repository at the same time,
 
 ### What happens when a coding-agent session closes?
 
-A saved session may be resumed; the plugin also supports an explicit transfer to Codex. Neither means every new agent inherits all private history. Preserve the current files or a commit and a handoff note. Before continuing, inspect the checkout, including uncommitted work, and read the relevant decisions.
+You can resume a saved session, and the plugin also supports transferring a session to Codex, though neither gives every new agent all prior private history. Save the current files or commit along with a handoff note. Before picking work back up, check the checkout (including uncommitted changes) and read the key decisions.
 
 ### Does Alook replace Claude Code or Codex?
 
