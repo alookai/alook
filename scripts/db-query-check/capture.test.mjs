@@ -40,6 +40,30 @@ test('raw D1 prepare/bind/all adapter captures actual bound native SQL', t => {
   assert.deepEqual(queries[0].params, ['bot'])
 })
 
+for (const Database of [Sqlite, createRequire(import.meta.url)('node:sqlite').DatabaseSync]) {
+  test(`a literal fixture inside a product adapter keeps its own ${Database.name} statement origin`, t => {
+    const root = process.cwd()
+    const db = new Database(':memory:')
+    db.exec('CREATE TABLE fixture_only(id TEXT); INSERT INTO fixture_only VALUES (\'one\')')
+    const directory = mkdtempSync(join(tmpdir(), 'query-nested-fixture-'))
+    const capture = createCapture(root)
+    const restore = instrumentDatabase(Database.prototype, query => capture.collect(query))
+    t.after(() => { restore(); db.close(); rmSync(directory, { recursive: true, force: true }) })
+    const product = { key: 'outer-product', file: 'src/shared/src/db/queries/nested-fixture.ts', line: 1 }
+    const fixture = { key: 'nested-fixture', file: 'src/shared/test/nested-fixture.test.ts', line: 1, kind: 'test-fixture', resolution: 'database-type', proof: 'literal-sql', literalSql: 'SELECT count(*) AS n FROM fixture_only' }
+    const adapter = runInThisContext('(probe) => probe()', { filename: join(root, product.file) })
+    const result = querySource.run(product, () => adapter(() => registerQuerySource(db.prepare(fixture.literalSql), fixture).get()))
+    assert.equal(result.n, 1)
+    capture.write(directory)
+    const report = buildReport(db, { filesScanned: 1, sites: [product], fixtureSites: [fixture] }, directory, 0)
+    assert.equal(report.testStatements.length, 1)
+    assert.equal(report.summary.hazards, 0)
+    assert.equal(report.summary.observedSites, 0)
+    assert.deepEqual(report.uncovered.map(site => site.key), [product.key])
+    assert.equal(report.outcome, 'failed')
+  })
+}
+
 test('captured source sites are exact; other branches stay uncovered and reports omit bound values', t => {
   const root = process.cwd()
   const directory = mkdtempSync(join(tmpdir(), 'db-scan-capture-test-'))

@@ -92,7 +92,8 @@ export function instrumentDatabase(prototype, collect) {
         return (...args) => {
           if (key === 'bind') bound = args
           if (['all', 'get', 'run', 'iterate'].includes(key)) {
-            const executingSource = source ?? queryOrigin(proxy) ?? querySource.getStore()
+            const registered = queryOrigin(proxy)
+            const executingSource = registered?.kind === 'test-fixture' && registered.proof === 'literal-sql' && registered.literalSql === sql ? registered : source ?? registered ?? querySource.getStore()
             collect({ sql, params: bound ?? args, source: executingSource, context: () => context(bound ?? args), stack: executingSource && executingSource.kind !== 'test-fixture' ? '' : `${origin}\n${nativeStack()}` })
           }
           const result = Reflect.apply(value, target, args)
