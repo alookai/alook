@@ -6,6 +6,7 @@ import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { appendBotAuditEvent, useBotAuditLog, UNOBSERVED_AUDIT_HEAD_LIMIT, type AuditEvent, type AuditLogPage } from "./use-bot-audit-log"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
+import { readBotDirectoryWindow } from "@/lib/community/bot-directory-window"
 
 const mockApiFetch = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -284,6 +285,42 @@ describe("canonical audit pagination and retention", () => {
     await waitFor(() => expect(mockApiFetch).toHaveBeenCalledOnce())
     await waitFor(() => expect(result.current.events.map((e) => e.id)).toEqual(["live", "head"]))
     expect(result.current.hasNextPage).toBe(true)
+  })
+
+  it("publishes a validated reopened head while the native older-page refetch is still held", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+    const key = communityKeys.botAuditLog("b1"), oldTime = Date.now() - 60_000
+    const head = Array.from({ length: 50 }, (_, index) => auditEvent(`head-${199 - index}`, 199 - index))
+    const older = Array.from({ length: 50 }, (_, index) => auditEvent(`head-${149 - index}`, 149 - index))
+    const oldCursor = { beforeCreatedAt: head.at(-1)!.createdAt, beforeId: head.at(-1)!.id }
+    const nextCursor = { beforeCreatedAt: older.at(-1)!.createdAt, beforeId: older.at(-1)!.id }
+    client.setQueryData(key, { pages: [{ events: head, nextCursor: oldCursor, authoritative: true, observed: false },
+      { events: older, nextCursor, authoritative: true, observed: false }], pageParams: [null, oldCursor] }, { updatedAt: oldTime })
+    const tail = auditEvent("reopened-tail", 200), refreshedHead = [tail, ...head.slice(0, 49)]
+    const freshCursor = { beforeCreatedAt: refreshedHead.at(-1)!.createdAt, beforeId: refreshedHead.at(-1)!.id }
+    const held = heldPage()
+    mockApiFetch.mockResolvedValueOnce({ events: refreshedHead, nextCursor: freshCursor }).mockReturnValueOnce(held.promise)
+    const view = renderAuditLog("b1", client)
+    try {
+      await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(2))
+      expect(new URL(mockApiFetch.mock.calls[1]![0], "https://fixture.invalid").searchParams.get("beforeId")).toBe(freshCursor.beforeId)
+      await waitFor(() => expect(view.result.current.events.some(row => row.id === tail.id)).toBe(true))
+      expect(view.result.current.isFetching).toBe(true)
+      const pending = client.getQueryData<InfiniteData<AuditLogPage>>(key)!
+      expect(pending.pages[1].events).toEqual(older)
+      expect(pending.pageParams).toEqual([null, oldCursor])
+      expect(pending.pages[0].nextCursor).toEqual(oldCursor)
+      expect(pending.pages[0].liveIds).toContain(tail.id)
+      expect(client.getQueryState(key)?.dataUpdatedAt).toBe(oldTime)
+      expect(client.getQueryData<{ pages: Array<{ observed?: boolean }> }>(key)?.pages[0].observed).toBe(false)
+      expect(readBotDirectoryWindow(key, pending)).toBeDefined()
+    } finally {
+      await act(async () => { held.resolve({ events: [head.at(-1)!, ...older.slice(0, 49)], nextCursor: null }) })
+      await waitFor(() => expect(view.result.current.isFetching).toBe(false))
+      expect(client.getQueryData<InfiniteData<AuditLogPage>>(key)?.pageParams).toEqual([null, freshCursor])
+      expect(client.getQueryData<InfiniteData<AuditLogPage>>(key)?.pages[0].liveIds).not.toContain(tail.id)
+      view.unmount(); client.clear()
+    }
   })
 
   it("projects a background fetch and reuses it before requesting the full older cursor", async () => {

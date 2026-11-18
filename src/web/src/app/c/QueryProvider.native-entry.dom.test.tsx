@@ -21,7 +21,7 @@ import { CommunityMentionList } from "@/components/community/messages/composer-s
 import { EditorContent, type Editor } from "@tiptap/react"
 const mocks = vi.hoisted(() => ({ restore: vi.fn(), api: vi.fn(),
   stopPersisting: vi.fn(),
-  persistClient: vi.fn(async () => {}), removeClient: vi.fn(async () => {}), isCurrent: vi.fn(async () => true), retireAccount: vi.fn(async () => {}), rememberAccountIdentity: vi.fn(async () => {}), retireChannels: vi.fn(async () => {}),
+  persistClient: vi.fn(async () => {}), removeClient: vi.fn(async () => {}), isCurrent: vi.fn(async () => true), retireAccount: vi.fn(async () => {}), rememberAccountIdentity: vi.fn(async () => {}), retireChannels: vi.fn(async () => {}), retireAuxiliaryScopes: vi.fn(async () => {}), captureAuxiliaryReadEpoch: vi.fn(async (): Promise<string | undefined> => undefined),
 }))
 vi.mock("@/lib/auth-client", () => ({ useSession: () => ({ data: { user: { id: "viewer" } }, isPending: false, error: null }), currentSessionViewer: () => "viewer" }))
 vi.mock("next/navigation", () => ({ usePathname: () => "/c/channels/s1/c1", useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
@@ -30,7 +30,7 @@ vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import
 vi.mock("@/lib/query-persister", async original => ({ ...await original<typeof import("@/lib/query-persister")>(), createIdbPersister: () => ({ ...mocks, restoreClient: mocks.restore }) satisfies QualifiedPersister }))
 import { QueryProvider } from "./QueryProvider"
 let registry: CommunityDbRegistry
-beforeEach(() => { localStorage.clear(); mocks.api.mockReset().mockRejectedValue(new Error("unexpected HTTP")); mocks.restore.mockReset().mockResolvedValue(undefined) })
+beforeEach(() => { localStorage.clear(); mocks.api.mockReset().mockRejectedValue(new Error("unexpected HTTP")); mocks.restore.mockReset().mockResolvedValue(undefined); mocks.captureAuxiliaryReadEpoch.mockReset().mockResolvedValue(undefined) })
 describe("native client-entry consumers", () => {
   it.each([
     { diskVersion: 5, liveVersion: null, winner: 6 },
@@ -141,6 +141,8 @@ describe("native client-entry consumers", () => {
   })
 
   it("releases real member and profile projections after native restore and allows mention search", async () => {
+    const epoch = crypto.randomUUID()
+    mocks.captureAuxiliaryReadEpoch.mockResolvedValue(epoch)
     const person = { id: "member-peer", userId: "peer", name: "John Doe", discriminator: "0042", avatar: "J", avatarVersion: 0, role: "member", status: "offline", sub: "" }
     mocks.api.mockImplementation(async (url: string) => {
       if (url.startsWith("/api/community/servers/s1/members")) return serverMembersReadFixture("s1", [person], { search: url.includes("/members/search"), limit: 50 })
@@ -155,6 +157,7 @@ describe("native client-entry consumers", () => {
     }
     const view = render(<QueryProvider userId="viewer"><Members /></QueryProvider>)
     await waitFor(() => expect(screen.getByTestId("members")).toHaveTextContent("John Doe"))
+    expect(registry.queryClient.getQueryData(communityKeys.members("s1"))).toMatchObject({ pages: [{ auxiliaryReadEpoch: epoch }] })
     await act(async () => members.searchMembers("John"))
     await waitFor(() => expect(members).toMatchObject({ searchStatus: "ready", loading: false, failed: false }))
     expect(mocks.api).toHaveBeenCalledWith(expect.stringContaining("/members/search?q=John"), expect.anything())

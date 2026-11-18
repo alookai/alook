@@ -3,9 +3,8 @@ import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { createElement, useLayoutEffect } from "react"
 import { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
+import { act, fireEvent, render, screen, waitFor } from "@/test/react-dom-harness"
 
-import { communityKeys } from "@/lib/query-keys"
 import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { useBotListController } from "../bots/bot-list-controller"
 import type { BotSummary } from "@/hooks/community/use-bots"
@@ -19,7 +18,9 @@ const mocks = vi.hoisted(() => ({
   createDm: vi.fn(),
   join: vi.fn(),
   alreadyMember: false,
+  inviteInfo: vi.fn(),
 }))
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => mocks.inviteInfo(...args), toastApiError: vi.fn() }))
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/c/me/bots",
@@ -74,9 +75,6 @@ function deferred<T>() {
 
 function renderEntries() {
   const queryClient = new QueryClient()
-  queryClient.setQueryData(communityKeys.inviteInfo("invite"), {
-    serverId: "server", serverName: "Server", serverIcon: null, memberCount: 1,
-  })
   let navigation!: ReturnType<typeof useCommunityNavigationController>
   let bots!: ReturnType<typeof useBotListController>
   function Capture() {
@@ -108,6 +106,7 @@ const bot = { id: "bot" } as BotSummary
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.alreadyMember = false
+  mocks.inviteInfo.mockResolvedValue({ serverId: "server", serverName: "Server", serverIcon: null, memberCount: 1 })
 
 })
 
@@ -120,6 +119,7 @@ describe("real navigation entry actions", () => {
       mocks.createDm.mockReturnValue(mutation.promise)
       mocks.join.mockReturnValue(mutation.promise)
       const view = renderEntries()
+      await waitFor(() => expect(screen.getByRole("button", { name: "Join" })).toBeEnabled())
       const old = deferred<string>()
       let oldResult!: Promise<boolean>
       act(() => { oldResult = view.navigation.resolveAndPush(() => old.promise) })
@@ -143,6 +143,7 @@ describe("real navigation entry actions", () => {
     async (entry) => {
       mocks.alreadyMember = true
       const view = renderEntries()
+      await waitFor(() => expect(screen.getByRole("button", { name: "Go to Server" })).toBeEnabled())
       const old = deferred<string>()
       let result!: Promise<boolean>
       act(() => { result = view.navigation.resolveAndPush(() => old.promise) })

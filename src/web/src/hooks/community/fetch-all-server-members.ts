@@ -5,7 +5,7 @@ import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurre
 import { communityKeys } from "@/lib/query-keys"
 import { serverMembershipKey } from "@/lib/community-db/schema"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import { membersPageQueryFn,mergeMemberWindows,type MemberIdentity } from "./use-server-members"
+import { membersPageQueryFn,mergeMemberWindows,type MemberIdentity, type MembersWindowCache } from "./use-server-members"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 function readServerMemberIdentities(queryClient: QueryClient, serverId: string, identities: readonly MemberIdentity[]): Member[] {
@@ -28,12 +28,14 @@ export async function fetchAllServerMembers(queryClient: QueryClient, serverId: 
   const original = captureCommunityLiveSnapshotToken(queryClient)
   const assert = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, original, signal)
   assert()
+  const auxiliaryReadEpoch = await original.registry!.captureAuxiliaryReadEpoch()
+  assert()
   const key = [...communityKeys.members(serverId), "complete", MAX_MEMBERS_PAGE_SIZE] as const
   const options = {
     queryKey: key, queryFn: membersPageQueryFn(serverId, "", MAX_MEMBERS_PAGE_SIZE),
     initialPageParam: null as string | null | undefined,
     getNextPageParam: (last: Awaited<ReturnType<ReturnType<typeof membersPageQueryFn>>>) => last.hasMore ? last.cursor : undefined,
-    staleTime: Infinity,
+    staleTime: (query: { state: { data: unknown } }) => auxiliaryReadEpoch || (query.state.data as MembersWindowCache | undefined)?.pages.some(page => page.observed === false) ? 0 : Infinity,
     structuralSharing: (previous: unknown, next: unknown) => mergeMemberWindows(queryClient, key, previous, next),
   }
   const observer = new InfiniteQueryObserver(queryClient, { ...options, enabled: false })

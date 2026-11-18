@@ -467,6 +467,29 @@ describe("BotMarkSticker", () => {
     )).not.toBeNull()
   })
 
+  it.each([false, true])("keeps known marked data on refresh failure, empty=%s", (empty) => {
+    const refetch = vi.fn()
+    Object.assign(mocks.result, { marks: empty ? [] : [mark("saved")], hasData: true, isError: true, refetch })
+    const { renderer } = render()
+    fireEvent.click(renderer.getByRole("tab", { name: "Marked messages" }))
+    expect(renderer.container).toHaveTextContent("Could not refresh marked messages")
+    expect(renderer.container).toHaveTextContent(empty ? "No marked messages" : "Task saved")
+    fireEvent.click(renderer.getByRole("button", { name: "Retry" }))
+    expect(refetch).toHaveBeenCalledOnce()
+  })
+
+  it.each([false, true])("keeps known thoughts on refresh failure, empty=%s", (empty) => {
+    const refetch = vi.fn()
+    Object.assign(mocks.activity, { events: empty ? [] : [{ id: "saved", kind: "text", payload: { text: "Saved thought", truncated: false, chars: 13 }, createdAt: "2026-09-04T00:00:00.000Z" }],
+      hasData: true, isError: true, refetch })
+    const { renderer } = render()
+    expect(renderer.container).toHaveTextContent("Could not refresh thoughts")
+    expect(renderer.container).toHaveTextContent(empty ? "No recent thoughts" : "Saved thought")
+    expect(renderer.container).not.toHaveTextContent("Thoughts unavailable")
+    fireEvent.click(renderer.getByRole("button", { name: "Retry" }))
+    expect(refetch).toHaveBeenCalledOnce()
+  })
+
 
 
 })

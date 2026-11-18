@@ -1,9 +1,10 @@
 "use client"
 
-import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { useQuery } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { useLayoutEffect } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { fetchBotDirectory } from "@/lib/community/bot-directory-read"
+import { retireBotDirectoryScopes } from "@/lib/community/bot-directory-lifecycle"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -18,16 +19,17 @@ export type AdminChannel = {
 }
 
 export function useServerAdminChannels(serverId: string | null, isAdmin: boolean) {
+  const client = useQueryClient()
   const enabled = Boolean(serverId && isAdmin)
+  useLayoutEffect(() => {
+    const registry = getCommunityDbRegistry(client)
+    if (registry && serverId && !isAdmin) void retireBotDirectoryScopes(registry, [{ kind: "server-admin", id: serverId }]).catch(error => console.error("Admin directory retirement failed", error))
+  }, [client, serverId, isAdmin])
   const query = useQuery({
     queryKey: communityKeys.adminChannels(enabled ? serverId! : "__none__"),
-    queryFn: ({ client, signal }) => apiFetch<{ channels: AdminChannel[] }>(
-      `/api/community/servers/${serverId}/channels/admin`,
-      communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal),
-    ),
+    queryFn: context => fetchBotDirectory<{ channels: AdminChannel[] }>(context, `/api/community/servers/${serverId}/channels/admin`),
     enabled,
     staleTime: 60_000,
-    gcTime: 0,
     retry: false,
   })
   const forbidden = query.error instanceof ApiError && [401, 403].includes(query.error.status)

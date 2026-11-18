@@ -146,7 +146,7 @@ describe("Native invitable friend projection", () => {
     await waitFor(() => expect(view.result.current.friends).toEqual([
       expect.objectContaining(identified), expect.objectContaining(other),
     ]))
-    expect(owner.client.getQueryData(communityKeys.invitableFriends("server_1"))).toEqual({ serverId: "server_1", friendIds: ["friendship_1", "relationship_other"] })
+    expect(owner.client.getQueryData(communityKeys.invitableFriends("server_1"))).toEqual({ serverId: "server_1", friendIds: ["friendship_1", "relationship_other"], totalFriends: 2, observed: true })
     expect(owner.registry.collections.profiles.get("friend_1")?.name).toBe("Alice")
     expect(owner.registry.collections.friendships.get("relationship_other")).toMatchObject({ id: "relationship_other", userId: "friend_other", kind: "accepted" })
   })

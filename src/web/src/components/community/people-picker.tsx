@@ -13,6 +13,7 @@ export type PeoplePickerAsyncState = {
   error: boolean
   retrying: boolean
   retry: () => void
+  actionable?: boolean
 }
 
 export type PeoplePickerViewState =
@@ -95,6 +96,7 @@ export function PeoplePickerBody({
   errorMessage,
   emptyMessage,
   retrying,
+  refreshFailed = false,
   onRetry,
   children,
 }: {
@@ -103,10 +105,10 @@ export function PeoplePickerBody({
   errorMessage: string
   emptyMessage: string
   retrying: boolean
+  refreshFailed?: boolean
   onRetry: () => void
   children?: ReactNode
 }) {
-  if (state === "ready") return children
   if (state === "loading") return loading
   if (state === "error") {
     return (
@@ -128,9 +130,12 @@ export function PeoplePickerBody({
     )
   }
   return (
-    <EmptyState
+    <>
+      {refreshFailed && <div role="alert" className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground"><span>{"Couldn't refresh people."}</span><Button size="sm" variant="outline" disabled={retrying} onClick={onRetry}>{retrying ? "Retrying…" : "Retry"}</Button></div>}
+      {state === "ready" ? children : <EmptyState
       icon={state === "search-empty" ? Search : Users}
       label={state === "search-empty" ? "No matches." : emptyMessage}
-    />
+      />}
+    </>
   )
 }

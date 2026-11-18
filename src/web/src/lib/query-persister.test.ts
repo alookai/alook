@@ -51,13 +51,17 @@ describe("shouldPersistQueryKey", () => {
     ).toBe(false)
   })
 
-  it("does NOT persist presence, members, sentinels, or unrelated account data", () => {
+  it("does NOT persist presence, sentinels, or unrelated account data", () => {
     expect(shouldPersistQueryKey(communityKeys.presence("srv_1"))).toBe(false)
-    expect(shouldPersistQueryKey(communityKeys.members("srv_1"))).toBe(false)
     expect(shouldPersistQuery(communityKeys.server("__none__"), undefined)).toBe(false)
     expect(shouldPersistQuery(communityKeys.server("__pending__"), undefined)).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.friendsPresence())).toBe(false)
     expect(shouldPersistQueryKey(communityKeys.inbox())).toBe(false)
+  })
+
+  it("recognises exact roster keys without admitting a missing snapshot", () => {
+    expect(shouldPersistQueryKey(communityKeys.members("srv_1"))).toBe(true)
+    expect(shouldPersistQuery(communityKeys.members("srv_1"), undefined)).toBe(false)
   })
 
   it("allows the three native page list keys while rejecting their transient parents and missing data", () => {

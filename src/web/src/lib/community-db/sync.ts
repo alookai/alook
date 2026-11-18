@@ -49,6 +49,10 @@ import { communityRowData, writeCommunityCollectionRows, writeCommunityCollectio
 import { canonicalChannelMessages, canonicalMessageResources } from "./resources"
 import type { CommunityRestoredCollections } from "@/lib/query-persister"
 import { normalizeThreadResources, type CommunityThreadResources } from "@/lib/community/forum-feed-window"
+import { directoryWindowComplete, directoryWindowProfileIds, projectDirectoryWindow, readLiveDirectoryWindow } from "@/lib/community/directory-window-persistence"
+import type { AuxiliaryWindowScope } from "@/lib/community/auxiliary-window-contract"
+import { retireBotChannelDirectories, retireBotDirectoryScopes } from "@/lib/community/bot-directory-lifecycle"
+import { readBotDirectoryWindow } from "@/lib/community/bot-directory-window"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
 type SnapshotIngestMode = "authoritative" | "merge"
@@ -325,6 +329,13 @@ function collectionKey<N extends CollectionName>(registry: CommunityDbRegistry, 
 }
 
 function reconcileDirectoryChanges<N extends CollectionName>(registry: CommunityDbRegistry, name: N, before: readonly CommunityCollectionRows[N][], after: readonly CommunityCollectionRows[N][]) {
+  if (name === "serverMemberships") {
+    const next = new Map((after as readonly ServerMembershipRow[]).map(row => [row.id, row]))
+    const lost = (before as readonly ServerMembershipRow[]).filter(row => row.viewer && row.userId === registry.accountId
+      && (row.role === "admin" || row.role === "owner") && !["admin", "owner"].includes(next.get(row.id)?.role ?? ""))
+    if (lost.length) void retireBotDirectoryScopes(registry, lost.map(row => ({ kind: "server-admin", id: row.serverId })))
+      .catch(error => console.error("Admin directory retirement failed", error))
+  }
   if (name !== "channels" && name !== "categories") return
   const scope = (row: CommunityCollectionRows[N]) => {
     const value = row as CommunityCollectionRows["channels"] | CommunityCollectionRows["categories"]
@@ -340,6 +351,16 @@ function reconcileDirectoryChanges<N extends CollectionName>(registry: Community
     if (newScope) affected.add(newScope)
   }
   for (const serverId of affected) afterCommunityCollectionWrites(registry, () => reconcileExistingServerDirectoryWindows(registry, new Set([serverId])), `directory:${serverId}`)
+}
+
+function retireAuxiliaryRows<N extends CollectionName>(registry: CommunityDbRegistry, name: N, removed: readonly CommunityCollectionRows[N][]) {
+  if (!removed.length) return
+  const scopes: AuxiliaryWindowScope[] = name === "serverMemberships"
+    ? (removed as readonly CommunityCollectionRows["serverMemberships"][]).map(row => ({ kind: "server-member", serverId: row.serverId, memberId: row.memberId }))
+    : name === "channelMemberships"
+      ? (removed as readonly CommunityCollectionRows["channelMemberships"][]).map(row => ({ kind: "channel-member", channelId: row.channelId, userId: row.userId, relation: row.relation }))
+      : name === "friendships" ? (removed as readonly CommunityCollectionRows["friendships"][]).filter(row => row.kind === "accepted").map(row => ({ kind: "friendship", id: row.id })) : []
+  if (scopes.length) void registry.retireAuxiliaryDisk(scopes).catch((error: unknown) => console.error("Directory cache retirement failed", error))
 }
 
 function replaceRows<N extends CollectionName>(
@@ -383,6 +404,8 @@ function replaceRows<N extends CollectionName>(
   }
   const next = [...nextByKey.values()]
   writeCommunityCollectionRows(registry, name, next, getKey)
+  const nextKeys = new Set(next.map(getKey))
+  retireAuxiliaryRows(registry, name, current.filter(row => !nextKeys.has(getKey(row))))
   if (name === "attentionScopes" || name === "attentionItems") rebaseAttentionTransactions(registry)
   const touched = new Set([...current.filter(owns).map(getKey), ...parsedIncoming.map(getKey)])
   reconcileDirectoryChanges(registry, name, current.filter(row => touched.has(getKey(row))), next.filter(row => touched.has(getKey(row))))
@@ -563,6 +586,7 @@ function deleteRows<N extends CollectionName>(
     removed.push(row)
   }
   writeCommunityCollectionChanges(registry, name, [], removedKeys)
+  retireAuxiliaryRows(registry, name, removed)
   if (name === "attentionScopes" || name === "attentionItems") rebaseAttentionTransactions(registry)
   reconcileDirectoryChanges(registry, name, removed, [])
   if (eventKeys) recordEventDeletes(registry, name, eventKeys)
@@ -585,11 +609,27 @@ function referencedProfileIds(registry: CommunityDbRegistry) {
   for (const row of collectionRows(registry, "messages")) {
     for (const id of messageProfileIds(row as MessageRow & Msg)) ids.add(id)
   }
+  const rows = { servers: collectionRows(registry, "servers"), channels: collectionRows(registry, "channels"), serverMemberships: collectionRows(registry, "serverMemberships"),
+    channelMemberships: collectionRows(registry, "channelMemberships"), friendships: collectionRows(registry, "friendships"), profiles: collectionRows(registry, "profiles") }
+  for (const query of registry.queryClient.getQueryCache().getAll()) {
+    const input = readLiveDirectoryWindow(query.queryKey, query.state.data)
+    const window = input && projectDirectoryWindow(input, rows)
+    if (window && registry.accountId && directoryWindowComplete(window, rows, registry.accountId)) {
+      for (const id of directoryWindowProfileIds(window, rows)) ids.add(id)
+    }
+  }
   return ids
 }
 
 function garbageCollectCommunityProfiles(registry: CommunityDbRegistry) {
   const referenced = referencedProfileIds(registry)
+  for (const query of registry.queryClient.getQueryCache().getAll()) {
+    const window = readBotDirectoryWindow(query.queryKey, query.state.data)
+    if (window && window.kind !== "admin-channels") {
+      const profile = readCommunityCollectionRow(registry, "profiles", window.botId)
+      if (profile?.kind === "bot" && profile.ownerUserId === registry.accountId) referenced.add(window.botId)
+    }
+  }
   deleteRows(
     registry,
     "profiles",
@@ -1643,6 +1683,8 @@ export function publishCommunityMemberRemoval(queryClient: QueryClient, memberKe
   const registry = proof.token.registry!
   if (!collectionRows(registry, "serverMemberships").some((row) => row.id === memberKey && row.memberId === memberId)) return false
   return withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+    const member = collectionRows(registry, "serverMemberships").find(row => row.id === memberKey && row.memberId === memberId)!
+    void retireBotDirectoryScopes(registry, [{ kind: "bot-server", botId: member.userId, id: member.serverId }]).catch(error => console.error("Bot directory retirement failed", error))
     deleteRows(registry, "serverMemberships", (row) => row.id === memberKey && row.memberId === memberId, [memberKey], [memberKey])
     return true
   })
@@ -2268,6 +2310,7 @@ export function setCanonicalCommunityChannelMember(queryClient: QueryClient, cha
   const id = channelMembershipKey(channelId, userId, relation)
   const write = () => {
     if (!present) {
+      if (relation === "access") void retireBotDirectoryScopes(registry, [{ kind: "bot-channel", botId: userId, id: channelId }]).catch(error => console.error("Bot directory retirement failed", error))
       deleteRows(registry, "channelMemberships", (row) => row.id === id, [id], [id])
       if (userId === registry.accountId && relation === "notify") retireCommunityNotificationScope(registry, channelId)
       return true
@@ -2315,6 +2358,7 @@ export function getCanonicalCommunityMessages(queryClient: QueryClient, channelI
 
 export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: string) {
   if (isProtectedFromQueryWrite(registry, "servers", serverId)) return
+  void retireBotDirectoryScopes(registry, [{ kind: "server-admin", id: serverId }]).catch(error => console.error("Admin directory retirement failed", error))
   const removedChannelIds = collectChannelScopeIds(registry.queryClient, serverId)
   for (const id of removedChannelIds) registry.runtime.ws.actions.revokeChannelAccess(serverId, id)
   clearChannelTransientState(registry, removedChannelIds, serverId)
@@ -2322,6 +2366,7 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
   clearLastChannel(serverId)
   registry.runtime.ws.actions.revokeServerAccess(serverId)
   void registry.retireReadingDisk(removedChannelIds).catch((error: unknown) => console.error("Server cache retirement failed", error))
+  void registry.retireAuxiliaryDisk([{ kind: "server", id: serverId }]).catch((error: unknown) => console.error("Directory cache retirement failed", error))
   registry.runtime.messageStream.actions.removeServer(serverId)
   registry.queryClient.setQueryData<string[]>(communityKeys.servers(), (current) => current?.filter((id) => id !== serverId))
   void registry.queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) }, { revert: false })
@@ -2403,6 +2448,7 @@ export function retireCommunityChannelReading(
   channelId: string,
   options: { reason: "read-denied" | "resource-deleted"; denialCode?: CommunityApiError["code"]; serverId?: string | null; preserveQuery?: Query; queries?: ReadonlySet<Query>; assertView?: () => void; clearTransient?: boolean },
 ) {
+  if (options.reason === "resource-deleted") void retireBotChannelDirectories(registry, channelId).catch(error => console.error("Bot directory retirement failed", error))
   const root = registry.collections.channels.get(channelId)
   const serverId = options.serverId === undefined ? root?.serverId ?? null : options.serverId
   const removed = collectChannelScopeIds(registry.queryClient, serverId, channelId)
@@ -2680,6 +2726,7 @@ export function projectCommunityWsEventToDb(
       })], registry, { event: true })
       return
     case "community:member.leave": {
+      void retireBotDirectoryScopes(registry, [{ kind: "bot-server", botId: event.userId, id: event.serverId }]).catch(error => console.error("Bot directory retirement failed", error))
       if (event.userId !== registry.accountId) {
         const channels = collectionRows(registry, "channels").filter((row) => row.serverId === event.serverId)
         const scopes = registry.runtime.ws.get().channelAccessScopes

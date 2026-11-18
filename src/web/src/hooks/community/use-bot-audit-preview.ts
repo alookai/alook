@@ -14,5 +14,8 @@ export function useBotAuditPreview(botId: string | null | undefined, textOnly = 
     isLoading: query.isLoading,
     isError: query.isError,
     isNotFound: query.error instanceof ApiError && query.error.status === 404,
+    hasData: query.hasData,
+    refetch: query.refetch,
+    isFetching: query.isFetching,
   }
 }

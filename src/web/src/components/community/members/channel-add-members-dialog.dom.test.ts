@@ -21,6 +21,8 @@ vi.mock("@/hooks/community/use-channel-members", () => ({
     isLoading: mocks.isLoading,
     isError: mocks.isError,
     isFetching: mocks.isFetching,
+    observed: !!mocks.data && !mocks.isError,
+    isCurrentRead: () => !!mocks.data && !mocks.isError,
     refetch: mocks.refetch,
   }),
   useAddChannelMember: () => ({ mutateAsync: mocks.add }),
@@ -76,9 +78,10 @@ describe("ChannelAddMembersDialog", () => {
 
     expect(mockedDialog.mock.calls.at(-1)![0].queryState).toEqual(expect.objectContaining({
       resolved: true,
+      actionable: false,
       loading: false,
       error: true,
-      retrying: false,
+      retrying: true,
     }))
   })
 })

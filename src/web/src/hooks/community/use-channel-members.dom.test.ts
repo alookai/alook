@@ -38,7 +38,7 @@ describe("useChannelMembers", () => {
     await waitFor(() => expect(rendered.result.current).toMatchObject({ isSuccess: true, loading: false, failed: false, members: [expect.objectContaining({ userId: "peer" })] }))
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
   })
-  it("separates missing usable profiles from true empty and withdraws disabled access candidates", async () => {
+  it("keeps an orphan roster unknown until a successful empty response and withdraws disabled access candidates", async () => {
     const { useChannelMembers } = await import("./use-channel-members")
     const owner = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValue(roster("private", "access", [relationRow("private", "peer", "access", "explicit", "member", "m-peer")], []))
@@ -49,11 +49,16 @@ describe("useChannelMembers", () => {
     await waitFor(() => expect(rendered.result.current).toMatchObject({ loading: false, failed: false, members: [expect.objectContaining({ userId: "peer", discriminator: "0042" })] }))
     expect(rendered.result.current.profiles.get("peer")?.discriminator).toBe("0042")
     await act(async () => owner.registry.collections.serverMemberships.utils.writeDelete(serverMembershipKey("server", "peer")))
-    await waitFor(() => expect(rendered.result.current).toMatchObject({ loading: false, failed: false, members: [] }))
+    await waitFor(() => expect(rendered.result.current).toMatchObject({ loading: false, failed: true, members: [], observed: false }))
+    expect(rendered.result.current.data).toBeUndefined()
+    expect(rendered.result.current.isCurrentRead()).toBe(false)
+    apiFetchMock.mockResolvedValue(roster("private", "access", [], []))
+    await act(async () => { await rendered.result.current.refetch() })
+    await waitFor(() => expect(rendered.result.current).toMatchObject({ loading: false, failed: false, data: { members: [] }, observed: true }))
     rendered.rerender({ enabled: false })
     expect(rendered.result.current).toMatchObject({ loading: false, failed: false, members: [] })
     expect(rendered.result.current.data).toBeUndefined()
-    expect(apiFetchMock).toHaveBeenCalledOnce()
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
   })
   it("fetches the roster through the identity-aware query function", async () => {
     apiFetchMock.mockResolvedValue(roster("private/channel", "access", [relationRow("private/channel", "member_1", "access", "explicit", "member", "membership_1")], [profile("member_1", "Alice", "0042", 4)]))

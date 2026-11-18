@@ -12,7 +12,7 @@ const apiFetchMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: apiFetchMock }))
 
 const channel = {
-  id: "private-channel", name: "private-channel", category: { id: "cat", name: "Private" },
+  id: "private-channel", name: "private-channel", type: "text", category: { id: "cat", name: "Private", private: true },
   creator: { name: "Alice", handle: "alice#0001" }, createdAt: "2026-10-01T00:00:00.000Z",
 }
 
@@ -25,7 +25,7 @@ function setup() {
 beforeEach(() => { apiFetchMock.mockReset() })
 
 describe("admin channel list isolation", () => {
-  it("does not fetch until enabled and keeps metadata outside persisted/sidebar data", async () => {
+  it("does not fetch until enabled and keeps its persisted metadata outside ordinary sidebar data", async () => {
     apiFetchMock.mockResolvedValue({ channels: [channel] })
     const { client, wrapper } = setup()
     const rendered = renderHook(({ serverId, isAdmin }) => useServerAdminChannels(serverId, isAdmin), {
@@ -38,10 +38,10 @@ describe("admin channel list isolation", () => {
     rendered.rerender({ serverId: "server-1", isAdmin: true })
     await waitFor(() => expect(rendered.result.current.channels).toEqual([channel]))
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/server-1/channels/admin", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
-    expect(client.getQueryData(communityKeys.adminChannels("server-1"))).toEqual({ channels: [channel] })
-    expect(shouldPersistQueryKey(communityKeys.adminChannels("server-1"))).toBe(false)
+    expect(client.getQueryData(communityKeys.adminChannels("server-1"))).toEqual({ channels: [channel], observed: true })
+    expect(shouldPersistQueryKey(communityKeys.adminChannels("server-1"))).toBe(true)
+    expect(client.getQueryData<Array<{ id: string }>>(communityKeys.communityDbCollection("viewer", "channels")) ?? []).not.toContainEqual(expect.objectContaining({ id: "private-channel" }))
     rendered.unmount()
-    await waitFor(() => expect(client.getQueryData(communityKeys.adminChannels("server-1"))).toBeUndefined())
     client.clear()
   })
 

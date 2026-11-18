@@ -22,6 +22,7 @@ import type { EntityKind } from "@/lib/community/models/navigation"
 import { tid } from "@/lib/community/testids"
 import { MessageHeader, MessageHeaderMobileBack, MessageHeaderTitlePlaceholder, type MessageHeaderTitleState } from "./message-header"
 import { ThreadPanelActionsFrame } from "./thread-panel-actions"
+import { useConversationActivity } from "@/contexts/view-activity"
 
 const CHANNEL_OVERFLOW_GAP_CLASS_NAME = "ml-0.5"
 
@@ -157,17 +158,15 @@ export function ChannelHeader({
           {tools?.members !== false && tool("members", Users, "Member list")}
           <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
           <ChannelNotifDropdown level={notifLevel ?? USE_SERVER_DEFAULT} onSetLevel={onSetNotifLevel} />
-          {(tools?.threads !== false || tools?.pinned !== false || Boolean(onLeave)) && (
-            <ChannelOverflowMenu
-              channel={channel}
-              kind={kind}
-              rightPanel={rightPanel}
-              onToggle={onToggle}
-              showThreads={tools?.threads !== false}
-              showPinned={tools?.pinned !== false}
-              onLeave={onLeave}
-            />
-          )}
+          <ChannelOverflowMenu
+            channel={channel}
+            kind={kind}
+            rightPanel={rightPanel}
+            onToggle={onToggle}
+            showThreads={tools?.threads !== false}
+            showPinned={tools?.pinned !== false}
+            onLeave={onLeave}
+          />
         </span>
       )}
       {endActions}
@@ -196,11 +195,14 @@ function ChannelOverflowMenu({
   const [confirmTarget, setConfirmTarget] = useAtom(useCreateAtom<string | null>(null))
   const [leaving, setLeaving] = useAtom(useCreateAtom(false))
   const leavingRef = useRef(false)
-  const confirmOpen = confirmTarget === channel && Boolean(onLeave)
+  const active = useConversationActivity()
+  const confirmOpen = active && confirmTarget === channel
+  const showMenu = showThreads || showPinned || Boolean(onLeave)
   const activeInside = (rightPanel === "threads" && showThreads) || (rightPanel === "pinned" && showPinned)
+  useEffect(() => { setConfirmTarget(null) }, [active, channel, setConfirmTarget])
 
   const confirmLeave = async () => {
-    if (!onLeave || leavingRef.current) return
+    if (!active || !onLeave || leavingRef.current) return
     leavingRef.current = true
     setLeaving(true)
     try {
@@ -216,7 +218,7 @@ function ChannelOverflowMenu({
 
   return (
     <>
-      <DropdownMenu>
+      {showMenu && <DropdownMenu>
         <DropdownMenuTrigger
           render={
             <Button
@@ -255,7 +257,7 @@ function ChannelOverflowMenu({
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
-      </DropdownMenu>
+      </DropdownMenu>}
       {confirmOpen && (
         <ConfirmDialog
           open
@@ -267,6 +269,7 @@ function ChannelOverflowMenu({
           confirmLabel="Leave"
           loadingLabel="Leaving…"
           loading={leaving}
+          confirmDisabled={!onLeave}
           confirmVariant="destructive"
           onConfirm={() => { void confirmLeave() }}
         />

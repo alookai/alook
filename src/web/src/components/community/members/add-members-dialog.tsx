@@ -36,10 +36,12 @@ export type AddableCandidate = {
 export function AddMemberRow({
   candidate,
   adding,
+  disabled = false,
   onAdd,
 }: {
   candidate: AddableCandidate
   adding: boolean
+  disabled?: boolean
   onAdd: (userId: string) => void
 }) {
   return (
@@ -56,7 +58,7 @@ export function AddMemberRow({
       <div className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]">
         {displayName(candidate)}
       </div>
-      <Button size="sm" disabled={adding} onClick={() => onAdd(candidate.userId)}>
+      <Button size="sm" disabled={adding || disabled} onClick={() => onAdd(candidate.userId)}>
         {adding ? <Loader2 className="size-4 animate-spin" /> : "Add"}
       </Button>
     </div>
@@ -129,6 +131,7 @@ export function AddMembersDialog({
   })
 
   const add = (userId: string) => {
+    if (queryState.actionable === false) return
     const candidate = candidates.find((row) => row.userId === userId)
     if (!candidate) return
     const assert = source.capture()
@@ -164,6 +167,7 @@ export function AddMembersDialog({
             errorMessage="Couldn't load people."
             emptyMessage="Everyone is already here."
             retrying={queryState.retrying}
+            refreshFailed={queryState.resolved && queryState.error}
             onRetry={() => { source.capture()(); queryState.retry?.() }}
           >
             <div className="flex flex-col gap-0.5">
@@ -172,6 +176,7 @@ export function AddMembersDialog({
                   key={m.userId}
                   candidate={m}
                   adding={addingIds.has(m.userId)}
+                  disabled={queryState.actionable === false}
                   onAdd={add}
                 />
               ))}
