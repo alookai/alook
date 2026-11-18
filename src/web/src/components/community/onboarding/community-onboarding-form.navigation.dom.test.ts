@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   selectedHarness: "codex",
   complete: vi.fn(),
   capture: vi.fn(async () => {}),
+  enter: vi.fn(),
   navigate: vi.fn(),
   initialize: vi.fn(),
   recoverHarness: vi.fn(),
@@ -29,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }))
 
-vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: (input: unknown) => mocks.capture(input), beginOnboardingAnalytics: (_userId: string, serverId: string) => mocks.capture({ event: "onboarding_enter_clicked", serverId }) }))
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: (input: unknown) => mocks.capture(input), beginOnboardingAnalytics: (userId: string, serverId: string, assertCurrent?: () => void) => { mocks.enter(userId, serverId, assertCurrent); return mocks.capture({ event: "onboarding_enter_clicked", serverId }) } }))
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
 }))
@@ -106,6 +107,7 @@ describe("CommunityOnboardingForm room navigation", () => {
       harness: "codex",
       identity: "work",
     }
+    mocks.enter.mockReset()
     mocks.capture.mockReset().mockResolvedValue(undefined)
     mocks.complete.mockClear()
     mocks.navigate.mockClear()
@@ -211,6 +213,11 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(mocks.capture).toHaveBeenCalledWith({ event: "community_onboarding_completed" })
     rendered.rerender(createElement(CommunityOnboardingForm))
     expect(mocks.capture.mock.calls.filter(([input]) => input.event === "community_onboarding_completed")).toHaveLength(1)
+    const guard = mocks.enter.mock.calls[0][2]
+    expect(guard).toBeTypeOf("function")
+    expect(() => guard()).not.toThrow()
+    await owner.registry.cleanup()
+    expect(() => guard()).toThrow()
   })
 
   it("counts Enter even when the shell cannot navigate to the room", async () => {

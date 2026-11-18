@@ -54,7 +54,7 @@ describe("community onboarding journey", () => {
     expect(readCommunityOnboardingState(runtime())).toBeNull();
     expect(analytics.skipped).not.toHaveBeenCalled();
     expect(analytics.product).toHaveBeenCalledExactlyOnceWith({ event: "community_onboarding_completed" }, expect.any(Function));
-    expect(analytics.stageCompleted.mock.calls).toEqual([["harness"], ["machine"]]);
+    expect(analytics.stageCompleted.mock.calls).toEqual([["harness", expect.any(Function)], ["machine", expect.any(Function)]]);
   });
 
   it("does not complete an agent setup after cancellation", () => {
@@ -63,7 +63,7 @@ describe("community onboarding journey", () => {
     skipCommunityOnboarding(runtime());
     finishCommunityOnboardingAgentSetup(runtime());
     expect(readCommunityOnboardingState(runtime())).toBeNull();
-    expect(analytics.skipped).toHaveBeenCalledExactlyOnceWith("machine");
+    expect(analytics.skipped).toHaveBeenCalledExactlyOnceWith("machine", expect.any(Function));
     expect(analytics.product).not.toHaveBeenCalled();
   });
 
@@ -128,7 +128,7 @@ describe("community onboarding journey", () => {
       stage: "harness",
     });
     expect(analytics.stageCompleted).toHaveBeenCalledOnce();
-    expect(analytics.stageCompleted).toHaveBeenCalledWith("harness");
+    expect(analytics.stageCompleted).toHaveBeenCalledWith("harness", expect.any(Function));
 
     recoverCommunityOnboardingHarness(runtime());
     expect(analytics.stageCompleted).toHaveBeenCalledOnce();
@@ -138,7 +138,7 @@ describe("community onboarding journey", () => {
     startCommunityOnboarding(runtime());
     skipCommunityOnboarding(runtime());
     expect(readCommunityOnboardingState(runtime())).toBeNull();
-    expect(analytics.skipped).toHaveBeenCalledWith("harness");
+    expect(analytics.skipped).toHaveBeenCalledWith("harness", expect.any(Function));
     expect(startCommunityOnboarding(runtime())).toEqual({ status: "active", stage: "harness" });
   });
 
@@ -154,7 +154,7 @@ describe("community onboarding journey", () => {
     expect(readCommunityOnboardingState(runtime())).toBeNull();
     expect(analytics.product).toHaveBeenCalledOnce();
     expect(analytics.product).toHaveBeenCalledWith({ event: "community_onboarding_completed" }, expect.any(Function));
-    expect(analytics.stageCompleted).toHaveBeenLastCalledWith("initializing");
+    expect(analytics.stageCompleted).toHaveBeenLastCalledWith("initializing", expect.any(Function));
     expect(analytics.completed).not.toHaveBeenCalled();
   });
 

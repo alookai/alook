@@ -12,6 +12,8 @@ import {
   applyGoogleConsent,
   isPublicAnalyticsPath,
   persistAnalyticsConsent,
+  publicAnalyticsReferrer,
+  googleCommand,
   readAnalyticsConsent,
   type AnalyticsConsentDecision,
 } from "@/lib/analytics-consent"
@@ -20,6 +22,8 @@ import technostalgia from "@/components/brand/technostalgia.module.css"
 import { GeneratedAvatar } from "@/components/avatar"
 import styles from "./analytics-consent.module.css"
 import { tid } from "@/lib/community/testids"
+
+import { ANALYTICS_ORIGIN } from "@/lib/product-analytics-contract"
 
 const GTM_ID = "GTM-56VHCCQZ"
 const GA_DISABLE = "ga-disable-G-STBCL8F4ZY"
@@ -211,16 +215,12 @@ export function AnalyticsConsent() {
   }, [])
   useEffect(() => {
     if (!isTauri() || decision !== "granted") return
-    const referrer = new URL(document.referrer || window.location.origin)
-    const safeReferrer = referrer.origin !== window.location.origin || isPublicAnalyticsPath(referrer.pathname)
-      ? `${referrer.origin}${referrer.pathname}` : ""
-    window.dataLayer ??= []
-    window.dataLayer.push(["set", "page_referrer", safeReferrer])
+    googleCommand("set", "page_referrer", publicAnalyticsReferrer(document.referrer, window.location.origin))
   }, [decision])
 
   return (
     <>
-      {googleAllowed && (decision !== null || defaultSettled) ? <GoogleTagManager gtmId={GTM_ID} /> : null}
+      {googleAllowed && (isTauri() || window.location.origin === ANALYTICS_ORIGIN) && (decision !== null || defaultSettled) ? <GoogleTagManager gtmId={GTM_ID} /> : null}
       {allowed ? (
         <iframe
           key={pathname}

@@ -1395,3 +1395,23 @@ describe("confirmed send failures", () => {
     expect(getMessageStreamState(capturedQc, scope).outboxByNonce.size).toBe(0)
   })
 })
+
+it("passes the accepted message owner to delayed onboarding analytics", async () => {
+  let commandActive = true
+  const assertCommand = () => { if (!commandActive) throw new DOMException("Completed command", "AbortError") }
+  const analytics = await import("@/lib/product-analytics")
+  const capture = vi.spyOn(analytics, "captureOnboardingFirstMessage").mockImplementation(() => {})
+  try {
+    capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
+    apiFetchMock.mockResolvedValueOnce({ profiles: messageProfilesFixture([postedMessage("analytics_message", 9, "ch_1", { clientNonce: "analytics-nonce" })]), message: postedMessage("analytics_message", 9, "ch_1", { clientNonce: "analytics-nonce" }) })
+    const mod = await loadMod()
+    mountHook(() => mod.useSendMessage())
+    await runMutation({ serverId: "s1", channelId: "ch_1", content: "hi", nonce: "analytics-nonce", author: { id: "u_me", name: "me", avatar: "M" }, assertCommand })
+    expect(capture).toHaveBeenCalledExactlyOnceWith("u_me", "s1", expect.any(Function))
+    const guard = capture.mock.calls[0][2]!
+    commandActive = false
+    expect(() => guard()).not.toThrow()
+    await canonicalRegistry.cleanup()
+    expect(() => guard()).toThrow()
+  } finally { capture.mockRestore() }
+})

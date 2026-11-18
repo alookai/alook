@@ -8,7 +8,7 @@ import { writeError, writeJSON } from "@/lib/middleware/helpers"
 export const POST = withAuth(cookieHumanAuthPolicy, async (req, ctx) => {
   const scope = req.nextUrl.searchParams.get("event") ?? "legacy"
   if (scope !== "legacy" && scope !== "invited_human_joined") return writeError("invalid event scope", 400)
-  const events = scope === "invited_human_joined" && readAnalyticsConsent(req.headers.get("cookie") ?? "") === "denied" ? [] : await queries.communityFunnelAnalytics.claimPendingEvents(
+  const events = readAnalyticsConsent(req.headers.get("cookie") ?? "") === "denied" ? [] : await queries.communityFunnelAnalytics.claimPendingEvents(
     getPrimaryDb(ctx.env.DB),
     ctx.userId,
     scope,

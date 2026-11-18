@@ -263,7 +263,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           decoded.batch.operationDigest,
         )
         if (machineBecameOnline || hasCommunityFunnelTrigger(decoded.events)) {
-          void drainCommunityFunnelEvents()
+          void drainCommunityFunnelEvents(runtime.lifecycle)
           void drainInvitedHumanJoined(runtime.lifecycle)
         }
         return
@@ -284,7 +284,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       }
       await dispatchCommunityWsEvent(decoded.event, context("single"))
       if (machineBecameOnline || hasCommunityFunnelTrigger([decoded.event])) {
-        void drainCommunityFunnelEvents()
+        void drainCommunityFunnelEvents(runtime.lifecycle)
         void drainInvitedHumanJoined(runtime.lifecycle)
       }
     },
@@ -297,6 +297,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   }, [queryClient, runtime.lifecycle, viewToken])
   const handleAuthenticated = useCallback(async () => {
     if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
+    void drainCommunityFunnelEvents(runtime.lifecycle)
     void drainInvitedHumanJoined(runtime.lifecycle)
     runtime.ws.actions.markAccessConnected()
     const viewerId = viewerUserIdRef.current
@@ -326,7 +327,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   }, [reconnectNow])
 
   useEffect(() => {
-    const drain = () => { void drainInvitedHumanJoined(runtime.lifecycle) }
+    const drain = () => {
+      void drainCommunityFunnelEvents(runtime.lifecycle)
+      void drainInvitedHumanJoined(runtime.lifecycle)
+    }
     window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, drain)
     return () => window.removeEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, drain)
   }, [runtime.lifecycle])

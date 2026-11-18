@@ -1,6 +1,8 @@
 "use client"
 
 
+import { captureAnalyticsOwner } from "@/lib/analytics-owner"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { FounderPlanChangeDialog } from "./founder-plan-change-dialog"
 import { ExternalLink, RefreshCw } from "lucide-react"
@@ -27,6 +29,7 @@ function dateLabel(value: string) {
 }
 
 export function BillingContent({ billing }: { billing: BillingController }) {
+  const registry = useOptionalCommunityDbRegistry()
   const [founderOfferId, setFounderOfferId] = useAtom(useCreateAtom<string | null>(null))
   const setFounderOffer = (offer: BillingSummary["offers"][number] | null) => setFounderOfferId(offer?.priceId ?? null)
   const summary = billing.data
@@ -38,13 +41,15 @@ export function BillingContent({ billing }: { billing: BillingController }) {
     if (!summary) return
     const planId = toAnalyticsPlanId(offer.plan.id)
     if (planId && planId !== "free") {
-      trackPricingCtaClick({
+      const params = {
         plan_id: planId,
         cta_action: "choose_plan",
         auth_state: "signed_in",
         current_plan: toAnalyticsCurrentPlan(summary.plan.id, summary.isFounder),
         entry_point: "billing_sheet",
-      })
+      } as const
+      if (registry) trackPricingCtaClick(params, captureAnalyticsOwner(registry.runtime.lifecycle))
+      else trackPricingCtaClick(params)
     }
     if (summary.isFounder) setFounderOffer(offer)
     else void (subscription ? billing.portal(offer.priceId) : billing.checkout(offer.priceId, false, "billing_sheet"))

@@ -76,11 +76,16 @@ it("enables the original effects on matching confirmation without replacing the 
   expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft)
   expect(draft).toHaveValue("unsent local text")
   expect(document.cookie).not.toMatch(/is_(sign_in|new_signup)=/)
-  expect(state.analytics).toHaveBeenCalledWith({ event: "sign_in_success", method: "google" })
-  expect(state.analytics).toHaveBeenCalledWith({ event: "sign_up", method: "google" })
+  expect(state.analytics).toHaveBeenCalledWith({ event: "sign_in_success", method: "google" }, expect.any(Function))
+  expect(state.analytics).toHaveBeenCalledWith({ event: "sign_up", method: "google" }, expect.any(Function))
+  expect(state.analytics).toHaveBeenCalledTimes(2)
+  const guards = state.analytics.mock.calls.map(([, guard]) => guard as () => void)
+  for (const guard of guards) expect(guard).not.toThrow()
   expect(original.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" })
   expect(state.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/auth/native/cancel", expect.objectContaining({ method: "POST", body: JSON.stringify({ attemptId: "a".repeat(43), state: "s".repeat(43), verifier: "v".repeat(43) }) })))
+  await act(async () => { await original.cleanup() })
+  for (const guard of guards) expect(guard).toThrow()
 })
 
 it("runs confirmed B's effects only after withdrawing cached A", async () => {

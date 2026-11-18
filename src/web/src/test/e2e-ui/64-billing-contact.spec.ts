@@ -1,4 +1,4 @@
-import { currentCommunityFixtureError } from "./_fixtures/business-contract"
+import { CURRENT_COMMUNITY_FIXTURE_HEADERS, currentCommunityFixtureError } from "./_fixtures/business-contract"
 import { expect, test } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
@@ -46,4 +46,26 @@ test("plan Contact stays usable without billing data and preserves the plan tab"
     }
     await context.close()
   }
+})
+
+test("an admitted billing checkout navigates once without waiting for analytics", async ({ caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { page } = await actors.asUser("alice")
+  const writes: unknown[] = []
+  const summary = {
+    plan: { id: "free", displayName: "Free" }, isFounder: false, subscription: null,
+    offers: [{ priceId: "price_controlled_studio", plan: { id: "studio", displayName: "Studio" }, botLimit: 10, machineLimit: 5, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }],
+  }
+  await page.route("**/api/community/billing", route => route.fulfill({ json: summary, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
+  await page.route("**/api/community/billing/checkout", async route => {
+    writes.push(route.request().postDataJSON())
+    await route.fulfill({ json: { url: "https://checkout.stripe.com/c/pay/controlled-fixture" }, headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })
+  })
+  await page.route("https://checkout.stripe.com/**", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Controlled checkout destination</title>" }))
+  await page.goto("/c/me/bots?settings=billing")
+  const panel = page.getByTestId(tid.billingSheet)
+  await expect(panel.getByRole("button", { name: "Choose Studio", exact: true })).toBeEnabled()
+  await panel.getByRole("button", { name: "Choose Studio", exact: true }).click()
+  await expect(page).toHaveURL("https://checkout.stripe.com/c/pay/controlled-fixture")
+  expect(writes).toEqual([{ priceId: "price_controlled_studio" }])
 })

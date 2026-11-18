@@ -60,3 +60,21 @@ test("Blog route, OG, and root discovery ownership stay disjoint", async ({ requ
   expect(llms.ok()).toBe(true)
   expect(await llms.text()).toContain("## Blog posts")
 })
+
+test("published Tutorials, Use Cases and Terms keep public analytics outside private documents", async ({ page }) => {
+  for (const pathname of ["/tutorials", "/usecases", "/terms"]) {
+    await page.goto(pathname)
+    await expect(page.locator("main h1").first()).toBeVisible()
+    await expect(page.getByTestId(tid.ahrefsAnalyticsFrame)).toHaveCount(1)
+    await expect(page.locator('script[data-ntpc="GTM"]')).toHaveCount(0)
+    if (pathname !== "/terms") {
+      const article = page.locator(`main a[href^="${pathname}/"]:visible`).first()
+      await article.click()
+      await expect(page.locator("article h1").first()).toBeVisible()
+      await expect(page.getByTestId(tid.ahrefsAnalyticsFrame)).toHaveCount(1)
+    }
+  }
+  await page.goto("/sign-in")
+  await expect(page.getByTestId(tid.ahrefsAnalyticsFrame)).toHaveCount(0)
+  await expect(page.locator('script[data-ntpc="GTM"]')).toHaveCount(0)
+})

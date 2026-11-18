@@ -146,8 +146,12 @@ export async function claimPendingEvents(db: Database, ownerUserId: string, scop
   )).returning({
     eventName: communityFunnelAnalyticsEvent.eventName,
     conversationType: communityFunnelAnalyticsEvent.conversationType,
+    createdAt: communityFunnelAnalyticsEvent.createdAt,
+    id: communityFunnelAnalyticsEvent.id,
   });
 
+  rows.sort((left, right) => left.createdAt.localeCompare(right.createdAt)
+    || left.id.localeCompare(right.id));
   return rows.flatMap<CommunityFunnelAnalyticsEvent>((row) => {
     if (row.eventName === "runtime_connected") {
       return [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }];
