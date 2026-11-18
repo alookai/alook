@@ -582,7 +582,7 @@ describe("CI workflow graph", () => {
     expect(artifact).toContain("if: needs.scope.outputs.run_app_packed_artifact == 'true'")
     expect(artifact).toContain("timeout-minutes: 15")
     expect(artifact).toContain("node src/app/scripts/app-packed-artifact.mjs --output-dir")
-    expect(artifact).toContain("if: always()")
+    expect(artifact).toContain("if: ${{ !cancelled() }}")
     expect(artifact).toContain("if-no-files-found: error")
     expect(artifact).toContain('tarballs=("$RUNNER_TEMP"/alook-app-packed-artifact/*.tgz)')
     expect(artifact).toContain("[[ ${#tarballs[@]} -eq 1 ]]")
@@ -999,7 +999,7 @@ describe("Turbo CI execution", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("--ci --receipt .ci/unit-execution.json")
     expect(linux).toContain('args+=(--coverage)')
-    expect(linux).toContain("if: always() && env.RUN_COVERAGE == 'true'")
+    expect(linux).toContain("if: ${{ !cancelled() && env.RUN_COVERAGE == 'true' }}")
     expect(linux).toContain("verify-coverage-plan.mjs")
     expect(linux).toContain("coverage/coverage-final.json")
     const upload = linux.match(/      - name: Upload unit execution evidence\n[\s\S]*?(?=\n      - name:|$)/)?.[0] || ""
@@ -1007,7 +1007,7 @@ describe("Turbo CI execution", () => {
       ?.trim().split("\n").map(path => path.trim())
     expect(reports).toEqual([".ci/unit-execution.json", ".vitest-reports/unit.blob"])
     expect(upload).not.toMatch(/include-hidden-files:\s*true/i)
-    expect(upload).toContain("if: always()")
+    expect(upload).toContain("if: ${{ !cancelled() }}")
     expect(upload).toContain("if-no-files-found: error")
   })
 
