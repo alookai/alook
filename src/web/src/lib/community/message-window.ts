@@ -1,6 +1,6 @@
 import type { InitialMessageWindow } from "./message-window-persistence"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
-import { hashKey, infiniteQueryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
+import { hashKey, infiniteQueryOptions, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { COMMUNITY_CONTRACT_HEADER, type CommunityMessageSurfaceReceipt } from "@alook/shared"
 import { actionAttributes } from "@/lib/observability/context"
@@ -8,7 +8,7 @@ import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetr
 import { apiFetchCommunity } from "./account-cache-lifecycle"
 import { captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
-import { messageWindowPage, type MessagesReadPage as WireMessagesPage, type MessagesWindowPage as MessagesPage, type MessagesPageParam } from "./models/message"
+import { messageWindowPage, type MessagesReadPage as WireMessagesPage, type MessagesWindowPage as MessagesPage, type MessagesPageParam, type MessageWindowData } from "./models/message"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
 
 type MessagesTransportPage = WireMessagesPage & {
@@ -99,7 +99,7 @@ export const channelMessagesQueryFn =
   }
 
 export { messageWindowIdentity, type InitialMessageWindow } from "./message-window-persistence"
-export type MessageWindowData = InfiniteData<MessagesPage, MessagesPageParam>
+export type { MessageWindowData } from "./models/message"
 
 export function messagePageForReading(data: MessageWindowData, messageId: string, preferred?: string): string | undefined {
   const existing = data.pageParams.findIndex(param => hashKey([param]) === preferred)

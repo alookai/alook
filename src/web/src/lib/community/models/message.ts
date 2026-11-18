@@ -1,5 +1,6 @@
 import { z } from "zod"
 import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead } from "@alook/shared"
+import type { InfiniteData } from "@tanstack/react-query"
 
 // ── Messages ───────────────────────────────────────────────────────────────
 export type AttachmentPreview = Pick<CommunityMessageAttachment, "name" | "url"> & Partial<Omit<CommunityMessageAttachment, "name" | "url">>
@@ -148,3 +149,5 @@ export type MessagesPageParam =
   | { mode: "since"; since: string }
   | { mode: "older"; cursor: string }
   | { mode: "newer"; cursor: string }
+
+export type MessageWindowData = InfiniteData<MessagesWindowPage, MessagesPageParam>

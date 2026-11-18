@@ -1,8 +1,7 @@
 import { z } from "zod"
 import { communityMessageProfileIds, type CommunityCollectionRows } from "@alook/shared"
 import type { QueryKey } from "@tanstack/react-query"
-import type { MessagesPageParam } from "./models/message"
-import type { MessageWindowData } from "./message-window"
+import type { MessagesPageParam, MessageWindowData } from "./models/message"
 
 export type InitialMessageWindow = Extract<MessagesPageParam, { mode: "newest" | "anchor" | "since" }>
 
