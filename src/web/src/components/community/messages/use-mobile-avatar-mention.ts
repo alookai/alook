@@ -30,6 +30,9 @@ export function useMobileAvatarMention({
   useEffect(() => clear, [clear])
 
   return {
+    style: onMention
+      ? { WebkitTouchCallout: "none" as const, userSelect: "none" as const }
+      : undefined,
     onPointerDown: onMention
       ? (event: React.PointerEvent<HTMLButtonElement>) => {
           if (event.pointerType !== "touch") return
@@ -68,7 +71,7 @@ export function useMobileAvatarMention({
       : undefined,
     onContextMenu: onMention
       ? (event: React.MouseEvent<HTMLButtonElement>) => {
-          if (suppressClickRef.current) event.preventDefault()
+          if (startRef.current || suppressClickRef.current) event.preventDefault()
         }
       : undefined,
     onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
