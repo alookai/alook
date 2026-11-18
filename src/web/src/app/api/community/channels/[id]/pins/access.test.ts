@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { WS_EVENTS } from "@alook/shared"
 import { user } from "../../../../../../../../shared/src/db/schema"
+import { prepareNativeD1BatchStatement } from "../../../../../../../../shared/test/helpers/native-batch-prepare"
 import {
   communityCategory,
   communityChannel,
@@ -81,13 +82,16 @@ function seedDatabase() {
 function session(view: DatabaseSync) {
   let current = view
   return {
-    async batch(statements: Array<{ all: () => Promise<unknown> }>) { return Promise.all(statements.map(statement => statement.all())) },
+    async batch(statements: Array<{ batchResult: () => Promise<unknown> }>) {
+      return Promise.all(statements.map(statement => statement.batchResult()))
+    },
     prepare(sql: string) {
       let values: SQLInputValue[] = []
-      const statement = () => {
+      const statement = (batched = false) => {
         if (!/^\s*select\b/i.test(sql)) current = primary
-        return current.prepare(sql)
+        return batched ? prepareNativeD1BatchStatement(current, query, sql) : current.prepare(sql)
       }
+      const all = (batched: boolean) => ({ results: statement(batched).all(...values), success: true })
       const query = {
         bind(...params: SQLInputValue[]) { values = params; return query },
         async raw() {
@@ -95,7 +99,8 @@ function session(view: DatabaseSync) {
           prepared.setReturnArrays(true)
           return prepared.all(...values)
         },
-        async all() { return { results: statement().all(...values), success: true } },
+        async all() { return all(false) },
+        async batchResult() { return all(true) },
         async run() { return { meta: statement().run(...values), success: true } },
       }
       return query

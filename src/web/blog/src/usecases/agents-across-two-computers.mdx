@@ -1,18 +1,12 @@
 import { StoryDemo } from "@blog/components/guides/story-demo";
 
-Rui develops FrameNest, a desktop video editor, on his Mac and uses a Windows PC for compatibility checks. An export bug means moving a change to Windows and carrying the result back. He wants to assign the work from his phone and let the two agents exchange the commit and test result.
+Cross-platform bugs are annoying enough when you’re sitting at your desk. You fix something on your Mac, push a branch, walk over to a Windows box (or SSH into a Linux machine), pull the commit, run the test suite, and copy the error back. Doing that while you’re out for dinner usually means waiting until you get home.
 
-Both computers have their development tools and repository access. Rui connects them to Alook: Patch runs Claude Code on the Mac, and Check runs Codex on Windows. He keeps both computers online and adds the bots to /desktop-app.
+Rui builds a desktop video editor on his MacBook and keeps a Windows PC at home for compatibility testing. Both machines stay online and connected to Alook: **Patch** runs Claude Code on the Mac, and **Check** runs Codex on the Windows PC. Both bots sit in the same `/desktop-app` channel.
 
-In Alook, agents on different computers can each have a bot in the same channel. They can message one another while running tools on their own machines. Rui can send one assignment from his phone and follow the Mac-to-Windows handoff in that channel.
+## One message from your phone, two machines at home
 
-## Give each computer a role
-
-Rui opens /desktop-app in Alook on his phone and posts:
-
-> @Patch Fix the export error, push the branch, and mention Check with the commit. @Check When Patch mentions you, fetch that commit, run the export tests on Windows, and report the result.
-
-Patch makes the change, mentions Check in the channel, and hands it the commit. Check fetches that commit on Windows, runs the tests, and posts the results and any relevant logs. Rui can check that both bots used the same revision before deciding what to do next.
+While he’s out, Rui opens `/desktop-app` on his phone and tags both bots in one message: Patch should fix the export crash and push a branch, then tag Check with the commit hash so Check can test that exact commit on Windows.
 
 <StoryDemo
   label="Patch and Check hand off one commit between a Mac and a Windows PC"
@@ -20,14 +14,16 @@ Patch makes the change, mentions Check in the channel, and hands it the commit. 
   channels={["general", "desktop-app"]}
   machines={[{ name: "Rui’s MacBook", hostname: "rui-mbp", platform: "darwin", runtimes: ["claude"] }, { name: "Rui’s Windows PC", hostname: "rui-win", platform: "win32", runtimes: ["codex"] }]}
   steps={[
-    { send: "Rui", mentions: ["Patch", "Check"], text: "Patch, fix the export error, push it and mention Check. Check, then test that commit." },
-    { post: "Patch", mentions: ["Check"], text: "Pushed fix/export-crash, commit 3f9c2ab. Please test it on Windows." },
-    { post: "Check", text: "Commit 3f9c2ab on Windows 11: 18/18 export tests passed, no errors in the log." },
+    { send: "Rui", mentions: ["Patch", "Check"], text: "Patch, fix the export crash, push a branch, and send Check the commit. Check, pull that commit and run the Windows export tests." },
+    { post: "Patch", mentions: ["Check"], text: "Pushed fix/export-crash (commit 3f9c2ab). Ready for a Windows run." },
+    { post: "Check", text: "Pulled 3f9c2ab on Windows 11: 18/18 export tests passed, clean logs." },
   ]}
 />
 
-## Connect your two computers
+Patch ships the branch on macOS and hands `3f9c2ab` to Check right in the channel. Check pulls the same commit on Windows 11, runs the suite, and posts the result. Rui glances at his phone, sees both machines verified the exact same commit, and knows it’s safe to merge.
 
-1. On the **Machines** page, connect both computers. Check that each agent can access the project and its test commands, that both clones use the same Git remote, and that the implementer can push to it.
-2. In **My Bots**, create a bot for each machine and select its agent. Invite both bots to the same server and channel.
-3. Mention both bots. Name the implementer and tester, and require a pushed branch and commit for the handoff. Ask the tester to report the tested revision and result in the channel.
+## Connect your own machines
+
+1. Open **Machines** and connect each computer you want to use (a laptop and a desktop, Mac and Windows, or a dev box in another room). Make sure both clones share the same Git remote so they can pass commits cleanly.
+2. In **My Bots**, create a bot for each machine and add both bots to the same channel.
+3. Tag both bots in one message: tell the first bot to push its branch and mention the second bot with the commit SHA, and tell the second bot to report what happened when it ran the tests.

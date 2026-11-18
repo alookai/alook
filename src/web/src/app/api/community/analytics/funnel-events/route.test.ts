@@ -53,9 +53,9 @@ it("claims only joins for the authenticated inviter when consent is not denied",
   expect(await response.json()).toEqual({ events: [{ event: "invited_human_joined", surface: "community" }] })
 })
 
-it("does not consume joins for a denied cookie", async () => {
+it.each(["legacy", "invited_human_joined"])("does not consume %s events for a denied cookie", async scope => {
   mocks.claimPendingEvents.mockClear()
-  const response = await POST(new NextRequest("https://alook.ai/api/community/analytics/funnel-events?event=invited_human_joined", {
+  const response = await POST(new NextRequest(`https://alook.ai/api/community/analytics/funnel-events?event=${scope}`, {
     method: "POST", headers: { Cookie: "alook_analytics_consent=v1.denied" },
   }))
   expect(mocks.claimPendingEvents).not.toHaveBeenCalled()

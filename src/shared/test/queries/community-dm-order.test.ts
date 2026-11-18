@@ -2,7 +2,27 @@ import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { Database } from "../../src/db"
-import { listDMs } from "../../src/db/queries/community/dm"
+import { createOrGetDM, getDMBetween, listDMs } from "../../src/db/queries/community/dm"
+import { user } from "../../src/db/schema"
+import { createMigratedDb } from "../helpers/migrated-db"
+
+it("looks up an existing DM in either direction without creating a missing pair", async () => {
+  const { db, sqlite, batch } = createMigratedDb()
+  try {
+    await db.insert(user).values(["viewer", "peer", "other"].map(id => ({
+      id, name: id, email: `${id}@dm.test`,
+    }))).run()
+    const dm = await createOrGetDM(db, { userId1: "viewer", userId2: "peer" })
+    batch.mockClear()
+
+    await expect(getDMBetween(db, "viewer", "peer")).resolves.toMatchObject({ id: dm.id, type: "dm" })
+    await expect(getDMBetween(db, "peer", "viewer")).resolves.toMatchObject({ id: dm.id, type: "dm" })
+    await expect(getDMBetween(db, "viewer", "other")).resolves.toBeNull()
+    expect(batch).not.toHaveBeenCalled()
+  } finally {
+    sqlite.close()
+  }
+})
 
 describe("listDMs ordering", () => {
   let sqlite: Sqlite.Database

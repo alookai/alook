@@ -8,64 +8,64 @@ export const metadata = {
   image: "/blog/claude-code-codex-cursor-grok-which-to-choose/agent-feedback.png",
 };
 
-I analyzed 3,283 X posts on Claude Code, Codex, Cursor, Grok Bot, Grok Build, Antigravity, and OpenCode. 757 of them were about a real job. Here is who to try first.
+I analyzed 3,283 X posts about Claude Code, Codex, Cursor, Grok Bot, Grok Build, Antigravity, and OpenCode. 757 of them described a real job. Based on what worked and what broke, here is what to try first.
 
 ![Post counts and positive versus negative feedback for seven agents, ordered by increasing negative share](/blog/claude-code-codex-cursor-grok-which-to-choose/agent-feedback.png)
 
 [Open full-size chart](/blog/claude-code-codex-cursor-grok-which-to-choose/agent-feedback.png).[^feedback]
 
 - Already have a repo: compare [Cursor vs Claude Code](/blog/cursor-vs-claude-code).
-- The machine or old software is broken: Codex.
+- Broken machine or legacy software: Codex.
 - A small game or personal tool this week: Grok Build.
-- Mail, files, reminders: Grok Bot.
-- A page that has to look like the mock: Antigravity.
-- You pick the model yourself: OpenCode.
+- Email, files, and reminders: Grok Bot.
+- A page that has to match the mock: Antigravity.
+- Picking the model and local stack yourself: OpenCode.
 
-Skip Codex for visual design. Skip Antigravity for maintaining an existing app. Do not leave Grok Bot in charge of a long project. Do not treat a Grok Build first version as finished.
+Skip Codex for visual design. Skip Antigravity for maintaining an existing app. Don't leave Grok Bot in charge of a multi-week project, and don't treat a Grok Build first version as finished.
 
-The rest of this piece is the catch for each harness.[^method]
+Here is where each tool holds up and where it trips.[^method]
 
 ## Grok Bot: give it the inbox, not the project
 
-The jobs that work have a done state you can see. Clearing email and unsubscribing. Moving Notion pages. Delegating a site fix to Cursor and asking whether the PR landed.[^bot]
+Grok Bot works best when "done" is obvious at a glance: clearing an inbox and unsubscribing, moving Notion pages, or delegating a site fix to Cursor and checking whether the PR landed.[^bot]
 
-A paper still fell short after three weeks. Across sessions it forgets what it already did, waits to be poked, and misses a long brief. Use it as a clerk. Do not leave it as the owner of a project.
+Long-running projects fall apart. One user's paper still fell short after three weeks. Across sessions, Grok Bot forgets what it already did, waits to be nudged, and drops parts of long briefs. Use it like a clerk, not the owner of a project.
 
 ## Cursor: the bug in this repo, not the rest of the tree
 
-Point it at a recording of a broken UI, or turn on Debug mode, and stay inside a project that already exists. That is the useful shape: a specific fault, code in front of you, another pass if the first patch is wrong.[^cursor]
+Cursor works best inside an existing project when you can point it at a screen recording of a broken UI or turn on Debug mode. Give it a concrete fault with the code in front of you, and run another pass if the first patch misses.[^cursor]
 
-A navigation fix rewrote authentication. Another patch overwrote files already staged for commit. The bug can look fixed while the rest of the tree moved. Read the diff even when the change looks small.
+Watch out for stray edits. In one report, a navigation fix rewrote authentication; in another, a patch overwrote files already staged for commit. A bug can look fixed while unrelated files changed underneath you, so read the full diff even when the fix looks small.
 
 ## Claude Code: it will take the whole job, including extra files
 
-This is the one people hand a real implementation. An old PHP blog. Twenty sites to migrate. A design that has to become a site. It keeps going on work that already has requirements and a repo.[^claude]
+Claude Code is what people hand a real implementation job when they already have requirements and a repo: upgrading an old PHP blog, migrating twenty legacy sites, or turning a design into a working site.[^claude]
 
-It also keeps going past the request. A small fix becomes a rewrite across files. Tests go green and registration still errors. Treat "done" as a claim. Click the signup flow yourself.
+Its main habit is going past what you asked for. A small fix can turn into a multi-file rewrite, and users reported green test suites while registration still threw errors. Treat "done" as a claim, not proof, and click through the signup flow yourself.
 
 ## Grok Build: ship the first playable version
 
-The posts that like it are about things already in use: a tower-defense game on a phone, a lithophane cut for a specific printer, tools a family is already opening. Speed to a version you can try is the point.[^build]
+Positive Grok Build posts usually show something people are already using: a mobile tower-defense game, a lithophane tuned for a specific printer, or small tools a family already opens. Speed to a playable first version is the point.[^build]
 
-Then the second week. A plugin that appeared in one pass, then never got its bugs fixed. A store preview that looks finished while product data is still stuck. A first version is not a finish. There are large-project wins in this sample; they do not cancel the stall after v1.
+Week two is harder. One user got a plugin working in a single pass and then couldn't get its bugs fixed; another got a finished-looking store preview while product data stayed stuck. Large-project wins do show up in this sample, too, so bigger builds can land, though stalling after v1 is a recurring pattern.
 
 ## Antigravity: make the thing you can show
 
-A 3D shoe site. Scroll animations from reference stills. If the job is "can I see this idea," start here.[^antigravity]
+If the job is "let me see this idea working on screen," start with Antigravity. People used it well for interactive 3D shoe sites and scroll animations built from reference stills.[^antigravity]
 
-If the job is "this existing app is broken," start somewhere else. Failed repairs. Tests rewritten to match the bug. "Complete" without looking. A pretty page is not evidence it can keep a codebase alive.
+If an existing app is broken, start somewhere else. Negative reports describe failed repairs, tests rewritten to let broken code pass, and tasks marked "complete" without checking the output. A sharp visual demo isn't proof it can maintain a codebase.
 
 ## OpenCode: you own the stack, so you own the stall
 
-People pick it to combine their own models, interfaces, and local setup. Recovering a lost production container is the kind of win that shows up. Scripts and environment repairs show up too.[^opencode]
+Developers pick OpenCode to combine their own models, interfaces, and local setup. Wins in the sample include recovering a lost production container, writing scripts, and fixing local environments.[^opencode]
 
-The cost is operational. Failed tool calls. Reading the same file on a loop. A session that finishes the plan and then spins. When it sticks, you are debugging the model and the glue, not only the app. Switch models, fix the connection, or cut the task up.
+The trade-off is operational upkeep: failed tool calls, reading the same file on a loop, or sessions that finish a plan and then spin in place. When it stalls, you end up debugging the model and glue alongside your app. Switch models, check the connection, or break the task into smaller pieces.
 
 ## Codex: repair what used to run
 
-Audio buffers. Device wiring. Thirty-year-old assembly. Old games that should boot again. Concrete breakage in an environment you already have, or a repetitive job you want scripted.[^codex]
+Codex handles concrete low-level breakage and scripting well: fixing audio buffers, debugging device wiring, repairing thirty-year-old assembly, and getting old games booting again.[^codex]
 
-Do not start here for how it looks. Website taste, Blender characters, PowerPoint and PDF layout all get negative notes. One successful old-program repair also does not mean the next port will finish. A Roblox migration sat in fixes for a week.
+Don't start here for visual polish. Website design, Blender characters, and PowerPoint or PDF layouts all drew complaints. Even on legacy repairs, one clean rescue doesn't guarantee the next port finishes: one Roblox migration stayed stuck in fixes for a week.
 
 ## Notes
 

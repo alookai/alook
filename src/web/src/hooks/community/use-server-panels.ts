@@ -9,9 +9,10 @@ import { apiFetch } from "@/lib/api/client"
 import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalProfilesProjection } from "@/lib/community-db/projections"
 import { communityKeys } from "@/lib/query-keys"
 import type { InviteRow } from "@/lib/community/models/people"
+import type { InvitesWindow } from "@/lib/community/directory-window-persistence"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }
@@ -22,7 +23,7 @@ function throwIfStale<T extends { stale?: boolean }>(v: T): T {
 }
 
 type InviteResourceRow = Omit<InviteRow, "by">
-export type InvitesResponse = { invites: InviteResourceRow[] }
+export type InvitesResponse = InvitesWindow
 
 const EMPTY_INVITES: readonly InviteRow[] = Object.freeze([])
 
@@ -30,6 +31,7 @@ export const invitesQueryFn = (serverId: string) => async (context: QueryFunctio
   const original = captureCommunityLiveSnapshotToken(context.client)
   const assert = () => assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
   await original.registry?.ready
+  const auxiliaryReadEpoch = await original.registry?.captureAuxiliaryReadEpoch()
   assert()
   const data = await loadAndSeedProfiles(
     origin => apiFetch<unknown>(`/api/community/servers/${serverId}/invites`, { ...origin, signal: context.signal }).then(value => CommunityInvitesReadSchema.parse(value)),
@@ -45,13 +47,13 @@ export const invitesQueryFn = (serverId: string) => async (context: QueryFunctio
     expiresAt: i.expiresAt,
     creatorId: i.creatorId,
   }))
-  return { invites }
+  return { invites, observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
 }
 
 export function useInvites(
   serverId: string | null,
   enabled: boolean,
-): UseQueryResult<InvitesResponse> & { invites: InviteRow[] } {
+): Omit<UseQueryResult<InvitesResponse>, "data"> & { data: InvitesResponse | undefined; invites: InviteRow[]; observed: boolean; loading: boolean; failed: boolean; refreshFailed: boolean; isCurrentRead: () => boolean } {
   const client = useQueryClient()
   const admitted = !!serverId && enabled
   const query = useQuery({
@@ -64,14 +66,28 @@ export function useInvites(
 
     staleTime: 60_000,
   })
-  const profiles = useCanonicalProfilesByUserId(query.data?.invites.flatMap((row) => row.creatorId ? [row.creatorId] : []) ?? [])
+  const profileProjection = useCanonicalProfilesProjection(query.data?.invites.flatMap((row) => row.creatorId ? [row.creatorId] : []) ?? [])
+  const profiles = profileProjection.data
   const pending = useMutationState({ filters: { mutationKey: ["community", "invite-revoke"], status: "pending" }, select: (mutation) => mutation.state.variables as { serverId: string; code: string; resource?: unknown } | undefined })
   const resource = client.getQueryCache().find({ queryKey: communityKeys.invites(serverId ?? "__none__"), exact: true })
   const hidden = new Set(pending.filter((intent) => intent?.serverId === serverId && intent.resource === resource).map((intent) => intent!.code))
-  const invites = query.data?.invites.filter((row) => !hidden.has(row.code)).map((row) => ({ ...row, by: row.creatorId ? profiles.get(row.creatorId)?.name || "Deleted user" : "Deleted user" }))
+  const invites = query.data?.invites.filter((row) => !hidden.has(row.code) && (row.creatorId === null || profileProjection.resourceProfiles.has(row.creatorId))).map((row) => ({ ...row, by: row.creatorId ? profiles.get(row.creatorId)!.name || "Deleted user" : "Deleted user" }))
+  const complete = !!query.data && profileProjection.isReady && profileProjection.isEnabled && !profileProjection.isError
+    && query.data.invites.every(row => row.creatorId === null || profileProjection.resourceProfiles.has(row.creatorId))
+  const failed = admitted && !complete && (query.isError || profileProjection.isError || !!query.data && profileProjection.isReady)
+  const isCurrentRead = () => {
+    const state = client.getQueryState<InvitesResponse>(communityKeys.invites(serverId ?? "__none__"))
+    return admitted && complete && getCommunityDbRegistry(client) === profileProjection.registry && state?.status === "success"
+      && !state.isInvalidated && state.data === query.data && state.data?.observed === true
+  }
   return {
     ...query,
-    invites: invites ?? (EMPTY_INVITES as InviteRow[]),
+    data: admitted && complete ? query.data : undefined,
+    invites: admitted ? invites ?? (EMPTY_INVITES as InviteRow[]) : (EMPTY_INVITES as InviteRow[]),
+    observed: isCurrentRead(), isCurrentRead,
+    loading: admitted && !complete && !failed,
+    failed,
+    refreshFailed: complete && query.isError && !query.isFetching,
   }
 }
 

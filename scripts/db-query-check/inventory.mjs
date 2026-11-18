@@ -2,7 +2,7 @@ import { readdirSync, existsSync } from 'node:fs'
 import { relative, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
-import { fixedD1Read, sourceDrizzleRead } from './source-plans.mjs'
+import { fixedD1Read, sourceDrizzleRead, standaloneExistsReturn } from './source-plans.mjs'
 
 export const backendRoots = ['src/shared/src', 'src/web/src', 'src/web/auth', 'src/ws-do/src', 'src/email-worker/src', 'src/queue-worker/src', 'src/daemon/src', 'src/app/src']
 const operations = new Set(['select', 'selectDistinct', 'insert', 'update', 'delete', 'prepare', 'exec', 'execute', 'run', 'all', 'get', 'findFirst', 'findMany'])
@@ -30,6 +30,16 @@ function enclosingFunction(node) {
     if ((ts.isArrowFunction(parent) || ts.isFunctionExpression(parent)) && ts.isVariableDeclaration(parent.parent)) return parent.parent.name.getText()
   }
   return '<module>'
+}
+
+function countsCompiledParameters(builder, checker) {
+  const { expression, parent: params } = builder
+  if (!ts.isPropertyAccessExpression(expression) || expression.name.text !== 'toSQL' || builder.arguments.length) return false
+  if (!params || !ts.isPropertyAccessExpression(params) || params.name.text !== 'params') return false
+  const count = params.parent
+  return count && ts.isPropertyAccessExpression(count) && count.name.text === 'length' &&
+    checker.getSymbolAtLocation(expression.name)?.declarations?.some(declaration =>
+      declaration.getSourceFile().fileName.replaceAll('\\', '/').includes('/drizzle-orm/'))
 }
 
 export function inventoryQueries(root, override, { includeFixtures = false } = {}) {
@@ -70,6 +80,7 @@ export function inventoryQueries(root, override, { includeFixtures = false } = {
       if (!source) continue
       const path = relative(root, file).replaceAll('\\', '/')
       const fixture = !productionFile(path)
+      const insertSelectReceivers = new Map()
       const visit = node => {
         if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && operations.has(node.expression.name.text)) {
           const method = node.expression.name.text
@@ -79,6 +90,7 @@ export function inventoryQueries(root, override, { includeFixtures = false } = {
           const declarations = fluentTerminal ? [] : checker.getPropertyOfType(checker.getNonNullableType(checker.getTypeAtLocation(receiver)), method)?.declarations ?? []
           const declarationFiles = declarations.map(item => item.getSourceFile().fileName.replaceAll('\\', '/'))
           const isWorkerSql = declarations.some((declaration, index) => (declarationFiles[index].includes('@cloudflare/workers-types/') || declarationFiles[index] === generatedWorkerTypes) && /^(?:D1Database|D1DatabaseSession|D1PreparedStatement|SqlStorage)$/.test(declaration.parent?.name?.getText() ?? ''))
+          const isDrizzle = declarationFiles.some(path => path.includes('/drizzle-orm/'))
           const isDb = isWorkerSql || declarationFiles.some(path => /(?:drizzle-orm|better-sqlite3|@types\/node\/sqlite)/.test(path))
           const unknown = !declarations.length
           let fixtureProof
@@ -103,16 +115,29 @@ export function inventoryQueries(root, override, { includeFixtures = false } = {
             const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1
             const endLine = source.getLineAndCharacterOfPosition(chain.getEnd()).line + 1
             const site = { key: `${prefix}:${ordinal}`, file: path, functionName, method, line, endLine, start: node.getStart(), builderEnd: (beforeAlias ?? builder).getEnd(), resolution: isDb ? 'database-type' : 'unresolved-receiver', instrumentation: ts.isOptionalChain(builder) ? 'optional-chain-unverified' : 'construction' }
+            if (!fixture && !beforeAlias && isDrizzle && site.instrumentation === 'construction' && countsCompiledParameters(builder, checker)) site.compilationOnly = 'parameter-count'
             if (fixture) fixtureSites.push({ ...site, kind: 'test-fixture', proof: fixtureProof, literalSql: fixtureProof === 'literal-sql' ? node.arguments[0].text : undefined })
             else {
             sites.push(site)
+            if (isDrizzle && site.instrumentation === 'construction') {
+              if (method === 'select' && ts.isCallExpression(receiver) &&
+                  ts.isPropertyAccessExpression(receiver.expression) && receiver.expression.name.text === 'insert') {
+                insertSelectReceivers.set(receiver, site)
+              }
+              const selectSite = insertSelectReceivers.get(node)
+              if (method === 'insert' && selectSite?.start === site.start && selectSite.builderEnd === site.builderEnd) {
+                selectSite.insertBuilderSiteKey = site.key
+              }
+            }
             if (method === 'prepare' && isWorkerSql && site.instrumentation === 'construction') {
               const statement = fixedD1Read(node, checker)
               if (statement) sourceStatements.push({ siteKey: site.key, ...statement })
             }
             if (['select', 'selectDistinct'].includes(method) && isDb && site.instrumentation === 'construction') {
-              const statement = sourceDrizzleRead(node, builder, checker, root)
-              if (statement) sourceDrizzlePlans.push({ siteKey: site.key, ...statement })
+              const standaloneExists = isDrizzle && !beforeAlias && standaloneExistsReturn(builder, checker)
+              const statement = sourceDrizzleRead(node, builder, checker, root, { standaloneExists })
+              if (statement && standaloneExists) site.compilationOnly = 'standalone-exists'
+              else if (statement) sourceDrizzlePlans.push({ siteKey: site.key, ...statement })
             }
           }
           }

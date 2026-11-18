@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor, within } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { serverMembersReadFixture } from "@/test/community-resource-fixtures"
 import { channelMembershipKey } from "@/lib/community-db/schema"
 import type { ChannelMember } from "@/hooks/community/use-channel-members"
 import { useChannelMemberViewModel } from "./channel-member-view-model"
+import { AddMembersDialog } from "./add-members-dialog"
 
 const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), toastError: vi.fn() }))
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -65,7 +67,7 @@ async function fixture() {
   let nextGate = deferred()
   mocks.apiFetch.mockImplementation((url: string, options?: RequestInit) => {
     if (url.startsWith("/api/community/servers/server/members")) {
-      return Promise.resolve({ members: parentMembers, hasMore: false, limit: 50, total: 3 })
+      return Promise.resolve(serverMembersReadFixture("server", parentMembers.map(({ source: _source, isCreator: _creator, ...member }) => member), { total: 3 }))
     }
     if (url === "/api/community/channels/parent/members?relation=access") {
       return Promise.resolve(memberRead("parent", "access", parentMembers))
@@ -105,6 +107,29 @@ async function fixture() {
 }
 
 describe("AddMembersDialog native membership lifecycle", () => {
+  it.each([false, true])("keeps a resolved cached picker read-only with Retry during failure (empty=%s)", async empty => {
+    const owner = await createCommunityQueryOwner()
+    const retry = vi.fn()
+    const add = vi.fn().mockResolvedValue(undefined)
+    const candidate = { userId: "bob", name: "Bob", avatar: "B" }
+    const element = (failed: boolean) => <CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
+      <AddMembersDialog scopeId="cached-picker" title="Cached members" subtitle="Add people to this channel." candidates={failed && empty ? [] : [candidate]}
+        queryState={{ resolved: true, loading: false, error: failed, actionable: !failed, retrying: false, retry }} onAdd={add} onClose={() => {}} />
+    </CommunityTestProvider>
+    const view = render(element(true))
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't refresh people.")
+    if (empty) expect(screen.getByText("Everyone is already here.")).toBeVisible()
+    else { expect(screen.getByText("Bob")).toBeVisible(); expect(screen.getByRole("button", { name: "Add" })).toBeDisabled() }
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(retry).toHaveBeenCalledOnce()
+    expect(add).not.toHaveBeenCalled()
+    view.rerender(element(false))
+    expect(screen.queryByRole("alert")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Add" }))
+    await waitFor(() => expect(add).toHaveBeenCalledWith("bob", expect.any(Function)))
+    view.unmount()
+  })
+
   it("retains the admitted pending row during canonical optimistic insertion and removes it on success", async () => {
     const f = await fixture()
     await f.open()
@@ -152,13 +177,15 @@ describe("AddMembersDialog native membership lifecycle", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
     expect(f.requests[0].signal.aborted).toBe(true)
+    expect(f.registry.collections.channelMemberships.has(channelMembershipKey("thread", "bob", "notify"))).toBe(false)
     f.rendered.rerender(f.element("other"))
     await f.open()
     expect(f.row("Bob").button.disabled).toBe(false)
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }))
     f.rendered.rerender(f.element("thread"))
     const replacement = await f.open()
-    expect(replacement.queryByText("Bob", { exact: true })).toBeNull()
+    expect(replacement.getByText("Bob", { exact: true })).toBeVisible()
+    expect(f.row("Bob").button.disabled).toBe(false)
     expect(f.row("Carol").button.disabled).toBe(false)
     expect(screen.getByRole("dialog").querySelector("svg.animate-spin")).toBeNull()
     await act(async () => { f.gate().resolve(); await Promise.resolve() })

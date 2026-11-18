@@ -6,11 +6,12 @@ import { tid } from "@/lib/community/testids"
 vi.mock("@/hooks/community/use-bot-memberships", () => ({
   useBotMemberships: () => ({
     pending: false,
+    confirmed: true,
     data: { servers: [{
       id: "owned", name: "Owned server", handle: "Owned#1234", icon: null, canLeave: false,
       channels: [
-        { id: "/Owned#1234/public", name: "public", type: "text", canLeave: false },
-        { id: "/Owned#1234/private", name: "private", type: "text", canLeave: true },
+        { id: "/Owned#1234/public", channelId: "public", name: "public", type: "text", visibility: "public", canLeave: false },
+        { id: "/Owned#1234/private", channelId: "private", name: "private", type: "text", visibility: "private", canLeave: true },
       ],
     }] },
   }),

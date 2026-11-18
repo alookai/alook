@@ -45,7 +45,7 @@ describe("useInvites / invitesQueryFn", () => {
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.invites("srv_1")
     await qc.query({ queryKey: key, queryFn: invitesQueryFn("srv_1") })
-    expect(qc.getQueryData(key)).toEqual({ invites: [] })
+    expect(qc.getQueryData(key)).toEqual({ invites: [], observed: true })
   })
 })
 

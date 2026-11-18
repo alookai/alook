@@ -22,7 +22,8 @@ export function useResolveOrCreateInvite(serverId: string) {
     gcTime: 0,
     mutationFn: async ({ currentUserId, assert, original }: Intent): Promise<ResolveInviteResult> => {
       origin.assert(original); assert()
-      const options = { queryKey: communityKeys.invites(serverId), queryFn: invitesQueryFn(serverId), staleTime: 60_000 }
+      const options = { queryKey: communityKeys.invites(serverId), queryFn: invitesQueryFn(serverId),
+        staleTime: (query: { state: { data: unknown; status: string } }) => query.state.status === "error" || (query.state.data as InvitesResponse | undefined)?.observed !== true ? 0 : 60_000 }
       const observer = new QueryObserver(client, { ...options, enabled: false })
       const unsubscribe = observer.subscribe(() => undefined)
       assert.signal.addEventListener("abort", unsubscribe, { once: true })
@@ -40,7 +41,7 @@ export function useResolveOrCreateInvite(serverId: string) {
       if (resource && client.getQueryCache().find({ queryKey: options.queryKey, exact: true }) === resource) {
         await client.cancelQueries({ queryKey: options.queryKey, exact: true })
         origin.assert(original); assert()
-        if (client.getQueryCache().find({ queryKey: options.queryKey, exact: true }) === resource) client.setQueryData<InvitesResponse>(options.queryKey, (current) => current && !current.invites.some((row) => row.code === result.invite.token) ? { invites: [{ code: result.invite.token, uses: result.invite.uses, maxUses: result.invite.maxUses, expiresAt: result.invite.expiresAt, creatorId: currentUserId }, ...current.invites.filter((row) => row.code !== result.invite.token)] } : current)
+        if (client.getQueryCache().find({ queryKey: options.queryKey, exact: true }) === resource) client.setQueryData<InvitesResponse>(options.queryKey, (current) => current && !current.invites.some((row) => row.code === result.invite.token) ? { ...current, invites: [{ code: result.invite.token, uses: result.invite.uses, maxUses: result.invite.maxUses, expiresAt: result.invite.expiresAt, creatorId: currentUserId }, ...current.invites.filter((row) => row.code !== result.invite.token)] } : current)
       }
       return result.invite
     },
@@ -61,15 +62,20 @@ export function useRevokeInvite() {
     mutationFn: async ({ serverId, code, original, resource, assertActive }: Intent) => {
       origin.assert(original); assertActive?.()
       const key = communityKeys.invites(serverId)
+      const data = resource?.state.data as InvitesResponse | undefined
+      if (!resource || client.getQueryCache().find({ queryKey: key, exact: true }) !== resource || resource.state.status !== "success" || resource.state.isInvalidated
+        || data?.observed !== true || !data.invites.some(invite => invite.code === code)) throw new DOMException("Invite list changed", "AbortError")
       if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource) await client.cancelQueries({ queryKey: key, exact: true })
       origin.assert(original); assertActive?.()
       const writes = resource?.state.dataUpdateCount
       await origin.request(original, "/api/community/invites/" + code, { method: "DELETE", signal: assertActive?.signal, assertActive })
       origin.assert(original); assertActive?.()
+      await origin.registry!.retireAuxiliaryDisk([{ kind: "invite", id: code }])
+      origin.assert(original); assertActive?.()
       if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource) {
         await client.cancelQueries({ queryKey: key, exact: true })
         origin.assert(original); assertActive?.()
-        if (client.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === writes) client.setQueryData<InvitesResponse>(key, (current) => current ? { invites: current.invites.filter((row) => row.code !== code) } : current)
+        if (client.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === writes) client.setQueryData<InvitesResponse>(key, (current) => current ? { ...current, invites: current.invites.filter((row) => row.code !== code) } : current)
       }
     },
   })

@@ -1,8 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { createDb } from "../../src/db";
+import { communityChannel, communityChannelMember, communityMessage, communityServer } from "../../src/db/community-schema";
+import { user } from "../../src/db/schema";
 import * as agentInbox from "../../src/db/queries/community/agent-inbox";
 import * as marks from "../../src/db/queries/community/mark";
 import { formatRef, formatSeq, DM_SERVER } from "../../src/community-cli-contract";
+import { createMigratedDb } from "../helpers/migrated-db";
 
 /**
  * Generic chainable + thenable mock. Every builder method (`select`, `from`,
@@ -62,6 +65,52 @@ describe("listAccessVisibleChannelIdsForUser", () => {
     // builders. The latter two compile into one statement (real-SQLite test).
     expect(db.select).toHaveBeenCalledTimes(5)
   })
+});
+
+it("hydrates migrated thread and DM scopes for messages and notices", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    const viewer = "viewer";
+    const peer = "peer";
+    const createdAt = "2026-07-01T00:00:00.000Z";
+    await db.insert(user).values([
+      { id: viewer, name: "Viewer", email: "viewer@example.test", discriminator: "0001" },
+      { id: peer, name: "Peer", email: "peer@example.test", discriminator: "9999" },
+      { id: "a-notify", name: "Notify", email: "notify@example.test", discriminator: "0002" },
+    ]).run();
+    await db.insert(communityServer).values({ id: "studio", name: "studio", discriminator: "0042", ownerId: viewer }).run();
+    await db.insert(communityChannel).values([
+      { id: "general", name: "general", type: "text", serverId: "studio" },
+      { id: "dm", type: "dm" },
+      { id: "no-peer", type: "dm" },
+    ]).run();
+    await db.insert(communityMessage).values({ id: "root", authorId: viewer, channelId: "general", seq: 7, createdAt }).run();
+    await db.insert(communityChannel).values({
+      id: "thread", type: "thread", serverId: "studio", parentChannelId: "general", parentMessageId: "root",
+    }).run();
+    await db.insert(communityChannelMember).values([
+      { channelId: "dm", userId: "a-notify", relation: "notify" },
+      { channelId: "dm", userId: viewer, relation: "access" },
+      { channelId: "dm", userId: peer, relation: "access" },
+      { channelId: "no-peer", userId: viewer, relation: "access" },
+    ]).run();
+    const message = { authorId: peer, content: "hello", createdAt, seq: 2, replyToId: null };
+    const deliveries = [
+      { ...message, id: "thread-reply", channelId: "thread" },
+      { ...message, id: "dm-message", channelId: "dm" },
+    ];
+    await db.insert(communityMessage).values(deliveries).run();
+    await expect(agentInbox.toAgentMessages(db, deliveries, viewer)).resolves.toMatchObject([
+      { channel: "/studio#0042/general/#7", sender: "@Peer#9999", seq: "#2" },
+      { channel: "/.dm/Peer#9999", sender: "@Peer#9999", seq: "#2" },
+    ]);
+    await expect(agentInbox.resolveUnreadNoticeChannel(db, { channelId: "thread" }, viewer)).resolves.toBe("/studio#0042/general/#7");
+    await expect(agentInbox.resolveUnreadNoticeChannel(db, { channelId: "dm" }, viewer)).resolves.toBe("/.dm/Peer#9999");
+    await expect(agentInbox.resolveUnreadNoticeChannel(db, { channelId: "no-peer" }, viewer)).resolves.toBeNull();
+    await expect(agentInbox.resolveUnreadNoticeChannel(db, { channelId: "missing" }, viewer)).resolves.toBeNull();
+  } finally {
+    sqlite.close();
+  }
 });
 
 function rawMsg(overrides: Partial<Record<string, unknown>> = {}) {
@@ -878,6 +927,34 @@ describe("toInboxRows", () => {
 });
 
 describe("listMessagesBySeq", () => {
+  it("paginates real channel sequences without reading another scope or seq zero", async () => {
+    const { db, sqlite } = createMigratedDb();
+    try {
+      await db.insert(user).values({ id: "author", name: "Author", email: "author@example.test" }).run();
+      await db.insert(communityChannel).values([{ id: "target", type: "dm" }, { id: "other", type: "dm" }]).run();
+      await db.insert(communityMessage).values([
+        ...[0, 1, 3, 5, 7, 9].map(seq => ({ id: `target-${seq}`, seq, authorId: "author", channelId: "target" })),
+        { id: "other-5", seq: 5, authorId: "author", channelId: "other" },
+      ]).run();
+      const scope = { channelId: "target" };
+      const cases = [
+        { opts: { limit: 2 }, expected: [7, 9], hasMore: true },
+        { opts: { after: 3, limit: 2 }, expected: [5, 7], hasMore: true },
+        { opts: { before: 9, limit: 2 }, expected: [5, 7], hasMore: true },
+        { opts: { around: 5, limit: 3 }, expected: [3, 5, 7], hasMore: true },
+        { opts: { around: 0, limit: 10 }, expected: [1, 3, 5, 7, 9], hasMore: false },
+      ];
+      for (const { opts, expected, hasMore } of cases) {
+        const page = await agentInbox.listMessagesBySeq(db, scope, opts);
+        expect(page.items.map(item => item.id)).toEqual(expected.map(seq => `target-${seq}`));
+        expect(page.hasMore).toBe(hasMore);
+        expect(page.latestSeq).toBe(expected.at(-1));
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("default (no cursor): fetches latest page desc then reverses to ascending", async () => {
     const db = createSequentialDb([
       [rawMsg({ id: "m_3", seq: 3 }), rawMsg({ id: "m_2", seq: 2 }), rawMsg({ id: "m_1", seq: 1 })],

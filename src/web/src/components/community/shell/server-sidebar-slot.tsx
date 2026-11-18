@@ -535,25 +535,31 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
           serverIcon={currentServer?.icon ?? null}
           members={enrichedMembers}
           membersLoading={membersHook.loading}
+          membersKnown={membersHook.displayReady}
+          membersFailed={membersHook.failed || membersHook.refreshFailed}
+          membersRefreshing={membersHook.refreshing}
+          onRetryMembers={membersHook.refresh}
           membersLoadingMore={membersHook.loadingMore}
           membersHasMore={membersHook.hasMore}
           membersTotal={membersHook.total}
           onLoadMoreMembers={membersHook.loadMore}
           onSearchMembers={membersHook.searchMembers}
-          onKickMember={(memberId) => {
+          onKickMember={membersHook.observed ? (memberId) => {
+            if (!membersHook.isCurrentRead()) return
             const assert = settingsView.capture()
             kickMemberMut.mutate({ serverId, memberId, assertActive: assert }, {
               onSuccess: () => { try { assert(); toast("Member kicked") } catch {} },
               onError: (e) => toastApiError(e, "Failed to kick member", assert),
             })
-          }}
-          onSetRole={(memberId, role) => {
+          } : undefined}
+          onSetRole={membersHook.observed ? (memberId, role) => {
+            if (!membersHook.isCurrentRead()) return
             const assert = settingsView.capture()
             setMemberRoleMut.mutate({ serverId, memberId, role, assertActive: assert }, {
               onSuccess: () => { try { assert(); toast("Role updated") } catch {} },
               onError: (e) => toastApiError(e, "Failed to update role", assert),
             })
-          }}
+          } : undefined}
           onRevokeInvite={(code) => {
             const assert = settingsView.capture()
             revokeInviteMut.mutate({ serverId, code, assertActive: assert }, {

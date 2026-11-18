@@ -5,10 +5,14 @@ import { getTableConfig } from "drizzle-orm/sqlite-core";
 import type { Database } from "../../src/db";
 import {
   DIAGNOSTIC_REPORT_FAILURE_CODES,
+  communityBotBinding,
   communityDiagnosticReport,
+  communityMachine,
   type DiagnosticReportFailureCode,
 } from "../../src/db/community-machine-schema";
 import * as q from "../../src/db/queries/community/diagnostic-report";
+import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
 
 const NOW_MS = 1_786_531_200_000;
 const FROM_MS = NOW_MS - 86_400_000;
@@ -338,6 +342,35 @@ describe("diagnostic report query contract", () => {
     }
   });
 
+  it("rereads the durable conflict when the timeout compare-and-set returns no row", async () => {
+    const { db, sqlite } = createMigratedDb();
+    try {
+      await db.insert(user).values([
+        { id: OWNER_ID, email: "owner@example.test", name: "Owner" },
+        { id: AGENT_ID, email: "bot@example.test", name: "Bot", isBot: true, ownerUserId: OWNER_ID },
+      ]).run();
+      await db.insert(communityMachine).values({ id: MACHINE_ID, userId: OWNER_ID }).run();
+      await db.insert(communityBotBinding).values({ userId: AGENT_ID, machineId: MACHINE_ID, runtime: "codex-cli" }).run();
+      await db.insert(communityDiagnosticReport).values(pendingRow).run();
+      let timeoutAttempts = 0;
+      sqlite.function("record_timeout_attempt", () => ++timeoutAttempts);
+      sqlite.exec(`
+        CREATE TEMP TRIGGER ignore_timeout BEFORE UPDATE OF status ON community_diagnostic_report
+        WHEN NEW.failure_code = 'timeout'
+        BEGIN SELECT record_timeout_attempt(); SELECT RAISE(IGNORE); END
+      `);
+      const input = { ownerUserId: OWNER_ID, agentId: AGENT_ID, clientNonce: NONCE, nowMs: DEADLINE_AT };
+      await expect(q.createOrGetPendingDiagnosticReport(db, input)).resolves.toEqual({ kind: "same_nonce", report: pendingRow });
+      await expect(q.createOrGetPendingDiagnosticReport(db, { ...input, clientNonce: "nonce_other_case_01" })).resolves.toEqual({
+        kind: "existing_pending", report: pendingRow,
+      });
+      expect(timeoutAttempts).toBe(2);
+      expect(await db.select().from(communityDiagnosticReport)).toEqual([pendingRow]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it.each([
     ["deleted owner", { ownerDeleted: true }, OWNER_ID],
     ["wrong owner", {}, "owner_other"],
@@ -527,6 +560,55 @@ describe("diagnostic report query contract", () => {
     expect(chain.where).toHaveBeenCalledTimes(1);
     expect(chain.limit).toHaveBeenCalledWith(1);
     expect(chain.innerJoin).not.toHaveBeenCalled();
+  });
+
+  it("enforces stored owner, machine and deadline across native lifecycle transitions", async () => {
+    const { db, sqlite } = createMigratedDb();
+    try {
+      const expired = {
+        ...pendingRow, id: "dbr_expired", agentId: "agent_expired", clientNonce: "nonce_expired_000000",
+        createdAt: NOW_MS - 60_000, fromMs: FROM_MS - 60_000, deadlineAt: DEADLINE_AT - 60_000,
+        rateBucket: pendingRow.rateBucket - 1,
+      };
+      const failing = {
+        ...pendingRow, id: "dbr_failing", agentId: "agent_failing", clientNonce: "nonce_failing_000000",
+        createdAt: NOW_MS + 60_000, fromMs: FROM_MS + 60_000, deadlineAt: DEADLINE_AT + 60_000,
+        rateBucket: pendingRow.rateBucket + 1,
+      };
+      await db.insert(communityDiagnosticReport).values([pendingRow, expired, failing]).run();
+
+      const scope = { reportId: REPORT_ID, machineId: MACHINE_ID };
+      const wrongMachine = { ...scope, machineId: "other-machine" };
+      const wrongOwner = { reportId: REPORT_ID, ownerUserId: "other-owner" };
+      await expect(q.getDiagnosticReportForOwner(db, wrongOwner)).resolves.toBeNull();
+      await expect(q.getDiagnosticReportForOwner(db, { ...wrongOwner, ownerUserId: OWNER_ID })).resolves.toEqual(pendingRow);
+      await expect(q.getDiagnosticReportForMachine(db, wrongMachine)).resolves.toBeNull();
+      await expect(q.getPendingDiagnosticReportForMachine(db, { ...wrongMachine, nowMs: NOW_MS })).resolves.toBeNull();
+      await expect(q.getPendingDiagnosticReportForMachine(db, { ...scope, nowMs: NOW_MS })).resolves.toEqual(pendingRow);
+
+      const upload = { ...scope, r2Key: `bug-reports/${OWNER_ID}/${REPORT_ID}.ndjson.gz`, sha256: "a".repeat(64), sizeBytes: 1234, nowMs: NOW_MS };
+      await expect(q.finalizeDiagnosticReportUpload(db, { ...upload, ...wrongMachine })).resolves.toBeNull();
+      await expect(q.finalizeDiagnosticReportUpload(db, upload)).resolves.toMatchObject({
+        status: "uploaded", uploadedAt: NOW_MS, objectExpiresAt: NOW_MS + 604_800_000, r2Key: upload.r2Key,
+      });
+      await expect(q.getDiagnosticReportForMachine(db, scope)).resolves.toMatchObject({ status: "uploaded", sha256: upload.sha256 });
+      await expect(q.getPendingDiagnosticReportForMachine(db, { ...scope, nowMs: NOW_MS })).resolves.toBeNull();
+
+      const staleMachineScope = { ...scope, reportId: expired.id, nowMs: expired.deadlineAt };
+      await expect(q.getPendingDiagnosticReportForMachine(db, staleMachineScope)).resolves.toBeNull();
+      await expect(q.failPendingDiagnosticReport(db, { ...staleMachineScope, failureCode: "upload_failed" })).resolves.toBeNull();
+      const timeout = { reportId: expired.id, ownerUserId: OWNER_ID, nowMs: expired.deadlineAt };
+      await expect(q.timeoutPendingDiagnosticReport(db, { ...timeout, nowMs: timeout.nowMs - 1 })).resolves.toBeNull();
+      await expect(q.timeoutPendingDiagnosticReport(db, timeout)).resolves.toMatchObject({ status: "failed", failureCode: "timeout", completedAt: timeout.nowMs });
+      await expect(q.timeoutPendingDiagnosticReport(db, timeout)).resolves.toBeNull();
+
+      const fail = { reportId: failing.id, machineId: MACHINE_ID, nowMs: failing.createdAt, failureCode: "upload_failed" as const };
+      await expect(q.failPendingDiagnosticReport(db, { ...fail, machineId: "other-machine" })).resolves.toBeNull();
+      await expect(q.failPendingDiagnosticReport(db, fail)).resolves.toMatchObject({ status: "failed", failureCode: "upload_failed" });
+      await expect(q.failPendingDiagnosticReport(db, fail)).resolves.toBeNull();
+    } finally {
+      sqlite.close();
+    }
   });
 
   it("machine authorization is the immutable report snapshot, not a live bot binding", async () => {

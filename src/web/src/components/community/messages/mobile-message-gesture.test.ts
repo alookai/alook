@@ -14,30 +14,30 @@ describe("mobile message gesture", () => {
     expect(beginMobileReplyGesture(25, 20)).not.toBeNull()
   })
 
-  it("accepts only rightward horizontal intent and rejects vertical or leftward starts", () => {
+  it("accepts only leftward horizontal intent and rejects vertical or rightward starts", () => {
     const start = beginMobileReplyGesture(80, 100)!
     expect(advanceMobileReplyGesture(start, 84, 104).gesture.intent).toBe("pending")
     expect(advanceMobileReplyGesture(start, 86, 120).gesture.intent).toBe("rejected")
-    expect(advanceMobileReplyGesture(start, 60, 102).gesture.intent).toBe("rejected")
-    expect(advanceMobileReplyGesture(start, 100, 104).gesture.intent).toBe("horizontal")
+    expect(advanceMobileReplyGesture(start, 100, 102).gesture.intent).toBe("rejected")
+    expect(advanceMobileReplyGesture(start, 60, 104).gesture.intent).toBe("horizontal")
   })
 
   it("crosses once, clamps the visual offset, and commits the exact release", () => {
     const start = beginMobileReplyGesture(80, 100)!
-    const crossed = advanceMobileReplyGesture(start, 146, 103)
+    const crossed = advanceMobileReplyGesture(start, 14, 103)
     expect(crossed.gesture.thresholdCrossed).toBe(true)
     expect(crossed.fireHaptic).toBe(true)
     expect(shouldCommitMobileReply(crossed.gesture)).toBe(true)
 
-    const farther = advanceMobileReplyGesture(crossed.gesture, 400, 103)
-    expect(farther.gesture.offset).toBe(MOBILE_REPLY_MAX_OFFSET_PX)
+    const farther = advanceMobileReplyGesture(crossed.gesture, -240, 103)
+    expect(farther.gesture.offset).toBe(-MOBILE_REPLY_MAX_OFFSET_PX)
     expect(farther.fireHaptic).toBe(false)
   })
 
   it("reversal below threshold cancels reply without a second haptic", () => {
     const start = beginMobileReplyGesture(80, 100)!
-    const crossed = advanceMobileReplyGesture(start, 146, 101).gesture
-    const reversed = advanceMobileReplyGesture(crossed, 110, 101)
+    const crossed = advanceMobileReplyGesture(start, 14, 101).gesture
+    const reversed = advanceMobileReplyGesture(crossed, 50, 101)
     expect(reversed.gesture.thresholdCrossed).toBe(false)
     expect(reversed.gesture.hapticFired).toBe(true)
     expect(reversed.fireHaptic).toBe(false)
@@ -46,7 +46,7 @@ describe("mobile message gesture", () => {
 
   it("suppresses the synthesized click after a horizontal session even when reversal returns to zero", () => {
     const start = beginMobileReplyGesture(80, 100)!
-    const crossed = advanceMobileReplyGesture(start, 156, 101).gesture
+    const crossed = advanceMobileReplyGesture(start, 4, 101).gesture
     const returnedToZero = advanceMobileReplyGesture(crossed, 80, 101).gesture
     expect(returnedToZero.offset).toBe(0)
     expect(shouldCommitMobileReply(returnedToZero)).toBe(false)
@@ -55,7 +55,7 @@ describe("mobile message gesture", () => {
 
   it("suppresses the synthesized click after a below-threshold horizontal release, but not a tap", () => {
     const start = beginMobileReplyGesture(80, 100)!
-    const belowThreshold = advanceMobileReplyGesture(start, 112, 101).gesture
+    const belowThreshold = advanceMobileReplyGesture(start, 48, 101).gesture
     expect(shouldCommitMobileReply(belowThreshold)).toBe(false)
     expect(shouldSuppressClickAfterMobileReplyGesture(belowThreshold)).toBe(true)
     expect(shouldSuppressClickAfterMobileReplyGesture(start)).toBe(false)

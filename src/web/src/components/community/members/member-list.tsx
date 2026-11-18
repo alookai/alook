@@ -110,10 +110,20 @@ export function MemberList({
   onOpenProfile,
   onSetRole,
   onKick,
+  known = true,
+  actionsEnabled = true,
+  failed,
+  retrying,
+  onRetry,
 }: {
   scopeId?: string
   members: Member[]
   loading?: boolean
+  known?: boolean
+  actionsEnabled?: boolean
+  failed?: boolean
+  retrying?: boolean
+  onRetry?: () => void
   hasMore?: boolean
   loadingMore?: boolean
   onLoadMore?: () => void
@@ -157,7 +167,7 @@ export function MemberList({
   })
   const kicking = command.isPending && command.variables?.kind === "kick" && command.variables.assert.signal === source.signal
   const actioning = command.isPending && command.variables?.kind !== "kick" && command.variables?.assert.signal === source.signal
-  const canManage = canManageServer(myRole)
+  const canManage = actionsEnabled && canManageServer(myRole)
   const pending = useCallback(() => client.getMutationCache().findAll({ mutationKey: ["community", "member-list-command", scopeId], exact: true, status: "pending" }).some((mutation) => (mutation.state.variables as Intent).assert.signal === source.signal), [client, scopeId, source.signal])
   useEffect(() => {
     if (pending()) return
@@ -214,7 +224,7 @@ export function MemberList({
         loading={kicking}
         confirmVariant="destructive"
         onConfirm={() => {
-          if (!kickTarget || !onKick || pending()) return
+          if (!actionsEnabled || !kickTarget || !onKick || pending()) return
           command.mutate({ kind: "kick", memberId: kickTarget.id, userId: kickTarget.userId, work: onKick, assert: source.capture() })
         }}
       />
@@ -237,13 +247,19 @@ export function MemberList({
           loading={actioning}
           confirmVariant="destructive"
           onConfirm={() => {
-            if (!manageContext || !manageTarget || pending()) return
+            if (!manageContext || manageContext.actionable === false || !manageTarget || pending()) return
             const work = manageConfirm.kind === "leave" ? manageContext.onLeave : manageContext.onRemove
             command.mutate({ kind: manageConfirm.kind, memberId: manageTarget.id, userId: manageTarget.userId, work, assert: source.capture() })
           }}
         />
       )}
       <aside className="flex h-full flex-col bg-background">
+        {failed && (
+          <div role="alert" className="flex shrink-0 items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
+            <span>Could not {known ? "refresh" : "load"} members.</span>
+            <Button variant="ghost" size="sm" disabled={!onRetry || retrying} onClick={onRetry}>{retrying ? "Retrying…" : "Retry"}</Button>
+          </div>
+        )}
         {(onSearch || onAddMember) && (
           <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
             {onSearch && (
@@ -287,7 +303,7 @@ export function MemberList({
                   showDiscriminator={duplicateNames.has(item.member.name.toLowerCase())}
                   onOpenProfile={onOpenProfile}
                   onSetRole={onSetRole}
-                  onKick={(mem) => setKickTargetId(mem.id)}
+                  onKick={onKick ? (mem) => setKickTargetId(mem.id) : undefined}
                   onRequestManage={(kind, mem) => setManageConfirm({ kind, memberId: mem.id })}
                   manageContext={manageContext}
                 />
@@ -333,7 +349,7 @@ function MemberRow({
   onSetRole?: (memberId: string, role: Role) => void
   // Opens the server-kick confirm — receives the member so the caller can key
   // the DELETE on the member row id (not the display name).
-  onKick: (mem: Member) => void
+  onKick?: (mem: Member) => void
   // Opens the Leave/Remove confirm for a private channel/post/thread row.
   onRequestManage: (kind: "leave" | "remove", mem: Member) => void
   manageContext?: MemberManageContext
@@ -364,12 +380,13 @@ function MemberRow({
   if (manageContext) {
     const isSelf = mem.userId === manageContext.viewerUserId
     // Self may leave unless they're the creator (owners keep the unit).
-    const canLeave = isSelf && !mem.isCreator
+    const canLeave = manageContext.actionable !== false && isSelf && !mem.isCreator
     // Creator may remove other EXPLICIT members, but never the creator row.
     // `source` is undefined for thread participants (all real rows) → treat as
     // removable; for channel/post only explicit rows are removable.
     const canRemove =
       !isSelf &&
+      manageContext.actionable !== false &&
       manageContext.viewerIsCreator &&
       !mem.isCreator &&
       (mem.source === undefined || mem.source === "explicit")
@@ -393,14 +410,14 @@ function MemberRow({
     )
   }
 
-  if (!hasMemberMenu(canManage, mem.role)) return button
+  if (!hasMemberMenu(canManage && !!(onSetRole || onKick), mem.role)) return button
   return (
     <ContextMenu>
       <ContextMenuTrigger render={button} />
       <ContextMenuContent className="w-48">
         <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{mem.name}</div>
         <ContextMenuSub>
-          <ContextMenuSubTrigger>
+          <ContextMenuSubTrigger disabled={!onSetRole}>
             <Shield className="size-4" />
             Role
           </ContextMenuSubTrigger>
@@ -414,7 +431,7 @@ function MemberRow({
           </ContextMenuSubContent>
         </ContextMenuSub>
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onKick(mem)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
+        <ContextMenuItem disabled={!onKick} onClick={() => onKick?.(mem)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
           <UserMinus className="size-4" /> Kick {mem.name}
         </ContextMenuItem>
       </ContextMenuContent>

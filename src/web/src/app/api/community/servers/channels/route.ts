@@ -23,7 +23,7 @@ export const GET = withAuth(communityActorPolicy({ allowInactiveBot: true }), as
   // Fan out per-server DB work in parallel — for a bot in N servers this stays
   // flat instead of paying N× the RTT a sequential per-server loop would.
   const perServer = await Promise.all(
-    servers.map((server) => buildServerChannelGroups(db, server, botUserId)),
+    servers.map((server) => buildServerChannelGroups(db, server, botUserId, true)),
   )
 
   const groups: ChannelGroup[] = perServer.flat()

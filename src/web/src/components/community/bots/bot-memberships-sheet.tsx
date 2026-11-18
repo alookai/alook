@@ -1,6 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
+import { useLayoutEffect } from "react"
 import { Loader2, Lock, LogOut, Network } from "lucide-react"
 import { AgentAvatar } from "@/components/avatar"
 import { Button } from "@/components/ui/button"
@@ -21,13 +22,15 @@ export function BotMembershipsSheet({ bot, open, onOpenChange }: {
   onOpenChange: (open: boolean) => void
 }) {
   const memberships = useBotMemberships(bot.id, open)
-  const [target, setTarget] = useAtom(useCreateAtom<BotMembershipTarget | null>(null))
+  const [target, setTarget] = useAtom(useCreateAtom<(BotMembershipTarget & { botId: string; assertActive: ReturnType<typeof memberships.capture> }) | null>(null))
   const [error, setError] = useAtom(useCreateAtom<string | null>(null))
-  const select = (next: BotMembershipTarget) => { setError(null); setTarget(next) }
+  useLayoutEffect(() => { setTarget(null); setError(null) }, [bot.id, open, setTarget, setError])
+  const select = (next: BotMembershipTarget) => { if (!memberships.confirmed) return; setError(null); setTarget({ ...next, botId: bot.id, assertActive: memberships.capture() }) }
   const confirm = async () => {
-    if (!target || memberships.pending) return
-    const assert = memberships.capture()
+    if (!target || target.botId !== bot.id || memberships.pending || !memberships.confirmed) return
+    const assert = target.assertActive
     try {
+      assert()
       if (await memberships.leave(target)) { assert(); setTarget(null); setError(null) }
     } catch (cause) {
       try { assert() } catch { return }
@@ -36,24 +39,25 @@ export function BotMembershipsSheet({ bot, open, onOpenChange }: {
   }
   return <>
     <CommunitySheet open={open} onOpenChange={(next) => { if (!next) setTarget(null); onOpenChange(next) }} title="Servers & channels" description={<span className="flex min-w-0 items-center gap-2"><AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={24} /><span className="min-w-0 truncate" title={bot.name}>{bot.name}</span></span>} contentTestId={tid.botMembershipsSheet} bodyClassName="flex flex-col">
-      {memberships.isPending ? <div className="space-y-6" aria-label="Loading servers and channels" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="space-y-3"><Skeleton className="h-4 w-36" /><Skeleton className="ml-6 h-9 w-3/4" /><Skeleton className="ml-6 h-9 w-2/3" /></div>)}</div>
-        : memberships.isError ? <ConversationResolutionErrorFrame as="div" title="Could not load servers and channels." retrying={memberships.isFetching} onRetry={() => { void memberships.refetch() }} />
+      {memberships.isError && memberships.data && <ConversationResolutionErrorFrame as="div" title="Could not refresh servers and channels." retrying={memberships.isFetching} onRetry={() => { void memberships.refetch() }} />}
+      {memberships.isPending && !memberships.data ? <div className="space-y-6" aria-label="Loading servers and channels" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="space-y-3"><Skeleton className="h-4 w-36" /><Skeleton className="ml-6 h-9 w-3/4" /><Skeleton className="ml-6 h-9 w-2/3" /></div>)}</div>
+        : memberships.isError && !memberships.data ? <ConversationResolutionErrorFrame as="div" title="Could not load servers and channels." retrying={memberships.isFetching} onRetry={() => { void memberships.refetch() }} />
         : memberships.data?.servers.length === 0 ? <EmptyState icon={Network} label={`${bot.name} hasn't joined any servers.`} />
         : <div className="space-y-6">{memberships.data?.servers.map((server) => <section key={server.id} data-testid={tid.botMembershipsServer(server.id)}>
           <div className="flex min-h-11 items-center gap-2">
             <ServerIcon id={server.id} name={server.name} initial={avatarInitial(server.name)} icon={server.icon} size={16} className="shrink-0 rounded-sm" />
             <h3 className="min-w-0 flex-1 truncate text-sm font-medium" title={server.name}>{server.name}</h3>
-            <Button variant="ghost" size="icon" className="size-11 shrink-0 text-muted-foreground hover:text-destructive" disabled={memberships.pending || !server.canLeave} aria-label={`Leave ${server.name}`} title={server.canLeave ? "Leave server" : "The server owner cannot leave"} data-testid={tid.botMembershipsLeave(server.id)} onClick={() => select({ kind: "server", id: server.id, ref: server.handle, name: server.name })}><LogOut className="size-4" aria-hidden="true" /></Button>
+            <Button variant="ghost" size="icon" className="size-11 shrink-0 text-muted-foreground hover:text-destructive" disabled={!memberships.confirmed || memberships.pending || !server.canLeave} aria-label={`Leave ${server.name}`} title={!memberships.confirmed ? "Refresh to confirm membership" : server.canLeave ? "Leave server" : "The server owner cannot leave"} data-testid={tid.botMembershipsLeave(server.id)} onClick={() => select({ kind: "server", id: server.id, ref: server.handle, name: server.name })}><LogOut className="size-4" aria-hidden="true" /></Button>
           </div>
           {server.channels.length === 0 ? <p className="py-3 pl-6 text-sm text-muted-foreground">No channels available</p> : server.channels.map((channel) => <div key={channel.id} data-testid={tid.botMembershipsChannel(channel.id)} className="flex min-h-11 items-center gap-2 rounded-md">
-            <span className="flex w-4 shrink-0 justify-center">{channel.canLeave && <Lock className="size-3 translate-x-2 text-muted-foreground" aria-label="Private channel" />}</span>
+            <span className="flex w-4 shrink-0 justify-center">{channel.visibility === "private" && <Lock className="size-3 translate-x-2 text-muted-foreground" aria-label="Private channel" />}</span>
             <EntityIcon kind={channel.type} className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-sm" title={channel.name}>{channel.name}</span>
-            <Button variant="ghost" size="icon" className="size-11 shrink-0 text-muted-foreground hover:text-destructive" disabled={memberships.pending || (!channel.canLeave && !server.canLeave)} aria-label={`Leave ${channel.name}`} title={!channel.canLeave && !server.canLeave ? "The server owner cannot leave" : "Leave channel"} data-testid={tid.botMembershipsLeave(channel.id)} onClick={() => select(channel.canLeave ? { kind: "channel", id: channel.id, ref: channel.id, name: channel.name, serverName: server.name } : { kind: "server", id: server.id, ref: server.handle, name: server.name, publicChannelName: channel.name })}><LogOut className="size-4" aria-hidden="true" /></Button>
+            <Button variant="ghost" size="icon" className="size-11 shrink-0 text-muted-foreground hover:text-destructive" disabled={!memberships.confirmed || memberships.pending || (channel.visibility === "private" ? !channel.canLeave : !server.canLeave)} aria-label={`Leave ${channel.name}`} title={!memberships.confirmed ? "Refresh to confirm membership" : !channel.canLeave && !server.canLeave ? "The server owner cannot leave" : "Leave channel"} data-testid={tid.botMembershipsLeave(channel.id)} onClick={() => select(channel.visibility === "private" ? { kind: "channel", id: channel.id, ref: channel.id, resourceId: channel.channelId, name: channel.name, serverName: server.name } : { kind: "server", id: server.id, ref: server.handle, name: server.name, publicChannelName: channel.name })}><LogOut className="size-4" aria-hidden="true" /></Button>
           </div>)}
         </section>)}</div>}
     </CommunitySheet>
-    <AlertDialog open={open && target !== null} onOpenChange={(next) => { if (!next && !memberships.pending) setTarget(null) }}>
+    <AlertDialog open={open && target !== null && target.botId === bot.id} onOpenChange={(next) => { if (!next && !memberships.pending) setTarget(null) }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="wrap-break-word">Remove {bot.name} from {target?.publicChannelName ?? target?.name}{target?.publicChannelName ? ` in ${target.name}` : target?.kind === "channel" ? ` in ${target.serverName}` : ""}?</AlertDialogTitle>
@@ -62,7 +66,7 @@ export function BotMembershipsSheet({ bot, open, onOpenChange }: {
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel className="min-h-11 sm:min-h-0" disabled={memberships.pending}>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" data-testid={tid.botMembershipsConfirm} disabled={memberships.pending} onClick={() => void confirm()} className="min-h-11 sm:min-h-0">{memberships.pending && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />}{memberships.pending ? "Leaving…" : target?.kind === "server" ? "Leave server" : "Leave channel"}</AlertDialogAction>
+          <AlertDialogAction variant="destructive" data-testid={tid.botMembershipsConfirm} disabled={memberships.pending || !memberships.confirmed} onClick={() => void confirm()} className="min-h-11 sm:min-h-0">{memberships.pending && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />}{memberships.pending ? "Leaving…" : target?.kind === "server" ? "Leave server" : "Leave channel"}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

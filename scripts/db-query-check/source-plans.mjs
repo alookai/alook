@@ -54,11 +54,27 @@ function isDirectAsyncReturn(node) {
     !!ts.getModifiers(owner)?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)
 }
 
-export function sourceDrizzleRead(node, builder, checker, root) {
+function isDrizzleImport(node, name, checker) {
+  const declaration = checker.getSymbolAtLocation(node)?.declarations?.[0]
+  return !!declaration && ts.isImportSpecifier(declaration) &&
+    (declaration.propertyName ?? declaration.name).text === name &&
+    declaration.parent.parent.parent.moduleSpecifier.text === 'drizzle-orm'
+}
+
+export function standaloneExistsReturn(builder, checker) {
+  const call = builder.parent
+  if (!call || !ts.isCallExpression(call) || call.arguments.length !== 1 || call.arguments[0] !== builder ||
+      !ts.isIdentifier(call.expression) || !isDrizzleImport(call.expression, 'exists', checker)) return false
+  const returned = call.parent
+  return !!returned && ts.isReturnStatement(returned) && ts.isBlock(returned.parent) &&
+    returned.parent.statements.length === 1 && ts.isFunctionDeclaration(returned.parent.parent)
+}
+
+export function sourceDrizzleRead(node, builder, checker, root, { standaloneExists = false } = {}) {
   const parent = builder.parent
   const terminal = ts.isPropertyAccessExpression(parent) && ['all', 'get', 'execute'].includes(parent.name.text) &&
     ts.isCallExpression(parent.parent) && parent.parent.expression === parent
-  if (!ts.isAwaitExpression(parent) && !terminal && !isDirectAsyncReturn(parent)) return undefined
+  if (!standaloneExists && !ts.isAwaitExpression(parent) && !terminal && !isDirectAsyncReturn(parent)) return undefined
   const receiver = node.expression.expression
   if (!ts.isIdentifier(receiver)) return undefined
   const dbParameter = checker.getSymbolAtLocation(receiver)?.valueDeclaration
@@ -101,6 +117,10 @@ export function sourceDrizzleRead(node, builder, checker, root) {
     if (ts.isStringLiteralLike(expr) || ts.isNumericLiteral(expr) ||
         [ts.SyntaxKind.NullKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(expr.kind)) return true
     if (ts.isIdentifier(expr)) return identifier(expr)
+    if (standaloneExists && ts.isTaggedTemplateExpression(expr) && ts.isIdentifier(expr.tag) &&
+        isDrizzleImport(expr.tag, 'sql', checker) && ts.isNoSubstitutionTemplateLiteral(expr.template)) {
+      return /^-?\d+$/.test(expr.template.text)
+    }
     if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
       return identifier(expr.expression) && !['__proto__', 'constructor', 'prototype'].includes(expr.name.text) &&
         (inputs.get(expr.expression.text)?.values?.some(sample => sample != null && Object.hasOwn(sample, expr.name.text)) ||

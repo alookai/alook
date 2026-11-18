@@ -15,7 +15,7 @@ async function authorize(ctx: AuthContext & { params?: Record<string, string> })
   if (!bot) return { ok: false as const, response: writeError("bot not found", 404) }
   const access = await requireMessageSurfaceAccess(db, channelId, bot.id)
   if (!access.ok) return { ok: false as const, response: writeError(access.error, access.status) }
-  return { ok: true as const, db, botId: bot.id, channelId }
+  return { ok: true as const, db, botId: bot.id, channelId, serverId: access.value.surface === "dm" ? null : access.value.channel.serverId }
 }
 
 export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
@@ -24,7 +24,7 @@ export const GET = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const setting = await queries.communityNotificationSetting.getChannelSetting(
     auth.db, auth.botId, auth.channelId,
   )
-  return writeJSON({ level: setting?.level ?? null })
+  return writeJSON({ level: setting?.level ?? null, serverId: auth.serverId })
 })
 
 export const PUT = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {

@@ -125,7 +125,7 @@ function ScopedQueryProvider({
   const [restore] = useState(() => createCommunityRestorePersister(persister, userId))
   const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
   const router = useRouter()
-  useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount, persister.retireChannels) }, [communityDb, sessionViewer, persister])
+  useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount, persister.retireChannels, persister.retireAuxiliaryScopes, persister.captureAuxiliaryReadEpoch) }, [communityDb, sessionViewer, persister])
   useLayoutEffect(() => {
     if (!communityDb.confirmAuthentication()) return
     void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "community" || query.queryKey[1] !== "db" }).catch(() => undefined)

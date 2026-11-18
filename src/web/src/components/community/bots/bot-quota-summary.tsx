@@ -49,18 +49,9 @@ export function quotaBucketIdentity(limit: QuotaLimit): string {
   ].join("\u0000")
 }
 
-function decimalPlaces(value: number): number {
-  const source = String(value).toLowerCase()
-  if (source.includes("e-")) {
-    const [coefficient, exponent] = source.split("e-")
-    return Number(exponent) + (coefficient.split(".")[1]?.length ?? 0)
-  }
-  return source.split(".")[1]?.length ?? 0
-}
-
 export function remainingPercent(limit: QuotaLimit): number {
-  const precision = Math.min(12, decimalPlaces(limit.usedPercent))
-  return Number((100 - limit.usedPercent).toFixed(precision))
+  const rounded = Math.round(1000 - limit.usedPercent * 10) / 10
+  return Object.is(rounded, -0) ? 0 : rounded
 }
 
 function percentLabel(limit: QuotaLimit): string {

@@ -74,41 +74,41 @@ export const jsonLd = [
 
 <style>{`.delegation-brief.brief-wrap{overflow:visible;margin:22px 0 28px} .delegation-brief .brief-table{width:100%;min-width:0;border-collapse:separate;border-spacing:0 8px;table-layout:fixed} .delegation-brief .brief-table thead th{padding:12px 16px;text-align:left;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);border:0} .delegation-brief .brief-table thead th:first-child{width:29%} .delegation-brief .brief-table tbody th, .delegation-brief .brief-table tbody td{padding:16px;vertical-align:top;border:0;line-height:1.6} .delegation-brief .brief-table tbody th{border-left:3px solid var(--primary);background:var(--muted);color:var(--foreground);text-align:left;border-radius:var(--radius) 0 0 var(--radius);font-size:17px;font-weight:600} .delegation-brief .brief-table tbody td{background:var(--card);color:var(--card-foreground);border-radius:0 var(--radius) var(--radius) 0;box-shadow:inset 0 0 0 1px var(--border)} .delegation-brief .brief-table .brief-number{display:block;margin-bottom:3px;color:var(--muted-foreground);font:12px/1.4 var(--font-mono);letter-spacing:.08em} .delegation-brief .brief-table .brief-stop th{border-left-color:var(--warning);background:var(--accent);color:var(--accent-foreground)} .delegation-brief .brief-table .brief-stop td{background:var(--accent);color:var(--accent-foreground);box-shadow:none}@media(max-width:520px){ .delegation-brief .brief-table, .delegation-brief .brief-table tbody, .delegation-brief .brief-table tbody tr, .delegation-brief .brief-table tbody th, .delegation-brief .brief-table tbody td{display:block;width:auto} .delegation-brief .brief-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap} .delegation-brief .brief-table tbody tr{margin:0 0 12px} .delegation-brief .brief-table tbody th{display:flex;gap:12px;align-items:baseline;border-radius:var(--radius) var(--radius) 0 0;padding:16px} .delegation-brief .brief-table .brief-number{margin:0} .delegation-brief .brief-table tbody td{border-left:3px solid var(--primary);padding:16px;border-radius:0 0 var(--radius) var(--radius);box-shadow:none;background:var(--muted);color:var(--foreground)} .delegation-brief .brief-table .brief-stop td{border-left-color:var(--warning);background:var(--accent);color:var(--accent-foreground)}}`}</style>
 
-We had a chat-loading bug in Alook. Messages were already saved on the person's device, and they had access to them, yet reopening the chat could leave them staring at a loading placeholder while a fresh request finished.
+We ran into a chat-loading bug in Alook. Messages were already saved on the user's device, and the user had access to them, yet reopening a chat could leave them staring at a loading placeholder until a fresh network request finished.
 
-One of us set the expected behavior and the limits. Our agents carried the job forward: Jarvis coordinated, Samara built the fix, and Madox independently reviewed the code and tested the behavior in the browser.
+One of us defined the expected behavior and the boundaries. Our agents took it from there: Jarvis coordinated, Samara built the fix, and Madox independently reviewed the code and tested it in the browser.
 
-The fix let the old messages appear before the fresh request finished, while the chat kept its usual rules for marking them as read and enabling actions. People scrolling through history kept their place when the network response arrived. The fix covered text channels, posts and threads, and private chats.
+After the fix, saved messages showed up right away while the fresh request ran in the background, and the chat kept its existing rules for marking messages as read and enabling actions. Anyone scrolling through history stayed in place when the network response arrived. It worked across text channels, posts and threads, and private chats.
 
-The symptom was clear, and so was the reading behavior we wanted to keep. Samara had to find what was holding back the messages.
+We knew the symptom and the reading behavior we wanted to keep. Samara's job was to find what held those messages back.
 
 ## Which coding tasks should you delegate to an AI agent?
 
-We hand over work when we can recognize a good result and tell the agent where to bring an unanswered question. A bug reproduction, a draft release note, or a list of outdated documentation pages all give us something we can judge.
+We hand work to an agent when we know how to check the result and where the agent should bring open questions. A bug reproduction, a draft release note, and a list of outdated docs pages are all concrete enough to review quickly.
 
-We also delegate investigations before we know the answer. With the chat bug, the symptom and the behavior to preserve were clear; finding what held back the messages was engineering work. For a product choice we're still debating, we ask the agent to investigate one option or build a small preview first.
+We also delegate investigations before we know the fix. With the chat bug, the symptom and the rules to preserve were clear, so tracking down what blocked rendering was straightforward engineering work. When we're still debating a product choice, we ask an agent to explore one option or build a small preview first.
 
-The size of the work coming back matters. A broad request can turn into a large diff before anyone realizes the agent took the wrong direction. We start with one useful piece, settle the next question, and then let it continue.
+Keep each batch small. A broad request can turn into a huge diff before anyone notices the agent went the wrong way. Start with one checkable piece, answer the next open question, and let the agent keep going.
 
 ## How to delegate coding tasks to AI agents in 5 steps
 
 <div className="delegation-brief brief-wrap"><table className="brief-table"><thead><tr><th scope="col">Part</th><th scope="col">What to put there</th></tr></thead><tbody><tr><th scope="row"><span className="brief-number" aria-hidden="true">01</span>Trigger</th><td>What starts the work: your request, a new issue, a schedule, or another event</td></tr><tr><th scope="row"><span className="brief-number" aria-hidden="true">02</span>Inputs</th><td>Files, links, reproduction notes, and decisions the agent can use</td></tr><tr><th scope="row"><span className="brief-number" aria-hidden="true">03</span>Steps</th><td>Known steps, or the first investigation when the route is still unclear</td></tr><tr><th scope="row"><span className="brief-number" aria-hidden="true">04</span>Output</th><td>What it should return and how you&#x27;ll recognize a finished result</td></tr><tr className="brief-stop"><th scope="row"><span className="brief-number" aria-hidden="true">05</span>Stop condition</th><td>The missing information or decision it should bring back to you</td></tr></tbody></table></div>
 
-For a one-off task, your message is enough of a trigger. You can write the brief in a few lines when the job is small. A missing answer is often worth a short conversation before work starts.
+For a one-off task, your message is the trigger, and a small job only needs a few lines. If a key detail is missing, settle it in a quick exchange before the agent starts editing.
 
 ### 1. Choose one outcome you can check
 
-“Make chat faster” leaves a lot open. It could lead to a cache rewrite, fewer requests, or a loading animation that hides the wait.
+“Make chat faster” leaves too much open. An agent might rewrite the cache, cut network requests, or add a spinner that hides the wait.
 
-We went after something narrower: show messages already on the device while the refresh continues. The app kept its existing rules for marking messages read and enabling actions. Samara worked on the delay within those requirements.
+We picked a narrower goal: show messages already saved on the device while the refresh runs, without changing when messages count as read or when actions turn on. Samara tackled the delay inside those guardrails.
 
 ### 2. Gather the inputs and mark the unknowns
 
-The same symptom affected text channels, posts and threads, and private chats. They use separate screens, so all three belong in the brief. A recording from just one would leave the agent with only part of the job.
+The bug hit text channels, posts and threads, and private chats. Each uses its own screen, so all three had to go into the brief. Sending a recording from just one screen would leave two-thirds of the bug untouched.
 
-For an unfamiliar bug, the starting material is what you can reproduce and what you still need to find out. If you're delegating a recurring job instead, the steps you've followed by hand can save the agent some investigation.
+For an unfamiliar bug, share how to reproduce it and what you still don't know. For a recurring chore, write down the steps you already run by hand so the agent doesn't have to rediscover them.
 
-Stable project rules can stay in `AGENTS.md`, `CLAUDE.md`, or the project's existing guidance. The current failure, open questions, and expected result belong with this task.
+Keep stable project rules in `AGENTS.md`, `CLAUDE.md`, or your existing repo docs. Put this task's failure, open questions, and target behavior directly in the brief.
 
 ### 3. Write the brief, including when to stop
 
@@ -147,75 +147,75 @@ Stop and ask if:
 - the fix requires changing behavior outside this scope
 ```
 
-We put this brief together from the repair's requirements. The actual fix touched 17 files across several components; naming the three screens and the behavior to preserve makes the work clear before the agent knows which files need changing.
+We built this brief from the fix requirements. The final patch touched 17 files across several components, so naming all three screens and the rules to preserve gave the agent clear boundaries before it knew which files to edit.
 
 ### 4. Review the work against the brief
 
-For a repair like this, a review needs more than “take a look.” We send the reviewer the brief and the current patch, and ask for specific findings. If the read marker looks off, we want the exact steps to see it.
+A real review needs more than “take a look.” Hand the reviewer both the brief and the patch, and ask for concrete findings. If the read marker looks wrong, ask for exact steps to reproduce it.
 
 ### 5. Decide what to accept and what comes next
 
-If only the channel screen has been tested, posts and private chats still need their turn. The returned work needs to cover the brief as a whole. If a review finds a problem and the agent revises the patch, you look at that revision and the results it brings back.
+Check the returned work against the full brief. If only text channels were tested, posts and private chats still need verification. When review catches an issue and the agent updates the patch, check the new diff and fresh test output before accepting it.
 
 ## How do you know the AI agent actually finished?
 
-We chose to show the cached messages sooner because people were already allowed to see that content. We kept the existing rules for marking them as read and enabling actions. And when the network answer showed up late, people stayed in the history they'd scrolled back into.
+Showing cached messages right away was safe because the user already had permission to read them. At the same time, read state, message actions, and scroll position during a late network response all had to keep working the same way.
 
-So we tested the display and the behavior around it. The automated tests included visible messages while read information or actions were still pending. Madox ran the browser checks across channels, posts/threads, and private chats. The three screens were wired separately, so each needed its own browser run.
+We tested both the faster display and those surrounding rules. Automated tests covered rendering cached messages while read state or actions were still pending. Madox also ran browser checks across text channels, posts/threads, and private chats. Because the three screens are wired separately, each one needed its own browser pass.
 
-The original brief gives whoever reviews the patch a question to answer: had the change also affected when a message counted as read? The version and test results help answer it. If something failed or wasn't tested, we want that in the same place.
+The brief gives the reviewer sharp questions to check, such as whether showing cached messages marked them as read too early. Having the commit, test results, and any skipped or failing checks in one place makes that review much faster.
 
 ![Diagram of saved messages appearing during a refresh while read behavior, actions, and scroll position retain their existing rules.](/blog/how-to-delegate-tasks-to-ai-agents/chat-fix-acceptance.webp)
 
 <p className="text-sm text-muted-foreground">The fix showed saved messages sooner while preserving read behavior, actions, and scrolling.</p>
 
-If you don't read the code, start with something you can open. Ask the agent for a preview or a short recording. In this example, you'd watch the old messages appear when the conversation reopens, see whether the read marker still follows its usual rules, and watch where the chat stays when someone scrolls back. The agent can prepare the slow-network part of the demonstration.
+If you don't read code, start with something you can see directly. Ask the agent for a live preview or a short screen recording, including a simulated slow network. Here, you'd check that saved messages appear as soon as the chat reopens, the read marker follows the usual rules, and scrolling backward doesn't jump when the network response lands.
 
-Code review and CI cover parts you can't judge from that demonstration. Test changes deserve a look too: removing or weakening an assertion can make a passing result misleading.
+Code review and CI catch what a demo won't show. Check any edited tests closely, too: deleting or weakening an assertion can turn a broken change into a green build.
 
 ## How much authority should you give an AI agent?
 
-We agree on the scope before work starts, then let the agent investigate, edit, and run checks within it. Asking again before every routine step would keep us in the middle of the work we've just handed over.
+Agree on the scope up front, then let the agent investigate, edit code, and run tests inside that boundary. If it has to ask permission before every routine command, you haven't really delegated the task.
 
-We can hand over a patch and the tests while keeping the merge or release with a named person. The same goes for a customer-facing promise: drafting it and committing to it are separate choices.
+You can let an agent write the patch and run tests while keeping merge and release rights with a specific person. Customer-facing messages work the same way: an agent can draft the reply, while a human decides whether to commit to it.
 
-What can the agent run, and what can it decide? We settle both before leaving it to work. For a repository investigation, reading files and returning findings may be enough. A repair needs permission to edit and run the project's tests, usually in its own working copy.
+Settle two things before stepping away: what tools the agent can run, and what decisions it can make. For pure investigation, read-only repo access is enough. Fixing a bug requires permission to edit files and run tests, ideally in an isolated working copy.
 
-With the chat bug, the desired reading behavior was part of the job. A tool setting could permit the agent to change the code, but the decision about when a message should count as read still had to come from the people responsible for the product.
+Tool permissions and product authority are separate. Even when an agent can edit the codebase, product owners still decide rules like when a message counts as read.
 
-When a task reaches an unanswered product question, we ask the agent to bring back the question and the evidence it gathered. The agent can continue work that doesn't depend on the answer, within what we've already agreed.
+When the agent hits an open product question, have it pause that part and report what it found alongside the decision needed. It can still finish independent work that falls within the agreed scope.
 
 ## How do you delegate a multi-day coding task to an AI agent?
 
-For a long job, we hand over the next piece we can judge and expect the following piece to get clearer along the way.
+On multi-day work, delegate the next slice you can verify, then shape the following step once those results come back.
 
-Before changing sessions, we leave a note with the work. A handoff might read: “The patch is on this branch at this commit. The channel checks passed; private-chat verification is still open. We kept the existing read behavior. Next, check that screen against the attached reproduction. Ask about the unresolved behavior before changing it.”
+Before ending a session, write a short handoff note next to the work. For example: “Patch is on this branch and commit. Channel checks passed; private-chat verification is still open. Existing read behavior is unchanged. Next, run the private-chat check against the attached reproduction, and ask before changing any unresolved behavior.”
 
-We also keep rejected approaches and paths that should be left alone when they'll matter next time. On return, the agent checks the files and current results against the note before editing. Our guide to [keeping context across coding agent sessions](/blog/keep-context-across-coding-agent-sessions) covers the different places those records can live.
+Record rejected approaches and off-limits code paths whenever the next session might trip over them. When work resumes, the agent checks the actual files and test state against that note before making edits. Our guide to [keeping context across coding agent sessions](/blog/keep-context-across-coding-agent-sessions) covers where to store those notes.
 
-For overnight work, we'd rather wake up to one clearly stated question than spend the morning untangling a guessed requirement. We tell the agent who to notify and what to leave when it gets stuck: the failure it hit, what it tried, and the decision it needs. Anything that depends on that answer waits. The computer or cloud environment also has to stay available for the planned run.
+For overnight runs, waking up to one clear question beats untangling hours of guesswork. Tell the agent who to ping when blocked and what to leave behind: the failure it hit, what it already tried, and the decision it needs. Anything blocked on that answer waits, and the machine or cloud runner has to stay online for the whole run.
 
-If the work grows into several roles, [AI agent orchestration](/blog/ai-agent-orchestration) covers moving work between them; [running an AI agent team](/blog/run-ai-agent-team-that-stays-on-track) covers keeping that ongoing work on track.
+When a job spans multiple roles, see [AI agent orchestration](/blog/ai-agent-orchestration) for passing work between agents, and [running an AI agent team](/blog/run-ai-agent-team-that-stays-on-track) for steering work that's already underway.
 
 ## How can teammates add context and hand off work to your AI agent?
 
-In Alook, a teammate can @ the bot in a shared discussion, attach a reproduction, or answer a question about the task. They can then pass the draft to a review bot in that same thread. The original request and the next task stay with the handoff. That's the [multi agent collaboration](https://alook.ai) Alook is built for.
+In Alook, teammates can @mention a bot in a shared thread, attach reproduction steps, or answer a question about the task, then pass the patch to a review bot in the same conversation. The original brief and the handoff stay together in one place. That is the [multi agent collaboration](https://alook.ai) workflow Alook is built for.
 
-The agent can take on work its owner has allowed; if the request needs a new decision, it asks the owner. The bot keeps its own private notes and uses its owner's configured tools. It shares the findings and files needed for the next step in the conversation, where whoever picks up the work can open them.
+Each bot takes on work its owner allows and checks with its owner when a request requires a new decision. It keeps its private notes and runs on its owner's configured tools, posting only the findings and files the next person or bot needs in the shared thread.
 
 [![Alook interface example showing two people and two bots working from an updated shared brief.](/blog/how-to-delegate-tasks-to-ai-agents/alook-two-bot-handoff.webp)](/blog/how-to-delegate-tasks-to-ai-agents/alook-two-bot-handoff.webp)
 
 <p className="text-sm text-muted-foreground">Alook UI example: teammates add context to a bot’s task in the shared discussion. [Open the full-size image](/blog/how-to-delegate-tasks-to-ai-agents/alook-two-bot-handoff.webp).</p>
 
-If you want one bot to implement and another to review, our [Claude Code and Codex workflow](/blog/claude-code-and-codex-same-team) walks through that exchange.
+If you want one bot to write the fix and another to review it, our [Claude Code and Codex workflow](/blog/claude-code-and-codex-same-team) walks through how we set that up.
 
 ## Before you hand over the task
 
-- What should come back, and how will you recognize a finished result?
-- Which materials can the agent open, and what's still unknown?
-- Which choices or areas must it leave to someone else?
-- What evidence should accompany the result, and who checks it?
-- If it stops, where will the next person or session pick up?
+- What should come back, and how will you tell it's done?
+- Which files or links can the agent read, and what is still unknown?
+- Which decisions or areas are off-limits?
+- What proof should come back with the work, and who will review it?
+- If the run stops early, where does the next person or session pick up?
 
 ## FAQ
 

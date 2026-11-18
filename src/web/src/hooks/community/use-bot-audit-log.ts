@@ -1,5 +1,5 @@
 "use client"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { fetchBotDirectory } from "@/lib/community/bot-directory-read"
 
 import { useMemo } from "react"
 import {
@@ -10,9 +10,7 @@ type InfiniteData,
 type QueryClient,
 type QueryKey,
 } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { ApiError } from "@/lib/errors"
 
 import { compareAuditEventsNewestFirst, type AuditEvent, type AuditLogPage } from "@/lib/community/models/audit"
@@ -40,12 +38,12 @@ function reconcileAuditLogPages(previous: unknown, incoming: unknown, unobserved
 }
 
 export function appendBotAuditEvent(queryClient: QueryClient, botId: string, row: AuditEvent) {
-  appendAuditEventToCache(queryClient, communityKeys.botAuditLog(botId), row)
+  appendAuditEventsToCache(queryClient, communityKeys.botAuditLog(botId), [row])
   const previewKey = communityKeys.botAuditPreview(botId)
-  if (row.kind === "text" && queryClient.getQueryState(previewKey)) appendAuditEventToCache(queryClient, previewKey, row)
+  if (row.kind === "text" && queryClient.getQueryState(previewKey)) appendAuditEventsToCache(queryClient, previewKey, [row])
 }
 
-function appendAuditEventToCache(queryClient: QueryClient, key: QueryKey, row: AuditEvent) {
+function appendAuditEventsToCache(queryClient: QueryClient, key: QueryKey, rows: readonly AuditEvent[]) {
   const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   const updatedAt = query?.state.dataUpdatedAt ?? 0
   const unobserved = !query?.getObserversCount()
@@ -54,14 +52,19 @@ function appendAuditEventToCache(queryClient: QueryClient, key: QueryKey, row: A
     const [first, ...rest] = cache?.pages ?? []
     const previousRows = first?.events ?? []
     const byId = new Map(previousRows.map((event) => [event.id, event]))
-    const existing = byId.get(row.id)
-    if (existing && compareAuditEventsNewestFirst(existing, row) <= 0) return cache
-    byId.set(row.id, row)
+    const added: string[] = []
+    for (const row of rows) {
+      const existing = byId.get(row.id)
+      if (existing && compareAuditEventsNewestFirst(existing, row) <= 0) continue
+      byId.set(row.id, row)
+      added.push(row.id)
+    }
+    if (!added.length) return cache
     const ordered = [...byId.values()].sort(compareAuditEventsNewestFirst)
     truncated = unobserved && ordered.length > UNOBSERVED_AUDIT_HEAD_LIMIT
     const events = truncated ? ordered.slice(0, UNOBSERVED_AUDIT_HEAD_LIMIT) : ordered
     const retained = new Set(events.map((event) => event.id))
-    const liveIds = [...new Set([row.id, ...(first?.liveIds ?? [])])].filter((id) => retained.has(id))
+    const liveIds = [...new Set([...added, ...(first?.liveIds ?? [])])].filter((id) => retained.has(id))
     return { pages: [{ ...first, events, nextCursor: first?.nextCursor ?? null, liveIds }, ...rest], pageParams: cache?.pageParams ?? [null] }
   }, { updatedAt })
   if (truncated) {
@@ -79,8 +82,9 @@ export function useBotAuditLog(botId: string | null | undefined, textOnly = fals
     queryKey,
     structuralSharing: (prev, next) => reconcileAuditLogPages(prev, next, !qc.getQueryCache().find({ queryKey, exact: true })?.getObserversCount()),
     initialPageParam: null as AuditLogPage["nextCursor"],
-    queryFn: async ({ pageParam, signal }) => {
-      const token = captureCommunityLiveSnapshotToken(qc)
+    queryFn: async (context) => {
+      const resource = qc.getQueryCache().find({ queryKey, exact: true })
+      const { pageParam } = context
       const cursor = pageParam as AuditLogPage["nextCursor"]
       const search = new URLSearchParams()
       search.set("limit", String(textOnly ? 10 : PAGE_SIZE))
@@ -89,11 +93,15 @@ export function useBotAuditLog(botId: string | null | undefined, textOnly = fals
         search.set("beforeCreatedAt", cursor.beforeCreatedAt)
         search.set("beforeId", cursor.beforeId)
       }
-      const page = await apiFetch<AuditLogPage>(
-        `/api/community/bots/${botId}/audit-log?${search.toString()}`,
-        communityRequestOptions(qc, token, signal),
-      )
+      const page = { ...await fetchBotDirectory<AuditLogPage>(context, `/api/community/bots/${botId}/audit-log?${search.toString()}`), authoritative: true }
+      if (context.signal.aborted || resource && qc.getQueryCache().find({ queryKey, exact: true }) !== resource) throw new DOMException("Retired activity read", "AbortError")
       if (cursor) return page
+      const retained = qc.getQueryData<InfiniteData<AuditLogPage>>(queryKey)
+      if (retained?.pages.length) {
+        const known = new Set(retained.pages.flatMap(previous => previous.events.map(event => event.id)))
+        const added = page.events.filter(event => !known.has(event.id))
+        if (added.length) appendAuditEventsToCache(qc, queryKey, added)
+      }
       const fetchedIds = new Set(page.events.map((event) => event.id))
       const current = qc.getQueryData<InfiniteData<AuditLogPage>>(queryKey)?.pages[0]
       const liveIds = new Set(current?.liveIds)
@@ -131,5 +139,6 @@ export function useBotAuditLog(botId: string | null | undefined, textOnly = fals
     isFetchingNextPage: query.isFetchingNextPage,
     isFetchNextPageError: query.isFetchNextPageError,
     loadedPageCount: query.data?.pages.length ?? 0,
+    hasData: query.data !== undefined,
   }
 }

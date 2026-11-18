@@ -5,6 +5,7 @@
 // unit (admins have no content privilege). The creator's own row is locked.
 export type MemberOriginalView = (() => void) & { signal: AbortSignal }
 export type MemberManageContext = {
+  actionable?: boolean
   viewerUserId: string
   // The viewer created this unit → their own row shows no Leave (owners keep
   // the unit), and they may Remove other explicit members.

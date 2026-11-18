@@ -66,6 +66,40 @@ test('unqualified deletion using SQLite Clear is a business table operation', t 
   assert.equal(analyzeQuery(db, 'DELETE FROM unrelated').scans.some(scan => scan.opcode === 'Clear' && scan.table === 'unrelated'), true)
 })
 
+test('a constant-false delete skips row collection and consumes an empty row set', t => {
+  const db = fixture(t)
+  db.exec("INSERT INTO owner VALUES ('owner','Owner'); INSERT INTO item VALUES ('item','owner','Item')")
+  const unreachable = 'DELETE FROM item WHERE 1=0'
+  const bytecode = db.prepare(`EXPLAIN ${unreachable}`).all()
+  assert.equal(bytecode.some(row => row.opcode === 'RowSetRead'), true)
+  const guarded = analyzeQuery(db, unreachable)
+  assert.equal(guarded.plan.some(row => row.detail.includes('SCAN item')), true)
+  assert.deepEqual(guarded.scans, [])
+  assert.match(guarded.noAccessProof, /constant guard/)
+  assert.equal(db.prepare(unreachable).run().changes, 0)
+
+  const reachable = analyzeQuery(db, 'DELETE FROM item WHERE 1=1')
+  assert.equal(reachable.noAccessProof, undefined)
+  assert.equal(reachable.scans.some(scan => scan.table === 'item'), true)
+
+  const parameterGuard = analyzeQuery(db, 'DELETE FROM item WHERE ? = ?', [1, 0])
+  assert.equal(parameterGuard.noAccessProof, undefined)
+  assert.equal(parameterGuard.scans.some(scan => scan.table === 'item'), true)
+
+  const collectsRows = 'DELETE FROM item WHERE name = ?'
+  const rowSetBytecode = db.prepare(`EXPLAIN ${collectsRows}`).all('Item')
+  assert.equal(rowSetBytecode.some(row => row.opcode === 'RowSetAdd'), true)
+  const collected = analyzeQuery(db, collectsRows, ['Item'])
+  assert.equal(collected.noAccessProof, undefined)
+  assert.equal(collected.scans.some(scan => scan.table === 'item'), true)
+  assert.equal(db.prepare(collectsRows).run('Item').changes, 1)
+
+  db.exec('CREATE TRIGGER owner_removed AFTER DELETE ON owner BEGIN INSERT INTO item(id) VALUES (OLD.id); END')
+  const separate = analyzeQuery(db, 'DELETE FROM owner WHERE name = ?', ['Owner'])
+  assert.equal(separate.noAccessProof, undefined)
+  assert.equal(separate.scans.some(scan => scan.table === 'owner'), true)
+})
+
 test('FK parent insert skips zero-counter blocks; pending deferred work and parent deletes stay hazardous', t => {
   const db = fixture(t)
   db.exec('CREATE TABLE delayed_child(owner_id TEXT REFERENCES owner(id) DEFERRABLE INITIALLY DEFERRED)')

@@ -5,6 +5,7 @@ import type { BotActivityDay, CommunityProfilePatch } from "./models/people"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
 import { apiFetchProfiles } from "./account-cache-lifecycle"
+import { retireBotDirectoryScopes } from "./bot-directory-lifecycle"
 
 export type BotUsageDay = {
   day: string
@@ -77,6 +78,7 @@ export const botsOptions = () => queryOptions({
   queryKey: communityKeys.bots(),
   queryFn: async ({ client, signal }): Promise<BotsResourceResponse> => {
     const registry = getCommunityDbRegistry(client)
+    const previous = client.getQueryData<BotsResourceResponse>(communityKeys.bots())?.bots ?? []
     const data = await apiFetchProfiles<BotsResponse>("/api/community/bots", data => {
       const runtimeById = new Map(data.bots.map(bot => [bot.id, bot.runtime]))
       return parseCommunityBotsProfileRead(data, registry!.accountId!).bots.map(bot => {
@@ -84,6 +86,11 @@ export const botsOptions = () => queryOptions({
         return { ...patch, identityAbout: { ...patch.identityAbout, ownerUserId: bot.ownerUserId } }
       })
     }, { signal }, registry)
+    if (registry) {
+      const present = new Set(data.bots.map(bot => bot.id))
+      await retireBotDirectoryScopes(registry, previous.filter(bot => !present.has(bot.id)).map(bot => ({ kind: "bot", id: bot.id })))
+        .catch(error => console.error("Bot directory retirement failed", error))
+    }
     return { ...botsResource(data), source: "network" }
   },
   staleTime: query => query.state.data?.observed === false ? 0 : 5_000,

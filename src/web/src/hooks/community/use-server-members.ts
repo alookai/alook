@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { useInfiniteQuery, useMutationState, useQueryClient, replaceEqualDeep, type InfiniteData, type Query, type QueryKey, type QueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery, useMutationState, useQueryClient, replaceEqualDeep, type Query, type QueryKey, type QueryClient } from "@tanstack/react-query"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityMembersSnapshot } from "@/lib/community-db/sync"
@@ -16,19 +16,11 @@ import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
 import { parseCommunityServerMembersRead } from "@alook/shared"
 import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate, CommunityRole } from "@alook/shared"
+import type { MemberWindow, MembersWindowCache } from "@/lib/community/directory-window-persistence"
+export type { MemberIdentity, MemberWindow, MembersWindowCache } from "@/lib/community/directory-window-persistence"
 
 export const SEARCH_DEBOUNCE_MS = 200
 
-export type MemberIdentity = Pick<Member, "id" | "userId">
-export type MemberWindow = {
-  members: MemberIdentity[]
-  hasMore: boolean
-  cursor?: string
-  limit: number
-  total?: number
-  liveRevision: number
-}
-export type MembersWindowCache = InfiniteData<MemberWindow, string | null | undefined>
 type MemberReadProtocol = {
   operation: Promise<unknown> | undefined
   token: ReturnType<typeof captureCommunityLiveSnapshotToken>
@@ -71,6 +63,7 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     assert()
     await registry.ready
     await registry.collections.serverMemberships.preload()
+    const auxiliaryReadEpoch = await registry.captureAuxiliaryReadEpoch()
     assert()
     const params = new URLSearchParams()
     if (pageParam) params.set("cursor", pageParam)
@@ -83,7 +76,7 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     await writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
     await publishCommunityMembersSnapshot(client, serverId, data.members, { token, signal })
     assert()
-    return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision }
+    return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision, observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
   }
 
 export function mergeMemberWindows(client: QueryClient, key: QueryKey, previous: unknown, next: unknown): MembersWindowCache {
@@ -171,6 +164,11 @@ export type UseServerMembers = {
   searchQuery: string
   searchStatus: MemberSearchStatus
   failed: boolean
+  observed: boolean
+  refreshing: boolean
+  refreshFailed: boolean
+  displayReady: boolean
+  isCurrentRead: () => boolean
   loadMore: () => void
   reset: () => void
   refresh: () => void
@@ -199,7 +197,7 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     initialPageParam: null as string | null | undefined,
     getNextPageParam: (last) => last.hasMore ? last.cursor : undefined,
     enabled: !!serverId, subscribed: !!serverId,
-    staleTime: Infinity, refetchOnReconnect: true,
+    staleTime: query => query.state.data?.pages.some(page => page.observed === false) ? 0 : Infinity, refetchOnReconnect: true,
     structuralSharing: (previous, next) => mergeMemberWindows(queryClient, key, previous, next),
   })
   const searchKey = [...key, "search", searchIntent.debounced] as const
@@ -209,7 +207,7 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     initialPageParam: null as string | null | undefined,
     getNextPageParam: (last) => last.hasMore ? last.cursor : undefined,
     enabled: searchReady, subscribed: searchReady,
-    retry: false, staleTime: Infinity, refetchOnReconnect: true,
+    retry: false, staleTime: query => query.state.data?.pages.some(page => page.observed === false) ? 0 : Infinity, refetchOnReconnect: true,
     structuralSharing: (previous, next) => mergeMemberWindows(queryClient, searchKey, previous, next),
   })
   useEffect(() => {
@@ -234,25 +232,37 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     const byUser = new Map((membershipProjection.data ?? []).map((row) => [row.userId, row]))
     return identities.flatMap((identity) => {
       const row = byUser.get(identity.userId)
-      if (!row || row.memberId !== identity.id) return []
+      if (!row || row.memberId !== identity.id || !profileProjection.resourceProfiles.has(identity.userId)) return []
       const profile = readCommunityProfile(profiles.get(identity.userId), identity.userId)
       return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
     })
-  }, [identities, membershipProjection.data, profiles])
+  }, [identities, membershipProjection.data, profiles, profileProjection.resourceProfiles])
   const active = searching ? search : infinite
-  const readState = getMemberReadState(!!serverId, { pending: !data || active.isRefetching, failed: (!searching || searchReady) && active.isError && !active.isFetching }, [membershipProjection, profileProjection], identities.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profileProjection.resourceProfiles)
+  const complete = !!data && membershipProjection.isReady && membershipProjection.isEnabled && !membershipProjection.isError
+    && profileProjection.isReady && profileProjection.isEnabled && !profileProjection.isError
+    && identities.every(identity => membershipProjection.data?.some(row => row.userId === identity.userId && row.memberId === identity.id)
+    && profileProjection.resourceProfiles.has(identity.userId))
+  const projectionsReady = membershipProjection.isReady && profileProjection.isReady
+  const readState = getMemberReadState(!!serverId, { pending: !complete && (!data || active.isRefetching), failed: !complete && (!searching || searchReady)
+    && (active.isError && !active.isFetching || !!data && projectionsReady) }, [membershipProjection, profileProjection], identities.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profileProjection.resourceProfiles)
   const pendingKicks = useMutationState({ filters: { mutationKey: ["community", "member-command"], status: "pending" }, select: (mutation) => {
     const variables = mutation.state.variables as { kind: string; input: { serverId: string; memberId: string } }
     const current = queryClient.getQueryData<MembersWindowCache>(key)
     return variables.kind === "kick" && variables.input.serverId === serverId && current?.pages.some((page) => page.members.some((member) => member.id === variables.input.memberId)) ? 1 : 0
   } })
   const assertView = () => source.capture()()
+  const isCurrentRead = () => {
+    const state = queryClient.getQueryState<MembersWindowCache>(searching ? searchKey : key)
+    return !!serverId && complete && getCommunityDbRegistry(queryClient) === profileProjection.registry && state?.status === "success"
+      && !state.isInvalidated && state.data === data && state.data.pages.every(page => page.observed === true)
+  }
   return {
     members: serverId ? members : [], loading: readState.loading,
+    observed: isCurrentRead(), isCurrentRead, displayReady: complete, refreshing: active.isFetching, refreshFailed: complete && active.isError && !active.isFetching,
     loadingMore: active.isFetchingNextPage, hasMore: active.hasNextPage,
     total: Math.max(0, (infinite.data?.pages.at(-1)?.total ?? 0) - pendingKicks.reduce<number>((sum, value) => sum + value, 0)), isSearching: searching,
     searchQuery: searching ? searchIntent.query : "",
-    searchStatus: !searching ? "idle" : readState.failed ? "error" : readState.loading ? "loading" : search.isFetchingNextPage ? "loading-more" : members.length ? "ready" : "empty",
+    searchStatus: !searching ? "idle" : !searchReady ? "loading" : search.isFetchingNextPage ? "loading-more" : search.isFetching ? "loading" : readState.failed || active.isError ? "error" : readState.loading ? "loading" : members.length ? "ready" : "empty",
     failed: readState.failed,
     loadMore: () => { assertView(); if ((!searching || searchReady) && active.hasNextPage && !active.isFetching) void active.fetchNextPage({ cancelRefetch: false }) },
     reset: () => { assertView(); intent.setState((state) => ({ ...state, query: "", debounced: "" })) },

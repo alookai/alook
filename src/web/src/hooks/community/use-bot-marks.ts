@@ -1,10 +1,7 @@
 "use client"
 
-import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { useQuery } from "@tanstack/react-query"
-
-import { apiFetch } from "@/lib/api/client"
+import { fetchBotDirectory } from "@/lib/community/bot-directory-read"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import type { Marked } from "@/lib/community/models/inbox"
@@ -17,7 +14,7 @@ export function useBotMarks(botId: string | null | undefined) {
   const query = useQuery<BotMarksResponse>({
     enabled,
     queryKey: botId ? communityKeys.botMarks(botId) : ["disabled-bot-marks"],
-    queryFn: ({ client, signal }) => apiFetch<BotMarksResponse>(`/api/community/bots/${botId}/marks`, communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal)),
+    queryFn: context => fetchBotDirectory<BotMarksResponse>(context, `/api/community/bots/${botId}/marks`),
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 404) && failureCount < 1,
     refetchOnMount: "always",
@@ -28,5 +25,8 @@ export function useBotMarks(botId: string | null | undefined) {
     isLoading: query.isLoading,
     isError: query.isError,
     isNotFound: query.error instanceof ApiError && query.error.status === 404,
+    hasData: query.data !== undefined,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
   }
 }

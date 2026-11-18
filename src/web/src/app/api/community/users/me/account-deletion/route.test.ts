@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { createCommunitySqliteDb } from "@/test/community-sqlite-db"
 
 const verifyDeletionCode = vi.fn()
 const executeAccountDeletion = vi.fn()
@@ -126,6 +127,27 @@ describe("account deletion submit route", () => {
 
     expect(response.status).toBe(503)
     expect(restoreVerifiedDeletionCode).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])("checks the exact retry user against SQLite when the account remains: %s", async exists => {
+    const { db, sqlite, record } = createCommunitySqliteDb()
+    try {
+      const insert = sqlite.prepare('INSERT INTO user (id, name, email, discriminator) VALUES (?, ?, ?, ?)')
+      insert.run("other", "Other User", "other@example.test", "0001")
+      if (exists) insert.run("user-1", "Retry User", "owner@example.com", "0002")
+      getPrimaryDb.mockReturnValue(db)
+      executeAccountDeletion.mockResolvedValue({ kind: "failed" })
+
+      const response = await POST(request({ otp: "123456" }), {} as never)
+
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "ACCOUNT_DELETION_FAILED" })
+      expect(record.statements.map(statement => statement.bindings[0])).toEqual(["user-1"])
+      if (exists) expect(restoreVerifiedDeletionCode).toHaveBeenCalledExactlyOnceWith(db, challenge)
+      else expect(restoreVerifiedDeletionCode).not.toHaveBeenCalled()
+    } finally {
+      sqlite.close()
+    }
   })
 
   it("does not restore a consumed code when the live-user retry check fails", async () => {

@@ -2,7 +2,41 @@ import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { Database } from "../../src/db"
-import { getReactionDetailsActors } from "../../src/db/queries/community/reaction"
+import { addReaction, getReactionDetailsActors, listReactionsByMessageIds, removeReaction } from "../../src/db/queries/community/reaction"
+import { communityChannel, communityMessage } from "../../src/db/community-schema"
+import { user } from "../../src/db/schema"
+import { createMigratedDb } from "../helpers/migrated-db"
+
+it("adds and removes only the exact actor, emoji and message combination", async () => {
+  const { db, sqlite } = createMigratedDb()
+  try {
+    await db.insert(user).values(["actor", "other"].map(id => ({
+      id, name: id, email: `${id}@reaction.test`,
+    }))).run()
+    await db.insert(communityChannel).values({ id: "channel", type: "text" }).run()
+    await db.insert(communityMessage).values([
+      { id: "target", authorId: "actor", channelId: "channel", seq: 1 },
+      { id: "neighbor", authorId: "actor", channelId: "channel", seq: 2 },
+    ]).run()
+    const target = { messageId: "target", userId: "actor", emoji: "👍" }
+    const neighbors = [
+      { ...target, messageId: "neighbor" },
+      { ...target, userId: "other" },
+      { ...target, emoji: "🔥" },
+    ]
+    const reaction = await addReaction(db, target)
+    expect(reaction).toMatchObject(target)
+    for (const neighbor of neighbors) await addReaction(db, neighbor)
+
+    await expect(removeReaction(db, target)).resolves.toEqual(reaction)
+    await expect(removeReaction(db, target)).resolves.toBeNull()
+    const remaining = await listReactionsByMessageIds(db, ["target", "neighbor"])
+    expect(remaining).toHaveLength(neighbors.length)
+    expect(remaining).toEqual(expect.arrayContaining(neighbors.map(row => expect.objectContaining(row))))
+  } finally {
+    sqlite.close()
+  }
+})
 
 describe("getReactionDetailsActors against real SQLite", () => {
   let sqlite: Sqlite.Database

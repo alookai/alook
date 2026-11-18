@@ -19,6 +19,10 @@ import { communityKeys } from "@/lib/query-keys"
 import { useCallback } from "react"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { useCommunityViewSource } from "./use-community-view-source"
+import { fetchBotDirectory, captureBotDirectoryCommand, assertBotDirectoryCommandCurrent } from "@/lib/community/bot-directory-read"
+import { retireBotDirectoryScopes } from "@/lib/community/bot-directory-lifecycle"
+import type { BotReadProof } from "@/lib/community/bot-directory-window"
+import { ApiError } from "@/lib/errors"
 
 import { notificationSettingKey } from "@/lib/community-db/schema"
 import {
@@ -113,40 +117,52 @@ export function useNotificationSettings(enabled = true): UseQueryResult<Notifica
 
 export type BotNotificationScope = { kind: "server" | "channel"; id: string }
 
-type BotNotificationSetting = { level: string | null }
+type BotNotificationSetting = BotReadProof & { level: string | null; serverId?: string | null }
 
 export function useBotNotificationSetting(
   botId: string | null,
   scope: BotNotificationScope,
 ) {
-  return useQuery({
+  const query = useQuery({
     queryKey: communityKeys.botNotificationSetting(botId ?? "", scope.kind, scope.id),
-    queryFn: ({ client, signal }) => apiFetch<BotNotificationSetting>(
-      `/api/community/bots/${botId}/notifications/${scope.kind}/${scope.id}`,
-      communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal),
-    ),
+    queryFn: async context => {
+      const data = await fetchBotDirectory<BotNotificationSetting>(context, `/api/community/bots/${botId}/notifications/${scope.kind}/${scope.id}`)
+      return scope.kind === "server" ? { ...data, serverId: scope.id } : data
+    },
     enabled: Boolean(botId),
     subscribed: Boolean(botId),
   })
+  const forbidden = query.error instanceof ApiError && [401, 403, 404].includes(query.error.status)
+  return { ...query, data: forbidden ? undefined : query.data,
+    confirmed: Boolean(botId && query.isFetchedAfterMount && query.isSuccess && !query.isFetching && query.data?.observed === true), forbidden }
 }
 
 export function useSetBotNotificationSetting() {
   const queryClient = useQueryClient()
   const origin = useCommunityMutationOrigin(), source = useCommunityViewSource("bot-notification-setting")
   type Input = { botId: string; scope: BotNotificationScope; level: string | null; assertActive?: (() => void) & { signal: AbortSignal } }
-  type Intent = Input & { original: ReturnType<typeof origin.begin>["token"]; view: ReturnType<typeof source.capture>; resources: Query[] }
+  type Intent = Input & { original: ReturnType<typeof origin.begin>["token"]; view: ReturnType<typeof source.capture>; resources: Query[]; confirmation: Query }
   const native = useMutation({ meta: { observabilityAction: "bot.notification.update" },
     mutationKey: ["community", "bot-notification-setting-command"], scope: { id: "community-bot-notification-setting-commands" }, gcTime: 0,
-    mutationFn: async ({ botId, scope, level, original, view, resources, assertActive }: Intent) => {
-      const assert = () => { origin.assert(original); view(); assertActive?.() }
+    mutationFn: async ({ botId, scope, level, original, view, resources, assertActive, confirmation }: Intent) => {
+      const assert = () => { origin.assert(original); view(); assertActive?.(); assertBotDirectoryCommandCurrent(queryClient, confirmation) }
       assert()
+      if (captureBotDirectoryCommand(queryClient, communityKeys.botNotificationSetting(botId, scope.kind, scope.id)) !== confirmation) throw new DOMException("Retired notification read", "AbortError")
       const url = `/api/community/bots/${botId}/notifications/${scope.kind}/${scope.id}`
-      await origin.request(original, url, { method: level === null ? "DELETE" : "PUT", signal: assertActive?.signal ? AbortSignal.any([assertActive.signal, view.signal]) : view.signal, assertActive: assert, ...(level === null ? {} : { body: JSON.stringify({ level }) }) })
+      try {
+        await origin.request(original, url, { method: level === null ? "DELETE" : "PUT", signal: assertActive?.signal ? AbortSignal.any([assertActive.signal, view.signal]) : view.signal, assertActive: assert, ...(level === null ? {} : { body: JSON.stringify({ level }) }) })
+      } catch (error) {
+        if (error instanceof ApiError && [403, 404].includes(error.status) && origin.registry) await retireBotDirectoryScopes(origin.registry,
+          [{ kind: scope.kind === "server" ? "bot-server" : "bot-channel", botId, id: scope.id }], confirmation).catch(cause => console.error("Notification directory retirement failed", cause))
+        throw error
+      }
       assert()
       for (const query of resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
     },
   })
-  const capture = useCallback((input: Input): Intent => { input.assertActive?.(); const view = source.capture(); view(); return { ...input, view, original: origin.begin().token, resources: queryClient.getQueryCache().findAll({ predicate: (query) => [communityKeys.botNotificationSetting(input.botId, input.scope.kind, input.scope.id), communityKeys.inbox()].some((key) => key.length <= query.queryKey.length && key.every((part, i) => Object.is(part, query.queryKey[i]))) || query.queryKey.includes("read-state-snapshot") }) } }, [origin, source, queryClient])
-  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.view(); args.assertActive?.() }, [origin])
+  const capture = useCallback((input: Input): Intent => { input.assertActive?.(); const view = source.capture(); view(); return { ...input, view, original: origin.begin().token,
+    confirmation: captureBotDirectoryCommand(queryClient, communityKeys.botNotificationSetting(input.botId, input.scope.kind, input.scope.id)),
+    resources: queryClient.getQueryCache().findAll({ predicate: (query) => [communityKeys.botNotificationSetting(input.botId, input.scope.kind, input.scope.id), communityKeys.inbox()].some((key) => key.length <= query.queryKey.length && key.every((part, i) => Object.is(part, query.queryKey[i]))) || query.queryKey.includes("read-state-snapshot") }) } }, [origin, source, queryClient])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.view(); args.assertActive?.(); if (queryClient.getQueryCache().find({ queryKey: args.confirmation.queryKey, exact: true }) !== args.confirmation) throw new DOMException("Retired notification scope", "AbortError") }, [origin, queryClient])
   return useNativeMutationFacade(native, capture, assertCurrent)
 }

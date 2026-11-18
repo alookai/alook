@@ -138,7 +138,7 @@ export function handleServerDelete(
   event: CommunityServerDelete,
   { queryClient, projection }: StructureTreeEventContext,
 ) {
-  evictServerChannelScopes(queryClient, event.serverId)
+  evictServerChannelScopes(queryClient, event.serverId, true)
   invalidateChannelRefDirectory(projection, { serverId: event.serverId })
 
   invalidateServersList(projection)

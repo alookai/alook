@@ -42,7 +42,7 @@ export function advanceMobileReplyGesture(
   let intent: MobileReplyGesture["intent"] = gesture.intent
 
   if (intent === "pending" && Math.max(absX, absY) >= MOBILE_REPLY_INTENT_PX) {
-    intent = dx > 0 && absX > absY ? "horizontal" : "rejected"
+    intent = dx < 0 && absX > absY ? "horizontal" : "rejected"
   }
   if (intent !== "horizontal") {
     return {
@@ -51,8 +51,8 @@ export function advanceMobileReplyGesture(
     }
   }
 
-  const offset = Math.min(MOBILE_REPLY_MAX_OFFSET_PX, Math.max(0, dx))
-  const thresholdCrossed = offset >= MOBILE_REPLY_THRESHOLD_PX
+  const offset = Math.max(-MOBILE_REPLY_MAX_OFFSET_PX, Math.min(0, dx))
+  const thresholdCrossed = -offset >= MOBILE_REPLY_THRESHOLD_PX
   const fireHaptic = thresholdCrossed && !gesture.hapticFired
   return {
     gesture: {

@@ -28,7 +28,7 @@ export function bindShape(params) {
   return params.map(value => value === null ? 'null' : Buffer.isBuffer(value) || value instanceof Uint8Array ? 'blob' : typeof value)
 }
 
-function haltsBeforeAccess(bytecode) {
+function haltsBeforeRowAccess(bytecode) {
   const main = bytecode.slice(0, bytecode.findIndex((row, index) => index > 0 && row.addr === 0) < 0 ? bytecode.length : bytecode.findIndex((row, index) => index > 0 && row.addr === 0))
   const registers = new Map()
   let address = 0
@@ -39,13 +39,19 @@ function haltsBeforeAccess(bytecode) {
     if (row.opcode === 'Init' || row.opcode === 'Goto') { address = row.p2; continue }
     if (row.opcode === 'Integer' || row.opcode === 'Int64') {
       registers.set(row.p2, BigInt(row.opcode === 'Integer' ? row.p1 : row.p4))
+    } else if (row.opcode === 'Null') {
+      for (let register = row.p2; register <= Math.max(row.p2, row.p3); register++) registers.set(register, null)
+    } else if (row.opcode === 'RowSetRead') {
+      if (registers.get(row.p1) !== null) return false
+      address = row.p2
+      continue
     } else if (['Eq', 'Ne', 'Lt', 'Le', 'Gt', 'Ge'].includes(row.opcode)) {
-      if (!registers.has(row.p1) || !registers.has(row.p3)) return false
       const a = registers.get(row.p3)
       const b = registers.get(row.p1)
+      if (typeof a !== 'bigint' || typeof b !== 'bigint') return false
       const jump = { Eq: a === b, Ne: a !== b, Lt: a < b, Le: a <= b, Gt: a > b, Ge: a >= b }[row.opcode]
       if (jump) { address = row.p2; continue }
-    } else if (!['Transaction', 'Noop', 'Explain'].includes(row.opcode)) return false
+    } else if (!['Transaction', 'Noop', 'Explain', 'OpenRead', 'OpenWrite'].includes(row.opcode)) return false
     address++
   }
   return false
@@ -132,7 +138,7 @@ export function analyzeQuery(db, sql, params = [], context = { inTransaction: db
       const pointers = db.prepare(`EXPLAIN SELECT * FROM ${quoted} LIMIT 1`).all().filter(row => row.opcode === 'VOpen').map(row => row.p4)
       if (bytecode.some(row => row.opcode === 'VOpen' && pointers.includes(row.p4))) throw new Error(`Persisted virtual table ${name} requires explicit index-bound analysis`)
     }
-    if (haltsBeforeAccess(bytecode)) return { ...result, noAccessProof: 'constant guard halts before database access' }
+    if (haltsBeforeRowAccess(bytecode)) return { ...result, noAccessProof: 'constant guard halts before business row access' }
     const prefixes = unscopedSearches(db, result.plan, schema, bytecode, params)
     result.unscopedSearches = prefixes.risks
     if (prefixes.bounded.length) result.boundedSearches = prefixes.bounded

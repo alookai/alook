@@ -34,12 +34,16 @@ export function ChannelAddMembersDialog({
       candidates={candidates}
       queryState={{
         resolved: addableQuery.data !== undefined,
+        actionable: addableQuery.observed,
         loading: addableQuery.isLoading,
         error: addableQuery.isError,
-        retrying: addableQuery.data === undefined && addableQuery.isFetching,
+        retrying: addableQuery.isFetching,
         retry: () => { void addableQuery.refetch() },
       }}
-      onAdd={(userId) => addMember.mutateAsync(userId)}
+      onAdd={(userId) => {
+        if (!addableQuery.isCurrentRead()) throw new DOMException("Member candidates changed", "AbortError")
+        return addMember.mutateAsync(userId)
+      }}
       onClose={onClose}
     />
   )

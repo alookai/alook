@@ -52,7 +52,7 @@ import {
   resetHarness
 } from "./test-harness"
 
-function quotaSqlite() {
+function quotaSqlite(database: D1Database) {
   const sqlite = new DatabaseSync(":memory:")
   sqlite.exec(`
     CREATE TABLE community_machine (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL);
@@ -72,21 +72,31 @@ function quotaSqlite() {
     );
     INSERT INTO community_machine (id, user_id) VALUES ('cm_1', 'u_1');
   `)
+  database.prepare = (sql) => ({
+    bind(...values: unknown[]) {
+      const statement = {
+        run() {
+          if (this !== statement) throw new TypeError("Expected the original bound quota statement")
+          const bindings = values.map(value => {
+            if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "bigint") return value
+            throw new TypeError("Unsupported SQLite quota binding")
+          })
+          const { changes } = sqlite.prepare(sql).run(...bindings)
+          return { success: true, meta: { changes: Number(changes) } }
+        },
+      }
+      return statement
+    },
+  }) as unknown as D1PreparedStatement
   mockD1Batch.mockImplementation(async (statements) => {
     sqlite.exec("BEGIN")
     try {
       const results = statements.map((statement) => {
         if (typeof statement !== "object" || statement === null
-          || !("sql" in statement) || typeof statement.sql !== "string"
-          || !("values" in statement) || !Array.isArray(statement.values)) {
+          || !("run" in statement) || typeof statement.run !== "function") {
           throw new TypeError("Expected a prepared quota statement")
         }
-        const values = statement.values.map((value: unknown) => {
-          if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "bigint") return value
-          throw new TypeError("Unsupported SQLite quota binding")
-        })
-        const { changes } = sqlite.prepare(statement.sql).run(...values)
-        return { success: true, meta: { changes: Number(changes) } }
+        return statement.run()
       })
       sqlite.exec("COMMIT")
       return results
@@ -369,9 +379,9 @@ describe("WebSocketDurableObject", () => {
       })
 
       it("persists only valid quotas for backends present in the accepted runtime report", async () => {
-        const sqlite = quotaSqlite()
+        const { durable, store, storage, env } = createDO()
+        const sqlite = quotaSqlite(env.DB)
         try {
-          const { durable, store, storage } = createDO()
           store.set("community-machine-identity", {
             userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64),
           })
@@ -400,6 +410,10 @@ describe("WebSocketDurableObject", () => {
             error_code: "network", retryable: 1, observed_at: expect.any(String), updated_at: expect.any(String),
           }])
           const before = quotaRows(sqlite)
+          const bound = mockD1Batch.mock.lastCall?.[0][0]
+          expect(bound).toBeTypeOf("object")
+          await expect(mockD1Batch([{ ...(bound as object) }])).rejects.toThrow("Expected the original bound quota statement")
+          expect(quotaRows(sqlite)).toEqual(before)
           await storage.deleteAlarm()
           storage.put.mockClear()
           storage.setAlarm.mockClear()
@@ -427,9 +441,9 @@ describe("WebSocketDurableObject", () => {
       })
 
       it("persists all four backend quotas through ready into final rows", async () => {
-        const sqlite = quotaSqlite()
+        const { durable, store, storage, env } = createDO()
+        const sqlite = quotaSqlite(env.DB)
         try {
-          const { durable, store, storage } = createDO()
           store.set("community-machine-identity", {
             userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64),
           })
@@ -479,9 +493,9 @@ describe("WebSocketDurableObject", () => {
           agentBackendId: "unknown", observation: availableQuota("claude", "E".repeat(22), 60).observation,
         }]],
       ])("preserves saved quotas and completes core ready for a %s optional quota list", async (_name, providerQuotas) => {
-        const sqlite = quotaSqlite()
+        const { durable, store, storage, env } = createDO()
+        const sqlite = quotaSqlite(env.DB)
         try {
-          const { durable, store, storage } = createDO()
           store.set("community-machine-identity", {
             userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64),
           })

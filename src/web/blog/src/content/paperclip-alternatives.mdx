@@ -19,7 +19,7 @@ export const jsonLd = [
         "name": "What is the simplest Paperclip alternative for one person?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Use the agent you already have for a single, clearly defined task. For coding, start with Claude Code or Codex. For a recurring research or operations job with one clear owner, start with Hermes. Add a workspace when you can name the extra coordination you need."
+          "text": "Use the agent you already have on a single, well-scoped task. For coding, run Claude Code or Codex directly. For a recurring research or operations job with one clear owner, start with Hermes. Only add a workspace once you can name the extra coordination you need."
         }
       },
       {
@@ -27,31 +27,31 @@ export const jsonLd = [
         "name": "What happens to budgets and approvals after leaving Paperclip?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Re-establish them in the destination tool and the services that run your agents. Check who can start work, which actions need approval, and where spending is limited and recorded. A coding workspace or shared conversation doesn’t automatically carry over Paperclip’s controls. If those controls are essential to operating your team, keep Paperclip responsible for them."
+          "text": "Set them up again in your new tool and in the services running your agents. Check who can start jobs, which actions pause for approval, and where spending is capped and logged. A coding workspace or shared chat doesn’t carry Paperclip’s controls over automatically, so keep Paperclip if your team depends on them."
         }
       }
     ]
   }
 ];
 
-A Paperclip alternative should make the work you already have easier to finish. For one person working in a repository, start with Claude Code or Codex directly. For colleagues who need to question a result together with their agents, bring the conversation into Alook.
+A good Paperclip alternative should make the work on your plate easier to finish. If you work solo in one repository, run Claude Code or Codex directly. If teammates need to question results alongside their own agents, bring everyone into Alook.
 
-We compare eight Paperclip alternatives in four groups:
+We compare eight Paperclip alternatives across four groups:
 
 - **Direct agents:** Claude Code, Codex, and Hermes Agent.
 - **Coding workspaces:** Multica, herdr, and Paseo.
 - **Knowledge workspace:** Cabinet.
 - **People and agents together:** Alook.
 
-The Paperclip in this article is [paperclipai/paperclip](https://github.com/paperclipai/paperclip), the open-source system that organizes agents into a company with roles, tasks, budgets, and approvals.
+"Paperclip" here means [paperclipai/paperclip](https://github.com/paperclipai/paperclip), the open-source system that models agents as a company with roles, tasks, budgets, and approvals.
 
-A company is too much machinery for a task you haven’t made clear yet. Our starting point is the job: who owns it, what they need, and what counts as done. An organization earns its place once those jobs need lasting coordination.
+Setting up a whole virtual company is overkill when a task still isn’t well defined. Start with the job itself: who owns it, what inputs they need, and what counts as done. Add org-style coordination only once recurring jobs actually need it.
 
 ![Paperclip Alternatives title above the logos of Claude, OpenAI, Hermes, Multica, herdr, Paseo, Cabinet, and Alook.](/blog/paperclip-alternatives/hero.webp)
 
 ## Paperclip alternatives at a glance
 
-These eight alternatives fall into four groups: direct agents, coding workspaces, a knowledge workspace, and a shared conversation for people and agents.
+These eight tools fall into four groups: direct agents, coding workspaces, a knowledge workspace, and a shared room for people and agents.
 
 <div className="overflow-x-auto thin-scrollbar">
 <div style={{ minWidth: "640px" }}>
@@ -69,118 +69,116 @@ These eight alternatives fall into four groups: direct agents, coding workspaces
 </div>
 </div>
 
-If you’re building your own orchestration system with frameworks such as CrewAI or LangGraph, our [AI agent collaboration platforms](/blog/ai-agent-collaboration-platforms) guide compares that category alongside workflow tools and shared platforms.
+If you’re building your own orchestration pipelines in code with frameworks like CrewAI or LangGraph, our [AI agent collaboration platforms](/blog/ai-agent-collaboration-platforms) guide compares frameworks alongside workflow tools and shared workspaces.
 
-Start with the row that describes your unfinished work. A terminal workspace can help you find a blocked coding agent. A shared conversation can help a colleague explain why a proposed change misses the brief.
+Start with the row where your work currently gets stuck. A terminal manager helps you spot a blocked coding session; a shared chat helps a teammate explain why a proposed change misses the brief.
 
 ## When to keep Paperclip
 
-Keep Paperclip if you need an organization that continues working across many assigned jobs. A standing research role, a development role, and someone responsible for reviewing their output create coordination work even when you’re away. You need to know which agent owns the next brief, who approves a new hire, and how much the team has spent.
+Stick with Paperclip if you genuinely run standing roles across lots of ongoing tasks. Once you have a research role, an engineering role, and a reviewer working while you’re away, coordination becomes real work: tracking which agent owns the next brief, who approves a new hire, and how much the team has spent.
 
-Paperclip puts those concerns in one place. Its current [team catalog](https://docs.paperclip.ing/guides/org/team-catalog/) also offers starter teams, so building an organization doesn’t have to begin with an empty chart. Human teammates can manage assigned work in the same company, and its experimental [Agent Chat](https://docs.paperclip.ing/experimental/agent-chat/) adds direct conversations with agents.
+Paperclip keeps all of that in one place. Its [team catalog](https://docs.paperclip.ing/guides/org/team-catalog/) offers starter team templates so you don’t begin from a blank org chart, human teammates can manage assigned work inside the same company, and its experimental [Agent Chat](https://docs.paperclip.ing/experimental/agent-chat/) lets you message agents directly.
 
-That matters when comparing alternatives. “Paperclip has no chat” is an outdated reason to leave. Choose around how you spend your day: overseeing assigned work across an organization, working in a coding session, developing research, or discussing results with colleagues.
+That’s worth knowing before you switch. “Paperclip has no chat” is an outdated reason to leave. Base your choice on how you actually spend your day: overseeing work across an org queue, writing code in a session, building up research notes, or hashing out results live with colleagues.
 
-If budgets, approvals, and durable task ownership are the reason you chose Paperclip, improve that setup first. Removing the company layer also removes the place where you chose to manage those responsibilities.
+If spend limits, approvals, and durable task ownership are why you picked Paperclip in the first place, tune that setup before ripping it out. Dropping the company layer also drops the place where you manage those guardrails.
 
 ## Why look for a Paperclip alternative?
 
-Running isn’t progress. The frustrating moment is easy to recognize: agents are still planning, retrying, or passing work along, token use keeps climbing, and there’s no new result you can review. Another agent is another handoff. When nobody can name the next reviewable result, adding one makes the confusion larger.
+Busy agents aren’t the same as finished work. Anyone who has run multi-agent setups knows the stall: agents keep planning, retrying, and handing tasks back and forth while token usage climbs and nothing reviewable comes out. Adding one more coordinator usually just adds one more handoff.
 
-Start by finding the next concrete deliverable. Is someone supposed to produce a patch, a research brief, or a decision? Who can judge whether it is ready? A smaller assignment with one owner makes it easier to see where execution stops.
+When that happens, strip the work down to the next concrete deliverable: a patch, a research brief, or a decision, plus one person who can judge whether it’s ready. Giving a smaller task to a single owner makes it obvious where execution breaks.
 
-Another reason to reconsider is the amount of administration around small jobs. If fixing one bug means adjusting roles, moving assignments, and repeatedly restarting work, the organization may be larger than the problem. For a task you can describe and review yourself, direct access to the agent can be enough.
+Too much admin around small jobs is another warning sign. If fixing one bug takes editing roles, reassigning tickets, and restarting runs, the org structure is bigger than the bug. When you can describe and check the task yourself, talking straight to one agent is faster.
 
-Then there’s the human relay. A researcher has the sources, a developer has the repository, and one person keeps moving explanations between them. The agents may each be doing useful work, but every correction still passes through that person. The fix is shared material or a shared conversation.
+The third bottleneck is acting as a human router. A researcher holds the sources, a developer owns the repo, and one person sits in the middle copying context back and forth between them. Even when each agent does good work, every correction still bottlenecks on that messenger. Shared files or a shared room fix that directly.
 
-These situations lead to the four groups below. Choose the one that removes the specific delay you can point to.
+Each of the four groups below removes one of those delays.
 
 ## Direct agents for solo coding and recurring work
 
 ### Claude Code and Codex for solo coding tasks
 
-For one person and one repository, our starting recommendation is simple: give your existing coding agent a clear job before building a company around it.
+For one developer in one repository, give your coding agent a clear task before building an org chart around it.
 
-Give [Claude Code](https://code.claude.com/docs/en/overview) or [Codex](https://github.com/openai/codex) a reproducible bug and the expected behavior. The agent investigates the relevant code and proposes a patch; you review the diff and the checks. That’s a short path from the problem to something you can judge.
+Hand [Claude Code](https://code.claude.com/docs/en/overview) or [Codex](https://github.com/openai/codex) a reproducible bug and the expected behavior. Let the agent read the code and propose a patch, then inspect the diff and test checks yourself. It’s a short, clean loop from bug report to reviewable code.
 
-You can add delegation when there is a separate job worth assigning. Claude Code, for example, has experimental agent teams for work that benefits from distinct contexts and coordination. For sequential changes to the same files, one session keeps the work together. [Agent teams](https://code.claude.com/docs/en/agent-teams) earn their place when the jobs can actually progress separately.
+Save delegation for work that cleanly splits into parallel tracks. Claude Code offers experimental [Agent teams](https://code.claude.com/docs/en/agent-teams) when separate contexts help, though sequential edits to the same files still stay cleaner in a single session.
 
-The choice between these two tools depends on your development workflow. Our [Claude Code vs. Codex comparison](/blog/claude-code-vs-codex) covers that decision. If the harder question is how colleagues using both tools can work together, see [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team).
+Picking between the two comes down to your terminal and editor habits. Read our [Claude Code vs. Codex comparison](/blog/claude-code-vs-codex) for the day-to-day trade-offs, or [Claude Code and Codex on the same team](/blog/claude-code-and-codex-same-team) if teammates mix both.
 
 ### Hermes Agent for recurring research and operations
 
-A recurring job doesn’t always need several roles. A daily research brief might need one agent, a defined set of sources, reusable instructions, and a schedule.
+Recurring work rarely needs a multi-role department. A daily research brief usually needs one reliable agent, fixed sources, reusable instructions, and a schedule.
 
-The daily brief needs a reliable worker before it needs a manager. That’s why we’d start with [Hermes Agent](https://github.com/NousResearch/hermes-agent): reusable instructions in skills, tools to gather the material, and a schedule for the next run. A brief that comes back too broad gives you a specific instruction to fix with that worker. Splitting the same small job across a researcher, writer, and reviewer creates three assignments to repair.
+We’d start with [Hermes Agent](https://github.com/NousResearch/hermes-agent) for that: store reusable instructions as skills, connect tools to gather material, and put runs on a schedule. When a morning brief comes back too broad, you tighten instructions for one worker instead of debugging three separate researcher, writer, and reviewer prompts.
 
-Hermes and Paperclip can also work together: Hermes can be a worker inside a Paperclip organization. Choose direct Hermes when the recurring job has one clear owner. Keep the coordination layer when several owners need to exchange work, follow approvals, and report progress over time.
+Hermes and Paperclip can work together too, since Hermes can run as a worker inside a Paperclip company. Run Hermes directly when one owner handles a recurring job; keep Paperclip around it when several owners need handoffs, approvals, and status reporting over time.
 
 ## Coding workspaces for parallel agents and code review
 
-A busy dashboard doesn’t tell you whether a patch is ready. For coding work, we care about the path from the assignment to the diff and the person reviewing it. The next three tools make sense at different points along that path.
+A busy status board doesn’t tell you whether a patch is safe to merge. For coding work, what matters is getting cleanly from an issue description to a diff and the person reviewing it. These three workspaces help at different steps along that path.
 
 ### Multica for issue assignment and review
 
-Multica organizes coding work around issues and agent execution. A team can assign a task, follow progress and blockers, and review the resulting work. It belongs on the shortlist for a team whose day already runs through an issue queue.
+Multica organizes agent coding runs around issues so a team can assign tickets, track progress and blockers, and review the output. Put it on your shortlist if your team’s day already runs through an issue queue.
 
-A reviewer needs the original assignment and the blockers behind a change, not just a finished diff. We prefer an issue-centered workspace like Multica when that trail matters more than watching every terminal. If you already review directly in your CLI and repository, another task board adds little.
+Good reviews often depend on seeing the original assignment and what blocked the agent along the way, not just the final diff. Pick an issue-first workspace like Multica when that trail helps your team; skip it if reviewing straight in your CLI and repo host already works well.
 
 ### herdr for managing agent terminal sessions
 
-Sometimes the agents already work well. The problem is finding the right terminal among all the ones you opened.
+Sometimes the agents themselves work fine, and the real problem is finding the right session across a dozen open terminal tabs.
 
-[herdr](https://github.com/herdrdev/herdr) focuses on managing agent terminal sessions, including visibility into whether an agent is working, blocked, or idle. Its background terminal server keeps sessions running on the development machine when a client detaches or an SSH connection drops. That’s useful when your day involves checking several running jobs and intervening where a question is waiting.
+[herdr](https://github.com/herdrdev/herdr) manages agent terminal sessions and shows at a glance which ones are working, blocked, or idle. Its background terminal server keeps sessions alive on your dev machine even when a client detaches or SSH drops, making it easy to check parallel runs and jump in where a prompt is waiting on you.
 
-We’d choose herdr when better visibility solves most of the pain. You keep the CLI workflow you know and improve how you supervise it.
+Pick herdr when terminal sprawl is your main headache. You keep your existing CLI workflow and gain a clean way to supervise it.
 
 ### Paseo for worktrees and desktop-to-phone access
 
-[Paseo](https://github.com/getpaseo/paseo) connects a local daemon to interfaces you can use from desktop or phone. It brings together agent sessions, separate worktrees, file access, diffs, and pull request workflows around your development machine.
+[Paseo](https://github.com/getpaseo/paseo) connects a local daemon on your dev machine to desktop and mobile interfaces, combining agent sessions, separate worktrees, file access, diffs, and pull request workflows.
 
-For parallel coding, a separate working copy is more valuable than another title on an org chart. Worktrees give each job room to change files. Phone access solves a smaller but familiar problem: the agent needs an answer and you’re away from your desk. That’s where Paseo’s design pays off.
+When running coding agents in parallel, isolated Git worktrees beat extra boxes on an org chart because each job gets its own working tree to edit files safely. Mobile access fixes a smaller everyday annoyance: unblocking an agent that asks a quick question while you’re away from your desk.
 
-With your agent CLIs installed and authenticated on the development machine, Paseo is our pick when worktree isolation or phone access solves a daily annoyance. If every task stays in one session at your desk, its extra ways to connect matter less.
+Once your agent CLIs are installed and logged in on your dev machine, Paseo pays off quickly if you juggle parallel branches or step away often. If you work one session at a time at your desk, you won’t need much of what it adds.
 
 ## Cabinet for reusable research and team knowledge
 
-If every new assignment begins with “where did we put last week’s sources?”, more workers will inherit the same search problem.
+If every new task starts with “where did we put last week’s sources?”, adding more agents just gives more workers the same search problem.
 
-[Cabinet](https://github.com/cabinetai/cabinet) centers work on Markdown files stored on disk, with Git history and agent tasks around them. It also includes skills, scheduled jobs, and chat. The files stay available for you to edit and reuse.
+[Cabinet](https://github.com/cabinetai/cabinet) stores work as plain Markdown files on disk with Git history, wrapping agent tasks, skills, scheduled jobs, and chat around those files. Everything stays on disk for you to edit and reuse.
 
-A completed research task is a poor stopping point for the evidence behind it. Next week’s narrower comparison needs those sources and the reasons for last week’s decision. We want the next agent to start from that material, with a person able to correct the files. Cabinet’s document-centered approach fits that job better than treating the brief as a closed ticket.
-
-A task board can tell you that research is complete. A knowledge workspace helps the next job begin from the research itself.
+Closing a research ticket shouldn’t bury the evidence behind it. Next week’s follow-up comparison needs those exact sources and notes, with room for people to edit the files directly. Cabinet’s file-first setup lets the next job start directly from accumulated research instead of a closed task log.
 
 ## Alook for people and agents working together
 
-We built Alook for [multi agent collaboration](https://alook.ai/) because passing messages between people and agents shouldn’t become someone’s full-time job.
+We built Alook for [multi agent collaboration](https://alook.ai/) so passing messages between teammates and private agent sessions doesn’t turn into someone’s full-time job.
 
-Suppose a researcher and a developer are reviewing a proposed feature. The researcher brings an agent that can examine the evidence. The developer brings a coding agent that can inspect the repository. When the researcher questions an assumption, both the developer and the relevant agent need that question. When the implementation reveals a constraint, the researcher needs to see it before the brief moves forward.
+Say a researcher and a developer are scoping a proposed feature. The researcher brings an agent that can dig through evidence; the developer brings a coding agent pointed at the repo. When the researcher questions an assumption, both the developer and the coding agent need that question. And when the code reveals a hard constraint, the researcher needs to see it before updating the brief.
 
-In Alook, the researcher can ask the developer’s agent to check that assumption against the repository in the same conversation. The agent answers with the constraint it finds. The developer proposes a smaller change, and the researcher updates the brief against that answer. Nobody needs to copy the question into a private coding session and carry the reply back for everyone else.
+In Alook, the researcher asks the developer’s agent to check that assumption against the repo right inside the shared conversation. The agent replies with the constraint it finds, the developer suggests a smaller change, and the researcher updates the brief in the same thread. Nobody has to copy questions into a private terminal and paste answers back out.
 
 ![A researcher questions an assumption, a developer’s agent checks the repository, the developer narrows the change, and the researcher updates the brief in one shared conversation.](/blog/paperclip-alternatives/conversation.webp)
 
-People can continue using their existing Claude Code, Cursor, or Codex setup. A connected machine runs the local agent, so it needs to be online when that agent works.
+Everyone keeps using their existing Claude Code, Cursor, or Codex setup. Because each local agent runs on its owner’s connected computer, that machine needs to stay online while the agent works.
 
-Alook is our pick when the researcher, developer, and their agents need to reach a decision together. For a hierarchy of autonomous roles with budgets and approvals, start with Paperclip.
+Choose Alook when teammates and their agents need to work through decisions together. If you need an autonomous hierarchy with role budgets and org approvals, start with Paperclip.
 
 ## Moving one job out of Paperclip
 
-Moving the whole company is the wrong first test. One coding issue, recurring brief, or shared review will tell you whether the new tool fixes the delay that sent you looking.
+Don’t migrate your whole company on day one. Move a single coding issue, recurring brief, or team review first to see if the new tool actually clears your bottleneck.
 
-“Continue the project” asks the new agent to reconstruct too much. “Review this diff against these three requirements” gives it a clear result to produce. The current material, earlier decisions, and a named owner make that assignment understandable. If you can’t explain the next job without rebuilding the whole company, the handoff itself needs more thought.
+Handoffs like “continue the project” force a new agent to guess too much context. Scope the task tightly instead, like “review this diff against these three requirements,” and include the current files, earlier decisions, and a single owner. If you can’t explain the next job without rebuilding the whole org chart, tighten the handoff first.
 
-Rules and skills deserve the same attention. A file sitting in a folder only helps if the agent actually receives or loads it. For a recurring brief, one setup also needs to own the schedule. Once the new owner takes over, the old schedule should stop so two agents don’t independently produce competing versions of the same work.
+Check rules, skills, and schedules during the move too. A rules file sitting in a folder only helps if the new agent actually loads it. And for a recurring brief, make sure only one setup owns the schedule: turn off the old Paperclip job as soon as the new owner takes over so two agents don’t generate competing drafts.
 
-The first result tells you whether the move helped: the blocked session is visible, the reviewer has the assignment beside the patch, or your colleague gets an answer directly from the agent. That’s a reason to keep the new workflow. Leaving Paperclip doesn’t have to mean finding another company to run.
+Judge the switch by the first finished output: can you spot a blocked session immediately, read the issue context beside the patch, or let a teammate question an agent directly? If so, keep the new workflow. Leaving Paperclip doesn’t mean finding another virtual company to manage.
 
 ## Paperclip alternatives FAQ
 
 ### What is the simplest Paperclip alternative for one person?
 
-Use the agent you already have for a single, clearly defined task. For coding, start with Claude Code or Codex. For a recurring research or operations job with one clear owner, start with Hermes. Add a workspace when you can name the extra coordination you need.
+Use the agent you already have on a single, well-scoped task. For coding, run Claude Code or Codex directly. For a recurring research or operations job with one clear owner, start with Hermes. Only add a workspace once you can name the extra coordination you need.
 
 ### What happens to budgets and approvals after leaving Paperclip?
 
-Re-establish them in the destination tool and the services that run your agents. Check who can start work, which actions need approval, and where spending is limited and recorded. A coding workspace or shared conversation doesn’t automatically carry over Paperclip’s controls. If those controls are essential to operating your team, keep Paperclip responsible for them.
+Set them up again in your new tool and in the services running your agents. Check who can start jobs, which actions pause for approval, and where spending is capped and logged. A coding workspace or shared chat doesn’t carry Paperclip’s controls over automatically, so keep Paperclip if your team depends on them.

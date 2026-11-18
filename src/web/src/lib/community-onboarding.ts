@@ -1,5 +1,6 @@
 "use client";
 
+import { captureAnalyticsOwner } from "./analytics-owner";
 import { captureProductAnalytics } from "@/lib/product-analytics";
 
 import { useSelector } from "@tanstack/react-store";
@@ -40,9 +41,10 @@ export function readCommunityOnboardingState(runtime: CommunityRuntime) {
 export function startCommunityOnboarding(runtime: CommunityRuntime) {
   const currentState = readCommunityOnboardingState(runtime);
   if (currentState) return currentState;
+  const assertCurrent = captureAnalyticsOwner(runtime.lifecycle);
   const next: CommunityOnboardingState = { status: "active", stage: "harness" };
   publish(runtime, next);
-  trackCommunityOnboardingStarted();
+  trackCommunityOnboardingStarted(assertCurrent);
   return next;
 }
 
@@ -56,6 +58,7 @@ export function advanceCommunityOnboarding(
   if (currentState?.status !== "active" || currentState.stage !== expected) {
     return currentState;
   }
+  const assertCurrent = captureAnalyticsOwner(runtime.lifecycle);
   const next: CommunityOnboardingState = {
     ...currentState,
     ...resources,
@@ -63,7 +66,7 @@ export function advanceCommunityOnboarding(
     stage: nextStage,
   };
   publish(runtime, next);
-  trackCommunityOnboardingStageCompleted(expected);
+  trackCommunityOnboardingStageCompleted(expected, assertCurrent);
   return next;
 }
 
@@ -100,24 +103,20 @@ export function completeCommunityOnboarding(runtime: CommunityRuntime, pathname?
   const protocol = currentState.initialization;
   const result = protocol?.result;
   if (!result || protocol.pendingDestination !== `/c/channels/${result.serverId}/${result.publicChannelId}` || pathname !== protocol.pendingDestination) return currentState;
-  const generation = runtime.lifecycle.get().generation;
+  const assertCurrent = captureAnalyticsOwner(runtime.lifecycle);
   publish(runtime, null);
-  trackCommunityOnboardingStageCompleted("initializing");
-  void captureProductAnalytics({ event: "community_onboarding_completed" }, () => {
-    if (!runtime.lifecycle.get().active || runtime.lifecycle.get().generation !== generation) throw new DOMException("Retired onboarding owner", "AbortError");
-  });
+  trackCommunityOnboardingStageCompleted("initializing", assertCurrent);
+  void captureProductAnalytics({ event: "community_onboarding_completed" }, assertCurrent);
   return null;
 }
 
 export function finishCommunityOnboardingAgentSetup(runtime: CommunityRuntime) {
   const state = readCommunityOnboardingState(runtime);
   if (state?.stage !== "machine" || state.setupMode !== "agent") return state;
-  const generation = runtime.lifecycle.get().generation;
+  const assertCurrent = captureAnalyticsOwner(runtime.lifecycle);
   publish(runtime, null);
-  trackCommunityOnboardingStageCompleted("machine");
-  void captureProductAnalytics({ event: "community_onboarding_completed" }, () => {
-    if (!runtime.lifecycle.get().active || runtime.lifecycle.get().generation !== generation) throw new DOMException("Retired onboarding owner", "AbortError");
-  });
+  trackCommunityOnboardingStageCompleted("machine", assertCurrent);
+  void captureProductAnalytics({ event: "community_onboarding_completed" }, assertCurrent);
   return null;
 }
 
@@ -125,8 +124,9 @@ export function skipCommunityOnboarding(runtime: CommunityRuntime) {
   const currentState = readCommunityOnboardingState(runtime);
   if (!currentState) return null;
   const stage = currentState.stage;
+  const assertCurrent = captureAnalyticsOwner(runtime.lifecycle);
   publish(runtime, null);
-  trackCommunityOnboardingSkipped(stage);
+  trackCommunityOnboardingSkipped(stage, assertCurrent);
   return null;
 }
 

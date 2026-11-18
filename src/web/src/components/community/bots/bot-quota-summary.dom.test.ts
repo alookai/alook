@@ -147,6 +147,16 @@ describe("quota helpers", () => {
     expect(sortQuotaEntries([claude, grok, codex]).map((entry) => entry.scope.agentBackendId))
       .toEqual(["codex", "grok", "claude"])
   })
+
+  it("rounds remaining percentages half-up to at most one decimal place without trailing .0", () => {
+    expect(remainingPercent(limit({ usedPercent: 8.102625608444 }))).toBe(91.9)
+    expect(remainingPercent(limit({ usedPercent: 28.828197717667 }))).toBe(71.2)
+    expect(remainingPercent(limit({ usedPercent: 30.5 }))).toBe(69.5)
+    expect(remainingPercent(limit({ usedPercent: 64.15 }))).toBe(35.9)
+    expect(remainingPercent(limit({ usedPercent: 30.04 }))).toBe(70)
+    expect(remainingPercent(limit({ usedPercent: 0 }))).toBe(100)
+    expect(remainingPercent(limit({ usedPercent: 100 }))).toBe(0)
+  })
 })
 
 describe("MachineQuotaSummary", () => {
@@ -217,6 +227,41 @@ describe("MachineQuotaSummary", () => {
     const trigger = renderer.getByTestId("community-machine-quota-m1")
     expect(text(trigger)).toBe("Quota·Codex (automatic)62.5%stale")
     expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex (automatic) 62.5% left, stale"))
+  })
+
+  it("formats multi-decimal provider telemetry to at most one decimal place in summary and popover", () => {
+    const agyWeekly = limit({
+      limitId: "agy-weekly",
+      productId: "antigravity",
+      productName: "Antigravity",
+      window: { kind: "provider_defined", id: "weekly", displayName: "Weekly Limit Remaining" },
+      usedPercent: 8.102625608444,
+    })
+    const agyFiveHour = limit({
+      limitId: "agy-five-hour",
+      productId: "antigravity",
+      productName: "Antigravity",
+      window: { kind: "provider_defined", id: "five_hour", displayName: "Five Hour Limit Remaining" },
+      usedPercent: 28.828197717667,
+    })
+    const agyFull = limit({
+      limitId: "agy-secondary",
+      productId: "antigravity",
+      productName: "Antigravity",
+      window: { kind: "provider_defined", id: "weekly-2", displayName: "Weekly Limit Remaining" },
+      usedPercent: 0,
+    })
+    const renderer = render([quotaEntry([agyWeekly, agyFiveHour, agyFull], "available", "agy")])
+    const trigger = renderer.getByTestId("community-machine-quota-m1")
+    expect(text(trigger)).toBe("Quota·71.2%")
+    expect(trigger).toHaveAttribute("aria-label", "Quota details: Agy 71.2% left. 3 limits")
+    fireEvent.click(trigger)
+    const detail = renderer.getByTestId("community-machine-quota-detail-m1")
+    expect(text(detail)).toContain("91.9% left")
+    expect(text(detail)).toContain("71.2% left")
+    expect(text(detail)).toContain("100% left")
+    expect(text(detail)).not.toContain("91.897")
+    expect(text(detail)).not.toContain("71.171")
   })
 
   it("exposes unavailable backend details alongside pending peers without inventing limits", () => {

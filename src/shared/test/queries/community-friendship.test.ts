@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import * as q from "../../src/db/queries/community/friendship";
 import { user } from "../../src/db/schema";
+import { communityFriendship, communityUserProfile } from "../../src/db/community-schema";
+import { createMigratedDb } from "../helpers/migrated-db";
 
 /**
  * `getFriendUserIds` now issues two parallel selects — the real
@@ -108,13 +110,18 @@ describe("getFriendUserIds", () => {
     // live-owner filter, the tombstoned owner id stays in the returned
     // audience forever, and every presence flip fires a DO fetch to a
     // dead account.
-    const db = createDb({
-      selfBotRows: [{ id: "bot-1", ownerUserId: "owner-1" }],
-      liveOtherIds: [], // owner-1 does NOT come back from the live filter
-    });
-    const result = await q.getFriendUserIds(db, "bot-1");
-    expect(result).not.toContain("owner-1");
-    expect(result).toEqual([]);
+    const { db, sqlite } = createMigratedDb();
+    try {
+      await db.insert(user).values([
+        { id: "owner-1", name: "Owner", email: "owner-1@example.test", deletedAt: "2026-08-29T00:00:00.000Z" },
+        { id: "bot-1", name: "Bot", email: "bot-1@example.test", isBot: true, ownerUserId: "owner-1" },
+      ]).run();
+      const result = await q.getFriendUserIds(db, "bot-1");
+      expect(result).not.toContain("owner-1");
+      expect(result).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
   });
 
   // Owner↔own-bot implicit friendship — see `areFriends`/`listFriends`: no
@@ -198,15 +205,30 @@ describe("listFriends", () => {
   });
 
   it("passes through statusEmoji/statusText for asRequester and asAddressee rows", async () => {
-    const db = createListFriendsDb({
-      asRequesterRows: [{ id: "f1", friendUserId: "u_1", statusEmoji: "🎧", statusText: "Vibing" }],
-      asAddresseeRows: [{ id: "f2", friendUserId: "u_2", statusEmoji: null, statusText: null }],
-    });
-    const result = await q.listFriends(db, "u_me");
-    expect(result).toEqual([
-      { id: "f1", friendUserId: "u_1", statusEmoji: "🎧", statusText: "Vibing" },
-      { id: "f2", friendUserId: "u_2", statusEmoji: null, statusText: null },
-    ]);
+    const { db, sqlite } = createMigratedDb();
+    try {
+      await db.insert(user).values(["u_me", "u_1", "u_2", "other-user"].map(id => ({
+        id,
+        name: id,
+        email: id + "@example.test",
+      }))).run();
+      await db.insert(communityFriendship).values([
+        { id: "f1", requesterId: "u_me", addresseeId: "u_1", status: "accepted" },
+        { id: "f2", requesterId: "u_2", addresseeId: "u_me", status: "accepted" },
+        { id: "unrelated", requesterId: "u_1", addresseeId: "other-user", status: "accepted" },
+      ]).run();
+      await db.insert(communityUserProfile).values({
+        userId: "u_1", statusEmoji: "🎧", statusText: "Vibing",
+      }).run();
+
+      const result = await q.listFriends(db, "u_me");
+      expect(result).toMatchObject([
+        { id: "f1", friendUserId: "u_1", statusEmoji: "🎧", statusText: "Vibing" },
+        { id: "f2", friendUserId: "u_2", statusEmoji: null, statusText: null },
+      ]);
+    } finally {
+      sqlite.close();
+    }
   });
 
   it("defaults to null (no crash) for a friend with no communityUserProfile row via the leftJoin", async () => {
@@ -276,6 +298,41 @@ describe("ensureSiblingBotFriendship precondition guard", () => {
   })
 })
 
+it.each([
+  { scenario: "the first insert", ignoreFirstInsert: false },
+  { scenario: "a retry after an ignored insert without a survivor", ignoreFirstInsert: true },
+])("persists one accepted sibling friendship on $scenario", async ({ ignoreFirstInsert }) => {
+  const { db, sqlite } = createMigratedDb()
+  try {
+    await db.insert(user).values([
+      { id: "owner", name: "Owner", email: "owner@example.test" },
+      { id: "bot-a", name: "Bot A", email: "bot-a@example.test", isBot: true, ownerUserId: "owner" },
+      { id: "bot-b", name: "Bot B", email: "bot-b@example.test", isBot: true, ownerUserId: "owner" },
+    ]).run()
+    let insertAttempts = 0
+    sqlite.function("ignore_first_sibling_insert", () => ++insertAttempts === 1 && ignoreFirstInsert ? 1 : 0)
+    sqlite.exec(`
+      CREATE TEMP TRIGGER ignore_first_sibling_insert BEFORE INSERT ON community_friendship
+      WHEN ignore_first_sibling_insert() = 1
+      BEGIN SELECT RAISE(IGNORE); END
+    `)
+
+    const created = await q.ensureSiblingBotFriendship(db, { botA: "bot-a", botB: "bot-b" })
+    expect(created).toMatchObject({ blocked: false, wasCreated: true })
+    if (created.blocked) throw new Error("expected an accepted sibling friendship")
+    await expect(q.ensureSiblingBotFriendship(db, { botA: "bot-b", botB: "bot-a" })).resolves.toEqual({
+      blocked: false, friendshipId: created.friendshipId, wasCreated: false,
+    })
+    expect(await db.select().from(communityFriendship)).toMatchObject([{
+      id: created.friendshipId, requesterId: "bot-a", addresseeId: "bot-b",
+      status: "accepted", needsOwnerApproval: null,
+    }])
+    expect(insertAttempts).toBe(ignoreFirstInsert ? 2 : 1)
+  } finally {
+    sqlite.close()
+  }
+})
+
 /**
  * `cancelPendingRequest` — soft-cancels a pending row and returns the
  * DM_MESSAGE_UPDATED fanout for cards referencing it. `updateReturns` is what
@@ -316,16 +373,27 @@ describe("cancelPendingRequest", () => {
   })
 
   it("cancels a pending row and returns it; no cards referencing it → no broadcasts", async () => {
-    const row = {
-      id: "fr_1", requesterId: "u_alice", addresseeId: "bot_yara",
-      status: "cancelled", needsOwnerApproval: "owner_carol",
+    const { db, sqlite } = createMigratedDb()
+    try {
+      await db.insert(user).values([
+        { id: "u_alice", name: "Alice", email: "alice@example.test" },
+        { id: "owner_carol", name: "Carol", email: "carol@example.test" },
+        { id: "bot_yara", name: "Yara", email: "yara@example.test", isBot: true, ownerUserId: "owner_carol" },
+      ]).run()
+      await db.insert(communityFriendship).values({
+        id: "fr_1", requesterId: "u_alice", addresseeId: "bot_yara",
+        status: "pending", needsOwnerApproval: "owner_carol",
+      }).run()
+      const select = vi.spyOn(db, "select")
+
+      const res = await q.cancelPendingRequest(db, "fr_1")
+      expect(res.row).toMatchObject({ id: "fr_1", status: "cancelled" })
+      expect(res.broadcasts).toEqual([])
+      expect(select).toHaveBeenCalled()
+      await expect(q.getFriendship(db, "fr_1")).resolves.toMatchObject({ status: "cancelled" })
+    } finally {
+      sqlite.close()
     }
-    const db = createCancelDb([row], [])
-    const res = await q.cancelPendingRequest(db, "fr_1")
-    expect(res.row).toMatchObject({ id: "fr_1", status: "cancelled" })
-    expect(res.broadcasts).toEqual([])
-    // It did look for referencing cards.
-    expect(db.select).toHaveBeenCalled()
   })
 })
 
@@ -339,15 +407,27 @@ describe("rejectRequest", () => {
   })
 
   it("denies a pending row and returns the card-rehydration broadcasts", async () => {
-    const row = {
-      id: "fr_1", requesterId: "bot_bob", addresseeId: "u_alice",
-      status: "denied", needsOwnerApproval: null,
+    const { db, sqlite } = createMigratedDb()
+    try {
+      await db.insert(user).values([
+        { id: "owner_bob", name: "Bob's owner", email: "owner-bob@example.test" },
+        { id: "bot_bob", name: "Bob", email: "bob@example.test", isBot: true, ownerUserId: "owner_bob" },
+        { id: "u_alice", name: "Alice", email: "alice@example.test" },
+      ]).run()
+      await db.insert(communityFriendship).values({
+        id: "fr_1", requesterId: "bot_bob", addresseeId: "u_alice",
+        status: "pending", needsOwnerApproval: null,
+      }).run()
+      const select = vi.spyOn(db, "select")
+
+      const res = await q.rejectRequest(db, "fr_1")
+      expect(res.row).toMatchObject({ id: "fr_1", status: "denied" })
+      expect(res.broadcasts).toEqual([])
+      expect(select).toHaveBeenCalled()
+      await expect(q.getFriendship(db, "fr_1")).resolves.toMatchObject({ status: "denied" })
+    } finally {
+      sqlite.close()
     }
-    const db = createCancelDb([row], [])
-    const res = await q.rejectRequest(db, "fr_1")
-    expect(res.row).toMatchObject({ id: "fr_1", status: "denied" })
-    expect(res.broadcasts).toEqual([])
-    expect(db.select).toHaveBeenCalled()
   })
 })
 
@@ -425,21 +505,28 @@ function createBlockDb(opts: {
 
 describe("block", () => {
   it("soft-cancels a gated pending row (keeps its card) and inserts the blocked row", async () => {
-    const { db, calls } = createBlockDb({
-      existing: {
+    const { db, sqlite } = createMigratedDb()
+    try {
+      await db.insert(user).values([
+        { id: "u_alice", name: "Alice", email: "alice@example.test" },
+        { id: "owner_carol", name: "Carol", email: "carol@example.test" },
+        { id: "bot_yara", name: "Yara", email: "yara@example.test", isBot: true, ownerUserId: "owner_carol" },
+      ]).run()
+      await db.insert(communityFriendship).values({
         id: "fr_old", requesterId: "u_alice", addresseeId: "bot_yara",
         status: "pending", needsOwnerApproval: "owner_carol",
-      },
-      refMessages: [],
-    })
-    const res = await q.block(db, { blockerId: "u_alice", targetId: "bot_yara" })
-    // Pending → UPDATE to cancelled, NOT delete.
-    expect(calls.updated?.status).toBe("cancelled")
-    expect(calls.deleted).toBe(false)
-    // Fresh blocked row inserted; no friend.remove (wasn't accepted).
-    expect(calls.inserted?.status).toBe("blocked")
-    expect(res.removedFriendshipId).toBeNull()
-    expect(Array.isArray(res.broadcasts)).toBe(true)
+      }).run()
+      const remove = vi.spyOn(db, "delete")
+
+      const res = await q.block(db, { blockerId: "u_alice", targetId: "bot_yara" })
+      await expect(q.getFriendship(db, "fr_old")).resolves.toMatchObject({ status: "cancelled" })
+      expect(remove).not.toHaveBeenCalled()
+      expect(res.row).toMatchObject({ status: "blocked", blockerId: "u_alice" })
+      expect(res.removedFriendshipId).toBeNull()
+      expect(Array.isArray(res.broadcasts)).toBe(true)
+    } finally {
+      sqlite.close()
+    }
   })
 
   it("soft-cancel with a card referencing the row fans MESSAGE_UPDATED to the owner, not the bot", async () => {
@@ -487,17 +574,33 @@ describe("block", () => {
   })
 
   it("hard-deletes an accepted friendship and reports removedFriendshipId", async () => {
-    const { db, calls } = createBlockDb({
-      existing: {
+    const { db, sqlite } = createMigratedDb()
+    try {
+      await db.insert(user).values([
+        { id: "u_alice", name: "Alice", email: "alice@example.test" },
+        { id: "u_zoe", name: "Zoe", email: "zoe@example.test" },
+      ]).run()
+      await db.insert(communityFriendship).values({
         id: "fr_old", requesterId: "u_alice", addresseeId: "u_zoe",
         status: "accepted", needsOwnerApproval: null,
-      },
-    })
-    const res = await q.block(db, { blockerId: "u_alice", targetId: "u_zoe" })
-    expect(calls.deleted).toBe(true)
-    expect(calls.updated).toBeNull()
-    expect(res.removedFriendshipId).toBe("fr_old")
-    expect(res.broadcasts).toEqual([])
+      }).run()
+      const update = vi.spyOn(db, "update")
+
+      const res = await q.block(db, { blockerId: "u_alice", targetId: "u_zoe" })
+      await expect(q.getFriendship(db, "fr_old")).resolves.toBeNull()
+      expect(update).not.toHaveBeenCalled()
+      expect(res.removedFriendshipId).toBe("fr_old")
+      expect(res.broadcasts).toEqual([])
+
+      const repeated = await q.block(db, { blockerId: "u_alice", targetId: "u_zoe" })
+      expect(repeated.row.id).toBe(res.row.id)
+      await expect(q.unblock(db, { blockerId: "u_zoe", targetId: "u_alice" })).resolves.toBeNull()
+      await expect(q.getFriendship(db, res.row.id)).resolves.toMatchObject({ status: "blocked" })
+      await expect(q.unblock(db, { blockerId: "u_alice", targetId: "u_zoe" })).resolves.toMatchObject({ id: res.row.id })
+      await expect(q.getFriendship(db, res.row.id)).resolves.toBeNull()
+    } finally {
+      sqlite.close()
+    }
   })
 
   it("no prior row → just inserts the blocked row, empty broadcasts", async () => {

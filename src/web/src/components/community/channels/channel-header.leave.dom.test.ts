@@ -2,6 +2,7 @@ import React from "react"
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { ChannelHeader } from "./channel-header"
+import { ConversationActivityContext } from "@/contexts/view-activity"
 
 describe("ChannelHeader — overflow Leave action", () => {
   it("exposes Leave only when provided and keeps compact split headers clean", async () => {
@@ -66,5 +67,53 @@ describe("ChannelHeader — overflow Leave action", () => {
     await act(async () => { resolveLeave() })
     await waitFor(() => expect(screen.queryByText("Leave /design-review?")).toBeNull())
     view.unmount()
+  })
+
+  it.each(["text", "forum"] as const)("keeps the opened %s intent without granting an old callback authority", async kind => {
+    const user = setupUser(), oldLeave = vi.fn(), currentLeave = vi.fn(() => Promise.resolve())
+    const props = { channel: "secret", kind, rightPanel: null, onToggle: vi.fn(),
+      tools: kind === "forum" ? { threads: false, pinned: false } : undefined }
+    const view = render(React.createElement(ChannelHeader, { ...props, onLeave: oldLeave }))
+    await user.click(screen.getByRole("button", { name: "More channel options" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Leave" }))
+    view.rerender(React.createElement(ChannelHeader, props))
+    expect(screen.getByText("Leave /secret?")).toBeVisible()
+    const confirm = screen.getByRole("button", { name: "Leave" })
+    expect(confirm).toBeDisabled()
+    fireEvent.click(confirm)
+    expect(oldLeave).not.toHaveBeenCalled()
+    view.rerender(React.createElement(ChannelHeader, { ...props, onLeave: currentLeave }))
+    await user.click(screen.getByRole("button", { name: "Leave" }))
+    await waitFor(() => expect(screen.queryByText("Leave /secret?")).toBeNull())
+    expect(currentLeave).toHaveBeenCalledOnce()
+    expect(oldLeave).not.toHaveBeenCalled()
+  })
+
+  it("allows cancellation while qualification is absent and does not reopen on requalification", async () => {
+    const user = setupUser(), onLeave = vi.fn()
+    const props = { channel: "secret", kind: "forum" as const, rightPanel: null, onToggle: vi.fn(), tools: { threads: false, pinned: false } }
+    const view = render(React.createElement(ChannelHeader, { ...props, onLeave }))
+    await user.click(screen.getByRole("button", { name: "More channel options" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Leave" }))
+    view.rerender(React.createElement(ChannelHeader, props))
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    view.rerender(React.createElement(ChannelHeader, { ...props, onLeave }))
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(onLeave).not.toHaveBeenCalled()
+  })
+
+  it.each(["channel", "activity"] as const)("retires the opened intent across %s changes without reopening it on return", async boundary => {
+    const user = setupUser(), onLeave = vi.fn()
+    const node = (channel: string, active: boolean) => React.createElement(ConversationActivityContext, { value: active },
+      React.createElement(ChannelHeader, { channel, kind: "forum", rightPanel: null, onToggle: vi.fn(), tools: { threads: false, pinned: false }, onLeave }))
+    const view = render(node("secret", true))
+    await user.click(screen.getByRole("button", { name: "More channel options" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Leave" }))
+    view.rerender(node(boundary === "channel" ? "other" : "secret", boundary !== "activity"))
+    expect(screen.queryByRole("dialog")).toBeNull()
+    view.rerender(node("secret", true))
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(onLeave).not.toHaveBeenCalled()
   })
 })

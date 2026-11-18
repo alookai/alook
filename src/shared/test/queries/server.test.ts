@@ -1,15 +1,78 @@
 import { describe, it, expect, vi } from "vitest";
 import * as serverQueries from "../../src/db/queries/community/server";
+import * as inviteQueries from "../../src/db/queries/community/invite";
+import { listFolders } from "../../src/db/queries/community/server-folder";
+import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
 import {
   communityServer,
   communityCategory,
   communityChannel,
   communityChannelMember,
   communityServerMember,
+  communityServerFolder,
+  communityServerFolderItem,
   communityMention,
   communityMessage,
   communityReadState,
 } from "../../src/db/community-schema";
+
+it("keeps server metadata, invites, folders and unread sources scoped on SQLite", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    await db.insert(user).values([
+      { id: "reader", name: "Reader", email: "reader@example.test" },
+      { id: "author", name: "Author", email: "author@example.test" },
+    ]).run();
+    await db.insert(communityServer).values([
+      { id: "joined", name: "Joined", ownerId: "reader" },
+      { id: "foreign", name: "Foreign", ownerId: "author" },
+    ]).run();
+    await db.insert(communityServerMember).values({ serverId: "joined", userId: "reader", role: "owner" }).run();
+    await db.insert(communityChannel).values([
+      { id: "visible", name: "Visible", serverId: "joined", type: "text" },
+      { id: "hidden", name: "Hidden", serverId: "foreign", type: "text" },
+    ]).run();
+    await db.insert(communityMessage).values([
+      { id: "old", authorId: "author", channelId: "visible", seq: 1 },
+      { id: "recent", authorId: "author", channelId: "visible", seq: 2 },
+      { id: "hidden", authorId: "author", channelId: "hidden", seq: 3 },
+    ]).run();
+    await db.insert(communityReadState).values({
+      userId: "reader", channelId: "visible", lastReadAt: "2026-09-07T06:00:00Z", lastReadMessageId: "old", lastReadSeq: 1,
+    }).run();
+    await db.insert(communityMention).values(["old", "recent", "hidden"].map(messageId => ({ messageId, userId: "reader" }))).run();
+    await expect(serverQueries.listUnreadMentionSources(db, "reader")).resolves.toEqual([
+      { serverId: "joined", channelId: "visible", count: 1, lastSeq: 2 },
+    ]);
+
+    await expect(serverQueries.updateServer(db, "joined", { description: "Changed" })).resolves.toMatchObject({ id: "joined", description: "Changed" });
+    await expect(serverQueries.updateServerIconIfCurrent(db, { serverId: "joined", expectedIcon: null, nextIcon: "first" })).resolves.toMatchObject({ icon: "first" });
+    await expect(serverQueries.updateServerIconIfCurrent(db, { serverId: "joined", expectedIcon: null, nextIcon: "stale" })).resolves.toBeNull();
+    await expect(serverQueries.updateServerIconIfCurrent(db, { serverId: "joined", expectedIcon: "first", nextIcon: "second" })).resolves.toMatchObject({ icon: "second" });
+    await expect(serverQueries.getServersByIds(db, ["joined", "missing"])).resolves.toMatchObject([{ id: "joined", icon: "second" }]);
+
+    const targetInvite = await inviteQueries.createInvite(db, { serverId: "joined", createdBy: "reader" });
+    const otherInvite = await inviteQueries.createInvite(db, { serverId: "foreign", createdBy: "author" });
+    if (!targetInvite || !otherInvite) throw new Error("expected both fixture invites to persist");
+    await expect(inviteQueries.listServerInvites(db, "joined")).resolves.toMatchObject([{ id: targetInvite.id, creatorId: "reader" }]);
+    await expect(inviteQueries.revokeInvite(db, targetInvite.id)).resolves.toMatchObject({ id: targetInvite.id });
+    await expect(inviteQueries.listServerInvites(db, "joined")).resolves.toEqual([]);
+    await expect(inviteQueries.listServerInvites(db, "foreign")).resolves.toMatchObject([{ id: otherInvite.id }]);
+
+    await db.insert(communityServerFolder).values({ id: "folder", name: "Folder", userId: "reader" }).run();
+    await db.insert(communityServerFolderItem).values([
+      { folderId: "folder", serverId: "joined", position: 0 },
+      { folderId: "folder", serverId: "foreign", position: 1 },
+    ]).run();
+    await expect(listFolders(db, "reader")).resolves.toEqual({
+      folders: [{ id: "folder", name: "Folder", servers: [{ id: "joined", name: "Joined", icon: "second" }] }],
+      topOrder: [{ kind: "folder", id: "folder" }],
+    });
+  } finally {
+    sqlite.close();
+  }
+});
 
 // Mocks a Drizzle DB where each insert()/select() chain resolves to a
 // caller-supplied row set (or `undefined` for terminal insert-without-returning).

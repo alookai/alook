@@ -97,7 +97,7 @@ async function closeMenu() {
   fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
 }
-function swipe(view: RenderResult, delta = { x: 68, y: 2 }) {
+function swipe(view: RenderResult, delta = { x: -68, y: 2 }) {
   const target = body(view)
   const capture = vi.fn()
   Object.defineProperty(row(view), "setPointerCapture", { configurable: true, value: capture })
@@ -545,8 +545,8 @@ describe("Message portal event ownership", () => {
     fireEvent.pointerEnter(target, { pointerType: "mouse" })
     fireEvent.click(target, { clientX: 25, clientY: 25 })
     fireEvent.pointerDown(target, { pointerType: "touch", pointerId: 77, clientX: 80, clientY: 100 })
-    fireEvent.pointerMove(target, { pointerType: "touch", pointerId: 77, clientX: 150, clientY: 102 })
-    fireEvent.pointerUp(target, { pointerType: "touch", pointerId: 77, clientX: 150, clientY: 102 })
+    fireEvent.pointerMove(target, { pointerType: "touch", pointerId: 77, clientX: 10, clientY: 102 })
+    fireEvent.pointerUp(target, { pointerType: "touch", pointerId: 77, clientX: 10, clientY: 102 })
     expect(screen.getByRole("dialog")).toBe(dialog)
     expect(dialog).toBeVisible()
     expect(screen.queryByRole("menu")).toBeNull()
@@ -692,7 +692,7 @@ describe("Message touch action menu", () => {
   })
 
 
-  it("swipes right past threshold into the existing reply callback exactly once", async () => {
+  it("swipes left past threshold into the existing reply callback exactly once", async () => {
     const vibrate = vi.fn()
     replaceProperty(navigator, "vibrate", vibrate)
     const onReply = vi.fn()
@@ -704,6 +704,21 @@ describe("Message touch action menu", () => {
     expect(row(view).style.transform).toBe("")
     fireEvent.pointerUp(body(view), { pointerType: "touch", pointerId: 1 })
     expect(onReply).toHaveBeenCalledOnce()
+  })
+
+  it("moves left to reveal the right-side Reply affordance and leaves rightward drags alone", () => {
+    const onReply = vi.fn()
+    const view = mount({ hoverCapable: false, onReply })
+    fireEvent.pointerDown(body(view), { pointerType: "touch", pointerId: 1, clientX: 180, clientY: 100 })
+    fireEvent.pointerMove(body(view), { pointerType: "touch", pointerId: 1, clientX: 110, clientY: 100 })
+    expect(row(view).style.transform).toContain("-70px")
+    const affordance = view.container.querySelector("[data-mobile-reply-affordance]")!
+    expect(affordance).toHaveClass("right-0")
+    expect(affordance).toHaveStyle({ opacity: "1" })
+    fireEvent.pointerCancel(body(view), { pointerType: "touch", pointerId: 1 })
+    swipe(view, { x: 70, y: 1 })
+    expect(onReply).not.toHaveBeenCalled()
+    expect(row(view).style.transform).toBe("")
   })
 
 
@@ -727,8 +742,8 @@ describe("Message touch action menu", () => {
     Object.defineProperty(row(view), "setPointerCapture", { configurable: true, value: capture })
     fireEvent.pointerDown(body(view), { pointerType: "touch", pointerId: 1, clientX: 80, clientY: 100 })
     expect(selectText(body(view)).toString()).toBe("hello")
-    fireEvent.pointerMove(body(view), { pointerType: "touch", pointerId: 1, clientX: 150, clientY: 102 })
-    fireEvent.pointerUp(body(view), { pointerType: "touch", pointerId: 1, clientX: 150, clientY: 102 })
+    fireEvent.pointerMove(body(view), { pointerType: "touch", pointerId: 1, clientX: 10, clientY: 102 })
+    fireEvent.pointerUp(body(view), { pointerType: "touch", pointerId: 1, clientX: 10, clientY: 102 })
     expect(onReply).not.toHaveBeenCalled()
     expect(vibrate).not.toHaveBeenCalled()
     expect(capture).not.toHaveBeenCalled()
@@ -742,9 +757,13 @@ describe("Message touch action menu", () => {
     const onOpenProfile = vi.fn()
     const view = mount({ hoverCapable: false, onReply: vi.fn(), onMentionAuthor, onOpenProfile })
     const avatar = view.getByRole("button", { name: "Open Alice profile; long press to mention", exact: true })
+    expect(avatar).toHaveStyle({ userSelect: "none" })
     fireEvent.pointerDown(avatar, { pointerType: "mouse", clientX: 30, clientY: 40 })
     fireEvent.pointerMove(avatar, { pointerType: "mouse", clientX: 50, clientY: 40 })
     fireEvent.pointerDown(avatar, { pointerType: "touch", clientX: 30, clientY: 40 })
+    const earlyContext = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+    act(() => { avatar.dispatchEvent(earlyContext) })
+    expect(earlyContext.defaultPrevented).toBe(true)
     act(() => vi.advanceTimersByTime(500))
     expect(onMentionAuthor).toHaveBeenCalledOnce()
     const context = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })

@@ -59,6 +59,7 @@ function consentCommands() {
 }
 
 beforeEach(() => {
+  Reflect.get(globalThis, "jsdom").reconfigure({ url: "https://alook.ai/" })
   const originalWindow = window
   navigation.reload.mockReset()
   vi.stubGlobal("window", new Proxy(originalWindow, {
@@ -85,7 +86,7 @@ afterEach(() => {
 })
 
 describe("AnalyticsConsent", () => {
-  it.each(["/", "/privacy", "/blog/public-article"])("waits for default persistence before loading GTM on public %s without a choice UI", async pathname => {
+  it.each(["/", "/privacy", "/blog/public-article", "/tutorials", "/tutorials/first-agent", "/usecases", "/usecases/team-updates", "/terms"])("waits for default persistence before loading GTM on public %s without a choice UI", async pathname => {
     route.pathname = pathname
     window.history.replaceState({}, "", pathname)
     let finish!: (response: Response) => void
@@ -262,4 +263,24 @@ describe("AnalyticsConsent", () => {
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
   })
+})
+
+it.each(["http://localhost:3000", "https://preview.alook.ai"])("does not load the production GTM container on %s", origin => {
+  const jsdom = Reflect.get(globalThis, "jsdom")
+  jsdom.reconfigure({ url: origin + "/" })
+  try {
+    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+    render(<AnalyticsConsent />)
+    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
+    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
+  } finally { jsdom.reconfigure({ url: "https://alook.ai/" }) }
+})
+
+it("uses the Google command protocol and an empty direct referrer for Native Allow", () => {
+  platform.isTauri.mockReturnValue(true)
+  document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+  render(<AnalyticsConsent />)
+  const command = window.dataLayer?.find(item => Array.from(item as IArguments)[1] === "page_referrer")
+  expect(Object.prototype.toString.call(command)).toBe("[object Arguments]")
+  expect(Array.from(command as IArguments)).toEqual(["set", "page_referrer", ""])
 })

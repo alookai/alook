@@ -8,17 +8,17 @@ export const metadata = {
   "image": "/blog/claude-code-vs-codex/hero.webp"
 };
 
-The agent says the fix is ready. The tests pass. You read the changed files twice and still hesitate to accept the change.
+The agent says the fix is ready, and the tests are green. You read the modified files twice and still hesitate to hit accept.
 
-You still need to understand the diff, ask for a correction, and wait for the next version. When a small fix takes three attempts, the way Claude Code or Codex handles that back-and-forth matters as much as its first answer.
+You have to make sense of the diff, ask for adjustments, and wait on the next round. When a small bug fix takes three tries, how Claude Code or Codex handles that back-and-forth matters just as much as its first draft.
 
 ![Claude Code and Codex logos on a diagonal lime and blue comparison cover with 2026.](/blog/claude-code-vs-codex/hero.webp)
 
 ## Claude Code vs Codex: Desktop, CLI, IDE, and Cloud
 
-If you are new to terminal tools, start with the Code tab in Claude Desktop or Codex in the ChatGPT desktop app. Use the CLI or an IDE extension if you already prefer working there.
+If you're new to terminal tools, start with the Code tab in Claude Desktop or Codex inside the ChatGPT desktop app. If you already live in a terminal or code editor, use the CLI or IDE extension instead.
 
-The desktop apps keep the conversation and file changes together. The CLI runs in your terminal; an IDE extension puts the agent in your code editor. A **diff** shows added and removed lines in a patch, the set of changes you are reviewing.
+Both desktop apps keep the chat and file changes side by side, while the CLIs run in your terminal and the extensions sit inside your editor. Either way, you'll spend most of your review reading a **diff**: the added and removed lines in a proposed patch.
 
 <div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:min-w-24 [&_td]:min-w-24" role="region" aria-label="Claude Code and Codex comparison" tabIndex={0}>
 
@@ -31,17 +31,17 @@ The desktop apps keep the conversation and file changes together. The CLI runs i
 
 </div>
 
-A cloud environment needs its own repository files and dependencies; your laptop's uncommitted edits do not appear there automatically.
+Cloud sessions run against their own remote checkout and dependencies, so uncommitted edits on your laptop won't show up there automatically.
 
-We use both desktop apps and keep Ghostty, a terminal app, for commands. If you want manual edits, Tab suggestions, and an agent in one editor, our [Cursor vs Claude Code comparison](https://alook.ai/blog/cursor-vs-claude-code) covers that choice.
+Day to day, we use both desktop apps alongside Ghostty, a terminal app, for commands. If you'd rather combine manual edits, Tab suggestions, and an agent inside a single code editor, see our [Cursor vs Claude Code comparison](https://alook.ai/blog/cursor-vs-claude-code).
 
 ## Permissions and Sandboxing in Claude Code and Codex
 
-Will it change files without asking? Claude Code's Manual mode asks before file edits and most commands, except actions you have already allowed. Codex's Ask for approval still lets it edit files and run commands inside the workspace; it asks before crossing that boundary.
+Will either agent edit files without asking? In Claude Code, Manual mode prompts you before file edits and most commands unless a saved rule already allows them. In Codex, "Ask for approval" still lets the agent edit files and run commands inside your workspace, prompting only when it tries to cross that boundary.
 
-From [Claude Code v2.1.283](https://code.claude.com/docs/en/permission-modes), interactive terminal and VS Code sessions start in auto mode, with another AI model reviewing actions in the background. Its default checks target operations such as force pushes and `git reset --hard`, which can discard work.
+Starting in [Claude Code v2.1.283](https://code.claude.com/docs/en/permission-modes), interactive terminal and VS Code sessions start in auto mode, where another AI model reviews actions in the background. Its default checks target destructive commands like force pushes and `git reset --hard` that could wipe out work.
 
-Codex's local workspace-write sandbox allows edits and commands in the project, keeps command-network access off by default, and protects `.git` as read-only. This protects the repository's Git data, not every working file: code in the project can still be changed or deleted. Hosted search and connected tools have separate network controls.
+Codex's local workspace-write sandbox allows edits and commands inside the project, keeps command network access off by default, and mounts `.git` as read-only. That protects your Git metadata, though source files in the working tree can still be modified or deleted. Hosted search and connected tools use separate network controls.
 
 <div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:min-w-24 [&_td]:min-w-24" role="region" aria-label="Claude Code and Codex comparison" tabIndex={0}>
 
@@ -53,25 +53,25 @@ Codex's local workspace-write sandbox allows edits and commands in the project, 
 
 </div>
 
-Saved settings and organization policy can change those starting modes. [Codex's launch rules](https://learn.chatgpt.com/docs/agent-approvals-security) call the workspace-write preset Auto and recommend it for Git folders, with read-only for non-Git folders. In the desktop app, the corresponding workspace boundary is shown as Ask for approval. Codex's Auto preset describes file access and approval boundaries; Claude's auto mode uses an AI reviewer.
+Saved settings or organization policies can override these starting modes. [Codex's launch rules](https://learn.chatgpt.com/docs/agent-approvals-security) call its workspace-write preset Auto and recommend it for Git folders (with read-only for non-Git folders), while the desktop app labels that same workspace boundary Ask for approval. Keep the naming difference straight: Codex's Auto preset sets file access and approval boundaries, whereas Claude's auto mode brings in an AI reviewer.
 
-A sandbox restricts which files and network resources a command can reach. Approval decides whether an action may proceed.
+In short, a sandbox restricts which files and network resources a command can touch, while approval controls whether the action runs at all.
 
 [![Code context goes to a hosted model, a person approves npm test, and a command runs within a configured sandbox boundary.](/blog/claude-code-vs-codex/permissions.webp)](/blog/claude-code-vs-codex/permissions.webp)
 
 *A person approves npm test, which runs inside a configured command sandbox. Cloud tasks run remotely.*
 
-A failed test command may need a missing dependency or network access rather than a code change. Read that error before granting broader permissions. Running commands on your computer also does not keep the model local: these apps can send code context to a hosted model.
+When a test command fails, check the error for a missing dependency or blocked network call before opening up broader permissions. Keep in mind too that running commands on your machine doesn't make the model local: both apps still send code context to hosted models.
 
 ## Compare Claude Code and Codex on the Same Coding Task
 
-A small validation fix tells us more about working with an agent than a request to build a whole application. You can see whether the behavior changed, and the patch is small enough to discuss. The tool you already have is enough to start.
+Running a small validation fix tells you more about working with an agent than asking it to build an entire app. You can verify the behavior right away, and the diff stays small enough to discuss line by line. Whichever tool you already have installed is enough to start.
 
-Take a contact form that accepts a name made entirely of spaces. The fix should reject that input while still accepting a valid name. If your project has no form, keeping completed to-do items out of the active list gives you another visible change to check.
+Take a contact form that accepts a name made entirely of spaces. Your fix should reject blank spaces while keeping valid names working. No form in your project? Filtering completed to-do items out of an active list gives you an equally clear change to verify.
 
-We want to know which edits came from the agent. Before it starts, check `git status` and `git diff`, then commit your own intended changes. Leave other people's unfinished files out of that commit. Otherwise, a correction you made earlier can look like part of the agent's solution.
+Before starting, make sure you can tell the agent's edits apart from your own. Run `git status` and `git diff`, commit your own intended changes, and leave anyone else's unfinished files out of that commit so earlier edits don't get mixed into the agent's patch.
 
-For the form, a request can be this small:
+For the form fix, a short prompt is plenty:
 
 > Find the name validation for this form. Reject names that contain only spaces, keep valid names working, and add or update the relevant test. Use the project's existing tools. Explain the files you expect to change before editing. Show the diff and the test command and result when finished. Do not commit or publish.
 
@@ -84,43 +84,43 @@ For the form, a request can be this small:
 
 </div>
 
-The useful part starts when the agent returns the patch. Does its validation reject spaces, or does it also reject something the form should accept? Asking it to explain that condition gives you a specific point to discuss. If you would rather make the edit yourself, you can ask for a proposed change and explanation first.
+The real evaluation starts once the patch comes back. Does its validation reject whitespace-only names cleanly, or does it accidentally block valid names too? Ask the agent to walk through that condition so you have something concrete to push on. If you'd rather make the edit yourself, ask for a proposed approach and explanation before any files change.
 
-A green test is reassuring only if it checks the behavior you wanted. We would ask for the test before the fix so its results can show the original failure and the corrected behavior. Then try the form on the page: submit a spaces-only name, followed by a valid name. The page can reveal a result the automated test missed.
+Passing tests only help if they actually check the behavior you wanted. We ask for the test before the fix so we can watch it fail on the old code and pass after the change. Then open the page and submit a spaces-only name followed by a real name. Manual checks regularly catch UI quirks an automated test missed.
 
-If you do not read code, you can still check those two submissions in the desktop workflow. For the to-do example, complete an item and see whether it disappears from the active list.
+Even if you don't read code, you can run both test submissions in the desktop workflow (or check off a to-do item and confirm it leaves the active list).
 
-By then, you have something concrete to compare: how much explaining and correcting the patch required, how long each revision took, and how much allowance the task used. The final commit should contain only the intended files you have checked. A fast first answer loses some of its appeal if you spend the rest of the session getting a small requirement restored.
+After one round, you have concrete signals to compare: how much explaining and correcting the patch took, how long each revision ran, and how much plan allowance it used. Commit only the intended files you've reviewed. A fast first draft loses its shine if you spend the rest of the session fighting to restore a basic requirement.
 
-**Optional: compare both tools.** Separate clones or Git worktrees at the same starting commit let you give Claude Code and Codex the same request without their edits colliding. The same task makes the correction and waiting easier to compare. You do not need to buy both tools to try the exercise.
+**Optional: compare both tools.** Spin up separate clones or Git worktrees at the same starting commit and hand Claude Code and Codex the exact same prompt so their edits can't collide. Running identical tasks makes wait times and correction rounds easy to compare, though you don't need to buy both tools just to run this exercise.
 
 ## Claude Code vs Codex Performance: Scores, Speed, and Review Time
 
-In the four configurations below, Artificial Analysis gives Claude Code with Opus 5.5 the highest task score; the two Codex configurations have shorter runtimes.
+Across the four setups tested below by Artificial Analysis, Claude Code with Opus 5.5 posts the highest task score, while both Codex configurations finish faster.
 
-We care about the time from asking for a change to accepting it. For a string of small edits, we prefer a shorter wait between requests. A slower run can be worth waiting for when it leaves less work to correct.
+Day to day, what counts is total time from asking for a change to accepting the diff. When we're stringing together small edits, shorter waits keep us moving; on trickier changes, a slower run pays off when it saves rounds of cleanup.
 
 ### Artificial Analysis: Opus, Fable, Astra, and Sol Compared
 
-In Codex, you choose OpenAI models such as Astra and Sol; in Claude Code, you choose Anthropic models such as Opus and Fable. Open the model selector in your coding session, or type `/model` in either CLI. Models included in your plan use its allowance. On Claude Pro, Fable uses usage credits. On Max and Ultra, it draws from the plan's weekly allowance.
+In Codex, you pick OpenAI models such as Astra and Sol; in Claude Code, you pick Anthropic models such as Opus and Fable. Switch models from your session picker or run `/model` in either CLI. Included models draw from your plan's allowance: on Claude Pro, Fable uses usage credits, while on Max and Ultra it pulls from the weekly allowance.
 
 [![Artificial Analysis compares four coding-agent configurations. Opus has the highest score; the tested Codex configurations have shorter average runtimes and lower API costs.](/blog/claude-code-vs-codex/benchmark.webp)](/blog/claude-code-vs-codex/benchmark.webp)
 
 *Artificial Analysis comparison, checked November 3, 2026. Max reasoning effort for all four configurations.*
 
-Within Claude Code, Fable's shorter runtime makes it the option we would try when waiting between small edits becomes frustrating. If we were paying through the API, Sol's lower cost per task would put it on our shortlist for repeated jobs. We would still want to see how much correction either leaves on our own task.
+Inside Claude Code, Fable's quicker turnaround makes it our first stop when waiting between small edits gets frustrating. On API billing, Sol's lower cost per task puts it on our shortlist for repeated jobs, though we'd still check how much cleanup either model leaves behind on our own codebase.
 
 ### Missing Requirements Leave the Agent to Decide
 
-In a published 48-run comparison, the book-site ticket asked for a year of caching without spelling out the exact response headers. Five of the six runs chose asset headers that did not match the researcher's expectations. That makes us look at what the request left out before blaming the agent.
+In a published 48-run comparison, one book-site ticket asked for a year of asset caching without spelling out exact HTTP response headers. Five of the six runs picked headers that didn't match the researcher's expectations. Whenever we see a miss like that, we check what the prompt left unspoken before blaming the agent.
 
-For the seven clearer tickets, the researcher had a preparation agent work from changes he had already completed. It wrote requirements covering the behavior in his scoring tests. The implementing agents saw those requests, not the tests. On these tickets, all 42 runs passed, three per tool on each ticket.
+On the seven clearer tickets, the researcher had a preparation agent write explicit specs from reference changes he had already finished, covering every behavior checked by his grading tests without exposing the tests themselves. Given clear requirements, all 42 runs passed (three runs per tool on each ticket).
 
-We have also seen an automated reviewer catch an incorrect column heading in a patch whose checks had passed. The tests expected the same wrong wording. Comparing the result with the original request caught the mismatch the tests had missed.
+Tests themselves can share a blind spot too. We once watched an automated reviewer catch a wrong column heading in a patch where every check had passed, because the test expected that same wrong wording. Comparing the patch back against the original request caught what the test suite missed.
 
 ## Claude Code vs Codex Pricing and Usage Limits
 
-Claude Code is included in paid Claude Pro, Max, and Ultra plans. Codex has a limited free desktop offer and broader access on paid ChatGPT plans. The individual web-subscription prices below were checked on November 9, 2026, in US dollars per month before tax.
+Claude Code comes with paid Claude Pro, Max, and Ultra plans. Codex offers a limited free desktop tier and broader access on paid ChatGPT plans. Individual monthly web prices below are in US dollars before tax, checked November 9, 2026.
 
 <div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:min-w-24 [&_td]:min-w-24 [&_th:first-child]:min-w-32 [&_td:first-child]:min-w-32 [&_td:first-child]:whitespace-nowrap" role="region" aria-label="Claude Code and Codex pricing" tabIndex={0}>
 
@@ -137,45 +137,45 @@ Claude Code is included in paid Claude Pro, Max, and Ultra plans. Codex has a li
 
 </div>
 
-The [OpenAI pricing page](https://learn.chatgpt.com/docs/pricing) limits Free and Go's offer to Luna on desktop. Sign in and check whether Luna is offered before planning around free access. [Claude's pricing page](https://claude.com/pricing) includes Claude Code on Pro, Max, and Ultra. Claude chat and Claude Code draw from one allowance. Codex shares usage with ChatGPT Work, used for research and deliverables such as documents and spreadsheets.
+According to the [OpenAI pricing page](https://learn.chatgpt.com/docs/pricing), Free and Go restrict Luna to the desktop app, so sign in and confirm Luna is available on your account before planning around free access. On [Claude's pricing page](https://claude.com/pricing), Pro, Max, and Ultra all include Claude Code, sharing one allowance across Claude chat and coding sessions. Similarly, Codex shares usage limits with ChatGPT Work tasks such as research, documents, and spreadsheets.
 
 ### What Happens When Claude Code or Codex Hits a Usage Limit?
 
-When Claude Code or Codex stops for a usage limit, check the remaining allowance and reset time first. If the reset is close, we wait. If the work cannot wait, weigh the price of extra usage against switching tools. A switch needs a handoff note explaining the current files and what remains to do.
+When either tool hits a usage cap, check your remaining allowance and reset time first. If the reset window is close, we wait it out. When a task can't wait, weigh paying for extra usage against switching tools with a short handoff note covering modified files and remaining steps.
 
-Pro Codex plans currently have no five-hour limit. Plus can encounter five-hour and weekly limits. Claude Pro and Max have both; verified Ultra accounts have no five-hour limit but still have a weekly allowance. On Max and Ultra, Fable counts toward the plan's weekly allowance and can use up to half of it.
+Pro Codex plans currently carry no five-hour cap, whereas Plus enforces both five-hour and weekly limits. Claude Pro and Max enforce both windows too; verified Ultra accounts drop the five-hour cap while keeping a weekly allowance. On Max and Ultra, Fable counts toward that weekly allowance and can use up to half of it.
 
-For Codex, the [usage dashboard](https://chatgpt.com/codex/settings/usage) shows remaining allowance and reset times. In the CLI, `/status` shows remaining limits alongside session information; `/usage` opens account token activity and a reset option if one is available. In Claude Code, `/usage` shows plan usage. Starting a new chat or switching models does not refill a shared allowance.
+To check Codex quota, open the [usage dashboard](https://chatgpt.com/codex/settings/usage), run `/status` in the CLI to view remaining limits alongside session details, or run `/usage` to see token activity and any available reset option. In Claude Code, `/usage` shows your plan usage. Starting a fresh chat or switching models won't refill a shared plan allowance.
 
 ## Should You Choose Claude Code, Codex, or Both?
 
-If you have $20 a month, no existing subscription, and can review a small code change, our starting choice is ChatGPT Plus with Codex. We like the diff pane's line comments and Git controls for deciding which changes to keep. The wait between small edits remains a drawback for us.
+Starting from scratch with $20 a month and comfortable reviewing small diffs? Our first pick is ChatGPT Plus with Codex. Its diff pane, inline comments, and built-in Git controls make choosing which changes to keep straightforward, even though the wait between small edits still bugs us.
 
-An existing Claude Pro subscription is a reason to start with Claude Code instead. If you specifically want to approve file edits yourself, Claude's Manual mode gives you that control; Codex's Ask for approval mode lets it edit files inside the workspace without asking each time. If the free Codex desktop offer is available on your account, it is also a way to try a small task before spending $20.
+Already paying for Claude Pro? Start with Claude Code instead. It's also the better pick if you want explicit sign-off on every file edit: Claude's Manual mode asks first, whereas Codex's Ask for approval mode edits files inside the workspace freely and only prompts at the workspace boundary. And if your account includes the free Codex desktop offer, try a small task there before spending $20.
 
-Claude Code with Opus 5.5 is worth trying if you want the highest-scoring configuration in that four-configuration chart and can tolerate its longer runtime on your own task.
+Reach for Claude Code with Opus 5.5 when you want the top scorer in the four-configuration chart above and can live with its longer runtime on your tasks.
 
-Paying for both makes sense to us when a second agent reviews the same patch independently, or when the other tool supports an integration our current one cannot use.
+Paying for both makes sense once you want a second agent reviewing patches independently, or when one tool supports an integration your main agent can't use.
 
 ### MCP, Hooks, and Skills: What Changes When You Switch?
 
-MCP connects agents to external tools and data. Hooks run scripts at events such as a tool call, and skills provide reusable task instructions. You do not need to migrate all of them to try the small change above.
+MCP connects agents to external tools and data, hooks run scripts on events like tool calls, and skills package reusable task instructions. You don't need to migrate any of them just to run the small validation exercise above.
 
-For an established project, test the connections you rely on before switching. In older releases, we saw Claude Code lose information from the middle of a long MCP error response and Codex miss a newly added server tool. Moving hooks and skills can also require changes and another round of testing.
+Before moving an established project, test the integrations you rely on daily. In earlier releases, we saw Claude Code drop details from the middle of long MCP error responses and watched Codex miss a newly added server tool. Porting hooks and skills usually takes adjustments and another round of testing too.
 
 ### AGENTS.md vs CLAUDE.md: Which Instructions Load?
 
-For a project that already has agent instructions, Codex reads [AGENTS.md project instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md); more specific files nearer the working directory override guidance from parent directories. Under [Claude Code's default rules](https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md), a CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md in the working directory or above takes precedence over AGENTS.md. Without those project files, Claude can read AGENTS.md directly on v2.1.277 or later unless the bundled AGENTS.md reader has been disabled.
+In repos that already define agent rules, Codex loads [AGENTS.md project instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md), letting files closer to the working directory override parent directories. Under [Claude Code's default rules](https://code.claude.com/docs/en/memory#when-claude-code-reads-agents-md), any `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in the working directory or above takes precedence over `AGENTS.md`. When none of those Claude files exist, Claude Code v2.1.277 or later reads `AGENTS.md` directly unless its bundled `AGENTS.md` reader has been disabled.
 
-On a current Claude version, use `/memory` to check what loaded. To share AGENTS.md when a CLAUDE.md already takes precedence, import `@AGENTS.md` from a CLAUDE.md beside it, or change Project instructions to load both. Copying a file into the repository alone does not prove both agents received it.
+On current Claude Code versions, run `/memory` to verify what actually loaded. If an existing `CLAUDE.md` shadows `AGENTS.md`, import `@AGENTS.md` inside that `CLAUDE.md` or update Project instructions to load both. Dropping an instruction file into the repo doesn't prove both agents read it.
 
 ### Use Claude Code and Codex Together in Alook
 
-In Alook, [multi agent collaboration](https://alook.ai/) keeps the task, review findings, and human decision in one project channel. The [setup tutorial](https://alook.ai/tutorials/codex-and-claude-code) connects your existing tools as bots from your computer. Give the reviewer the commit or patch under discussion; joining the channel does not synchronize its working files or instruction files. Our [guide to using Claude Code and Codex together](https://alook.ai/blog/claude-code-and-codex-same-team) covers the handoff in more detail.
+In Alook, [multi agent collaboration](https://alook.ai/) keeps the task prompt, review findings, and final human call in a single project channel. Follow the [setup tutorial](https://alook.ai/tutorials/codex-and-claude-code) to connect your existing local tools as bots. Because joining a channel doesn't sync working trees or instruction files, pass the specific commit or patch under discussion to the reviewer; our [guide to using Claude Code and Codex together](https://alook.ai/blog/claude-code-and-codex-same-team) covers that handoff in detail.
 
-We recently updated the checklist our bots use when handing an article over for review. A second bot found two conflicting instructions: one required the output of failed tests in the handoff; an older rule said to leave it out. It also found an outdated instruction about recording when an article was updated. We corrected both and checked the list again.
+When we updated our internal article-handoff checklist recently, a second bot spotted two conflicting rules: a new line required failed test output in the handoff, while an older rule said to leave it out. It also caught an outdated instruction about logging article update dates. We fixed both and ran the check again.
 
-That is the review job we want a second bot to do on code, too: question the result and name a problem we can check.
+That's the exact review job we want a second bot doing on code too: question the output and point to a concrete problem we can verify.
 
 [![A person, a Codex builder bot, and a Claude Code reviewer bot share an Alook channel for the task, review findings, decision, and revised checks.](/blog/claude-code-vs-codex/review-workflow.webp)](/blog/claude-code-vs-codex/review-workflow.webp)
 
@@ -185,8 +185,8 @@ That is the review job we want a second bot to do on code, too: question the res
 
 ### Do Claude Code and Codex Require an API Key?
 
-Claude Code and Codex can both be used without an API key: Codex supports ChatGPT sign-in, and Claude Code supports Claude account sign-in with an eligible plan. API-key access is an alternative with separate API billing and limits.
+No. Both tools work without an API key: Codex signs in with a ChatGPT account, and Claude Code signs in with a Claude account on an eligible plan. API-key access is also available if you want separate pay-as-you-go billing and limits.
 
 ### Do Separate Git Worktrees Share Uncommitted Changes?
 
-Separate Git worktrees do not share uncommitted files automatically. We give the reviewer a commit to check out or a patch to apply so both bots can inspect the same version.
+No, separate Git worktrees don't share uncommitted files automatically. Pass a commit to check out or a patch to apply so both bots inspect the exact same version.

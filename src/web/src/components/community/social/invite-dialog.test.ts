@@ -1,4 +1,4 @@
-import rawContractInput0 from "./invite-dialog.tsx?raw"
+import { JSDOM } from "jsdom"
 import { createElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -115,44 +115,36 @@ function renderRow({
   )
 }
 
-function hasDisabledButton(html: string) {
-  return /<button[^>]*\sdisabled(?:=""|>)/.test(html)
+function withRow(flags: Parameters<typeof renderRow>[0], check: (document: Document) => void) {
+  const dom = new JSDOM(renderRow(flags))
+  try { check(dom.window.document) } finally { dom.window.close() }
 }
 
 describe("InviteFriendRow", () => {
   it("shows Invite while idle", () => {
-    const html = renderRow()
-    expect(html).toContain(">Invite<")
-    expect(html).not.toContain("animate-spin")
-    expect(hasDisabledButton(html)).toBe(false)
+    withRow({}, document => {
+      const button = document.querySelector<HTMLButtonElement>("button")!
+      expect(button.textContent).toBe("Invite")
+      expect(button.disabled).toBe(false)
+      expect(document.querySelector('[aria-label="Sending invite"]')).toBeNull()
+    })
   })
 
   it("shows a spinner and disables only the in-flight row", () => {
-    const html = renderRow({ inviting: true })
-    expect(html).toContain("Sending invite")
-    expect(html).toContain("animate-spin")
-    expect(hasDisabledButton(html)).toBe(true)
-    expect(html).not.toContain(">Invite<")
+    withRow({ inviting: true }, document => {
+      const button = document.querySelector<HTMLButtonElement>("button")!
+      expect(button.disabled).toBe(true)
+      expect(button.textContent).toBe("")
+      expect(document.querySelector('[aria-label="Sending invite"]')).not.toBeNull()
+    })
   })
 
   it("shows Invited and stays disabled after success", () => {
-    const html = renderRow({ invited: true })
-    expect(html).toContain(">Invited<")
-    expect(hasDisabledButton(html)).toBe(true)
-  })
-
-  it("keeps loading rows on the real row padding and trailing action footprint", () => {
-    const source = rawContractInput0
-    expect(source).toContain('<div data-slot="invite-friends-loading">')
-    expect(source).toContain('<PeoplePickerRowsSkeleton secondaryLine actionClassName="w-16" />')
-  })
-
-  it("distinguishes unresolved and failed candidate data from a resolved empty list", () => {
-    const source = rawContractInput0
-    expect(source).toContain("resolved: friendsQuery.data !== undefined")
-    expect(source).toContain("error: friendsQuery.isError")
-    expect(source).toContain("friendsQuery.data === undefined && friendsQuery.isFetching")
-    expect(source).toContain("void friendsQuery.refetch()")
+    withRow({ invited: true }, document => {
+      const button = document.querySelector<HTMLButtonElement>("button")!
+      expect(button.textContent).toBe("Invited")
+      expect(button.disabled).toBe(true)
+    })
   })
 })
 

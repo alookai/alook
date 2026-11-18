@@ -13,11 +13,11 @@ export const metadata = {
 
 [View original image](/blog/claude-code-subagents-vs-independent-agents/hero.webp)
 
-Suppose you're using Claude Code to change an API, and you want a second pair of eyes on the callers before the interface changes. Where should that review happen, and who will use the result?
+Suppose you're using Claude Code to change an API, and you want a second pair of eyes on the callers before changing the interface. Where should that review happen, and who will use the result?
 
-Start with where that second opinion belongs. If your current conversation needs a focused finding to finish its job, a subagent fits. If you want to steer another full conversation, open a separate session. Agent Teams let Claude coordinate several workers; another person's agent introduces a different owner and working environment.
+Start by asking where that second opinion needs to land. If your current chat just needs a focused answer so it can finish the change, use a subagent. If you want another full conversation you can steer yourself, open a separate session. Agent Teams let a lead Claude session coordinate multiple workers, while working with a teammate's agent crosses into a separate owner and working environment.
 
-Claude Code supports communication within and across sessions, subject to the setup. The useful distinction is who owns the work and where the result needs to go.
+Depending on your setup, Claude Code can pass messages both inside and across sessions. The practical difference comes down to who owns the work and where the result needs to go.
 
 [![Four arrangements for an API change: a review returned to its caller, two sessions steered by one person, workers coordinated by a Claude lead, and separate owners sharing an interface decision.](/blog/claude-code-subagents-vs-independent-agents/working-relationships.webp)](/blog/claude-code-subagents-vs-independent-agents/working-relationships.webp)
 
@@ -25,53 +25,53 @@ Claude Code supports communication within and across sessions, subject to the se
 
 ## Can the review come back to your current conversation?
 
-For the API change, you might ask a subagent to find callers that depend on the old response format. You need those locations and the compatibility concern. You probably don't need every search and file read in the conversation where you're deciding how to change the interface.
+For the API change, you might ask a subagent to find every caller that depends on the old response format. You want those file locations and any compatibility risks, without dumping dozens of intermediate searches and file reads into the chat where you're deciding how to change the interface.
 
-That's the useful part of context isolation: the investigation can be large while the returned answer stays focused. The API conversation owns the implementation decision, so the review belongs back there, alongside the reasons for changing the interface.
+That is why context isolation helps: the subagent can dig through plenty of files and still send back a short, focused answer. Because your main API chat owns the design call, the review belongs right back in that thread alongside the reasons for changing the interface.
 
-A [Claude Code subagent](https://code.claude.com/docs/en/sub-agents) has its own context, and you can restrict its tools for a read-only review. A fresh worker needs enough background to understand the proposed API change. A fork can inherit the conversation when the review depends on the discussion so far.
+Each [Claude Code subagent](https://code.claude.com/docs/en/sub-agents) runs in its own context window, and you can restrict its tools for a read-only review. Give a fresh worker enough background to understand the proposed API change, or fork the session when the review depends on what you've already discussed.
 
-If you want to continue that investigation tomorrow, resume the original saved session and a resumable worker. Explore and Plan are one-shot workers without resumable agent IDs; use a general-purpose or custom subagent for work you need to continue. The calendar alone doesn't make another full session necessary.
+Pausing until tomorrow doesn't require opening a separate session either. You can resume the original saved session along with a resumable worker. Built-in Explore and Plan workers are one-shot and don't get resumable agent IDs, so pick a general-purpose or custom subagent for work you plan to continue later.
 
-One worker needing to pass a finding to another doesn't, by itself, require a new session either. Some named subagents can message other workers listed at startup when their tools allow it. Communication alone isn't a reason to move a focused review out of the conversation that needs its result.
+You also don't need a new top-level session just so one worker can pass a finding to another. Some named subagents can message other workers listed at startup when their tools allow it. Keep a focused review inside the conversation that will actually use its answer.
 
 ## A second Claude session can have its own job
 
-Now suppose you're handling both the API change and its frontend update, and you want to discuss each separately. In one Claude session, you work through compatibility. In another, you update the frontend against that interface. Both conversations are yours to steer.
+Now suppose you're handling both the API change and its frontend update, and you want to work through each one separately. In one Claude session, you sort out backend compatibility. In another, you update the frontend against the new interface. Both conversations are yours to steer.
 
-Here, a summary returned to the first conversation may be too small a role for the frontend work. You want a place to question the approach, inspect its changes, and redirect it without making every exchange part of the API discussion. A separate session gives that work its own conversation.
+A short subagent summary won't cut it for the frontend half. You want room to push back on the approach, inspect diffs, and redirect edits without turning every UI detail into part of the backend API thread. A separate session gives that work its own conversation.
 
-When your installed version and session configuration support [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging), your Claude sessions can pass findings to each other. The message doesn't copy their conversation histories or transfer referenced files. If you decide to retain the old response field during a transition, send that decision to the frontend session before it finishes against a different assumption.
+When your installed version and session configuration support [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging), your Claude sessions can send notes to one another. Those messages only send text; they don't copy full conversation histories or transfer referenced files. If you decide to keep the old response field during rollout, send that update to the frontend session right away so it doesn't finish building against an outdated assumption.
 
-Agent view gives you one screen to dispatch and monitor sessions. It can help you keep track of several jobs, while you continue to decide what each job should do. Opening two sessions alone doesn't establish their dependency or tell either one which decision has changed.
+Agent view gives you one screen to launch and watch sessions while you decide what each one works on. Still, running two sessions side by side doesn't automatically wire up their dependencies or sync design changes between them.
 
-Separate conversations also don't prevent file collisions. If both sessions will edit the same project, choose their working copies and file boundaries deliberately. Our guide to [multiple AI agents editing the same repository](https://alook.ai/blog/multiple-ai-agents-edit-same-repository) covers that part.
+Separate conversations won't stop file collisions on disk either. If both sessions edit the same project, set up separate working copies or clear file boundaries up front. Our guide to [multiple AI agents editing the same repository](https://alook.ai/blog/multiple-ai-agents-edit-same-repository) covers how to split the workspace cleanly.
 
 ## Who will keep several Claude workers coordinated?
 
-You may want Claude to take on the coordination too: split the API work, assign the frontend change and compatibility review, and follow up as findings arrive. That is a reason to consider Agent Teams beyond simply needing one worker to send another a message.
+Sometimes you want Claude to handle the coordination too: split the API change, hand out the frontend update and compatibility review, and follow up as findings come back. That's when Agent Teams make sense, beyond simply letting one worker message another.
 
-With [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams), a lead coordinates separate Claude sessions. Teammates can communicate directly; a shared task list is available to agents with the Task tools. The feature is experimental and disabled by default.
+With [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams), a lead session coordinates separate Claude sessions. Teammates can talk to each other directly, and agents with the Task tools share a task list. The feature is experimental and disabled by default.
 
-In the API example, the lead can keep the review tied to the implementation and pass the interface decision to the frontend worker. You can then address the group through the lead instead of personally tracking each conversation. People still make the actual product and release decisions; giving Claude a coordination role doesn't expand its authority.
+In the API example, the lead can keep the caller review tied to the backend implementation and pass the interface decision to the frontend worker. You talk to the group through the lead instead of tracking every worker conversation yourself. People still make the actual product and release calls; giving Claude a coordination role doesn't expand its authority.
 
-Coordinating the pieces becomes a job of its own when several workers need to act on each other's findings. If the frontend work must wait for one unresolved API decision, starting more workers won't remove that dependency. Settle it, or give the waiting worker useful independent work.
+Coordinating workers becomes real overhead when several tasks depend on each other's findings. If the frontend worker is stuck waiting on one unsettled API decision, spinning up more workers won't unblock it. Settle that decision first, or give the waiting worker independent work in the meantime.
 
-Teams are one Claude-native option, alongside subagents and separately managed sessions. The official [parallel-work guide](https://code.claude.com/docs/en/agents) also covers agent view, dynamic workflows, and Projects if your need is dispatching jobs, scripting a larger process, or ongoing project work.
+Agent Teams sit alongside subagents and separately managed sessions inside Claude Code. The official [parallel-work guide](https://code.claude.com/docs/en/agents) also covers agent view, dynamic workflows, and Projects for dispatching jobs, scripting larger runs, or managing ongoing project work.
 
 ## What changes when a teammate brings their own agent?
 
-Change one detail: a colleague owns the frontend, and their existing coding agent uses Codex. You still own the API work with Claude Code. This is no longer a choice about opening another one of your own Claude conversations. Someone else has their own decisions, permissions, and working files.
+Now change one detail: a colleague owns the frontend, and their coding agent runs on Codex while you own the API work in Claude Code. Opening another Claude conversation on your own machine won't solve this. Another person is involved, with their own decisions, permissions, and working files.
 
-Native messaging between your Claude sessions doesn't establish a conversation with that colleague's Codex. Claude can call an external tool through an integration, but calling a helper and inviting another person's agent to participate are different arrangements.
+Native messaging between your Claude sessions doesn't open a conversation with your colleague's Codex. Claude can call an external tool through an integration, of course, though calling a local helper and inviting another person's agent into a shared decision are very different setups.
 
-The API finding now needs to reach the frontend owner where they can question it and act on it. For example: "Keep the old field during the transition; can your frontend change use the new field without requiring us to remove the old one?" That question belongs in a shared discussion, rather than being left inside your API session.
+Your API finding now has to reach the frontend owner somewhere they can question it and act on it. For example: "Let's keep the old field during the transition. Can your frontend switch to the new field without waiting for us to drop the old one?" That question belongs in a shared discussion, not tucked inside your private API session.
 
-Alook supports this kind of [multi agent collaboration](https://alook.ai/): people and their bots can join one discussion while the agents run on their owners' machines. Post the interface decision and relevant files in that shared discussion so the colleague and their agent can question the change and continue the frontend work from the agreed interface.
+Alook is built for this kind of [multi agent collaboration](https://alook.ai/): teammates and their bots join one shared discussion while each agent runs on its owner's machine. Post the interface decision and relevant files in that channel so your colleague and their agent can question the change and build the frontend update against the agreed contract.
 
-For the concrete setup and review steps, see [how to use Claude Code and Codex together](https://alook.ai/blog/claude-code-and-codex-same-team). The choice here is about who participates; that guide covers how to pass the work between them.
+For the concrete setup and code review handoffs, see [how to use Claude Code and Codex together](https://alook.ai/blog/claude-code-and-codex-same-team). Here we're looking at who joins the conversation; that guide covers how to pass work between the two tools.
 
-If your colleague uses Cursor, our [Cursor vs Claude Code](/blog/cursor-vs-claude-code) comparison covers the tool choice and how to hand a patch between the two agents.
+If your colleague uses Cursor instead, our [Cursor vs Claude Code](/blog/cursor-vs-claude-code) comparison covers how each tool fits and how to hand a patch between them.
 
 ## Choose where the next result belongs
 
@@ -88,4 +88,4 @@ If your colleague uses Cursor, our [Cursor vs Claude Code](/blog/cursor-vs-claud
 </div>
 </div>
 
-These choices can coexist. Your Claude Code session can use a subagent to inspect API callers, then share the finding with your colleague's Codex in the discussion where the frontend work is being decided. Keep the side investigation close to its caller; give the shared decision to the people and agents who need to act on it.
+You don't have to pick just one setup. Your Claude Code session can spin up a subagent to check API callers, then share the finding in a channel where your colleague and their Codex bot are deciding the frontend change. Keep focused lookups close to the session that needs them, and put shared decisions where every person and agent involved can act on them.

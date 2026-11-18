@@ -29,7 +29,7 @@ vi.mock("@/lib/middleware/auth", () => ({
   humanAuthPolicy: { resolve: async (req: NextRequest) => ({ context: { env: { DB: {} }, userId: ctx.actor ?? "owner", email: "owner@test" } }) },
 }))
 
-import { DELETE, PUT } from "./route"
+import { DELETE, GET, PUT } from "./route"
 
 const ctx = { params: { id: "bot_1", scopeId: "dm_1" } } as any
 const put = () => new NextRequest("http://local", { method: "PUT", body: JSON.stringify({ level: "mentions" }) })
@@ -51,6 +51,29 @@ describe("owner bot channel notification settings", () => {
     expect(setChannelLevel).toHaveBeenCalledWith({}, {
       userId: "bot_1", channelId: "dm_1", level: "mentions", actorKind: "bot",
     })
+  })
+
+  it("returns the authorized parent scope for a saved channel notification value", async () => {
+    requireMessageSurfaceAccess.mockResolvedValue({ ok: true, value: { surface: "channel", channel: { serverId: "server_1" } } })
+    getChannelSetting.mockResolvedValue({ level: "mentions" })
+    const response = await GET(new NextRequest("http://local"), ctx)
+    expect(await response.json()).toEqual({ level: "mentions", serverId: "server_1" })
+    expect(requireMessageSurfaceAccess).toHaveBeenCalledWith({}, "dm_1", "bot_1")
+    expect(getChannelSetting).toHaveBeenCalledWith({}, "bot_1", "dm_1")
+  })
+
+  it("keeps a DM's null parent and an explicit inherited level distinct from unknown", async () => {
+    getChannelSetting.mockResolvedValue(null)
+    const response = await GET(new NextRequest("http://local"), ctx)
+    expect(await response.json()).toEqual({ level: null, serverId: null })
+  })
+
+  it("does not read notification values for a non-owned Bot", async () => {
+    getBotOwnedBy.mockResolvedValue(null)
+    const response = await GET(new NextRequest("http://local"), ctx)
+    expect(response.status).toBe(404)
+    expect(requireMessageSurfaceAccess).not.toHaveBeenCalled()
+    expect(getChannelSetting).not.toHaveBeenCalled()
   })
 
   it("masks a non-owned bot and never checks scope", async () => {

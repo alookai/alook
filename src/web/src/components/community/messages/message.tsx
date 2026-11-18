@@ -415,7 +415,7 @@ function MessageImpl({
         selectable ? "cursor-pointer" : "",
         selected || highlighted ? "bg-primary/10" : "hover:bg-accent/40",
       ].join(" ")}
-      style={swipeVisual.offset > 0
+      style={swipeVisual.offset < 0
         ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
         : undefined}
       onPointerEnter={activate}
@@ -975,8 +975,8 @@ function MessageImpl({
             aria-hidden
             data-mobile-reply-affordance
             data-threshold-crossed={swipeVisual.crossed || undefined}
-            className="absolute inset-y-0 left-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
-            style={{ opacity: Math.min(1, swipeVisual.offset / 48) }}
+            className="absolute inset-y-0 right-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
+            style={{ opacity: Math.min(1, -swipeVisual.offset / 48) }}
           >
             <Reply className="size-5" />
           </div>

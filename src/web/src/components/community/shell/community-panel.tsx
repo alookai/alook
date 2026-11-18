@@ -28,6 +28,11 @@ export type CommunityPanelProps = {
   members: Member[]
   memberScopeId?: string
   membersLoading?: boolean
+  membersKnown?: boolean
+  memberActionsEnabled?: boolean
+  membersFailed?: boolean
+  membersRefreshing?: boolean
+  onRetryMembers?: () => void
   membersLoadingMore?: boolean
   membersHasMore?: boolean
   onLoadMoreMembers?: () => void
@@ -85,6 +90,11 @@ function renderCommunityPanelBody({
   members,
   memberScopeId,
   membersLoading,
+  membersKnown,
+  memberActionsEnabled,
+  membersFailed,
+  membersRefreshing,
+  onRetryMembers,
   membersLoadingMore,
   membersHasMore,
   onLoadMoreMembers,
@@ -114,6 +124,11 @@ function renderCommunityPanelBody({
         scopeId={memberScopeId}
         members={members}
         loading={membersLoading}
+        known={membersKnown}
+        actionsEnabled={memberActionsEnabled}
+        failed={membersFailed}
+        retrying={membersRefreshing}
+        onRetry={onRetryMembers}
         hasMore={membersHasMore}
         loadingMore={membersLoadingMore}
         onLoadMore={onLoadMoreMembers}

@@ -8,6 +8,7 @@ import { useAddableMembers, useChannelMembers } from "@/hooks/community/use-chan
 
 const mocks = vi.hoisted(() => ({
   serverMembers: [] as Array<Record<string, unknown>>,
+  serverReadCurrent: true,
   viewerRole: "admin" as "owner" | "admin" | "member" | undefined,
   serverMemberArgs: [] as Array<string | null>,
   channelMembers: new Map<string, Array<Record<string, unknown>>>(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     isFetching?: boolean
     loading?: boolean
     failed?: boolean
+    observed?: boolean
   }>(),
   channelRefetches: new Map<string, ReturnType<typeof vi.fn>>(),
   addableMembers: [] as Array<Record<string, unknown>>,
@@ -51,6 +53,12 @@ vi.mock("@/hooks/community/use-server-members", () => ({
       members: mocks.serverMembers,
       loading: false,
       failed: false,
+      observed: !!serverId && mocks.serverReadCurrent,
+      isCurrentRead: () => !!serverId && mocks.serverReadCurrent,
+      displayReady: !!serverId,
+      refreshing: false,
+      refreshFailed: false,
+      refresh: vi.fn(),
       searchQuery: "",
       searchStatus: "idle",
       loadingMore: false,
@@ -68,6 +76,8 @@ vi.mock("@/hooks/community/use-channel-members", () => ({
     const members = mocks.channelMembers.get(channelId) ?? []
     const state = mocks.channelQueryState.get(channelId)
     const resolved = enabled && (state?.resolved ?? mocks.channelMembers.has(channelId))
+    const isCurrentRead = () => enabled && (mocks.channelQueryState.get(channelId)?.resolved ?? mocks.channelMembers.has(channelId))
+      && !mocks.channelQueryState.get(channelId)?.isError && mocks.channelQueryState.get(channelId)?.observed !== false
     let refetch = mocks.channelRefetches.get(channelId)
     if (!refetch) {
       refetch = vi.fn().mockResolvedValue({})
@@ -81,6 +91,8 @@ vi.mock("@/hooks/community/use-channel-members", () => ({
       isFetching: state?.isFetching ?? false,
       loading: state?.loading ?? (enabled && !resolved && !state?.isError),
       failed: state?.failed ?? state?.isError ?? false,
+      observed: isCurrentRead(),
+      isCurrentRead,
       profiles: mocks.channelProfiles.get(channelId) ?? profileRows(members),
       refetch,
     }
@@ -91,6 +103,8 @@ vi.mock("@/hooks/community/use-channel-members", () => ({
     isLoading: enabled && mocks.addableLoading,
     isError: enabled && mocks.addableError,
     isFetching: enabled && mocks.addableFetching,
+    observed: enabled && mocks.addableResolved && !mocks.addableError,
+    isCurrentRead: () => enabled && mocks.addableResolved && !mocks.addableError,
     refetch: mocks.addableRefetch,
   })),
   useAddChannelMember: () => ({ mutateAsync: mocks.addChannelMember }),
@@ -170,6 +184,7 @@ function member(userId: string, name: string, overrides: Record<string, unknown>
 
 function props(overrides: Record<string, unknown> = {}) {
   return {
+    accessAllowed: true,
     serverId: "server_1",
     channelId: "channel_1",
     channelName: "general",
@@ -205,6 +220,7 @@ function latestModel(): ReturnType<typeof useChannelMemberViewModel> {
 
 describe("useChannelMemberViewModel", () => {
   beforeEach(() => {
+    mocks.serverReadCurrent = true
     mocks.viewerRole = "admin"
     mocks.serverMembers = [
       member("viewer_1", "Viewer", { role: "admin" }),
@@ -565,7 +581,7 @@ describe("useChannelMemberViewModel", () => {
     expect(parentRefetch).toHaveBeenCalledTimes(1)
   })
 
-  it("keeps composite candidates usable during a cached participant background error", () => {
+  it("keeps composite candidates visible but read-only during a cached participant background error", () => {
     mocks.channelMembers.set("thread_1", [
       member("viewer_1", "Viewer", { isCreator: true }),
       member("alice_1", "Alice"),
@@ -601,8 +617,9 @@ describe("useChannelMemberViewModel", () => {
     expect(dialogProps.queryState).toEqual(expect.objectContaining({
       resolved: true,
       loading: false,
-      error: false,
-      retrying: false,
+      error: true,
+      actionable: false,
+      retrying: true,
     }))
   })
 
@@ -620,6 +637,19 @@ describe("useChannelMemberViewModel", () => {
       role: "admin",
     }, expect.any(Object))
     expect(mocks.kickMember).toHaveBeenCalledWith({ serverId: "server_1", memberId: "member_alice", assertActive: expect.any(Function) })
+  })
+
+  it.each([false, true])("keeps a displayed historical roster from authorizing Leave, notify=%s", notify => {
+    const channelId = notify ? "thread_1" : "channel_1"
+    mocks.channelMembers.set(channelId, [member("viewer_1", "Viewer")])
+    mocks.channelQueryState.set(channelId, { observed: false })
+    const input = props({ channelId, isChildChannel: notify, isNotifyUnit: notify,
+      currentChannelMeta: notify ? { name: "t", parentChannelId: "channel_1" } : null,
+      currentServer: { categories: [{ private: true, channels: [{ id: "channel_1" }] }] } })
+    act(() => { rtlRender(renderHarness(input)) })
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+    expect(mocks.removeChannelMember).not.toHaveBeenCalled()
+    expect(mocks.removeThreadParticipant).not.toHaveBeenCalled()
   })
 
   it("exposes onLeaveChannel only for private channels and joined threads", async () => {

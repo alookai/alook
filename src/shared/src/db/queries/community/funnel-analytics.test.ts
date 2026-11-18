@@ -178,6 +178,33 @@ describe("Community funnel analytics ledger", () => {
     await expect(claimPendingEvents(db, "other", "invited_human_joined")).resolves.toEqual([{ event: "invited_human_joined", surface: "community" }])
   })
 
+  it("returns pending facts in occurrence order without exposing ledger metadata", async () => {
+    const insert = sqlite.prepare(`INSERT INTO community_funnel_analytics_event
+      (id, owner_user_id, event_name, conversation_type, source_id, dedupe_key, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    insert.run("a-reply", "owner", "first_agent_reply_persisted", "dm", "reply", "reply", "2026-09-14T00:00:02.000Z")
+    insert.run("z-runtime", "owner", "runtime_connected", null, "runtime", "runtime", "2026-09-14T00:00:01.000Z")
+    await expect(claimPendingEvents(db, "owner")).resolves.toEqual([
+      { event: "runtime_connected", surface: "community", connection_type: "local_daemon" },
+      { event: "first_agent_reply_persisted", surface: "community", conversation_type: "dm" },
+    ])
+    await expect(claimPendingEvents(db, "owner")).resolves.toEqual([])
+  })
+
+  it("does not promote a later connection ahead of an earlier reply and keeps timestamp ties stable", async () => {
+    const insert = sqlite.prepare(`INSERT INTO community_funnel_analytics_event
+      (id, owner_user_id, event_name, conversation_type, source_id, dedupe_key, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    insert.run("z-runtime", "owner", "runtime_connected", null, "runtime", "runtime", "2026-09-14T00:00:02.000Z")
+    insert.run("a-reply", "owner", "first_agent_reply_persisted", "channel", "reply", "reply", "2026-09-14T00:00:01.000Z")
+    insert.run("b-runtime", "owner", "runtime_connected", null, "runtime-2", "runtime-2", "2026-09-14T00:00:01.000Z")
+    await expect(claimPendingEvents(db, "owner")).resolves.toEqual([
+      { event: "first_agent_reply_persisted", surface: "community", conversation_type: "channel" },
+      { event: "runtime_connected", surface: "community", connection_type: "local_daemon" },
+      { event: "runtime_connected", surface: "community", connection_type: "local_daemon" },
+    ])
+  })
+
   it("rejects invalid event and conversation combinations at the migration boundary", () => {
     expect(() => sqlite.prepare(`
       INSERT INTO community_funnel_analytics_event

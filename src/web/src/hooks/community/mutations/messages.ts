@@ -122,7 +122,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
     },
     onSuccess: async (data, args) => {
       try { origin.assert(args.original); args.assertCommand?.() } catch { return }
-      if ("serverId" in args) captureOnboardingFirstMessage(args.author.id, args.serverId)
+      if ("serverId" in args) captureOnboardingFirstMessage(args.author.id, args.serverId, () => origin.assert(args.original))
       if (
         "serverId" in args && args.forumParentChannelId &&
         isForumSidebarParent(queryClient, args.serverId, args.forumParentChannelId)

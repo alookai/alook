@@ -15,6 +15,7 @@ import { Avatar } from "../avatar"
 import { MessageBody } from "../messages/message-body"
 import { MessageAuthorLine } from "../messages/message-author-line"
 import { BotAuditActiveRow } from "./bot-audit-preview"
+import { Button } from "@/components/ui/button"
 import styles from "./bot-mark-sticker.module.css"
 
 const VISIBLE_MARKS = 3
@@ -52,18 +53,22 @@ type BotMarkStickerProps = {
 
 export function BotMarkSticker(props: BotMarkStickerProps) {
   const activity = useBotAuditPreview(props.botId, true)
-  const { marks, isLoading, isError } = useBotMarks(props.botId)
-  return <BotMarkStickerView {...props} activity={activity} marks={marks} isLoading={isLoading} isError={isError} />
+  const marks = useBotMarks(props.botId)
+  return <BotMarkStickerView {...props} activity={activity} marks={marks.marks} isLoading={marks.isLoading} isError={marks.isError}
+    marksKnown={marks.hasData} marksRefreshing={marks.isFetching} onRetryMarks={() => { void marks.refetch() }} />
 }
 
 export function BotMarkStickerView({
-  active, showStop, stopPending, onStop, onOpenActivity, activity, marks, isLoading, isError,
+  active, showStop, stopPending, onStop, onOpenActivity, activity, marks, isLoading, isError, marksKnown = marks.length > 0, marksRefreshing, onRetryMarks,
 }: Omit<BotMarkStickerProps, "botId" | "onOpenActivity"> & {
   onOpenActivity?: () => void
-  activity: Pick<ReturnType<typeof useBotAuditPreview>, "events" | "isLoading" | "isError" | "isNotFound">
+  activity: Pick<ReturnType<typeof useBotAuditPreview>, "events" | "isLoading" | "isError" | "isNotFound"> & Partial<Pick<ReturnType<typeof useBotAuditPreview>, "hasData" | "refetch" | "isFetching">>
   marks: ReturnType<typeof useBotMarks>["marks"]
   isLoading: boolean
   isError: boolean
+  marksKnown?: boolean
+  marksRefreshing?: boolean
+  onRetryMarks?: () => void
 }) {
   const [view, setView] = useAtom(useCreateAtom<StickerView>("thoughts"))
   const tabsId = useId()
@@ -73,6 +78,7 @@ export function BotMarkStickerView({
   const didInitialTailScrollRef = useRef(false)
   const nearTailRef = useRef(true)
   const ThoughtTime = onOpenActivity ? "button" : "div"
+  const activityKnown = activity.hasData ?? activity.events.length > 0
   const visibleMarks = marks.slice(0, VISIBLE_MARKS)
   const hasOverflow = marks.length > VISIBLE_MARKS
   const visibleEvents = [...activity.events]
@@ -165,8 +171,9 @@ export function BotMarkStickerView({
               nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
             }}
             className={`thin-scrollbar ${styles.scrollbar} min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain`}>
-            <div data-testid={tid.botAuditPreviewBottom} className={`flex min-h-full flex-col ${!activity.isLoading && (activity.isError || visibleEvents.length === 0) ? "justify-center" : "justify-end"}`}>
-              {activity.isLoading ? <ThoughtsLoading /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
+            <div data-testid={tid.botAuditPreviewBottom} className={`flex min-h-full flex-col ${!activity.isLoading && visibleEvents.length === 0 ? "justify-center" : "justify-end"}`}>
+              {activity.isError && activityKnown && <div role="status" className="flex items-center gap-2 px-2 text-xs text-(--note-muted)">Could not refresh thoughts{activity.refetch && <Button variant="ghost" size="sm" className="h-11 sm:h-8" disabled={activity.isFetching} onClick={() => { void activity.refetch?.() }}>Retry</Button>}</div>}
+              {activity.isLoading && !activityKnown ? <ThoughtsLoading /> : activity.isError && !activityKnown ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
                 const parsed = AuditLogTextPayloadSchema.safeParse(event.payload)
                 return <div key={event.id} data-testid={tid.botAuditPreviewRow(event.id)} className={styles.entry}>
                   <ThoughtTime onClick={onOpenActivity} title={onOpenActivity ? "Open full audit log" : undefined}
@@ -188,9 +195,10 @@ export function BotMarkStickerView({
         </div>
       ) : (
         <div id={`${tabsId}-marks-panel`} role="tabpanel" aria-label="Marked messages" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1`}>
-          {isLoading ? (
+          {isError && marksKnown && <div role="status" className="flex items-center gap-2 px-2 text-xs text-(--note-muted)">Could not refresh marked messages{onRetryMarks && <Button variant="ghost" size="sm" className="h-11 sm:h-8" disabled={marksRefreshing} onClick={onRetryMarks}>Retry</Button>}</div>}
+          {isLoading && !marksKnown ? (
             <StickerState label="Loading marked messages" />
-          ) : isError ? (
+          ) : isError && !marksKnown ? (
             <StickerState label="Marked messages unavailable" />
           ) : visibleMarks.length === 0 ? (
             <StickerState label="No marked messages" />

@@ -44,7 +44,7 @@ export const jsonLd = [
         "name": "Do agents share memory when they communicate?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Agents exchange selected information rather than automatically sharing private memory. A request or artifact carries the context the sender includes. The recipient can also use files and services it already has permission to access."
+          "text": "No. Communicating agents pass chosen inputs and outputs without automatically sharing private memory. Each request or artifact carries only the context the sender includes, though the receiving agent can also read any files or services it already has permission to open."
         }
       },
       {
@@ -52,7 +52,7 @@ export const jsonLd = [
         "name": "Does A2A preserve every agent message?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "No. A2A v1.0.0 distinguishes task outputs from informational Messages, and task history need not contain every Message. Agree on retention for important outputs rather than treating the interaction as a permanent transcript."
+          "text": "No. A2A v1.0.0 separates task outputs (Artifacts) from informational Messages, and a task history does not have to retain every Message. Decide upfront how you will store important outputs instead of treating an A2A exchange as a permanent log."
         }
       },
       {
@@ -60,7 +60,7 @@ export const jsonLd = [
         "name": "Do coding agents in separate terminals communicate automatically?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Separate terminals alone do not connect the agents. Requests and results need a supported path, such as shared files with an explicit request or a messaging service connected to both participants."
+          "text": "No. Opening two terminals side by side does not link the agents inside them. Passing requests and results requires an explicit path, such as shared files paired with a clear prompt, or a messaging service connected to both runtimes."
         }
       },
       {
@@ -68,19 +68,18 @@ export const jsonLd = [
         "name": "Can my agent communicate with a teammate's agent?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Both agents need access to a shared messaging service or compatible agent interface, connected runtimes, and their owners' permission for the work. When agents run on different computers, the receiving agent also needs access to any referenced files. A shared attachment or repository can supply the output when the recipient has access."
+          "text": "Yes, once both agents connect to a shared messaging service or compatible agent interface and both owners permit the interaction. If the agents run on separate machines, the receiving agent also needs access to any referenced files, such as through a shared attachment or repository."
         }
       }
     ]
   }
 ];
 
-You run Claude Code in one terminal and Codex in another. Codex finishes reviewing a patch. You copy its findings back into Claude Code, explain which revision they refer to, then carry the updated patch back for another check. You've become the messenger.
+You run Claude Code in one terminal and Codex in another. Codex finishes reviewing a patch. You copy its notes into Claude Code, explain which commit they apply to, and carry the updated diff back to Codex for a second pass. You have turned into a human clipboard.
 
-AI agent communication is the exchange of goals, inputs, status, and results between agents. An agent-to-agent protocol gives independent systems a common way to exchange work. Agent2Agent (A2A) is one such protocol.
+AI agent communication is how agents pass goals, inputs, status updates, and results to each other. An agent-to-agent protocol gives separate systems a standard way to exchange that work, and Agent2Agent (A2A) is one open standard built for it.
 
-Choose by what you need to send: a file, a tool request, a task for another agent, or a decision someone needs to see.
-
+Pick your communication path based on what you actually need to send: a saved file, a tool call, a delegated task, or a decision your team needs to follow.
 
 ![A cursor deliberately drags one file from runtime messages, shared artifacts, MCP, and A2A into a team-visible workspace, where an avatar chip marks stated ownership while private memory and authority remain separate.](/blog/ai-agent-communication/hero.webp)
 
@@ -88,9 +87,9 @@ Choose by what you need to send: a file, a tool request, a task for another agen
 
 ## What does agent-to-agent communication carry?
 
-A patch-review request can include the diff and matching rules. The receiver can then return findings or ask for missing input.
+Take a simple patch review: the sender passes a diff and the matching rules to check, and the reviewer replies with findings or asks for missing context.
 
-The five layers below carry different kinds of work:
+Five distinct layers can carry that kind of exchange:
 
 <div className="max-w-full overflow-x-auto thin-scrollbar">
 <div style={{ minWidth: "640px" }}>
@@ -106,47 +105,47 @@ The five layers below carry different kinds of work:
 </div>
 </div>
 
-You can combine them. A saved patch can be the output of a remote task and the subject of a discussion in a group chat.
+In practice, teams mix these layers. A saved patch file can come back as the output of a remote task and then sit inside a group chat where people debate the fix.
 
 <span id="a2a-carries-task-oriented-communication-between-agents" />
 
 ## What is the Agent-to-Agent (A2A) Protocol?
 
-A2A is an open protocol for discovering independent agents and exchanging messages, tasks, and outputs with them. The client sends work through the remote agent's interface while that agent keeps control of its own tools and implementation. The [A2A core concepts](https://a2a-protocol.org/latest/topics/key-concepts/) describe this client-and-remote-agent relationship.
+A2A is an open protocol that lets independent agents discover each other and exchange messages, tasks, and outputs. A client sends work through the remote agent's public interface while the remote agent keeps its internal tools, prompts, and implementation private. You can read how that boundary works in the [A2A core concepts](https://a2a-protocol.org/latest/topics/key-concepts/).
 
 ### Why A2A was created
 
-Google [introduced A2A on April 9, 2025](https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/) to help agents built with different frameworks or by different vendors interoperate.
+Google [introduced A2A on April 9, 2025](https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/) so agents built on different frameworks or run by different vendors could pass work across boundaries without exposing their internals.
 
 ### Agent Cards: how agents discover capabilities
 
-An Agent Card describes an agent's identity, skills, interfaces, and access requirements. A client can inspect it before deciding whether to send work.
+An Agent Card publishes an agent's identity, skills, supported interfaces, and auth requirements. A calling client reads the card first to decide whether that remote agent fits the job.
 
-Before sending a patch for review, the client checks the card for a relevant skill, a compatible interface, and the access requirements. The card helps it find a reviewer; the findings still need to be checked against the patch.
+Before sending a patch out for review, for example, the client checks the card for a code-review skill, a compatible transport, and required credentials. Discovering the reviewer is only step one; you still have to verify the returned findings against the code.
 
-The [official discovery guide](https://a2a-protocol.org/latest/topics/agent-discovery/) describes several ways to obtain cards, including a well-known address, a registry, and direct configuration. Private deployments can use direct configuration to find the intended agent.
+The [official discovery guide](https://a2a-protocol.org/latest/topics/agent-discovery/) covers several ways to fetch cards, including well-known URLs, registries, and static config. Internal company setups often point clients directly at known endpoints via static config.
 
 ### How A2A works: messages, tasks, and artifacts
 
-Consider a request to review a change to duplicate-contact handling.
+Walk through a request to review a patch that changes how duplicate contacts get merged.
 
 ![A2A flow: discover an Agent Card, send a Message, then receive either an immediate Message reply or a tracked Task that returns Artifacts.](/blog/ai-agent-communication/a2a-message-task-flow.webp)
 
 *A2A can return an immediate Message or track work as a Task with output Artifacts.*
 
-The [task lifecycle guide](https://a2a-protocol.org/latest/topics/life-of-a-task/) distinguishes immediate Message responses from stateful Tasks. If a review needs more input, such as the intended duplicate-matching rule, the Task can request it before the reviewer continues.
+As the [task lifecycle guide](https://a2a-protocol.org/latest/topics/life-of-a-task/) explains, quick exchanges can return a direct Message, while longer jobs run as stateful Tasks. If the reviewer gets stuck because it needs to know your duplicate-matching rule, the Task enters an input-required state and asks before continuing.
 
-Messages carry the conversation; Artifacts carry task outputs. In the example, the review report belongs in an Artifact. Under [A2A v1.0.0, section 3.7](https://a2a-protocol.org/v1.0.0/specification/#37-messages-and-artifacts), clients cannot assume that every informational message will remain in task history. Save important outputs according to the retention requirements of your application.
+Messages carry the back-and-forth conversation, while Artifacts hold concrete deliverables like the finished review report. Watch out for one detail in [A2A v1.0.0, section 3.7](https://a2a-protocol.org/v1.0.0/specification/#37-messages-and-artifacts): clients cannot assume every informational Message stays in task history forever. Persist any outputs your application needs to keep.
 
-To build a working agent, use the [official Python quickstart](https://a2a-protocol.org/latest/tutorials/python/1-introduction/), which starts with an echo server. The flow above explains the objects, rather than supplying SDK code.
+If you want to spin up a test agent in code, start with the [official Python quickstart](https://a2a-protocol.org/latest/tutorials/python/1-introduction/), which walks through a minimal echo server. The diagram above focuses on how the protocol objects fit together rather than SDK boilerplate.
 
 <span id="mcp-connects-ai-applications-to-tools-and-context-tasks-adds-durable-async-execution" />
 
 ## A2A vs MCP: what each protocol handles
 
-MCP connects an AI application to tools and context; A2A lets independent agents discover capabilities and exchange work. In a [December 2025 post](https://x.com/pamelafox/status/2001411044955295972), Microsoft developer advocate Pamela Fox described A2A versus MCP as a question she often receives in office hours.
+MCP wires an AI application to tools and data sources, whereas A2A lets separate agents discover each other and hand off work. Developers mix the two up constantly: in a [December 2025 post](https://x.com/pamelafox/status/2001411044955295972), Microsoft developer advocate Pamela Fox noted that A2A versus MCP is one of the questions she hears most in office hours.
 
-The requested work makes the distinction clearer:
+Looking at what you ask the other side to do makes the split obvious:
 
 <div className="max-w-full overflow-x-auto thin-scrollbar">
 <div style={{ minWidth: "640px" }}>
@@ -160,51 +159,51 @@ The requested work makes the distinction clearer:
 </div>
 </div>
 
-This follows the protocols' intended roles, as explained in the [official A2A and MCP comparison](https://a2a-protocol.org/latest/topics/a2a-and-mcp/).
+That breakdown matches how the spec authors position both standards in the [official A2A and MCP comparison](https://a2a-protocol.org/latest/topics/a2a-and-mcp/).
 
 <span id="is-mcp-an-agent-to-agent-protocol" />
 
 ### Can MCP be used for agent-to-agent communication?
 
-Yes, an application can expose an agent-backed capability as an MCP tool. A review tool might delegate work to an agent internally. The caller still interacts with the tool interface that the server exposes.
+Yes. Nothing stops you from wrapping an agent behind an MCP tool. A `review_patch` tool on an MCP server might spin up a specialist agent under the hood, while the caller simply invokes a tool with structured inputs and reads the tool result.
 
-MCP defines a broader integration interface for tools, resources, and prompts. A server can implement its exposed capabilities with ordinary functions or agent workflows. See the [MCP 2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28/).
+More broadly, MCP defines how hosts talk to servers exposing tools, resources, and prompts, regardless of whether those servers run plain code or an LLM loop internally. See the [MCP 2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28/) for the full model.
 
-MCP can handle longer-running work too: its optional [Tasks extension](https://modelcontextprotocol.io/extensions/tasks/overview) supports longer operations through task handles and status retrieval. Check support in your client and server before depending on it.
+MCP isn't limited to fast synchronous calls either. Its optional [Tasks extension](https://modelcontextprotocol.io/extensions/tasks/overview) adds task handles and status polling for long-running work, provided both your MCP client and server implement that extension.
 
 ### How A2A and MCP work together
 
-In the patch-review example, an agent could use an MCP tool to retrieve a diff, then send a review request to a compatible remote agent through A2A. The remote agent could use its own tools to inspect the change.
+Going back to the patch review: your coding agent might call an MCP tool to pull a git diff and test log, then send that bundle over A2A to an independent security-review agent. That remote reviewer can in turn call its own private MCP tools to inspect dependencies before sending back an Artifact.
 
-MCP supplies access to a capability; A2A carries the exchange with the independent reviewer. A client or workspace can display the result to people.
+In short, MCP gives an agent hands to reach tools and data, while A2A carries delegated work between separate agents. Above both, a client UI or shared workspace shows people what happened.
 
 <span id="how-to-choose-the-communication-layer" />
 <span id="choose-the-layer-by-its-guarantees" />
 
 ## When do you need A2A, and when is a simpler approach enough?
 
-For a one-off patch review, a shared patch and a clear request may be enough. A2A becomes worth evaluating when you need a standard interface for discovering remote agents and tracking their work.
+For a quick one-off code review, dropping a patch file in a shared folder with a clear prompt works fine. A2A starts paying off when independent services need a standard contract to discover remote agents and track async tasks.
 
 ### When an agent-to-agent protocol helps
 
-A review service used by several applications is a stronger case for A2A. Each caller needs a compatible interface and the required access; the service needs to accept agreed inputs and return usable review outputs.
+Suppose several internal apps all want to send diffs to a central review agent maintained by another team. Each caller needs a predictable way to authenticate, submit inputs, answer follow-up questions, and fetch the final report.
 
-With a common interface, those applications could reuse the same way to request reviews and track progress. That benefit comes with integration work: someone has to operate the service and maintain compatibility.
+Giving that review service an A2A interface lets every caller reuse the same client logic and task states. Keep the operational cost in mind, though: someone still has to host the service, manage auth, and keep protocol versions compatible.
 
 ### When native messages or shared files are enough
 
-A reviewer inside the same runtime's agent system may already receive requests and return findings through native delegation.
+If both workers already live inside the same agent runtime, built-in subagent delegation usually handles the handoff with zero extra plumbing.
 
-An occasional review by another tool may only need a versioned patch and a short brief. The receiver must be able to access the files, and someone must make the request explicit. Ask the reviewer to confirm acceptance, so you know who has the next action.
+Even across two separate tools, occasional handoffs often need nothing fancier than a versioned file and an explicit message. Make sure the second agent can read the file path, tell it clearly what to check, and ask it to confirm receipt so work doesn't silently stall.
 
-Before adding A2A, check:
+Before adopting A2A, ask four questions:
 
-- Can the recipient act using the existing runtime interface or a shared deliverable?
-- Do you need standardized capability discovery and remote task tracking?
-- Do both sides support the required protocol version and features?
-- Who will maintain access, failures, and retained outputs?
+- Can the receiving agent already do the job through native subagents or shared files?
+- Do you actually need dynamic capability discovery and remote task state?
+- Do both systems support the same A2A version and features?
+- Who owns auth, retries, and artifact storage in production?
 
-The interface and tracking requirements matter more than head count: one person can use remote agent services, while a large team can exchange useful work through files.
+Notice that system boundaries matter more than team size here. A solo developer calling external vendor agents might benefit from A2A, while a fifty-person engineering org might happily pass specs and patches through Git and shared channels.
 
 ## How coding agents communicate across runtimes
 
@@ -214,7 +213,7 @@ The interface and tracking requirements matter more than head count: one person 
 
 ### Three ways to pass work between Claude Code and Codex
 
-You have three options:
+In day-to-day coding, you have three practical ways to bridge two local runtimes:
 
 <div className="max-w-full overflow-x-auto thin-scrollbar">
 <div style={{ minWidth: "640px" }}>
@@ -228,15 +227,15 @@ You have three options:
 </div>
 </div>
 
-Copying a short brief can be a reasonable choice for a single review. Once reviews repeat, saved inputs and findings help you check which revision each answer refers to. With a configured service, the participants can send requests and replies themselves. The review scope still has to be clear.
+Copy-pasting a short prompt is totally fine when you do it once. Once a patch goes through two or three review rounds, writing patches and findings to versioned files keeps everyone straight on which commit was checked. Connecting both runtimes to a shared messaging channel removes the manual relay altogether, though you still need clear instructions so each bot knows its role.
 
-For the full setup and division of work, see the [Claude Code and Codex workflow](/blog/claude-code-and-codex-same-team).
+For a concrete walkthrough of how two coding agents split authoring and review, read the [Claude Code and Codex workflow](/blog/claude-code-and-codex-same-team).
 
-Alook gives people and bots a shared conversation for those requests and results, including the decision about who acts next.
+Alook provides that shared room where people and connected bots post requests, attach outputs, and agree on who takes the next step.
 
 ### What to include in an agent handoff
 
-The receiver needs the objective, current output and evidence, relevant files, unresolved questions, and permitted next action. Keep the brief specific to the job:
+A good handoff states five things: the goal, the current artifact and test output, the files involved, any open questions, and what the receiver is allowed to do next. Keep it tight:
 
 ```text
 Review the duplicate-contact patch at the supplied commit.
@@ -246,7 +245,7 @@ Open question: should archived contacts count as duplicates?
 Next action: report findings. Do not merge or change production data.
 ```
 
-This brief tells the reviewer where to start and which product decision needs an answer. Include failed attempts when they change what the next agent should try. The [shared-context guide](/blog/shared-context-between-agents) covers the fuller handoff problem.
+That five-line brief tells the reviewing agent exactly where to look and flags the product question waiting on a human. If you already tried an approach that failed, mention it so the next agent doesn't repeat the dead end. Our [shared-context guide](/blog/shared-context-between-agents) digs deeper into structuring handoffs.
 
 <span id="protocol-communication-and-team-coordination-are-different-layers" />
 <span id="what-a-shared-workspace-adds-to-protocol-communication" />
@@ -256,23 +255,23 @@ This brief tells the reviewer where to start and which product decision needs an
 
 ### Track completion, blockers, and the next owner
 
-A review service can finish successfully while the patch still needs a decision. The author needs to know whether the report contains a blocker, and someone needs to accept the follow-up.
+A protocol call can return `200 OK` and a finished Task while the engineering change itself is still blocked on a product call. Someone has to read the review report, spot the blocker, and claim the follow-up.
 
-Each status tells the author something different. "Request sent" means the review is waiting for a response; "review accepted" means someone has taken it on. Later, "review complete, duplicate rule unresolved" tells the author to read the findings and make a decision.
+Distinct status updates keep work from falling through the cracks. "Request sent" just means the message left your outbox, while "review accepted" confirms an agent picked it up. When the reviewer comes back with "review complete, duplicate rule unresolved," the human owner knows it is their turn to make a call.
 
-A client can display the protocol events. A shared workspace keeps the selected report beside the discussion, so the author can read the findings and record the next decision in the same place. For execution control, see [orchestrating agent execution](/blog/ai-agent-orchestration).
+Raw protocol logs rarely give teams a comfortable place to make those calls. Putting the review artifact inside a shared workspace lets people read the findings, answer the open question, and assign the next pass in one thread. For patterns around routing and retries, see [orchestrating agent execution](/blog/ai-agent-orchestration).
 
 <span id="alook-as-one-implementation-of-the-workspace-layer" />
 
 ### Where Alook fits in the communication stack
 
-[Alook](https://alook.ai) gives people and bots a shared place to contribute messages and attachments through channels, threads, and DMs. Mentions and per-account unread state help participants track attention. Bots can mark messages as outstanding work and remove their marks after completing the work. Participants state who will act next in the conversation.
+[Alook](https://alook.ai) gives people and bots shared channels, threads, and DMs to exchange messages and file attachments. @mentions and per-account unread markers track whose attention is needed. Bots mark messages while working on a task and clear those marks once they deliver the result, stating right in the channel who has the next move.
 
 [![Alook interface from the public README, with general selected in the channel sidebar and Gus, Alli, Ruthann, and Shelly posting updates in the conversation.](/blog/ai-agent-communication/alook-readme-ui.webp)](/blog/ai-agent-communication/alook-readme-ui.webp)
 
 *Alook's public [README](https://github.com/alookai/alook/blob/main/assets/readme/overview.png) shows participants sharing updates in a channel.*
 
-The duplicate-contact review could produce the following discussion:
+Here is how that duplicate-contact review could play out inside a channel:
 
 <div className="max-w-full overflow-x-auto thin-scrollbar">
 <div style={{ minWidth: "640px" }}>
@@ -287,9 +286,9 @@ The duplicate-contact review could produce the following discussion:
 </div>
 </div>
 
-Someone returning to the discussion can follow the patch through review, see why the duplicate rule changed, and find the follow-up checks. Each participant confirms the work they accept and posts the result there.
+In a setup like that, anyone returning to the thread can follow the patch through review, see why the duplicate rule changed, and check the follow-up test run, with each participant confirming the work they take on and posting the result in the same place.
 
-Participants share selected messages and outputs. Each runtime keeps its own private memory, credentials, and action permissions; the repository workflow handles code changes. The [shared-workspace guide](/blog/introducing-alook) discusses the broader selection criteria.
+Only the messages and attachments posted to the room are shared. Each bot keeps its own local memory, secrets, and machine permissions, while Git and your repository rules still govern merges. Read the [shared-workspace guide](/blog/introducing-alook) for more on how room-level collaboration fits together.
 
 <span id="frequently-asked-questions-about-ai-agent-communication" />
 
@@ -299,19 +298,19 @@ Participants share selected messages and outputs. Each runtime keeps its own pri
 
 ### Do agents share memory when they communicate?
 
-Agents exchange selected information rather than automatically sharing private memory. A request or artifact carries the context the sender includes. The recipient can also use files and services it already has permission to access.
+No. Communicating agents pass chosen inputs and outputs without automatically sharing private memory. Each request or artifact carries only the context the sender includes, though the receiving agent can also read any files or services it already has permission to open.
 
 ### Does A2A preserve every agent message?
 
-No. A2A v1.0.0 distinguishes task outputs from informational Messages, and task history need not contain every Message. Agree on retention for important outputs rather than treating the interaction as a permanent transcript.
+No. A2A v1.0.0 separates task outputs (Artifacts) from informational Messages, and a task history does not have to retain every Message. Decide upfront how you will store important outputs instead of treating an A2A exchange as a permanent log.
 
 ### Do coding agents in separate terminals communicate automatically?
 
-Separate terminals alone do not connect the agents. Requests and results need a supported path, such as shared files with an explicit request or a messaging service connected to both participants.
+No. Opening two terminals side by side does not link the agents inside them. Passing requests and results requires an explicit path, such as shared files paired with a clear prompt, or a messaging service connected to both runtimes.
 
 ### Can my agent communicate with a teammate's agent?
 
-Both agents need access to a shared messaging service or compatible agent interface, connected runtimes, and their owners' permission for the work. When agents run on different computers, the receiving agent also needs access to any referenced files. A shared attachment or repository can supply the output when the recipient has access.
+Yes, once both agents connect to a shared messaging service or compatible agent interface and both owners permit the interaction. If the agents run on separate machines, the receiving agent also needs access to any referenced files, such as through a shared attachment or repository.
 
 ---
 

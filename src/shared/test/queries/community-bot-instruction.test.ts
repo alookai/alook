@@ -2,6 +2,7 @@ import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { updateBot } from "../../src/db/queries/community/bot";
+import { prepareNativeBatchStatement } from "../helpers/native-batch-prepare";
 
 describe("bot owner instruction updates", () => {
   let sqlite: Sqlite.Database;
@@ -43,7 +44,7 @@ describe("bot owner instruction updates", () => {
     (db as any).batch = (statements: Array<{ toSQL: () => { sql: string; params: unknown[] } }>) =>
       sqlite.transaction(() => statements.map((statement) => {
         const query = statement.toSQL();
-        const prepared = sqlite.prepare(query.sql);
+        const prepared = prepareNativeBatchStatement(sqlite, query);
         return prepared.reader ? prepared.all(...query.params) : prepared.run(...query.params);
       }))();
     const insertUser = sqlite.prepare(`
