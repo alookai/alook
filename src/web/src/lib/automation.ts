@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { NextRequest } from "next/server"
-import { AutomationPermissionPolicySchema, queries, type AutomationPermission } from "@alook/shared"
+import { AUTOMATION_SETUP_PERMISSIONS, AutomationPermissionPolicySchema, queries, type AutomationPermission } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
 import { wsDoFetch } from "@/lib/broadcast"
 import { writeError } from "@/lib/middleware/helpers"
@@ -92,6 +92,32 @@ export function automationPolicy(permission: AutomationPermission): AuthPolicy<A
           response.headers.set("Cache-Control", "no-store")
           return response
         },
+      }
+    },
+  }
+}
+
+export type AutomationSetupContext = {
+  env: Env
+  userId: string
+  beforeAction: (permission: typeof AUTOMATION_SETUP_PERMISSIONS[number]) => Promise<Response | null>
+}
+
+export function automationSetupPolicy(): AuthPolicy<AutomationSetupContext> {
+  return {
+    params: "ignore",
+    resolve: async request => {
+      const contexts = new Map<typeof AUTOMATION_SETUP_PERMISSIONS[number], AutomationContext>()
+      for (const permission of AUTOMATION_SETUP_PERMISSIONS) {
+        const resolved = await automationPolicy(permission).resolve(request)
+        if (resolved instanceof Response) return resolved
+        contexts.set(permission, resolved.context)
+      }
+      const first = contexts.get("server.create")!
+      if ([...contexts.values()].some(context => context.userId !== first.userId)) return writeError("Automation authorization changed; try again", 401)
+      return {
+        context: { env: first.env, userId: first.userId, beforeAction: permission => contexts.get(permission)!.beforeCreate() },
+        finish: response => { response.headers.set("Cache-Control", "no-store"); return response },
       }
     },
   }

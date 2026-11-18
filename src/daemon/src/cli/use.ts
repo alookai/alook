@@ -1,3 +1,4 @@
+import { registerOnboardSetup } from "./use-onboard-setup.js"
 import { randomUUID } from "node:crypto"
 import type { Command } from "commander"
 import { readFile, stat } from "node:fs/promises"
@@ -85,13 +86,17 @@ export function registerUseCommands(program: Command, output: (value: { success:
     const result = raw as Record<string, unknown>
     if (!response.ok) {
       const message = typeof result.error === "string" ? result.error.replaceAll(secret, "[redacted]") : `Automation failed: HTTP ${response.status}`
+      const cleanup = path === "/api/community/automation/onboard-setup" && result.cleanup === "incomplete"
+        ? z.object({ server: z.string().max(128).refine(value => Boolean(parseNameAndTag(value))) }).safeParse(result.remaining) : null
+      const cleanupHint = cleanup ? `Cleanup incomplete. Inspect remaining resources: ${cleanup.success ? JSON.stringify(cleanup.data).replaceAll(secret, "[redacted]") : "check servers and bots in Alook"}.` : undefined
       throw Object.assign(new Error(message), {
         ...(typeof result.code === "string" ? { code: result.code.replaceAll(secret, "[redacted]") } : {}),
-        ...(response.status === 429 ? { hint: `Retry after ${response.headers.get("Retry-After") ?? "the indicated"} seconds` } : {}),
+        ...((cleanupHint || response.status === 429) ? { hint: [cleanupHint, response.status === 429 ? `Retry after ${response.headers.get("Retry-After") ?? "the indicated"} seconds` : undefined].filter(Boolean).join(" ") } : {}),
       })
     }
     return { result, origin }
   }
+  registerOnboardSetup(use, request, output)
   use.command("expire").description("expire the supplied access code immediately").action(async () => {
     const { result } = await request("/api/community/automation/expire", {})
     if (result.expired !== true) throw new Error("Automation returned an invalid expiration result")
@@ -181,12 +186,13 @@ export function registerUseCommands(program: Command, output: (value: { success:
         const { backendId, ...bot } = parseInput(options.create!, BotInput)
         body = { ...bot, runtime: backendId }
       } else body = parseInput(options.create!, ServerInput)
-      const { result, origin } = await request(`/api/community/automation/${kind}s`, body)
-      const resource = result[kind]
-      if (!resource || typeof resource !== "object" || !("id" in resource) || !("name" in resource) || !("discriminator" in resource) || typeof resource.id !== "string" || typeof resource.name !== "string" || typeof resource.discriminator !== "string") throw new Error("Automation returned an invalid result; do not retry automatically")
-      output({ success: { [kind]: { id: resource.id, handle: `${resource.name}#${resource.discriminator}`,
-        ...(kind === "server" ? { url: `${origin}/c/channels/${encodeURIComponent(resource.id)}` } : {}),
-      } } })
+      const { result } = await request(`/api/community/automation/${kind}s`, body)
+      const resource = z.object({
+        handle: z.string().max(128).refine(value => !value.startsWith("@") && Boolean(parseNameAndTag(value))),
+        ...(kind === "server" ? { url: z.url() } : {}),
+      }).safeParse(result[kind])
+      if (!resource.success) throw new Error("Automation returned an invalid result; do not retry automatically")
+      output({ success: { [kind]: resource.data } })
     })
   }
 }

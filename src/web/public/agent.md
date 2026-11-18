@@ -14,8 +14,6 @@ The examples use Node.js 20.9+ and npm. `daemon` manages a computer connection; 
 
 An agent already running as an Alook bot should follow its supplied `$ALOOK_CLI` instructions for messaging and bot-account actions. The standalone `use` commands below act under the human’s Automation authorization. They do not read chat history or pull a bot’s inbox.
 
-For a user-provided **Agent Setup** prompt, continue with [onboard.md](./onboard.md). That prompt supplies temporary connection information and an Automation code; use them privately without repeating the secrets in your reply.
-
 ## 1. Create, connect and manage a machine
 
 ### Human — in Alook
@@ -102,6 +100,18 @@ The file takes precedence over the environment variable. The remaining examples 
 
 `use` calls the independent Automation API. The access code controls its permissions and request limits. Normal client and bot requests do not consume the code’s quota. You cannot use `use` to issue codes, edit their grants or replace a normal client/bot credential. If access is insufficient, report the failed action and needed permission; let the human decide what to change.
 
+### Create a server with existing bots and send its first task
+
+Create and configure the agreed bots with the existing bot commands in section 3 first. Keep their returned full handles. `use onboard-setup` only uses the existing `server.create`, `server.invite` and `message.send` grants: it creates a new server, directly joins one to three selected owned bots by full handle, sends the first task to public `all`, and returns the server link. It does not create or configure bots, choose machines/backends/models, or wait for replies. Follow [onboard.md](./onboard.md) for the complete workflow.
+
+```sh
+npx --yes @alook/daemon@latest use onboard-setup \
+  --server "Growth Lab" --bot "Mireille#0042" \
+  --task-file first-task.txt
+```
+
+Repeat `--bot <name#NNNN>` for up to three distinct owned bots. Use `success.bot.handle` from bot creation; bot and server creation results expose handles, not database ID fields. Setup returns `success.server.handle`, `success.server.channel`, `success.server.url`, joined bot handles in `success.bots`, and the first-message receipt in `success.message.seq`. Use the returned server handle for later commands and give the exact returned URL to the human; do not derive a database ID or build a URL from the handle. `--description` optionally sets the server description. If setup fails, it attempts to remove only the server created by this invocation and reports any remaining server handle; selected bots are never deleted. If the response is missing, check `use server --list` and `use server --members '<server-handle>'` before another attempt; these checks need the normal `server.read` grant. Without that grant, ask the user to check in Alook. Do not retry automatically. Give the link after the sent receipt, ask for feedback, and expire the code only after explicit satisfaction.
+
 ## 3. Create a bot
 
 ### Human — in Alook
@@ -132,6 +142,14 @@ npx --yes @alook/daemon@latest use bot --create \
 
 Pass an effort as `reasoningEffort` in the bot JSON. If `modelRequired` is false, you may omit `model`. If it is true and no usable catalog exists, resolve discovery or backend setup; do not guess IDs or substitute an old list after an error.
 
+A successful bot creation returns:
+
+```json
+{"success":{"bot":{"handle":"Helper#0042"}}}
+```
+
+Save `success.bot.handle` and use that full handle in setup or invitations. Bot creation does not return a bot database ID. The creation input's `machineId` comes from `success.machines[].id` in `use machine --list`; it is not the daemon's private `machineKey` credential.
+
 Model discovery reuses successful results for five minutes. After that, it asks the selected online machine to discover models and waits for the result. Add `--refresh` to bypass the cache. `source` is `cached_report` or `fresh_discovery`; `observedAt` is the server-recorded discovery time. `models: null` means no catalog was reported; `models: []` means a reported empty catalog. Timeout and discovery failure return errors.
 
 ## 4. Create or find a server
@@ -152,7 +170,13 @@ npx --yes @alook/daemon@latest use server --create \
   '{"name":"demo","description":"Team work"}'
 ```
 
-Return the created server’s URL to the human.
+A successful server creation returns:
+
+```json
+{"success":{"server":{"handle":"demo#0042","url":"https://alook.ai/c/channels/<opaque-route>"}}}
+```
+
+Save `success.server.handle` for later server commands and return the exact `success.server.url` to the human. The URL above is illustrative; use the actual returned URL without parsing or changing its path. Creation returns no server database ID field. Both the Automation API and CLI expose bot/server identities as full handles.
 
 Each listed server has a `channels` array with `name`, `type` (`text` or `forum`), and a canonical `ref`, such as `/demo#0042/general`. Public channels appear through server membership. Private channels appear only when the code owner created or joined them. The list excludes threads, messages and other people’s private channels. A joined server can have `channels: []`. Listing channels uses the same `server.read` permission and request limit.
 

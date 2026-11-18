@@ -6,7 +6,7 @@ import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { canonicalUserImage } from "@/lib/community/storage"
 import type { ResourceCreationContext } from "./create-bot.server"
 
-export async function createServerForUser(req: NextRequest, ctx: ResourceCreationContext): Promise<Response> {
+export async function createServerForUser(req: NextRequest, ctx: ResourceCreationContext & { onCreated?: (server: { id: string; name: string; discriminator: string }) => void }): Promise<Response> {
   const db = getDb(ctx.env.DB)
 
   let body: { name?: string; description?: string }
@@ -47,6 +47,8 @@ export async function createServerForUser(req: NextRequest, ctx: ResourceCreatio
     description,
     ownerId: ctx.userId,
   })
+
+  ctx.onCreated?.(server)
 
   fanOutToServerMembers(server.id, {
     type: WS_EVENTS.MEMBER_JOIN,

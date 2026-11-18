@@ -29,12 +29,38 @@ beforeEach(() => {
 })
 it("wires each dedicated operation to its own grant and code quota without normal authentication", async () => {
   for (const [route, permission] of routes) {
+    const created = route === createBot ? { bot: { id: "private-bot", name: "Helper", discriminator: "0042", ownerId: "private-owner" } }
+      : route === createServer ? { server: { id: "private-server", name: "demo", discriminator: "0042", ownerId: "private-owner" } } : undefined
+    mocks.action.mockImplementation(async (_req, ctx) => await ctx.beforeCreate() ?? Response.json(created ?? { owner: ctx.userId, params: ctx.params }))
     const response = await route(req(), { params: { id: "demo#0001" } })
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ owner: "owner", params: { id: "demo#0001" } })
+    expect(await response.json()).toEqual(route === createBot ? { bot: { handle: "Helper#0042" } }
+      : route === createServer ? { server: { handle: "demo#0042", url: "http://localhost/c/channels/private-server" } }
+        : { owner: "owner", params: { id: "demo#0001" } })
     expect(mocks.authenticate.mock.lastCall?.[2]).toBe(permission)
     expect(JSON.parse(mocks.limiter.mock.lastCall?.[2].body)).toEqual({ name: permission, key: "one-code", max: 2, period: "hour" })
     expect(response.headers.get("cache-control")).toBe("no-store")
+  }
+})
+
+it("returns only public handles and the server link from creation routes", async () => {
+  for (const [route, kind] of [[createBot, "bot"], [createServer, "server"]] as const) {
+    mocks.action.mockImplementationOnce(async (_req, ctx) => await ctx.beforeCreate() ?? Response.json({ [kind]: {
+      id: "internal/id", name: "Created", discriminator: "0042", ownerId: "private-owner", machineId: "private-machine", nested: { botId: "private-bot", serverId: "private-server" },
+    } }, { status: 201 }))
+    const response = await route(req())
+    expect(response.status).toBe(201)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(await response.json()).toEqual({ [kind]: { handle: "Created#0042", ...(kind === "server" ? { url: "http://localhost/c/channels/internal%2Fid" } : {}) } })
+  }
+})
+
+it("preserves creation failures without turning them into success receipts", async () => {
+  for (const route of [createBot, createServer]) {
+    mocks.action.mockResolvedValueOnce(Response.json({ error: "Unavailable", code: "LIMIT_REACHED" }, { status: 409 }))
+    const response = await route(req())
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "Unavailable", code: "LIMIT_REACHED" })
   }
 })
 it("rejects cookie-only, machine and bot credentials at every dedicated operation", async () => {

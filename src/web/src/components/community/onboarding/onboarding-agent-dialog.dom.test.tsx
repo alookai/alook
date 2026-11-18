@@ -51,15 +51,11 @@ describe("Agent Setup", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }))
     await waitFor(() => expect(mocks.copy).toHaveBeenCalledOnce())
-    expect(mocks.copy.mock.calls[0][0]).toContain(`Follow ${location.origin}/onboard.md`)
-    expect(mocks.copy.mock.calls[0][0]).toContain("Setup assistant: Codex")
-    expect(mocks.copy.mock.calls[0][0]).toContain("Before creating bots, ask me which available agent backend I want for each bot.")
-    expect(mocks.copy.mock.calls[0][0]).toContain("Bots can use different backends from the setup assistant.")
-    expect(mocks.copy.mock.calls[0][0]).toContain("After confirming all expected bots have joined the server, send the first task to its public all channel. Wait for at least one bot to reply there before reporting setup complete. Confirm I am satisfied before expiring the access code.")
-    expect(mocks.copy.mock.calls[0][0]).toContain("pair fixture-pair")
-    expect(mocks.copy.mock.calls[0][0]).toContain("fixture-code")
-    expect(mocks.copy.mock.calls[0][0]).not.toContain("confirm the requirements with me")
-    expect(mocks.copy.mock.calls[0][0]).not.toContain("no more than 3 bots")
+    expect(mocks.copy.mock.calls[0][0]).toBe([
+      `Follow ${location.origin}/onboard.md to set up my Alook team.`,
+      "Daemon: pair fixture-pair",
+      "Access code (1h): fixture-code",
+    ].join("\n"))
   })
   it("waits for copy before ending setup with an already-online machine", async () => {
     mocks.machines = [{ id: "machine-1", hostname: "Work Mac", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] } as CommunityMachineSummary]
@@ -67,10 +63,15 @@ describe("Agent Setup", () => {
     render(<OnboardingAgentDialog {...input} />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
     expect(mocks.request).toHaveBeenCalledTimes(1)
-    expect(screen.getByLabelText("Prompt for Codex").textContent).toContain("Connected machine ID: machine-1")
+    expect(screen.getByLabelText("Prompt for Codex")).toHaveTextContent("Machine: machine-1")
     expect(input.onConnected).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }))
     await waitFor(() => expect(input.onConnected).toHaveBeenCalledOnce())
+    expect(mocks.copy).toHaveBeenCalledWith([
+      `Follow ${location.origin}/onboard.md to set up my Alook team.`,
+      "Machine: machine-1",
+      "Access code (1h): fixture-code",
+    ].join("\n"))
   })
   it("reuses an unexpired pair key after an access-code failure", async () => {
     mocks.request.mockImplementationOnce(async () => pair()).mockRejectedValueOnce(new Error("network"))

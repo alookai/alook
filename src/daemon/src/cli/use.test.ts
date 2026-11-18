@@ -36,7 +36,7 @@ describe("use automation CLI", () => {
   })
 
   it("creates a bot through the dedicated API without proxy or agent identity and maps backendId", async () => {
-    vi.mocked(fetch).mockResolvedValue(Response.json({ bot: { id: "b1", name: "Helper", discriminator: "0042" } }, { status: 201 }))
+    vi.mocked(fetch).mockResolvedValue(Response.json({ bot: { handle: "Helper#0042" } }, { status: 201 }))
     const { run, output } = program()
     await run(["use", "bot", "--create", JSON.stringify({ name: "Helper", machineId: "mac1", backendId: "codex", model: "gpt-6" })])
     expect(fetch).toHaveBeenCalledOnce()
@@ -44,13 +44,13 @@ describe("use automation CLI", () => {
     expect(url).toBe("http://localhost:4328/api/community/automation/bots")
     expect(init).toMatchObject({ method: "POST", redirect: "error", headers: { Authorization: `Bearer ${secret}` } })
     expect(JSON.parse(init!.body as string)).toMatchObject({ runtime: "codex", machineId: "mac1" })
-    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { bot: { id: "b1", handle: "Helper#0042" } } })
+    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { bot: { handle: "Helper#0042" } } })
   })
   it("returns a server URL, never the access code", async () => {
-    vi.mocked(fetch).mockResolvedValue(Response.json({ server: { id: "s1", name: "demo", discriminator: "0042", ownerId: "private" } }, { status: 201 }))
+    vi.mocked(fetch).mockResolvedValue(Response.json({ server: { handle: "demo#0042", url: "http://localhost:4328/c/channels/s1", id: "s1", ownerId: "private" } }, { status: 201 }))
     const { run, output } = program()
     await run(["use", "server", "--create", '{"name":"demo"}'])
-    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { server: { id: "s1", handle: "demo#0042", url: "http://localhost:4328/c/channels/s1" } } })
+    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { server: { handle: "demo#0042", url: "http://localhost:4328/c/channels/s1" } } })
     expect(JSON.stringify(output.mock.calls)).not.toContain(secret)
   })
   it("rejects invalid input and insecure remote targets before network I/O", async () => {
@@ -231,10 +231,21 @@ describe("Automation CLI input and response recovery", () => {
   })
 
   it("refuses incomplete creation receipts instead of inventing a resource identity", async () => {
-    for (const server of [null, "bad", {}, { id: "s" }, { id: "s", name: "demo" }, { id: 1, name: "demo", discriminator: "0001" }, { id: "s", name: 1, discriminator: "0001" }, { id: "s", name: "demo", discriminator: 1 }]) {
+    for (const server of [null, "bad", {}, { id: "s", name: "demo", discriminator: "0001" }, { handle: 1, url: "https://alook.ai/c" }, { handle: "demo", url: "https://alook.ai/c" }, { handle: "demo#0001" }, { handle: "demo#0001", url: "invalid" }]) {
       vi.mocked(fetch).mockClear().mockResolvedValueOnce(Response.json({ server }))
       await expect(program().run(["use", "server", "--create", '{"name":"demo"}'])).rejects.toThrow("invalid result")
       expect(fetch).toHaveBeenCalledOnce()
+    }
+  })
+
+  it("uses bot handles directly and omits injected database identity fields", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ bot: { handle: "Helper#0042", id: "private-bot", ownerId: "private-owner", machineId: "private-machine", url: "https://private.test" } }))
+    const { run, output } = program()
+    await run(["use", "bot", "--create", '{"name":"Helper","machineId":"mac1","backendId":"codex"}'])
+    expect(output).toHaveBeenCalledExactlyOnceWith({ success: { bot: { handle: "Helper#0042" } } })
+    for (const bot of [{ id: "old-id", name: "Helper", discriminator: "0042" }, { handle: "old-id" }, { handle: "@Helper#0042" }, { handle: null }]) {
+      vi.mocked(fetch).mockResolvedValueOnce(Response.json({ bot }))
+      await expect(program().run(["use", "bot", "--create", '{"name":"Helper","machineId":"mac1","backendId":"codex"}'])).rejects.toThrow("invalid result")
     }
   })
 })

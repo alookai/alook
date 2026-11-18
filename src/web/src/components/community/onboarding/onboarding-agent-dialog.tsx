@@ -17,14 +17,11 @@ import { buildPairCommand } from "../machines/pair-machine-sheet"
 
 type Pair = { tokenId: string; expiresAt: string; machineId?: string }
 type Setup = { signal?: AbortSignal; pair?: Pair; code?: AutomationAccessCodeCreateResponse }
-function buildOnboardingAgentPrompt(input: { baseUrl: string; harness: string; command?: string; machineId?: string; secret: string }) {
+function buildOnboardingAgentPrompt(input: { baseUrl: string; command?: string; machineId?: string; secret: string }) {
   return [
     `Follow ${input.baseUrl}/onboard.md to set up my Alook team.`,
-    `Setup assistant: ${input.harness}`,
-    "Before creating bots, ask me which available agent backend I want for each bot. Bots can use different backends from the setup assistant.",
-    "After confirming all expected bots have joined the server, send the first task to its public all channel. Wait for at least one bot to reply there before reporting setup complete. Confirm I am satisfied before expiring the access code.",
-    input.command ? `Daemon connection command: ${input.command}` : `Connected machine ID: ${input.machineId}`,
-    `Onboard access code (valid for one hour): ${input.secret}`,
+    input.command ? `Daemon: ${input.command}` : `Machine: ${input.machineId}`,
+    `Access code (1h): ${input.secret}`,
   ].join("\n")
 }
 
@@ -108,7 +105,7 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
   const pairExpired = Boolean(!machine && setup.pair && Date.parse(setup.pair.expiresAt) <= now)
   const ready = Boolean(setup.code && (machine || setup.pair) && !codeExpired && !pairExpired && !pending)
   const prompt = ready && setup.code ? buildOnboardingAgentPrompt({
-    baseUrl: location.origin, harness: harnessLabel, secret: setup.code.secret,
+    baseUrl: location.origin, secret: setup.code.secret,
     ...(machine ? { machineId: machine.id } : { command: buildPairCommand(setup.pair!.tokenId, setup.pair!.machineId) }),
   }) : ""
   const exit = () => { source.retire(); setSetup({}); onExit() }
