@@ -1,8 +1,8 @@
-import type { InfiniteData, QueryKey } from "@tanstack/react-query"
-import type { MessagesWindowPage, MessagesPageParam } from "./models/message"
+import type { QueryKey } from "@tanstack/react-query"
+import type { MessagesPageParam } from "./models/message"
 
 export type InitialMessageWindow = Extract<MessagesPageParam, { mode: "newest" | "anchor" | "since" }>
-export type MessageWindowData = InfiniteData<MessagesWindowPage, MessagesPageParam>
+export type { MessageWindowData } from "./models/message"
 
 export function messageWindowIdentity(key: QueryKey): { channelId: string; initial: InitialMessageWindow; tag: string | null } | undefined {
   if (key[0] !== "community" || key[1] !== "channel" || typeof key[2] !== "string" || !key[2] || key[3] !== "messages") return
