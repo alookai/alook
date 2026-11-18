@@ -1052,8 +1052,8 @@ describe("Turbo CI execution", () => {
 
     expect(emailNode).not.toContain('describe("fetch() routing"')
     expect(emailNode).not.toContain('describe("IMAP management routes"')
-    expect(emailRuntime).toContain("forwards status and sync routes to the real IMAP Durable Object")
-    expect(emailRuntime).toContain("rejects unsupported methods, paths, and missing IMAP account ids")
+    expect(emailRuntime).toContain("serves health and rejects retired mail routes")
+    expect(emailRuntime).toContain("keeps deployed IMAP objects inert without deleting their retained storage")
 
     expect(queueNode).not.toContain("returns 400 on invalid JSON body")
     expect(queueNode).not.toContain("returns 405 for non-POST methods")

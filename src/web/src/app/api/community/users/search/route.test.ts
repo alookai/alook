@@ -55,10 +55,11 @@ describe("GET user search through the real handler and Shared SQL", () => {
     expect((await result(name)).map(user => user.id)).toEqual(["maximum"])
   })
 
-  it("trims a substring query and excludes the viewer and actual deleted rows", async () => {
+  it("trims a prefix query and excludes interior matches, the viewer and deleted rows", async () => {
     seed("viewer", "Ada")
     seed("ada", "Ada")
     seed("adaline", "Adaline", "0063")
+    seed("interior", "Lada", "0064")
     seed("other", "Other")
     seed("deleted", "Ada", "0081", null, 0, "2026-10-28T00:00:00Z")
     expect(new Set((await result("  Ada  ")).map(user => user.id))).toEqual(new Set(["ada", "adaline"]))

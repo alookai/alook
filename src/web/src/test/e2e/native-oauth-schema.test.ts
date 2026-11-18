@@ -72,6 +72,7 @@ describe("native_oauth_attempt migration parity", () => {
         TABLE,
       ).map((row) => row.name),
     ).toEqual([
+      "idx_native_oauth_attempt_attempt_expires_at_lookup",
       "idx_native_oauth_attempt_id_status_expiry",
       "idx_native_oauth_attempt_instance_status",
       "idx_native_oauth_attempt_terminal_cleanup",

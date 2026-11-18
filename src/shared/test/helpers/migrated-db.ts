@@ -10,7 +10,7 @@ type NativeStatement = {
   run(): unknown
 }
 
-export function createMigratedDb() {
+export function createMigratedDb(options?: { logQuery(sql: string, params: unknown[]): void }) {
   const sqlite = new Sqlite(":memory:")
   try {
     sqlite.pragma("foreign_keys = ON")
@@ -19,7 +19,7 @@ export function createMigratedDb() {
       sqlite.exec(readFileSync(new URL(name, root), "utf8"))
     }
     const errors: unknown[] = []
-    const orm = drizzleSqlite(sqlite)
+    const orm = drizzleSqlite(sqlite, options ? { logger: options } : undefined)
     const batch = vi.fn(async (statements: NativeStatement[]) => {
       try {
         return sqlite.transaction(() => statements.map(statement => {

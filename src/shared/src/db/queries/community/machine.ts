@@ -1,4 +1,4 @@
-import { and, eq, gt, desc, isNull, exists, sql } from "drizzle-orm"
+import { and, eq, gt, desc, inArray, isNull, exists, sql } from "drizzle-orm"
 import {
   communityMachineToken,
   communityMachine,
@@ -360,7 +360,8 @@ export async function reconcileBotActivityFromRunningAgents(
     .with(staleStatuses)
     .update(communityUserProfile)
     .set({ statusEmoji: idle.emoji, statusText: idle.text })
-    .where(
+    .where(and(
+      inArray(communityUserProfile.userId, db.select({ userId: staleStatuses.userId }).from(staleStatuses)),
       exists(
         db
           .select({ one: sql<number>`1` })
@@ -373,7 +374,7 @@ export async function reconcileBotActivityFromRunningAgents(
             )
           )
       )
-    )
+    ))
     .returning({ userId: communityUserProfile.userId });
 
   return updated.map((r) => ({

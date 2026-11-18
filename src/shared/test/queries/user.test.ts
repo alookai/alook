@@ -376,11 +376,11 @@ describe("searchUsersByName", () => {
     });
   });
 
-  it("returns actual substring matches without unrequested identities", async () => {
+  it("returns name prefixes without matching an interior substring", async () => {
     await withDatabase(async store => {
       store.seed({ id: "inside", name: "Malice", discriminator: "0042" });
-      expectUsers(await userQueries.searchUsersByName(store.db, "ali"), [publicUser(), publicUser({ id: "inside", name: "Malice", email: "inside@fixture.test", image: null, avatarVersion: 0, discriminator: "0042" })]);
-      expectNoDriverIdentities(store, ["other", "gone"]);
+      expectUsers(await userQueries.searchUsersByName(store.db, "ali"), [publicUser()]);
+      expectNoDriverIdentities(store, ["inside", "other", "gone"]);
     });
   });
 
@@ -389,6 +389,7 @@ describe("searchUsersByName", () => {
       store.seed({ id: "other-number", name: "Alice", discriminator: "0009" });
       store.seed({ id: "prefix-only", name: "Alicia", discriminator: "0001" });
       expectUsers(await userQueries.searchUsersByName(store.db, "Alice", { discriminator: "0001" }), [publicUser()]);
+      expect(await userQueries.searchUsersByName(store.db, "alice", { discriminator: "0001" })).toEqual([]);
       expectNoDriverIdentities(store, ["other-number", "prefix-only", "other", "gone"]);
     });
   });

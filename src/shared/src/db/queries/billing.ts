@@ -253,10 +253,13 @@ export async function applyBillingPlan(
 
 export { resolveBotsMaxForUser as getEffectivePlan };
 
-export async function listBillingOwners(db: Database) {
-  return db.select({ userId: userBilling.userId }).from(userBilling)
+export type BillingRecoveryCursor = { updatedAt: string; userId: string };
+
+export async function listBillingRecoveryPage(db: Database, after?: BillingRecoveryCursor) {
+  const cursor = after ?? { updatedAt: "", userId: "" };
+  return db.select({ userId: userBilling.userId, updatedAt: userBilling.updatedAt, deletedAt: user.deletedAt }).from(userBilling)
     .innerJoin(user, eq(user.id, userBilling.userId))
-    .where(and(isNotNull(userBilling.customerId), isNull(user.deletedAt)))
+    .where(and(isNotNull(userBilling.customerId), sql`(${userBilling.updatedAt}, ${userBilling.userId}) > (${cursor.updatedAt}, ${cursor.userId})`))
     .orderBy(userBilling.updatedAt, userBilling.userId).limit(25);
 }
 

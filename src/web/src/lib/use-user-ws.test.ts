@@ -12,7 +12,6 @@ import {
   prepareCommunityDeliveryEvents,
   type CommunityWsEvent,
   type CommunityContract,
-  type WsMessage,
 } from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
 import * as schemaLifecycle from "./business-schema-lifecycle"
@@ -285,7 +284,7 @@ describe("useUserWs", () => {
   })
 
   async function mountHook(
-    onMessage: (msg: WsMessage, assertCurrent?: () => void, communityContract?: CommunityContract) => void | Promise<void>,
+    onMessage: (msg: CommunityWsEvent, assertCurrent?: () => void, communityContract?: CommunityContract) => void | Promise<void>,
     options?: UseUserWsOptions,
   ) {
     // Re-import to get fresh module with fresh mocks
@@ -541,7 +540,7 @@ describe("useUserWs", () => {
     const batch = await currentBatch([explicitMembership])
     expect(decodeCommunityBrowserEvent(legacyMembership).ok).toBe(false)
     setupTokenFetch()
-    const received: WsMessage[] = []
+    const received: CommunityWsEvent[] = []
     await mountHook(message => { received.push(message) })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
@@ -566,7 +565,7 @@ describe("useUserWs", () => {
   async function mountResourceConnection() {
     setupTokenFetch()
     const received: CommunityWsEvent[] = []
-    const callback = vi.fn(async (message: WsMessage, assertCurrent?: () => void, contract?: CommunityContract) => {
+    const callback = vi.fn(async (message: CommunityWsEvent, assertCurrent?: () => void, contract?: CommunityContract) => {
       expect(contract).toBe(BUSINESS_SCHEMA_VERSION)
       if (message.type === communityBrowserEventBatchType()) {
         const admitted = await admitCommunityBrowserEventBatch(message)

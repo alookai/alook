@@ -14,4 +14,6 @@ export const communityBotCreationRequest = sqliteTable("community_bot_creation_r
   decisionNonce: text("decision_nonce"),
   createdAt: text("created_at").notNull(),
   resolvedAt: text("resolved_at"),
-}, (t) => [index("idx_bot_creation_requester").on(t.requesterId, t.createdAt), index("idx_bot_creation_owner").on(t.ownerId, t.createdAt)])
+}, (t) => [
+    index("idx_community_bot_creation_request_channel_id_lookup").on(t.channelId),
+    index("idx_bot_creation_requester").on(t.requesterId, t.createdAt), index("idx_bot_creation_owner").on(t.ownerId, t.createdAt)])

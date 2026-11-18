@@ -147,6 +147,7 @@ export const communityMachineToken = sqliteTable(
     lastUsedAt: text("last_used_at"),
   },
   (t) => [
+    index("idx_community_machine_token_machine_id_lookup").on(t.machineId),
     index("idx_community_machine_token_user_status").on(t.userId, t.status),
     // Partial unique — at most one pending token per user. Enforced at DB
     // level so createPairingToken doesn't need lookup-then-insert.
@@ -259,7 +260,9 @@ export const communityBotBinding = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
   },
-  (t) => [index("idx_community_bot_binding_machine").on(t.machineId)]
+  (t) => [
+    index("idx_community_bot_binding_machine").on(t.machineId),
+  ]
 );
 
 export type MachineBackendQuotaStatus = "available" | "error";
@@ -307,6 +310,7 @@ export const communityAgentRunnerKey = sqliteTable(
     revokedAt: text("revoked_at"),
   },
   (t) => [
+    index("idx_community_agent_runner_key_user_id_lookup").on(t.userId),
     index("idx_community_agent_runner_key_machine_agent").on(t.machineId, t.agentId),
   ]
 );

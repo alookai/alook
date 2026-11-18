@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, exists, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { eq, and, asc, desc, exists, inArray, isNull, ne, notExists, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { alias } from "drizzle-orm/sqlite-core";
 import { communityChannel, communityChannelMember, communityFriendship } from "../../community-schema";
@@ -22,13 +22,13 @@ function dmChannelQuery(
     .where(
       and(
         eq(communityChannel.type, "dm"),
-        exists(
+        inArray(
+          communityChannel.id,
           db
-            .select({ one: sql<number>`1` })
+            .select({ channelId: selfMember.channelId })
             .from(selfMember)
             .where(
               and(
-                eq(selfMember.channelId, communityChannel.id),
                 eq(selfMember.userId, userAId),
                 eq(selfMember.relation, "access")
               )

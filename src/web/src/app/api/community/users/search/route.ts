@@ -27,7 +27,7 @@ export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   // `ada#0042` → exact (name, discriminator) match so users can disambiguate
-  // two people with the same name. Anything else falls back to LIKE-substring.
+  // two people with the same name. Other searches match the name prefix.
   const tagged = parseNameAndTag(q)
   const users = tagged
     ? await queries.user.searchUsersByName(db, tagged.name, {

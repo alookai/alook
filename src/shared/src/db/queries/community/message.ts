@@ -1,5 +1,5 @@
-import { advanceReadStateRevisionsForUsersBuilder } from "./read-state-revision";
-import { eq, ne, and, asc, desc, exists, gt, lt, lte, or, sql, inArray, count, min, type GetColumnData } from "drizzle-orm";
+import { advanceReadStateRevisionsForUsersBuilder, humanUserExistsCondition } from "./read-state-revision";
+import { eq, ne, and, asc, desc, exists, gt, lt, lte, or, notExists, notInArray, sql, inArray, count, min, type GetColumnData } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -15,6 +15,7 @@ import {
 import { user } from "../../schema";
 import { nanoid } from "nanoid";
 import type { Database } from "../../index";
+import { jsonTextSet } from "../_json-set";
 import type { CommunityMessagePosition } from "../../../community-resources";
 import { attachmentReadableSql } from "./attachment";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../../constants/community";
@@ -373,30 +374,29 @@ async function hardDeleteMessageAttempt(
     .limit(1);
   const prior = priorRows[0];
 
-  const [impactedPointers, impactedMentions] = await Promise.all([
+  const impactedHumanQueries = [
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
-      .innerJoin(user, eq(user.id, communityReadState.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityReadState.userId),
         eq(communityReadState.channelId, msg.channelId),
         eq(communityReadState.lastReadMessageId, messageId),
       )),
     db
       .selectDistinct({ userId: communityMention.userId })
       .from(communityMention)
-      .innerJoin(user, eq(user.id, communityMention.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityMention.userId),
         eq(communityMention.messageId, messageId),
       )),
-  ]);
+  ] as const;
+  const [impactedPointers, impactedMentions] = await Promise.all(impactedHumanQueries);
+  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1]).as("current_impacted_humans");
   const impactedUserIds = [...new Set([
     ...impactedPointers,
     ...impactedMentions,
   ].map((row) => row.userId))];
-  const impactedIdsJson = JSON.stringify(impactedUserIds);
   const rootStillExists = exists(
     db
       .select({ one: sql<number>`1` })
@@ -416,14 +416,9 @@ async function hardDeleteMessageAttempt(
         AND current_mention.message_id = ${messageId}
     )
   )`;
-  const impactedHumansStable = sql<boolean>`NOT EXISTS (
-    SELECT 1 FROM ${user} AS current_user
-    WHERE current_user."isBot" = 0
-      AND current_user.id NOT IN (
-        SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
-      )
-      AND ${userHasEffect(sql`current_user.id`)}
-  )`;
+  const impactedHumansStable = notExists(db.select({ one: sql<number>`1` })
+    .from(currentImpactedUserIds)
+    .where(notInArray(currentImpactedUserIds.userId, jsonTextSet(db, impactedUserIds))));
   const enumeratedUserHasEffect = userHasEffect(sql`CAST(value AS TEXT)`);
 
   const deleteMsg = db

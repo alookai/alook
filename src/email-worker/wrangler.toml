@@ -23,19 +23,6 @@ destinations = ["grafana-traces"]
 port = 8787
 inspector_port = 9231
 
-[[d1_databases]]
-binding = "DB"
-database_id = "1593b87c-d8a8-4cdf-b6c0-c80d94442654"
-database_name = "alook-app"
-
-[[r2_buckets]]
-binding = "EMAIL_BUCKET"
-bucket_name = "alook-emails"
-
-[[services]]
-binding = "WEB_SERVICE"
-service = "alook-web"
-
 [[send_email]]
 name = "SEND_EMAIL"
 

@@ -2,12 +2,7 @@ import * as nativeOauthQueries from "./queries/native-oauth";
 export * as automation from "./queries/automation";
 
 export * as user from "./queries/user";
-export * as agent from "./queries/agent";
-export * as whitelist from "./queries/whitelist";
-export * as email from "./queries/email";
 export * as session from "./queries/session";
-export * as emailAccount from "./queries/email-account";
-export * as meetingSession from "./queries/meeting-session";
 export * as accountDeletion from "./queries/account-deletion";
 export * as productPlan from "./queries/product-plan";
 export * as communityServer from "./queries/community/server";

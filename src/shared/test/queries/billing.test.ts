@@ -28,6 +28,7 @@ beforeEach(() => {
   createMachinePlanTables(sqlite);
   sqlite.exec(readFileSync(new URL("../../../web/migrations/0101_machine_plan_limits.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../../web/migrations/0104_server_ga4_purchase.sql", import.meta.url), "utf8"));
+  sqlite.exec("CREATE INDEX idx_user_billing_recovery_cursor ON user_billing(updated_at,user_id) WHERE customer_id IS NOT NULL");
   db = drizzle(sqlite) as unknown as Database;
   db.batch = (async (statements: Statement[]) => sqlite.transaction(() => statements.map((s) =>
     /^select\b|\breturning\b/i.test(s.toSQL().sql.trim()) ? s.all() : s.run(),
@@ -197,7 +198,7 @@ describe("billing catalog persistence", () => {
     expect(billingTable.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, onDelete: key.onDelete })))
       .toEqual([{ column: "user_id", onDelete: "cascade" }]);
     expect(billingTable.indexes.map((index) => ({ name: index.config.name, unique: index.config.unique })))
-      .toEqual([{ name: "uq_user_billing_customer", unique: true }, { name: "uq_user_billing_subscription", unique: true }]);
+      .toEqual([{ name: "uq_user_billing_customer", unique: true }, { name: "uq_user_billing_subscription", unique: true }, { name: "idx_user_billing_recovery_cursor", unique: false }]);
     expect(consentTable.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, onDelete: key.onDelete })))
       .toEqual([{ column: "user_id", onDelete: "cascade" }]);
     expect(deliveryTable.foreignKeys.map((key) => ({ column: key.reference().columns[0].name, onDelete: key.onDelete })))
@@ -323,13 +324,31 @@ it("bounds recovery to the 25 oldest live billed owners and rotates attempted ow
   }
   sqlite.prepare("UPDATE user SET deletedAt=? WHERE id='recover-01'").run(new Date().toISOString());
   await billing.ensureBilling(db, "new-user");
-  const owners = await billing.listBillingOwners(db);
+  const readOwners = async () => {
+    const owners: Array<{ userId: string }> = [];
+    let cursor: billing.BillingRecoveryCursor | undefined;
+    while (owners.length < 25) {
+      const page = await billing.listBillingRecoveryPage(db, cursor);
+      if (!page.length) break;
+      expect(page.length).toBeLessThanOrEqual(25);
+      for (const row of page) {
+        cursor = { updatedAt: row.updatedAt, userId: row.userId };
+        if (row.deletedAt === null) owners.push({ userId: row.userId });
+        if (owners.length === 25) break;
+      }
+    }
+    return owners;
+  };
+  const firstPage = await billing.listBillingRecoveryPage(db);
+  expect(firstPage).toHaveLength(25);
+  expect(firstPage[1]).toMatchObject({ userId: "recover-01", deletedAt: expect.any(String) });
+  const owners = await readOwners();
   expect(owners).toHaveLength(25);
   expect(owners[0]).toEqual({ userId: "recover-00" });
   expect(owners).not.toContainEqual({ userId: "recover-01" });
   expect(owners).not.toContainEqual({ userId: "new-user" });
   await billing.recordBillingRecoveryAttempt(db, "recover-00");
-  const next = await billing.listBillingOwners(db);
+  const next = await readOwners();
   expect(next[0]).toEqual({ userId: "recover-02" });
   expect(next).toContainEqual({ userId: "recover-26" });
   expect(next).not.toContainEqual({ userId: "recover-00" });

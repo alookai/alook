@@ -1,5 +1,5 @@
-import { advanceReadStateRevisionsForUsersBuilder } from "./read-state-revision";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { advanceReadStateRevisionsForUsersBuilder, humanUserExistsCondition } from "./read-state-revision";
+import { and, eq, inArray, or, notExists, notInArray, sql } from "drizzle-orm";
 import {
   communityChannel,
   communityMention,
@@ -8,6 +8,7 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { jsonTextSet } from "../_json-set";
 import {
   type AccountReadStateRevisionByUser,
 } from "./read-state";
@@ -77,13 +78,12 @@ async function deleteForumPostAttempt(
     .from(communityMessage)
     .where(eq(communityMessage.channelId, input.childChannelId));
 
-  const [impactedPointers, impactedMentions] = await Promise.all([
+  const impactedHumanQueries = [
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
-      .innerJoin(user, eq(user.id, communityReadState.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityReadState.userId),
         or(
           and(
             eq(communityReadState.channelId, input.forumChannelId),
@@ -95,15 +95,16 @@ async function deleteForumPostAttempt(
     db
       .selectDistinct({ userId: communityMention.userId })
       .from(communityMention)
-      .innerJoin(user, eq(user.id, communityMention.userId))
       .where(and(
-        eq(user.isBot, false),
+        humanUserExistsCondition(db, communityMention.userId),
         or(
           eq(communityMention.messageId, input.openerId),
           inArray(communityMention.messageId, childMessageIds),
         ),
       )),
-  ]);
+  ] as const;
+  const [impactedPointers, impactedMentions] = await Promise.all(impactedHumanQueries);
+  const currentImpactedUserIds = impactedHumanQueries[0].union(impactedHumanQueries[1]).as("current_impacted_humans");
   const impactedUserIds = [...new Set([
     ...impactedPointers,
     ...impactedMentions,
@@ -117,34 +118,9 @@ async function deleteForumPostAttempt(
   // humans may change safely: their account revision still covers the result,
   // and clients pull the bounded account snapshot from the primary endpoint.
   // Bot rows remain outside this account contract.
-  const impactedHumansStable = sql<boolean>`NOT EXISTS (
-    SELECT 1 FROM ${user} AS current_user
-    WHERE current_user."isBot" = 0
-      AND current_user.id NOT IN (
-        SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
-      )
-      AND (
-        EXISTS (
-          SELECT 1 FROM ${communityReadState} AS current_state
-          WHERE current_state.user_id = current_user.id
-            AND (
-              (current_state.channel_id = ${input.forumChannelId}
-                AND current_state.last_read_message_id = ${input.openerId})
-              OR current_state.channel_id = ${input.childChannelId}
-            )
-        )
-        OR EXISTS (
-          SELECT 1 FROM ${communityMention} AS current_mention
-          INNER JOIN ${communityMessage} AS mentioned_message
-            ON mentioned_message.id = current_mention.message_id
-          WHERE current_mention.user_id = current_user.id
-            AND (
-              current_mention.message_id = ${input.openerId}
-              OR mentioned_message.channel_id = ${input.childChannelId}
-            )
-        )
-      )
-  )`;
+  const impactedHumansStable = notExists(db.select({ one: sql<number>`1` })
+    .from(currentImpactedUserIds)
+    .where(notInArray(currentImpactedUserIds.userId, jsonTextSet(db, impactedUserIds))));
   const enumeratedUserHasEffect = sql<boolean>`EXISTS (
     SELECT 1 FROM ${user} AS enumerated_user
     WHERE enumerated_user.id = CAST(value AS TEXT)

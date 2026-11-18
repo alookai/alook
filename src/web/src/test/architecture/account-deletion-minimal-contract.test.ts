@@ -29,7 +29,7 @@ describe("minimal account deletion architecture", () => {
       "../shared/src/db/queries/account-deletion.ts",
     ].map(source).join("\n")
     expect(files).toContain("verification")
-    expect(files).toContain("EMAIL_BUCKET")
+    expect(files).not.toContain("EMAIL_BUCKET")
     expect(files).toContain("COMMUNITY_MEDIA")
     expect(files).toContain("BUG_REPORTS")
     expect(files).not.toContain("WorkflowEntrypoint")

@@ -12,10 +12,8 @@ import {
   BOTS_MAX_ENTITLEMENT_KEY,
   MACHINES_MAX_ENTITLEMENT_KEY,
   type MachineCapacitySummary,
-  EntitlementValueSchema,
   NonNegativeIntegerEntitlementSchema,
   type BotCapacitySummary,
-  type EntitlementValue,
   type ResolvedProductPlan,
 } from "../../product-entitlements";
 
@@ -258,47 +256,6 @@ export function reconcileOwnerActiveBotsBuilder(
   return reconcileActiveBotsBuilder(db, and(eq(user.ownerUserId, ownerUserId), guard)!, botsMax);
 }
 
-function reconcilePlanActiveBotsBuilder(
-  db: Database,
-  planId: string,
-  botsMax: number,
-) {
-  const ownerHasExplicitPlan = exists(
-    db
-      .select({ one: sql<number>`1` })
-      .from(userProductPlan)
-      .where(
-        and(
-          eq(userProductPlan.userId, user.ownerUserId),
-          eq(userProductPlan.planId, planId),
-        ),
-      ),
-  );
-  const targetIsDefault = exists(
-    db
-      .select({ one: sql<number>`1` })
-      .from(productPlan)
-      .where(
-        and(
-          eq(productPlan.id, planId),
-          eq(productPlan.isActive, true),
-          eq(productPlan.isDefault, true),
-        ),
-      ),
-  );
-  const ownerHasNoAssignment = notExists(
-    db
-      .select({ one: sql<number>`1` })
-      .from(userProductPlan)
-      .where(eq(userProductPlan.userId, user.ownerUserId)),
-  );
-  return reconcileActiveBotsBuilder(
-    db,
-    or(ownerHasExplicitPlan, and(targetIsDefault, ownerHasNoAssignment))!,
-    botsMax,
-  );
-}
-
 export type DisconnectedMachine = { machineId: string; userId: string; doName: string | null };
 
 export function machinesMaxForPlanSql(planId: string): SQL<number> {
@@ -425,50 +382,4 @@ export async function assignUserPlan(
     deactivatedBotIds: results[1].map((row) => row.botId),
     disconnectedMachines: results[2],
   };
-}
-
-export async function setPlanEntitlement(
-  db: Database,
-  planId: string,
-  entitlementKey: string,
-  value: EntitlementValue,
-): Promise<{ deactivatedBotIds: string[]; disconnectedMachines?: DisconnectedMachine[] }> {
-  const parsedValue = EntitlementValueSchema.parse(value);
-  const planRows = await db
-    .select({ id: productPlan.id })
-    .from(productPlan)
-    .where(and(eq(productPlan.id, planId), eq(productPlan.isActive, true)))
-    .limit(1);
-  if (!planRows[0]) {
-    throw new ProductEntitlementUnavailableError(entitlementKey, "plan_unavailable");
-  }
-  const now = new Date().toISOString();
-  const write = db
-    .insert(productPlanEntitlement)
-    .values({ planId, entitlementKey, valueJson: parsedValue, createdAt: now, updatedAt: now })
-    .onConflictDoUpdate({
-      target: [productPlanEntitlement.planId, productPlanEntitlement.entitlementKey],
-      set: { valueJson: parsedValue, updatedAt: now },
-    });
-  if (entitlementKey === MACHINES_MAX_ENTITLEMENT_KEY) {
-    const parsed = NonNegativeIntegerEntitlementSchema.safeParse(parsedValue);
-    if (!parsed.success) throw new ProductEntitlementUnavailableError(entitlementKey, "entitlement_malformed");
-    const explicit = inArray(communityMachine.userId, db.select({ id: userProductPlan.userId }).from(userProductPlan).where(eq(userProductPlan.planId, planId)));
-    const defaultPlan = exists(db.select({ id: productPlan.id }).from(productPlan).where(and(eq(productPlan.id, planId), eq(productPlan.isDefault, true))));
-    const unassigned = notExists(db.select({ id: userProductPlan.userId }).from(userProductPlan).where(eq(userProductPlan.userId, communityMachine.userId)));
-    const machines = reconcileOnlineMachinesBuilders(db, or(explicit, and(defaultPlan, unassigned))!, parsed.data);
-    const results = await db.batch([write, ...machines]);
-    return { deactivatedBotIds: [], disconnectedMachines: results[1] };
-  }
-  if (entitlementKey !== BOTS_MAX_ENTITLEMENT_KEY) {
-    await write;
-    return { deactivatedBotIds: [] };
-  }
-  const botsMax = NonNegativeIntegerEntitlementSchema.safeParse(parsedValue);
-  if (!botsMax.success) {
-    throw new ProductEntitlementUnavailableError(entitlementKey, "entitlement_malformed");
-  }
-  const reconcile = reconcilePlanActiveBotsBuilder(db, planId, botsMax.data);
-  const results = await db.batch([write, reconcile] as any) as unknown as [unknown, Array<{ botId: string }>];
-  return { deactivatedBotIds: results[1].map((row) => row.botId) };
 }

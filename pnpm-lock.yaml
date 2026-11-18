@@ -172,15 +172,6 @@ importers:
       '@alook/shared':
         specifier: workspace:*
         version: link:../shared
-      nanoid:
-        specifier: ^5.1.16
-        version: 5.1.16
-      postal-mime:
-        specifier: ^2.7.6
-        version: 2.7.6
-      worker-mailer:
-        specifier: ^1.3.0
-        version: 1.3.0
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: 1.8.2
@@ -234,15 +225,9 @@ importers:
 
   src/shared:
     dependencies:
-      '@philflow/tsdav-utils':
-        specifier: 0.7.0
-        version: 0.7.0
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@cloudflare/workers-types@5.20261114.1)(@opentelemetry/api@1.10.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(bun-types@1.4.4)(kysely@0.29.7)
-      ical.js:
-        specifier: 2.2.1
-        version: 2.2.1
       mdast-util-find-and-replace:
         specifier: ^3.0.3
         version: 3.0.3
@@ -3188,9 +3173,6 @@ packages:
 
   '@paulirish/trace_engine@0.0.53':
     resolution: {integrity: sha512-PUl/vlfo08Oj804VI5nDPeSk9vyslnBlVzDDwFt8SUVxY8+KdGMkra/vrXjEEHe8gb7+RqVTfOIlGw0nyrEelA==}
-
-  '@philflow/tsdav-utils@0.7.0':
-    resolution: {integrity: sha512-reKM1zCykID+HOv1duqbuTqKpfuX7bQoYtYtkYQJ67IVmeHMHY1ASNrIpLjFMiZoD/ncmjUXMxG/vYWM+ZeWdw==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -7218,9 +7200,6 @@ packages:
   humanize-ms@1.2.1:
     resolution: {integrity: sha512-Fl70vYtsAFb/C06PTS9dZBo7ihau+Tu/DNCk/OyHhea07S+aeMWpFFkUaXRa8fI+ScZbEI8dfSxwY7gxZ9SAVQ==}
 
-  ical.js@2.2.1:
-    resolution: {integrity: sha512-yK/UlPbEs316igb/tjRgbFA8ZV75rCsBJp/hWOatpyaPNlgw0dGDmU+FoicOcwX4xXkeXOkYiOmCqNPFpNPkQg==}
-
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
     engines: {node: '>=0.10.0'}
@@ -10476,9 +10455,6 @@ packages:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
 
-  worker-mailer@1.3.0:
-    resolution: {integrity: sha512-VGbZC7mqOFq91cJOqphqVYX1Hk/Lf61sqLyByAwlG5QDtheiTaAJsfWQzxJewTmgxrrAecd1F9uStuIXBiLg8w==}
-
   workerd@1.20261113.1:
     resolution: {integrity: sha512-FJP8Bm1jiiJTE2xpSIhT9JkMaKzU54y9Jk0q7n3BLWyWdUNsn35QGCqARcqXGwO3FGkvahhYqUEG2bJzlgcfhw==}
     engines: {node: '>=16'}
@@ -13125,10 +13101,6 @@ snapshots:
     dependencies:
       legacy-javascript: 0.0.4
       third-party-web: 0.30.0
-
-  '@philflow/tsdav-utils@0.7.0':
-    dependencies:
-      ical.js: 2.2.1
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
@@ -17389,8 +17361,6 @@ snapshots:
   humanize-ms@1.2.1:
     dependencies:
       ms: 2.1.3
-
-  ical.js@2.2.1: {}
 
   iconv-lite@0.4.24:
     dependencies:
@@ -21700,8 +21670,6 @@ snapshots:
   why-is-node-running@3.2.1: {}
 
   word-wrap@1.2.5: {}
-
-  worker-mailer@1.3.0: {}
 
   workerd@1.20261113.1:
     optionalDependencies:

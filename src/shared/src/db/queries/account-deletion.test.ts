@@ -161,13 +161,6 @@ describe("account deletion snapshot and delete queries", () => {
     const bot = "delete_bot"
     const reader = "surviving_reader"
     const earlyReader = "surviving_early_reader"
-    const ownedWorkspace = "owned_workspace"
-    const sharedWorkspace = "shared_workspace"
-    const ownedAgent = "owned_agent"
-    const sharedOwnedAgent = "shared_owned_agent"
-    const survivingAgent = "surviving_agent"
-    const runtime = "owned_runtime"
-    const daemon = "owned_daemon"
     const dm = "surviving_dm"
     const priorMessage = "prior_message"
     const authoredMessage = "authored_message"
@@ -179,8 +172,6 @@ describe("account deletion snapshot and delete queries", () => {
     const ownedServer = "owned_server"
     const emptyOwnedServer = "empty_owned_server"
     const serverChannel = "owned_server_channel"
-    const sharedAttachmentKey = "emails/drafts/shared.txt"
-    const privateAttachmentKey = "emails/drafts/private.txt"
 
     run(
       "INSERT INTO user (id, email, name, discriminator, avatarObjectKey) VALUES (?, ?, 'Owner', '8101', ?), (?, ?, 'Bot', '8102', ?), (?, ?, 'Reader', '8103', NULL), (?, ?, 'Early reader', '8104', NULL)",
@@ -198,55 +189,6 @@ describe("account deletion snapshot and delete queries", () => {
     run(
       "INSERT INTO account (id, userId, accountId, providerId, accessToken, refreshToken, createdAt, updatedAt) VALUES ('account_1', ?, 'provider_account', 'github', 'access', 'refresh', ?, ?)",
       owner, now, now,
-    )
-    run(
-      "INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES (?, 'Owned', ?, ?, ?), (?, 'Shared', ?, ?, ?)",
-      ownedWorkspace, ownedWorkspace, now, now, sharedWorkspace, sharedWorkspace, now, now,
-    )
-    run(
-      "INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES ('member_owner', ?, ?, 'owner', ?), ('member_coowner', ?, ?, 'owner', ?), ('member_shared_owner', ?, ?, 'owner', ?), ('member_shared_user', ?, ?, 'member', ?)",
-      ownedWorkspace, owner, now, ownedWorkspace, reader, now,
-      sharedWorkspace, reader, now, sharedWorkspace, owner, now,
-    )
-    run(
-      "INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('token_owner', ?, ?, 'al_owner_token', 'Owner', 'active', ?), ('token_workspace', ?, ?, 'al_workspace_token', 'Workspace', 'active', ?)",
-      owner, sharedWorkspace, now, reader, ownedWorkspace, now,
-    )
-    run(
-      "INSERT INTO agent (id, workspace_id, name, owner_id, created_at, updated_at) VALUES (?, ?, 'Owned', ?, ?, ?), (?, ?, 'Shared owned', ?, ?, ?)",
-      ownedAgent, ownedWorkspace, owner, now, now,
-      sharedOwnedAgent, sharedWorkspace, owner, now, now,
-    )
-    run(
-      "INSERT INTO machine (daemon_id, workspace_id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-      daemon, sharedWorkspace, owner, now, now,
-    )
-    run(
-      "INSERT INTO agent_runtime (id, workspace_id, daemon_id, provider, created_at, updated_at) VALUES (?, ?, ?, 'codex', ?, ?)",
-      runtime, sharedWorkspace, daemon, now, now,
-    )
-    run(
-      "INSERT INTO agent (id, workspace_id, name, runtime_id, owner_id, created_at, updated_at) VALUES (?, ?, 'Survivor', ?, ?, ?, ?)",
-      survivingAgent, sharedWorkspace, runtime, reader, now, now,
-    )
-    run(
-      "INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, type, channel, created_at) VALUES ('owned_conversation', ?, ?, ?, '', 'user_dm_message', 'default', ?)",
-      ownedWorkspace, ownedAgent, owner, now,
-    )
-    run(
-      "INSERT INTO artifact (id, conversation_id, agent_id, workspace_id, filename, size, r2_key, thumbnail_r2_key, created_at) VALUES ('owned_artifact', 'owned_conversation', ?, ?, 'artifact.txt', 1, 'artifacts/raw', 'artifacts/thumb', ?)",
-      ownedAgent, ownedWorkspace, now,
-    )
-    run(
-      "INSERT INTO meeting_session (id, agent_id, workspace_id, meeting_url, transcript_r2_key, created_at, updated_at) VALUES ('owned_meeting', ?, ?, 'https://example.com', 'meetings/transcript', ?, ?)",
-      ownedAgent, ownedWorkspace, now, now,
-    )
-    run(
-      "INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, r2_key, attachments, created_at) VALUES ('deleting_email', ?, ?, 'owner@example.com', 'x@example.com', 'emails/deleting/raw', ?, ?), ('invalid_email', ?, ?, 'owner@example.com', 'x@example.com', 'emails/invalid/raw', 'not-json', ?), ('non_array_email', ?, ?, 'owner@example.com', 'x@example.com', 'emails/non-array/raw', '{}', ?), ('surviving_email', ?, ?, 'reader@example.com', 'x@example.com', 'emails/surviving/raw', ?, ?)",
-      ownedAgent, ownedWorkspace, JSON.stringify([{ key: sharedAttachmentKey }, { key: privateAttachmentKey }, { nope: true }, null]), now,
-      ownedAgent, ownedWorkspace, now,
-      ownedAgent, ownedWorkspace, now,
-      survivingAgent, sharedWorkspace, JSON.stringify([{ key: sharedAttachmentKey }]), now,
     )
     run("INSERT INTO community_machine (id, user_id, created_at, updated_at) VALUES ('community_machine_1', ?, ?, ?)", owner, now, now)
     run(
@@ -306,8 +248,6 @@ describe("account deletion snapshot and delete queries", () => {
     expect(snapshot).not.toBeNull()
     expect(snapshot!.identities.map((row) => row.id).sort()).toEqual([bot, owner])
     expect(snapshot!.providers).toHaveLength(1)
-    expect(snapshot!.ownedWorkspaceIds).toEqual([ownedWorkspace])
-    expect(snapshot!.ownedAgentIds.sort()).toEqual([ownedAgent, sharedOwnedAgent].sort())
     expect(snapshot!.machineDoNames).toEqual(["b".repeat(32)])
     expect(snapshot!.botBindings).toEqual([{ botId: bot, machineId: "community_machine_1" }])
     expect(snapshot!.ownedServers).toEqual(expect.arrayContaining([
@@ -319,15 +259,6 @@ describe("account deletion snapshot and delete queries", () => {
       `user-avatar/${owner}`,
       `bot-avatar/${bot}`,
     ]))
-    expect(snapshot!.media.emailExactKeys).toEqual(expect.arrayContaining([
-      "artifacts/raw",
-      "artifacts/thumb",
-      "emails/deleting/raw",
-      "meetings/transcript",
-    ]))
-    expect(snapshot!.media.survivingEmailAttachments).toEqual([
-      JSON.stringify([{ key: sharedAttachmentKey }]),
-    ])
     expect(snapshot!.media.bugReportPrefixes).toEqual(expect.arrayContaining([
       `bug-reports/${owner}/`,
       `bug-reports/${bot}/`,
@@ -341,9 +272,6 @@ describe("account deletion snapshot and delete queries", () => {
         { userId: reader, revision: 1 },
       ].sort((left, right) => left.userId.localeCompare(right.userId)))
     expect(sqlite.prepare("SELECT id FROM user WHERE id IN (?, ?)").get(owner, bot)).toBeUndefined()
-    expect(sqlite.prepare("SELECT id FROM workspace WHERE id = ?").get(ownedWorkspace)).toBeUndefined()
-    expect(sqlite.prepare("SELECT id FROM workspace WHERE id = ?").get(sharedWorkspace)).toEqual({ id: sharedWorkspace })
-    expect(sqlite.prepare("SELECT runtime_id FROM agent WHERE id = ?").get(survivingAgent)).toEqual({ runtime_id: null })
     expect(sqlite.prepare("SELECT id FROM community_attachment ORDER BY id").all()).toEqual([
       { id: "owner_attachment" }, { id: "pending_server_attachment" }, { id: "pending_thread_attachment" },
     ])
