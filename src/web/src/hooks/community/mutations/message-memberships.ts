@@ -57,6 +57,12 @@ function useMarkCommand<T extends { messageId: string; channelId?: string; asser
       const baseline = resource?.state.dataUpdateCount
       await origin.request(original, `/api/community/messages/${messageId}/marks`, { method: marked ? "PUT" : "DELETE", signal: assertActive?.signal, assertActive, ...(marked ? { body: JSON.stringify({ channelId }) } : {}) })
       assert()
+      if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource) await client.cancelQueries({ queryKey: key, exact: true })
+      assert()
+      await origin.registry!.retireAuxiliaryDisk([{ kind: "message-marked", id: messageId }]).catch(cause => console.error("Personal Marked cache retirement failed", cause))
+      assert()
+      const auxiliaryReadEpoch = await origin.registry!.captureAuxiliaryReadEpoch()
+      assert()
       const listKey = communityKeys.inboxMarked()
       const list = resources.find(query => query.queryKey.length === listKey.length && listKey.every((part, index) => Object.is(part, query.queryKey[index])))
       if (list && client.getQueryCache().find({ queryKey: listKey, exact: true }) === list) {
@@ -71,7 +77,11 @@ function useMarkCommand<T extends { messageId: string; channelId?: string; asser
           }
         }
       }
-      if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === baseline) client.setQueryData(key, { marked })
+      if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === baseline) {
+        const previous = resource.state.data as { scopeRef?: { channelId: string; serverId?: string | null; parentChannelId?: string | null } } | undefined
+        const scopeRef = previous?.scopeRef ?? (channelId ? { channelId } : undefined)
+        client.setQueryData(key, { marked, ...(scopeRef ? { scopeRef } : {}), observed: false, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) })
+      }
       for (const query of resources) if (client.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void client.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
     },
     onError: (error, args) => {

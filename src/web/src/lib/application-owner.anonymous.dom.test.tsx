@@ -8,7 +8,6 @@ import { InviteAcceptClient } from "@/app/(public-community)/c/invite/[token]/in
 import { PublicQueryProvider, useApplicationOwner, type ApplicationOwner } from "./application-owner"
 import { CACHE_INVALIDATION_STORAGE_KEY, clearAllPersistedCaches, createIdbPersister, PERSIST_BUSTER, type QualifiedPersister } from "./query-persister"
 import { businessSchemaLifecycle, requestDocumentBuildUpdate } from "./business-schema-lifecycle"
-import { communityKeys } from "./query-keys"
 import { tid } from "@/lib/community/testids"
 
 type Identity = { data: { user: { id: string } } | null; isPending: boolean; error: Error | null }
@@ -17,8 +16,8 @@ let viewer: string | null | undefined
 const storage = vi.hoisted(() => ({ writers: [] as QualifiedPersister[] }))
 vi.mock("./query-persister", async original => {
   const actual = await original<typeof import("./query-persister")>()
-  return { ...actual, createIdbPersister: (id: string | null) => {
-    const writer = actual.createIdbPersister(id); storage.writers.push(writer); return writer
+  return { ...actual, createIdbPersister: (...args: Parameters<typeof actual.createIdbPersister>) => {
+    const writer = actual.createIdbPersister(...args); storage.writers.push(writer); return writer
   } }
 })
 vi.mock("@/lib/auth-client", () => ({ useSession: () => useContext(identityInput), currentSessionViewer: () => viewer }))
@@ -63,9 +62,9 @@ it.each([false, true])("keeps compatible native public-owner data while real acc
   mounted = render(<Root identity={known("A")} />)
   await waitFor(() => expect(owner.userId).toBe("A"))
   const originalOwner = owner, writer = storage.writers[0]!, seed = new QueryClient()
-  seed.setQueryData(communityKeys.communityDbCollection("A", "profiles"), [{ id: "A", name: "Retained", discriminator: "0042", avatar: null, avatarVersion: 0 }])
-  const snapshot = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(seed) }
-  await writer.persistClient(snapshot)
+  seed.setQueryData(["public-pricing"], { free: { plan: { id: "free", displayName: "Free" }, botLimit: 1, machineLimit: 1 }, offers: [] })
+  await writer.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(seed) })
+  const snapshot = (await writer.restoreClient())!
   const base = window, replace = vi.fn()
   vi.stubGlobal("window", new Proxy(base, { get(target, key) {
     return key === "location" ? { href: "https://alook.test/c/invite/update", origin: "https://alook.test", replace, reload } : Reflect.get(target, key, target)
@@ -85,7 +84,7 @@ it.each([false, true])("keeps compatible native public-owner data while real acc
     await waitFor(async () => expect(await writer.isCurrent()).toBe(false))
   }
   await act(async () => { mounted!.unmount(); mounted = undefined; await queued; await writer.removeClient() })
-  const restored = await createIdbPersister("A").restoreClient()
+  const restored = await createIdbPersister("A", "application").restoreClient()
   if (invalidate) expect(restored).toBeUndefined()
   else expect(restored).toEqual(snapshot)
   seed.clear()

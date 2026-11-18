@@ -34,7 +34,7 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
 }) {
   const catalog = useQuery({
     queryKey: ["public-pricing"],
-    queryFn: async ({ signal }) => PublicPricingSchema.parse(await apiFetch<unknown>("/api/pricing", { signal })),
+    queryFn: async ({ signal }) => ({ ...PublicPricingSchema.parse(await apiFetch<unknown>("/api/pricing", { signal })), observed: true }),
     staleTime: 30_000,
     retry: false,
   })
@@ -49,7 +49,7 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
   const busy = sessionPending || billing.isBusy || catalog.isPending || (signedIn && billing.isPending)
   useObservedRegion("billing", !busy && !catalog.isError && !sessionError, 1)
   const unavailable = sessionError || catalog.isError || (signedIn && billing.isError)
-  const disabled = (plan: string) => busy || unavailable || (plan !== "free" && (
+  const disabled = (plan: string) => busy || unavailable || catalog.data?.observed !== true || signedIn && !billing.isCurrentRead() || (plan !== "free" && (
     !offer(plan) || (signedIn && !paymentOffer(plan)) || (!summary?.isFounder && summary?.plan.id === plan) || summary?.subscription?.scheduledChange?.plan.id === plan
   ))
   const currentPlan = signedIn && summary ? toAnalyticsCurrentPlan(summary.plan.id, summary.isFounder) : "none"
@@ -111,7 +111,7 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
   }
   return <>
     <PricingDetails controller={{ catalog: catalog.data, offer, disabled, label, choose, message, error, retry }} />
-    <FounderPlanChangeDialog offer={founderOffer} busy={billing.isBusy} onCancel={() => setFounderOffer(null)} onConfirm={() => {
+    <FounderPlanChangeDialog offer={founderOffer} busy={billing.isBusy} confirmDisabled={founderOffer ? disabled(founderOffer.plan.id) : true} onCancel={() => setFounderOffer(null)} onConfirm={() => {
       if (!founderOffer || disabled(founderOffer.plan.id)) return
       const current = paymentOffer(founderOffer.plan.id)
       if (!current || current.priceId !== founderOffer.priceId) { setFounderOffer(null); return }

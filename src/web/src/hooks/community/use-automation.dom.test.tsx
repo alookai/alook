@@ -85,10 +85,11 @@ describe("Automation request ownership", () => {
     view.unmount()
   })
   it("updates an encoded code path and refreshes its metadata", async () => {
+    mocks.api.mockResolvedValue({ accessCodes: [{ ...response.accessCode, id: "code/with space" }] })
     const view = setup()
     await waitFor(() => expect(view.result.current.list.isSuccess).toBe(true))
     const data = { name: "Renamed", permissions: create.data.permissions }
-    const updated = { ...response.accessCode, name: data.name }
+    const updated = { ...response.accessCode, id: "code/with space", name: data.name }
     const created = vi.fn()
     mocks.api.mockResolvedValueOnce({ accessCode: updated }).mockResolvedValue({ accessCodes: [updated] })
     await act(async () => { await view.result.current.execute({ kind: "update", id: "code/with space", data }, created) })
@@ -98,7 +99,7 @@ describe("Automation request ownership", () => {
     view.unmount()
   })
   it("deletes an encoded code path without a body and refreshes the list", async () => {
-    mocks.api.mockResolvedValue({ accessCodes: [response.accessCode] })
+    mocks.api.mockResolvedValue({ accessCodes: [{ ...response.accessCode, id: "code/with space" }] })
     const view = setup()
     await waitFor(() => expect(view.result.current.list.data?.accessCodes).toHaveLength(1))
     const created = vi.fn()

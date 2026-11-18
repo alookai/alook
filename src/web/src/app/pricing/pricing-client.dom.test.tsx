@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { render, setupUser, waitFor } from "@/test/react-dom-harness"
 import PricingClient from "./pricing-client"
 import { renderToString } from "react-dom/server"
+import "fake-indexeddb/auto"
+import { clearAllPersistedCaches } from "@/lib/query-persister"
 
 vi.mock("./pricing.module.css", () => ({ default: new Proxy({}, { get: (_target, key) => String(key) }) }))
 
@@ -32,7 +34,8 @@ const subscription = { plan: offers[0].plan, status: "active", currentPeriodEnd:
 
 afterEach(() => vi.unstubAllGlobals())
 
-beforeEach(() => {
+beforeEach(async () => {
+  await clearAllPersistedCaches()
   const originalWindow = window
   vi.stubGlobal("window", new Proxy(originalWindow, {
     get: (target, key) => key === "location" ? new Proxy({}, {
@@ -44,7 +47,7 @@ beforeEach(() => {
   state.suspendSearch = false
   state.search = new URLSearchParams()
   state.api.mockResolvedValue(catalog)
-  state.billing = { data: undefined, isPending: false, isBusy: false, isError: false, actionError: null }
+  state.billing = { data: undefined, isCurrentRead: () => true, isPending: false, isBusy: false, isError: false, actionError: null }
 })
 
 it("sends guests to sign-in with a valid selected plan preserved", async () => {

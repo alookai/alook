@@ -13,6 +13,7 @@ import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { toAnalyticsPlanId, trackBeginCheckout, type BillingEntryPoint } from "@/lib/analytics"
 import { stripeAmountToMajorUnit } from "@/lib/billing/currency"
+import type { DisplayReadProof } from "@/lib/community/display-window-persistence"
 
 export type BillingReturn = "checkout" | "cancel" | "portal" | null
 type BillingAction = {
@@ -81,11 +82,16 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       const original = capture()
       const summary = BillingSummarySchema.parse(await original.request<unknown>("/api/community/billing", { signal }))
       original.assert()
-      return summary
+      return { ...summary, ...({ observed: true } satisfies DisplayReadProof) }
     },
     staleTime: 30_000, refetchOnWindowFocus: true,
     refetchInterval: state.polling ? 2_000 : false, retry: false,
   })
+  const data = useMemo(() => query.data ? BillingSummarySchema.parse(query.data) : undefined, [query.data])
+  const isCurrentRead = useCallback(() => {
+    const current = qc.getQueryState<typeof query.data>(key)
+    return enabled && admitted && current?.status === "success" && !current.isInvalidated && current.data === query.data && current.data?.observed === true
+  }, [enabled, admitted, key, qc, query.data])
   useObservedRegion("billing", (enabled) && !query.isPending && query.data !== undefined, undefined)
   const invalidateDependents = useCallback(() => {
     if (!registry) return
@@ -127,7 +133,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     return () => clearTimeout(timer)
   }, [captureView, tryCapture, enabled, state.polling, state.returnStartedAt, ui])
   useEffect(() => {
-    if (!enabled || !query.data) return
+    if (!enabled || !query.data || !isCurrentRead()) return
     if (!tryCapture()) return
     const projection = `${query.data.plan.id}:${query.data.isFounder}`
     const cachedBots = registry ? qc.getQueryData<{ plan: { id: string }; isFounder: boolean }>(communityKeys.bots()) : undefined
@@ -137,7 +143,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       && query.data.subscription?.status === "active" && query.data.subscription.plan.id === query.data.plan.id
     if (settled && !ui.get().returnComplete) emitTelemetry("business.result", { action_name: "billing_return", outcome: "success", phase: "primary" })
     ui.setState((state) => ({ ...state, observedPlan: projection, ...(settled ? { returnComplete: true, polling: false } : {}) }))
-  }, [enabled, returnFrom, query.data, query.dataUpdatedAt, qc, ui, tryCapture, registry, invalidateDependents])
+  }, [enabled, returnFrom, query.data, query.dataUpdatedAt, qc, ui, tryCapture, registry, invalidateDependents, isCurrentRead])
   type Original = ReturnType<typeof captureView>
   const redirect = useMutation({ meta: { observabilityAction: "billing.redirect" },
     mutationKey: [...key, "redirect"], retry: false,
@@ -153,7 +159,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     },
   })
   const start = async (action: BillingAction) => {
-    if (ui.get().lock || !query.data) return
+    if (ui.get().lock || !query.data || !isCurrentRead()) return
     if (query.data.isFounder && (action.kind !== "checkout" || !action.founderAcknowledged)) return
     const original = captureView(), lock = Symbol("billing-action")
     original.assertView()
@@ -187,7 +193,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       const before = resource?.state.data
       const summary = BillingSummarySchema.parse(await original.request<unknown>("/api/community/billing/cancel-change", { method: "POST", assertActive: original.assertView }))
       original.assert()
-      if (resource && qc.getQueryCache().find({ queryKey: key, exact: true }) === resource) qc.setQueryData(key, (current: unknown) => current === before ? summary : current)
+      if (resource && qc.getQueryCache().find({ queryKey: key, exact: true }) === resource) qc.setQueryData(key, (current: unknown) => current === before ? { ...summary, observed: false } : current)
       original.assert()
       await qc.invalidateQueries({ queryKey: key, exact: true })
       original.assert()
@@ -195,7 +201,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     },
   })
   const cancelChange = async () => {
-    if (ui.get().lock || !query.data?.subscription?.scheduledChange || query.data.isFounder) return
+    if (ui.get().lock || !query.data?.subscription?.scheduledChange || query.data.isFounder || !isCurrentRead()) return
     const original = captureView(), lock = Symbol("billing-cancel")
     original.assertView()
     ui.setState((state) => ({ ...state, lock, actionError: null }))
@@ -212,7 +218,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
   }
   const refresh = () => { captureView().assertView(); void query.refetch({ cancelRefetch: false }); invalidateDependents() }
   return {
-    ...query, returnFrom, polling: state.polling, actionError: state.actionError,
+    ...query, data, isCurrentRead, returnFrom, polling: state.polling, actionError: state.actionError,
     isBusy: redirect.isPending || state.redirecting || cancelMutation.isPending, isCancelingChange: cancelMutation.isPending,
     cancelChange, checkout: (priceId: string, founderAcknowledged: boolean, entryPoint: BillingEntryPoint) => start({ kind: "checkout", priceId, founderAcknowledged, entryPoint }),
     portal: (priceId?: string) => start({ kind: "portal", priceId }), refresh,
