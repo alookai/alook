@@ -17,14 +17,26 @@ function documentSender(origin = "https://alook.ai") {
 }
 
 describe("actual isolated product-event document", () => {
+  it("accepts fixed connection and reply dimensions without forwarding private inputs", () => {
+    const document = documentSender()
+    document.sendProductEvent({ event: "runtime_connected", params: { surface: "private-user", connection_type: "private-machine", user_id: "private-owner" } })
+    document.sendProductEvent({ event: "first_agent_reply_persisted", params: { conversation_type: "thread", channel_id: "private-channel", page_location: "https://alook.ai/c/private" } })
+    document.sendProductEvent({ event: "first_agent_reply_persisted", params: { conversation_type: "private-message" } })
+    const commands = document.dataLayer.map(command => Array.from(command))
+    expect(commands.map(command => command[1])).toEqual(["runtime_connected", "first_agent_reply_persisted"])
+    expect(commands[0][2]).toMatchObject({ surface: "community", connection_type: "local_daemon" })
+    expect(commands[1][2]).toMatchObject({ surface: "community", conversation_type: "thread" })
+    expect(JSON.stringify(commands)).not.toContain("private-")
+    expect(JSON.stringify(commands)).not.toContain("/c/private")
+  })
   it("accepts exactly the finite names while keeping fixed private-page metadata", () => {
     const document = documentSender()
-    for (const event of PRODUCT_ANALYTICS_EVENTS) document.sendProductEvent({ event, params: { private_id: "secret", page_location: "https://private.test/token", method: "private", failure_stage: "private", stage: "harness" } })
+    for (const event of PRODUCT_ANALYTICS_EVENTS) document.sendProductEvent({ event, params: { private_id: "secret", page_location: "https://private.test/token", method: "private", failure_stage: "private", stage: "harness", conversation_type: "thread" } })
     document.sendProductEvent({ event: "unknown", params: {} })
     const commands = document.dataLayer.map(command => Array.from(command))
     expect(commands).toHaveLength(PRODUCT_ANALYTICS_EVENTS.length)
     expect(commands.map(command => command[1])).toEqual([...PRODUCT_ANALYTICS_EVENTS])
-    for (const command of commands) expect(command[2]).toEqual({ page_location: "https://alook.ai/analytics/product", page_referrer: "", page_title: "Alook", send_to: "G-STBCL8F4ZY", ...(["community_onboarding_stage_completed", "community_onboarding_skipped"].includes(String(command[1])) ? { stage: "harness" } : {}) })
+    for (const command of commands) expect(command[2]).toEqual({ page_location: "https://alook.ai/analytics/product", page_referrer: "", page_title: "Alook", send_to: "G-STBCL8F4ZY", ...(["community_onboarding_stage_completed", "community_onboarding_skipped"].includes(String(command[1])) ? { stage: "harness" } : {}), ...(command[1] === "runtime_connected" ? { surface: "community", connection_type: "local_daemon" } : {}), ...(command[1] === "first_agent_reply_persisted" ? { surface: "community", conversation_type: "thread" } : {}) })
     expect(JSON.stringify(commands)).not.toContain("secret")
   })
 })

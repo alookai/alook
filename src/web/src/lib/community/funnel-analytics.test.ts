@@ -33,9 +33,15 @@ function response(payload: unknown, ok = true) {
 }
 
 describe("Community funnel analytics drain", () => {
+  let lifecycle = createStore({ active: true, generation: 1 })
+  afterEach(() => vi.unstubAllGlobals())
   beforeEach(() => {
     vi.clearAllMocks()
     _resetCommunityFunnelAnalyticsForTesting()
+    lifecycle = createStore({ active: true, generation: 1 })
+    mocks.native = false
+    mocks.consent = null
+    vi.stubGlobal("window", { location: new URL("https://alook.ai/c/me") })
   })
 
   it("accepts only exact low-cardinality event shapes", () => {
@@ -63,8 +69,8 @@ describe("Community funnel analytics drain", () => {
       ] }))
     vi.stubGlobal("fetch", fetchMock)
 
-    const initial = drainCommunityFunnelEvents()
-    const coalesced = drainCommunityFunnelEvents()
+    const initial = drainCommunityFunnelEvents(lifecycle)
+    const coalesced = drainCommunityFunnelEvents(lifecycle)
     expect(coalesced).toBe(initial)
     resolveFirst(response({ events: [
       { event: "runtime_connected", surface: "community", connection_type: "local_daemon" },
@@ -78,9 +84,10 @@ describe("Community funnel analytics drain", () => {
       headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
       cache: "no-store",
       credentials: "same-origin",
+      signal: expect.any(AbortSignal),
     })
     expect(mocks.runtime).toHaveBeenCalledOnce()
-    expect(mocks.reply).toHaveBeenCalledWith("thread")
+    expect(mocks.reply).toHaveBeenCalledWith("thread", expect.any(Function))
     expect(mocks.joined).not.toHaveBeenCalled()
     expect(mocks.product).not.toHaveBeenCalled()
   })
@@ -91,33 +98,42 @@ describe("Community funnel analytics drain", () => {
       .mockResolvedValueOnce(response({ events: [] }, false))
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(drainCommunityFunnelEvents()).resolves.toBeUndefined()
-    await expect(drainCommunityFunnelEvents()).resolves.toBeUndefined()
+    await expect(drainCommunityFunnelEvents(lifecycle)).resolves.toBeUndefined()
+    await expect(drainCommunityFunnelEvents(lifecycle)).resolves.toBeUndefined()
     expect(mocks.runtime).not.toHaveBeenCalled()
   })
 })
 
-describe("inviter Web join drain", () => {
+describe.each([
+  ["invited_human_joined", drainInvitedHumanJoined],
+  ["legacy", drainCommunityFunnelEvents],
+] as const)("%s Web drain ownership", (scope, drainEvents) => {
   beforeEach(() => {
     vi.clearAllMocks()
     _resetCommunityFunnelAnalyticsForTesting()
     mocks.native = false
     mocks.consent = null
-    vi.stubGlobal("window", {})
+    vi.stubGlobal("window", { location: new URL("https://alook.ai/c/me") })
   })
   afterEach(() => vi.unstubAllGlobals())
-  const joined = { event: "invited_human_joined", surface: "community" }
+  const joined = scope === "legacy"
+    ? { event: "runtime_connected", surface: "community", connection_type: "local_daemon" }
+    : { event: "invited_human_joined", surface: "community" }
 
-  it.each([null, "granted"])("claims only joins and publishes through the finite sender with %s consent", async (consent) => {
+  it.each([null, "granted"])("claims only its scope and publishes through the finite sender with %s consent", async (consent) => {
     mocks.consent = consent
     const lifecycle = createStore({ active: true, generation: 1 })
-    const fetchMock = vi.fn().mockResolvedValue(response({ events: [joined, { event: "runtime_connected", surface: "community", connection_type: "local_daemon" }] }))
+    const fetchMock = vi.fn().mockResolvedValue(response({ events: [joined, scope === "legacy" ? { event: "invited_human_joined", surface: "community" } : { event: "runtime_connected", surface: "community", connection_type: "local_daemon" }] }))
     vi.stubGlobal("fetch", fetchMock)
-    await drainInvitedHumanJoined(lifecycle)
-    expect(fetchMock).toHaveBeenCalledWith("/api/community/analytics/funnel-events?event=invited_human_joined", expect.objectContaining({ method: "POST", credentials: "same-origin", cache: "no-store", signal: expect.any(AbortSignal) }))
-    expect(mocks.product).toHaveBeenCalledOnce()
-    expect(mocks.product).toHaveBeenCalledWith({ event: "invited_human_joined" }, expect.any(Function))
-    expect(mocks.runtime).not.toHaveBeenCalled()
+    await drainEvents(lifecycle)
+    expect(fetchMock).toHaveBeenCalledWith((scope === "legacy" ? "/api/community/analytics/funnel-events" : "/api/community/analytics/funnel-events?event=invited_human_joined"), expect.objectContaining({ method: "POST", credentials: "same-origin", cache: "no-store", signal: expect.any(AbortSignal) }))
+    if (scope === "legacy") {
+      expect(mocks.runtime).toHaveBeenCalledExactlyOnceWith(expect.any(Function))
+      expect(mocks.product).not.toHaveBeenCalled()
+    } else {
+      expect(mocks.product).toHaveBeenCalledExactlyOnceWith({ event: "invited_human_joined" }, expect.any(Function))
+      expect(mocks.runtime).not.toHaveBeenCalled()
+    }
   })
 
   it("does not claim under denied, Native or retired ownership", async () => {
@@ -125,12 +141,15 @@ describe("inviter Web join drain", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
     mocks.consent = "denied"
-    await drainInvitedHumanJoined(lifecycle)
+    await drainEvents(lifecycle)
     mocks.consent = null; mocks.native = true
-    await drainInvitedHumanJoined(lifecycle)
+    await drainEvents(lifecycle)
     mocks.native = false
+    vi.stubGlobal("window", { location: new URL("http://localhost:3000/c/me") })
+    await drainEvents(lifecycle)
+    vi.stubGlobal("window", { location: new URL("https://alook.ai/c/me") })
     lifecycle.setState(state => ({ ...state, active: false }))
-    await drainInvitedHumanJoined(lifecycle)
+    await drainEvents(lifecycle)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -140,7 +159,7 @@ describe("inviter Web join drain", () => {
     const pending = new Promise<Response>(resolve => { finish = resolve })
     const fetchMock = vi.fn().mockReturnValue(pending)
     vi.stubGlobal("fetch", fetchMock)
-    const drain = drainInvitedHumanJoined(lifecycle)
+    const drain = drainEvents(lifecycle)
     const signal: AbortSignal = fetchMock.mock.calls[0][1].signal
     if (change === "owner") lifecycle.setState(state => ({ ...state, active: false, generation: state.generation + 1 }))
     else mocks.consent = "denied"
@@ -148,6 +167,7 @@ describe("inviter Web join drain", () => {
     finish(response({ events: [joined] }))
     await drain
     expect(mocks.product).not.toHaveBeenCalled()
+    expect(mocks.runtime).not.toHaveBeenCalled()
   })
 
   it("coalesces within one owner and lets an independent replacement claim immediately", async () => {
@@ -157,23 +177,24 @@ describe("inviter Web join drain", () => {
     const fetchMock = vi.fn().mockReturnValueOnce(new Promise<Response>(resolve => { finish = resolve }))
       .mockResolvedValue(response({ events: [] }))
     vi.stubGlobal("fetch", fetchMock)
-    const original = drainInvitedHumanJoined(lifecycle)
-    expect(drainInvitedHumanJoined(lifecycle)).toBe(original)
-    await drainInvitedHumanJoined(replacement)
+    const original = drainEvents(lifecycle)
+    expect(drainEvents(lifecycle)).toBe(original)
+    await drainEvents(replacement)
     finish(response({ events: [joined] }))
     await original
     expect(fetchMock).toHaveBeenCalledTimes(3)
-    const guard = mocks.product.mock.calls[0][1] as () => void
+    const guard = (scope === "legacy" ? mocks.runtime.mock.calls[0][0] : mocks.product.mock.calls[0][1]) as () => void
     lifecycle.setState(state => ({ ...state, active: false }))
-    expect(guard).toThrow("Retired invitation analytics owner")
+    expect(guard).toThrow("Retired community analytics owner")
   })
 
   it("leaves business execution unaffected by network and rejected responses", async () => {
     const lifecycle = createStore({ active: true, generation: 1 })
     vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(response({}, false)))
-    await expect(drainInvitedHumanJoined(lifecycle)).resolves.toBeUndefined()
-    await expect(drainInvitedHumanJoined(lifecycle)).resolves.toBeUndefined()
+    await expect(drainEvents(lifecycle)).resolves.toBeUndefined()
+    await expect(drainEvents(lifecycle)).resolves.toBeUndefined()
     expect(mocks.product).not.toHaveBeenCalled()
+    expect(mocks.runtime).not.toHaveBeenCalled()
   })
 })
 
@@ -193,12 +214,12 @@ describe("current funnel response qualification", () => {
   afterEach(() => vi.unstubAllGlobals())
   it.each([null, BUSINESS_SCHEMA_VERSION - 1, BUSINESS_SCHEMA_VERSION + 1])("drops unconfirmed optional receipts (%s) without global upgrade", async version => {
     vi.clearAllMocks(); _resetCommunityFunnelAnalyticsForTesting()
-    mocks.native = false; mocks.consent = null; vi.stubGlobal("window", {})
+    mocks.native = false; mocks.consent = null; vi.stubGlobal("window", { location: new URL("https://alook.ai/c/me") })
     const create = () => Response.json({ events: [{ event: "invited_human_joined", surface: "community" }, { event: "runtime_connected", surface: "community", connection_type: "local_daemon" }] }, { headers: version === null ? {} : { [COMMUNITY_CONTRACT_HEADER]: String(version) } })
     const fetchMock = vi.fn(async () => create()); vi.stubGlobal("fetch", fetchMock)
     const { businessSchemaLifecycle } = await import("@/lib/business-schema-lifecycle")
     businessSchemaLifecycle.setState(() => ({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION }))
-    await drainCommunityFunnelEvents()
+    await drainCommunityFunnelEvents(createStore({ active: true, generation: 1 }))
     await drainInvitedHumanJoined(createStore({ active: true, generation: 1 }))
     expect(fetchMock).toHaveBeenCalledTimes(2)
     for (const [, options] of fetchMock.mock.calls as unknown as Array<[string, RequestInit]>) expect(new Headers(options.headers).get(COMMUNITY_CONTRACT_HEADER)).toBe(String(BUSINESS_SCHEMA_VERSION))

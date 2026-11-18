@@ -15,6 +15,8 @@ export type ProductAnalyticsInput =
   | { event: "community_onboarding_stage_completed" | "community_onboarding_skipped"; stage: string }
   | { event: "invitation_link_visit"; token: string }
   | { event: "community_onboarding_completed" | "human_invitation_sent" | "human_invitation_copied" | "invited_human_joined" }
+  | { event: "runtime_connected" }
+  | { event: "first_agent_reply_persisted"; conversationType: "dm" | "channel" | "thread" }
 
 type EventPayload = { event: ProductAnalyticsInput["event"]; params: Record<string, string> }
 type EventFrameWindow = Window & { sendProductEvent?: (input: EventPayload) => void }
@@ -46,6 +48,11 @@ export async function captureProductAnalytics(input: ProductAnalyticsInput, asse
     assertCurrent?.()
     if (!PRODUCT_ANALYTICS_EVENTS.some(event => event === input.event)) return
     const params: Record<string, string> = {}
+    if (input.event === "runtime_connected") Object.assign(params, { surface: "community", connection_type: "local_daemon" })
+    if (input.event === "first_agent_reply_persisted") {
+      if (!["dm", "channel", "thread"].includes(input.conversationType)) return
+      Object.assign(params, { surface: "community", conversation_type: input.conversationType })
+    }
     if (input.event === "community_onboarding_stage_completed" || input.event === "community_onboarding_skipped") {
       if (!ONBOARDING_ANALYTICS_STAGES.some(stage => stage === input.stage)) return
       params.stage = input.stage

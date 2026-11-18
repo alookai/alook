@@ -76,11 +76,11 @@ describe("analytics utility", () => {
   it("preserves the Native Allow gate on public paths", () => {
     vi.stubGlobal("window", { __TAURI__: {}, location: new URL("https://alook.ai/") })
     mocks.hasAnalyticsConsent.mockReturnValue(false)
-    trackCommunityRuntimeConnected()
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
     mocks.hasAnalyticsConsent.mockReturnValue(true)
-    trackCommunityRuntimeConnected()
-    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }]])
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
+    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "pricing_view", auth_state: "guest", current_plan: "none" }]])
   })
 
   describe("P2 — Growth & Retention Signals", () => {
@@ -89,10 +89,11 @@ describe("analytics utility", () => {
       trackCommunityRuntimeConnected()
       trackFirstAgentReplyPersisted("thread")
 
-      expect(mockSendGTMEvent.mock.calls).toEqual([
-        [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }],
-        [{ event: "first_agent_reply_persisted", surface: "community", conversation_type: "thread" }],
+      expect(mocks.product.mock.calls).toEqual([
+        [{ event: "runtime_connected" }, undefined],
+        [{ event: "first_agent_reply_persisted", conversationType: "thread" }, undefined],
       ])
+      expect(mockSendGTMEvent).not.toHaveBeenCalled()
     })
 
     it("sends the exact Community onboarding payloads", () => {
@@ -108,12 +109,12 @@ describe("analytics utility", () => {
       expect(mockSendGTMEvent).not.toHaveBeenCalled()
     })
 
-    it("fails open when the tag manager rejects a Community funnel event", () => {
-      mockSendGTMEvent.mockImplementationOnce(() => {
-        throw new Error("tag manager unavailable")
-      })
-
-      expect(() => trackCommunityRuntimeConnected()).not.toThrow()
+    it("passes account ownership to the finite sender", () => {
+      const guard = vi.fn()
+      trackCommunityRuntimeConnected(guard)
+      trackFirstAgentReplyPersisted("dm", guard)
+      expect(mocks.product).toHaveBeenCalledWith({ event: "runtime_connected" }, guard)
+      expect(mocks.product).toHaveBeenCalledWith({ event: "first_agent_reply_persisted", conversationType: "dm" }, guard)
     })
 
     it("sends the exact GitHub outbound payload without URL or identifiers", () => {

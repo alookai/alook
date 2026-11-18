@@ -92,22 +92,15 @@ export function trackBeginCheckout(params: {
 
 export type GithubOutboundSurface = "landing" | "blog" | "public_nav" | "public_footer"
 
-export function trackCommunityRuntimeConnected() {
-  sendConsentAwareGTMEvent({
-    event: "runtime_connected",
-    surface: "community",
-    connection_type: "local_daemon",
-  })
+export function trackCommunityRuntimeConnected(assertCurrent?: () => void) {
+  return captureProductAnalytics({ event: "runtime_connected" }, assertCurrent)
 }
 
 export function trackFirstAgentReplyPersisted(
   conversationType: "dm" | "channel" | "thread",
+  assertCurrent?: () => void,
 ) {
-  sendConsentAwareGTMEvent({
-    event: "first_agent_reply_persisted",
-    surface: "community",
-    conversation_type: conversationType,
-  })
+  return captureProductAnalytics({ event: "first_agent_reply_persisted", conversationType }, assertCurrent)
 }
 
 export function trackGithubOutboundClicked(surface: GithubOutboundSurface) {

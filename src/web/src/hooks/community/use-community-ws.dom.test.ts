@@ -342,15 +342,19 @@ describe("useCommunityWs — double-mount detection", () => {
   })
 })
 
-it("requests inviter joins on current-account authentication and consent changes", async () => {
+it("requests pending conversion events and inviter joins on current-account authentication and consent changes", async () => {
+  const connected = vi.spyOn(funnel, "drainCommunityFunnelEvents").mockResolvedValue(undefined)
   const joined = vi.spyOn(funnel, "drainInvitedHumanJoined").mockResolvedValue(undefined)
   await mountHook({ viewerUserId: "u_me" })
   await act(async () => { await capturedUseUserWsOptions?.onAuthenticated?.() })
   expect(joined).toHaveBeenCalledWith(getCapturedRuntime().lifecycle)
+  expect(connected).toHaveBeenCalledExactlyOnceWith(getCapturedRuntime().lifecycle)
   const before = joined.mock.calls.length
   fireEvent(window, new Event(ANALYTICS_CONSENT_CHANGE_EVENT))
   expect(joined).toHaveBeenCalledTimes(before + 1)
   expect(joined).toHaveBeenLastCalledWith(getCapturedRuntime().lifecycle)
+  expect(connected).toHaveBeenCalledTimes(2)
+  expect(connected).toHaveBeenLastCalledWith(getCapturedRuntime().lifecycle)
 })
 
 it.each([false, true])("drains the full machine transition without draining steady metadata; batch=%s", async batch => {

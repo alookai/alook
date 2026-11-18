@@ -26,8 +26,13 @@ const authReasons = {
 };
 gtag('config', 'G-STBCL8F4ZY', { send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false, ...fields });
 window.sendProductEvent = function ({ event, params }) {
-  if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_started', 'community_onboarding_stage_completed', 'community_onboarding_skipped', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined'].includes(event)) return;
+  if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_started', 'community_onboarding_stage_completed', 'community_onboarding_skipped', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined', 'runtime_connected', 'first_agent_reply_persisted'].includes(event)) return;
   const safe = {};
+  if (event === 'runtime_connected') Object.assign(safe, { surface: 'community', connection_type: 'local_daemon' });
+  if (event === 'first_agent_reply_persisted') {
+    if (!['dm', 'channel', 'thread'].includes(params?.conversation_type)) return;
+    Object.assign(safe, { surface: 'community', conversation_type: params.conversation_type });
+  }
   if (event === 'community_onboarding_stage_completed' || event === 'community_onboarding_skipped') {
     if (!['harness', 'machine', 'model', 'identity', 'initializing'].includes(params?.stage)) return;
     safe.stage = params.stage;
