@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { prepareNativeBatchStatement } from "../helpers/native-batch-prepare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hashCredential } from "../../src/db/queries/community/machine";
 import { transitionMachineSessionEpoch } from "../../src/db/queries/community/machine-session-epoch";
@@ -72,7 +73,7 @@ describe("machine session epoch SQL transaction", () => {
     (db as any).batch = (statements: Array<{ toSQL: () => { sql: string; params: unknown[] } }>) =>
       sqlite.transaction(() => statements.map((statement) => {
         const query = statement.toSQL();
-        const prepared = sqlite.prepare(query.sql);
+        const prepared = prepareNativeBatchStatement(sqlite, query);
         return prepared.reader ? prepared.all(...query.params) : prepared.run(...query.params);
       }))();
     seedCurrentEpoch();
