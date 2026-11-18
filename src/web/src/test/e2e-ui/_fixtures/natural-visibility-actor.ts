@@ -85,10 +85,11 @@ export function createNaturalVisibilityActor(input: {
     return { context, page }
   })()
   void ready.catch(() => {})
-  const groupAlive = () => {
+  const groupAlive = (observeDenied = false) => {
     if (!child.pid) return false
     try { process.kill(-child.pid, 0); return true } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
+      if (observeDenied && (error as NodeJS.ErrnoException).code === "EPERM") return true
       throw error
     }
   }
@@ -98,8 +99,8 @@ export function createNaturalVisibilityActor(input: {
   }
   const waitForGroup = async (milliseconds: number) => {
     const deadline = Date.now() + milliseconds
-    while (groupAlive() && Date.now() < deadline) await new Promise(done => setTimeout(done, 50))
-    return !groupAlive()
+    while (groupAlive(true) && Date.now() < deadline) await new Promise(done => setTimeout(done, 50))
+    return !groupAlive(true)
   }
   const close = () => closed ??= (async () => {
     closing = true

@@ -181,3 +181,115 @@ it("preserves native cookie validation failure without publishing a page, then r
   expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
   expect(existsSync(receipts[0]!.profile)).toBe(false)
 })
+
+it("observes a denied post-TERM probe until explicit group absence and child close", async () => {
+  const h = setup(); h.endpoint(); await h.resource.ready
+  let termSent = false
+  let denied = false
+  vi.mocked(process.kill).mockImplementation((pid, signal) => {
+    expect(pid).toBe(-child.pid)
+    if (signal === 0) {
+      if (!termSent) return true
+      if (!denied) { denied = true; throw Object.assign(new Error("probe denied"), { code: "EPERM" }) }
+      throw Object.assign(new Error("group absent"), { code: "ESRCH" })
+    }
+    expect(signal).toBe("SIGTERM")
+    calls.push(String(signal)); termSent = true
+    queueMicrotask(() => child.emit("close", 0, signal))
+    return true
+  })
+  await h.resource.close()
+  expect(denied).toBe(true)
+  expect(calls.filter(value => value.startsWith("SIG"))).toEqual(["SIGTERM"])
+  expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+  expect(existsSync(receipts[0]!.profile)).toBe(false)
+})
+
+it("retains a permanently denied group and profile after the original bounded wait", async () => {
+  vi.useFakeTimers()
+  try {
+    const h = setup(); h.endpoint(); await h.resource.ready
+    let termSent = false
+    vi.mocked(process.kill).mockImplementation((pid, signal) => {
+      expect(pid).toBe(-child.pid)
+      if (signal === 0) {
+        if (termSent) throw Object.assign(new Error("probe denied"), { code: "EPERM" })
+        return true
+      }
+      expect(signal).toBe("SIGTERM")
+      calls.push(String(signal)); termSent = true
+      queueMicrotask(() => child.emit("close", 0, signal))
+      return true
+    })
+    const outcome = h.resource.close().then(() => null, error => error)
+    await vi.advanceTimersByTimeAsync(5001)
+    expect(await outcome).toBeInstanceOf(AggregateError)
+    expect(calls.filter(value => value.startsWith("SIG"))).toEqual(["SIGTERM"])
+    expect(receipts[0]).toMatchObject({ processGroupReleased: false, profileRemoved: false, cleanupErrors: 1 })
+    expect(existsSync(receipts[0]!.profile)).toBe(true)
+  } finally { vi.useRealTimers() }
+})
+
+it("does not release the remaining group merely because the child closed", async () => {
+  vi.useFakeTimers()
+  try {
+    const h = setup(); h.endpoint(); await h.resource.ready
+    vi.mocked(process.kill).mockImplementation((pid, signal) => {
+      expect(pid).toBe(-child.pid)
+      if (signal === 0) {
+        if (!alive) throw Object.assign(new Error("group absent"), { code: "ESRCH" })
+        return true
+      }
+      expect(signal).toBe("SIGTERM")
+      calls.push(String(signal)); queueMicrotask(() => child.emit("close", 0, signal))
+      return true
+    })
+    let completed = false
+    const closing = h.resource.close().then(() => { completed = true })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(completed).toBe(false)
+    expect(receipts).toHaveLength(0)
+    alive = false
+    await vi.advanceTimersByTimeAsync(50)
+    await closing
+    expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+  } finally { vi.useRealTimers() }
+})
+
+it("does not signal or release a group whose initial permission probe is denied", async () => {
+  const h = setup(); h.endpoint(); await h.resource.ready
+  const denied = Object.assign(new Error("initial probe denied"), { code: "EPERM" })
+  vi.mocked(process.kill).mockImplementation((pid, signal) => {
+    expect(pid).toBe(-child.pid)
+    expect(signal).toBe(0)
+    throw denied
+  })
+  const error = await h.resource.close().then(() => null, value => value)
+  expect(error).toBeInstanceOf(AggregateError)
+  expect(error.errors).toContain(denied)
+  expect(calls.filter(value => value.startsWith("SIG"))).toEqual([])
+  expect(receipts[0]).toMatchObject({ processGroupReleased: false, profileRemoved: false, cleanupErrors: 1 })
+  expect(existsSync(receipts[0]!.profile)).toBe(true)
+})
+
+it("requires child close after group absence before reporting release", async () => {
+  const h = setup(); h.endpoint(); await h.resource.ready
+  vi.mocked(process.kill).mockImplementation((pid, signal) => {
+    expect(pid).toBe(-child.pid)
+    if (signal === 0) {
+      if (!alive) throw Object.assign(new Error("group absent"), { code: "ESRCH" })
+      return true
+    }
+    expect(signal).toBe("SIGTERM")
+    calls.push(String(signal)); alive = false
+    return true
+  })
+  let completed = false
+  const closing = h.resource.close().then(() => { completed = true })
+  await vi.waitFor(() => expect(calls).toContain("SIGTERM"))
+  expect(completed).toBe(false)
+  expect(receipts).toHaveLength(0)
+  child.emit("close", 0, "SIGTERM")
+  await closing
+  expect(receipts[0]).toMatchObject({ processGroupReleased: true, profileRemoved: true, cleanupErrors: 0 })
+})
