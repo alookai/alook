@@ -12,7 +12,7 @@ vi.mock("./bot-push", () => ({ pushBotEventToMachine: vi.fn(async () => ({ sent:
 vi.mock("./message-dispatcher", () => ({ dispatchCommittedMessage: vi.fn(async () => {}) }))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: true })) }))
 import { runAutomationSetup } from "./automation-setup.server"
-import { createBotForUser } from "./create-bot.server"
+import { createAutomationBot, createAutomationServer } from "./automation-create.server"
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite")
 let sqlite: InstanceType<typeof DatabaseSync>
@@ -64,14 +64,25 @@ beforeEach(async () => {
   botIds = []
   botHandles = []
   for (const name of ["Mireille", "Thiago"]) {
-    const response = await createBotForUser(request({ name, machineId: "m1", runtime: "claude" }), { env: { DB: {} } as Env, userId: "owner" })
+    const response = await createAutomationBot(request({ name, machineId: "m1", runtime: "claude" }), { env: { DB: {} } as Env, userId: "owner" })
     expect(response.status).toBe(201)
-    const bot = (await response.json()).bot
+    const bot = sqlite.prepare('SELECT id,name,discriminator FROM user WHERE name=? AND isBot=1').get(name) as { id: string; name: string; discriminator: string }
+    expect(await response.json()).toEqual({ bot: { handle: formatHandle(bot.name, bot.discriminator) } })
     botIds.push(bot.id)
     botHandles.push(formatHandle(bot.name, bot.discriminator))
   }
 })
 afterEach(() => sqlite?.close())
+
+it("returns the persisted server handle and webpage URL without database identity fields", async () => {
+  const beforeCreate = vi.fn(async () => null)
+  const response = await createAutomationServer(request({ name: "Handle Only" }), { env: { DB: {} } as Env, userId: "owner", beforeCreate })
+  expect(response.status).toBe(201)
+  expect(beforeCreate).toHaveBeenCalledOnce()
+  const server = sqlite.prepare('SELECT id,name,discriminator FROM community_server').get() as { id: string; name: string; discriminator: string }
+  expect(await response.json()).toEqual({ server: { handle: formatHandle(server.name, server.discriminator), url: `https://test.local/c/channels/${server.id}` } })
+  expect(activeBots()).toBe(2)
+})
 
 it("creates only the server and joins existing bots before committing the human task", async () => {
   sqlite.exec("CREATE TRIGGER ensure_team_joined BEFORE INSERT ON community_message WHEN (SELECT count(*) FROM community_server_member WHERE server_id=(SELECT server_id FROM community_channel WHERE id=NEW.channel_id)) != 3 BEGIN SELECT RAISE(ABORT,'team not joined before task'); END")

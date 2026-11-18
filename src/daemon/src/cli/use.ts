@@ -186,12 +186,13 @@ export function registerUseCommands(program: Command, output: (value: { success:
         const { backendId, ...bot } = parseInput(options.create!, BotInput)
         body = { ...bot, runtime: backendId }
       } else body = parseInput(options.create!, ServerInput)
-      const { result, origin } = await request(`/api/community/automation/${kind}s`, body)
-      const resource = result[kind]
-      if (!resource || typeof resource !== "object" || !("id" in resource) || !("name" in resource) || !("discriminator" in resource) || typeof resource.id !== "string" || typeof resource.name !== "string" || typeof resource.discriminator !== "string") throw new Error("Automation returned an invalid result; do not retry automatically")
-      output({ success: { [kind]: { handle: `${resource.name}#${resource.discriminator}`,
-        ...(kind === "server" ? { url: `${origin}/c/channels/${encodeURIComponent(resource.id)}` } : {}),
-      } } })
+      const { result } = await request(`/api/community/automation/${kind}s`, body)
+      const resource = z.object({
+        handle: z.string().max(128).refine(value => !value.startsWith("@") && Boolean(parseNameAndTag(value))),
+        ...(kind === "server" ? { url: z.url() } : {}),
+      }).safeParse(result[kind])
+      if (!resource.success) throw new Error("Automation returned an invalid result; do not retry automatically")
+      output({ success: { [kind]: resource.data } })
     })
   }
 }
