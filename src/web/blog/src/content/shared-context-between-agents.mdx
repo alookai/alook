@@ -18,7 +18,7 @@ Say your team is preparing an online product demo, and the organizer moves it fr
 
 Nothing broke inside either model. The updated decision simply never reached the agent writing the invite.
 
-Keeping agents aligned comes down to a clear handoff: **pass along the approved decision and link to its source**. Name who owns the next step, state what they need to do, and flag what to double-check before finishing. Agents can pass that task context back and forth while **keeping their private memory records separate**.
+Keeping shared context between agents accurate comes down to a clear handoff: **pass along the approved decision and link to its source**. Name who owns the next step, state what they need to do, and flag what to double-check before finishing. Agents can pass that task context back and forth while **keeping their private memory records separate**.
 
 ## What is multi-agent memory?
 
@@ -77,7 +77,7 @@ In the demo example:
 2. The writing agent **receives an update with a link to the approved schedule**.
 3. The writing agent **checks the source and corrects the invitation draft**.
 
-Skip any of these steps and context drifts. Without a maintainer, the brief goes stale. Without a notification, the writing agent keeps working off its old copy. And if the writing agent accepts every new chat message without checking who approved it, a casual suggestion can overwrite the real date.
+Skip any of these steps and agent memory management breaks down. Without a maintainer, the brief goes stale. Without a notification, the writing agent keeps working off its old copy. And if the writing agent accepts every new chat message without checking who approved it, a casual suggestion can overwrite the real date.
 
 Add a timestamp and state which decision the update replaces. **A newer message alone doesn't prove authority, so check who approved it.** Always update the shared brief itself so anyone opening it sees the current plan right away instead of digging through a long thread for corrections.
 
