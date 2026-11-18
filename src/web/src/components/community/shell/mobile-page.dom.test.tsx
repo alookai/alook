@@ -184,12 +184,12 @@ describe("mobile page dismissal", () => {
       expect(task.replace).not.toHaveBeenCalled()
       pointer("pointerDown", 220)
       touch("touchstart", 220)
-      pointer("pointerMove", 290)
-      touch("touchmove", 290)
+      pointer("pointerMove", 150)
+      touch("touchmove", 150)
       expect(row.style.transform).toContain("translate3d")
       expect(popup).not.toHaveAttribute("data-swiping")
-      pointer("pointerUp", 290)
-      touch("touchcancel", 290)
+      pointer("pointerUp", 150)
+      touch("touchcancel", 150)
       expect(reply).toHaveBeenCalledOnce()
       expect(task.replace).not.toHaveBeenCalled()
     } finally {
@@ -243,8 +243,8 @@ describe("mobile page dismissal", () => {
     const pointer = (type: string, x: number) => fireEvent(row, new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "touch", pointerId: 17, clientX: x, clientY: 100 }))
     try {
       pointer("pointerdown", 100)
-      pointer("pointermove", 172)
-      pointer("pointerup", 172)
+      pointer("pointermove", 28)
+      pointer("pointerup", 28)
       expect(reply).toHaveBeenCalledOnce()
       expect(task.replace).not.toHaveBeenCalled()
     } finally { width() }

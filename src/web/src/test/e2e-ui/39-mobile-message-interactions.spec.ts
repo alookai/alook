@@ -692,20 +692,22 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const beforeRejectedSwipeSeq = await latestSeq(alice.page, channelId)
   const beforeRejectedSwipeFrames = bobProxy.frames.length
   await dispatchSwipePathAndClick(alice.page, channelBobMessageId, [
-    { x: 76, y: 1 },
+    { x: -76, y: 1 },
     { x: 0, y: 1 },
   ])
   await expect(alice.page.getByText("Replying to", { exact: false })).toHaveCount(0)
   await expect(alice.page.getByRole("menuitem")).toHaveCount(0)
-  await dispatchSwipePathAndClick(alice.page, channelBobMessageId, [{ x: 32, y: 1 }])
+  await dispatchSwipePathAndClick(alice.page, channelBobMessageId, [{ x: -32, y: 1 }])
   await expect(alice.page.getByText("Replying to", { exact: false })).toHaveCount(0)
   await expect(alice.page.getByRole("menuitem")).toHaveCount(0)
   await dispatchSwipe(alice.page, channelBobMessageId, { x: 6, y: 48 })
   await expect(alice.page.getByText("Replying to", { exact: false })).toHaveCount(0)
+  await dispatchSwipe(alice.page, channelBobMessageId, { x: 72, y: 2 })
+  await expect(alice.page.getByText("Replying to", { exact: false })).toHaveCount(0)
   expect(await latestSeq(alice.page, channelId)).toBe(beforeRejectedSwipeSeq)
   expect(bobProxy.frames).toHaveLength(beforeRejectedSwipeFrames)
 
-  await dispatchSwipe(alice.page, channelBobMessageId, { x: 72, y: 2 })
+  await dispatchSwipe(alice.page, channelBobMessageId, { x: -72, y: 2 })
   const replyPreview = alice.page.locator('[data-slot="composer-reply-preview"]')
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel target ${stamp}`)
   await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
@@ -713,7 +715,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(replyPreview).toHaveCount(0)
   expect(await latestSeq(alice.page, channelId)).toBe(beforeRejectedSwipeSeq)
 
-  await dispatchSwipe(alice.page, channelBobSecondMessageId, { x: 72, y: 2 })
+  await dispatchSwipe(alice.page, channelBobSecondMessageId, { x: -72, y: 2 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel alternate ${stamp}`)
   await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   const replyBody = `swipe reply ${stamp}`
@@ -830,7 +832,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   )), { timeout: 20_000 }).toBe(true)
   await expect(bob.page.getByTestId(tid.message(mentionPayload.message.id))).toBeVisible()
 
-  await dispatchSwipe(alice.page, threadBobMessageId, { x: 72, y: 1 })
+  await dispatchSwipe(alice.page, threadBobMessageId, { x: -72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · thread target ${stamp}`)
   await expect(composerEditable(alice.page, aliceThread).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   const threadReplyBody = `thread swipe reply ${stamp}`
@@ -1084,7 +1086,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const dmEditable = composerEditable(alice.page)
   const manualDmDraft = `before @${bobInfo.name}#${bobInfo.discriminator} after`
   await dmEditable.fill(manualDmDraft)
-  await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
+  await dispatchSwipe(alice.page, dmWsReadyId, { x: -72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
   await expect(dmEditable).toHaveText(manualDmDraft)
   await expect(dmEditable.locator('[data-type="mention"]')).toHaveCount(0)
@@ -1092,7 +1094,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(replyPreview).toHaveCount(0)
   await expect(dmEditable).toHaveText(manualDmDraft)
   await dmEditable.fill("")
-  await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
+  await dispatchSwipe(alice.page, dmWsReadyId, { x: -72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
   await expect(dmEditable).toHaveText("")
   await expect(dmEditable.locator('[data-type="mention"]')).toHaveCount(0)
