@@ -28,13 +28,25 @@ const free: BillingSummary = {
   offers: [{ priceId: "price_a", plan: { id: "custom-tier", displayName: "Studio" }, botLimit: 10, machineLimit: 5, unitAmount: 2000, currency: "usd", interval: "month", intervalCount: 1 }],
 }
 function state(overrides: Partial<BillingController> = {}): BillingController {
-  return { data: free, isPending: false, isError: false, isFetching: false, isBusy: false, returnFrom: null, polling: false, actionError: null, checkout: vi.fn(), portal: vi.fn(), cancelChange: vi.fn(), isCancelingChange: false, refresh: vi.fn(), ...overrides } as unknown as BillingController
+  return { data: free, isCurrentRead: () => true, isPending: false, isError: false, isFetching: false, isBusy: false, returnFrom: null, polling: false, actionError: null, checkout: vi.fn(), portal: vi.fn(), cancelChange: vi.fn(), isCancelingChange: false, refresh: vi.fn(), ...overrides } as unknown as BillingController
 }
 function view(billing: BillingController) { return render(<BillingContent billing={billing} />) }
 
 beforeEach(() => { analytics.cta.mockReset() })
 
 describe("billing sheet", () => {
+  it("keeps historical prices visible after a refresh error while payment actions remain unavailable", () => {
+    const billing = state({ isError: true, isCurrentRead: () => false })
+    const ui = view(billing)
+    expect(ui.getByText(`${priceFormat.format(20)} USD / month`, { collapseWhitespace: false })).toBeInTheDocument()
+    expect(ui.getByRole("alert")).toHaveTextContent("Couldn't refresh your plan")
+    const choose = ui.getByRole("button", { name: "Choose Studio" })
+    expect(choose).toBeDisabled()
+    fireEvent.click(choose)
+    expect(billing.checkout).not.toHaveBeenCalled()
+    expect(billing.portal).not.toHaveBeenCalled()
+    expect(ui.getByRole("button", { name: "Refresh status" })).toBeEnabled()
+  })
   it("shows server offers without fixed plan IDs and sends only the selected price", () => {
     const billing = state()
     const ui = view(billing)

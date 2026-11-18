@@ -34,6 +34,7 @@ useCanonicalServersById,
 useDmProjection,
 } from "@/lib/community-db/projections"
 import {
+assertCommunityLiveSnapshotTokenCurrent,
 captureCommunityLiveSnapshotToken,
 publishCommunityResourceBundle,
 } from "@/lib/community-db/sync"
@@ -328,10 +329,27 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowRes
 
 export type MessageMarkedResponse = { marked: boolean }
 
-const messageMarkedQueryFn = (messageId: string) => ({ client, signal }: QueryFunctionContext) =>
-  apiFetch<MessageMarkedResponse & { stale?: boolean }>(
-    `/api/community/messages/${messageId}/marks`, communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal),
-  ).then(throwIfStale)
+const messageMarkedQueryFn = (messageId: string) => async ({ client, signal }: QueryFunctionContext) => {
+  const original = captureCommunityLiveSnapshotToken(client), key = communityKeys.messageMarked(messageId)
+  if (!original.registry) throw new DOMException("Missing personal Marked owner", "AbortError")
+  const query = client.getQueryCache().find({ queryKey: key, exact: true }), baseline = query?.state.dataUpdateCount
+  const auxiliaryReadEpoch = await original.registry!.captureAuxiliaryReadEpoch()
+  const assert = () => {
+    assertCommunityLiveSnapshotTokenCurrent(client, original, signal)
+    if (query && (client.getQueryCache().find({ queryKey: key, exact: true }) !== query || query.state.dataUpdateCount !== baseline)) throw new DOMException("Retired personal Marked read", "AbortError")
+  }
+  assert()
+  const data = throwIfStale(await apiFetch<MessageMarkedResponse & { stale?: boolean }>(
+    `/api/community/messages/${messageId}/marks`, communityRequestOptions(client, original, signal, assert)))
+  assert()
+  if (client.getMutationCache().findAll({ mutationKey: ["community", "mark-command"], status: "pending", predicate: mutation => (mutation.state.variables as { messageId: string }).messageId === messageId }).length)
+    throw new DOMException("Personal Marked command is pending", "AbortError")
+  if (typeof data.marked !== "boolean") throw new Error("Invalid personal Marked response")
+  const message = original.registry.collections.messages.get(messageId)
+  const channel = message ? original.registry.collections.channels.get(message.channelId) : undefined
+  const scopeRef = message ? { channelId: message.channelId, ...(channel ? { serverId: channel.serverId, parentChannelId: channel.parentChannelId } : {}) } : undefined
+  return { marked: data.marked, ...(scopeRef ? { scopeRef } : {}), observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
+}
 
 export function useMessageMarked(
   messageId: string,

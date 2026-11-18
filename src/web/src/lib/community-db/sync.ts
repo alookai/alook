@@ -2483,6 +2483,13 @@ export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: 
 }
 
 export function purgeCommunityForumPost(registry: CommunityDbRegistry, unit: { childChannelId: string; openerMessageId: string; serverId?: string }, options?: { queries?: ReadonlySet<Query>; assertView?: () => void }) {
+  void registry.retireAuxiliaryDisk([{ kind: "message", id: unit.openerMessageId }]).catch(error => console.error("Message cache retirement failed", error))
+  for (const key of [communityKeys.messageMarked(unit.openerMessageId), communityKeys.reactionDetails(unit.openerMessageId)]) {
+    const query = registry.queryClient.getQueryCache().find({ queryKey: key, exact: true })
+    void query?.cancel({ revert: false })
+    query?.setState({ data: undefined, dataUpdatedAt: 0 })
+    registry.queryClient.removeQueries({ queryKey: key, exact: true })
+  }
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => notifyManager.batch(() => {
     if (registry.collections.channels.has(unit.childChannelId) || !registry.runtime.ws.actions.isChannelAccessRevoked(unit.childChannelId, unit.serverId)) retireCommunityChannelReading(registry, unit.childChannelId, { reason: "resource-deleted", serverId: unit.serverId, ...options })
     deleteRows(registry, "messages", (row) => row.id === unit.openerMessageId, [unit.openerMessageId], [unit.openerMessageId])

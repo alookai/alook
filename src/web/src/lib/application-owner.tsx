@@ -2,8 +2,8 @@
 
 import { UnauthorizedError } from "@/lib/errors"
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react"
-import { QueryClientProvider } from "@tanstack/react-query"
-import { clearPersistedCache, createIdbPersister } from "@/lib/query-persister"
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
+import { clearPersistedCache, createIdbPersister, PERSIST_BUSTER, PERSIST_MAX_AGE_MS, shouldDehydrateApplicationQuery } from "@/lib/query-persister"
 import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
 import { createStore, createStoreContext } from "@tanstack/react-store"
 import { useSession, currentSessionViewer } from "@/lib/auth-client"
@@ -65,7 +65,7 @@ export function PublicQueryProvider({ children }: { children: ReactNode }) {
 function ScopedPublicQueryProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const accountId = userId === "__pending__" || userId === "__guest__" ? null : userId
   const [owner] = useState(() => createApplicationOwner(userId))
-  const [persister] = useState(() => createIdbPersister(accountId))
+  const [persister] = useState(() => createIdbPersister(accountId, "application"))
   useLayoutEffect(() => { owner.bindAuthentication(currentSessionViewer, persister.retireAccount) }, [owner, persister])
   useLayoutEffect(() => registerBusinessSchemaOwner(async invalidatePersisted => {
     if (!invalidatePersisted) persister.stopPersisting()
@@ -95,10 +95,15 @@ function ScopedPublicQueryProvider({ userId, children }: { userId: string; child
       const viewer = owner.sessionViewer()
       if (viewer === null) retireTelemetryIdentity.current()
       if (accountId !== null && viewer !== undefined && viewer !== accountId) void owner.retireDisk().catch(() => undefined)
-      disposeTimer.current = setTimeout(() => owner.queryClient.clear(), 0)
+      disposeTimer.current = setTimeout(() => { persister.stopPersisting(); owner.queryClient.clear() }, 0)
     }
-  }, [accountId, owner])
-  return <StoreProvider value={{ owner }}><QueryClientProvider client={owner.queryClient}>{children}</QueryClientProvider></StoreProvider>
+  }, [accountId, owner, persister])
+  return <StoreProvider value={{ owner }}><PersistQueryClientProvider client={owner.queryClient}
+    persistOptions={{ persister, buster: PERSIST_BUSTER, maxAge: PERSIST_MAX_AGE_MS,
+      dehydrateOptions: { shouldDehydrateQuery: shouldDehydrateApplicationQuery, shouldDehydrateMutation: () => false } }}
+    onSuccess={async () => { if (!owner.lifecycle.get().active || !await persister.isCurrent()) owner.queryClient.clear() }}>
+    {children}
+  </PersistQueryClientProvider></StoreProvider>
 }
 export function retireApplicationOwner(owner: ApplicationOwner) {
   disposeQueryDiagnostics(owner.queryClient)
