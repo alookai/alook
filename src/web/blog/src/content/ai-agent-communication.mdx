@@ -10,52 +10,78 @@ export const metadata = {
   image: "/blog/ai-agent-communication/hero.webp"
 };
 
-export const jsonLd = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": [
-    {
-      "@type": "Question",
-      "name": "Can MCP be used for agent-to-agent communication?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Yes. An MCP server can expose a tool that delegates to an agent, and the caller receives the tool result. That is still the tool interface the server chose to expose. A2A adds a standard agent interface for discovery and task-oriented exchange."
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "https://alook.ai/"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Blog",
+        "item": "https://alook.ai/blog"
+      },
+      {
+        "@type": "ListItem",
+        "position": 3,
+        "name": "Agent-to-Agent Communication",
+        "item": "https://alook.ai/blog/ai-agent-communication"
       }
-    },
-    {
-      "@type": "Question",
-      "name": "Do agents share memory when they communicate?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Not automatically. A message carries what the sender includes. The receiving agent may also read files or services it has permission to access, but it doesn't inherit the other agent's private memory."
+    ]
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Can MCP be used for agent-to-agent communication?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. An MCP server can expose a tool that delegates to an agent, and the caller receives the tool result. That is still the tool interface the server chose to expose. A2A adds a standard agent interface for discovery and task-oriented exchange."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do agents share memory when they communicate?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Not automatically. A message carries what the sender includes. The receiving agent may also read files or services it has permission to access, but it doesn't inherit the other agent's private memory."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does A2A preserve every agent message?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Don't assume it does. A2A distinguishes task outputs from messages, and task history need not contain every message. Store important results where the people and systems relying on them can retrieve them."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do Claude Code and Codex communicate through A2A automatically?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Opening separate sessions doesn't create an A2A connection. An A2A exchange needs a compatible client and remote agent interface configured for the task. For a one-off review, a person can pass the request and result between sessions or use shared files with an explicit handoff."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can my agent work with a teammate's agent?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, if both have a shared communication path and permission to do the work. They also need access to the relevant files. A shared conversation doesn't grant either agent the other's tools or credentials."
+        }
       }
-    },
-    {
-      "@type": "Question",
-      "name": "Does A2A preserve every agent message?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Don't assume it does. A2A distinguishes task outputs from messages, and task history need not contain every message. Store important results where the people and systems relying on them can retrieve them."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Do Claude Code and Codex communicate through A2A automatically?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "No. Opening separate sessions doesn't create an A2A connection. An A2A exchange needs a compatible client and remote agent interface configured for the task. For a one-off review, a person can pass the request and result between sessions or use shared files with an explicit handoff."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Can my agent work with a teammate's agent?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Yes, if both have a shared communication path and permission to do the work. They also need access to the relevant files. A shared conversation doesn't grant either agent the other's tools or credentials."
-      }
-    }
-  ]
-};
+    ]
+  }
+];
 
 Three old links were missing from a blog update we thought was ready to ship.
 
@@ -114,11 +140,16 @@ For a working starting point, the [official Python quickstart](https://a2a-proto
 
 [MCP](https://modelcontextprotocol.io/) connects an AI application to tools and context exposed by a server. A2A is for exchanging work with an independent agent. The [A2A project's comparison](https://a2a-protocol.org/latest/topics/a2a-and-mcp/) puts those roles side by side.
 
-| | MCP | A2A |
-|---|---|---|
-| Connects to | A server exposing tools or context | An independent agent offering capabilities |
-| Typical request | Read a resource or call a tool | Send work and follow its task |
-| When we’d use it | Retrieve a diff through a tool | Ask an independent review service to inspect it |
+<div className="overflow-x-auto thin-scrollbar">
+  <table style={{ minWidth: "600px" }}>
+    <thead><tr><th></th><th>MCP</th><th>A2A</th></tr></thead>
+    <tbody>
+      <tr><td>Connects to</td><td>A server exposing tools or context</td><td>An independent agent offering capabilities</td></tr>
+      <tr><td>Typical request</td><td>Read a resource or call a tool</td><td>Send work and follow its task</td></tr>
+      <tr><td>When we’d use it</td><td>Retrieve a diff through a tool</td><td>Ask an independent review service to inspect it</td></tr>
+    </tbody>
+  </table>
+</div>
 
 The two also work together. A client could retrieve a diff through an MCP tool, then send it to a compatible remote reviewer through A2A. The reviewer handles the request using its own tools. Our choice depends on whether we need a tool to fetch the diff or a reviewer to take on the work.
 
