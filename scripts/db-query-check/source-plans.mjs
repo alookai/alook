@@ -46,11 +46,19 @@ function parameterValues(parameter) {
   return values.includes(undefined) ? undefined : values
 }
 
+function isDirectAsyncReturn(node) {
+  if (!ts.isReturnStatement(node)) return false
+  let owner = node.parent
+  while (owner && !ts.isFunctionLike(owner)) owner = owner.parent
+  return !!owner && !owner.asteriskToken && ts.canHaveModifiers(owner) &&
+    !!ts.getModifiers(owner)?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)
+}
+
 export function sourceDrizzleRead(node, builder, checker, root) {
   const parent = builder.parent
   const terminal = ts.isPropertyAccessExpression(parent) && ['all', 'get', 'execute'].includes(parent.name.text) &&
     ts.isCallExpression(parent.parent) && parent.parent.expression === parent
-  if (!ts.isAwaitExpression(parent) && !terminal) return undefined
+  if (!ts.isAwaitExpression(parent) && !terminal && !isDirectAsyncReturn(parent)) return undefined
   const receiver = node.expression.expression
   if (!ts.isIdentifier(receiver)) return undefined
   const dbParameter = checker.getSymbolAtLocation(receiver)?.valueDeclaration

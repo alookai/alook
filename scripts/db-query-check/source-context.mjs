@@ -7,10 +7,25 @@ const wrapped = new WeakSet()
 const wrappedSessions = new WeakSet()
 const wrappedCompilers = new WeakSet()
 const fragmentOrigins = new WeakMap()
+const compiledQueries = new WeakMap()
 export const sourceHook = Symbol.for('alook.db-query-check.source')
 
 export function queryOrigin(builder) {
   return origins.get(builder)
+}
+
+export function compiledQueryOrigin(query) {
+  return compiledQueries.get(query)
+}
+
+function trackCompiledQuery(result, source) {
+  if (!source || typeof result?.sql !== 'string' || !Array.isArray(result.params)) return
+  if (result.params.some(value => value !== null && typeof value === 'object' && !(value instanceof Uint8Array))) return
+  const params = result.params.map(value => Buffer.isBuffer(value) ? Buffer.from(value) : value instanceof Uint8Array ? new Uint8Array(value) : value)
+  const { compiled, ...site } = source
+  const origin = compiled?.sql === result.sql ? { ...site, compiled } : site
+  if (site.kind === 'test-fixture' && site.proof === 'orm-builder') origin.preparedSql = result.sql
+  compiledQueries.set(result, { sql: result.sql, params, origin })
 }
 
 function trackSqlFragment(fragment, source) {
@@ -70,6 +85,7 @@ export function registerQuerySource(builder, site) {
       const source = origins.get(this) ?? origins.get(builder)
       return querySource.run(source && { ...source }, () => {
         const result = original.apply(this, args)
+        if (method === 'toSQL') trackCompiledQuery(result, querySource.getStore())
         return method === 'bind' ? registerQuerySource(result, source) : result
       })
     }

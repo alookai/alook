@@ -90,8 +90,10 @@ export function inventoryQueries(root, override, { includeFixtures = false } = {
             let chain = node
             while (chain.parent && (ts.isPropertyAccessExpression(chain.parent) || ts.isCallExpression(chain.parent) && chain.parent.expression === chain)) chain = chain.parent
             let builder = node
+            let beforeAlias
             while (ts.isPropertyAccessExpression(builder.parent) && ts.isCallExpression(builder.parent.parent) && builder.parent.parent.expression === builder.parent) {
               if (['all', 'get', 'run', 'execute', 'then', 'catch', 'finally'].includes(builder.parent.name.text)) break
+              if (builder.parent.name.text === 'as' && ['select', 'selectDistinct'].includes(method)) beforeAlias ??= builder
               builder = builder.parent.parent
             }
             const functionName = enclosingFunction(node)
@@ -100,7 +102,7 @@ export function inventoryQueries(root, override, { includeFixtures = false } = {
             ordinals.set(prefix, ordinal)
             const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1
             const endLine = source.getLineAndCharacterOfPosition(chain.getEnd()).line + 1
-            const site = { key: `${prefix}:${ordinal}`, file: path, functionName, method, line, endLine, start: node.getStart(), builderEnd: builder.getEnd(), resolution: isDb ? 'database-type' : 'unresolved-receiver', instrumentation: ts.isOptionalChain(builder) ? 'optional-chain-unverified' : 'construction' }
+            const site = { key: `${prefix}:${ordinal}`, file: path, functionName, method, line, endLine, start: node.getStart(), builderEnd: (beforeAlias ?? builder).getEnd(), resolution: isDb ? 'database-type' : 'unresolved-receiver', instrumentation: ts.isOptionalChain(builder) ? 'optional-chain-unverified' : 'construction' }
             if (fixture) fixtureSites.push({ ...site, kind: 'test-fixture', proof: fixtureProof, literalSql: fixtureProof === 'literal-sql' ? node.arguments[0].text : undefined })
             else {
             sites.push(site)

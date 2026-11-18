@@ -7,7 +7,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Sqlite, analyzeQuery } from './analyze.mjs'
-import { instrumentDatabase, createCapture } from './capture.mjs'
+import { prepareBatchStatement, instrumentDatabase, createCapture } from './capture.mjs'
 import { sourceFrames, inventoryQueries } from './inventory.mjs'
 import { buildReport } from './report.mjs'
 
@@ -131,6 +131,52 @@ test('deferred real Drizzle statements retain source without evaluating defaults
   assert.equal(allocations, 1)
   assert.equal(records[0].source.key, 'deferred-query')
   assert.deepEqual(records[0].params, ['1'])
+})
+
+test('native batch keeps distinct query object origins and only covers verified executions', t => {
+  const require = createRequire(new URL('../../src/shared/package.json', import.meta.url))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const { eq } = require('drizzle-orm')
+  const root = process.cwd()
+  const directory = mkdtempSync(join(tmpdir(), 'db-query-batch-origin-'))
+  const db = new Sqlite(':memory:')
+  db.exec("CREATE TABLE item(id TEXT PRIMARY KEY); INSERT INTO item VALUES ('one')")
+  const table = sqliteTable('item', { id: text('id').primaryKey() })
+  const orm = drizzle(db)
+  const capture = createCapture(root)
+  const queries = []
+  const transactions = []
+  const restore = instrumentDatabase(Sqlite.prototype, query => {
+    queries.push(query)
+    transactions.push(db.inTransaction)
+    capture.collect(query)
+  })
+  t.after(() => { restore(); db.close(); rmSync(directory, { recursive: true, force: true }) })
+  const file = 'src/shared/src/db/queries/batch-example.ts'
+  const sites = ['first', 'second', 'prepare-only', 'wrong-params'].map(key => ({ key, file, line: 1 }))
+  const fixture = { key: 'fixture', file: 'src/shared/test/batch-example.test.ts', line: 1, kind: 'test-fixture', proof: 'orm-builder', resolution: 'database-type' }
+  const compiled = site => registerQuerySource(orm.select().from(table).where(eq(table.id, 'one')), site).toSQL()
+  const [first, second, notExecuted, wrongParams] = sites.map(compiled)
+  assert.notEqual(first, second)
+  assert.deepEqual(first, second)
+  prepareBatchStatement(db, notExecuted)
+  assert.equal(queries.length, 0)
+  const productFrame = runInThisContext('(probe) => probe()', { filename: join(root, file) })
+  productFrame(() => querySource.run(sites[0], () => db.transaction(() => {
+    for (const query of [first, second, compiled(fixture), { ...first }]) {
+      assert.deepEqual(prepareBatchStatement(db, query).all(...query.params), [{ id: 'one' }])
+    }
+    assert.deepEqual(prepareBatchStatement(db, wrongParams).all('other'), [])
+  })()))
+  assert.deepEqual(queries.map(query => query.source?.key), ['first', 'second', 'fixture', undefined, undefined])
+  assert.deepEqual(transactions, [true, true, true, true, true])
+  capture.write(directory)
+  const report = buildReport(db, { filesScanned: 1, sites, fixtureSites: [fixture] }, directory, 0)
+  assert.deepEqual(report.inventory.filter(site => site.observed).map(site => site.key), ['first', 'second'])
+  assert.equal(report.testStatements[0]?.site, fixture.key)
+  assert.equal(report.testStatements.length, 1)
+  assert.equal(report.summary.unattributedStatements, 1)
 })
 
 test('normal insert FK parents are proved from actual indexed fixture rows; missing parents stay unknown', t => {
@@ -395,4 +441,42 @@ test('a final SQL plan covers only subqueries consumed by the real compiler', t 
   const report = buildReport(sqlite, { filesScanned: 1, sites: [outerSite, consumedSite, unusedSite] }, directory, 0)
   assert.deepEqual(report.observations.map(query => query.sites), [[outerSite.key, consumedSite.key]])
   assert.deepEqual(report.uncovered.map(site => site.key), [unusedSite.key])
+})
+
+test('instrumentation reaches an aliased builder before Drizzle compiles the subquery', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { eq } = require('drizzle-orm')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const db = new Sqlite(':memory:')
+  db.exec("CREATE TABLE item(id TEXT PRIMARY KEY); INSERT INTO item VALUES ('one')")
+  const table = sqliteTable('item', { id: text('id').primaryKey() })
+  const file = 'src/shared/src/db/queries/alias-probe.ts'
+  const source = `(db, table, eq) => {
+    const used = db.select({ id: table.id }).from(table).where(eq(table.id, 'one')).as('used');
+    db.select({ id: table.id }).from(table).where(eq(table.id, 'two')).as('unused');
+    return db.select().from(used).all();
+  }`
+  const inventory = inventoryQueries(root, { [file]: source })
+  assert.equal(inventory.sites.length, 3)
+  const [used, unused, outer] = inventory.sites
+  const directory = mkdtempSync(join(tmpdir(), 'db-alias-origin-'))
+  const capture = createCapture(root)
+  const previous = globalThis[sourceHook]
+  globalThis[sourceHook] = registerQuerySource
+  const restore = instrumentDatabase(Sqlite.prototype, capture.collect)
+  t.after(() => {
+    restore()
+    globalThis[sourceHook] = previous
+    db.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+  const code = instrumentModule(source, join(root, file), root, inventory.sites)
+  const execute = runInThisContext(`(${code})`, { filename: join(root, file) })
+  assert.deepEqual(execute(drizzle(db), table, eq), [{ id: 'one' }])
+  capture.write(directory)
+  const report = buildReport(db, inventory, directory, 0)
+  assert.deepEqual(report.observations.map(query => query.sites), [[outer.key, used.key]])
+  assert.deepEqual(report.uncovered.map(site => site.key), [unused.key])
 })

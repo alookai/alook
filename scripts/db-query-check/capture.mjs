@@ -1,9 +1,19 @@
 import { createRequire } from 'node:module'
+import { isDeepStrictEqual } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { backendRoots, productionFile, sourceFrames } from './inventory.mjs'
-import { querySource, queryOrigin } from './source-context.mjs'
+import { querySource, queryOrigin, compiledQueryOrigin } from './source-context.mjs'
+
+export const batchSourceHook = Symbol.for('alook.db-query-check.prepare-batch')
+const batchOrigins = new WeakMap()
+
+export function prepareBatchStatement(database, query) {
+  const statement = querySource.exit(() => database.prepare(query.sql))
+  batchOrigins.set(statement, compiledQueryOrigin(query) ?? null)
+  return statement
+}
 
 function nativeStack() {
   const previous = Error.prepareStackTrace
@@ -96,8 +106,12 @@ export function instrumentDatabase(prototype, collect) {
           if (key === 'bind') bound = args
           if (['all', 'get', 'run', 'iterate'].includes(key)) {
             const registered = queryOrigin(proxy)
-            const executingSource = registered?.kind === 'test-fixture' && registered.proof === 'literal-sql' && registered.literalSql === sql ? registered : source ?? registered ?? querySource.getStore()
-            collect({ sql, params: bound ?? args, source: executingSource, context: () => context(bound ?? args), stack: executingSource && executingSource.kind !== 'test-fixture' ? '' : `${origin}\n${nativeStack()}` })
+            const params = bound ?? args
+            const batch = batchOrigins.get(proxy)
+            const batchSource = batch?.sql === sql && isDeepStrictEqual(batch.params, params) ? batch.origin : undefined
+            const inherited = registered?.kind === 'test-fixture' && registered.proof === 'literal-sql' && registered.literalSql === sql ? registered : source ?? registered ?? querySource.getStore()
+            const executingSource = batch === undefined ? inherited : batchSource
+            collect({ sql, params, source: executingSource, context: () => context(params), stack: executingSource && executingSource.kind !== 'test-fixture' ? '' : `${origin}\n${nativeStack()}` })
           }
           const result = Reflect.apply(value, target, args)
           return result === target ? proxy : result

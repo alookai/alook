@@ -55,16 +55,29 @@ test('unsupported Drizzle calls stay visible without evaluating arbitrary functi
     import type { Database } from '../index'
     function sideEffect() { throw new Error('would run arbitrary code') }
     export async function eligible(db: Database, id: string) { return await db.select({ id: user.id }).from(user).where(eq(user.id, id)) }
+    export async function direct(db: Database, id: string) {
+      if (id) return db.select({ id: user.id }).from(user).where(eq(user.id, id))
+    }
+    export async function nested(db: Database, id: string) {
+      return function syncHelper() {
+        return db.select({ id: user.id }).from(user).where(eq(user.id, id))
+      }
+    }
+    export async function* generator(db: Database, id: string) {
+      return db.select({ id: user.id }).from(user).where(eq(user.id, id))
+    }
     export async function unsupported(db: Database) { return await db.select({ id: user.id }).from(user).where(eq(user.id, sideEffect())) }
     export function composable(db: Database, id: string) { return db.select({ id: user.id }).from(user).where(eq(user.id, id)) }
     export async function mutableProjection(db: Database, id: string) {
       const projection = { value: user.id };
       projection.value = user.name;
-      return await db.select(projection).from(user).where(eq(user.id, id));
+      return db.select(projection).from(user).where(eq(user.id, id));
     }
   `
   const inventory = inventoryQueries(root, { [file]: source })
-  assert.equal(inventory.sites.length, 4)
-  assert.equal(inventory.sourceDrizzlePlans.length, 1)
-  assert.match(inventory.sourceDrizzlePlans[0].siteKey, /eligible:select:1$/)
+  assert.equal(inventory.sites.length, 7)
+  assert.deepEqual(inventory.sourceDrizzlePlans.map(plan => plan.siteKey), [
+    `${file}:eligible:select:1`,
+    `${file}:direct:select:1`,
+  ])
 })

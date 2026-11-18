@@ -6,6 +6,9 @@ import { createInvite, useInvite } from "../../src/db/queries/community/invite";
 describe("community invite quota consumption", () => {
   let sqlite: Sqlite.Database;
   let db: ReturnType<typeof drizzle>;
+  const prepareBatch = (globalThis as {
+    [key: symbol]: ((db: Sqlite.Database, query: { sql: string }) => Sqlite.Statement) | undefined;
+  })[Symbol.for("alook.db-query-check.prepare-batch")];
 
   beforeEach(() => {
     sqlite = new Sqlite(":memory:");
@@ -59,7 +62,7 @@ describe("community invite quota consumption", () => {
       sqlite.transaction(() =>
         statements.map((statement) => {
           const query = statement.toSQL();
-          const prepared = sqlite.prepare(query.sql);
+          const prepared = prepareBatch ? prepareBatch(sqlite, query) : sqlite.prepare(query.sql);
           return prepared.reader
             ? prepared.all(...query.params)
             : prepared.run(...query.params);
