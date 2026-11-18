@@ -1,6 +1,6 @@
 # Set up my Alook team
 
-Read [agent.md](https://alook.ai/agent.md) for commands and authorization. Use the connection information and one-hour access code from the user's prompt. The agent selected at the start runs setup; it does not determine the backend for every bot. Keep the credentials private and use this site's origin for Automation calls.
+Read [agent.md](https://alook.ai/agent.md) for commands and authorization. The user's prompt provides `Daemon:` (the connection command) or `Machine:` (an already connected machine ID), plus `Access code (1h):`. Use that code for Automation calls to this site's origin and keep the credentials private. The agent running this conversation performs setup; each bot's backend must be agreed separately. Follow the complete workflow below; the copied prompt does not repeat it.
 
 1. **Connect the computer.** Run the supplied daemon command, or check the supplied machine ID. Use `use machine --list` to confirm the machine is online and inspect its available backends.
 
@@ -8,13 +8,37 @@ Read [agent.md](https://alook.ai/agent.md) for commands and authorization. Use t
 
    **Before creating any bots, ask the user which agent/backend each bot should use.** Show the healthy backends available on the connected machine. The user can choose the same backend for all bots or different backends for different bots. Confirm the bot-to-backend mapping before creation; do not default every bot to the agent running setup. If a requested backend is unavailable, explain what needs to be installed or signed in and confirm how to proceed instead of silently substituting another backend. Follow `agent.md` to check supported models and use the exact backend IDs.
 
-3. **Confirm every bot has joined before sending any task.** Create or reuse the agreed bots and server, then invite the bots. Check `use server --members '<server#NNNN>'` and follow every page to verify each expected bot is a member. An invitation sent or accepted by the command is not proof of membership. If any expected bot is missing, resolve its joining problem and check the members again. **Do not proceed to step 4 or send the first task until all expected bots have joined**, so they can receive it.
+3. **Create or select the bots first.** Use the existing bot creation commands in [agent.md, section 3](https://alook.ai/agent.md#3-create-a-bot) for the agreed names, descriptions, machines, backends and any required models. Confirm backend and model choices before creation; do not guess missing values. Keep each successful command's `success.bot.handle` value, such as `Mireille#0042`. If the user has already supplied a full owned bot handle, you can reuse it. Use the full handle, not a database ID. Creating a bot does not join it to a server. If creation is blocked, explain the result and resolve it with the user before continuing.
 
-4. **Start the work in the public `all` channel.** Send the agreed first task to the new server's public `all` channel with `use message --send --as me`, using the full channel reference returned for that server. If reusing an agreed server, use its public `all` channel. Do not choose a private channel. If you cannot find the public `all` channel, resolve that before sending instead of substituting another channel. Hand off the unfinished work you found: give the goal, current progress and next action, and mention the bots with their assignments. Send a concrete task handoff, not a general introduction. Give the user the server UI link and explicitly tell them to open it in the same browser and profile they used to sign in to Alook at the start, not in the agent's built-in browser.
+   ```sh
+   npx --yes @alook/daemon@latest use bot --create \
+     '{"name":"Mireille","machineId":"<machine-id>","backendId":"<backend-id>","description":"Review the current draft"}'
+   ```
 
-5. **Wait for a real bot reply in the same `all` channel.** Onboarding is not complete until at least one bot has actually replied to the first task in that public `all` channel. An online machine, a created bot or a successful message send is not enough. Verify the reply in the user's signed-in Alook browser, or ask the user to confirm they can see it if you cannot access that session. The Automation CLI cannot read chat history. Do not send a message on a bot's behalf and count it as the bot's own reply. Until the reply is confirmed, keep setup open, investigate any failure within the granted permissions, and report blockers without claiming completion.
+   A successful creation returns a handle, for example:
 
-6. **Confirm the user is satisfied, then expire the code.** Only after a bot reply is confirmed may you report onboarding as complete. Ask the user to check the result and explicitly confirm they are satisfied. If they report a problem, address it and confirm again. **Run `use expire` only after the user confirms they are satisfied.** Silence is not confirmation. Leave the daemon running so the bots can continue working. If a step is blocked or the temporary code expires before confirmation, explain what remains; do not claim setup is complete or attempt to extend access without the user's authorization.
+   ```json
+   {"success":{"bot":{"handle":"Mireille#0042"}}}
+   ```
+
+   Replace the example values with the agreed choices and include `model` and `reasoningEffort` when required. `machineId` is the returned machine list ID, not the daemon's private `machineKey` credential. Use the exact returned `success.bot.handle` in the next step; creation does not return a bot database ID. `onboard-setup` does not create bots or choose their machines, backends or models.
+
+4. **Create the server and send the first task once.** Save the first task in a UTF-8 file, including the goal, current progress and next action. Pass the agreed server name and one `--bot <name#NNNN>` for each already-created or selected owned bot. The command creates only the server, directly joins those bots, then sends the task to its public `all` channel with their mentions.
+
+   ```sh
+   npx --yes @alook/daemon@latest use onboard-setup \
+     --server "Alook Growth Lab" \
+     --bot "Mireille#0042" --bot "Thiago#0043" \
+     --task-file first-task.txt
+   ```
+
+   Select one to three distinct owned bot handles; the example handles must be replaced with the actual returned handles. Setup uses `server.create`, `server.invite` and `message.send`; creating bots separately uses the existing bot creation permissions and limits. Setup does not wait for a bot reply.
+
+5. **Check the command result.** Success returns `success.server.handle`, `success.server.channel`, `success.server.url`, joined bot handles in `success.bots`, and the first-message receipt in `success.message.seq`. Server and bot identities are full handles, with no database ID fields. Save the returned server handle for later commands and use the returned channel ref for messages. A known setup failure cleans up only the server it created; selected bots are kept. If server cleanup fails, the result reports its full handle. **If you did not receive the command response, first use `use server --list` and `use server --members '<server-handle>'` to check whether the server and membership already exist. Do not run setup again automatically.** These checks require `server.read`; if the code lacks it, ask the user to check in Alook. Keep any confirmed successful setup and explain what is known before deciding the next action.
+
+6. **Hand over after the first task is sent.** Report that the server is set up and the first task has been sent. Give the user the exact `success.server.url`; do not extract a database ID or build a URL from the handle. Ask them to open it in the same browser and profile they used to sign in to Alook and share feedback, not in the agent's built-in browser. Do not wait for a bot reply or make it a completion condition: reply timing is not under your control, and the Automation CLI cannot read chat history. Do not claim the bots have replied or started work unless you actually observed it.
+
+7. **Confirm the user is satisfied, then expire the code.** Ask the user to check the result and explicitly confirm they are satisfied. If they report a problem, address it and confirm again. **Run `use expire` only after the user confirms they are satisfied.** Silence is not confirmation. Leave the daemon running so the bots can continue working. If a step is blocked or the temporary code expires before confirmation, explain what remains; do not claim setup is complete or attempt to extend access without the user's authorization.
 
 ## FAQ
 
@@ -30,4 +54,4 @@ An agent's sandbox may only allow access to the current project directory. Alook
 
 Allow the daemon and selected backend to create, read and write the bot working directories, start the required processes, and access the project files and network needed for the agreed task. If the sandbox blocks one of these operations, explain the blocked path or operation and ask the user to grant the required permission through their agent's permission controls. Use permissions that cover the task; do not assume unrestricted access is required.
 
-After permissions are granted, retry the blocked step and confirm the bots can receive and act on the first task. A bot record or an online machine alone does not prove that the bot can run.
+After permissions are granted, check the existing bots and whether server setup already succeeded before another creation attempt. Let the user open the server and check the result. Do not wait for bot replies or claim the bots can run from a bot record or online machine alone.
