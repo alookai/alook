@@ -170,7 +170,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @alook/agent-driver build
-      - run: pnpm check:db-queries
+      - run: pnpm check:db-queries --require-complete
       - name: Preserve query plans and coverage gaps
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
