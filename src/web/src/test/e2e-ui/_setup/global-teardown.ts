@@ -1,5 +1,6 @@
 import { stopServicesAndRestore } from "./services"
+import { measureSetupAsync } from "./setup-work"
 
 export default async function globalTeardown(): Promise<void> {
-  await stopServicesAndRestore()
+  await measureSetupAsync("global-teardown", stopServicesAndRestore)
 }

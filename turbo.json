@@ -514,6 +514,7 @@
         "postcss.config.mjs",
         "wrangler*.toml",
         "readme-capture/**",
+      "!readme-capture/public/**",
         "app-store-capture/**",
         "$TURBO_ROOT$/src/daemon/package.json",
         "cloudflare-env.d.ts",
@@ -607,8 +608,7 @@
         "open-next-worker.d.ts",
         "!blog/next-env.d.ts",
         "open-next-handler.d.ts",
-        "!blog/public/blog/_generated/**",
-        "!blog/src/lib/blog/image-assets.json"
+        "!blog/public/blog/_generated/**"
       ],
       "outputs": [
         "blog/.next/**",

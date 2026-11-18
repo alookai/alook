@@ -1,19 +1,22 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { createElement, useCallback } from "react"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { conversationEntryFixture, dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
-import { messageReadPageFixture } from "@/test/community-resource-fixtures"
+import { messageReadPageFixture, singleMessageReadFixture } from "@/test/community-resource-fixtures"
 import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { MessageList } from "@/components/community/messages/message-list"
 import { ConversationFooterShell, ConversationFooterSlotProvider } from "@/components/community/messages/conversation-footer-shell"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
-import { dehydrate } from "@tanstack/react-query"
+import { dehydrate, hashKey } from "@tanstack/react-query"
 import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
 import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
 import { useDmMessages, useMessages } from "./use-messages"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { messageQueryFn } from "./use-message"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, resizeMeasureBeforeScroll, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import type { MessageWindowData } from "@/lib/community/message-window"
 
 type ScrollResult = ReturnType<typeof import("./use-scroll-anchor").useScrollAnchor>
 const preCommand = vi.hoisted(() => ({
@@ -42,10 +45,711 @@ vi.mock("@/lib/observability/position", async original => {
 })
 
 const load = vi.hoisted(() => vi.fn())
+const commitGate = vi.hoisted(() => ({ hold: false, publish: undefined as (() => void) | undefined }))
+vi.mock("@/components/community/messages/virtual-cursor-list", async original => {
+  const actual = await original<typeof import("@/components/community/messages/virtual-cursor-list")>()
+  return { ...actual, VirtualRows: function HeldCommitRows(props: Parameters<typeof actual.VirtualRows>[0]) {
+    const { onLayoutCommit } = props
+    const commit = useCallback<NonNullable<typeof props.onLayoutCommit>>(layout => {
+      if (commitGate.hold && layout) commitGate.publish = () => onLayoutCommit?.(layout)
+      else onLayoutCommit?.(layout)
+    }, [onLayoutCommit])
+    return createElement(actual.VirtualRows, { ...props, onLayoutCommit: commit })
+  } }
+})
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: load }))
-beforeEach(() => { installMessageScrollFixture(); load.mockReset(); preCommand.latest = null; preCommand.finishes = [] })
+beforeEach(() => { installMessageScrollFixture(); load.mockReset(); preCommand.latest = null; preCommand.finishes = []; commitGate.hold = false; commitGate.publish = undefined })
 afterEach(restoreMessageScrollFixture)
 const kinds = ["text", "text-thread", "forum-post", "dm"] as const
+
+it.each(["no-movement", "offset-before-event"] as const)("keeps far real DM movement beyond old committed rows before native scroll delivery with %s", async order => {
+  scrollFixture.width = 390
+  const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  const base = dmConversationEntryFixture()
+  const rows = Array.from({ length: 80 }, (_, index) => ({ ...base.messages[0], id: `r16-${index + 1}`, seq: index + 1,
+    content: `reading ${index}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+  const cursor = `${rows[49].createdAt}|${rows[49].id}`
+  const tail = { ...base, channel: { ...base.channel, messageCount: 80 }, messages: rows.slice(49),
+    readState: { ...base.readState, lastReadMessageId: rows[79].id, lastReadSeq: 80, lastReadAt: rows[79].createdAt }, newBoundary: { afterSeq: 80, target: null },
+    page: { olderCursor: cursor, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
+  await seedConversationEntry(owner.client, tail)
+  const requests: string[] = []
+  const ordering: Array<{ phase: string; type: string; offset: number; at: number }> = []
+  let oldCommittedBodies: Array<{ id: string; start: number; end: number }> = []
+  let currentBodyId: string | undefined
+  let scrollRoot: HTMLElement | undefined
+  const recordNativeScroll = () => ordering.push({ phase, type: "native-scroll", offset: scrollRoot!.scrollTop, at: performance.now() })
+  const recordWheel = () => ordering.push({ phase, type: "wheel", offset: scrollRoot!.scrollTop, at: performance.now() })
+  let updated = false
+  load.mockImplementation((url: string) => {
+    requests.push(url)
+    if (url === `/api/community/messages/${rows[0].id}`) {
+      updated = true
+      return Promise.resolve(singleMessageReadFixture({ ...rows[0], content: "updated 0" }))
+    }
+    const search = new URL(url, "https://test.invalid").searchParams
+    if (search.has("entry")) return Promise.resolve(tail)
+    if (search.get("cursor") === cursor) return Promise.resolve(messageReadPageFixture({ messages: rows.slice(0, 49), hasMoreOlder: false, hasMoreNewer: true, newerCursor: `${rows[48].createdAt}|${rows[48].id}`, latestSeq: 80 }))
+    throw new Error(`Unexpected consumed DM publication read: ${url}`)
+  })
+  const href = "/c/me/c1", intent = { href }
+  const navigation = { entryIntent: intent, publishedHref: href, pendingHref: null, navigationPending: false }
+  let feed!: ReturnType<typeof useDmMessages>
+  let phase = "setup"
+  const readings: Array<{ phase: string; id: string }> = []
+  function Probe() {
+    feed = useDmMessages("c1", { viewerUserId: "viewer" })
+    return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="DM" variant="dm"
+      messages={feed.messages} loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
+      initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
+      initialPositionMessageId={feed.initialPositionMessageId} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+      positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={id => { readings.push({ phase, id }); feed.onReadingMessage(id) }}
+      newDividerBefore={feed.newBoundary?.target?.id} newBoundary={feed.newBoundary} latestSeq={feed.latestSeq}
+      retiredNewTargetId={feed.retiredNewTargetId} onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary}
+      hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer} historyStartKnown={feed.historyStartKnown}
+      isFetching={feed.isFetching} isFetchingOlder={feed.isFetchingOlder} isFetchingNewer={feed.isFetchingNewer}
+      onLoadOlder={feed.fetchOlder} onLoadNewer={feed.fetchNewer} onUserTakeover={feed.onUserTakeover}
+      active positioningActive onOpenThread={() => {}} />
+      <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
+    </div></ConversationFooterSlotProvider>
+  }
+  const view = render(<CommunityTestProvider {...owner}><CommunityRouteContext value={{ breakpoint: "mobile", navigation } as never}><Probe /></CommunityRouteContext></CommunityTestProvider>)
+  const settle = async () => { for (let frame = 0; frame < 6; frame++) { resize(); await act(async () => { await vi.advanceTimersByTimeAsync(0) }) } }
+  const visibleBody = (root: HTMLElement) => {
+    const viewport = root.getBoundingClientRect()
+    return [...root.querySelectorAll<HTMLElement>("[data-msg-id]")].find(body => { const rect = body.getBoundingClientRect(); return Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 1 })
+  }
+  const publishRows = () => {
+    const publish = commitGate.publish
+    expect(publish).toBeDefined()
+    commitGate.hold = false
+    act(() => publish?.())
+  }
+  try {
+    await settle()
+    const root = view.getByTestId("community-message-scroller")
+    const entry = feed.positionEntry
+    const query = owner.client.getQueryCache().find({ queryKey: communityKeys.channelMessages("c1"), exact: true })!
+    expect(query).toBeDefined()
+    if (feed.hasMoreOlder) {
+      const older = feed.fetchOlder()
+      expect(older.accepted).toBe(true)
+      if (!older.accepted) throw new Error("The actual DM older controller must admit the setup read")
+      await act(async () => { expect(await older.completed).toMatchObject({ status: "success" }); await vi.advanceTimersByTimeAsync(0) })
+      await settle()
+    }
+    expect(feed.messages).toHaveLength(80)
+    expect((query.state.data as MessageWindowData).pages).toHaveLength(2)
+    phase = "first-manual"
+    readings.length = 0
+    commitGate.hold = true
+    fireEvent.wheel(root, { deltaY: -root.scrollHeight })
+    act(() => root.scrollTo({ top: 0 }))
+    runFrames(1)
+    runFrames(40)
+    expect(readings).toHaveLength(0)
+    phase = "first-commit"
+    publishRows()
+    runFrames(2)
+    await settle()
+    expect(readings).toEqual([{ phase: "first-commit", id: rows[0].id }])
+    expect(feed.messageNeighborhood!.page).toMatchObject({ query, key: hashKey([(query.state.data as MessageWindowData).pageParams[1]]) })
+    const before = { offset: root.scrollTop, height: root.scrollHeight, count: readings.length, messages: feed.messages, window: feed.messageWindow }
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    const oldViewport = root.getBoundingClientRect()
+    oldCommittedBodies = [...root.querySelectorAll<HTMLElement>("[data-msg-id]")].map(body => {
+      const rect = body.getBoundingClientRect()
+      return { id: body.dataset.msgId!, start: rect.top - oldViewport.top + root.scrollTop, end: rect.bottom - oldViewport.top + root.scrollTop }
+    })
+    expect(oldCommittedBodies.length).toBeGreaterThan(0)
+    expect(5000).toBeGreaterThan(Math.max(...oldCommittedBodies.map(body => body.end)))
+    expect(root.scrollHeight - root.clientHeight - 5000).toBeGreaterThan(root.clientHeight)
+    scrollRoot = root
+    root.addEventListener("scroll", recordNativeScroll)
+    root.addEventListener("wheel", recordWheel)
+    phase = "second-http-publication"
+    commitGate.hold = true
+    await act(async () => { await owner.client.query({ queryKey: communityKeys.message(rows[0].id), queryFn: messageQueryFn(rows[0].id, owner.client, "c1"), staleTime: 0, select: undefined }); await vi.advanceTimersByTimeAsync(0) })
+    expect(updated).toBe(true)
+    expect(owner.registry.collections.messages.get(rows[0].id)?.content).toBe("updated 0")
+    expect(feed.messages.find(message => message.id === rows[0].id)?.content).toBe("updated 0")
+    expect(feed.messages).not.toBe(before.messages)
+    expect(root.querySelector(`[data-msg-id="${rows[0].id}"]`)).toHaveTextContent("updated 0")
+    expect(ordering).toEqual([])
+    expect([...root.querySelectorAll<HTMLElement>("[data-msg-id]")].map(body => body.dataset.msgId)).toEqual(oldCommittedBodies.map(body => body.id))
+    if (order === "offset-before-event") {
+      phase = "physical-move-before-commit"
+      act(() => root.scrollTo({ top: 5000 }))
+      expect(root.scrollTop).toBe(5000)
+      expect(visibleBody(root)).toBeUndefined()
+      ordering.push({ phase, type: "physical-move", offset: root.scrollTop, at: performance.now() })
+      expect(ordering.filter(event => event.type === "native-scroll" || event.type === "wheel")).toEqual([])
+    }
+    phase = "second-commit-before-native-scroll"
+    publishRows()
+    ordering.push({ phase, type: "real-commit-return", offset: root.scrollTop, at: performance.now() })
+    expect(ordering.filter(event => event.type === "native-scroll" || event.type === "wheel")).toEqual([])
+    if (order === "offset-before-event") expect(visibleBody(root)).toBeUndefined()
+    expect(readings).toHaveLength(before.count)
+    expect(root.scrollTop).toBe(order === "offset-before-event" ? 5000 : before.offset)
+    expect(root.scrollHeight).toBe(before.height)
+    expect(view.getByTestId("community-message-scroller")).toBe(root)
+    expect(feed.positionEntry).toBe(entry)
+    expect(owner.client.getQueryCache().find({ queryKey: query.queryKey, exact: true })).toBe(query)
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    phase = "native-event-delivery"
+    await settle()
+    if (order === "no-movement") {
+      expect(ordering.map(event => event.type)).toEqual(["real-commit-return"])
+      expect(readings).toHaveLength(before.count)
+      phase = "fresh-gesture-after-still-control"
+      fireEvent.wheel(root, { deltaY: 5000 })
+      act(() => root.scrollTo({ top: 5000 }))
+      await settle()
+    } else {
+      expect(ordering.map(event => event.type)).toEqual(["physical-move", "real-commit-return", "native-scroll"])
+      expect(ordering.at(-1)).toMatchObject({ phase, offset: 5000 })
+    }
+    const body = visibleBody(root)
+    expect(body).toBeDefined()
+    currentBodyId = body!.dataset.msgId
+    expect(currentBodyId).not.toBe(rows[0].id)
+    expect(oldCommittedBodies.map(body => body.id)).not.toContain(currentBodyId)
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeGreaterThan(root.clientHeight)
+    expect(root.scrollTop).toBe(5000)
+    expect(readings).toHaveLength(before.count + 1)
+    expect(readings.at(-1)).toEqual({ phase, id: body!.dataset.msgId })
+  } finally {
+    console.info("dm-far-offset-commit-native-order", JSON.stringify({ order, updated, phase, readings, requests, ordering, oldCommittedBodies, currentBodyId }))
+    scrollRoot?.removeEventListener("scroll", recordNativeScroll)
+    scrollRoot?.removeEventListener("wheel", recordWheel)
+    commitGate.hold = false
+    view.unmount()
+    owner.client.clear()
+  }
+})
+
+it.each(["no-movement", "offset-before-event"] as const)("keeps real DM movement before the second producer commit and native scroll delivery with %s", async order => {
+  scrollFixture.width = 390
+  const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  const base = dmConversationEntryFixture()
+  const rows = Array.from({ length: 80 }, (_, index) => ({ ...base.messages[0], id: `r14-${index + 1}`, seq: index + 1,
+    content: `reading ${index}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+  const cursor = `${rows[49].createdAt}|${rows[49].id}`
+  const tail = { ...base, channel: { ...base.channel, messageCount: 80 }, messages: rows.slice(49),
+    readState: { ...base.readState, lastReadMessageId: rows[79].id, lastReadSeq: 80, lastReadAt: rows[79].createdAt }, newBoundary: { afterSeq: 80, target: null },
+    page: { olderCursor: cursor, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
+  await seedConversationEntry(owner.client, tail)
+  const requests: string[] = []
+  const ordering: Array<{ phase: string; type: string; offset: number; at: number }> = []
+  let scrollRoot: HTMLElement | undefined
+  const recordNativeScroll = () => ordering.push({ phase, type: "native-scroll", offset: scrollRoot!.scrollTop, at: performance.now() })
+  const recordWheel = () => ordering.push({ phase, type: "wheel", offset: scrollRoot!.scrollTop, at: performance.now() })
+  let updated = false
+  load.mockImplementation((url: string) => {
+    requests.push(url)
+    if (url === `/api/community/messages/${rows[0].id}`) {
+      updated = true
+      return Promise.resolve(singleMessageReadFixture({ ...rows[0], content: "updated 0" }))
+    }
+    const search = new URL(url, "https://test.invalid").searchParams
+    if (search.has("entry")) return Promise.resolve(tail)
+    if (search.get("cursor") === cursor) return Promise.resolve(messageReadPageFixture({ messages: rows.slice(0, 49), hasMoreOlder: false, hasMoreNewer: true, newerCursor: `${rows[48].createdAt}|${rows[48].id}`, latestSeq: 80 }))
+    throw new Error(`Unexpected consumed DM publication read: ${url}`)
+  })
+  const href = "/c/me/c1", intent = { href }
+  const navigation = { entryIntent: intent, publishedHref: href, pendingHref: null, navigationPending: false }
+  let feed!: ReturnType<typeof useDmMessages>
+  let phase = "setup"
+  const readings: Array<{ phase: string; id: string }> = []
+  function Probe() {
+    feed = useDmMessages("c1", { viewerUserId: "viewer" })
+    return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="DM" variant="dm"
+      messages={feed.messages} loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
+      initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
+      initialPositionMessageId={feed.initialPositionMessageId} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+      positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={id => { readings.push({ phase, id }); feed.onReadingMessage(id) }}
+      newDividerBefore={feed.newBoundary?.target?.id} newBoundary={feed.newBoundary} latestSeq={feed.latestSeq}
+      retiredNewTargetId={feed.retiredNewTargetId} onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary}
+      hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer} historyStartKnown={feed.historyStartKnown}
+      isFetching={feed.isFetching} isFetchingOlder={feed.isFetchingOlder} isFetchingNewer={feed.isFetchingNewer}
+      onLoadOlder={feed.fetchOlder} onLoadNewer={feed.fetchNewer} onUserTakeover={feed.onUserTakeover}
+      active positioningActive onOpenThread={() => {}} />
+      <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
+    </div></ConversationFooterSlotProvider>
+  }
+  const view = render(<CommunityTestProvider {...owner}><CommunityRouteContext value={{ breakpoint: "mobile", navigation } as never}><Probe /></CommunityRouteContext></CommunityTestProvider>)
+  const settle = async () => { for (let frame = 0; frame < 6; frame++) { resize(); await act(async () => { await vi.advanceTimersByTimeAsync(0) }) } }
+  const visibleBody = (root: HTMLElement) => {
+    const viewport = root.getBoundingClientRect()
+    return [...root.querySelectorAll<HTMLElement>("[data-msg-id]")].find(body => { const rect = body.getBoundingClientRect(); return Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 1 })
+  }
+  const publishRows = () => {
+    const publish = commitGate.publish
+    expect(publish).toBeDefined()
+    commitGate.hold = false
+    act(() => publish?.())
+  }
+  try {
+    await settle()
+    const root = view.getByTestId("community-message-scroller")
+    const entry = feed.positionEntry
+    const query = owner.client.getQueryCache().find({ queryKey: communityKeys.channelMessages("c1"), exact: true })!
+    expect(query).toBeDefined()
+    if (feed.hasMoreOlder) {
+      const older = feed.fetchOlder()
+      expect(older.accepted).toBe(true)
+      if (!older.accepted) throw new Error("The actual DM older controller must admit the setup read")
+      await act(async () => { expect(await older.completed).toMatchObject({ status: "success" }); await vi.advanceTimersByTimeAsync(0) })
+      await settle()
+    }
+    expect(feed.messages).toHaveLength(80)
+    expect((query.state.data as MessageWindowData).pages).toHaveLength(2)
+    phase = "first-manual"
+    readings.length = 0
+    commitGate.hold = true
+    fireEvent.wheel(root, { deltaY: -root.scrollHeight })
+    act(() => root.scrollTo({ top: 0 }))
+    runFrames(1)
+    runFrames(40)
+    expect(readings).toHaveLength(0)
+    phase = "first-commit"
+    publishRows()
+    runFrames(2)
+    await settle()
+    expect(readings).toEqual([{ phase: "first-commit", id: rows[0].id }])
+    expect(feed.messageNeighborhood!.page).toMatchObject({ query, key: hashKey([(query.state.data as MessageWindowData).pageParams[1]]) })
+    const before = { offset: root.scrollTop, height: root.scrollHeight, count: readings.length, messages: feed.messages, window: feed.messageWindow }
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    scrollRoot = root
+    root.addEventListener("scroll", recordNativeScroll)
+    root.addEventListener("wheel", recordWheel)
+    phase = "second-http-publication"
+    commitGate.hold = true
+    await act(async () => { await owner.client.query({ queryKey: communityKeys.message(rows[0].id), queryFn: messageQueryFn(rows[0].id, owner.client, "c1"), staleTime: 0, select: undefined }); await vi.advanceTimersByTimeAsync(0) })
+    expect(updated).toBe(true)
+    expect(owner.registry.collections.messages.get(rows[0].id)?.content).toBe("updated 0")
+    expect(feed.messages.find(message => message.id === rows[0].id)?.content).toBe("updated 0")
+    expect(feed.messages).not.toBe(before.messages)
+    expect(root.querySelector(`[data-msg-id="${rows[0].id}"]`)).toHaveTextContent("updated 0")
+    expect(ordering).toEqual([])
+    if (order === "offset-before-event") {
+      phase = "physical-move-before-commit"
+      act(() => root.scrollTo({ top: 500 }))
+      expect(root.scrollTop).toBe(500)
+      ordering.push({ phase, type: "physical-move", offset: root.scrollTop, at: performance.now() })
+      expect(ordering.filter(event => event.type === "native-scroll" || event.type === "wheel")).toEqual([])
+    }
+    phase = "second-commit-before-native-scroll"
+    publishRows()
+    ordering.push({ phase, type: "real-commit-return", offset: root.scrollTop, at: performance.now() })
+    expect(ordering.filter(event => event.type === "native-scroll" || event.type === "wheel")).toEqual([])
+    expect(readings).toHaveLength(before.count)
+    expect(root.scrollTop).toBe(order === "offset-before-event" ? 500 : before.offset)
+    expect(root.scrollHeight).toBe(before.height)
+    expect(view.getByTestId("community-message-scroller")).toBe(root)
+    expect(feed.positionEntry).toBe(entry)
+    expect(owner.client.getQueryCache().find({ queryKey: query.queryKey, exact: true })).toBe(query)
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    phase = "native-event-delivery"
+    await settle()
+    if (order === "no-movement") {
+      expect(ordering.map(event => event.type)).toEqual(["real-commit-return"])
+      expect(readings).toHaveLength(before.count)
+      phase = "fresh-gesture-after-still-control"
+      fireEvent.wheel(root, { deltaY: 500 })
+      act(() => root.scrollTo({ top: 500 }))
+      await settle()
+    } else {
+      expect(ordering.map(event => event.type)).toEqual(["physical-move", "real-commit-return", "native-scroll"])
+      expect(ordering.at(-1)).toMatchObject({ phase, offset: 500 })
+    }
+    const body = visibleBody(root)
+    expect(body).toBeDefined()
+    expect(body!.dataset.msgId).not.toBe(rows[0].id)
+    expect(root.scrollTop).toBe(500)
+    expect(readings).toHaveLength(before.count + 1)
+    expect(readings.at(-1)).toEqual({ phase, id: body!.dataset.msgId })
+  } finally {
+    console.info("dm-offset-commit-native-order", JSON.stringify({ order, updated, phase, readings, requests, ordering }))
+    scrollRoot?.removeEventListener("scroll", recordNativeScroll)
+    scrollRoot?.removeEventListener("wheel", recordWheel)
+    commitGate.hold = false
+    view.unmount()
+    owner.client.clear()
+  }
+})
+
+it.each(["no-movement", "same-gesture", "fresh-wheel"] as const)("continues an already-consumed DM reading after a second exact-message HTTP publication with %s", async order => {
+  scrollFixture.width = 390
+  const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  const base = dmConversationEntryFixture()
+  const rows = Array.from({ length: 80 }, (_, index) => ({ ...base.messages[0], id: `r12-${index + 1}`, seq: index + 1,
+    content: `reading ${index}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+  const cursor = `${rows[49].createdAt}|${rows[49].id}`
+  const tail = { ...base, channel: { ...base.channel, messageCount: 80 }, messages: rows.slice(49),
+    readState: { ...base.readState, lastReadMessageId: rows[79].id, lastReadSeq: 80, lastReadAt: rows[79].createdAt }, newBoundary: { afterSeq: 80, target: null },
+    page: { olderCursor: cursor, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 80 } }
+  await seedConversationEntry(owner.client, tail)
+  const requests: string[] = []
+  let updated = false
+  load.mockImplementation((url: string) => {
+    requests.push(url)
+    if (url === `/api/community/messages/${rows[0].id}`) {
+      updated = true
+      return Promise.resolve(singleMessageReadFixture({ ...rows[0], content: "updated 0" }))
+    }
+    const search = new URL(url, "https://test.invalid").searchParams
+    if (search.has("entry")) return Promise.resolve(tail)
+    if (search.get("cursor") === cursor) return Promise.resolve(messageReadPageFixture({ messages: rows.slice(0, 49), hasMoreOlder: false, hasMoreNewer: true, newerCursor: `${rows[48].createdAt}|${rows[48].id}`, latestSeq: 80 }))
+    throw new Error(`Unexpected consumed DM publication read: ${url}`)
+  })
+  const href = "/c/me/c1", intent = { href }
+  const navigation = { entryIntent: intent, publishedHref: href, pendingHref: null, navigationPending: false }
+  let feed!: ReturnType<typeof useDmMessages>
+  let phase = "setup"
+  const readings: Array<{ phase: string; id: string }> = []
+  function Probe() {
+    feed = useDmMessages("c1", { viewerUserId: "viewer" })
+    return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="DM" variant="dm"
+      messages={feed.messages} loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
+      initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
+      initialPositionMessageId={feed.initialPositionMessageId} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+      positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={id => { readings.push({ phase, id }); feed.onReadingMessage(id) }}
+      newDividerBefore={feed.newBoundary?.target?.id} newBoundary={feed.newBoundary} latestSeq={feed.latestSeq}
+      retiredNewTargetId={feed.retiredNewTargetId} onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary}
+      hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer} historyStartKnown={feed.historyStartKnown}
+      isFetching={feed.isFetching} isFetchingOlder={feed.isFetchingOlder} isFetchingNewer={feed.isFetchingNewer}
+      onLoadOlder={feed.fetchOlder} onLoadNewer={feed.fetchNewer} onUserTakeover={feed.onUserTakeover}
+      active positioningActive onOpenThread={() => {}} />
+      <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
+    </div></ConversationFooterSlotProvider>
+  }
+  const view = render(<CommunityTestProvider {...owner}><CommunityRouteContext value={{ breakpoint: "mobile", navigation } as never}><Probe /></CommunityRouteContext></CommunityTestProvider>)
+  const settle = async () => { for (let frame = 0; frame < 6; frame++) { resize(); await act(async () => { await vi.advanceTimersByTimeAsync(0) }) } }
+  const visibleBody = (root: HTMLElement) => {
+    const viewport = root.getBoundingClientRect()
+    return [...root.querySelectorAll<HTMLElement>("[data-msg-id]")].find(body => { const rect = body.getBoundingClientRect(); return Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 1 })
+  }
+  const publishRows = () => {
+    const publish = commitGate.publish
+    expect(publish).toBeDefined()
+    commitGate.hold = false
+    act(() => publish?.())
+  }
+  try {
+    await settle()
+    const root = view.getByTestId("community-message-scroller")
+    const entry = feed.positionEntry
+    const query = owner.client.getQueryCache().find({ queryKey: communityKeys.channelMessages("c1"), exact: true })!
+    expect(query).toBeDefined()
+    if (feed.hasMoreOlder) {
+      const older = feed.fetchOlder()
+      expect(older.accepted).toBe(true)
+      if (!older.accepted) throw new Error("The actual DM older controller must admit the setup read")
+      await act(async () => { expect(await older.completed).toMatchObject({ status: "success" }); await vi.advanceTimersByTimeAsync(0) })
+      await settle()
+    }
+    expect(feed.messages).toHaveLength(80)
+    expect((query.state.data as MessageWindowData).pages).toHaveLength(2)
+    phase = "first-manual"
+    readings.length = 0
+    commitGate.hold = true
+    fireEvent.wheel(root, { deltaY: -root.scrollHeight })
+    act(() => root.scrollTo({ top: 0 }))
+    runFrames(1)
+    runFrames(40)
+    expect(readings).toHaveLength(0)
+    phase = "first-commit"
+    publishRows()
+    runFrames(2)
+    await settle()
+    expect(readings).toEqual([{ phase: "first-commit", id: rows[0].id }])
+    expect(feed.messageNeighborhood!.page).toMatchObject({ query, key: hashKey([(query.state.data as MessageWindowData).pageParams[1]]) })
+    const before = { offset: root.scrollTop, height: root.scrollHeight, count: readings.length, messages: feed.messages, window: feed.messageWindow }
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    phase = "second-http-publication"
+    commitGate.hold = true
+    await act(async () => { await owner.client.query({ queryKey: communityKeys.message(rows[0].id), queryFn: messageQueryFn(rows[0].id, owner.client, "c1"), staleTime: 0, select: undefined }); await vi.advanceTimersByTimeAsync(0) })
+    expect(updated).toBe(true)
+    expect(owner.registry.collections.messages.get(rows[0].id)?.content).toBe("updated 0")
+    expect(feed.messages.find(message => message.id === rows[0].id)?.content).toBe("updated 0")
+    expect(feed.messages).not.toBe(before.messages)
+    expect(root.querySelector(`[data-msg-id="${rows[0].id}"]`)).toHaveTextContent("updated 0")
+    phase = "second-commit"
+    publishRows()
+    await settle()
+    expect(readings).toHaveLength(before.count)
+    expect(root.scrollTop).toBe(before.offset)
+    expect(root.scrollHeight).toBe(before.height)
+    expect(view.getByTestId("community-message-scroller")).toBe(root)
+    expect(feed.positionEntry).toBe(entry)
+    expect(owner.client.getQueryCache().find({ queryKey: query.queryKey, exact: true })).toBe(query)
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    if (order === "no-movement") return
+    phase = "next-real-displacement"
+    if (order === "fresh-wheel") fireEvent.wheel(root, { deltaY: 500 })
+    act(() => root.scrollTo({ top: 500 }))
+    await settle()
+    const body = visibleBody(root)
+    expect(body).toBeDefined()
+    expect(body!.dataset.msgId).not.toBe(rows[0].id)
+    expect(root.scrollTop).toBe(500)
+    expect(readings).toHaveLength(before.count + 1)
+    expect(readings.at(-1)).toEqual({ phase, id: body!.dataset.msgId })
+  } finally {
+    console.info("dm-consumed-second-publication", JSON.stringify({ order, updated, phase, readings, requests }))
+    commitGate.hold = false
+    view.unmount()
+    owner.client.clear()
+  }
+})
+
+it.each(["wheel-first", "displacement-first", "publish-before-reading", "publish-before-move", "no-input", "retired", "measure-first", "measure-first-no-input", "measure-first-retired", "measure-first-new-displacement"] as const)("retains the actual DM New window through older return and held newer commit with %s", async order => {
+  const measureFirst = order.startsWith("measure-first")
+  const scenario = order === "measure-first-no-input" ? "no-input" : order === "measure-first-retired" ? "retired" : measureFirst ? "publish-before-reading" : order
+  let measurementRound = 0
+  const orderingEvents: Array<{ phase: string; round: number; type: string; pending?: number; before?: number; after?: number }> = []
+  let scrollRoot: HTMLElement | undefined
+  const recordScroll = () => { orderingEvents.push({ phase, round: measurementRound, type: "scroll" }) }
+  scrollFixture.width = 390
+  const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  const base = dmConversationEntryFixture()
+  const rows = Array.from({ length: 300 }, (_, index) => ({ ...base.messages[0], id: `m${index + 1}`, seq: index + 1,
+    content: `reading ${index}\n\ncontext ${index}\n\nthird line`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString() }))
+  const cursor = (seq: number) => `${rows[seq - 1].createdAt}|m${seq}`
+  const page = (first: number, last: number) => messageReadPageFixture({ messages: rows.slice(first - 1, last),
+    olderCursor: first > 1 ? cursor(first) : undefined, newerCursor: last < 300 ? cursor(last) : undefined,
+    hasMoreOlder: first > 1, hasMoreNewer: last < 300, latestSeq: 300 })
+  const tail = { ...base, channel: { ...base.channel, messageCount: 300 }, messages: rows.slice(274),
+    readState: { ...base.readState, lastReadMessageId: "m150", lastReadSeq: 150, lastReadAt: rows[149].createdAt },
+    newBoundary: { afterSeq: 150, target: { id: "m151", channelId: "c1", seq: 151, authorId: "peer" } },
+    page: { olderCursor: cursor(275), newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 300 } }
+  await seedConversationEntry(owner.client, tail)
+  const requests: string[] = []
+  const delayed = !["wheel-first", "displacement-first"].includes(scenario)
+  let releaseOlder!: (value: ReturnType<typeof page>) => void
+  const heldOlder = new Promise<ReturnType<typeof page>>(resolve => { releaseOlder = resolve })
+  let olderCompletion: Promise<unknown> | undefined
+  const readings: string[] = []
+  let phase = "setup"
+  const events: Array<{ phase: string; type: "reading" | "newer"; id?: string; index?: number; accepted?: boolean; stack?: string }> = []
+  load.mockImplementation((url: string) => {
+    const search = new URL(url, "https://test.invalid").searchParams
+    if (search.has("entry")) return Promise.resolve(tail)
+    requests.push(search.toString())
+    if (search.get("cursor") === cursor(275)) return Promise.resolve(page(225, 274))
+    if (search.get("anchor") === "m151") return Promise.resolve(page(126, 176))
+    if (search.get("cursor") === cursor(126)) return Promise.resolve(page(76, 125))
+    if (search.get("cursor") === cursor(76)) return Promise.resolve(page(26, 75))
+    if (search.get("cursor") === cursor(26)) return delayed ? heldOlder : Promise.resolve(page(1, 25))
+    if (search.get("since") === cursor(176)) return Promise.resolve(page(177, 226))
+    if (search.get("since") === cursor(226)) return Promise.resolve(page(227, 276))
+    if (search.get("since") === cursor(276)) return Promise.resolve(page(277, 300))
+    throw new Error(`Unexpected retained DM read: ${url}`)
+  })
+  const href = "/c/me/c1", intent = { href }
+  const navigation = { entryIntent: intent, publishedHref: href, pendingHref: null, navigationPending: false }
+  let feed!: ReturnType<typeof useDmMessages>, readingId: string | undefined
+  function Probe() {
+    feed = useDmMessages("c1", { viewerUserId: "viewer" })
+    const newer = feed.fetchNewer
+    return <ConversationFooterSlotProvider><div data-slot="community-conversation-surface"><MessageList channel="DM" variant="dm"
+      messages={feed.messages} loading={feed.isLoading} initialLoadError={feed.initialLoadError} targetLoadError={feed.targetLoadError}
+      initialScrollReady={feed.initialDisplayReady} preserveInitialPresentation={feed.preserveInitialPresentation}
+      initialPositionMessageId={feed.initialPositionMessageId} positionScope={feed.positionScope} positionEntry={feed.positionEntry}
+      positionDataState={feed.positionDataState} targetPositionDataState={feed.targetPositionDataState} messageWindow={feed.messageWindow}
+      messageNeighborhood={feed.messageNeighborhood} onReadingMessage={id => { events.push({ phase, type: "reading", id, stack: new Error("controlled reading callback").stack }); readings.push(id); readingId = id; feed.onReadingMessage(id) }}
+      newDividerBefore={feed.newBoundary?.target?.id} newBoundary={feed.newBoundary} latestSeq={feed.latestSeq}
+      retiredNewTargetId={feed.retiredNewTargetId} onLoadNewTarget={feed.loadNewTarget} onReadNewBoundary={feed.readNewBoundary}
+      hasMore={feed.hasMoreOlder} hasMoreNewer={feed.hasMoreNewer} historyStartKnown={feed.historyStartKnown}
+      isFetching={feed.isFetching} isFetchingOlder={feed.isFetchingOlder} isFetchingNewer={feed.isFetchingNewer}
+      onLoadOlder={() => { const request = feed.fetchOlder(); if (request.accepted) olderCompletion = request.completed; return request }} onLoadNewer={() => { const index = feed.data?.pages.findIndex(page => page.messages.some(row => row.id === readingId));
+        if (measureFirst && phase === "reading-commit-released") {
+          const currentRoot = scrollRoot!
+          const viewport = currentRoot.getBoundingClientRect()
+          const body = [...currentRoot.querySelectorAll<HTMLElement>("[data-msg-id]")].find(node => {
+            const rect = node.getBoundingClientRect()
+            return Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 1
+          })
+          expect(body).toBeDefined()
+          expect(feed.data?.pages[0].messages.some(row => row.id === body!.dataset.msgId)).toBe(true)
+          expect(owner.registry.collections.messages.get(body!.dataset.msgId!)?.channelId).toBe("c1")
+          expect(currentRoot.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+          expect(index).toBe(0)
+        }
+        const request = newer(); events.push({ phase, type: "newer", index, accepted: request.accepted }); return request }} onUserTakeover={feed.onUserTakeover}
+      active positioningActive onOpenThread={() => {}} />
+      <ConversationFooterShell><textarea aria-label="Draft" /></ConversationFooterShell>
+    </div></ConversationFooterSlotProvider>
+  }
+  const view = render(<CommunityTestProvider {...owner}><CommunityRouteContext value={{ breakpoint: "mobile", navigation } as never}><Probe /></CommunityRouteContext></CommunityTestProvider>)
+  const measureBeforeScroll = (count = 26) => {
+    measurementRound++
+    resizeMeasureBeforeScroll(count, pending => { orderingEvents.push({ phase, round: measurementRound, type: "ro-complete", pending }) })
+  }
+  const settle = async () => {
+    for (let commit = 0; commit < 6; commit++) {
+      if (measureFirst && phase !== "setup") measureBeforeScroll()
+      else resize()
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    }
+  }
+  try {
+    await settle()
+    const root = view.getByTestId("community-message-scroller")
+    scrollRoot = root
+    root.addEventListener("scroll", recordScroll)
+    const native = (preCommand.latest as ScrollResult).virtualizer
+    const initialEntry = feed.positionEntry
+    expect(initialEntry).toBe(intent)
+    const beforeNew = requests.length
+    const historyRequests = () => requests.slice(beforeNew)
+    fireEvent.change(view.getByRole("textbox", { name: "Draft" }), { target: { value: "retained dm draft" } })
+    fireEvent.click(view.getByTestId("community-scroll-to-new"))
+    await settle()
+    const key = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m151" })
+    const query = owner.client.getQueryCache().find({ queryKey: key, exact: true })!
+    expect(query).toBeDefined()
+    expect(feed.messages.some(row => row.id === "m151")).toBe(true)
+    expect(historyRequests().filter(q => new URLSearchParams(q).has("since"))).toHaveLength(1)
+    const move = (top: number, delta: number) => {
+      if (scenario !== "displacement-first") fireEvent.wheel(root, { deltaY: delta })
+      act(() => root.scrollTo({ top }))
+      if (scenario === "displacement-first") fireEvent.wheel(root, { deltaY: delta })
+    }
+    for (let step = 0; step < 2; step++) { move(0, -root.clientHeight * 3); await settle() }
+    expect(historyRequests().filter(q => new URLSearchParams(q).has("cursor"))).toHaveLength(3)
+    console.info("dm-owner-before-return", JSON.stringify({ order, nativeSame: (preCommand.latest as ScrollResult).virtualizer === native,
+      rootSame: view.getByTestId("community-message-scroller") === root, entrySame: feed.positionEntry === initialEntry,
+      originalKeys: native.measurementsCache.slice(0, 8).map(row => row.key),
+      currentKeys: (preCommand.latest as ScrollResult).virtualizer.measurementsCache.slice(0, 8).map(row => row.key),
+      members: feed.messages.length }))
+    const target = native.measurementsCache.find(row => row.key === "msg:id:m151")!
+    expect(target).toBeDefined()
+    move(target.start - root.clientHeight * 0.25, root.clientHeight * 3)
+    await settle()
+    const index = () => (query.state.data as MessageWindowData).pages.findIndex(page => page.messages.some(row => row.id === readingId))
+    expect(index()).toBe(1)
+    expect(feed.messageNeighborhood!.newer).toBe(false)
+    expect((query.state.data as MessageWindowData).pages[0].newerCursor).toBe(cursor(226))
+    const middle = feed.messageNeighborhood!.page
+    const publishOlder = async () => {
+      expect(olderCompletion).toBeDefined()
+      phase = "older-publishing"
+      await act(async () => { releaseOlder(page(1, 25)); await olderCompletion; await vi.advanceTimersByTimeAsync(0) })
+      phase = "older-published"
+    }
+    if (scenario === "no-input") {
+      await publishOlder()
+      await settle()
+      expect(feed.messageNeighborhood!.page).toBe(middle)
+      expect(historyRequests().filter(q => new URLSearchParams(q).has("since"))).toHaveLength(1)
+      expect(view.getByTestId("community-message-scroller")).toBe(root)
+      expect(feed.positionEntry).toBe(initialEntry)
+      return
+    }
+    if (scenario === "publish-before-move") { await publishOlder(); await settle() }
+    commitGate.hold = true
+    move(root.scrollHeight - root.clientHeight, root.clientHeight * 3)
+    runFrames(1)
+    expect(commitGate.publish).toBeDefined()
+    runFrames(40)
+    expect(feed.messageNeighborhood!.page).toBe(middle)
+    expect(historyRequests().filter(q => new URLSearchParams(q).has("since"))).toHaveLength(1)
+    const position = root.scrollTop
+    if (scenario === "retired") {
+      const before = readings.length
+      view.unmount()
+      runFrames(2)
+      await publishOlder()
+      commitGate.hold = false
+      act(() => commitGate.publish?.())
+      if (measureFirst) measureBeforeScroll(40)
+      else runFrames(40)
+      expect(readings).toHaveLength(before)
+      expect(historyRequests().filter(q => new URLSearchParams(q).has("since"))).toHaveLength(1)
+      return
+    }
+    if (scenario === "publish-before-reading") {
+      const oldWindow = feed.messageWindow
+      expect(feed.isFetchingOlder).toBe(true)
+      await publishOlder()
+      expect(feed.messageWindow).not.toBe(oldWindow)
+      expect((query.state.data as MessageWindowData).pages.at(-1)?.messages.map(row => row.id)).toEqual(rows.slice(0, 25).map(row => row.id))
+      expect(feed.messages).toHaveLength(226)
+      expect(feed.messageNeighborhood!.page).toBe(middle)
+      expect(owner.client.getQueryCache().find({ queryKey: key, exact: true })).toBe(query)
+      expect(view.getByTestId("community-message-scroller")).toBe(root)
+      expect(feed.positionEntry).toBe(initialEntry)
+      const viewport = root.getBoundingClientRect()
+      const body = [...root.querySelectorAll<HTMLElement>("[data-msg-id]")].find(node => {
+        const rect = node.getBoundingClientRect()
+        return Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 1
+      })
+      expect(body).toBeDefined()
+      expect((query.state.data as MessageWindowData).pages[0].messages.some(row => row.id === body!.dataset.msgId)).toBe(true)
+      expect(owner.registry.collections.messages.get(body!.dataset.msgId!)?.channelId).toBe("c1")
+      console.info("dm-reading-publication-boundary", JSON.stringify({ visible: body!.dataset.msgId, readingId, index: index(),
+        rootSame: view.getByTestId("community-message-scroller") === root, entrySame: feed.positionEntry === initialEntry,
+        windowChanged: feed.messageWindow !== oldWindow, newerCount: historyRequests().filter(q => new URLSearchParams(q).has("since")).length }))
+    }
+    phase = "reading-commit-released"
+    commitGate.hold = false
+    act(() => commitGate.publish!())
+    if (measureFirst) measureBeforeScroll(2)
+    else runFrames(2)
+    if (!delayed) expect(root.scrollTop).toBe(position)
+    await settle()
+    if (measureFirst && scenario === "publish-before-reading") {
+      const viewport = root.getBoundingClientRect()
+      const body = [...root.querySelectorAll<HTMLElement>("[data-msg-id]")].find(node => {
+        const rect = node.getBoundingClientRect()
+        return Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top) > 1
+      })
+      expect(body).toBeDefined()
+      expect((query.state.data as MessageWindowData).pages.some(page => page.messages.some(row => row.id === body!.dataset.msgId))).toBe(true)
+      expect(owner.registry.collections.messages.get(body!.dataset.msgId!)?.channelId).toBe("c1")
+      expect(view.getByTestId("community-message-scroller")).toBe(root)
+      expect(feed.positionEntry).toBe(initialEntry)
+      expect(owner.client.getQueryCache().find({ queryKey: key, exact: true })).toBe(query)
+      expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+      console.info("dm-post-ro-qualification", JSON.stringify({ order, visible: body!.dataset.msgId, readingId, readingIndex: index(),
+        nativeEvents: orderingEvents.filter(event => event.phase !== "setup"), positionState: feed.positionDataState,
+        requestCount: historyRequests().filter(q => new URLSearchParams(q).has("since")).length }))
+    }
+    if (order === "measure-first-new-displacement") {
+      const before = root.scrollTop
+      move(Math.max(0, before - root.clientHeight * 0.25), -root.clientHeight * 0.25)
+      await settle()
+      orderingEvents.push({ phase, round: measurementRound, type: "real-displacement", before, after: root.scrollTop })
+      expect(Math.abs(root.scrollTop - before)).toBeGreaterThan(1)
+    }
+    expect(historyRequests().filter(q => new URLSearchParams(q).has("since"))).toHaveLength(2)
+    if (scenario === "publish-before-reading") {
+      const reading = events.findIndex(event => event.phase === "reading-commit-released" && event.type === "reading")
+      const fetch = events.findIndex(event => event.phase === "reading-commit-released" && event.type === "newer")
+      expect(reading).toBeGreaterThanOrEqual(0)
+      expect(fetch).toBeGreaterThan(reading)
+      expect(events[fetch]).toMatchObject({ accepted: true, index: 0 })
+      console.info("dm-post-publication-reading", JSON.stringify(events))
+    }
+    move(root.scrollHeight - root.clientHeight, root.clientHeight * 3)
+    await settle()
+    const newer = historyRequests().map(q => new URLSearchParams(q).get("since")).filter(Boolean)
+    expect(newer).toEqual([cursor(176), cursor(226), cursor(276)])
+    expect(view.getByTestId("community-message-scroller")).toBe(root)
+    expect((preCommand.latest as ScrollResult).virtualizer).toBe(native)
+    expect(feed.positionEntry).toBe(initialEntry)
+    expect(owner.client.getQueryCache().find({ queryKey: key, exact: true })).toBe(query)
+    expect(view.getByRole("textbox", { name: "Draft" })).toHaveValue("retained dm draft")
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+  } finally { console.info("dm-reading-callback-stack", JSON.stringify({ order, events })); console.info("dm-measure-before-scroll", JSON.stringify({ order, scenario, orderingEvents, requests })); scrollRoot?.removeEventListener("scroll", recordScroll); commitGate.hold = false; view.unmount(); owner.client.clear() }
+})
 
 it.each(["text", "dm"] as const)("reveals the qualified $0 history cache while ordinary tail coverage is pending", async kind => {
   scrollFixture.width = 390

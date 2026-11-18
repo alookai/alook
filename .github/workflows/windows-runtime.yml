@@ -44,8 +44,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $prebuilds = @(
-            @{ version = '12.11.1'; digest = '4ee5e653174d6ddd301605d351798cdae2613da06c4f37ecdce263021fcf1255' },
-            @{ version = '12.9.0'; digest = '013654a02283d9c6de7af62b8cdc51f91c9396a6a1dd3beb063b18c6a456c984' }
+            @{ version = '12.11.1'; digest = '4ee5e653174d6ddd301605d351798cdae2613da06c4f37ecdce263021fcf1255' }
           )
           $expectedAbi = '137'
           $lockVersions = @(Select-String -LiteralPath 'pnpm-lock.yaml' -Pattern '^  better-sqlite3@([^:\s]+):$' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
@@ -94,10 +93,8 @@ jobs:
           "ALOOK_NATIVE_CLI_PATH=$cliPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "ALOOK_NATIVE_BASH_PATH=C:/Program Files/Git/bin/bash.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Get-FileHash $archive, $cliPath -Algorithm SHA256 | Format-Table
-      - name: Exercise the packed agy adapter on Node 20.9.0
+      - name: Legacy Node 20.9.0 SDK adapter probe (public packages require Node 22.12+)
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $evidenceDir = Join-Path $env:RUNNER_TEMP 'Alook runtime evidence'
@@ -115,30 +112,45 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $runtime = $runtimeJson | ConvertFrom-Json
           if ($runtime.node -ne '20.9.0' -or $runtime.abi -ne '115' -or $runtime.platform -ne 'win32' -or $runtime.arch -ne 'x64') { throw 'Unexpected Node20 runtime target' }
-          $prebuildDirectory = '${{ steps.sqlite_prebuild.outputs.directory }}'
-          $assetName = 'better-sqlite3-v12.9.0-node-v115-win32-x64.tar.gz'
-          gh release download v12.9.0 --repo WiseLibs/better-sqlite3 --pattern $assetName --dir $prebuildDirectory --clobber
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ((Get-FileHash (Join-Path $prebuildDirectory $assetName) -Algorithm SHA256).Hash.ToLowerInvariant() -ne '41f64f24bec4311723299fe287a7627039c12ffe8d180daa4865ae1b5f569a4b') { throw 'Official Node20 SQLite prebuild SHA256 mismatch' }
           $archives = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'Alook candidate pack') -Filter '*.tgz')
           if ($archives.Count -ne 1) { throw 'Expected one exact candidate daemon package' }
           $consumer = Join-Path $env:RUNNER_TEMP 'Alook Node20 consumer'
+          $hostNode = (Get-Command node).Source
+          $hostNpm = Join-Path (Split-Path $hostNode) 'node_modules/npm/bin/npm-cli.js'
+          $hostVersion = & $hostNode -p 'process.versions.node'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($hostVersion -notmatch '^24\.' -or -not (Test-Path $hostNpm)) { throw 'Expected the Node24 native build host' }
           $previousPath = $env:PATH
           $env:PATH = "$nodeHome;$previousPath"
-          $env:npm_config_better_sqlite3_local_prebuilds = $prebuildDirectory
+          $stage = 'install'
+          $installExit = $null
+          $buildExit = $null
+          $runtimeExit = $null
+          $sqlite = $null
           try {
-            & $node20 (Join-Path $nodeHome 'node_modules/npm/bin/npm-cli.js') install --no-audit --no-fund --prefix $consumer $archives[0].FullName 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'agy-node20-install.log')
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $node20 (Join-Path $nodeHome 'node_modules/npm/bin/npm-cli.js') install --ignore-scripts --no-audit --no-fund --prefix $consumer $archives[0].FullName 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'agy-node20-install.log')
+            $installExit = $LASTEXITCODE
+            if ($installExit -ne 0) { exit $installExit }
+            $stage = 'dependency-check'
             $modulePath = Join-Path $consumer 'node_modules/@alook/daemon/dist/index.js'
+            $sqliteJson = & $node20 --input-type=module -e 'import {createRequire} from "node:module"; import {readFileSync} from "node:fs"; import {dirname,join} from "node:path"; const require=createRequire(process.argv[1]); const path=require.resolve("better-sqlite3/package.json"); const sqlite=JSON.parse(readFileSync(path,"utf8")); const daemon=JSON.parse(readFileSync(join(dirname(process.argv[1]),"../package.json"),"utf8")); if(sqlite.version!==daemon.optionalDependencies["better-sqlite3"]) throw new Error("Installed SQLite differs from the packed declaration"); console.log(JSON.stringify({version:sqlite.version,directory:dirname(path)}));' $modulePath
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $sqlite = $sqliteJson | ConvertFrom-Json
+            $stage = 'native-build'
+            $env:PATH = "$(Split-Path $hostNode);$previousPath"
+            & $hostNode $hostNpm exec --yes --package=node-gyp@12.4.0 -- node-gyp rebuild --release --directory=$($sqlite.directory) --target=$($runtime.node) --arch=$($runtime.arch) --jobs=2 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'agy-node20-sqlite-build.log')
+            $buildExit = $LASTEXITCODE
+            if ($buildExit -ne 0) { exit $buildExit }
+            $env:PATH = "$nodeHome;$previousPath"
+            $stage = 'runtime'
             $moduleUrl = & $node20 --input-type=module -e 'import {pathToFileURL} from "node:url"; console.log(pathToFileURL(process.argv[1]).href)' $modulePath
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             & $node20 src/daemon/agent-driver/scripts/test-bundled-agy.mjs $moduleUrl 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'agy-node20-runtime.log')
             $runtimeExit = $LASTEXITCODE
-            @{ exitCode = $runtimeExit; checkout = $env:GITHUB_SHA; runtime = $runtime; archiveSHA256 = (Get-FileHash $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidenceDir 'agy-node20-terminal.json') -Encoding utf8
             if ($runtimeExit -ne 0) { exit $runtimeExit }
           } finally {
             $env:PATH = $previousPath
-            Remove-Item Env:npm_config_better_sqlite3_local_prebuilds -ErrorAction SilentlyContinue
+            @{ stage = $stage; installExit = $installExit; buildExit = $buildExit; exitCode = $runtimeExit; checkout = $env:GITHUB_SHA; runtime = $runtime; buildHost = $hostVersion; sqlite = $sqlite; archiveSHA256 = (Get-FileHash $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $evidenceDir 'agy-node20-terminal.json') -Encoding utf8
           }
       - name: Exercise the native agent callback CLI
         run: pnpm --filter @alook/agent-driver exec vitest run src/internal/cliLink.windows.test.ts --no-file-parallelism
@@ -217,6 +229,10 @@ jobs:
         run: |
           $evidenceDir = Join-Path $env:RUNNER_TEMP 'Alook runtime evidence'
           New-Item -ItemType Directory -Force $evidenceDir | Out-Null
+          if ([string]::IsNullOrWhiteSpace($env:ALOOK_NATIVE_NPM_PREFIX)) {
+            @{ status = 'UNRUN'; reason = 'Native provider installation did not create its prefix'; checkout = $env:GITHUB_SHA } | ConvertTo-Json | Set-Content -Path (Join-Path $evidenceDir 'dependency-audit-terminal.json') -Encoding utf8
+            exit 0
+          }
           npm ls --global --prefix "$env:ALOOK_NATIVE_NPM_PREFIX" --all --json | Out-File -FilePath (Join-Path $evidenceDir 'native-dependencies.json') -Encoding utf8
           $dependencyExit = $LASTEXITCODE
           $piAudit = @'

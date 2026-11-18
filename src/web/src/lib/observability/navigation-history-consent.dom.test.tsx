@@ -78,7 +78,7 @@ it("retains real renderer ownership through late grant and revoke/regrant withou
     const beforeGrantCount = sent.length
     await act(async () => { document.cookie = "alook_analytics_consent=v1.granted; path=/"; announceAnalyticsConsent("granted") })
     await vi.waitFor(() => expect(native.release).toBeTypeOf("function"))
-    await act(async () => { native.release?.(); await vi.advanceTimersByTimeAsync(3000) })
+    await act(async () => { native.release?.(); await vi.dynamicImportSettled(); await vi.advanceTimersByTimeAsync(3000) })
     await vi.waitFor(() => expect(sent.length).toBeGreaterThan(beforeGrantCount))
     let original: Action | undefined
     window.addEventListener("popstate", () => { original = navigationForHref(window.location.href) }, { once: true })

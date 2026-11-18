@@ -4,8 +4,8 @@ import { createConnection } from "net";
 
 export function checkNodeVersion(): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
-  if (major < 20 || (major === 20 && minor < 9)) {
-    console.error(`Error: Node.js >= 20.9 required (found ${process.versions.node})`);
+  if (major < 22 || (major === 22 && minor < 12)) {
+    console.error(`Error: Node.js >= 22.12 required (found ${process.versions.node})`);
     process.exit(1);
   }
 }
