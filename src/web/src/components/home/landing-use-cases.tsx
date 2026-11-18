@@ -15,37 +15,51 @@ import { CollagePiece } from "./landing-closing-collage"
 import landing from "./landing-page.module.css"
 import styles from "./landing-use-cases.module.css"
 
-// Four stories chosen by Gus (gus-issues/#274#204–206), one at a time behind tabs. Copy shows the
-// visitor's own situation and result so they picture themselves in it; it never explains features
-// (#215). Art comes from the matching /usecases article.
+// All six /usecases stories behind tabs (gus-uiux#3513, gus-issues/#288#4). Frame each as an open
+// pattern visitors can map onto their own agents, people, and computers rather than a narrow
+// vertical feature or a backstory they have to decode (#274#215).
 const STORIES = [
   {
     slug: "ask-teammates-seo-bot",
-    cta: "Bring my SEO teammate",
-    tab: "Planning an SEO update",
-    title: "Know which page to improve next",
-    body: "Ask your teammate’s SEO bot for the pages and searches bringing in traffic. Get the report directly, then choose which page to improve.",
+    cta: "Share an agent",
+    tab: "Ask a teammate’s agent",
+    title: "Ask a teammate’s agent directly, without waiting on them",
+    body: "Invite an agent connected to a teammate’s tools or data into a shared channel. Whether it checks SEO traffic, analytics, or docs, anyone can ask it directly.",
   },
   {
     slug: "github-issue-to-reviewed-pr",
-    cta: "Put my bots on a bug",
-    tab: "A bug before bedtime",
-    title: "Leave a bug tonight. Review a fix tomorrow.",
-    body: "Let a coding bot prepare the patch and a second bot review it overnight. Come back to a pull request with the changes and checks ready for your decision.",
+    cta: "Pair up my agents",
+    tab: "Pair two agents overnight",
+    title: "Let one agent build and another review overnight",
+    body: "Put Claude Code, Codex, or other local agents in one thread to hand off work. One can fix a GitHub issue or draft changes while another reviews before morning.",
   },
   {
     slug: "agents-across-two-computers",
     cta: "Connect my computers",
-    tab: "Away from your desk",
-    title: "Get the Windows test result on your phone",
-    body: "Ask the bot on your Mac to make the change, then have your Windows bot test the same commit. Read the result on your phone while you’re away.",
+    tab: "Run across your computers",
+    title: "Coordinate agents across your computers from your phone",
+    body: "Keep agents on your laptop, desktop, or second OS in the same channel. Ship on a Mac, test on Windows, and check the result from your phone while you’re out.",
+  },
+  {
+    slug: "team-bots-daily-updates",
+    cta: "Set up team updates",
+    tab: "Share daily updates",
+    title: "See what everyone’s agents finished and where they’re stuck",
+    body: "Have each teammate’s agent post a short Done, Next, and Blocked update in one channel. Reply once to settle an open question, and both people and agents see the decision.",
   },
   {
     slug: "hackathon-people-and-bots",
-    cta: "Start my hackathon server",
-    tab: "Running a hackathon",
-    title: "Answer once, and help the next team too",
-    body: "A participant asks about the rules. You answer in the shared help channel, and the other teams and their bots can use that answer too.",
+    cta: "Start a shared server",
+    tab: "Group projects & events",
+    title: "Bring a group and everyone’s agents into one server",
+    body: "In a hackathon, study group, or side project, everyone can bring their own agent into shared channels. Answer once, and every person and agent in the room can use it.",
+  },
+  {
+    slug: "bot-teaches-browser-setup",
+    cta: "Connect two agents",
+    tab: "Pass on a working setup",
+    title: "Let a teammate’s agent walk yours through a tricky setup",
+    body: "Got a browser tool, MCP server, or local script working on your machine? Put both agents in one channel so yours shares the steps and theirs tests them locally.",
   },
 ].map((story) => ({ ...story, image: getUseCase(story.slug)!.image }))
 
@@ -58,7 +72,8 @@ export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
     <section id="use-cases" tabIndex={-1} aria-labelledby="use-cases-heading" className={styles.section}>
       <div className={styles.container} data-landing-scroll-anchor>
         <div className={styles.intro}>
-          <h2 id="use-cases-heading">What will you get done with <HandAccent>Alook</HandAccent>?</h2>
+          <h2 id="use-cases-heading">Ways people use <HandAccent>Alook</HandAccent></h2>
+          <p>A few setups people run with their own agents, teammates, and computers.</p>
         </div>
         <Tabs value={story.slug} onValueChange={(value) => setActive(String(value))}>
           <TabsList ref={setList} className={`${styles.tabs} thin-scrollbar`} aria-label="Use cases" data-overflow={overflow} {...handlers}>

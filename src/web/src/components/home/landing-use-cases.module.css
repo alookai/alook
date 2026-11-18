@@ -139,8 +139,9 @@
 @media (max-width: 767px) {
   /* One phone screen holds heading, tabs, sticker, copy and both buttons. */
   .section { padding-block: 56px 40px; }
-  .intro { margin-bottom: 20px; }
+  .intro { margin-bottom: 16px; }
   .intro h2 { font-size: 2.5rem; }
+  .intro p { margin-top: 8px; font-size: 0.9375rem; line-height: 1.45; }
   .panel { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .art { max-width: 320px; margin-inline: auto; width: 100%; }
   .copy { gap: 8px; }
