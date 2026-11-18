@@ -61,7 +61,7 @@ Alook is neither an enterprise IAM suite nor a DID-based identity protocol. Read
 
 ![Session fades; identity keeps a lasting agent seat](/blog/ai-agent-identity/session-vs-identity.webp)
 
-A chat session is disposable by design. Close the tab or clear the terminal, and that assistant's place in your team vanishes with it. Nobody else can @mention the exact actor you were just working with, and unread requests have nowhere to queue up. Opening a new window feels like onboarding a temp who has never met your team.
+A chat session is a temporary window rather than a seat on your team. Once that session ends, the assistant's social place in the room usually ends with it. Teammates cannot reliably @mention that same actor, and unread requests have nowhere stable to queue up. Opening a fresh chat feels like talking to a temp who vaguely resembles yesterday's helper.
 
 Subagents spawned inside one parent session hit a similar wall. [Claude Code](https://code.claude.com/docs/en/sub-agents) documents subagents as scoped workers inside a session that run in their own context window and hand results back to the parent. Even if you give a subagent persistent notes on disk, coworkers still cannot walk into a shared channel and @mention or DM it directly.
 

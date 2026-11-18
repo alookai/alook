@@ -89,7 +89,7 @@ A local AI agent runs its working process right beside your files while pairing 
 
 An AI agent pairs a model with a loop that reads state, calls tools, and checks what happened. A coding agent edits a repository and runs tests; a general work agent might read selected documents and draft a summary.
 
-Take Claude Code: the CLI runs locally on your machine, while its standard setup [sends data over the network to interact with the LLM](https://code.claude.com/docs/en/data-usage). Your files and shell commands stay local even though model requests go to a hosted API.
+Take Claude Code: the CLI runs locally on your machine, while its standard setup [sends data over the network to interact with the LLM](https://code.claude.com/docs/en/data-usage). The agent process and file access can live on your computer while model requests still go to a hosted API.
 
 ## “Local” can describe three different layers
 
@@ -244,7 +244,7 @@ On November 17, 2026, we ran OpenCode 1.19.5 with Ollama 0.40.16 on a 16GB M1 Pr
 
 We created two short workshop notes. One listed the date as November 26 and room capacity as 24; the other said November 27 and 18. Both named the same invitation owner and a 14:00 start time. Without attaching the file contents to the prompt, we asked the agent to read the files, flag the conflicts, and leave the final decision to us.
 
-On the first attempt, the agent requested paths at the filesystem root, outside the allowed directory. Direct `/tmp/...` paths were refused too, because `/tmp` on macOS points to `/private/tmp`. For the next run, we used that `/private/tmp` canonical path and narrowed the permission rule to the test folder alone.
+On the first attempt, the agent requested paths at the filesystem root, outside the allowed directory. Direct `/tmp/...` paths were refused too; on this Mac, `/tmp` points to `/private/tmp`. For the next run, we used that `/private/tmp` canonical path and narrowed the permission rule to the test folder alone.
 
 Before the successful comparison and its offline repeat, we turned off thinking and removed auto-loaded external skills. Two completed read calls then showed up in the tool log, each containing the actual file text. The agent caught both conflicts and named the invitation owner, yet left the shared 14:00 start time out of its summary of what matched.
 

@@ -138,7 +138,7 @@ Here is what each step of our test showed:
 |---|---|---|
 | 2.1.304, default memory placement | Claude wrote topic and index; next call read topic | `OPAL-742` |
 | Saved preference corrected through Claude | File updates verified on disk; checked in a fresh call | `CEDAR-915` |
-| Disposable note and index entry removed | Manually removed files, then tested in a fresh call | `UNKNOWN` |
+| Disposable note and index entry removed | Moved topic file out and removed index entry, then tested in a fresh call | `UNKNOWN` |
 | Earlier 2.1.185, custom memory directory | Topic created without index; first recall failed | `UNKNOWN` |
 
 That 2.1.185 miss came from an older build using a custom memory directory, not default behavior in 2.1.304. Treat this as a single-project test of save, recall, and update mechanics rather than a recall-rate benchmark. Interactive menus, other machines, and subagents were outside this test.

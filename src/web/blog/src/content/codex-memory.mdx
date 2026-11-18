@@ -178,7 +178,7 @@ Ask Codex:
 
 <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><code style={{ whiteSpace: "inherit" }}>{"List this session's active instruction files in precedence order.\nSummarize the relevant rule. Do not change files."}</code></pre>
 
-Asking Codex to read `AGENTS.md` mid-session doesn't prove the file loaded when the session started. Check the startup logs to be sure. If the file isn't listed there, assume it didn't load at startup.
+Asking Codex to read `AGENTS.md` mid-session doesn't prove the file loaded when the session started. Check the startup logs to be sure. If the file isn't shown there, treat the rule as unconfirmed at startup.
 
 To audit a new CLI run, start Codex with `codex -c log_dir=./.codex-log` and inspect `.codex-log/codex-tui.log` (checked with CLI 0.164.0). That won't reconstruct an older run that wasn't logged; see the [logging instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md#verify-your-setup).
 

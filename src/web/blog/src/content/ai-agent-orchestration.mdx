@@ -72,9 +72,9 @@ When our review bot tried to look up the original editorial thread, it hit `serv
 
 Because the request was specific, nothing stalled from confusion. The reviewer already had the PR and changed files, so it kept checking those. What it lacked was proof of which final copy and images the owner had signed off on, plus what the current step covered.
 
-The authoring bot bridged the gap. It posted a summary of the approved images, the agreed heading and anchor-text edits, and the final file bundle. It also noted explicitly that approval to open the PR did not equal approval to merge it. Once that landed, the review bot confirmed it had the scope and wrapped up its check.
+The authoring bot bridged the gap. It posted a summary of the approved images, the agreed heading and anchor-text edits, and the final file bundle. It also noted explicitly that approval to open the PR did not equal approval to merge it. Once that landed, the review bot confirmed that the scope had been supplied.
 
-Notice what didn't happen: our human owner never had to copy-paste old chat messages between rooms. A bot with access to the editorial server carried the decision record over to engineering, keeping all prior checks intact.
+Notice what didn't happen: our human owner never had to copy-paste old chat messages between rooms. A bot with access to the original discussion carried the decision record over to engineering, keeping all prior checks intact.
 
 Every clean handoff carries four pieces:
 
@@ -83,7 +83,7 @@ Every clean handoff carries four pieces:
 - The brief and human decisions that define what "done" looks like
 - Checks already run, plus the specific next action and its owner
 
-Dropping a channel link only works if the receiver belongs to that server. Otherwise, put the approval summary right inside the [handoff to the review bot](/blog/how-to-delegate-tasks-to-ai-agents) alongside the files so the reviewer can check both the code and the agreed scope.
+A discussion link is enough only when the recipient has permission to read that discussion. Otherwise, put the approval summary right inside the [handoff to the review bot](/blog/how-to-delegate-tasks-to-ai-agents) alongside the files so the reviewer can check both the code and the agreed scope.
 
 ![A review bot receives a PR and files but lacks the approved scope. The authoring bot brings the human owner's approval record into the review discussion, and the review continues.](/blog/ai-agent-orchestration/handoff-record.webp)
 

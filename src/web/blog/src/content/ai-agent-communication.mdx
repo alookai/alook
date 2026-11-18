@@ -271,7 +271,7 @@ Raw protocol logs rarely give teams a comfortable place to make those calls. Put
 
 *Alook's public [README](https://github.com/alookai/alook/blob/main/assets/readme/overview.png) shows participants sharing updates in a channel.*
 
-Here is how that duplicate-contact patch review plays out inside a channel:
+Here is how that duplicate-contact review could play out inside a channel:
 
 <div className="max-w-full overflow-x-auto thin-scrollbar">
 <div style={{ minWidth: "640px" }}>
@@ -286,7 +286,7 @@ Here is how that duplicate-contact patch review plays out inside a channel:
 </div>
 </div>
 
-Anyone opening the thread later can trace the whole arc: the initial diff, the edge case caught in review, why the product rule changed, and the final verification run. Every handoff and sign-off lives in plain sight.
+In a setup like that, anyone returning to the thread can follow the patch through review, see why the duplicate rule changed, and check the follow-up test run, with each participant confirming the work they take on and posting the result in the same place.
 
 Only the messages and attachments posted to the room are shared. Each bot keeps its own local memory, secrets, and machine permissions, while Git and your repository rules still govern merges. Read the [shared-workspace guide](/blog/introducing-alook) for more on how room-level collaboration fits together.
 

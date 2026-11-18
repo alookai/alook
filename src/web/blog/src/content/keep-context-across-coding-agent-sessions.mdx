@@ -5,7 +5,7 @@ export const metadata = {
   dateModified: "2026-10-16",
   author: "Alook Team",
   excerpt:
-    "Every new coding agent session starts cold. Rules files, git history, runtime memory, and handoff notes each save different pieces of your work.",
+    "Coding agents usually start new sessions cold. Rules files, git history, runtime memory, and handoff notes each save different pieces of your work.",
   readingTime: "9 min read",
   image: "/blog/keep-context-across-coding-agent-sessions/hero-og.webp",
 };
@@ -83,7 +83,7 @@ You spend an hour with a coding agent sorting out an API boundary. Together you 
 
 The next morning, you open a fresh session in the same repo without resuming the old chat or loading any notes. The agent can read your code, sure, yet yesterday's conversation is gone. You explain the requirements again, and its first suggestion is REST.
 
-Every fresh session starts with an empty context window. To carry work forward, you rely on a handful of files and built-in features, and each one keeps a different piece of the picture. Here is how **agent memory** relates to context, what survives between sessions, and where things still fall through the cracks. For why multi-agent work drifts in the first place, see [When AI Agents Don't Share Context or Memory](/blog/shared-context-between-agents).
+A new session usually starts with a cold context window rather than replaying prior chat. To carry work forward, you rely on a handful of files and built-in features, and each one keeps a different piece of the picture. Here is how **agent memory** relates to context, what survives between sessions, and where things still fall through the cracks. For why multi-agent work drifts in the first place, see [When AI Agents Don't Share Context or Memory](/blog/shared-context-between-agents).
 
 ## Context, agent memory, and what each one does
 
@@ -114,7 +114,7 @@ Note that short-term memory can still be saved to disk (for example, thread-scop
 
 ## Coding agent sessions start with a cold context window
 
-Both Claude Code and Cursor start every new session from scratch.
+Both Claude Code and Cursor start a new session cold, without automatically carrying over your previous conversation.
 
 According to [Claude Code's memory docs](https://code.claude.com/docs/en/memory), each session opens with a fresh context window. Instead of replaying your old chat, startup loads the instruction files you maintain along with any auto-memory notes Claude saved earlier.
 
@@ -152,14 +152,14 @@ When you stay inside one tool, use its built-in memory store and session resume.
 
 In everyday coding tools, **persistent agent memory** usually means tool-specific storage that outlives one chat window: Claude Code offers auto memory plus `claude --continue` and `claude --resume`, while Codex keeps multi-agent threads inside its own CLI and app.
 
-**What carries over (same runtime, same machine):** Claude Code saves project notes (build commands, debugging patterns, preferences) under `~/.claude/projects/<project>/memory/`. At startup it loads the first 200 lines or 25KB of `MEMORY.md`, whichever limit hits first, and reads extra topic files on demand ([how it works](https://code.claude.com/docs/en/memory#how-it-works)). Auto memory stays local to that machine and shares across worktrees for the same repo, without syncing across machines or cloud environments.
+**What carries over (same runtime, same machine):** Claude Code can save project notes (build commands, debugging patterns, preferences) under `~/.claude/projects/<project>/memory/`. When auto memory is enabled, startup loads the first 200 lines or 25KB of `MEMORY.md`, whichever limit hits first, and reads extra topic files on demand ([how it works](https://code.claude.com/docs/en/memory#how-it-works)). Auto memory stays local to that machine and shares across worktrees for the same repo, without syncing across machines or cloud environments.
 
 To reopen earlier work in Claude Code, the [best practices](https://code.claude.com/docs/en/best-practices) cover `claude --continue` for the latest session and `claude --resume` to pick an older one. Codex ships its own [local CLI](https://github.com/openai/codex) and app, and session history there stays inside OpenAI's tools rather than loading into Claude Code.
 
 **Example: save → retrieve → select → verify (Claude auto memory):**
 
 1. **Save:** at the end of the day, ask Claude Code to record "use GraphQL gateway; do not reopen REST debate" in project auto memory. Check that the note appears under `~/.claude/projects/<project>/memory/` (in `MEMORY.md` or a topic file like `api-boundary.md`).
-2. **Retrieve next session:** on the same machine, open the repo and launch Claude Code so startup loads `MEMORY.md` (first 200 lines or 25KB, whichever comes first). If the note lives in a separate topic file, open or `@`-mention that file so Claude actually reads it instead of leaving it on disk.
+2. **Retrieve next session:** on the same machine, open the repo and launch Claude Code so startup can load `MEMORY.md` (first 200 lines or 25KB, whichever comes first). If the note lives in a separate topic file, open or `@`-mention that file so Claude actually reads it instead of leaving it on disk.
 3. **Select into context:** ask the agent to repeat the GraphQL decision from that memory file before proposing API edits.
 4. **Verify freshness:** check the latest gateway PR and current branch to confirm the memory note still matches reality. If plans changed, update or delete the note before editing code.
 
