@@ -33,6 +33,8 @@ Multi-Agent Collaboration for Team and Friends
 
 ## Quick Start
 
+Install Node.js >= 22.12 before running the public Alook App or daemon package.
+
 ```bash
 npx @alook/app onboard
 ```

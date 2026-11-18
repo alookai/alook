@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createConnection: vi.fn(),
@@ -24,17 +24,35 @@ describe("checks", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("checkNodeVersion", () => {
-    it("does not exit for Node >= 20", async () => {
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+    const actualVersion = process.versions.node;
+    afterEach(() => {
+      Object.defineProperty(process.versions, "node", { value: actualVersion });
+      vi.restoreAllMocks();
+    });
+
+    it.each(["20.9.0", "21.12.0", "22.11.0"])("rejects unsupported Node %s", async (version) => {
+      Object.defineProperty(process.versions, "node", { value: version });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("exit");
-      }) as never);
+      });
 
       const { checkNodeVersion } = await import("../src/lib/checks.js");
-      const major = parseInt(process.versions.node.split(".")[0], 10);
-      if (major >= 20) {
-        expect(() => checkNodeVersion()).not.toThrow();
-      }
-      exitSpy.mockRestore();
+      expect(() => checkNodeVersion()).toThrow("exit");
+      expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+      expect(error).toHaveBeenCalledExactlyOnceWith(`Error: Node.js >= 22.12 required (found ${version})`);
+    });
+
+    it.each(["22.12.0", "22.12.1", "23.0.0", "24.0.0"])("accepts supported Node %s", async (version) => {
+      Object.defineProperty(process.versions, "node", { value: version });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("unexpected exit");
+      });
+      const { checkNodeVersion } = await import("../src/lib/checks.js");
+      expect(() => checkNodeVersion()).not.toThrow();
+      expect(exit).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
     });
   });
 

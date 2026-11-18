@@ -17,6 +17,7 @@ import {
   type PublicStaticPhaseReceipt,
   type ServiceLifecycleState,
 } from "./service-lifecycle"
+import { measureSetupAsync, measureSetupSync } from "./setup-work"
 
 export function publicStaticQaManifest(verify = true) {
   const forensics = process.env.ALOOK_E2E_PUBLIC_STATIC_FORENSICS
@@ -646,24 +647,26 @@ export async function startServices(): Promise<ManagedService[]> {
   if (initialState.restorePending && !lstatSync(STATE_BACKUP_DIR, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error("E2E state backup is missing before service startup")
   }
-  resetDb()
+  measureSetupSync("reset-db", resetDb)
   rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
   mkdirSync(SERVICE_LOG_DIR, { recursive: true })
 
   const services: ManagedService[] = []
-  for (const definition of definitions) {
-    const service = startService(definition)
-    services.push(service)
-    await waitForHealth(service)
+  for (const [index, definition] of definitions.entries()) {
+    await measureSetupAsync("service-health", async () => {
+      const service = startService(definition)
+      services.push(service)
+      await waitForHealth(service)
+    }, index + 1)
   }
 
-  await waitForServicesReady(services)
+  await measureSetupAsync("services-ready", () => waitForServicesReady(services))
   const state = readLifecycleState(SERVICE_STATE_PATH)
   if (!state) throw new Error("service lifecycle state disappeared during readiness")
   if (state.failure) throw new Error(`service failed during readiness: ${state.failure.detail}`)
   writeLifecycleState(SERVICE_STATE_PATH, { ...state, status: "healthy" })
   startHealthSupervisor(services)
-  await warmUpRoutes()
+  await measureSetupAsync("warm-routes", warmUpRoutes)
   return services
 }
 

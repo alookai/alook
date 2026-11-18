@@ -38,11 +38,12 @@ describe("Resend contact lifecycle with the official SDK", () => {
     logs.warn.mockReset()
     vi.stubGlobal("fetch", fetchMock)
     vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("RESEND_DEBUG", undefined)
     vi.spyOn(console, "error").mockImplementation(() => {})
   })
   afterEach(() => {
     try {
-      if (process.env.NODE_ENV === "production") expect(console.error).not.toHaveBeenCalled()
+      if (process.env.NODE_ENV === "production" && process.env.RESEND_DEBUG !== "true") expect(console.error).not.toHaveBeenCalled()
       for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
         expect(JSON.stringify(logs.warn.mock.calls)).not.toContain(value)
       }
@@ -53,9 +54,12 @@ describe("Resend contact lifecycle with the official SDK", () => {
     }
   })
 
-  it.each(["production", "development", "test", undefined])(
-    "keeps application warnings sanitized while honoring SDK raw logging in NODE_ENV=%s", async (mode) => {
+  it.each(["production", "development", "test", undefined].flatMap(mode => [
+    { mode, debug: undefined }, { mode, debug: "true" },
+  ]))(
+    "keeps application warnings sanitized with NODE_ENV=$mode and RESEND_DEBUG=$debug", async ({ mode, debug }) => {
       vi.stubEnv("NODE_ENV", mode)
+      vi.stubEnv("RESEND_DEBUG", debug)
       expect(process.env.NODE_ENV).toBe(mode)
       fetchMock.mockImplementation(async () => providerError(500))
 
@@ -67,7 +71,7 @@ describe("Resend contact lifecycle with the official SDK", () => {
         ["resend_contact_sync_failed", { action: "signup", stage: "lookup", errorCategory: "provider_error", statusCode: 500 }],
         ["resend_contact_sync_failed", { action: "account-deletion", stage: "update", errorCategory: "provider_error", statusCode: 500 }],
       ])
-      if (mode === "production") {
+      if (debug !== "true") {
         expect(console.error).not.toHaveBeenCalled()
       } else {
         expect(console.error).toHaveBeenCalledTimes(2)

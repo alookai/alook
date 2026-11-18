@@ -54,6 +54,26 @@ function trackWrite(registry: CommunityDbRegistry, completion: Promise<void>) {
   return completion
 }
 
+function recoverCommunityCollection(registry: CommunityDbRegistry, name: CommunityCollectionName) {
+  const collection = registry.collections[name]
+  if (collection.status !== "error") return
+  const queryKey = communityKeys.communityDbCollection(registry.scopeId, name)
+  const cache = registry.queryClient.getQueryCache()
+  const query = cache.find({ queryKey, exact: true })
+  if (!query || query.state.data === undefined) return
+  const snapshot = query.state.data, updatedAt = query.state.dataUpdatedAt
+  const generation = registry.runtime.lifecycle.get().generation
+  const accountEpoch = registry.runtime.ws.get().profileAccountEpoch
+  const release = cache.subscribe(event => {
+    if (event.type === "removed" && event.query === query && registry.runtime.lifecycle.get().active
+      && registry.runtime.lifecycle.get().generation === generation && registry.runtime.ws.get().profileAccountEpoch === accountEpoch) {
+      registry.queryClient.setQueryData(queryKey, snapshot, { updatedAt })
+    }
+  })
+  try { return trackWrite(registry, collection.reload()) }
+  finally { release() }
+}
+
 export function parseCommunityCollectionRows<N extends CommunityCollectionName>(registry: CommunityDbRegistry, name: N, rows: readonly unknown[]): CommunityCollectionRows[N][] {
   const scope = writeScopes.get(registry)
   let validated = scope?.validated.get(name)
@@ -122,7 +142,7 @@ export function writeCommunityCollectionChanges<N extends CommunityCollectionNam
     return next ? [next] : []
   })
   const deletes = [...new Set(removed)].filter(key => readCommunityCollectionRow(registry, name, key) !== undefined)
-  if (!changed.length && !deletes.length) return
+  if (!changed.length && !deletes.length) return verified.length ? recoverCommunityCollection(registry, name) : undefined
   if (collection.status !== "ready") {
     const queryKey = communityKeys.communityDbCollection(registry.scopeId, name)
     const previous = registry.queryClient.getQueryData<Row[]>(queryKey) ?? []
@@ -135,7 +155,7 @@ export function writeCommunityCollectionChanges<N extends CommunityCollectionNam
       return deleted.has(key) ? [] : [replacement ?? row]
     })
     registry.queryClient.setQueryData(queryKey, [...next, ...replacements.values()])
-    return
+    return recoverCommunityCollection(registry, name)
   }
   return trackWrite(registry, collection.utils.writeBatch(() => {
     if (deletes.length) collection.utils.writeDelete(deletes)
@@ -180,7 +200,7 @@ export function writeCommunityCollectionRows<N extends CommunityCollectionName>(
       next,
       options,
     )
-    return
+    return recoverCommunityCollection(registry, name)
   }
   const previousByKey = committed === undefined ? undefined : new Map(committed.map((row) => [collection.getKeyFromItem(row), row]))
   const nextKeys = new Set(keys)

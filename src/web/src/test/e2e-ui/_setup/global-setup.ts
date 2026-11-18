@@ -11,6 +11,7 @@ import {
 } from "./services"
 import { createLifecycleState, writeLifecycleState } from "./service-lifecycle"
 import { USER_KEYS, type RunManifest, type SeededUser, type UserKey } from "./users"
+import { measureSetupAsync, measureSetupSync, prepareSetupUsers } from "./setup-work"
 
 export default async function globalSetup(): Promise<void> {
   publicStaticQaManifest()
@@ -19,28 +20,28 @@ export default async function globalSetup(): Promise<void> {
   writeLifecycleState(SERVICE_STATE_PATH, createLifecycleState())
 
   try {
-    prepareServices()
+    measureSetupSync("prepare-services", prepareServices)
 
-    await startServices()
+    await measureSetupAsync("start-services", startServices)
 
     // Unique-per-run stamp so re-runs against a non-reset DB don't collide.
     const stamp = `${process.pid.toString(36)}${Math.floor(process.hrtime()[1] / 1e3).toString(36)}`
 
     const users = {} as Record<UserKey, SeededUser>
-    const browser = await chromium.launch()
+    const browser = await measureSetupAsync("launch-browser", () => chromium.launch())
     try {
-      for (const key of USER_KEYS) {
+      await prepareSetupUsers(USER_KEYS, async (key, index) => {
         const statePath = resolve(AUTH_DIR, `${key}.json`)
-        users[key] = await loginAndSaveState(browser, key, stamp, statePath)
-      }
+        users[key] = await measureSetupAsync("prepare-user", () => loginAndSaveState(browser, key, stamp, statePath), index + 1)
+      })
     } finally {
-      await browser.close()
+      await measureSetupAsync("close-browser", () => browser.close())
     }
 
     const manifest: RunManifest = { stamp, users }
-    writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2))
+    measureSetupSync("write-manifest", () => writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2)))
   } catch (error) {
-    await stopServicesAndRestore()
+    await measureSetupAsync("setup-cleanup", stopServicesAndRestore)
     throw error
   }
 }

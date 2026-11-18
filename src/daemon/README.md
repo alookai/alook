@@ -3,6 +3,11 @@
 Alook's host daemon: control-plane connectivity, agent scheduling, credentials,
 diagnostics, and lifecycle orchestration.
 
+The public `@alook/daemon` package requires Node.js >= 22.12, as does
+`@alook/app`. The Windows Node20 SDK adapter check is a legacy compatibility
+probe; it does not qualify public package installation on Node20. The independent
+`@alook/agent-driver` package retains its own runtime support contract.
+
 Runtime execution lives in the independently buildable `@alook/agent-driver`
 package under `agent-driver/`. That package adapts Claude Code, Codex, Cursor,
 OpenCode, and Pi behind one public `AgentSession` contract. The daemon consumes

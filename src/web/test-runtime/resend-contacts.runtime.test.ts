@@ -10,6 +10,7 @@ const segmentId = "6701946e-a7e2-442b-8fa5-aba379a81248"
 
 beforeEach(() => {
   vi.stubEnv("NODE_ENV", "production")
+  vi.stubEnv("RESEND_DEBUG", undefined)
 })
 
 afterEach(() => {
@@ -19,9 +20,12 @@ afterEach(() => {
 })
 
 describe("official Resend SDK in workerd", () => {
-  it.each(["production", "development", "test", undefined])(
-    "preserves sanitized waitUntil warnings and SDK logging in NODE_ENV=%s", async (mode) => {
+  it.each(["production", "development", "test", undefined].flatMap(mode => [
+    { mode, debug: undefined }, { mode, debug: "true" },
+  ]))(
+    "preserves sanitized waitUntil warnings with NODE_ENV=$mode and RESEND_DEBUG=$debug", async ({ mode, debug }) => {
       vi.stubEnv("NODE_ENV", mode)
+      vi.stubEnv("RESEND_DEBUG", debug)
       expect(process.env.NODE_ENV).toBe(mode)
       const privateError = `${user.email} ${user.name} ${env.RESEND_API_KEY}`
       const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({
@@ -52,7 +56,7 @@ describe("official Resend SDK in workerd", () => {
       for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
         expect(JSON.stringify(log.mock.calls)).not.toContain(value)
       }
-      if (mode === "production") {
+      if (debug !== "true") {
         expect(error).not.toHaveBeenCalled()
       } else {
         expect(error).toHaveBeenCalledTimes(2)

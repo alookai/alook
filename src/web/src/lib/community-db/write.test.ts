@@ -51,6 +51,53 @@ function observeProfilePublications(registry: CommunityDbRegistry) {
 }
 
 describe("canonical collection publication", () => {
+  it.each([false, true])("recovers a failed native source from a confirmed snapshot with empty=%s", async empty => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const failure = new Error("controlled restore failure")
+    const registry = createCommunityDbRegistry(client, "viewer", { waitForRestore: Promise.reject(failure) })
+    owners.push(registry)
+    const collection = registry.collections.profiles
+    const key = communityKeys.communityDbCollection("viewer", "profiles")
+    await expect(collection.preload()).rejects.toBe(failure)
+    const defaults = client.getQueryDefaults(key)
+    const row = profileSchema.parse({ id: "peer", name: "Peer", discriminator: "0042", avatar: null, avatarVersion: 0 })
+    const rows = empty ? [] : [row]
+    await writeCommunityCollectionRows(registry, "profiles", rows, profile => profile.id, { updatedAt: 346 })
+    expect(collection.status).toBe("ready")
+    expect(client.getQueryData(key)).toEqual(rows)
+    expect(client.getQueryState(key)?.dataUpdatedAt).toBe(346)
+    expect(collection.size).toBe(rows.length)
+    expect(client.getQueryDefaults(key)).toEqual(defaults)
+    client.removeQueries({ queryKey: key, exact: true })
+    expect(client.getQueryData(key)).toBeUndefined()
+  })
+
+  it.each(["lifecycle", "account-epoch"] as const)("does not restore a canonical snapshot after %s retirement during native recovery", async boundary => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const failure = new Error("controlled restore failure")
+    const registry = createCommunityDbRegistry(client, "viewer", { waitForRestore: Promise.reject(failure) })
+    owners.push(registry)
+    const key = communityKeys.communityDbCollection("viewer", "profiles")
+    await expect(registry.collections.profiles.preload()).rejects.toBe(failure)
+    const old = client.getQueryCache().find({ queryKey: key, exact: true })
+    let retired = false
+    const late: unknown[] = []
+    const release = client.getQueryCache().subscribe(event => {
+      if (event.type === "removed" && event.query === old) {
+        retired = true
+        if (boundary === "lifecycle") registry.runtime.lifecycle.setState(state => ({ active: false, generation: state.generation + 1 }))
+        else registry.runtime.ws.setState(state => ({ ...state, profileAccountEpoch: state.profileAccountEpoch + 1 }))
+      } else if (retired && event.type === "updated" && event.query.state.data !== undefined) late.push(event.query.state.data)
+    })
+    try {
+      const row = profileSchema.parse({ id: "peer", name: "Peer", discriminator: "0042", avatar: null, avatarVersion: 0 })
+      await expect(writeCommunityCollectionRows(registry, "profiles", [row], profile => profile.id)).rejects.toBe(failure)
+      expect(retired).toBe(true)
+      expect(client.getQueryData(key)).toBeUndefined()
+      expect(late).toEqual([])
+    } finally { release() }
+  })
+
   it("replaces optional business fields and avoids republishing repeated equivalent snapshots", async () => {
     const registry = owner()
     await registry.preload()
