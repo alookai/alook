@@ -10,7 +10,7 @@ import { dependencyPrepare, dependencyQuery } from './dependency-source.mjs'
 
 export const batchSourceHook = Symbol.for('alook.db-query-check.prepare-batch')
 const batchOrigins = new WeakMap()
-const requireShared = createRequire(new URL('../../src/shared/package.json', import.meta.url))
+const requireShared = createRequire(join(process.env.ALOOK_DB_QUERY_ROOT ?? process.cwd(), 'src/shared/package.json'))
 const sqliteCore = 'drizzle-orm/sqlite-core'
 const sqliteCoreEsm = pathToFileURL(requireShared.resolve(sqliteCore).replace(/\.cjs$/, '.js')).href
 const selectTypes = [requireShared(sqliteCore).SQLiteSelectBase, (await import(sqliteCoreEsm)).SQLiteSelectBase]
