@@ -707,6 +707,25 @@ export function useScrollAnchor({
     }
     return null
   }, [hasCommittedRows, positionKind, readReady])
+  const readCommittedBaselineMessage = useCallback((offset: number): string | null => {
+    const root = scrollRef.current
+    const native = virtualizerRef.current
+    const context = contextRef.current
+    if (!readingMessageRef.current || !root || !native || !context.visible || !context.active
+      || context.dataState !== "ready" || positionKind.get() !== "idle" || !readReady.get() || !hasCommittedRows() || Math.abs((native.scrollOffset ?? 0) - offset) > 1) return null
+    const viewport = root.getBoundingClientRect()
+    const shift = root.scrollTop - offset
+    for (const row of native.getVirtualItems()) {
+      const item = currentItemsRef.current[row.index]
+      if (item?.kind !== "message") continue
+      const body = root.querySelector<HTMLElement>(`[data-index="${row.index}"] [data-msg-id]`)
+      const rect = messageContentBounds(body ?? undefined)
+      if (body?.dataset.msgId !== item.m.id || !rect || rect.height <= 0
+        || Math.min(rect.bottom + shift, viewport.bottom - context.viewportInsetEnd) - Math.max(rect.top + shift, viewport.top) <= 1) continue
+      return item.m.id
+    }
+    return null
+  }, [hasCommittedRows, positionKind, readReady])
   const reportReadingMessage = useCallback(() => {
     const id = readReadingMessage()
     const root = scrollRef.current, report = readingMessageRef.current
@@ -730,22 +749,23 @@ export function useScrollAnchor({
     if (context.dataState !== "ready" || paginationRef.current?.phase === "settling" || semanticIntentRef.current || projectionAnchorRef.current
       || viewportCorrectionRef.current) return
     if (!reading.pending) {
-      if (Math.abs(reading.offset - root.scrollTop) > 1 || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1) return
-      if (reading.window === context.messageWindow && reading.items === currentItemsRef.current
-        && reading.height === root.clientHeight && reading.width === root.clientWidth && reading.scrollHeight === root.scrollHeight
-        && reading.total === committedRowsRef.current?.layout.totalSize && reading.paddingEnd === (native.options.paddingEnd ?? 0)) return
+      if (root.scrollTop < -1 || root.scrollTop > Math.max(0, root.scrollHeight - root.clientHeight) + 1) return
+      const sameGeometry = reading.height === root.clientHeight && reading.width === root.clientWidth && reading.scrollHeight === root.scrollHeight
+        && reading.total === committedRowsRef.current?.layout.totalSize && reading.paddingEnd === (native.options.paddingEnd ?? 0)
+      if (Math.abs((native.scrollOffset ?? 0) - reading.offset) > 1 || Math.abs(reading.offset - root.scrollTop) > 1 && !sameGeometry) return
+      if (reading.window === context.messageWindow && reading.items === currentItemsRef.current && sameGeometry) return
     }
-    const id = readReadingMessage()
+    const id = reading.pending ? readReadingMessage() : readCommittedBaselineMessage(reading.offset)
     const committed = committedRowsRef.current
     if (!id || !committed || userInputRef.current.reading !== reading) return
     userInputRef.current.reading = { root, pending: false, messageId: id, reportedMessageId: reading.pending ? id : reading.reportedMessageId, epoch: reading.epoch, window: context.messageWindow,
-      items: currentItemsRef.current, offset: root.scrollTop, height: root.clientHeight, width: root.clientWidth,
+      items: currentItemsRef.current, offset: reading.pending ? root.scrollTop : reading.offset, height: root.clientHeight, width: root.clientWidth,
       scrollHeight: root.scrollHeight, total: committed.layout.totalSize, paddingEnd: native.options.paddingEnd ?? 0 }
     if (reading.pending && id !== reading.reportedMessageId) {
       reportedReadingRef.current.latest = { epoch: reading.epoch, root, entry: positionEntryRef.current, scope: positionScopeRef.current, messageId: id }
       readingMessageRef.current(id)
     }
-  }, [positionKind, readReadingMessage])
+  }, [positionKind, readCommittedBaselineMessage, readReadingMessage])
   const updateNewDividerVisibility = useCallback((notifyBoundary = true) => {
     const root = scrollRef.current
     const id = contextRef.current.newDividerBefore
@@ -906,8 +926,9 @@ export function useScrollAnchor({
     observePageBody()
     updateNewDividerVisibility(false)
     if (layout && positionOwnerRef.current.active && semanticIntentRef.current) scheduleInitialPositionSettled()
+    if (layout && !userInputRef.current.reading?.pending) reconcileManualReading()
     if (layout && (paginationRef.current || userInputRef.current.reading)) scheduleGeometryRef.current()
-  }, [items, observePageBody, positionEntry, scheduleInitialPositionSettled, setScrollMargin, updateNewDividerVisibility, virtualizer])
+  }, [items, observePageBody, positionEntry, reconcileManualReading, scheduleInitialPositionSettled, setScrollMargin, updateNewDividerVisibility, virtualizer])
 
   const startIntent = useCallback((type: Intent["type"], id: string | null, behavior: ScrollBehavior = "auto", notifyTarget = false, loadedTailPresent = false) => {
     const owner = positionOwnerRef.current
@@ -1417,7 +1438,10 @@ export function useScrollAnchor({
     geometryFrameRef.current = window.requestAnimationFrame(accept)
   }, [reconcileManualReading, updateNewDividerVisibility])
   useLayoutEffect(() => { scheduleGeometryRef.current = scheduleGeometry }, [scheduleGeometry])
-  useLayoutEffect(() => { scheduleGeometry() }, [dataState, targetDataState, items, ownerKind, preserveInitialPresentation, readPositionReady, scheduleGeometry, scrollMargin, tailPaddingEnd])
+  useLayoutEffect(() => {
+    if (!userInputRef.current.reading?.pending) reconcileManualReading()
+    scheduleGeometry()
+  }, [dataState, targetDataState, items, messageWindow, ownerKind, preserveInitialPresentation, readPositionReady, reconcileManualReading, scheduleGeometry, scrollMargin, tailPaddingEnd])
 
   useEffect(() => {
     const owner = positionOwnerRef.current
