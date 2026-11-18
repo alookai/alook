@@ -68,11 +68,13 @@ export const DmSidebar = memo(function DmSidebar({
               active={shortcut.active}
               onActivate={shortcut.onActivate}
               className={[
-                "flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                "flex h-9 w-full items-center gap-3 rounded-md px-2 text-sm font-medium transition-[color,background-color,transform] duration-150 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
                 shortcut.active ? "text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
-              <shortcut.Icon className="size-5 shrink-0" />
+              <span className="flex size-8 shrink-0 items-center justify-center">
+                <shortcut.Icon className="size-5" />
+              </span>
               <span className="min-w-0 flex-1 truncate">{shortcut.label}</span>
               {shortcut.badge && (
                 <span data-testid={tid.friendsShortcutBadge} className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">

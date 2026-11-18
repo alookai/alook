@@ -101,6 +101,35 @@ describe("DmSidebar navigation intent", () => {
     expect(onShowPrivacy).toHaveBeenCalledOnce()
   })
 
+  it("centers shortcut icons in a 32px leading slot matching DM avatars", () => {
+    const view = render(createElement(DmSidebar, {
+      dms: [{
+        id: "dm_1",
+        userId: "user_1",
+        name: "Melly",
+        avatar: "M",
+        status: "online",
+        preview: "hello",
+      }],
+      activeDm: null,
+      onPickDm: vi.fn(),
+      onShowFriends: vi.fn(),
+      onShowMachines: vi.fn(),
+      onShowBots: vi.fn(),
+      onShowPrivacy: vi.fn(),
+    }))
+    const shortcutLinks = view.container.querySelectorAll('[data-slot="dm-sidebar-shortcuts"] a')
+    expect(shortcutLinks).toHaveLength(4)
+    for (const link of shortcutLinks) {
+      expect(link).toHaveClass("px-2", "gap-3")
+      const iconSlot = link.firstElementChild
+      expect(iconSlot).toHaveClass("flex", "size-8", "shrink-0", "items-center", "justify-center")
+      expect(iconSlot?.querySelector("svg")).toHaveClass("size-5")
+    }
+    const dmRow = view.getByTestId(tid.dmRow("dm_1"))
+    expect(dmRow).toHaveClass("px-2", "gap-3")
+  })
+
   it("selects the intended DM only on click or Enter", async () => {
     const onPickDm = vi.fn()
     const renderer = render(createElement(DmSidebar, {
