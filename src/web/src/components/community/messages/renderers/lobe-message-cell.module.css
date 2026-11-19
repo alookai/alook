@@ -1545,6 +1545,7 @@ SOFTWARE.
   font: inherit;
 }
 
+.cell :global(.lobe-chat-chat-item__title:empty),
 .cell :global(.lobe-chat-chat-item__extra:empty) {
   display: none;
 }
