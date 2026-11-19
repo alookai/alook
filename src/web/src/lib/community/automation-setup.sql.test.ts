@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import type { SQLInputValue } from "node:sqlite"
 import { NextRequest } from "next/server"
 import { createDb, formatHandle, type Database } from "@alook/shared"
+import { prepareNativeD1BatchStatement } from "../../../../shared/test/helpers/native-batch-prepare"
 
 const state = vi.hoisted(() => ({ db: null as unknown, loseServerReceipt: false }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => state.db, getDb: () => state.db }))
@@ -33,24 +34,27 @@ beforeEach(async () => {
   const binding = {
     prepare(sql: string) {
       let values: SQLInputValue[] = []
-      const execute = (arrays: boolean) => {
+      const execute = (arrays: boolean, batched = false) => {
         if (state.loseServerReceipt && sql.includes('from "user"') && sql.includes('"avatarVersion"') && serverCount() > 0) {
           state.loseServerReceipt = false
           throw new Error("lost database response after server commit")
         }
-        const statement = sqlite.prepare(sql); statement.setReturnArrays(arrays); return statement.all(...values)
+        const statement = batched ? prepareNativeD1BatchStatement(sqlite, prepared, sql) : sqlite.prepare(sql)
+        statement.setReturnArrays(arrays)
+        return statement.all(...values)
       }
       const prepared = {
         bind(...bindings: SQLInputValue[]) { values = bindings; return prepared },
         async raw() { return execute(true) },
         async all() { return { success: true, results: execute(false) } },
+        async batchResult() { return { success: true, results: execute(false, true) } },
         async run() { return { success: true, meta: sqlite.prepare(sql).run(...values) } },
       }
       return prepared
     },
-    async batch(statements: Array<{ all: () => Promise<unknown> }>) {
+    async batch(statements: Array<{ batchResult: () => Promise<unknown> }>) {
       sqlite.exec("BEGIN")
-      try { const results = []; for (const statement of statements) results.push(await statement.all()); sqlite.exec("COMMIT"); return results }
+      try { const results = []; for (const statement of statements) results.push(await statement.batchResult()); sqlite.exec("COMMIT"); return results }
       catch (failure) { sqlite.exec("ROLLBACK"); throw failure }
     },
   }

@@ -18,6 +18,12 @@ export type AccountIdentityRecord = PersistedAccountIdentity & { version: number
 export const isEpoch = (value: unknown): value is string => (
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 )
+export type PersistedChannelFence = { epoch: string; deleted: boolean }
+export const channelFenceKey = (userId: string | null) => `${accountEpochKey(userId)}:channels`
+export const isPersistedChannelFences = (value: unknown): value is Map<string, PersistedChannelFence> => (
+  value instanceof Map && [...value].every(([id, fence]) => typeof id === "string" && id.length > 0
+    && fence !== null && typeof fence === "object" && isEpoch(fence.epoch) && typeof fence.deleted === "boolean")
+)
 export function communityScopeEpoch(value: unknown): string | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
   const scope = value as Record<string, unknown>

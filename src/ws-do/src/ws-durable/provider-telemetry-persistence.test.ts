@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import type { DailyUsageSnapshot, ProviderQuotaSnapshot } from "@alook/shared";
 import {
+  prepareActivityProfileUpsert,
   prepareQuotaReplace,
   prepareUsagePrune,
   prepareMachineTimeZoneUpdate,
@@ -58,6 +59,13 @@ describe("provider telemetry persistence SQL", () => {
         user_id TEXT PRIMARY KEY NOT NULL,
         machine_id TEXT NOT NULL
       );
+      CREATE TABLE community_user_profile (
+        user_id TEXT PRIMARY KEY NOT NULL,
+        about_me TEXT NOT NULL DEFAULT '',
+        banner_color TEXT,
+        status_emoji TEXT,
+        status_text TEXT DEFAULT ''
+      );
       CREATE TABLE community_bot_daily_token_usage (
         bot_id TEXT NOT NULL,
         day TEXT NOT NULL,
@@ -92,6 +100,24 @@ describe("provider telemetry persistence SQL", () => {
   });
 
   afterEach(() => sqlite.close());
+
+  it("updates only the bound bot activity and preserves other profile fields", () => {
+    const profile = sqlite.prepare("SELECT * FROM community_user_profile WHERE user_id = ?");
+    run(prepareActivityProfileUpsert(db, "foreign_machine", "bot_1", "💬", "wrong"));
+    expect(profile.get("bot_1")).toBeUndefined();
+
+    run(prepareActivityProfileUpsert(db, "machine_1", "bot_1", "💬", "Working"));
+    expect(profile.get("bot_1")).toMatchObject({
+      about_me: "", banner_color: null, status_emoji: "💬", status_text: "Working",
+    });
+    sqlite.prepare("UPDATE community_user_profile SET about_me = ?, banner_color = ? WHERE user_id = ?")
+      .run("Profile description", "#71846c", "bot_1");
+    run(prepareActivityProfileUpsert(db, "machine_1", "bot_1", null, null));
+    run(prepareActivityProfileUpsert(db, "foreign_machine", "bot_1", "💬", "wrong"));
+    expect(profile.get("bot_1")).toMatchObject({
+      about_me: "Profile description", banner_color: "#71846c", status_emoji: null, status_text: "",
+    });
+  });
 
   it("replaces the whole daily row with the daemon's latest snapshot", () => {
     const first = usage(

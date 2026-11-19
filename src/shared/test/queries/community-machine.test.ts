@@ -1,10 +1,110 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import {
+  communityBotBinding,
+  communityMachine,
+  communityMachineBackendQuota,
+  communityMachineCredential,
+  communityMachineToken,
+} from "../../src/db/community-machine-schema";
+import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
 vi.mock("../../src/db/queries/product-plan", async (original) => ({ ...await original<typeof import("../../src/db/queries/product-plan")>(), assertMachineCapacity: vi.fn() }));
 vi.mock("../../src/db/queries/community/funnel-analytics", () => ({
   recordRuntimeConnectedStatement: vi.fn(() => ({ kind: "runtime-connected-statement" })),
 }));
 import * as q from "../../src/db/queries/community/machine";
 import * as sessionEpoch from "../../src/db/queries/community/machine-session-epoch";
+
+describe("machine queries on migrated SQLite", () => {
+  let database: ReturnType<typeof createMigratedDb>;
+  beforeEach(async () => {
+    database = createMigratedDb();
+    const { db, sqlite } = database;
+    await db.insert(user).values([
+      { id: "owner", name: "Owner", email: "owner@example.test" },
+      { id: "other", name: "Other", email: "other@example.test" },
+      { id: "bot", name: "Bot", email: "bot@example.test", isBot: true, ownerUserId: "owner" },
+    ]).run();
+    sqlite.prepare("UPDATE product_plan_entitlement SET value_json = ? WHERE plan_id = ? AND entitlement_key = ?").run("2", "free", "machines.max");
+    await db.insert(communityMachine).values([
+      { id: "target", userId: "owner", status: "online" },
+      { id: "neighbor", userId: "owner" },
+      { id: "foreign", userId: "other" },
+    ]).run();
+  });
+  afterEach(() => database.sqlite.close());
+
+  it("persists credential lookup, replacement and revocation within the requested machine", async () => {
+    const { db } = database;
+    const credential = { id: "credential-1", userId: "owner", machineId: "target", credentialHash: "a".repeat(64), doName: "target-do" };
+    const neighbor = { ...credential, id: "credential-neighbor", machineId: "neighbor", credentialHash: "b".repeat(64), doName: "neighbor-do" };
+    await db.insert(communityMachineCredential).values([credential, neighbor]).run();
+    await expect(q.findCredentialByHash(db, credential.credentialHash)).resolves.toMatchObject({ credentialId: credential.id, machineId: "target" });
+    const [used] = await db.select().from(communityMachineCredential).where(eq(communityMachineCredential.id, credential.id));
+    expect(used?.lastUsedAt).toEqual(expect.any(String));
+    await q.revokeCredential(db, credential.id);
+    await expect(q.findCredentialByHash(db, credential.credentialHash)).resolves.toBeNull();
+
+    const next = { ...credential, id: "credential-2", credentialHash: "c".repeat(64), doName: "new-target-do" };
+    await db.insert(communityMachineCredential).values(next).run();
+    await expect(q.revokeCredentialsForMachine(db, "other", "target")).resolves.toEqual({ doNames: [] });
+    await expect(q.revokeCredentialsForMachine(db, "owner", "target")).resolves.toEqual({ doNames: [next.doName] });
+    await expect(q.findCredentialByHash(db, next.credentialHash)).resolves.toBeNull();
+    await expect(q.findCredentialByHash(db, neighbor.credentialHash)).resolves.toMatchObject({ machineId: "neighbor" });
+
+    const scope = { userId: "owner", machineId: "target", agentId: "bot" };
+    const first = await q.mintAgentRunnerKey(db, scope);
+    const second = await q.mintAgentRunnerKey(db, scope);
+    const otherRunner = await q.mintAgentRunnerKey(db, { ...scope, machineId: "neighbor" });
+    expect(first.existed).toBe(false);
+    expect(second.existed).toBe(true);
+    expect(first.runnerKey === second.runnerKey).toBe(false);
+    await expect(q.findActiveAgentRunnerKeyByBearer(db, first.runnerKey)).resolves.toBeNull();
+    const active = await q.findActiveAgentRunnerKeyByBearer(db, second.runnerKey);
+    expect(active).toMatchObject(scope);
+    await expect(q.revokeRunnerKeysForMachine(db, "target")).resolves.toEqual({ doNames: [active?.doName] });
+    await expect(q.findActiveAgentRunnerKeyByBearer(db, second.runnerKey)).resolves.toBeNull();
+    await expect(q.findActiveAgentRunnerKeyByBearer(db, otherRunner.runnerKey)).resolves.toMatchObject({ machineId: "neighbor" });
+  });
+
+  it("persists token transitions, quota scope, active presence and owner-only machine removal", async () => {
+    const { db } = database;
+    await db.insert(communityMachineToken).values([
+      { id: "pair", userId: "owner", expiresAt: "9999-01-01" },
+      { id: "expired", userId: "other", expiresAt: "2000-01-01" },
+    ]).run();
+    await expect(q.claimPairingToken(db, "expired")).rejects.toThrow(/not claimable/);
+    await expect(q.claimPairingToken(db, "pair")).resolves.toEqual({ tokenId: "pair", userId: "owner" });
+    await expect(q.claimPairingToken(db, "pair")).rejects.toThrow(/not claimable/);
+    const previousUse = "2000-01-01T00:00:00Z";
+    await db.update(communityMachineToken).set({ lastUsedAt: previousUse }).where(eq(communityMachineToken.id, "pair")).run();
+    await q.touchTokenLastUsed(db, "pair");
+    const [paired] = await db.select().from(communityMachineToken).where(eq(communityMachineToken.id, "pair"));
+    expect(paired).toMatchObject({ status: "active", lastUsedAt: expect.any(String) });
+    expect(paired?.lastUsedAt).not.toBe(previousUse);
+    await q.revokeToken(db, "pair");
+    await expect(q.findTokenById(db, "pair")).resolves.toMatchObject({ status: "revoked" });
+
+    const observedAt = "2026-09-07T06:00:00Z";
+    const quota = { agentBackendId: "codex-cli" as const, status: "error" as const, sourceEpoch: "e".repeat(22), errorCode: "unavailable", retryable: true, observedAt, updatedAt: observedAt };
+    await db.insert(communityMachineBackendQuota).values([
+      { ...quota, machineId: "target" }, { ...quota, machineId: "foreign" },
+    ]).run();
+    const quotas = await q.listMachineBackendQuotasForUser(db, "owner");
+    expect([...quotas.keys()]).toEqual(["target"]);
+    expect(quotas.get("target")).toMatchObject([{ observedAt, quota: { observation: { status: "error", code: "unavailable" } } }]);
+
+    await db.insert(communityBotBinding).values({ userId: "bot", machineId: "target", runtime: "codex-cli" }).run();
+    await expect(q.isBotOnline(db, "bot")).resolves.toBe(true);
+    await db.update(communityBotBinding).set({ isActive: false }).where(eq(communityBotBinding.userId, "bot")).run();
+    await expect(q.isBotOnline(db, "bot")).resolves.toBe(false);
+    await expect(q.deleteMachineForUser(db, "other", "neighbor")).resolves.toBeNull();
+    await expect(q.deleteMachineForUser(db, "owner", "neighbor")).resolves.toMatchObject({ id: "neighbor" });
+    await expect(q.deleteMachineForUser(db, "owner", "neighbor")).resolves.toBeNull();
+    await expect(q.getMachineByIdForUser(db, "other", "foreign")).resolves.toMatchObject({ id: "foreign" });
+  });
+});
 
 async function readyEpoch(db: any, userId: string, machineId: string, metadata: q.MachineMetadataInput, credentialHash: string) {
   db.batch ??= vi.fn(async (statements: unknown[]) => [await statements[0], []]);

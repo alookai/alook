@@ -180,6 +180,7 @@ Affected platform-specific contracts run on their relevant CI platforms. A Windo
 | Ordinary main | Small existing behavior smoke set plus relevant build/artifact checks |
 | Release main (`release:` commit) | Full package/platform, API/browser and artifact regression |
 | Manual CI `full` | Full regression; diagnostic dispatch keeps its existing exact-source guard |
+| Manual **DB Query Check** | Strict production SQL plan and coverage check on the selected ref |
 | Docs / benchmark only | No unrelated product checks; stable gates report applicable skips |
 | Policy, core/unknown classification or unresolved diff | Conservative full fallback; no silent narrowing |
 
@@ -196,6 +197,10 @@ The Web/Blog OpenNext producer builds each required zone once. Blog dry-run and 
 Playwright owns discovery and file sharding. The signed plan freezes actual case identities and native partition pairs; each job runs the complete selected file set with its native `--shard` pair. Empty native partitions create no job. One worker, zero retries and existing case/expect limits remain. The 240-second target is measured separately from the command/job deadlines; no duration table or predicted bound is used. An always-run teardown restores the existing service owner before report collection.
 
 The browser workflow reuses one exact-source build across selected shards and verifies their reports. Stable `CI Gate` and `UI E2E Gate` checks are the integration boundary; individual out-of-scope shards may be skipped. Selection and discovery do not prove execution. Release CI also does not gate an independent Cloudflare Git deployment or imply that a store accepted a build.
+
+Automatic **DB Query Check** runs for API, shared database, migration, Worker, and other backend or mixed-directory changes. It also runs for lockfile, CI policy and unknown changes, and during full runs. A diff confined to recognized Markdown, benchmark, or frontend directories skips the DB job. The frontend directories include Web components, contexts, stores and public assets, plus Blog, Storybook, Desktop and Videos. Web hooks and community channel components contain database test fixtures, so their directories still trigger the check. The scope checks both paths of a rename. Keep production SQL in directories covered by automatic DB checks.
+
+From **Actions → DB Query Check**, use **Run workflow** to select a branch, or run `gh workflow run db-query-check.yml --ref <branch>` after the workflow is on the default branch. Manual and automatic runs use `pnpm check:db-queries --require-complete`. A required DB failure reaches `CI Gate`. Find the JSON and Markdown reports in the run's `db-query-check-<run-id>-<attempt>` artifact.
 
 ### UI browser E2E and formal local QA
 

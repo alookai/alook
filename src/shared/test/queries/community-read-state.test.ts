@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import * as readStateQueries from "../../src/db/queries/community/read-state";
-import { communityReadState } from "../../src/db/community-schema";
+import { communityChannel, communityMessage, communityReadState } from "../../src/db/community-schema";
+import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
 
 // `markReadToMessageBuilder` is the canonical channel/DM read-state upsert
 // under the invariant unification (plan #4). It's used both stand-alone (DM
@@ -92,6 +94,53 @@ describe("getAccountReadStateSnapshot", () => {
     expect(db.batch).toHaveBeenCalledOnce();
     expect(db.batch.mock.calls[0]![0]).toEqual(builders);
   });
+});
+
+it("persists scoped read cursors and revisions on the migrated schema", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    const userId = "reader";
+    const channelId = "channel-a";
+    const channelB = "channel-b";
+    const first = { id: "first", channelId, createdAt: "2026-09-07T06:00:00Z", seq: 2 };
+    const latest = { id: "latest", channelId, createdAt: "2026-09-07T06:01:00Z", seq: 7 };
+    const other = { id: "other", channelId: channelB, createdAt: first.createdAt, seq: 3 };
+    await db.insert(user).values([
+      { id: userId, email: "reader@example.test", name: "Reader" },
+      { id: "neighbor", email: "neighbor@example.test", name: "Neighbor" },
+    ]).run();
+    await db.insert(communityChannel).values([channelId, channelB, "empty", "neighbor-channel"].map(id => ({ id, type: "text" }))).run();
+    await db.insert(communityMessage).values([first, latest, other].map(message => ({ ...message, authorId: "neighbor" }))).run();
+    await db.insert(communityReadState).values({
+      userId: "neighbor", channelId: "neighbor-channel", lastReadAt: first.createdAt, lastReadSeq: 0,
+    }).run();
+
+    await expect(readStateQueries.markReadToMessageWithRevision(db, {
+      userId, channelId, message: { ...first, id: "missing" },
+    })).resolves.toEqual({ count: 0, changed: false, revision: 0 });
+    await expect(readStateQueries.getAccountReadStateSnapshot(db, userId)).resolves.toEqual({ revision: 0, readStates: [] });
+    const markFirst = () => readStateQueries.markReadToMessageWithRevision(db, { userId, channelId, message: first });
+    await expect(markFirst()).resolves.toEqual({ count: 1, changed: true, revision: 1 });
+    await expect(markFirst()).resolves.toEqual({ count: 0, changed: false, revision: 1 });
+
+    const markAll = () => readStateQueries.markAllServerChannelsRead(db, userId, [channelId, channelB, "empty"]);
+    await expect(markAll()).resolves.toEqual({ count: 2, changed: true, revision: 2 });
+    await expect(markAll()).resolves.toEqual({ count: 2, changed: false, revision: 2 });
+
+    const next = { ...other, id: "next", seq: 4 };
+    await db.insert(communityMessage).values({ ...next, authorId: "neighbor" }).run();
+    const expectedCursor = { id: next.id, createdAt: next.createdAt, seq: next.seq };
+    await expect(readStateQueries.bumpReadCursor(db, userId, { channelId: channelB }, next.seq)).resolves.toEqual(expectedCursor);
+    await expect(readStateQueries.bumpReadCursor(db, userId, { channelId: channelB }, other.seq)).resolves.toEqual(expectedCursor);
+    const account = await readStateQueries.getAccountReadStateSnapshot(db, userId);
+    expect(account.revision).toBe(2);
+    expect(account.readStates.toSorted((a, b) => a.channelId.localeCompare(b.channelId))).toEqual([
+      { channelId, lastReadMessageId: latest.id, lastReadAt: latest.createdAt, lastReadSeq: latest.seq },
+      { channelId: channelB, lastReadMessageId: next.id, lastReadAt: next.createdAt, lastReadSeq: next.seq },
+    ]);
+  } finally {
+    sqlite.close();
+  }
 });
 
 describe("markReadToMessageBuilder — channel branch", () => {

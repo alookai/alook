@@ -1,6 +1,10 @@
 import { beforeEach, describe, it, expect, vi } from "vitest"
+import { eq } from "drizzle-orm"
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3"
 import Sqlite from "better-sqlite3"
+import { communityAgentRunnerKey, communityBotBinding } from "../../src/db/community-machine-schema"
+import { communityBotDailyActivity, communityBotDailyTokenUsage, communityServer, communityServerMember } from "../../src/db/community-schema"
+import { user } from "../../src/db/schema"
 import * as q from "../../src/db/queries/community/bot"
 import { createMigratedDb } from "../helpers/migrated-db"
 import { communityBotSyntheticEmail } from "../../src/constants"
@@ -255,6 +259,45 @@ describe("getBotBinding", () => {
   })
 })
 
+it("resolves bot binding, wake and owner-scoped membership on the migrated schema", async () => {
+  const { sqlite, db } = createMigratedDatabase()
+  try {
+    await db.insert(user).values([
+      { id: "other-owner", name: "Other owner", email: "other-owner@example.test" },
+      { id: "ready-bot", name: "Ready", email: "ready-bot@example.test", discriminator: "0123", isBot: true, ownerUserId: "owner_1" },
+      { id: "unbound-bot", name: "Unbound", email: "unbound-bot@example.test", isBot: true, ownerUserId: "owner_1" },
+      { id: "deleted-bot", name: "Deleted", email: "deleted-bot@example.test", isBot: true, ownerUserId: "owner_1", deletedAt: "2026-01-02" },
+    ]).run()
+    await db.insert(communityBotBinding).values([
+      { userId: "ready-bot", machineId: "machine_1", runtime: "codex", modelName: "gpt-5", reasoningEffort: "high", runtimeConfigRevision: 7 },
+      { userId: "deleted-bot", machineId: "machine_1", runtime: "codex" },
+    ]).run()
+    await db.insert(communityServer).values({ id: "server", name: "Server", ownerId: "owner_1" }).run()
+    await db.insert(communityServerMember).values({ serverId: "server", userId: "ready-bot" }).run()
+
+    await expect(q.getBotBindingWithOwner(db, "ready-bot")).resolves.toEqual({
+      machineId: "machine_1", runtime: "codex", ownerUserId: "owner_1",
+      name: "Ready", discriminator: "0123", isActive: true,
+    })
+    await expect(q.getBotBindingWithOwner(db, "unbound-bot")).resolves.toBeNull()
+    await expect(q.getBotBindingWithOwner(db, "deleted-bot")).resolves.toBeNull()
+    await expect(q.getBotWakeContext(db, "ready-bot")).resolves.toEqual({
+      state: "ready", botUserId: "ready-bot", name: "Ready", discriminator: "0123",
+      machineId: "machine_1", runtime: "codex", modelName: "gpt-5", reasoningEffort: "high",
+      runtimeConfigRevision: 7, ownerUserId: "owner_1",
+    })
+    await expect(q.getBotWakeContext(db, "unbound-bot")).resolves.toEqual({ state: "bot_unbound" })
+    await expect(q.getBotWakeContext(db, "deleted-bot")).resolves.toEqual({ state: "bot_deleted" })
+    await expect(q.listBotServerMemberships(db, "ready-bot", "owner_1")).resolves.toEqual(["server"])
+    await expect(q.listBotServerMemberships(db, "ready-bot", "other-owner")).resolves.toEqual([])
+    await expect(q.listBotsBoundToMachine(db, "machine_1", "owner_1")).resolves.toEqual([{ id: "ready-bot", name: "Ready" }])
+    await expect(q.listBotsBoundToMachine(db, "machine_1", "other-owner")).resolves.toEqual([])
+    await expect(q.listBotsBoundToMachine(db, "missing-machine", "owner_1")).resolves.toEqual([])
+  } finally {
+    sqlite.close()
+  }
+})
+
 describe("getMachineForOwner", () => {
   function makeSelectChain(rows: unknown[]) {
     const chain: any = {}
@@ -289,6 +332,59 @@ describe("getMachineForOwner", () => {
       ],
     })
   })
+})
+
+it("persists owner-scoped avatar, refresh and deletion for only the target bot", async () => {
+  const { sqlite, db } = createMigratedDatabase()
+  try {
+    const ownerId = "owner_1"
+    const machineId = "machine_1"
+    const runtime = "codex-cli"
+    const { botId } = await q.createBot(db, { ownerId, machineId, runtime, name: "Target", description: "target instruction" })
+    const { botId: neighbor } = await q.createBot(db, { ownerId, machineId, runtime, name: "Neighbor" })
+    await db.insert(user).values({ id: "other-owner", name: "Other", email: "other-owner@example.test" }).run()
+    await db.insert(communityServer).values({ id: "server", name: "Server", ownerId }).run()
+    await db.insert(communityServerMember).values([botId, neighbor].map(userId => ({ serverId: "server", userId }))).run()
+    await db.insert(communityAgentRunnerKey).values([botId, neighbor].map(agentId => ({
+      userId: ownerId, machineId, agentId, runnerKeyHash: "hash-" + agentId, doName: "runner-" + agentId,
+    }))).run()
+
+    const avatar = { objectKey: "avatar-v1.jpg", stableUrl: "/avatar.jpg" }
+    await expect(q.publishOwnedBotAvatar(db, botId, "other-owner", avatar)).resolves.toBeNull()
+    await expect(q.publishOwnedBotAvatar(db, botId, ownerId, avatar)).resolves.toEqual({
+      previous: { avatarVersion: 0, avatarObjectKey: null },
+      current: { id: botId, image: avatar.stableUrl, avatarVersion: 1, avatarObjectKey: avatar.objectKey },
+    })
+    await expect(q.updateBot(db, botId, "other-owner", { name: "Wrong" })).resolves.toBeNull()
+    await expect(q.updateBot(db, botId, ownerId, { name: "Renamed" })).resolves.toMatchObject({
+      name: "Renamed", description: "target instruction", avatarVersion: 1, image: avatar.stableUrl,
+    })
+    const refreshedAt = "2026-09-07T06:00:00Z"
+    await q.touchBotRefreshContext(db, botId, refreshedAt)
+
+    await expect(q.softDeleteBot(db, botId, "other-owner")).resolves.toBe(false)
+    await expect(q.getBotBinding(db, botId)).resolves.toMatchObject({ machineId })
+    await expect(q.listBotServerMemberships(db, botId, ownerId)).resolves.toEqual(["server"])
+    const [before] = await db.select().from(communityAgentRunnerKey).where(eq(communityAgentRunnerKey.agentId, botId))
+    expect(before?.revokedAt).toBeNull()
+    await expect(q.softDeleteBot(db, botId, ownerId)).resolves.toBe(true)
+    await expect(q.softDeleteBot(db, botId, ownerId)).resolves.toBe(false)
+    await q.touchBotRefreshContext(db, botId, "2026-09-08T06:00:00Z")
+
+    const [removed] = await db.select().from(user).where(eq(user.id, botId))
+    expect(removed).toMatchObject({ deletedAt: expect.any(String), lastRefreshContextAt: refreshedAt })
+    await expect(q.getBotBinding(db, botId)).resolves.toBeNull()
+    await expect(q.listBotServerMemberships(db, botId, ownerId)).resolves.toEqual([])
+    await expect(q.getLiveBotAvatar(db, botId)).resolves.toBeNull()
+    const [revoked] = await db.select().from(communityAgentRunnerKey).where(eq(communityAgentRunnerKey.agentId, botId))
+    expect(revoked?.revokedAt).toBe(removed?.deletedAt)
+    await expect(q.getBotBinding(db, neighbor)).resolves.toMatchObject({ machineId })
+    await expect(q.listBotServerMemberships(db, neighbor, ownerId)).resolves.toEqual(["server"])
+    const [retained] = await db.select().from(communityAgentRunnerKey).where(eq(communityAgentRunnerKey.agentId, neighbor))
+    expect(retained?.revokedAt).toBeNull()
+  } finally {
+    sqlite.close()
+  }
 })
 
 describe("updateBotRuntimeConfig", () => {
@@ -503,6 +599,37 @@ describe("bot limits", () => {
   })
 })
 
+it("reads daily activity and usage only for live owned bots from the requested day", async () => {
+  const { db, sqlite } = createMigratedDatabase()
+  try {
+    await db.insert(user).values([
+      { id: "other-owner", name: "Other owner", email: "other-owner@example.test" },
+      { id: "target", name: "Target", email: "target@example.test", isBot: true, ownerUserId: "owner_1" },
+      { id: "gone", name: "Gone", email: "gone@example.test", isBot: true, ownerUserId: "owner_1", deletedAt: "2026-09-07T06:00:00Z" },
+      { id: "foreign", name: "Foreign", email: "foreign@example.test", isBot: true, ownerUserId: "other-owner" },
+    ]).run()
+    const since = "2026-09-07"
+    const days = [
+      { botId: "target", day: "2026-09-08" },
+      { botId: "target", day: "2026-09-06" },
+      { botId: "target", day: since },
+      { botId: "gone", day: since },
+      { botId: "foreign", day: since },
+    ]
+    await db.insert(communityBotDailyActivity).values(days.map(row => ({ ...row, handledCount: 4, sentCount: 3 }))).run()
+    await db.insert(communityBotDailyTokenUsage).values(days.map(row => ({
+      ...row, inputTokens: 6, outputTokens: 2, cacheTokens: null, updatedAt: row.day + "T12:00:00Z",
+    }))).run()
+    const activity = await q.getBotDailyActivityForOwner(db, "owner_1", since)
+    const usage = await q.getBotDailyTokenUsageForOwner(db, "owner_1", since)
+    const expectedDays = [since, "2026-09-08"]
+    expect([...activity]).toEqual([["target", expectedDays.map(day => ({ day, handledCount: 4, sentCount: 3 }))]])
+    expect([...usage]).toEqual([["target", expectedDays.map(day => ({ botId: "target", day, metrics: { input: 6, output: 2, cache: null } }))]])
+  } finally {
+    sqlite.close()
+  }
+})
+
 describe("bumpBotDailyActivityStatement", () => {
 
   it("handled: inserts (1,0) and ON CONFLICT bumps handled_count", async () => {
@@ -601,7 +728,7 @@ describe("activation catch-up on migrated SQLite", () => {
       const executeBatch = db.batch.bind(db)
       db.batch = (async statements => {
         sqlite.prepare("DELETE FROM community_channel_member WHERE id='notify'").run()
-        sqlite.exec("INSERT INTO community_channel(id,server_id,type,parent_channel_id,created_at) VALUES('late-thread','joined','thread','history','2026-01-02')")
+        sqlite.prepare("INSERT INTO community_channel(id,server_id,type,parent_channel_id,created_at) VALUES('late-thread','joined','thread','history','2026-01-02')").run()
         sqlite.prepare("INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES('late-notify','late-thread',?,'notify','2026-01-02')").run(botId)
         insert.run("late-message", "late-thread", "2026-01-02", 1)
         return executeBatch(statements)

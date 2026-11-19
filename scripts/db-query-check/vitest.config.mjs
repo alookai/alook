@@ -13,6 +13,7 @@ import queue from '../../src/queue-worker/vitest.config.ts'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const setup = fileURLToPath(new URL('./setup.mjs', import.meta.url))
 const projects = [['shared', shared, 'src/shared'], ['web', web, 'src/web'], ['auth', auth, 'src/web/auth'], ['ws', ws, 'src/ws-do'], ['email', email, 'src/email-worker'], ['queue', queue, 'src/queue-worker']]
+const fsModuleCachePath = resolve(process.env.ALOOK_DB_QUERY_CAPTURE_DIR, 'vitest-cache')
 const inventory = JSON.parse(readFileSync(process.env.ALOOK_DB_QUERY_INVENTORY, 'utf8'))
 const sites = [...inventory.sites, ...(inventory.fixtureSites ?? [])]
 const plugin = { name: 'db-query-source', enforce: 'pre', transform(code, id) {
@@ -21,8 +22,13 @@ const plugin = { name: 'db-query-source', enforce: 'pre', transform(code, id) {
 } }
 export default defineConfig({
   test: {
-    projects: [...projects.map(([name, config, directory]) => mergeConfig(config, { root: resolve(root, directory), plugins: [plugin], test: { name: `db-${name}`, setupFiles: [setup] } })), { root, plugins: [plugin], test: { name: 'db-tool-integration', environment: 'node', include: ['scripts/db-query-check/native-queries.test.ts'], setupFiles: [setup] } }],
+    projects: [...projects.map(([name, config, directory]) => mergeConfig(config, {
+      root: resolve(root, directory),
+      plugins: [plugin],
+      test: { name: `db-${name}`, setupFiles: [setup], fsModuleCachePath, ...(name === 'web' && { env: { ALOOK_DB_QUERY_AUTH_TRACE: '1' } }) },
+    })), { root, plugins: [plugin], test: { name: 'db-tool-integration', environment: 'node', include: ['scripts/db-query-check/native-queries.test.ts'], setupFiles: [setup], fsModuleCachePath } }],
     maxWorkers: 1,
     fileParallelism: false,
+    fsModuleCachePath,
   },
 })

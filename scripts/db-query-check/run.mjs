@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { spawnSync, execFileSync } from 'node:child_process'
+import { isDbQueryCheckPath } from '../ci/changed-scopes.mjs'
 import { inventoryQueries } from './inventory.mjs'
 import { migratedDatabase } from './analyze.mjs'
 import { buildReport, markdownReport } from './report.mjs'
@@ -28,15 +29,17 @@ try {
   const checks = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...selfTests], { cwd: root, stdio: 'inherit' })
   if (checks.error || checks.status !== 0) throw new Error('DB query checker self-tests failed', { cause: checks.error })
   const inventory = inventoryQueries(root, undefined, { includeFixtures: true })
+  const queryFiles = [...new Set(inventory.sites.map(site => site.file))].sort()
+  const excludedQueryFiles = queryFiles.filter(file => !isDbQueryCheckPath(file))
+  if (excludedQueryFiles.length) throw new Error(`Production SQL in directories excluded from automatic DB checks: ${excludedQueryFiles.join(', ')}`)
   writeFileSync(join(capture, 'inventory.data'), JSON.stringify(inventory))
   console.log(`DB source inventory: ${inventory.sites.length} sites across ${inventory.filesScanned} source files`)
   const child = spawnSync(process.execPath, [resolve(root, 'node_modules/vitest/vitest.mjs'), 'run', '--config', 'scripts/db-query-check/vitest.config.mjs', ...filters], { cwd: root, env: { ...process.env, ALOOK_DB_QUERY_CAPTURE_DIR: capture, ALOOK_DB_QUERY_ROOT: root, ALOOK_DB_QUERY_INVENTORY: join(capture, 'inventory.data') }, stdio: 'inherit' })
   db = migratedDatabase(root)
   const report = buildReport(db, inventory, capture, child.status ?? 1)
-  const queryFiles = [...new Set(inventory.sites.map(site => site.file))].sort()
   const fixtureFiles = [...new Set(inventory.fixtureSites.map(site => site.file))].sort()
   const migrationFiles = readdirSync(resolve(root, 'src/web/migrations')).filter(file => file.endsWith('.sql')).sort().map(file => `src/web/migrations/${file}`)
-  const toolFiles = [...readdirSync(new URL('./', import.meta.url)).filter(file => /\.(?:mjs|json|ts)$/.test(file)).sort().map(file => `scripts/db-query-check/${file}`), 'scripts/workspace-packages.mjs']
+  const toolFiles = [...readdirSync(new URL('./', import.meta.url)).filter(file => /\.(?:mjs|json|ts)$/.test(file)).sort().map(file => `scripts/db-query-check/${file}`), 'scripts/ci/changed-scopes.mjs', 'scripts/workspace-packages.mjs']
   const hashFiles = files => {
     const hash = createHash('sha256')
     for (const file of files) hash.update(file).update('\0').update(readFileSync(resolve(root, file)))
@@ -48,7 +51,7 @@ try {
   writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n')
   writeFileSync(join(output, 'report.md'), markdownReport(report))
   console.log(JSON.stringify({ outcome: report.outcome, ...report.summary, report: join(output, 'report.md') }))
-  process.exitCode = report.outcome === 'failed' || requireComplete && (report.uncovered.length || report.summary.unattributedStatements) ? 1 : 0
+  process.exitCode = report.outcome === 'failed' || requireComplete && (report.uncovered.length || report.summary.unattributedStatements || report.summary.sourcePlanFailures) ? 1 : 0
 } catch (error) {
   writeFileSync(join(output, 'failure.json'), JSON.stringify({ error: String(error.stack ?? error) }, null, 2))
   console.error(error)

@@ -8,10 +8,10 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 342,
+    "composition": 348,
     "environment": 10,
     "nonvisual": 32,
-    "direct": 160
+    "direct": 161
   },
   "entries": [
     {
@@ -3487,6 +3487,21 @@
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
     },
     {
+      "source": "src/web/src/components/community/messages/message-reply-preview.tsx",
+      "application": "Web",
+      "candidates": [
+        "MessageReplyPreview"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-message-renderer-trial--comparison",
+          "region": "Original Message reply quote in trialMessage rows where index % 10 is 2, shared by all three selected renderers"
+        }
+      ],
+      "reason": "The existing trial mounts the original MessageList and Message reply slot with a real referenced-message fixture. This declares the shared quote composition only; pending/deleted branches, actual rendering, jump behavior, geometry and backend acceptance require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/community/messages/message-route.tsx",
       "application": "Web",
       "candidates": [
@@ -3612,6 +3627,85 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/messages/renderers/chatscope-message-cell.tsx",
+      "application": "Web",
+      "candidates": [
+        "ChatscopeMessageCell"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-message-renderer-trial--comparison",
+          "region": "Native Chatscope Message cell after selecting Chatscope"
+        }
+      ],
+      "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
+    },
+    {
+      "source": "src/web/src/components/community/messages/renderers/current-message-cell.tsx",
+      "application": "Web",
+      "candidates": [
+        "CurrentMessageCell"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-message-renderer-trial--comparison",
+          "region": "Original message row after selecting Current"
+        }
+      ],
+      "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
+    },
+    {
+      "source": "src/web/src/components/community/messages/renderers/lobe-message-cell.tsx",
+      "application": "Web",
+      "candidates": [
+        "LobeMessageCell"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-message-renderer-trial--comparison",
+          "region": "Native ChatItem using the canonical slots after selecting Lobe UI"
+        }
+      ],
+      "reason": "The story selects the actual lazy Lobe adapter inside the original MessageList. Native first-entry lifecycle and callbacks have finite DOM checks; this declaration does not qualify app geometry, reload, server actions or browser behavior."
+    },
+    {
+      "source": "src/web/src/components/community/messages/renderers/message-cell-layout.tsx",
+      "application": "Web",
+      "candidates": [
+        "MessageCellLayout"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-message-renderer-trial--comparison",
+          "region": "Canonical action, quote, avatar and body host inside the actual Current, Chatscope and Lobe message cells"
+        }
+      ],
+      "reason": "The existing comparison selects the real message cell inside the original MessageList. Each actual renderer mounts this shared Current host; the declaration does not establish rendered appearance, anchor behavior, native lifecycle or backend acceptance."
+    },
+    {
+      "source": "src/web/src/components/community/messages/renderers/message-cell.tsx",
+      "application": "Web",
+      "candidates": [
+        "CellBoundary",
+        "MessageCell",
+        "MessageRendererContext",
+        "MessageRendererError",
+        "Renderer"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-message-renderer-trial--comparison",
+          "region": "One selected visual cell inside the original MessageList"
+        }
+      ],
+      "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
     },
     {
       "source": "src/web/src/components/community/messages/send-stroke-rounded-icon.tsx",
@@ -4157,6 +4251,21 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/settings/message-renderer-settings.tsx",
+      "application": "Web",
+      "candidates": [
+        "MessageRendererSettings"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-message-renderer-trial--comparison",
+          "region": "Local account selector above the single original message list"
+        }
+      ],
+      "reason": "The comparison mounts the actual local preference control. It does not prove authenticated application routing, reload or a server write."
     },
     {
       "source": "src/web/src/components/community/settings/server-settings-channels.tsx",
@@ -9158,6 +9267,12 @@
       "title": "Web/Business/Full message markdown",
       "name": "Rich",
       "source": "src/storybook/stories/business/message-markdown.stories.tsx"
+    },
+    {
+      "id": "web-business-message-renderer-trial--comparison",
+      "title": "Web/Business/Message renderer trial",
+      "name": "Comparison",
+      "source": "src/storybook/stories/business/message-renderer-trial.stories.tsx"
     },
     {
       "id": "web-business-message--text",

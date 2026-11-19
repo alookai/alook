@@ -2,6 +2,87 @@ import { describe, it, expect } from "vitest";
 import { getTableName } from "drizzle-orm";
 import { queries } from "../src/index";
 import type { Database } from "../src/index";
+import { communityChannel, communityChannelMember, communityFriendship, communityMessage, communityReadState } from "../src/db/community-schema";
+import { user } from "../src/db/schema";
+import { getChannel } from "../src/db/queries/community/channel";
+import { getChannelReadStateSnapshot } from "../src/db/queries/community/read-state";
+import { createMigratedDb } from "./helpers/migrated-db";
+
+it("restores an existing scoped cursor to the prior message in the hard deletion batch", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    await db.insert(user).values({ id: "writer", name: "Writer", email: "writer@delete.test" }).run();
+    const firstAt = "2026-10-01T09:00:00Z";
+    const latestAt = "2026-10-01T09:01:00Z";
+    await db.insert(communityChannel).values([
+      { id: "target", type: "text", messageCount: 2, lastMessageAt: latestAt },
+      { id: "neighbor", type: "text", messageCount: 1, lastMessageAt: latestAt },
+    ]).run();
+    await db.insert(communityMessage).values([
+      { id: "previous", channelId: "target", authorId: "writer", seq: 1, createdAt: firstAt },
+      { id: "latest", channelId: "target", authorId: "writer", seq: 2, createdAt: latestAt },
+      { id: "neighbor-message", channelId: "neighbor", authorId: "writer", seq: 2, createdAt: latestAt },
+    ]).run();
+    await db.insert(communityReadState).values([
+      { userId: "writer", channelId: "target", lastReadMessageId: "latest", lastReadSeq: 2, lastReadAt: latestAt },
+      { userId: "writer", channelId: "neighbor", lastReadMessageId: "neighbor-message", lastReadSeq: 2, lastReadAt: latestAt },
+    ]).run();
+
+    const identity = (channelId: string) => queries.communityMessage.getMessageIdentityByChannelAndSeq(db, { channelId }, 2);
+    await expect(identity("target")).resolves.toEqual({ id: "latest", channelId: "target" });
+    await expect(queries.communityMessage.hardDeleteMessage(db, "latest")).resolves.toEqual({
+      readStateRevisions: [{ userId: "writer", revision: 1 }],
+    });
+    await expect(identity("target")).resolves.toBeNull();
+    await expect(identity("neighbor")).resolves.toEqual({ id: "neighbor-message", channelId: "neighbor" });
+    await expect(getChannel(db, "target")).resolves.toMatchObject({ messageCount: 1, lastMessageAt: firstAt });
+    await expect(getChannelReadStateSnapshot(db, { userId: "writer", channelId: "target" })).resolves.toEqual({
+      revision: 1, readState: { channelId: "target", lastReadMessageId: "previous", lastReadSeq: 1, lastReadAt: firstAt },
+    });
+    await expect(getChannelReadStateSnapshot(db, { userId: "writer", channelId: "neighbor" })).resolves.toEqual({
+      revision: 1, readState: { channelId: "neighbor", lastReadMessageId: "neighbor-message", lastReadSeq: 2, lastReadAt: latestAt },
+    });
+    await expect(queries.communityMessage.hardDeleteMessage(db, "latest")).resolves.toBeNull();
+  } finally {
+    sqlite.close();
+  }
+});
+
+it("hydrates only the access peers in DMs that reference the requested friendship", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    await db.insert(user).values(["left", "right", "other", "notified"].map(id => ({
+      id, name: id, email: `${id}@friendship.test`,
+    }))).run();
+    await db.insert(communityFriendship).values([
+      { id: "friendship", requesterId: "left", addresseeId: "right" },
+      { id: "other-friendship", requesterId: "left", addresseeId: "other" },
+    ]).run();
+    await db.insert(communityChannel).values(["first-dm", "second-dm", "other-dm"].map(id => ({ id, type: "dm" }))).run();
+    await db.insert(communityChannelMember).values([
+      { channelId: "first-dm", userId: "left", relation: "access" },
+      { channelId: "first-dm", userId: "right", relation: "access" },
+      { channelId: "first-dm", userId: "notified", relation: "notify" },
+      { channelId: "second-dm", userId: "right", relation: "access" },
+      { channelId: "second-dm", userId: "other", relation: "access" },
+      { channelId: "other-dm", userId: "notified", relation: "access" },
+    ]).run();
+    await db.insert(communityMessage).values([
+      { id: "card-1", channelId: "first-dm", authorId: "left", friendshipId: "friendship", seq: 1 },
+      { id: "card-2", channelId: "second-dm", authorId: "right", friendshipId: "friendship", seq: 1 },
+      { id: "other-card", channelId: "other-dm", authorId: "left", friendshipId: "other-friendship", seq: 1 },
+    ]).run();
+
+    const cards = await queries.communityMessage.listMessagesReferencingFriendship(db, "friendship");
+    expect(cards.map(card => ({ ...card, peerUserIds: card.peerUserIds.toSorted() })).toSorted((a, b) => a.messageId.localeCompare(b.messageId))).toEqual([
+      { messageId: "card-1", channelId: "first-dm", peerUserIds: ["left", "right"] },
+      { messageId: "card-2", channelId: "second-dm", peerUserIds: ["other", "right"] },
+    ]);
+    await expect(queries.communityMessage.listMessagesReferencingFriendship(db, "absent")).resolves.toEqual([]);
+  } finally {
+    sqlite.close();
+  }
+});
 
 type SelectShape = "message" | "prior";
 type Tag =

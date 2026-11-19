@@ -1,5 +1,6 @@
 import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { prepareNativeBatchStatement } from "../helpers/native-batch-prepare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createInvite, useInvite } from "../../src/db/queries/community/invite";
 
@@ -59,7 +60,7 @@ describe("community invite quota consumption", () => {
       sqlite.transaction(() =>
         statements.map((statement) => {
           const query = statement.toSQL();
-          const prepared = sqlite.prepare(query.sql);
+          const prepared = prepareNativeBatchStatement(sqlite, query);
           return prepared.reader
             ? prepared.all(...query.params)
             : prepared.run(...query.params);

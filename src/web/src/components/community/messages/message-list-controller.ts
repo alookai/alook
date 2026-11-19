@@ -60,7 +60,7 @@ export function useMessageListController({
   onScrollRoot,
   onScrollTargetConsumed,
   onUserTakeover,
-}: ResolvedMessageListProps, capsuleHeight = 0) {
+}: ResolvedMessageListProps, capsuleHeight = 0, presentation = { revision: 0, available: true }) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
   const scopeKey = positionScope ? hashKey(conversationListScopeKey(positionScope)) : null
@@ -148,6 +148,8 @@ export function useMessageListController({
   } = useScrollAnchor({
     items,
     messageRows: messages,
+    presentationRevision: presentation.revision,
+    presentationAvailable: presentation.available,
     newDividerBefore: dividerTarget,
     newDividerSeq: lookback.initialized ? lookback.targetSeq : newBoundary?.target?.seq,
     initialScrollReady,

@@ -121,6 +121,18 @@ describe("durable mark notes", () => {
     expect(await marks.getMessageMark(db, "owner", "message")).toEqual({ id: "old", note: "owner progress", updatedAt: "2026-11-11T12:00:00.000Z" })
   })
 
+  it("counts only the requesting user and channels in the visible chunks", async () => {
+    await marks.markMessage(db, { ...own, userId: "other" })
+    await marks.markMessage(db, { userId: "owner", channelId: "hidden", messageId: "hidden-message" })
+    const emptyChannels = Array.from({ length: 100 }, (_, index) => `empty-${index}`)
+
+    await expect(marks.countMarksForUser(db, "owner", { visibleChannelIds: ["channel"] })).resolves.toBe(1)
+    await expect(marks.countMarksForUser(db, "other", { visibleChannelIds: ["hidden"] })).resolves.toBe(0)
+    await expect(marks.countMarksForUser(db, "owner", {
+      visibleChannelIds: ["channel", ...emptyChannels, "hidden"],
+    })).resolves.toBe(2)
+  })
+
   it("lists notes from current rows and excludes invisible channels in the query", async () => {
     await marks.markMessage(db, { ...own, note: "current progress" })
     await marks.markMessage(db, { userId: "owner", channelId: "hidden", messageId: "hidden-message", note: "private progress" })

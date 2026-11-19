@@ -1,9 +1,25 @@
 import { createRequire } from 'node:module'
+import { isDeepStrictEqual } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { backendRoots, productionFile, sourceFrames } from './inventory.mjs'
-import { querySource, queryOrigin } from './source-context.mjs'
+import { querySource, queryOrigin, compiledQueryOrigin, registerQuerySource, nativeBindingSupported } from './source-context.mjs'
+import { dependencyPrepare, dependencyQuery } from './dependency-source.mjs'
+
+export const batchSourceHook = Symbol.for('alook.db-query-check.prepare-batch')
+const batchOrigins = new WeakMap()
+const requireShared = createRequire(join(process.env.ALOOK_DB_QUERY_ROOT ?? process.cwd(), 'src/shared/package.json'))
+const sqliteCore = 'drizzle-orm/sqlite-core'
+const sqliteCoreEsm = pathToFileURL(requireShared.resolve(sqliteCore).replace(/\.cjs$/, '.js')).href
+const selectTypes = [requireShared(sqliteCore).SQLiteSelectBase, (await import(sqliteCoreEsm)).SQLiteSelectBase]
+
+export function prepareBatchStatement(database, query, sql = query.sql) {
+  const statement = querySource.exit(() => database.prepare(sql))
+  batchOrigins.set(statement, compiledQueryOrigin(query) ?? null)
+  return statement
+}
 
 function nativeStack() {
   const previous = Error.prepareStackTrace
@@ -69,8 +85,12 @@ export function instrumentDatabase(prototype, collect) {
     collect({ sql, params: [], stack: nativeStack() })
     return originalExec.call(this, sql, ...args)
   }
-  prototype.prepare = function (sql, ...options) {
-    const source = querySource.getStore()
+  prototype.prepare = function instrumentedPrepare(sql, ...options) {
+    const scope = querySource.getStore()
+    const compiled = scope?.compiled
+    if (compiled) delete scope.compiled
+    const source = compiled?.sql === sql ? { ...scope, compiled } : scope
+    const dependency = source ? undefined : dependencyPrepare(sql, instrumentedPrepare)
     const origin = source && source.kind !== 'test-fixture' ? '' : nativeStack()
     const database = this
     const context = params => {
@@ -93,8 +113,14 @@ export function instrumentDatabase(prototype, collect) {
           if (key === 'bind') bound = args
           if (['all', 'get', 'run', 'iterate'].includes(key)) {
             const registered = queryOrigin(proxy)
-            const executingSource = registered?.kind === 'test-fixture' && registered.proof === 'literal-sql' && registered.literalSql === sql ? registered : source ?? registered ?? querySource.getStore()
-            collect({ sql, params: bound ?? args, source: executingSource, context: () => context(bound ?? args), stack: executingSource && executingSource.kind !== 'test-fixture' ? '' : `${origin}\n${nativeStack()}` })
+            const params = bound ?? args
+            const batch = batchOrigins.get(proxy)
+            const batchSource = batch?.sql === sql && isDeepStrictEqual(batch.params, params) ? batch.origin : undefined
+            const inherited = registered?.kind === 'test-fixture' && registered.proof === 'literal-sql' && registered.literalSql === sql ? registered : source ?? registered ?? querySource.getStore()
+            const executingSource = batch === undefined ? inherited : batchSource
+            const dependencySource = !executingSource && dependency && dependency.query === dependencyQuery.getStore() && isDeepStrictEqual(dependency.query.params, params)
+              ? dependency.source : undefined
+            collect({ sql, params, source: executingSource, dependencySource, context: () => context(params), stack: executingSource && executingSource.kind !== 'test-fixture' ? '' : `${origin}\n${nativeStack()}` })
           }
           const result = Reflect.apply(value, target, args)
           return result === target ? proxy : result
@@ -108,18 +134,50 @@ export function instrumentDatabase(prototype, collect) {
 
 export function createCapture(root) {
   const records = new Map()
+  function collect(query) {
+    const frames = sourceFrames(root, query.stack)
+    if (query.source?.kind === 'test-fixture' && !frames.length) return
+    if (query.source) frames.unshift({ file: query.source.file, line: query.source.line, column: 1 })
+    if (!frames.length || (!query.compilationError && !/^\s*(?:select|insert|update|delete|replace|with)\b/i.test(query.sql))) return
+    const params = !query.compilationOnly && query.params.length === 1 && Array.isArray(query.params[0]) ? query.params[0] : query.params
+    const serializable = params.map(value => typeof value === 'bigint' ? { bigint: String(value) } : value instanceof Uint8Array ? { blob: Buffer.from(value).toString('base64') } : value)
+    const fixtureSqlVerified = query.source?.kind === 'test-fixture' && (query.source.literalSql === query.sql || query.source.preparedSql === query.sql)
+    const siteKeys = query.source?.compiled?.siteKeys
+    const insertBuilderSiteKey = query.source?.insertBuilderSiteKey
+    const composedSiteKeys = query.source?.kind !== 'test-fixture' && query.source?.compiled?.sql === query.sql
+      ? (insertBuilderSiteKey ? [...siteKeys, insertBuilderSiteKey] : siteKeys)
+      : undefined
+    const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.kind !== 'test-fixture' || fixtureSqlVerified ? query.source?.key : undefined, fixtureSqlVerified, composedSiteKeys, context: typeof query.context === 'function' ? query.context() : query.context, compilationOnly: query.compilationOnly, compilationError: query.compilationError, dependencySource: query.dependencySource }
+    const key = JSON.stringify(record)
+    records.set(key, record)
+  }
   return {
-    collect(query) {
-      const frames = sourceFrames(root, query.stack)
-      if (query.source?.kind === 'test-fixture' && !frames.length) return
-      if (query.source) frames.unshift({ file: query.source.file, line: query.source.line, column: 1 })
-      if (!frames.length || !/^\s*(?:select|insert|update|delete|replace|with)\b/i.test(query.sql)) return
-      const params = query.params.length === 1 && Array.isArray(query.params[0]) ? query.params[0] : query.params
-      const serializable = params.map(value => typeof value === 'bigint' ? { bigint: String(value) } : value instanceof Uint8Array ? { blob: Buffer.from(value).toString('base64') } : value)
-      const fixtureSqlVerified = query.source?.kind === 'test-fixture' && (query.source.literalSql === query.sql || query.source.preparedSql === query.sql)
-      const record = { sql: query.sql, params: serializable, frames, siteKey: query.source?.kind !== 'test-fixture' || fixtureSqlVerified ? query.source?.key : undefined, fixtureSqlVerified, context: typeof query.context === 'function' ? query.context() : query.context }
-      const key = JSON.stringify(record)
-      records.set(key, record)
+    collect,
+    register(value, source) {
+      if (!source.compilationOnly) return registerQuerySource(value, source)
+      const evidence = { source, stack: '', compilationOnly: source.compilationOnly }
+      let compiled = value
+      if (source.compilationOnly === 'standalone-exists') {
+        const type = selectTypes.find(candidate => value instanceof candidate)
+        if (!type || value.toSQL !== type.prototype.toSQL || value.getSQL !== type.prototype.getSQL) {
+          collect({ ...evidence, sql: '', params: [], compilationError: 'Expected an unmodified Drizzle SQLite select builder' })
+          return value
+        }
+        registerQuerySource(value, source)
+        try { compiled = type.prototype.toSQL.call(value) } catch {
+          collect({ ...evidence, sql: '', params: [], compilationError: 'Standalone EXISTS builder compilation failed' })
+          return value
+        }
+      }
+      if (typeof compiled?.sql !== 'string' || !Array.isArray(compiled.params)) {
+        collect({ ...evidence, sql: '', params: [], compilationError: 'Invalid compiler output for source plan' })
+        return value
+      }
+      const unsupported = compiled.params.findIndex(param => !nativeBindingSupported(param))
+      if (unsupported >= 0) {
+        collect({ ...evidence, sql: compiled.sql, params: [], compilationError: `Unsupported binding at position ${unsupported + 1} (${typeof compiled.params[unsupported]})` })
+      } else collect({ ...evidence, sql: compiled.sql, params: compiled.params })
+      return value
     },
     write(directory) {
       writeFileSync(join(directory, `${process.pid}-${randomUUID()}.json`), JSON.stringify({ records: [...records.values()] }), { mode: 0o600 })

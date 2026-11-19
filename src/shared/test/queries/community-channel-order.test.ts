@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { communityWriteDb } from "../helpers/community-write-db";
+import { createMigratedDb } from "../helpers/migrated-db";
+import { communityChannel, communityServer } from "../../src/db/community-schema";
+import { user } from "../../src/db/schema";
+import * as category from "../../src/db/queries/community/category";
 import { getServerRootChannelsByIds, reorderChannels } from "../../src/db/queries/community/channel";
 import { channelReorderRequestSchema } from "../../src/community-channel-order";
 
@@ -15,6 +19,45 @@ function fixture() {
   return f;
 }
 const order = (sqlite: ReturnType<typeof fixture>["sqlite"]) => sqlite.prepare("SELECT id,server_id,category_id,position FROM community_channel ORDER BY id").all();
+
+it("mutates only the requested categories and keeps reorder atomic", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    await db.insert(user).values({ id: "owner", name: "Owner", email: "owner@example.test" }).run();
+    await db.insert(communityServer).values([
+      { id: "here", name: "Here", ownerId: "owner" },
+      { id: "elsewhere", name: "Elsewhere", ownerId: "owner" },
+    ]).run();
+    const privateCategory = await category.createCategory(db, { name: "Private", serverId: "here", private: true, creatorId: "owner" });
+    const empty = await category.createCategory(db, { name: "Empty", serverId: "here" });
+    const foreign = await category.createCategory(db, { name: "Other", serverId: "elsewhere" });
+    await db.insert(communityChannel).values({
+      id: "channel", name: "Channel", type: "text", serverId: "here", categoryId: privateCategory.id,
+    }).run();
+    await expect(category.hasChannels(db, privateCategory.id)).resolves.toBe(true);
+    await expect(category.hasChannels(db, empty.id)).resolves.toBe(false);
+    await expect(category.updateCategory(db, privateCategory.id, { name: "Renamed" })).resolves.toMatchObject({
+      id: privateCategory.id, name: "Renamed", private: 1,
+    });
+    const lookedUp = await category.getCategoriesByIds(db, [privateCategory.id, empty.id, privateCategory.id, "missing"]);
+    expect(lookedUp.map(row => row.id).sort()).toEqual([privateCategory.id, empty.id].sort());
+
+    await expect(category.reorderCategories(db, "here", [empty.id, privateCategory.id])).resolves.toHaveLength(2);
+    const scoped = () => category.listCategoriesByServer(db, "here");
+    const arranged = await scoped();
+    expect(arranged.map(row => [row.id, row.position])).toEqual([[empty.id, 0], [privateCategory.id, 1]]);
+    await expect(category.reorderCategories(db, "here", [privateCategory.id, foreign.id])).resolves.toEqual([]);
+    await expect(category.reorderCategories(db, "here", [privateCategory.id, privateCategory.id])).resolves.toEqual([]);
+    await expect(scoped()).resolves.toEqual(arranged);
+    await expect(category.getCategory(db, foreign.id)).resolves.toEqual(foreign);
+
+    await expect(category.deleteCategory(db, empty.id)).resolves.toMatchObject({ id: empty.id });
+    await expect(category.getCategory(db, empty.id)).resolves.toBeNull();
+    await expect(category.hasChannels(db, privateCategory.id)).resolves.toBe(true);
+  } finally {
+    sqlite.close();
+  }
+});
 
 describe("atomic server channel order", () => {
   it("updates the category and exact positions in one transaction, preserving private membership", async () => {

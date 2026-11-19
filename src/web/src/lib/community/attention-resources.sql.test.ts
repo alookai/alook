@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 import { queries, BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER, AccountAttentionSnapshotSchema } from "@alook/shared"
 import { createCommunitySqliteDb } from "@/test/community-sqlite-db"
 import { hydrateAttentionResources, readCommunityResourceBundle } from "./attention-resources.server"
+import { readCommunityServerDirectory } from "./server-directory.server"
 
 const attentionHttp = vi.hoisted(() => ({ db: null as unknown }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => attentionHttp.db, getDb: () => attentionHttp.db }))
@@ -29,6 +30,28 @@ function fixture(count: number) {
   return { ...result, ids }
 }
 afterEach(() => { for (const item of fixtures) item.sqlite.close(); fixtures.length = 0 })
+
+it("orders the real server directory categories and excludes rows from another server", async () => {
+  const { db, sqlite, ids } = fixture(2)
+  sqlite.prepare("INSERT INTO community_server (id,name,discriminator,description,owner_id,created_at) VALUES (?,?,?,?,?,?)")
+    .run("other-server", "Other", "0003", "", "viewer", stamp)
+  const insert = sqlite.prepare("INSERT INTO community_category (id,server_id,name,position) VALUES (?,?,?,?)")
+  insert.run("later", "server", "Later", 20)
+  insert.run("earlier", "server", "Earlier", 10)
+  insert.run("foreign", "other-server", "Foreign", 0)
+  const assign = sqlite.prepare("UPDATE community_channel SET category_id = ? WHERE id = ?")
+  assign.run("earlier", ids[0]!)
+  assign.run("later", ids[1]!)
+
+  await expect(readCommunityServerDirectory(db, "viewer", "server")).resolves.toMatchObject({
+    id: "server",
+    categories: [
+      { id: "earlier", channels: [{ id: ids[0] }] },
+      { id: "later", channels: [{ id: ids[1] }] },
+    ],
+  })
+  await expect(readCommunityServerDirectory(db, "viewer", "other-server")).resolves.toBeUndefined()
+})
 
 async function blockDm(store: ReturnType<typeof createCommunitySqliteDb>, by: "viewer" | "peer") {
   const blockerId = by === "viewer" ? "viewer" : "peer", targetId = by === "viewer" ? "peer" : "viewer"
