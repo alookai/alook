@@ -109,6 +109,29 @@ describe("last-community-route", () => {
     expect(getItem).toHaveBeenCalledTimes(1)
   })
 
+  it.each(["?__alook_schema_update=7%3Anext-build", "?__alook_schema_update=old&__alook_schema_update=next"])("restores an account route through metadata-only update search %s", search => {
+    commitLastCommunityRoute("user-a", "/c/channels/server-a/channel-a")
+    commitLastCommunityRoute("user-b", "/c/me/bots")
+    expect(resolveCommunityColdEntryDestination({ accountId: "user-a", pathname: "/c", search, hash: "" }))
+      .toBe("/c/channels/server-a/channel-a")
+    expect(getLastCommunityRoute("user-a")).toBe("/c/channels/server-a/channel-a")
+    expect(getLastCommunityRoute("user-b")).toBe("/c/me/bots")
+    expect(consumeCommunityColdEntryFailure("user-b", "/c/me/bots")).toBe(false)
+  })
+
+  it.each([
+    ["/c", "?__alook_schema_update=next&msg=message-a", ""],
+    ["/c", "?ref=1&__alook_schema_update=next", ""],
+    ["/c", "?__alook_schema_update=next", "#message-a"],
+    ["/c/me/dm-a", "?__alook_schema_update=next&seq=42", "#message-a"],
+  ])("keeps explicit entry intent outside metadata-only restoration: %s %s %s", (pathname, search, hash) => {
+    commitLastCommunityRoute("user-a", "/c/me/bots")
+    vi.mocked(localStorage.getItem).mockClear()
+    expect(resolveCommunityColdEntryDestination({ accountId: "user-a", pathname, search, hash })).toBe(COMMUNITY_COLD_ENTRY_FALLBACK)
+    expect(localStorage.getItem).not.toHaveBeenCalled()
+    expect(getLastCommunityRoute("user-a")).toBe("/c/me/bots")
+  })
+
   it("falls back when exact root has no valid memory", () => {
     expect(resolveCommunityColdEntryDestination({
       accountId: "user-a", pathname: "/c", search: "", hash: "",
