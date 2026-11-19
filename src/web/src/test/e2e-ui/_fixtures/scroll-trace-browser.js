@@ -546,6 +546,37 @@
       capabilities,
       mark,
       finished,
+      exportCollected: () => ({
+        schemaVersion: SCHEMA_VERSION,
+        clock: "browser-performance-relative-to-start",
+        marks: marks.map(value => ({
+          frame: value.frame, elapsed: round(value.timestamp - startedAt), name: value.name,
+          preEventDistanceToEnd: value.preEventDistanceToEnd,
+          programmaticScrollInProgress: value.programmaticScrollInProgress,
+        })),
+        frames: frames.map(value => ({
+          frame: value.frame, elapsed: round(value.timestamp - startedAt),
+          scrollTop: value.scrollTop, scrollHeight: value.scrollHeight, clientHeight: value.clientHeight,
+          browserMax: value.browserMax, distanceToEnd: value.distanceToEnd,
+          programmaticScrollInProgress: value.programmaticScrollInProgress,
+          scrollerRect: value.scrollerRect, composerRect: value.composerRect,
+          firstVisibleOffset: value.firstVisibleOffset,
+          writerRevision: value.writerRevision, measurementRevision: value.measurementRevision,
+        })),
+        writes: writes.map(value => ({
+          frame: value.frame, elapsed: round(value.timestamp - startedAt), method: value.method,
+          fingerprint: value.fingerprint, mark: value.mark,
+          args: value.args.map(argument => typeof argument === "number" ? argument
+            : argument && typeof argument === "object" ? {
+              top: typeof argument.top === "number" ? argument.top : null,
+              left: typeof argument.left === "number" ? argument.left : null,
+            } : null),
+        })),
+        measurements: measurements.map(value => ({
+          frame: value.frame, elapsed: round(value.timestamp - startedAt), index: value.index, height: value.height,
+        })),
+        dropped: { frames: Math.max(0, frame - frames.length), writes: Math.max(0, writerRevision - writes.length) },
+      }),
       finish: async () => {
         await finished
         const result = {
@@ -589,6 +620,10 @@
     mark: (name, detail) => {
       if (!active) throw new Error("scroll trace is not active")
       return active.mark(name, detail)
+    },
+    exportCollected: () => {
+      if (!active) throw new Error("scroll trace is not active")
+      return active.exportCollected()
     },
     finish: () => {
       if (!active) throw new Error("scroll trace is not active")

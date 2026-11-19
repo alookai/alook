@@ -172,6 +172,7 @@ type BrowserTraceApi = {
   selfTest: () => unknown
   start: (options: unknown) => Promise<unknown>
   mark: (name: string, detail?: unknown) => unknown
+  exportCollected: () => unknown
   finish: () => Promise<ScrollTraceResult>
   abort: () => void
 }
@@ -324,6 +325,15 @@ export async function finishScrollTrace(page: Page): Promise<ScrollTraceResult> 
       .__alookScrollTrace
     if (!api) throw new Error("scroll trace probe is not installed")
     return api.finish()
+  })
+}
+
+export async function exportCollectedScrollTrace(page: Page): Promise<unknown> {
+  return page.evaluate(() => {
+    const api = (globalThis as typeof globalThis & { __alookScrollTrace?: BrowserTraceApi })
+      .__alookScrollTrace
+    if (!api) throw new Error("scroll trace probe is not installed")
+    return api.exportCollected()
   })
 }
 

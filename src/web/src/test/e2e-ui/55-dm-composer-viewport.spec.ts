@@ -3,7 +3,7 @@ import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
-import { beginScrollTraceAnalysis, endScrollTraceAnalysis, installScrollTrace, markScrollTrace, startScrollTrace, summarizeScrollTrace } from "./_fixtures/scroll-trace"
+import { beginScrollTraceAnalysis, endScrollTraceAnalysis, exportCollectedScrollTrace, installScrollTrace, markScrollTrace, startScrollTrace, summarizeScrollTrace } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
 import { VIEWPORT, seedDmProfile, identity, finishAndAttach, establishScrollDistancePrecondition, establishExactPinnedPrecondition, waitForCommittedGeometry, waitForStableTail, advanceScrollTraceFrame, expectResizeAnchorPreserved, expectContinuousResizeAnchorPreserved, expectComposerOverlayGeometry, messageCreateCount, type PostedMessageIdentity, expectMessageCreateIdentity, tracedAsUser } from "./_fixtures/message-scroll-characterization"
 
@@ -102,7 +102,36 @@ test("DM composer clear preserves pinned and away viewport geometry", async ({ c
         .toBeGreaterThan(before.readableHeight)
       const after = await waitForCommittedGeometry(scroller)
       expectComposerOverlayGeometry(after, `dm-${distance}-after`)
-      expectResizeAnchorPreserved(before, after, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading", `dm-${distance}-after`)
+      try {
+        expectResizeAnchorPreserved(before, after, distance <= CONVERSATION_TAIL_SPACE_PX ? "tail" : "reading", `dm-${distance}-after`)
+      } catch (error) {
+        if (distance !== CONVERSATION_TAIL_SPACE_PX + 1) throw error
+        const geometry = (value: typeof before) => ({
+          scrollTop: value.scrollTop, scrollHeight: value.scrollHeight, clientHeight: value.clientHeight,
+          distanceToEnd: value.distanceToEnd, readableHeight: value.readableHeight,
+          composerOcclusion: value.composerOcclusion, firstVisibleOffset: value.firstVisibleOffset,
+        })
+        const expectedTop = Math.min(before.scrollTop, Math.max(0, after.scrollHeight - after.clientHeight))
+        const diagnostics = await Promise.allSettled([
+          Promise.resolve().then(() => testInfo.attach("dm-41-existing-geometry.json", {
+            body: Buffer.from(JSON.stringify({
+              before: geometry(before), after: geometry(after),
+              derived: { expectedTop, absoluteError: Math.abs(after.scrollTop - expectedTop) },
+            })),
+            contentType: "application/json",
+          })),
+          Promise.resolve().then(() => exportCollectedScrollTrace(alice.page)).then(collected => testInfo.attach("dm-41-collected-probe.json", {
+            body: Buffer.from(JSON.stringify(collected)), contentType: "application/json",
+          })),
+        ])
+        for (const result of diagnostics) {
+          if (result.status === "rejected") testInfo.annotations.push({
+            type: "dm-41-diagnostic-export-failed",
+            description: result.reason instanceof Error ? result.reason.name : "UnknownError",
+          })
+        }
+        throw error
+      }
       await endScrollTraceAnalysis(alice.page, `dm-composer-shrink-${distance}`)
       await advanceScrollTraceFrame(scroller)
     }
