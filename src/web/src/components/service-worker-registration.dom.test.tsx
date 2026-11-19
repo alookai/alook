@@ -4,7 +4,7 @@ import { ServiceWorkerRegistration } from "./service-worker-registration"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { businessDocumentVersionBootstrapScript, CURRENT_DOCUMENT_REQUEST, DOCUMENT_VERSION_PROBE, WORKER_VERSION_PROBE } from "@/lib/service-worker/business-upgrade"
 import { WEB_BUILD_ID } from "@/lib/web-build"
-import { businessSchemaLifecycle, registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
+import { businessSchemaLifecycle, registerBusinessSchemaOwner, requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
 
 beforeEach(() => businessSchemaLifecycle.setState(() => ({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION })))
 
@@ -19,6 +19,26 @@ async function mount() {
     render(<><ServiceWorkerRegistration /><span>Online app content</span></>)
   })
 }
+
+it("keeps a compatible build visible without the full-screen update layer but retains schema and retry feedback", async () => {
+  vi.stubEnv("NODE_ENV", "development")
+  vi.stubGlobal("navigator", {})
+  const base = window
+  vi.stubGlobal("window", new Proxy(base, { get(target, key) {
+    return key === "location" ? { href: "https://alook.test/c/me/dm-a?msg=target#context", replace: vi.fn() } : Reflect.get(target, key, target)
+  } }))
+  const view = render(<><ServiceWorkerRegistration /><span>Current conversation</span></>)
+  try {
+    await act(async () => businessSchemaLifecycle.setState(() => ({ phase: "updating", expectedVersion: BUSINESS_SCHEMA_VERSION, expectedBuildId: "next-build", preparing: true })))
+    expect(screen.getByText("Current conversation")).toBeVisible()
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    await act(async () => { requestBusinessSchemaUpdate(BUSINESS_SCHEMA_VERSION) })
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true")
+    await act(async () => businessSchemaLifecycle.setState(() => ({ phase: "failed", expectedVersion: BUSINESS_SCHEMA_VERSION, expectedBuildId: "next-build", preparing: true })))
+    expect(screen.getByRole("alert")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible()
+  } finally { view.unmount() }
+})
 
 describe("public asset service worker registration", () => {
   it.each(["/", "/blog", "/blog/article"])("keeps public resource updates on %s outside business retirement", async path => {

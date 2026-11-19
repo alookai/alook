@@ -1,6 +1,7 @@
 import { createStore } from "@tanstack/store"
 import { resolveCommunityModulePlan } from "./community-route"
 import { setLastChannel } from "./last-channel"
+import { BUSINESS_UPDATE_MARKER } from "../service-worker/business-upgrade"
 import {
   clearNavigationMemory,
   readNavigationMemory,
@@ -85,7 +86,9 @@ export function resolveCommunityColdEntryDestination({
   hash: string
 }): string {
   if (accountId) setActiveRestore(accountId)
-  if (pathname !== "/c" || search !== "" || hash !== "") {
+  const entrySearch = new URLSearchParams(search)
+  entrySearch.delete(BUSINESS_UPDATE_MARKER)
+  if (pathname !== "/c" || entrySearch.size !== 0 || hash !== "") {
     return COMMUNITY_COLD_ENTRY_FALLBACK
   }
   const destination = getLastCommunityRoute(accountId)

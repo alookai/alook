@@ -128,6 +128,107 @@ function workerFixture(version = BUSINESS_SCHEMA_VERSION as number, buildId?: st
   return { registration, serviceWorker, messages, ports, setVersion: (value: number) => { version = value }, setBuild: (value: string) => { buildId = value } }
 }
 
+it("keeps existing and late owners active before a verified build is ready", async () => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
+  let release!: () => void
+  const update = new Promise<void>(resolve => { release = resolve })
+  h.registration.update.mockImplementation(() => update)
+  const order: string[] = []
+  const existing = vi.fn(async () => { order.push("existing") })
+  const late = vi.fn(async () => { order.push("late") })
+  const unregister = registerBusinessSchemaOwner(existing)
+  let unregisterLate = () => {}
+  const post = h.serviceWorker.controller.postMessage
+  vi.spyOn(h.serviceWorker.controller, "postMessage").mockImplementation((message, ports) => {
+    if (message.type === CURRENT_DOCUMENT_REQUEST) order.push("navigate")
+    post(message, ports)
+  })
+  try {
+    requestDocumentBuildUpdate("next-build")
+    await vi.advanceTimersByTimeAsync(0)
+    unregisterLate = registerBusinessSchemaOwner(late)
+    expect(existing).not.toHaveBeenCalled()
+    expect(late).not.toHaveBeenCalled()
+    expect(h.messages).toEqual([])
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(existing).toHaveBeenCalledExactlyOnceWith(false)
+    expect(late).toHaveBeenCalledExactlyOnceWith(false)
+    expect(order.at(-1)).toBe("navigate")
+    expect(new Set(order.slice(0, -1))).toEqual(new Set(["existing", "late"]))
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { release(); await vi.advanceTimersByTimeAsync(0); unregisterLate(); unregister() }
+})
+
+it.each([BUSINESS_SCHEMA_VERSION, BUSINESS_SCHEMA_VERSION + 1])("retires immediately for schema escalation during compatible preparation: %i", async version => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
+  let release!: () => void
+  h.registration.update.mockImplementation(() => new Promise<void>(resolve => { release = resolve }))
+  const retire = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retire)
+  const late = vi.fn(async () => {})
+  let unregisterLate = () => {}
+  try {
+    requestDocumentBuildUpdate("next-build")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(retire).not.toHaveBeenCalled()
+    requestBusinessSchemaUpdate(version)
+    unregisterLate = registerBusinessSchemaOwner(late)
+    expect(retire).toHaveBeenCalledExactlyOnceWith(true)
+    expect(late).toHaveBeenCalledExactlyOnceWith(true)
+    h.setVersion(version)
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(retire).toHaveBeenCalledOnce()
+    expect(late).toHaveBeenCalledOnce()
+    expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toEqual([
+      { type: CURRENT_DOCUMENT_REQUEST, schemaVersion: version, buildId: "next-build", explicitRetry: false },
+    ])
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { release(); await vi.advanceTimersByTimeAsync(0); unregisterLate(); unregister() }
+})
+
+it("preserves owners after failed compatible preparation until explicit retry qualifies a worker", async () => {
+  const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
+  h.registration.update.mockRejectedValueOnce(new Error("offline"))
+  const retire = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retire)
+  const late = vi.fn(async () => {})
+  let unregisterLate = () => {}
+  try {
+    requestDocumentBuildUpdate("next-build")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(businessSchemaLifecycle.get().phase).toBe("failed")
+    unregisterLate = registerBusinessSchemaOwner(late)
+    expect(retire).not.toHaveBeenCalled()
+    expect(late).not.toHaveBeenCalled()
+    expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toEqual([])
+    retryBusinessSchemaUpdate()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(retire).toHaveBeenCalledExactlyOnceWith(false)
+    expect(late).toHaveBeenCalledExactlyOnceWith(false)
+    expect(h.registration.update).toHaveBeenCalledTimes(2)
+    expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { unregisterLate(); unregister() }
+})
+
+it("retires a compatible no-worker fallback before preserving its deep URL", async () => {
+  vi.useFakeTimers()
+  const order: string[] = []
+  const replace = vi.fn(() => { order.push("navigate") })
+  vi.stubGlobal("navigator", {})
+  vi.stubGlobal("window", { location: { href: "https://alook.test/c/me/dm-a?msg=target#context", replace } })
+  vi.stubGlobal("sessionStorage", { getItem: () => null, setItem: vi.fn() })
+  const retire = vi.fn(async () => { order.push("retire") }), unregister = registerBusinessSchemaOwner(retire)
+  try {
+    requestDocumentBuildUpdate("next-build")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(retire).toHaveBeenCalledExactlyOnceWith(false)
+    expect(replace).toHaveBeenCalledExactlyOnceWith(`https://alook.test/c/me/dm-a?msg=target&__alook_schema_update=${BUSINESS_SCHEMA_VERSION}%3Anext-build#context`)
+    expect(order).toEqual(["retire", "navigate"])
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { unregister() }
+})
+
 it("retires a compatible build without schema invalidation and admits its verified current controller", async () => {
   const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
   const retire = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retire)
@@ -169,6 +270,7 @@ it("performs schema retirement if protocol requirements escalate during a build-
   const unregister = registerBusinessSchemaOwner(retire)
   try {
     requestDocumentBuildUpdate("next-build")
+    await vi.advanceTimersByTimeAsync(0)
     expect(retire).toHaveBeenCalledWith(false)
     requestBusinessSchemaUpdate(BUSINESS_SCHEMA_VERSION + 1)
     h.setVersion(BUSINESS_SCHEMA_VERSION + 1)
@@ -367,7 +469,15 @@ it("requalifies a controller replaced while a late owner's retirement is still p
 
 it.each(["updating", "failed"])("retains an unmounted build owner for authoritative schema escalation after %s", async phase => {
   const h = workerFixture(BUSINESS_SCHEMA_VERSION, "next-build")
-  if (phase === "failed") h.registration.update.mockRejectedValueOnce(new Error("offline"))
+  if (phase === "failed") {
+    const post = h.serviceWorker.controller.postMessage
+    vi.spyOn(h.serviceWorker.controller, "postMessage").mockImplementation((message, ports) => {
+      if (message.type === CURRENT_DOCUMENT_REQUEST) {
+        h.messages.push(message)
+        ports[0].postMessage({ navigating: false })
+      } else post(message, ports)
+    })
+  }
   const retire = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retire)
   requestDocumentBuildUpdate("next-build")
   await vi.advanceTimersByTimeAsync(0)
@@ -409,7 +519,7 @@ it.each(["update", "probe"])("requalifies a public route after the held %s retur
   const oldRetired = vi.fn(async () => {}), unregisterOld = registerBusinessSchemaOwner(oldRetired)
   requestDocumentBuildUpdate("new-main-build")
   await vi.advanceTimersByTimeAsync(0)
-  expect(oldRetired).toHaveBeenCalledExactlyOnceWith(false)
+  expect(oldRetired).not.toHaveBeenCalled()
   if (stage === "update") expect(release).toBeTypeOf("function")
   else expect(reply).toBeDefined()
   window.location.href = "https://alook.test/blog"
@@ -418,6 +528,7 @@ it.each(["update", "probe"])("requalifies a public route after the held %s retur
     if (stage === "update") release()
     else reply!.postMessage({ schemaVersion: BUSINESS_SCHEMA_VERSION, buildId: "new-main-build" })
     await vi.advanceTimersByTimeAsync(0)
+    expect(oldRetired).not.toHaveBeenCalled()
     expect(publicRetired).not.toHaveBeenCalled()
     expect(businessSchemaLifecycle.get()).toEqual({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION })
     expect(h.messages.filter(message => message.type === CURRENT_DOCUMENT_REQUEST)).toEqual([])

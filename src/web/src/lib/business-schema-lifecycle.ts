@@ -3,7 +3,7 @@ import { createStore } from "@tanstack/store"
 import { BUSINESS_UPDATE_MARKER, CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE, businessUpdateMarker, businessUpdateUrl, isCurrentBusinessDocument, probeBusinessIdentity } from "./service-worker/business-upgrade"
 import { WEB_BUILD_ID } from "./web-build"
 
-type UpdateState = { phase: "current" | "updating" | "failed"; expectedVersion: number; expectedBuildId?: string }
+type UpdateState = { phase: "current" | "updating" | "failed"; expectedVersion: number; expectedBuildId?: string; preparing?: true }
 export const businessSchemaLifecycle = createStore<UpdateState>({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION })
 type Owner = { retire: (invalidatePersisted: boolean) => Promise<void>; registered: boolean; retired: false | "build" | "schema"; pending?: Promise<void>; failure?: { attempt: number; purpose: "build" | "schema"; error: unknown } }
 const owners = new Set<Owner>()
@@ -39,7 +39,8 @@ function retireOwner(owner: Owner, currentAttempt: number): Promise<void> {
 export function registerBusinessSchemaOwner(retire: (invalidatePersisted: boolean) => Promise<void>) {
   const owner: Owner = { retire, registered: true, retired: false }
   owners.add(owner)
-  if (isCurrentBusinessDocument() && businessSchemaLifecycle.get().phase !== "current") void retireOwner(owner, attempt).catch(() => undefined)
+  const state = businessSchemaLifecycle.get()
+  if (isCurrentBusinessDocument() && state.phase !== "current" && !state.preparing) void retireOwner(owner, attempt).catch(() => undefined)
   return () => {
     owner.registered = false
     if (owner.retired === "schema" || businessSchemaLifecycle.get().phase === "current") owners.delete(owner)
@@ -47,6 +48,11 @@ export function registerBusinessSchemaOwner(retire: (invalidatePersisted: boolea
 }
 
 async function retireOwners(currentAttempt: number) {
+  const state = businessSchemaLifecycle.get()
+  if (state.preparing) {
+    const { preparing: _preparing, ...retiring } = state
+    businessSchemaLifecycle.setState(() => retiring)
+  }
   while (isCurrentBusinessDocument() && [...owners].some(owner => !owner.retired || schemaRetirement && owner.retired !== "schema")) {
     await Promise.all([...owners].map(owner => retireOwner(owner, currentAttempt)))
   }
@@ -66,7 +72,10 @@ export function requestBusinessSchemaUpdate(expectedVersion: number = BUSINESS_S
     const state = businessSchemaLifecycle.get()
     if (state.phase === "current") void updateDocument(expected, false)
     else {
-      if (expected > state.expectedVersion) businessSchemaLifecycle.setState(() => ({ ...state, expectedVersion: expected }))
+      if (expected > state.expectedVersion || state.preparing) {
+        const { preparing: _preparing, ...retiring } = state
+        businessSchemaLifecycle.setState(() => ({ ...retiring, expectedVersion: Math.max(expected, state.expectedVersion) }))
+      }
       void retireOwners(attempt).catch(() => undefined)
     }
   }
@@ -89,9 +98,9 @@ async function updateDocument(expectedVersion: number, explicitRetry: boolean, e
   if (!isCurrentBusinessDocument()) return
   const currentAttempt = ++attempt
   schemaRetirement = invalidatePersisted
-  businessSchemaLifecycle.setState(() => ({ phase: "updating", expectedVersion, ...(expectedBuildId ? { expectedBuildId } : {}) }))
+  businessSchemaLifecycle.setState(() => ({ phase: "updating", expectedVersion, ...(expectedBuildId ? { expectedBuildId } : {}), ...(!invalidatePersisted ? { preparing: true as const } : {}) }))
   try {
-    await retireOwners(currentAttempt)
+    if (invalidatePersisted) await retireOwners(currentAttempt)
     if (!isCurrentBusinessDocument()) return
     const marker = new URL(window.location.href).searchParams.get(BUSINESS_UPDATE_MARKER)
     let previous: string | null = marker
@@ -100,6 +109,8 @@ async function updateDocument(expectedVersion: number, explicitRetry: boolean, e
     expectedBuildId = businessSchemaLifecycle.get().expectedBuildId
     if (!explicitRetry && previous === businessUpdateMarker(expectedVersion, expectedBuildId)) throw new BusinessSchemaMismatch(expectedVersion)
     if (!("serviceWorker" in navigator)) {
+      await retireOwners(currentAttempt)
+      if (!isCurrentBusinessDocument()) return
       const url = new URL(window.location.href)
       if (explicitRetry) url.searchParams.delete(BUSINESS_UPDATE_MARKER)
       const next = businessUpdateUrl(url.href, expectedVersion, expectedBuildId)

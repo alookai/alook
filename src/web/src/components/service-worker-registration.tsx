@@ -14,7 +14,8 @@ import { tid } from "@/lib/community/testids"
 
 export function ServiceWorkerRegistration() {
   const pathname = usePathname()
-  const phase = useSelector(businessSchemaLifecycle, state => state.phase)
+  const update = useSelector(businessSchemaLifecycle, state => state)
+  const phase = update.phase
   useEffect(() => {
     rememberBusinessUpdateAttempt()
     if (!("serviceWorker" in navigator)) return
@@ -65,7 +66,7 @@ export function ServiceWorkerRegistration() {
     })
     return () => { disposed = true; cleanup() }
   }, [])
-  if (phase === "current" || !isCurrentBusinessDocument() || pathname !== null && !isBusinessDocumentPath(pathname)) return null
+  if (phase === "current" || phase === "updating" && update.preparing || !isCurrentBusinessDocument() || pathname !== null && !isBusinessDocumentPath(pathname)) return null
   return <div className="fixed inset-0 z-100 flex flex-col items-center justify-center gap-4 bg-background p-8 text-foreground" data-testid={tid.businessSchemaUpdate} role={phase === "failed" ? "alert" : "status"} aria-busy={phase === "updating"}>
     <AnimatedAlookLogo className="size-16" />
     {phase === "failed" && <><p>Couldn&apos;t update this page.</p><Button variant="outline" onClick={retryBusinessSchemaUpdate}>Retry</Button></>}
