@@ -363,9 +363,6 @@
     "key": "src/shared/src/db/queries/community/inbox.ts:listThreadOpenersByChildIds:inArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/inbox.ts:listUnreadForumOpeners:inArray:1"
-  },
-  {
     "key": "src/shared/src/db/queries/community/machine-session-epoch.ts:transitionLiveLease:inArray:1"
   },
   {
