@@ -68,6 +68,7 @@ jobs:
       run_code_checks: ${{ steps.scope.outputs.run_code_checks }}
       run_static_checks: ${{ steps.scope.outputs.run_static_checks }}
       run_linux: ${{ steps.scope.outputs.run_linux }}
+      run_db_query_check: ${{ steps.scope.outputs.run_db_query_check }}
       run_windows: ${{ steps.scope.outputs.run_windows }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
       run_ui_e2e: ${{ steps.scope.outputs.run_ui_e2e }}
@@ -158,7 +159,7 @@ jobs:
   db-query-check:
     name: DB Query Check
     needs: scope
-    if: needs.scope.outputs.run_linux == 'true'
+    if: needs.scope.outputs.run_db_query_check != 'false'
     uses: ./.github/workflows/db-query-check.yml
 
   auth-build:
@@ -1044,7 +1045,7 @@ jobs:
           {"name":"blog-build","expected":${{ needs.scope.outputs.run_blog_build == 'true' }},"result":"${{ needs.blog-build.result }}"},
           {"name":"static-checks","expected":${{ needs.scope.outputs.run_static_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.test-linux.result }}"},
-          {"name":"db-query-check","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.db-query-check.result }}"},
+          {"name":"db-query-check","expected":${{ needs.scope.outputs.run_db_query_check != 'false' }},"result":"${{ needs.db-query-check.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
           {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' }},"result":"${{ needs.e2e.result }}"},

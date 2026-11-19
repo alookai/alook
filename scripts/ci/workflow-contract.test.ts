@@ -574,6 +574,7 @@ describe("CI workflow graph", () => {
 
   it("runs the same strict DB check manually and through the required CI path", () => {
     const dbWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "db-query-check.yml"), "utf8"))
+    const scope = ciJob("scope")
     const caller = ciJob("db-query-check")
     const gate = ciJob("ci-gate")
 
@@ -586,12 +587,13 @@ describe("CI workflow graph", () => {
     expect(jobs).toContain("path: .ci/db-query-check/")
     expect(jobs).toContain("if-no-files-found: error")
 
+    expect(scope).toContain("run_db_query_check: ${{ steps.scope.outputs.run_db_query_check }}")
     expect(caller).toContain("needs: scope")
-    expect(caller).toContain("if: needs.scope.outputs.run_linux == 'true'")
+    expect(caller).toContain("if: needs.scope.outputs.run_db_query_check != 'false'")
     expect(caller).toContain("uses: ./.github/workflows/db-query-check.yml")
     expect(ciWorkflow).not.toContain("pnpm check:db-queries")
     expect(gate).toContain("- db-query-check")
-    expect(gate).toContain('"name":"db-query-check","expected":${{ needs.scope.outputs.run_linux == \'true\' }},"result":"${{ needs.db-query-check.result }}"')
+    expect(gate).toContain('"name":"db-query-check","expected":${{ needs.scope.outputs.run_db_query_check != \'false\' }},"result":"${{ needs.db-query-check.result }}"')
   })
 
   it("gates the fail-closed exact-tarball app artifact check", () => {

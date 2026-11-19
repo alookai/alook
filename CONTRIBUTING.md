@@ -198,7 +198,9 @@ Playwright owns discovery and file sharding. The signed plan freezes actual case
 
 The browser workflow reuses one exact-source build across selected shards and verifies their reports. Stable `CI Gate` and `UI E2E Gate` checks are the integration boundary; individual out-of-scope shards may be skipped. Selection and discovery do not prove execution. Release CI also does not gate an independent Cloudflare Git deployment or imply that a store accepted a build.
 
-From **Actions → DB Query Check**, use **Run workflow** to select a branch, or run `gh workflow run db-query-check.yml --ref <branch>` after the workflow is on the default branch. This runs `pnpm check:db-queries --require-complete` by itself. Regular CI calls the same workflow when its scope selects the DB check, and a failure reaches `CI Gate`. Find the JSON and Markdown reports in the run's `db-query-check-<run-id>-<attempt>` artifact.
+Automatic **DB Query Check** runs for API, shared database, migration, Worker, and other backend or mixed-directory changes. It also runs for lockfile, CI policy and unknown changes, and during full runs. A diff confined to recognized Markdown, benchmark, or frontend directories skips the DB job. The frontend directories include Web components, contexts, stores and public assets, plus Blog, Storybook, Desktop and Videos. Web hooks and community channel components contain database test fixtures, so their directories still trigger the check. The scope checks both paths of a rename. Keep production SQL in directories covered by automatic DB checks.
+
+From **Actions → DB Query Check**, use **Run workflow** to select a branch, or run `gh workflow run db-query-check.yml --ref <branch>` after the workflow is on the default branch. Manual and automatic runs use `pnpm check:db-queries --require-complete`. A required DB failure reaches `CI Gate`. Find the JSON and Markdown reports in the run's `db-query-check-<run-id>-<attempt>` artifact.
 
 ### UI browser E2E and formal local QA
 

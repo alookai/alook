@@ -216,6 +216,41 @@ function gitDiffFixture(changedPath = "src/app/src/commands/inbox.ts") {
 }
 
 describe("canonical execution plan", () => {
+  it("skips the DB check on frontend changes even when Linux tests run", () => {
+    const path = "src/web/src/components/home/landing-content.ts"
+    for (const result of [plan([path]), plan([path], { mainSmoke: true })]) {
+      expect(result.jobs.test_linux).toBe(true)
+      expect(projectPlan(result).run_db_query_check).toBe("false")
+    }
+  })
+
+  it.each([
+    ["src/web/src/hooks/community/member-read.status.test.ts", true],
+    ["src/web/src/components/community/channels/channel-leave.closed-loop.dom.test.tsx", true],
+    ["src/web/blog/src/content/ai-agent-communication.mdx", false],
+    ["CONTRIBUTING.md", false],
+    ["src/web/src/app/api/community/billing/route.ts", true],
+    ["src/web/src/lib/community/server-directory.server.ts", true],
+    ["src/web/migrations/9999_new.sql", true],
+    ["src/shared/src/db/queries/community/inbox.ts", true],
+    ["src/ws-do/src/ws-durable/provider-telemetry-persistence.ts", true],
+    ["scripts/db-query-check/run.mjs", true],
+    ["pnpm-lock.yaml", true],
+    ["unknown-new-package/read-data.ts", true],
+  ])("selects the DB check for %s as %s", (path, expected) => {
+    expect(plan([path]).jobs.db_query_check).toBe(expected)
+  })
+
+  it("includes both sides of path moves and retains forced full DB checks", () => {
+    const moved = buildExecutionPlan([{
+      status: "R100",
+      old_path: "src/web/src/lib/community/server-directory.server.ts",
+      path: "src/web/src/components/community/server-directory.ts",
+    }])
+    expect(moved.jobs.db_query_check).toBe(true)
+    expect(plan(["CONTRIBUTING.md"], { forceFull: true }).jobs.db_query_check).toBe(true)
+  })
+
   it("builds the cold service dependency for Web contracts without daemon unit selection", () => {
     const result = plan(["src/web/src/components/home/landing-content.ts"])
     expect(result.full).toBe(false)
