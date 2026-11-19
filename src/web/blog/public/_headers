@@ -21,3 +21,6 @@
 
 /manifest.json
   Cache-Control: public, max-age=300, must-revalidate
+
+/blog/claude-code-memory/test-record.md
+  Content-Type: text/markdown; charset=utf-8
