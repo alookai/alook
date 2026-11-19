@@ -433,51 +433,35 @@
 }
 
 /* Modal popups (confirm/alert, create/edit server/channel/category, people
- * pickers, limits, crop) share the Direction A die-cut paper sticker shell;
- * full-screen settings panels, media stages and multi-step onboarding opt out. */
+ * pickers, limits, crop, onboarding) share the refined Direction A die-cut
+ * paper sticker shell without diagonal glare; full-screen settings panels and
+ * media stages opt out. */
 .theme {
   --tn-sticker-rim: #fffdf8;
   --tn-sticker-face: #f6efe2;
   --tn-sticker-probe-bg: rgb(246 239 226 / 0.4%);
-  --tn-sticker-sheen: linear-gradient(
-    118deg,
-    transparent 26%,
-    rgb(255 255 255 / 46%) 39%,
-    rgb(255 255 255 / 10%) 50%,
-    transparent 60%
-  );
   --tn-sticker-shadow:
-    drop-shadow(0 1px 0.75px rgb(40 30 15 / 30%))
-    drop-shadow(0 12px 24px rgb(40 30 15 / 14%));
-  --tn-sticker-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22240%22%20height%3D%22240%22%20viewBox%3D%220%200%20240%20240%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M24%203L36%203.2L57%202.2L79%203.6L102%202.3L124%203.7L147%202.4L169%203.6L188%202.3L204%203.2L216%203Q236.5%203.5%20237%2024L236.8%2036L237.8%2058L236.4%2081L237.7%20104L236.3%20127L237.8%20150L236.4%20173L237.6%20191L236.8%20204L237%20216Q236.5%20236.5%20216%20237L204%20236.8L185%20237.7L163%20236.3L141%20237.8L118%20236.4L96%20237.7L73%20236.3L52%20237.6L36%20236.8L24%20237Q3.5%20236.5%203%20216L3.2%20204L2.3%20185L3.7%20162L2.2%20139L3.6%20116L2.3%2093L3.7%2071L2.4%2051L3.2%2036L3%2024Q3.5%203.5%2024%203Z%22%2F%3E%3C%2Fsvg%3E");
-  --tn-sticker-face-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22240%22%20height%3D%22240%22%20viewBox%3D%220%200%20240%20240%22%3E%3Cdefs%3E%3Cmask%20id%3D%22f%22%20maskUnits%3D%22userSpaceOnUse%22%20x%3D%220%22%20y%3D%220%22%20width%3D%22240%22%20height%3D%22240%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M24%203L36%203.2L57%202.2L79%203.6L102%202.3L124%203.7L147%202.4L169%203.6L188%202.3L204%203.2L216%203Q236.5%203.5%20237%2024L236.8%2036L237.8%2058L236.4%2081L237.7%20104L236.3%20127L237.8%20150L236.4%20173L237.6%20191L236.8%20204L237%20216Q236.5%20236.5%20216%20237L204%20236.8L185%20237.7L163%20236.3L141%20237.8L118%20236.4L96%20237.7L73%20236.3L52%20237.6L36%20236.8L24%20237Q3.5%20236.5%203%20216L3.2%20204L2.3%20185L3.7%20162L2.2%20139L3.6%20116L2.3%2093L3.7%2071L2.4%2051L3.2%2036L3%2024Q3.5%203.5%2024%203Z%22%2F%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%2213%22%20stroke-linejoin%3D%22round%22%20d%3D%22M24%203L36%203.2L57%202.2L79%203.6L102%202.3L124%203.7L147%202.4L169%203.6L188%202.3L204%203.2L216%203Q236.5%203.5%20237%2024L236.8%2036L237.8%2058L236.4%2081L237.7%20104L236.3%20127L237.8%20150L236.4%20173L237.6%20191L236.8%20204L237%20216Q236.5%20236.5%20216%20237L204%20236.8L185%20237.7L163%20236.3L141%20237.8L118%20236.4L96%20237.7L73%20236.3L52%20237.6L36%20236.8L24%20237Q3.5%20236.5%203%20216L3.2%20204L2.3%20185L3.7%20162L2.2%20139L3.6%20116L2.3%2093L3.7%2071L2.4%2051L3.2%2036L3%2024Q3.5%203.5%2024%203Z%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Crect%20width%3D%22240%22%20height%3D%22240%22%20fill%3D%22white%22%20mask%3D%22url%28%23f%29%22%2F%3E%3C%2Fsvg%3E");
+    drop-shadow(0 1px 0.75px rgb(40 30 15 / 24%))
+    drop-shadow(0 12px 24px rgb(40 30 15 / 12%));
+  --tn-sticker-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22240%22%20height%3D%22240%22%20viewBox%3D%220%200%20240%20240%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M24%203C42%201.5%2056%204.5%2076%202.2S110%204.5%20132%202.2S168%204.5%20190%202.2S208%203.4%20216%203Q236.5%203.5%20237%2024C238.5%2042%20235.5%2058%20237.8%2078S235.5%20112%20237.8%20134S235.5%20170%20237.8%20192S236.6%20208%20237%20216Q236.5%20236.5%20216%20237C198%20238.5%20182%20235.5%20162%20237.8S128%20235.5%20106%20237.8S70%20235.5%2048%20237.8S32%20236.6%2024%20237Q3.5%20236.5%203%20216C1.5%20198%204.5%20182%202.2%20162S4.5%20128%202.2%20106S4.5%2070%202.2%2048S3.4%2032%203%2024Q3.5%203.5%2024%203Z%22%2F%3E%3C%2Fsvg%3E");
+  --tn-sticker-face-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22240%22%20height%3D%22240%22%20viewBox%3D%220%200%20240%20240%22%3E%3Cdefs%3E%3Cmask%20id%3D%22f%22%20maskUnits%3D%22userSpaceOnUse%22%20x%3D%220%22%20y%3D%220%22%20width%3D%22240%22%20height%3D%22240%22%3E%3Cpath%20fill%3D%22white%22%20d%3D%22M24%203C42%201.5%2056%204.5%2076%202.2S110%204.5%20132%202.2S168%204.5%20190%202.2S208%203.4%20216%203Q236.5%203.5%20237%2024C238.5%2042%20235.5%2058%20237.8%2078S235.5%20112%20237.8%20134S235.5%20170%20237.8%20192S236.6%20208%20237%20216Q236.5%20236.5%20216%20237C198%20238.5%20182%20235.5%20162%20237.8S128%20235.5%20106%20237.8S70%20235.5%2048%20237.8S32%20236.6%2024%20237Q3.5%20236.5%203%20216C1.5%20198%204.5%20182%202.2%20162S4.5%20128%202.2%20106S4.5%2070%202.2%2048S3.4%2032%203%2024Q3.5%203.5%2024%203Z%22%2F%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%2210%22%20stroke-linejoin%3D%22round%22%20d%3D%22M24%203C42%201.5%2056%204.5%2076%202.2S110%204.5%20132%202.2S168%204.5%20190%202.2S208%203.4%20216%203Q236.5%203.5%20237%2024C238.5%2042%20235.5%2058%20237.8%2078S235.5%20112%20237.8%20134S235.5%20170%20237.8%20192S236.6%20208%20237%20216Q236.5%20236.5%20216%20237C198%20238.5%20182%20235.5%20162%20237.8S128%20235.5%20106%20237.8S70%20235.5%2048%20237.8S32%20236.6%2024%20237Q3.5%20236.5%203%20216C1.5%20198%204.5%20182%202.2%20162S4.5%20128%202.2%20106S4.5%2070%202.2%2048S3.4%2032%203%2024Q3.5%203.5%2024%203Z%22%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Crect%20width%3D%22240%22%20height%3D%22240%22%20fill%3D%22white%22%20mask%3D%22url%28%23f%29%22%2F%3E%3C%2Fsvg%3E");
 }
 
 .theme[data-tn-mode="dark"],
 [data-tn-mode="dark"] .theme,
 :global(.dark) .theme:not([data-tn-mode="light"]) {
-  --tn-sticker-rim: #2c2f38;
+  --tn-sticker-rim: #2a2e38;
   --tn-sticker-face: #101114;
   --tn-sticker-probe-bg: rgb(16 17 20 / 0.4%);
-  --tn-sticker-sheen: linear-gradient(
-    118deg,
-    transparent 26%,
-    rgb(255 255 255 / 5.5%) 39%,
-    rgb(255 255 255 / 1.5%) 50%,
-    transparent 60%
-  );
   --tn-sticker-shadow:
-    drop-shadow(0 1px 0.5px rgb(255 255 255 / 12%))
-    drop-shadow(0 18px 32px rgb(0 0 0 / 72%));
+    drop-shadow(0 1px 0.5px rgb(255 255 255 / 10%))
+    drop-shadow(0 18px 32px rgb(0 0 0 / 68%));
 }
 
 .theme :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]):not(
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -486,9 +470,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -507,9 +488,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -518,9 +496,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -529,9 +504,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -540,9 +512,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -556,9 +525,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -567,9 +533,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -584,9 +547,6 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
@@ -595,17 +555,14 @@
   :has([data-testid="community-settings-shell"]),
   :has([data-testid="community-image-lightbox"]),
   :global(.alook-video-mask),
-  [data-testid^="onboarding-"],
-  [data-testid^="community-onboarding-"],
-  :has([data-slot="onboarding-progress"]),
   :has([data-share-session-state]),
   [class~="w-180"],
   [class~="rounded-b-none"]
 )::before {
-  inset: 6.5px;
+  inset: 5px;
   z-index: -1;
-  border-radius: 16px;
-  background: var(--tn-sticker-sheen), var(--tn-sticker-face);
+  border-radius: 17px;
+  background: var(--tn-sticker-face);
 }
 
 @supports (-webkit-mask-box-image-source: none) or (mask-border-source: none) {
@@ -613,10 +570,6 @@
     :has([data-testid="community-settings-shell"]),
     :has([data-testid="community-image-lightbox"]),
     :global(.alook-video-mask),
-    [data-testid^="onboarding-"],
-    [data-testid^="community-onboarding-"],
-    :has([data-slot="onboarding-progress"]),
-  :has([data-slot="onboarding-progress"]),
     :has([data-share-session-state]),
     [class~="w-180"],
     [class~="rounded-b-none"]
@@ -625,10 +578,6 @@
     :has([data-testid="community-settings-shell"]),
     :has([data-testid="community-image-lightbox"]),
     :global(.alook-video-mask),
-    [data-testid^="onboarding-"],
-    [data-testid^="community-onboarding-"],
-    :has([data-slot="onboarding-progress"]),
-  :has([data-slot="onboarding-progress"]),
     :has([data-share-session-state]),
     [class~="w-180"],
     [class~="rounded-b-none"]
@@ -648,10 +597,6 @@
     :has([data-testid="community-settings-shell"]),
     :has([data-testid="community-image-lightbox"]),
     :global(.alook-video-mask),
-    [data-testid^="onboarding-"],
-    [data-testid^="community-onboarding-"],
-    :has([data-slot="onboarding-progress"]),
-  :has([data-slot="onboarding-progress"]),
     :has([data-share-session-state]),
     [class~="w-180"],
     [class~="rounded-b-none"]
@@ -660,10 +605,6 @@
     :has([data-testid="community-settings-shell"]),
     :has([data-testid="community-image-lightbox"]),
     :global(.alook-video-mask),
-    [data-testid^="onboarding-"],
-    [data-testid^="community-onboarding-"],
-    :has([data-slot="onboarding-progress"]),
-  :has([data-slot="onboarding-progress"]),
     :has([data-share-session-state]),
     [class~="w-180"],
     [class~="rounded-b-none"]
@@ -2417,16 +2358,65 @@
   background-color: rgb(0 0 0 / 55%) !important;
 }
 
-/* ═════════ Onboarding card (#2303): a paper card with key options ═════════ */
+/* ═════════ Onboarding card (#2303): refined die-cut sticker shell matching dialogs ═════════ */
 /* The popup itself is the one card: header (mode switch, close) and steps
  * share it, so nothing floats on the backdrop (QA #4). */
 .theme [data-testid="onboarding-surface"] {
-  border-radius: 20px !important;
-  background: var(--tn-paper-raised) !important;
-  box-shadow: 0 0 0 1px var(--tn-line), 0 28px 56px -30px rgb(60 45 20 / 40%) !important;
+  isolation: isolate;
+  border-width: 0 !important;
+  border-radius: 22px !important;
+  background-color: var(--tn-sticker-probe-bg) !important;
+  box-shadow: none !important;
+  filter: var(--tn-sticker-shadow) !important;
+}
+.theme [data-testid="onboarding-surface"]::after,
+.theme [data-testid="onboarding-surface"]::before {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+.theme [data-testid="onboarding-surface"]::after {
+  inset: 0;
+  z-index: -2;
+  border-radius: 22px;
+  background: var(--tn-sticker-rim);
+}
+.theme [data-testid="onboarding-surface"]::before {
+  inset: 5px;
+  z-index: -1;
+  border-radius: 17px;
+  background: var(--tn-sticker-face);
+}
+@supports (-webkit-mask-box-image-source: none) or (mask-border-source: none) {
+  .theme [data-testid="onboarding-surface"] {
+    border-radius: 0 !important;
+  }
+  .theme [data-testid="onboarding-surface"]::after {
+    border-radius: 0;
+    -webkit-mask-box-image-source: var(--tn-sticker-mask);
+    -webkit-mask-box-image-slice: 36 fill;
+    -webkit-mask-box-image-width: 36px;
+    -webkit-mask-box-image-repeat: stretch;
+    mask-border-source: var(--tn-sticker-mask);
+    mask-border-slice: 36 fill;
+    mask-border-width: 36px;
+    mask-border-repeat: stretch;
+  }
+  .theme [data-testid="onboarding-surface"]::before {
+    inset: 0;
+    border-radius: 0;
+    -webkit-mask-box-image-source: var(--tn-sticker-face-mask);
+    -webkit-mask-box-image-slice: 36 fill;
+    -webkit-mask-box-image-width: 36px;
+    -webkit-mask-box-image-repeat: stretch;
+    mask-border-source: var(--tn-sticker-face-mask);
+    mask-border-slice: 36 fill;
+    mask-border-width: 36px;
+    mask-border-repeat: stretch;
+  }
 }
 /* The step bar reads as one segmented tape */
-.theme [data-testid="onboarding-surface"] [class~="h-1"][class~="flex-1"] {
+.theme [data-slot="onboarding-progress"] > span {
   height: 6px !important;
   border-radius: 999px !important;
 }

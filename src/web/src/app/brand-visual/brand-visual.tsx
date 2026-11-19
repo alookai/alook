@@ -207,14 +207,43 @@ export function BrandVisual() {
   useBoardWriteGuard()
   const [agent, setAgent] = useState("claude")
   const [otp, setOtp] = useState("481")
-  // The board's switch is the app's own theme switch (the theme is global now).
-  // Server render has no theme; render light until mounted so hydration matches,
-  // then follow the resolved app theme.
-  const { resolvedTheme, setTheme } = useTheme()
+  // Preview switch stays local to /brand-visual so toggling Light/Dark here
+  // never overwrites the user's saved app theme preference.
+  const { resolvedTheme } = useTheme()
+  const [overrideMode, setOverrideMode] = useState<"light" | "dark" | null>(null)
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
-  const mode: "light" | "dark" = mounted && resolvedTheme === "dark" ? "dark" : "light"
-  const setMode = (next: "light" | "dark") => setTheme(next)
+  const mode: "light" | "dark" = overrideMode ?? (mounted && resolvedTheme === "dark" ? "dark" : "light")
+  const setMode = (next: "light" | "dark") => setOverrideMode(next)
+
+  // Apply local preview mode to documentElement so portaled dialogs match the
+  // board toggle, while never mutating next-themes / localStorage.
+  useEffect(() => {
+    if (!overrideMode) return
+    const root = document.documentElement
+    const prevMode = root.getAttribute("data-tn-mode")
+    const prevColorScheme = root.style.colorScheme
+    const hadDark = root.classList.contains("dark")
+    const hadLight = root.classList.contains("light")
+    const apply = (nextMode: string | null, dark: boolean, light: boolean, scheme: string) => {
+      // Briefly force a style sheet flush so Chromium re-evaluates descendant
+      // `[data-tn-mode="dark"] .theme :is(...)` rules cleanly without stale frames.
+      const style = document.createElement("style")
+      style.appendChild(document.createTextNode("*,*::before,*::after{transition:none!important}"))
+      document.head.appendChild(style)
+      root.classList.toggle("dark", dark)
+      root.classList.toggle("light", light)
+      if (nextMode === null) root.removeAttribute("data-tn-mode")
+      else root.setAttribute("data-tn-mode", nextMode)
+      root.style.colorScheme = scheme
+      void window.getComputedStyle(document.body).opacity
+      window.requestAnimationFrame(() => style.remove())
+    }
+    apply(overrideMode, overrideMode === "dark", overrideMode === "light", overrideMode)
+    return () => {
+      apply(prevMode, hadDark, hadLight, prevColorScheme)
+    }
+  }, [overrideMode])
 
   return (
     <main className={`${tn.theme} ${tn.grid} ${s.page}`} data-tn-mode={mode}>

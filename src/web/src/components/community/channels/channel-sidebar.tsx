@@ -7,8 +7,7 @@ import { OfficialServerBadge } from "../official-server-badge"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { channelHref } from "@/lib/community/community-route"
 import { Fragment, memo, useEffect, useRef, type ComponentProps, type MouseEvent } from "react"
-import { Link2 } from "lucide-react";
-import { Settings, Users, Bell, ChevronDown, UserPlus } from "@/components/icons/lucide";
+import { Link2, Settings, Users, Bell, ChevronDown, UserPlus } from "@/components/icons/lucide";
 import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd"
 import { ChannelDndScope, ChannelDropContainer, useChannelDragActive } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"

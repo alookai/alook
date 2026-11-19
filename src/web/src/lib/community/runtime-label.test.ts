@@ -4,11 +4,20 @@ import { runtimeLabel, visibleRuntimes } from "./runtime-label"
 describe("Codex source choices", () => {
   const runtimes = [{ id: "codex" }, { id: "codex-app" }, { id: "codex-cli" }, { id: "claude" }]
   it("shows only explicit choices on new daemons and labels them distinctly", () => {
-    expect(visibleRuntimes(runtimes).map(({ id }) => runtimeLabel(id))).toEqual(["Codex App", "Codex CLI", "claude"])
+    expect(visibleRuntimes(runtimes).map(({ id }) => runtimeLabel(id))).toEqual(["Codex App", "Codex CLI", "Claude"])
   })
   it("never offers the legacy alias for new bots, including older daemon reports", () => {
     expect(visibleRuntimes([{ id: "codex" }])).toEqual([])
     expect(visibleRuntimes(runtimes, "codex")).toEqual(runtimes)
     expect(runtimeLabel("codex")).toBe("Codex (automatic)")
+  })
+  it("normalizes known backend display names with consistent capitalization", () => {
+    expect(runtimeLabel("claude")).toBe("Claude")
+    expect(runtimeLabel("cursor")).toBe("Cursor")
+    expect(runtimeLabel("grok")).toBe("Grok")
+    expect(runtimeLabel("opencode")).toBe("OpenCode")
+    expect(runtimeLabel("pi")).toBe("Pi")
+    expect(runtimeLabel("antigravity")).toBe("Antigravity")
+    expect(runtimeLabel("agy")).toBe("Antigravity CLI")
   })
 })

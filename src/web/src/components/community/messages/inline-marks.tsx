@@ -3,8 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
-import { Link2Off } from "lucide-react";
-import { CircleAlert, LoaderCircle, LockKeyhole } from "@/components/icons/lucide";
+import { Link2Off, CircleAlert, LoaderCircle, LockKeyhole } from "@/components/icons/lucide";
 import styles from "./inline-marks.module.css"
 import { ChannelIcon } from "../channels/channel-icon"
 

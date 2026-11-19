@@ -84,7 +84,7 @@ const MEMBERS: Member[] = [...DEMO_PROFILES.values()].map((p) => ({
   status: p.presence ?? "online", sub: p.aboutMe ?? "", role: p.id === "demo-gus" ? "owner" : "member",
 }))
 const MACHINES = [
-  { id: "m-mac", displayName: "Gus's MacBook", hostname: "gus-mbp", platform: "darwin", arch: "arm64", daemonVersion: "0.9.4", status: "online", lastSeenAt: new Date().toISOString(), availableRuntimes: [{ id: "claude", version: "2.1.0", status: "healthy" }, { id: "codex", version: "0.42.0", status: "healthy" }] },
+  { id: "m-mac", displayName: "Gus's MacBook", hostname: "gus-mbp", platform: "darwin", arch: "arm64", daemonVersion: "0.9.4", status: "online", lastSeenAt: new Date().toISOString(), availableRuntimes: [{ id: "claude", version: "2.1.0", status: "healthy" }, { id: "codex-app", version: "0.42.0", status: "healthy" }, { id: "codex-cli", version: "0.42.0", status: "healthy" }, { id: "agy", version: "0.8.0", status: "healthy" }, { id: "cursor", status: "unhealthy", lastError: "spawn_enoent" }, { id: "pi", status: "unhealthy", lastError: "not_signed_in" }] },
   { id: "m-box", displayName: "Studio box", hostname: "studio", platform: "linux", arch: "x64", daemonVersion: "0.9.1", status: "offline", lastSeenAt: new Date(Date.now() - 36e5 * 5).toISOString(), availableRuntimes: [] },
 ] as unknown as MachineSummary[]
 const POSTS: ForumThread[] = [

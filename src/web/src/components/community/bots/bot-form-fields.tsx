@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Dices } from "lucide-react"
+import { Dices } from "@/components/icons/lucide"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { type AvatarDraft, BotAvatarPickerDialog } from "@/components/avatar"
 import {
@@ -76,7 +76,7 @@ export function BotFormFields({
         )}
       </div>
 
-      {/* Description — frameless, auto-growing */}
+      {/* Description — frameless, auto-growing with subtle hover/focus surface */}
       <AutoResizeTextarea
         id="bot-description"
         value={description}
@@ -84,7 +84,7 @@ export function BotFormFields({
         onChange={(e) => setDescription(e.target.value)}
         placeholder="What is this bot for?"
         rows={1}
-        className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+        className="-mx-1.5 w-[calc(100%+0.75rem)] rounded-md border-0 bg-transparent px-1.5 py-1 text-sm text-foreground shadow-none outline-none transition-colors placeholder:text-muted-foreground/60 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-0"
       />
     </div>
   )

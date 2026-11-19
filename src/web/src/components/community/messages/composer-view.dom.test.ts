@@ -16,15 +16,13 @@ vi.mock("@tiptap/react", () => ({
   EditorContent: (props: Record<string, unknown>) =>
     createElement("div", { ...props, "data-editor-content": "" }),
 }))
-vi.mock("lucide-react", () => ({
-  Smile: (props: Record<string, unknown>) => createElement("span", { ...props, "data-smile-icon": "" }),
-}))
 vi.mock("@/components/icons/lucide", () => ({
   FileIcon: (props: Record<string, unknown>) => createElement("span", { ...props, "data-file-icon": "" }),
   ImageIcon: (props: Record<string, unknown>) =>
     createElement("span", { ...props, "data-image-icon": "" }),
   PlusCircle: (props: Record<string, unknown>) =>
     createElement("span", { ...props, "data-plus-icon": "" }),
+  Smile: (props: Record<string, unknown>) => createElement("span", { ...props, "data-smile-icon": "" }),
   X: (props: Record<string, unknown>) => createElement("span", { ...props, "data-x-icon": "" }),
 }))
 vi.mock("@/components/ui/skeleton", () => ({
