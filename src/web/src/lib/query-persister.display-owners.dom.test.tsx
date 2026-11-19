@@ -2,7 +2,7 @@ import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { dehydrate, QueryClient } from "@tanstack/react-query"
-import { persistQueryClientRestore } from "@tanstack/react-query-persist-client"
+import { persistQueryClientRestore, type PersistedClient } from "@tanstack/react-query-persist-client"
 import { get } from "idb-keyval"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -24,7 +24,20 @@ import { cacheStore } from "./query-cache-store"
 import { communityKeys } from "./query-keys"
 import { ApiError } from "./errors"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), telemetry: vi.fn(), session: { data: null as { user: { id: string } } | null, isPending: false, error: null } }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(), telemetry: vi.fn(), session: { data: null as { user: { id: string } } | null, isPending: false, error: null },
+  beforeApplicationWrite: undefined as ((value: string) => Promise<void> | undefined) | undefined,
+  releaseApplicationWrite: undefined as (() => void) | undefined }))
+vi.mock("@tanstack/query-async-storage-persister", async original => {
+  const actual = await original<typeof import("@tanstack/query-async-storage-persister")>()
+  return { ...actual, createAsyncStoragePersister: (options: Parameters<typeof actual.createAsyncStoragePersister>[0]) => {
+    const storage = options.storage, beforeWrite = mocks.beforeApplicationWrite
+    if (!storage || !beforeWrite) return actual.createAsyncStoragePersister(options)
+    return actual.createAsyncStoragePersister({ ...options, storage: { ...storage, setItem: (key, value) => {
+      const held = beforeWrite(value)
+      return held ? held.then(() => storage.setItem(key, value)) : storage.setItem(key, value)
+    } } })
+  } }
+})
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api, toastApiError: vi.fn() }))
 vi.mock("@/lib/auth-client", () => ({ useSession: () => mocks.session, currentSessionViewer: () => mocks.session.isPending ? undefined : mocks.session.data?.user.id ?? null }))
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }))
@@ -40,12 +53,16 @@ const registries = new Set<CommunityDbRegistry>(), writers = new Set<ReturnType<
 const hookViews = new Set<ReturnType<typeof mount>>(), publicViews = new Set<ReturnType<typeof render>>()
 
 beforeEach(async () => {
+  mocks.beforeApplicationWrite = undefined
+  mocks.releaseApplicationWrite = undefined
   await clearAllPersistedCaches()
   mocks.session = { data: null, isPending: false, error: null }
   mocks.api.mockReset()
   mocks.telemetry.mockClear()
 })
 afterEach(async () => {
+  mocks.releaseApplicationWrite?.()
+  mocks.beforeApplicationWrite = undefined
   for (const view of hookViews) view.unmount()
   hookViews.clear()
   for (const view of publicViews) view.unmount()
@@ -433,7 +450,24 @@ it("uses the actual public Pricing provider writer and cold restore without over
   }
 })
 
-it("retires both old account payloads during the actual public provider account switch", async () => {
+function applicationSnapshotCommit(account: string) {
+  const key = blobKeyFor(account, "application"), original = IDBObjectStore.prototype.put
+  return new Promise<void>(resolve => {
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (this: IDBObjectStore, ...args: Parameters<typeof original>) {
+      const request = original.apply(this, args)
+      if (args[1] === key && typeof args[0] === "string") {
+        const snapshot = JSON.parse(args[0]) as PersistedClient
+        if (snapshot.clientState.queries.length === 2
+          && snapshot.clientState.queries.some(query => query.queryKey.length === 1 && query.queryKey[0] === "public-pricing")
+          && snapshot.clientState.queries.some(query => query.queryKey.length === 3 && query.queryKey[0] === "application" && query.queryKey[1] === account && query.queryKey[2] === "billing"))
+          this.transaction.addEventListener("complete", () => resolve(), { once: true })
+      }
+      return request
+    })
+  })
+}
+
+async function verifyPublicProviderAccountSwitch(onReady?: (account: string) => void) {
   const state = backend(), account = `old-pricing-${crypto.randomUUID()}`
   state.billing = { ...free, plan: { id: "private-plan", displayName: "Private account A plan" } }
   mocks.session = { data: { user: { id: account } }, isPending: false, error: null }
@@ -442,9 +476,11 @@ it("retires both old account payloads during the actual public provider account 
   source.setQueryData(communityKeys.communityDbCollection(account, "profiles"), [profileResourceFixture({ id: account })])
   await communityWriter.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(source) })
   source.clear()
+  const committed = applicationSnapshotCommit(account)
   const page = render(<PricingClient />); publicViews.add(page)
   await waitFor(() => expect(page.getByText("Your current plan: Private account A plan.")).toBeInTheDocument())
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1000)) })
+  onReady?.(account)
+  await committed
   expect(JSON.parse((await get<string>(blobKeyFor(account, "application"), cacheStore))!).clientState.queries).toHaveLength(2)
   state.unavailable = true
   mocks.session = { data: { user: { id: "next-account" } }, isPending: false, error: null }
@@ -457,4 +493,40 @@ it("retires both old account payloads during the actual public provider account 
     expect(await communityWriter.isCurrent()).toBe(false)
   })
   expect(state.commands).toEqual([])
+}
+
+it("retires both old account payloads during the actual public provider account switch", async () => {
+  await verifyPublicProviderAccountSwitch()
+})
+
+it("keeps the account-switch fixture pending while its two-query application write is held", async () => {
+  let release!: () => void, ready!: (account: string) => void, blocked!: (account: string) => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const mounted = new Promise<string>(resolve => { ready = resolve })
+  const pending = new Promise<string>(resolve => { blocked = resolve })
+  mocks.releaseApplicationWrite = release
+  mocks.beforeApplicationWrite = value => {
+    const queries = (JSON.parse(value) as PersistedClient).clientState.queries
+    const billing = queries.find(query => query.queryKey[0] === "application" && query.queryKey[2] === "billing")
+    const account = billing?.queryKey[1]
+    if (queries.length === 2 && typeof account === "string" && queries.some(query => query.queryKey[0] === "public-pricing")) {
+      blocked(account)
+      return gate
+    }
+  }
+  let settled = false
+  const completed = verifyPublicProviderAccountSwitch(ready).then(() => { settled = true }, error => { settled = true; throw error })
+  void completed.catch(() => undefined)
+  try {
+    const account = await mounted
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    expect(await pending).toBe(account)
+    const raw = await get<string>(blobKeyFor(account, "application"), cacheStore)
+    expect(raw ? (JSON.parse(raw) as PersistedClient).clientState.queries.length : 0).toBeLessThan(2)
+    expect(settled).toBe(false)
+    expect(mocks.session.data?.user.id).toBe(account)
+  } finally {
+    release()
+    await completed
+  }
 })
