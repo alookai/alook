@@ -10,6 +10,7 @@ import { captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/l
 import { communityKeys } from "@/lib/query-keys"
 import { messageWindowPage, type MessagesReadPage as WireMessagesPage, type MessagesWindowPage as MessagesPage, type MessagesPageParam } from "./models/message"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
+import { observeMessageReading } from "./message-reading-diagnostic"
 
 type MessagesTransportPage = WireMessagesPage & {
   surfaceReceipt?: CommunityMessageSurfaceReceipt
@@ -63,10 +64,12 @@ export const channelMessagesQueryFn =
     pageParam,
     signal,
     client,
+    queryKey,
   }: {
     pageParam: MessagesPageParam
     signal?: AbortSignal
     client?: QueryClient
+    queryKey?: QueryKey
   }): Promise<MessagesPage> => {
     const originalClient = options?.queryClient ?? client
     if (!originalClient) throw new DOMException("Missing message query owner", "AbortError")
@@ -82,9 +85,18 @@ export const channelMessagesQueryFn =
       pageParam,
       tag,
     )
+    observeMessageReading("transport.start", () => ({ refs: { client: originalClient },
+      identities: { channel: channelId, queryKey: queryKey ? hashKey(queryKey) : undefined, pageParam: hashKey([pageParam]),
+        cursor: pageParam.mode === "older" || pageParam.mode === "newer" ? pageParam.cursor : pageParam.mode === "since" ? pageParam.since : undefined },
+      values: { direction: pageParam.mode } }))
     const page = await fetchMessagesTransport(url, signal, { ...options, observation: { ...observation,
       role: pageParam.mode === "older" || pageParam.mode === "newer" ? "pagination" : "window", windowMode: pageParam.mode,
     } }, publicationToken)
+    observeMessageReading("transport.receive", () => ({ refs: { client: originalClient },
+      identities: { channel: channelId, queryKey: queryKey ? hashKey(queryKey) : undefined, pageParam: hashKey([pageParam]),
+        cursor: pageParam.mode === "older" || pageParam.mode === "newer" ? pageParam.cursor : pageParam.mode === "since" ? pageParam.since : undefined,
+        nextOlderCursor: page.olderCursor ?? page.cursor, nextNewerCursor: page.newerCursor },
+      values: { direction: pageParam.mode, messageCount: page.messages.length } }))
     {
       const result = await publishCommunityMessages(originalClient, {
         channelId,
@@ -93,6 +105,9 @@ export const channelMessagesQueryFn =
         profiles: page.profiles,
         proof: { token: publicationToken, signal },
       })
+      observeMessageReading("transport.publish", () => ({ refs: { client: originalClient },
+        identities: { channel: channelId, queryKey: queryKey ? hashKey(queryKey) : undefined, pageParam: hashKey([pageParam]) },
+        values: { direction: pageParam.mode, result, messageCount: page.messages.length } }))
       if (result === "published" && generation === telemetryGeneration()) emitTelemetry("data.publish", { ...actionAttributes(observation?.action ?? observation?.page), source: "network", cache_stage: "canonical", request_reason: observation?.reason ?? "unknown", eligibility: "eligible", outcome: "success" })
     }
     return messageWindowPage(page)

@@ -10,6 +10,7 @@ import { finishAndAttach, holdNextRequest, identity, seedResizableHtmlPreview, w
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 import type { HistoricalRow } from "./_fixtures/historical-profile"
+import { captureMessageReading, type MessageReadingCapture } from "./_fixtures/message-reading-diagnostic"
 
 async function prepare(actors: CaseActors, kind: "channel" | "dm", html = false, htmlOptions?: { measuredResize: true }) {
   let opened = kind === "channel" ? await actors.asUser("alice") : undefined
@@ -148,8 +149,8 @@ async function readAuthoritativeState(actors: CaseActors, value: ReadingCase) {
 
 type PageReceipt = { direction: "older" | "newer"; cursor: string; status: number; time: number; timing: ReturnType<ReturnType<Response["request"]>["timing"]>; ids: string[]; page?: ReturnType<typeof CommunityMessagesReadSchema.parse>["page"] }
 type PageRequest = { direction: "older" | "newer"; cursor: string; time: number; finished: boolean; failure?: string }
-type PageTraffic = { receipts: PageReceipt[]; requests: PageRequest[] }
-function observePages(actors: CaseActors, page: Page, endpoint: string) {
+type PageTraffic = { receipts: PageReceipt[]; requests: PageRequest[]; diagnostic?: MessageReadingCapture }
+function observePages(actors: CaseActors, page: Page, endpoint: string, diagnostic?: MessageReadingCapture) {
   const receipts: PageReceipt[] = []
   const requests: PageRequest[] = []
   const requestEntries = new Map<Request, PageRequest>()
@@ -161,6 +162,8 @@ function observePages(actors: CaseActors, page: Page, endpoint: string) {
       cursor: url.searchParams.get("cursor") ?? url.searchParams.get("since")!, time: Date.now(), finished: false }
     requests.push(entry)
     requestEntries.set(request, entry)
+    diagnostic?.record("observer.request", { identities: { cursor: entry.cursor },
+      values: { direction: entry.direction, requestCount: requests.length } }, request)
   }
   const pending = new Set<Promise<void>>()
   const failures: unknown[] = []
@@ -171,29 +174,55 @@ function observePages(actors: CaseActors, page: Page, endpoint: string) {
     const operation = (async () => {
       const receipt: PageReceipt = { direction: url.searchParams.has("cursor") ? "older" : "newer",
         cursor: url.searchParams.get("cursor") ?? url.searchParams.get("since")!, status: response.status(), time: Date.now(), timing: response.request().timing(), ids: [] }
+      diagnostic?.record("observer.headers", { identities: { cursor: receipt.cursor },
+        values: { direction: receipt.direction, status: receipt.status } }, response.request())
       if (response.ok()) {
-        const packet = CommunityMessagesReadSchema.parse(await response.json())
+        diagnostic?.record("observer.json-start", { identities: { cursor: receipt.cursor },
+          values: { direction: receipt.direction, status: receipt.status } }, response.request())
+        const json = await response.json()
+        diagnostic?.record("observer.json", { identities: { cursor: receipt.cursor },
+          values: { direction: receipt.direction, status: receipt.status } }, response.request())
+        diagnostic?.record("observer.schema-start", { identities: { cursor: receipt.cursor },
+          values: { direction: receipt.direction, status: receipt.status } }, response.request())
+        const packet = CommunityMessagesReadSchema.parse(json)
+        diagnostic?.record("observer.schema", { identities: { cursor: receipt.cursor,
+          nextOlderCursor: packet.page.olderCursor, nextNewerCursor: packet.page.newerCursor },
+        values: { direction: receipt.direction, schemaOk: true, messageCount: packet.messages.length } }, response.request())
         receipt.ids = packet.messages.map(message => message.id)
         receipt.page = packet.page
       }
-      await response.finished()
+      diagnostic?.record("observer.finished-start", { identities: { cursor: receipt.cursor },
+        values: { direction: receipt.direction, status: receipt.status } }, response.request())
+      const finished = await response.finished()
+      diagnostic?.record("observer.finished", { identities: { cursor: receipt.cursor },
+        values: { direction: receipt.direction, status: receipt.status, finishedError: finished !== null } }, response.request())
       receipt.timing = response.request().timing()
       receipts.push(receipt)
+      diagnostic?.record("observer.receipt-push", { identities: { cursor: receipt.cursor },
+        values: { direction: receipt.direction, status: receipt.status, receiptCount: receipts.length } }, response.request())
       const request = requestEntries.get(response.request())
       if (request) request.finished = true
     })()
     pending.add(operation)
-    void operation.catch(error => failures.push(error)).finally(() => pending.delete(operation))
+    void operation.catch(error => {
+      diagnostic?.record("observer.failed", { identities: { cursor: url.searchParams.get("cursor") ?? url.searchParams.get("since")! },
+        values: { source: "callback", status: response.status(), failure: true } }, response.request())
+      return failures.push(error)
+    }).finally(() => pending.delete(operation))
   }
   const failedListener = (request: Request) => {
     const entry = requestEntries.get(request)
     if (entry) { entry.finished = true; entry.failure = request.failure()?.errorText ?? "Request failed" }
+    if (entry) diagnostic?.record("observer.failed", { identities: { cursor: entry.cursor },
+      values: { source: "native", direction: entry.direction, failure: true } }, request)
   }
   page.on("requestfailed", failedListener)
   page.on("request", requestListener)
   page.on("response", listener)
-  actors.onCleanup(async () => { page.off("requestfailed", failedListener); page.off("request", requestListener); page.off("response", listener); await Promise.allSettled([...pending]); if (failures.length) throw new AggregateError(failures, "Page receipt validation failed") })
-  return { receipts, requests }
+  actors.onCleanup(async () => { page.off("requestfailed", failedListener); page.off("request", requestListener); page.off("response", listener); await Promise.allSettled([...pending]);
+    diagnostic?.record("observer.cleanup", { values: { operationCount: pending.size, requestCount: requests.length, receiptCount: receipts.length, failure: failures.length > 0 } })
+    if (failures.length) throw new AggregateError(failures, "Page receipt validation failed") })
+  return { receipts, requests, diagnostic }
 }
 
 async function bodyOffset(root: Locator, id: string) {
@@ -224,6 +253,7 @@ async function twoPages(page: Page, root: Locator, traffic: PageTraffic, directi
   const requestBaseline = requests.length
   const initial = phase?.initial ?? receipts.filter(receipt => receipt.direction === direction && receipt.status === 200).length
   const positions: Array<{ time: number; top: number; height: number; total: number; admission: string | undefined }> = []
+  traffic.diagnostic?.record("phase.start", { values: { direction, receiptCount: initial, requestCount: requests.length } })
   return withScrollTraceAnalysis(page, `${direction}-two-real-pages`, async () => {
     if (phase) positions.push(...await phase.returnToMiddle())
     await root.hover()
@@ -277,8 +307,10 @@ for (const kind of ["channel", "dm"] as const) {
         const actors = await caseActors(["alice", "bob"])
         const value = await prepare(actors, kind)
         const { page, context, path, ids, endpoint, channelId } = value
+        const diagnostic = kind === "dm" && fast && process.env.ALOOK_READING_DIAGNOSTIC === "1"
+          ? await captureMessageReading(actors, page, info) : undefined
         await page.setViewportSize(narrow ? { width: 390, height: 844 } : { width: 1280, height: 800 })
-        const traffic = observePages(actors, page, endpoint)
+        const traffic = observePages(actors, page, endpoint, diagnostic)
         const { receipts } = traffic
         const firstOlder = await holdNextRequest(actors, page, `**${endpoint}**`, url => url.searchParams.get("cursor") === value.middle.page.olderCursor)
         const proxy = await proxyCommunityWebSockets(context)

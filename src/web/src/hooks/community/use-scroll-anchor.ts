@@ -9,6 +9,7 @@ import type { MessagePositionState, MessageRequest, MessageRequestResult, NewPos
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
+import { observeMessageReading } from "@/lib/community/message-reading-diagnostic"
 
 type PositionOutcome = "pending" | "success" | "user-cancelled" | "cancelled" | "empty" | "error"
 type ViewportResizeAnchor = "tail" | "start"
@@ -672,7 +673,7 @@ export function useScrollAnchor({
     const layout = committed?.layout
     const rect = native?.scrollRect
     const rows = native?.getVirtualItems()
-    return !!root && !!native && committed?.native === native && committed.entry === positionEntryRef.current
+    const matches = !!root && !!native && committed?.native === native && committed.entry === positionEntryRef.current
       && committed.items === currentItemsRef.current && native.scrollElement === root && root.isConnected
       && !!layout && !!rect && root.clientHeight > 0 && root.clientWidth > 0
       && rect.width === root.clientWidth && rect.height === root.clientHeight
@@ -688,13 +689,22 @@ export function useScrollAnchor({
           && row.start === current.start && row.size === current.size
           && row.end === current.end && row.lane === current.lane
       })
+    observeMessageReading("reading.commit", () => ({ refs: { root, virtualizer: native, rows: layout, items: currentItemsRef.current,
+      window: contextRef.current.messageWindow, reader: readingMessageRef.current },
+    values: { source: "validation", rowsCommitted: matches, rowCount: rows?.length, count: layout?.rows.length } }))
+    return matches
   }, [])
   const readReadingMessage = useCallback((): string | null => {
     const root = scrollRef.current
     const native = virtualizerRef.current
     const context = contextRef.current
     if (!readingMessageRef.current || !root || !native || !context.visible || !context.active
-      || context.dataState !== "ready" || positionKind.get() !== "idle" || !readReady.get() || !hasCommittedRows()) return null
+      || context.dataState !== "ready" || positionKind.get() !== "idle" || !readReady.get() || !hasCommittedRows()) {
+      observeMessageReading("reading.content", () => ({ refs: { root, virtualizer: native, reader: readingMessageRef.current, window: context.messageWindow },
+        values: { source: "native", accepted: false, active: context.active, visible: context.visible, dataState: context.dataState,
+          hasReader: !!readingMessageRef.current, nativePresent: !!native, positionKind: positionKind.get(), readReady: readReady.get(), reason: "rejected" } }))
+      return null
+    }
     const viewport = root.getBoundingClientRect()
     for (const row of native.getVirtualItems()) {
       const item = currentItemsRef.current[row.index]
@@ -703,8 +713,12 @@ export function useScrollAnchor({
       const rect = messageContentBounds(body ?? undefined)
       if (body?.dataset.msgId !== item.m.id || !rect || rect.height <= 0
         || Math.min(rect.bottom, viewport.bottom - context.viewportInsetEnd) - Math.max(rect.top, viewport.top) <= 1) continue
+      observeMessageReading("reading.content", () => ({ refs: { root, virtualizer: native, reader: readingMessageRef.current, window: context.messageWindow },
+        identities: { message: item.m.id }, values: { source: "native", accepted: true, boundaryIndex: row.index } }))
       return item.m.id
     }
+    observeMessageReading("reading.content", () => ({ refs: { root, virtualizer: native, reader: readingMessageRef.current, window: context.messageWindow },
+      values: { source: "native", accepted: false, reason: "no-message" } }))
     return null
   }, [hasCommittedRows, positionKind, readReady])
   const readCommittedBaselineMessage = useCallback((offset: number): string | null => {
@@ -722,6 +736,8 @@ export function useScrollAnchor({
       const rect = messageContentBounds(body ?? undefined)
       if (body?.dataset.msgId !== item.m.id || !rect || rect.height <= 0
         || Math.min(rect.bottom + shift, viewport.bottom - context.viewportInsetEnd) - Math.max(rect.top + shift, viewport.top) <= 1) continue
+      observeMessageReading("reading.content", () => ({ refs: { root, virtualizer: native, reader: readingMessageRef.current, window: context.messageWindow },
+        identities: { message: item.m.id }, values: { source: "baseline", accepted: true, boundaryIndex: row.index } }))
       return item.m.id
     }
     return null
@@ -732,11 +748,23 @@ export function useScrollAnchor({
     if (!id || !root || !report) return false
     const epoch = positionOwnerRef.current.epoch
     reportedReadingRef.current = { automaticEpoch: epoch, latest: { epoch, root, entry: positionEntryRef.current, scope: positionScopeRef.current, messageId: id } }
+    observeMessageReading("reading.report", () => ({ refs: { root, reader: report, window: contextRef.current.messageWindow },
+      identities: { message: id }, values: { source: "automatic", epoch, accepted: true } }))
     report(id)
     return true
   }, [readReadingMessage])
   const reconcileManualReading = useCallback(() => {
     const reading = userInputRef.current.reading
+    observeMessageReading("reading.reconcile", () => ({ refs: { root: scrollRef.current, virtualizer: virtualizerRef.current,
+      reader: readingMessageRef.current, reading, window: contextRef.current.messageWindow, items: currentItemsRef.current },
+    identities: { message: reading?.messageId, reportedMessage: reading?.reportedMessageId },
+    values: { readingPresent: !!reading, pending: reading?.pending, epoch: positionOwnerRef.current.epoch, manualEpoch: positionOwnerRef.current.manualEpoch,
+      ownerActive: positionOwnerRef.current.active, sameEpoch: positionOwnerRef.current.epoch === reading?.epoch,
+      sameRoot: reading?.root === scrollRef.current, active: contextRef.current.active, visible: contextRef.current.visible,
+      dataState: contextRef.current.dataState, positionKind: positionKind.get(),
+      paginationPhase: paginationRef.current?.phase ?? null, semanticIntent: !!semanticIntentRef.current,
+      projectionAnchor: !!projectionAnchorRef.current, viewportCorrection: !!viewportCorrectionRef.current,
+      sameWindow: reading?.window === contextRef.current.messageWindow, sameItems: reading?.items === currentItemsRef.current } }))
     if (!reading) return
     const root = scrollRef.current, native = virtualizerRef.current, owner = positionOwnerRef.current
     const context = contextRef.current
@@ -749,20 +777,39 @@ export function useScrollAnchor({
     if (context.dataState !== "ready" || paginationRef.current?.phase === "settling" || semanticIntentRef.current || projectionAnchorRef.current
       || viewportCorrectionRef.current) return
     if (!reading.pending) {
-      if (root.scrollTop < -1 || root.scrollTop > Math.max(0, root.scrollHeight - root.clientHeight) + 1) return
+      if (root.scrollTop < -1 || root.scrollTop > Math.max(0, root.scrollHeight - root.clientHeight) + 1) {
+        observeMessageReading("reading.reconcile", () => ({ refs: { root, reader: readingMessageRef.current, reading, window: context.messageWindow },
+          values: { pending: false, reason: "invalid-offset" } }))
+        return
+      }
       const sameGeometry = reading.height === root.clientHeight && reading.width === root.clientWidth && reading.scrollHeight === root.scrollHeight
         && reading.total === committedRowsRef.current?.layout.totalSize && reading.paddingEnd === (native.options.paddingEnd ?? 0)
-      if (Math.abs((native.scrollOffset ?? 0) - reading.offset) > 1 || Math.abs(reading.offset - root.scrollTop) > 1 && !sameGeometry) return
-      if (reading.window === context.messageWindow && reading.items === currentItemsRef.current && sameGeometry) return
+      if (Math.abs((native.scrollOffset ?? 0) - reading.offset) > 1 || Math.abs(reading.offset - root.scrollTop) > 1 && !sameGeometry) {
+        observeMessageReading("reading.reconcile", () => ({ refs: { root, reader: readingMessageRef.current, reading, window: context.messageWindow },
+          values: { pending: false, sameGeometry, reason: "invalid-offset" } }))
+        return
+      }
+      if (reading.window === context.messageWindow && reading.items === currentItemsRef.current && sameGeometry) {
+        observeMessageReading("reading.reconcile", () => ({ refs: { root, reader: readingMessageRef.current, reading, window: context.messageWindow },
+          values: { pending: false, sameGeometry, reason: "same-geometry" } }))
+        return
+      }
     }
     const id = reading.pending ? readReadingMessage() : readCommittedBaselineMessage(reading.offset)
     const committed = committedRowsRef.current
-    if (!id || !committed || userInputRef.current.reading !== reading) return
+    if (!id || !committed || userInputRef.current.reading !== reading) {
+      observeMessageReading("reading.reconcile", () => ({ refs: { root, reader: readingMessageRef.current, reading, window: context.messageWindow },
+        identities: { message: id }, values: { dataPresent: !!committed, ownerCurrent: userInputRef.current.reading === reading, reason: "no-message" } }))
+      return
+    }
     userInputRef.current.reading = { root, pending: false, messageId: id, reportedMessageId: reading.pending ? id : reading.reportedMessageId, epoch: reading.epoch, window: context.messageWindow,
       items: currentItemsRef.current, offset: reading.pending ? root.scrollTop : reading.offset, height: root.clientHeight, width: root.clientWidth,
       scrollHeight: root.scrollHeight, total: committed.layout.totalSize, paddingEnd: native.options.paddingEnd ?? 0 }
     if (reading.pending && id !== reading.reportedMessageId) {
       reportedReadingRef.current.latest = { epoch: reading.epoch, root, entry: positionEntryRef.current, scope: positionScopeRef.current, messageId: id }
+      observeMessageReading("reading.report", () => ({ refs: { root, reader: readingMessageRef.current, reading, window: context.messageWindow },
+        identities: { message: id, reportedMessage: reading.reportedMessageId },
+        values: { source: "manual", epoch: reading.epoch, pending: reading.pending, accepted: true } }))
       readingMessageRef.current(id)
     }
   }, [positionKind, readCommittedBaselineMessage, readReadingMessage])
@@ -922,6 +969,9 @@ export function useScrollAnchor({
 
   const onRowsLayoutCommit = useCallback((layout: VirtualRowsLayoutSnapshot | null) => {
     committedRowsRef.current = layout ? { layout, native: virtualizer, entry: positionEntry, items } : null
+    observeMessageReading("reading.commit", () => ({ refs: { root: scrollRef.current, virtualizer, rows: layout, items,
+      reader: readingMessageRef.current, window: contextRef.current.messageWindow },
+    values: { source: "layout", dataPresent: !!layout, rowCount: layout?.rows.length, pending: userInputRef.current.reading?.pending } }))
     if (layout && Number.isFinite(layout.physicalScrollMargin)) setScrollMargin(layout.physicalScrollMargin)
     observePageBody()
     updateNewDividerVisibility(false)
@@ -1472,6 +1522,13 @@ export function useScrollAnchor({
         && reading.paddingEnd === current.paddingEnd && Math.abs(reading.offset - current.offset) > 1
         && !ownsCorrection && !projectionAnchorRef.current && !semanticIntentRef.current
         && !(paginationRef.current?.phase === "settling" && paginationRef.current.restoringBody)) reading.pending = true
+      observeMessageReading("reading.input", () => ({ refs: { root, reader: readingMessageRef.current, reading: inputOwner.reading,
+        window: contextRef.current.messageWindow, items: currentItemsRef.current },
+      values: { source: "native", readingPresent: !!reading, pending: inputOwner.reading?.pending, viewportCorrection: !!ownsCorrection,
+        offsetAligned: !!reading && !!current && Math.abs(reading.offset - current.offset) <= 1,
+        sameWindow: reading?.window === current?.window, sameItems: reading?.items === current?.items,
+        sameEpoch: reading?.epoch === current?.epoch, paginationPhase: paginationRef.current?.phase ?? null,
+        restoringBody: !!paginationRef.current?.restoringBody, projectionAnchor: !!projectionAnchorRef.current, semanticIntent: !!semanticIntentRef.current } }))
     }
     const onScroll = () => {
       const reading = inputOwner.reading
@@ -1662,6 +1719,9 @@ export function useScrollAnchor({
 
   const capturePageAnchor = useCallback((direction: "older" | "newer") => {
     let anchor: NonNullable<typeof paginationRef.current>["anchor"]
+    observeMessageReading("anchor.before-load", () => ({ refs: { root: scrollRef.current, reader: readingMessageRef.current,
+      window: contextRef.current.messageWindow, attempt: paginationRef.current },
+    values: { direction, pending: !!paginationRef.current, positionKind: positionKind.get(), paginationPhase: paginationRef.current?.phase ?? null } }))
     if (paginationRef.current || positionKind.get() !== "idle") return false
     projectionAnchorRef.current = null
     clearMeasurementAnchor()
@@ -1676,6 +1736,9 @@ export function useScrollAnchor({
     const page = paginationRef.current
     setPaginationDirection(direction)
     return (request: MessageRequest | void) => {
+      observeMessageReading("anchor.receive", () => ({ refs: { root: scrollRef.current, reader: readingMessageRef.current,
+        window: contextRef.current.messageWindow, attempt: page, request: request ?? null },
+      values: { direction, ownerCurrent: paginationRef.current === page, requestPresent: !!request, accepted: request?.accepted ?? null } }))
       if (paginationRef.current !== page || !request) return
       if (!request.accepted) {
         paginationRef.current = null
@@ -1686,6 +1749,9 @@ export function useScrollAnchor({
       const receipt: NonNullable<typeof page.receipt> = { before: contextRef.current.messageWindow, beforeItems: currentItemsRef.current }
       page.receipt = receipt
       const complete = (result: MessageRequestResult) => {
+        observeMessageReading("anchor.complete", () => ({ refs: { root: scrollRef.current, reader: readingMessageRef.current,
+          window: contextRef.current.messageWindow, attempt: page, request, receipt },
+        values: { direction, ownerActive: positionOwnerRef.current.active, ownerCurrent: paginationRef.current === page, result: result.status } }))
         if (!positionOwnerRef.current.active || paginationRef.current !== page) return
         receipt.result = result
         setRequestRevision(value => value + 1)
