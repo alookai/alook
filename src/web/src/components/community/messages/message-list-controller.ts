@@ -143,7 +143,7 @@ export function useMessageListController({
     positionOutcome,
     requestNewPosition,
     newDividerVisibility,
-    followingTail,
+    readingTail,
     jumpToPresentVisible,
   } = useScrollAnchor({
     items,
@@ -209,12 +209,12 @@ export function useMessageListController({
     }
     return through
   }, [active, messages, capsuleHeight, readPositionReady, scrollRef, viewerUserId])
-  const lookbackView = useRef<{ owner: object; throughSeq: number; followingTail: boolean; readable: boolean; dividerVisibility: typeof newDividerVisibility; visiblePeerSeq: () => number } | null>(null)
+  const lookbackView = useRef<{ owner: object; throughSeq: number; readingTail: boolean; readable: boolean; dividerVisibility: typeof newDividerVisibility; visiblePeerSeq: () => number } | null>(null)
   useLayoutEffect(() => {
-    lookbackView.current = { owner: lookback.owner, throughSeq: observedSeq, followingTail,
+    lookbackView.current = { owner: lookback.owner, throughSeq: observedSeq, readingTail,
       readable: active !== false && readPositionReady, dividerVisibility: newDividerVisibility, visiblePeerSeq: readVisiblePeerSeq }
     return () => { if (lookbackView.current?.owner === lookback.owner) lookbackView.current = null }
-  }, [active, followingTail, lookback.owner, observedSeq, readPositionReady, newDividerVisibility, readVisiblePeerSeq])
+  }, [active, readingTail, lookback.owner, observedSeq, readPositionReady, newDividerVisibility, readVisiblePeerSeq])
   useLayoutEffect(() => {
     if (!lookback.initialized && newBoundary !== undefined) {
       setLookback(current => current.owner === lookback.owner ? { ...current, initialized: true, target: newBoundary.target?.id ?? null, targetSeq: newBoundary.target?.seq,
@@ -228,7 +228,7 @@ export function useMessageListController({
   useEffect(() => {
     if (!lookback.initialized || lookback.target && !lookback.used || observedSeq <= lookback.throughSeq) return
     if (active === false || !readPositionReady || lookback.pending || lookback.checking) return
-    const visibleThrough = followingTail ? observedSeq : readVisiblePeerSeq()
+    const visibleThrough = readingTail ? observedSeq : readVisiblePeerSeq()
     if (visibleThrough > lookback.throughSeq) {
       setLookback(current => current.owner === lookback.owner ? { ...current, throughSeq: visibleThrough, error: null } : current)
       return
@@ -245,7 +245,7 @@ export function useMessageListController({
       setLookback(current => {
         if (current.owner !== owner) return current
         if (!result) return { ...current, checking: false, error: new Error("Could not load New") }
-        if (view.readable && view.followingTail) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq, view.throughSeq) }
+        if (view.readable && view.readingTail) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq, view.throughSeq) }
         if (!result.boundary.target) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq) }
         if (result.boundary.target.seq <= visibleThrough) return { ...current, checking: false,
           throughSeq: Math.max(current.throughSeq, visibleThrough), checkedThrough: -1 }
@@ -257,7 +257,7 @@ export function useMessageListController({
       if (lookbackView.current?.owner === owner) setLookback(current => current.owner === owner
         ? { ...current, checking: false, error: error instanceof Error ? error : new Error("Could not load New") } : current)
     })
-  }, [active, followingTail, lookback, messages, newDividerVisibility, observedSeq, onReadNewBoundary, readPositionReady, readVisiblePeerSeq, viewerUserId])
+  }, [active, readingTail, lookback, messages, newDividerVisibility, observedSeq, onReadNewBoundary, readPositionReady, readVisiblePeerSeq, viewerUserId])
   const jumpToNew = useCallback(() => {
     const id = lookback.target, owner = lookback.owner
     if (!id || lookback.used || lookback.pending || lookbackView.current?.owner !== owner) return

@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   readPositionReady: false,
   paginationEnabled: false,
   followingTail: false,
+  readingTail: false,
   requestNewPosition: vi.fn(),
   newDividerVisibility: "above" as "above" | "below" | "visible" | "pending",
   scrollInputs: [] as unknown[],
@@ -69,6 +70,7 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       readPositionReady: mocks.readPositionReady,
       paginationEnabled: mocks.paginationEnabled,
       followingTail: mocks.followingTail,
+      readingTail: mocks.readingTail,
       jumpToPresentVisible: !!input.hasMoreNewer,
       requestNewPosition: mocks.requestNewPosition,
       newDividerVisibility: mocks.newDividerVisibility,
@@ -235,6 +237,7 @@ describe("useMessageListController", () => {
     mocks.readPositionReady = false
     mocks.paginationEnabled = false
     mocks.followingTail = false
+    mocks.readingTail = false
     mocks.newDividerVisibility = "above"
     mocks.requestNewPosition.mockReset().mockReturnValue({ accepted: false })
     mocks.captureOlderPageAnchor.mockClear()
@@ -441,9 +444,31 @@ describe("useMessageListController", () => {
     expect(read).not.toHaveBeenCalled()
     expect(latest.newJumpVisible).toBe(false)
     mocks.followingTail = true
+    mocks.readingTail = true
     visibleMessageIds = []
     view.rerender(React.createElement(Probe, { value: { ...value, messages: [peer(1), peer(2), peer(3)] } }))
     expect(read).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it.each(["before", "during"])("does not consume an unseen New boundary when loose follow resumes %s its read", async timing => {
+    mocks.readPositionReady = true
+    mocks.followingTail = timing === "before"
+    mocks.readingTail = false
+    visibleMessageIds = []
+    let finish!: (value: { boundary: ReturnType<typeof boundary>; latestSeq: number }) => void
+    const read = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const value = props({ messages: [peer(1)], newBoundary: boundary(null, 1), viewerUserId: "viewer", onReadNewBoundary: read })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    const arrived = { ...value, messages: [peer(1), peer(2), peer(3)] }
+    view.rerender(React.createElement(Probe, { value: arrived }))
+    expect(read).toHaveBeenCalledExactlyOnceWith(1)
+    mocks.followingTail = true
+    view.rerender(React.createElement(Probe, { value: arrived }))
+    await act(async () => finish({ boundary: boundary(2, 1), latestSeq: 3 }))
+    expect(latest.newJumpVisible).toBe(true)
+    expect(latest.items.some(item => item.kind === "divider" && item.messageId === "m2" && item.newDivider)).toBe(true)
+    expect(read).toHaveBeenCalledExactlyOnceWith(1)
     view.unmount()
   })
 
