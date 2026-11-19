@@ -1,29 +1,32 @@
+export const metadata = {
+  slug: "claude-code-memory",
+  title: "Claude Code Memory: Persistent Memory Across Sessions",
+  date: "2026-10-22",
+  dateModified: "2026-11-18",
+  author: "Alook Team",
+  excerpt: "We tested Claude Code memory across fresh sessions, corrected a saved label, and found a missing index entry after a failed recall in an older-version run.",
+  readingTime: "4 min read",
+  image: "/blog/claude-code-memory/hero.webp",
+};
+
 export const jsonLd = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
     {
       "@type": "Question",
-      "name": "Why does memory work in one project but not another?",
+      "name": "How much of MEMORY.md loads at startup?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Check where the note was actually saved on disk and compare it with the memory folder shown in the second project before editing the note. Our test used one Git project and one configuration directory; we did not test moving memory to another repository or machine."
+        "text": "Claude Code loads the first 200 lines or 25 KB of MEMORY.md, whichever limit comes first. Keep the index concise and move detail into topic files so the relevant pointers remain in the loaded portion."
       }
     },
     {
       "@type": "Question",
-      "name": "Should I add an index entry when recall fails?",
+      "name": "Does memory carry across machines?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Check MEMORY.md first. Our 2.1.304 run created its own index entry automatically, while an older 2.1.185 run in a custom directory needed a manual pointer before recall worked. Treat that manual edit as a fix for that specific setup, not a standard setup step."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Which should I correct: memory or project instructions?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Update whichever file owns the rule. Standing project rules belong in your instruction files, while outdated preferences should be updated in auto memory. If both mention the old value, inspect both and repeat the fresh-session check. Adding another contradictory note leaves the conflict in place."
+        "text": "Auto-memory files are not shared across machines or cloud environments."
       }
     },
     {
@@ -31,7 +34,7 @@ export const jsonLd = {
       "name": "Does compaction delete saved memory files?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Compaction trims conversation context, so a missing answer does not prove a saved file was deleted. Check the file on disk and confirm the session can still access it."
+        "text": "Compaction reduces conversation context. It doesn't delete the saved files on disk. Claude Code re-reads the project-root CLAUDE.md after compaction."
       }
     },
     {
@@ -39,162 +42,115 @@ export const jsonLd = {
       "name": "Can subagents use the main session's auto memory?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Do not assume they inherit it. The official subagent guide describes separate memory configuration and context behavior; forks have different inheritance behavior. Check the agent type and version. For the broader distinction, see Claude Code subagents and independent agents."
+        "text": "The main conversation's auto memory isn't loaded into a non-fork subagent. A subagent can have its own persistent memory through its memory configuration. A fork inherits the parent conversation."
       }
     }
   ]
 };
 
-export const metadata = {
-  slug: "claude-code-memory",
-  title: "Claude Code Memory: Persistent Memory Across Sessions",
-  date: "2026-10-22",
-  author: "Alook Team",
-  excerpt: "Check Claude Code's native memory, inspect saved notes, and verify recall in a fresh session. Follow the steps and fix stale facts.",
-  readingTime: "9 min read",
-  image: "/blog/claude-code-memory/hero.webp",
-};
+![Claude Code memory across sessions: save a label, store it in an index and topic note, then recall it in a new session.](/blog/claude-code-memory/hero.webp)
 
-[![Claude Code memory: save a project note, store it in the index and topic file, then recall it in a new session.](/blog/claude-code-memory/hero.webp)](/blog/claude-code-memory/hero.webp)
+Claude Code remembered our made-up review label in a fresh conversation. It answered `OPAL-742`, exactly as requested.
 
-**Claude Code includes built-in persistent memory, so test its native notes before reaching for a plugin.** Run the quick three-step check below to make sure memory works in your project.
+The files showed what Claude had saved: an index and a separate topic note.
 
-## Check Claude Code memory in three steps
+Claude Code memory keeps selected project notes available across conversations. Our test saved and recalled a preference. When recall failed in a test on version 2.1.185, the files showed us where to look.
 
-1. **Save a harmless fact.** In a throwaway project, ask Claude to save a fake review label such as `OPAL-742` in auto memory without modifying your repository instruction files.
-2. **Inspect the files on disk.** Run `/memory` and open the auto memory folder. Confirm that both the saved note and its `MEMORY.md` index entry are actually there. Claude saying "I'll remember that" does not prove a file was written.
-3. **Ask again in a fresh session.** Quit and run `claude` again in the same project without resume flags. Ask, “What review label should this demo project use?” Leave `OPAL-742` out of your question.
-
-Check Claude's answer against the saved files and any file-read logs your client shows. Seeing the right answer confirms recall, while checking the read log confirms which file Claude actually loaded.
+<span id="claudemd-and-conditional-agentsmd-loading" />
+<span id="session-history-and-resume" />
 
 ## What does Claude Code remember between sessions?
 
-Claude Code carries project instructions and saved auto-memory notes into new sessions, while session resume picks up an earlier chat where you left off. Pick the option that matches what you want to keep:
+A fresh conversation starts with a new context window.
 
-| Where it lives | Use it for | What to check |
-|---|---|---|
-| Instruction files | Standing rules every session in the project should follow | Which instruction files this session actually loaded |
-| Auto memory | Useful project notes learned along the way | Whether the note file exists and is readable when needed |
-| Session history and resume | Picking up an earlier conversation | Whether you reopened the right session |
+| Carrier | What we use it for |
+|---|---|
+| Instruction files | Project rules maintained by the team |
+| Auto memory | Notes Claude saves for future sessions |
+| Session resume | The earlier conversation |
 
-### CLAUDE.md and conditional AGENTS.md loading
+For our test, the team chose a separate session to check saved memory instead of resuming the earlier conversation.
 
-Put permanent project rules in an instruction file. Notes from earlier experiments or temporary preferences belong in auto memory if they are likely to change.
+Claude Code added direct `AGENTS.md` support in version 2.1.277. When a project already has a `CLAUDE.md`, Claude reads that by default. We check `/config` when a project relies on both formats.
 
-According to the [official memory documentation](https://code.claude.com/docs/en/memory), `AGENTS.md` loading is conditional: direct support requires v2.1.277 or later, and local `CLAUDE.md` or `CLAUDE.local.md` files affect what loads by default. You can enable both in `/config`, or import `AGENTS.md` through `CLAUDE.md` in older sessions. Check which files are active rather than assuming every instruction file got loaded.
+<span id="where-is-claude-code-auto-memory-stored" />
 
-### Where is Claude Code auto memory stored?
+## Where is Claude Code memory stored?
 
-The [documented default location](https://code.claude.com/docs/en/memory#storage-location) is `~/.claude/projects/<project>/memory/`, which holds a `MEMORY.md` index alongside separate topic notes. Run `/memory` to confirm the active folder for your session, since custom configuration can move it. Our CLI test below used an isolated config directory, so its `config/projects/...` path is a test folder rather than the default path.
+The default auto-memory directory is `~/.claude/projects/<project>/memory/`. `MEMORY.md` indexes the notes. Topic files hold details. `/memory` shows the active location and the auto-memory setting.
 
-[![Project instructions are separate from the auto-memory index and topic note; both memory files contain the test label.](/blog/claude-code-memory/memory-files.webp)](/blog/claude-code-memory/memory-files.webp)
+![Diagram comparing project instructions with auto memory. The index and topic note each contain the test label.](/blog/claude-code-memory/memory-files.webp)
 
-*Memory-file schematic. Both the index and topic note contain the test label; custom configuration can change the memory location.*
+A custom setup changes where to look, so we'd start with the location shown by `/memory` rather than a path copied from another machine.
 
-### Session history and resume
+<span id="check-claude-code-memory-in-three-steps" />
+<span id="verify-memory-in-a-new-claude-code-session" />
+<span id="use-the-interactive-memory-controls" />
+<span id="why-does-memory-work-in-one-project-but-not-another" />
 
-Use session resume when you want to continue the conversation itself. The [session guide](https://code.claude.com/docs/en/sessions) covers `claude --continue` for reopening the most recent session in your current directory and `claude --resume` for choosing an earlier one.
+## How do you check Claude Code memory across sessions?
 
-When you test cross-session memory, start a brand-new session instead so the old chat history is not supplying the answer.
+We used a fictional review label for the test. A harmless fact keeps the result easy to distinguish from information already in the project.
 
-## Verify memory in a new Claude Code session
+For your own check, the same sequence works:
 
-Run `/memory` to check that auto memory is turned on, save a test note, and ask for it in a new session. Checking the files on disk and the session's read logs lets you tell whether a problem happened during saving or during recall.
+1. Ask Claude to save a harmless fact in auto memory, without changing project instruction files.
+2. Open `/memory`, find the auto-memory folder, and inspect the note and its index.
+3. Start a new conversation in the same project and ask for the fact without including the answer.
 
-### Use the interactive memory controls
+A correct answer shows recall. The session's read activity can show which note Claude opened. `/context all` lists the project instructions that loaded.
 
-These steps follow the [documented `/memory` controls](https://code.claude.com/docs/en/memory#view-and-edit-with-memory), checked on October 22, 2026. Our hands-on test below ran via CLI calls; the interactive menu steps are documentation-based and were not tested directly here.
+<span id="what-we-tested-with-the-cli" />
+<span id="separate-observed-recall-from-an-unverified-loading-path" />
 
-Run `claude --version` first and note the build. Launch Claude Code from your terminal inside the project, then:
+## What happened in our cross-session test?
 
-- Enter `/memory` and check the auto memory toggle. If it is off, turn it on in a directly launched terminal session before testing.
-- Choose the option to open the auto memory folder. After your save request, inspect both the topic note and `MEMORY.md`, and check that the actual path and contents match what Claude reported.
-- Run `/context` to see which instruction files loaded. That list tells you about instruction files, not whether Claude read an auto-memory topic note.
-- Quit, run `claude` again in the same project, and ask your recall question. Check whatever file-read activity your client exposes.
+The team ran the exercise on macOS with Claude Code 2.1.304 on October 21, 2026. The project was an empty Git repository with a separate configuration directory and default memory placement. Each CLI call started a new conversation. The [test record](https://alook.ai/blog/claude-code-memory/test-record.md) contains the selected tool events and answers.
 
-If `/memory` will not let you flip the toggle, restart Claude Code directly from your terminal. Also avoid clicking a missing instruction-file entry in `/memory` just to inspect it, because selecting it can create that file on disk.
+The first save produced both a topic note and an index entry. The next conversation read the topic and returned `OPAL-742`. The index also contained that answer.
 
-### What we tested with the CLI
+The team then changed the label to `CEDAR-915`, and a fresh conversation returned it. Finally, a team member moved the disposable topic outside the memory directory and removed its index entry. The next conversation answered `UNKNOWN`.
 
-We tested saving, recalling, updating, and removing memory on macOS with **Claude Code 2.1.304**, the stable build returned by the official download endpoint on **October 21, 2026**.
+A test on Claude Code 2.1.185 with a custom memory directory gave us a different result: the topic existed but its index entry was missing, and the first recall failed. A manually added pointer made recall work. In the 2.1.304 default-placement run, Claude created the index entry itself. The index is the first file we'd inspect when a saved topic isn't found.
 
-To keep test notes out of daily work, we ran inside an empty Git repository with a separate `CLAUDE_CONFIG_DIR`. We kept default memory placement with no `autoMemoryDirectory` or `autoMemoryEnabled` overrides. Tools were restricted to Read, Write, and Edit, using project/local settings sources and a strict empty MCP configuration. Those settings narrowed storage and tool access, though machine-level parent instructions were not completely isolated.
+<span id="fix-claude-code-memory-that-is-not-working" />
+<span id="saved-files-are-not-being-loaded" />
+<span id="an-edited-or-deleted-note-still-appears" />
+<span id="should-i-add-an-index-entry-when-recall-fails" />
+<span id="which-should-i-correct-memory-or-project-instructions" />
 
-Each `-p` call started a fresh conversation without `--continue` or `--resume` (the [CLI reference](https://code.claude.com/docs/en/cli-reference) documents these session and output flags). Rather than taking Claude's chat explanation at face value, we checked the actual tool events and file snapshots on disk.
+## Why isn't Claude Code memory working?
 
-Claude wrote `demo-review-label.md` and `MEMORY.md` under `config/projects/<encoded-project>/memory/`, adding this index line:
+A failed save and a failed recall need different fixes. A reported save with no file points first to the write result and destination. For failed recall, we'd start with the index as in the test above, then check whether the note belongs to a different project directory.
 
-```markdown
-- [Demo review label](demo-review-label.md) — demo review label is OPAL-742
-```
+### An old value keeps coming back
 
-In the next fresh `-p` call, Claude answered `OPAL-742` and logged a successful read of `demo-review-label.md`. Because both `MEMORY.md` and the topic file contained `OPAL-742`, this run does not prove the topic file was its sole source, though it does confirm Claude read the topic file without any manual index edits.
+For the correction above, Claude updated both the topic note and its index. An old value can remain in the current conversation or a project instruction, so update that source when it owns the rule instead of adding a conflicting copy.
 
-### Separate observed recall from an unverified loading path
+### Memory works in one project but not another
 
-Here is what each step of our test showed:
-
-| Test state | What we observed on disk and in logs | Fresh-session answer |
-|---|---|---|
-| 2.1.304, default memory placement | Claude wrote topic and index; next call read topic | `OPAL-742` |
-| Saved preference corrected through Claude | File updates verified on disk; checked in a fresh call | `CEDAR-915` |
-| Disposable note and index entry removed | Moved topic file out and removed index entry, then tested in a fresh call | `UNKNOWN` |
-| Earlier 2.1.185, custom memory directory | Topic created without index; first recall failed | `UNKNOWN` |
-
-That 2.1.185 miss came from an older build using a custom memory directory, not default behavior in 2.1.304. Treat this as a single-project test of save, recall, and update mechanics rather than a recall-rate benchmark. Interactive menus, other machines, and subagents were outside this test.
-
-[![Claude Code 2.1.304 CLI events show saving, reading in a fresh session, correction, and fresh-session reading of the new label.](/blog/claude-code-memory/cli-evidence.webp)](/blog/claude-code-memory/cli-evidence.webp)
-
-*CLI test-record excerpts, Claude Code 2.1.304, October 21, 2026. Paths are normalized; this is a layout of selected tool events and answers, not a terminal screenshot. The index also contained the answer, so the topic read does not prove it was the only source. See the [complete sanitized test record](/blog/claude-code-memory/test-record.md).*
-
-## Fix Claude Code memory that is not working
-
-When memory fails, check four things in order: where the file was saved, whether `MEMORY.md` points to it, whether you are in the same project scope, and whether the session logged a file read. Fix the first broken step, then retest in a fresh session. If an old value keeps coming back, look for another copy or a conflicting rule in your instruction files.
-
-### Saved files are not being loaded
-
-Open the memory folder shown in `/memory` and compare it with the path where your earlier save actually wrote the file. Look for a missing `MEMORY.md` pointer, a different project directory, or a config mismatch before reaching for a third-party memory tool.
-
-| Symptom | First check | Useful evidence |
-|---|---|---|
-| Save was reported, but no note is found | Actual write result and destination | File exists with the intended content |
-| Note exists, but recall fails | Index, project scope, and available read records | Missing pointer, wrong path, or a read error |
-| Correct note was read, but answer is wrong | Other instructions and the current question | Conflicting input or an unsupported conclusion |
-
-### An edited or deleted note still appears
-
-Ask Claude to retire the outdated value and update the saved preference, inspect every modified memory file on disk, and ask the same recall question in a fresh session. When our test replaced `OPAL-742` with `CEDAR-915`, `Write` calls updated both the topic file and `MEMORY.md`, and the next fresh call read the topic file and returned `CEDAR-915`.
-
-For the removal check, we moved the test topic file outside the memory directory and deleted its pointer from `MEMORY.md`. The next fresh session answered `UNKNOWN`. Note that we edited the files manually on disk; this did not test a UI delete button or verify privacy erasure.
-
-If an old value still shows up after updating memory, check the active conversation, your instruction files, and your prompt wording for another copy.
+The default memory directory follows the Git repository. Its worktrees and subdirectories share that directory on the same machine. Outside Git, Claude uses the project root. Auto memory remains local to the machine. The active folder shown by `/memory` is the place to compare with the saved note.
 
 ## Do you need a Claude Code memory plugin?
 
-Stick with built-in memory if you just need Claude to retain a handful of project preferences and the save/recall check passes. Look for a plugin only when you hit a specific missing feature, such as searching across a large archive or reading notes from a different client. Before installing one, check what it records, where it stores data, and who can read it; our test did not compare plugins.
+For our label, the built-in notes were enough: the next session returned the saved value. We'd consider a plugin for a different job, such as searching a large archive or retrieving notes from another client. We'd first look at where it stores those records and who can access them.
 
-When a decision changes for the whole team, [Alook](https://alook.ai/) gives people and bots a shared channel to post the new decision alongside its source. Posting there coordinates the team, though it does not automatically sync into Claude Code's private auto-memory files; see [sharing context between agents](/blog/shared-context-between-agents).
-
-When switching runtimes, pass the agreed decision and next verification step explicitly. Our guide on [keeping context across coding agent sessions](/blog/keep-context-across-coding-agent-sessions) covers how to structure those portable handoffs. Check how the next tool loads memory before expecting it to pick them up automatically.
+By default, those notes stay on the machine and are scoped to the project. A teammate using another agent needs the decision shared with them. For our team, the conversation is where we leave that decision and its source. Our guide to [agent collaboration](https://alook.ai/blog/shared-context-between-agents) covers the handoff.
 
 ## Claude Code memory FAQs
 
-### Why does memory work in one project but not another?
+### How much of MEMORY.md loads at startup?
 
-Check where the note was actually saved on disk and compare it with the memory folder shown in the second project before editing the note. Our test used one Git project and one configuration directory; we did not test moving memory to another repository or machine.
+Claude Code loads the first 200 lines or 25 KB of `MEMORY.md`, whichever limit comes first. Keep the index concise and move detail into topic files so the relevant pointers remain in the loaded portion.
 
-### Should I add an index entry when recall fails?
+### Does memory carry across machines?
 
-Check MEMORY.md first. Our 2.1.304 run created its own index entry automatically, while an older 2.1.185 run in a custom directory needed a manual pointer before recall worked. Treat that manual edit as a fix for that specific setup, not a standard setup step.
-
-### Which should I correct: memory or project instructions?
-
-Update whichever file owns the rule. Standing project rules belong in your instruction files, while outdated preferences should be updated in auto memory. If both mention the old value, inspect both and repeat the fresh-session check. Adding another contradictory note leaves the conflict in place.
+Auto-memory files are not shared across machines or cloud environments.
 
 ### Does compaction delete saved memory files?
 
-Compaction trims conversation context, so a missing answer does not prove a saved file was deleted. Check the file on disk and confirm the session can still access it.
+Compaction reduces conversation context. It doesn't delete the saved files on disk. Claude Code re-reads the project-root `CLAUDE.md` after compaction.
 
 ### Can subagents use the main session's auto memory?
 
-Do not assume they inherit it. The [official subagent guide](https://code.claude.com/docs/en/sub-agents) describes separate memory configuration and context behavior; forks have different inheritance behavior. Check the agent type and version. For the broader distinction, see [Claude Code subagents and independent agents](/blog/claude-code-subagents-vs-independent-agents).
+The main conversation's auto memory isn't loaded into a non-fork subagent. A subagent can have its own persistent memory through its `memory` configuration. A fork inherits the parent conversation.
