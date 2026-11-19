@@ -138,7 +138,7 @@ export function MachineCard({
       {!isOnline && !refreshing && (
         <div className="flex justify-end">
           <Button
-            variant="default"
+            variant="secondary"
             size="sm"
             data-onboarding-target="reconnect-machine"
             data-onboarding-id={machine.id}

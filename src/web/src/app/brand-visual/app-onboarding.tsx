@@ -97,7 +97,7 @@ const SUBSCRIBED: BillingSummary = {
 
 function boardBilling(data: BillingSummary): BillingController {
   return {
-    data, isPending: false, isFetching: false, isError: false, returnFrom: null, polling: false, actionError: null,
+    data, isPending: false, isFetching: false, isError: false, isCurrentRead: () => true, returnFrom: null, polling: false, actionError: null,
     isBusy: false, isCancelingChange: false, refresh: noop, portal: async () => {}, checkout: async () => {}, cancelChange: async () => {},
   } as unknown as BillingController
 }

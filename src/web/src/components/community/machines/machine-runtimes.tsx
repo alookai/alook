@@ -1,6 +1,6 @@
 "use client"
 
-import type { CSSProperties } from "react"
+import { useState, type CSSProperties } from "react"
 import type { CommunityMachineRuntime } from "@alook/shared"
 import { CircleAlert } from "@/components/icons/lucide";
 import { ProviderLogo } from "@/components/provider-logo"
@@ -12,20 +12,44 @@ import { runtimeLabel, visibleRuntimes } from "@/lib/community/runtime-label"
 const chipBase =
   "h-auto max-w-40 gap-2 px-2 py-1 text-[11px]"
 
+function UnhealthyRuntimesDisclosure({ runtimes }: { runtimes: CommunityMachineRuntime[] }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <>
+      {expanded && runtimes.map((r) => <RuntimeChip key={r.id} runtime={r} />)}
+      <button
+        type="button"
+        data-slot="machine-runtimes-unavailable-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((open) => !open)}
+        className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground/80 transition-[color,background-color,transform] duration-150 hover:bg-muted/70 hover:text-foreground active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+      >
+        {expanded ? "Hide unavailable" : `+${runtimes.length} unavailable`}
+      </button>
+    </>
+  )
+}
+
 export function MachineRuntimes({ runtimes }: { runtimes: CommunityMachineRuntime[] | undefined }) {
   // Nullish guard — a legacy CommunityMachineSummary cached client-side may
   // still be missing this field. Do not throw; render nothing.
   const list = visibleRuntimes(runtimes ?? [])
   if (list.length === 0) return null
 
-  const sorted = list.toSorted((a, b) =>
-    Number(a.status === "unhealthy") - Number(b.status === "unhealthy")
-  )
+  const healthy = list.filter((r) => r.status !== "unhealthy")
+  const unhealthy = list.filter((r) => r.status === "unhealthy")
+  const items =
+    healthy.length === 0
+      ? unhealthy.map((r) => <RuntimeChip key={r.id} runtime={r} />)
+      : [
+          ...healthy.map((r) => <RuntimeChip key={r.id} runtime={r} />),
+          ...(unhealthy.length > 0
+            ? [<UnhealthyRuntimesDisclosure key="__unavailable__" runtimes={unhealthy} />]
+            : []),
+        ]
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2">
-      {sorted.map((r) => (
-        <RuntimeChip key={r.id} runtime={r} />
-      ))}
+      {items}
     </div>
   )
 }

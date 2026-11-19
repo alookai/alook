@@ -53,7 +53,7 @@ export function BotMachineField({ machines, machineId, onChange, error, radioNam
                       <span
                         className={cn(
                           "ml-auto inline-flex items-center gap-1 text-xs",
-                          online ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+                          online ? "text-approval-pass dark:text-status-online" : "text-muted-foreground",
                         )}
                       >
                         <span
@@ -68,6 +68,11 @@ export function BotMachineField({ machines, machineId, onChange, error, radioNam
                   )
                 })}
               </RadioGroup>
+            )}
+            {machines.length > 0 && !machines.some((m) => isPresenceOnline(m.status)) && (
+              <p className="text-xs text-muted-foreground">
+                All machines are offline — bring one online on the Machines page first.
+              </p>
             )}
             {error && (
               <p className="text-xs text-destructive">{error}</p>

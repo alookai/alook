@@ -8,8 +8,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { memo, useRef } from "react"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
-import { SmilePlus } from "lucide-react";
-import { ImageOff, MessagesSquare, UserPlus, Reply, MoreHorizontal, X, Share, Check } from "@/components/icons/lucide";
+import { SmilePlus, ImageOff, MessagesSquare, UserPlus, Reply, MoreHorizontal, X, Share, Check } from "@/components/icons/lucide";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isSecondaryContextPointer } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
@@ -645,7 +644,7 @@ function MessageImpl({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
       {interactive && activated && !selectMode && (
-        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "top-0 -translate-y-full" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none ${m.grouped ? "top-0 -translate-y-full" : m.replyTo ? "top-5" : "-top-2"} ${toolbarOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-0.5 opacity-0 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
               <span className="opacity-60">#</span>{m.seq}

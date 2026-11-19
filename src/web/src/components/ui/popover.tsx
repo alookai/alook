@@ -37,7 +37,7 @@ function PopoverBackdrop({
     <PopoverPrimitive.Backdrop
       data-slot="popover-backdrop"
       className={cn(
-        "fixed z-50 bg-black/20 backdrop-blur-[2px] transition-[opacity,backdrop-filter] duration-200 ease-out data-ending-style:opacity-0 data-ending-style:backdrop-blur-none data-starting-style:opacity-0 data-starting-style:backdrop-blur-none",
+        "fixed z-50 bg-black/20 backdrop-blur-[2px] transition-[opacity,backdrop-filter] duration-150 ease-out data-ending-style:opacity-0 data-ending-style:backdrop-blur-none data-starting-style:opacity-0 data-starting-style:backdrop-blur-none",
         className,
       )}
       {...props}
@@ -69,7 +69,7 @@ function PopoverPopup({
     <PopoverPrimitive.Popup
       data-slot="popover-content"
       className={cn(
-        "rounded-lg border bg-popover text-popover-foreground shadow-md outline-none",
+        "rounded-lg border bg-popover text-popover-foreground shadow-md duration-150 outline-none",
         "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95",
         "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
         className,

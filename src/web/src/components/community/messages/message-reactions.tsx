@@ -1,6 +1,6 @@
 "use client"
 
-import { Smile } from "lucide-react"
+import { Smile } from "@/components/icons/lucide"
 import { EmptyState } from "../empty-state"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useMemo, useRef } from "react"

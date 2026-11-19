@@ -282,7 +282,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
               <button
                 data-testid={tid.inboxUnreadChannel(channel.channelId)}
                 onClick={() => onOpenChannel?.(server, channel, directVisible)}
-                className="flex w-full items-center gap-2 rounded-md py-2 pl-6 pr-2 text-left text-sm hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-md py-2 pl-6 pr-2 text-left text-sm transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none"
               >
                 <EntityIcon kind={channel.type} className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{channel.channelName}</span>
@@ -293,7 +293,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
                   key={child.channelId}
                   data-testid={tid.inboxUnreadChild(child.channelId)}
                   onClick={() => onOpenThread(server, channel, child)}
-                  className="flex w-full items-center gap-2 rounded-md py-1.5 pl-10 pr-2 text-left text-sm hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-md py-1.5 pl-10 pr-2 text-left text-sm transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none"
                 >
                   <EntityIcon kind={child.type} className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">{child.channelName}</span>

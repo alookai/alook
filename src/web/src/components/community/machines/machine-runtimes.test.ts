@@ -81,7 +81,7 @@ describe("MachineRuntimes", () => {
     expect(triggerRender.type).toBe(Badge)
     expect(triggerRender.props.render.type).toBe("button")
     expect(triggerRender.props["aria-label"]).toBe(
-      "claude 2.0.0-canary-20260101-abcdef"
+      "Claude 2.0.0-canary-20260101-abcdef"
     )
   })
 
@@ -119,7 +119,7 @@ describe("MachineRuntimes", () => {
     expect(triggerRender.props["aria-label"]).toBe("Codex CLI unavailable")
   })
 
-  it("sorts unhealthy runtimes after healthy ones, preserving relative order within each group", () => {
+  it("renders healthy runtimes first and groups unhealthy ones into a disclosure in relative order", () => {
     const tree = MachineRuntimes({
       runtimes: [
         { id: "codex-cli", status: "unhealthy" as const },
@@ -128,8 +128,10 @@ describe("MachineRuntimes", () => {
         { id: "cursor" },
       ],
     })
-    const chips = collectChips(tree)
-    expect(chips.map((c) => c.key)).toEqual([".$claude", ".$cursor", ".$codex-cli", ".$pi"])
+    const children = collectChips(tree)
+    expect(children).toHaveLength(3)
+    expect(children.slice(0, 2).map((c) => c.key)).toEqual([".$claude", ".$cursor"])
+    expect(children[2].props.runtimes.map((r: { id: string }) => r.id)).toEqual(["codex-cli", "pi"])
   })
 
   it("unhealthy without lastError falls back to a generic 'Unavailable — check daemon logs' tooltip", () => {

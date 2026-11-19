@@ -11,7 +11,7 @@
     "composition": 342,
     "environment": 10,
     "nonvisual": 32,
-    "direct": 154
+    "direct": 160
   },
   "entries": [
     {
@@ -2862,7 +2862,8 @@
       "candidates": [
         "MachineRuntimes",
         "RuntimeBadge",
-        "RuntimeChip"
+        "RuntimeChip",
+        "UnhealthyRuntimesDisclosure"
       ],
       "kind": "composition",
       "examples": [
@@ -5890,6 +5891,21 @@
       "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/icons/animateicons/archive-restore.tsx",
+      "application": "Web",
+      "candidates": [
+        "ArchiveRestoreIcon"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-icons--all-identities",
+          "region": "archive-arrow-up row; current 16px and 24px icons"
+        }
+      ],
+      "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/icons/animateicons/archive.tsx",
       "application": "Web",
       "candidates": [
@@ -6400,6 +6416,21 @@
       "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/icons/animateicons/dices.tsx",
+      "application": "Web",
+      "candidates": [
+        "DicesIcon"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-icons--all-identities",
+          "region": "dices row; current 16px and 24px icons"
+        }
+      ],
+      "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/icons/animateicons/dollar-sign.tsx",
       "application": "Web",
       "candidates": [
@@ -6740,6 +6771,36 @@
         {
           "story": "web-foundations-icons--all-identities",
           "region": "key-round row; current 16px and 24px icons"
+        }
+      ],
+      "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/icons/animateicons/link-2-off.tsx",
+      "application": "Web",
+      "candidates": [
+        "Link2OffIcon"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-icons--all-identities",
+          "region": "link-2-off row; current 16px and 24px icons"
+        }
+      ],
+      "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/icons/animateicons/link-2.tsx",
+      "application": "Web",
+      "candidates": [
+        "Link2Icon"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-icons--all-identities",
+          "region": "link-2 row; current 16px and 24px icons"
         }
       ],
       "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
@@ -7295,6 +7356,36 @@
         {
           "story": "web-foundations-icons--all-identities",
           "region": "smartphone row; current 16px and 24px icons"
+        }
+      ],
+      "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/icons/animateicons/smile-plus.tsx",
+      "application": "Web",
+      "candidates": [
+        "SmilePlusIcon"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-icons--all-identities",
+          "region": "face-slightly-smiling-plus row; current 16px and 24px icons"
+        }
+      ],
+      "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/icons/animateicons/smile.tsx",
+      "application": "Web",
+      "candidates": [
+        "SmileIcon"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-icons--all-identities",
+          "region": "face-slightly-smiling row; current 16px and 24px icons"
         }
       ],
       "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."

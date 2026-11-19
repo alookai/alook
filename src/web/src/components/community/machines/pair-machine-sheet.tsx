@@ -502,7 +502,7 @@ function Marker({
       className={[
         "relative grid size-6 place-items-center rounded-full text-xs font-medium",
         done
-          ? "bg-emerald-500 text-white"
+          ? "bg-status-online text-white"
           : muted
             ? "bg-muted text-muted-foreground"
             : "bg-primary text-primary-foreground",
