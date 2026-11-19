@@ -3,7 +3,7 @@ import React from "react"
 import { MessageList } from "./message-list"
 import { ConversationFooterShell, ConversationFooterSlotProvider } from "./conversation-footer-shell"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture, bodyTop } from "@/test/message-scroll-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { captureChannelMetadataToken } from "@/lib/community/conversation-qualification"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
@@ -182,5 +182,53 @@ describe("MessageList loading-to-loaded mount identity", () => {
     resize()
     expect(second.getByTestId(tid.messageScroller)).toBe(restored)
     expect(restored.scrollTop).toBeCloseTo(entered, 0)
+  })
+})
+
+
+describe("peer arrival after upward takeover", () => {
+  beforeEach(installMessageScrollFixture)
+  afterEach(restoreMessageScrollFixture)
+  it.each([false, true])("retains the actual body through long idle and controller publication, late New=%s", async lateNew => {
+    scrollFixture.height = 1161
+    scrollFixture.width = 883
+    scrollFixture.bodyHeights.set("m165", 2872)
+    const entry = {}, window = {}, page = {}
+    const rows = Array.from({ length: 166 }, (_, index) => ({ id: `m${index}`, seq: index + 1,
+      authorId: "peer", authorName: "Bob", content: "Message", createdAt: new Date(index * 1000).toISOString() }))
+    const reading = vi.fn()
+    const newBoundary = { afterSeq: 166, target: null }
+    const readNew = vi.fn(async () => ({ boundary: { afterSeq: 166, target: { id: "peer167", seq: 167 } }, latestSeq: 167 }))
+    function Scene({ messages, messageWindow }: { messages: typeof rows; messageWindow: object }) {
+      const [, retain] = React.useState(false)
+      const [read, setRead] = React.useState<string | null>(null)
+      const onReading = React.useCallback((id: string) => { reading(id); setRead(id) }, [])
+      return React.createElement(MessageList, { channel: "general", messages, positionEntry: entry, messageWindow,
+        positionDataState: "ready", hasMore: false, hasMoreNewer: false,
+        onOpenThread: () => {}, onUserTakeover: () => retain(true), onReadingMessage: onReading,
+        messageNeighborhood: { page, older: false, newer: false },
+        newBoundary, latestSeq: messages.at(-1)!.seq, onReadNewBoundary: lateNew ? readNew : undefined,
+        hero: React.createElement("span", null, read),
+      })
+    }
+    const view = render(React.createElement(Scene, { messages: rows, messageWindow: window }))
+    resize()
+    const root = view.getByTestId(tid.messageScroller)
+    fireEvent.wheel(root, { deltaY: -600 })
+    act(() => root.scrollTo({ top: root.scrollHeight - root.clientHeight - 600 }))
+    runFrames()
+    const before = root.scrollTop, body = bodyTop(root, "m165")
+    act(() => vi.advanceTimersByTime(155470))
+    runFrames()
+    expect(root.scrollTop).toBe(before)
+    expect(bodyTop(root, "m165")).toBe(body)
+    expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBe(600)
+    const messages = [...rows, { ...rows.at(-1)!, id: "peer167", seq: 167 }]
+    await act(async () => { view.rerender(React.createElement(Scene, { messages, messageWindow: {} })) })
+    resize()
+    expect(view.getByTestId(tid.messageScroller)).toBe(root)
+    expect(Math.abs(root.scrollTop - before)).toBeLessThanOrEqual(1)
+    expect(Math.abs(bodyTop(root, "m165") - body)).toBeLessThanOrEqual(1)
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
   })
 })

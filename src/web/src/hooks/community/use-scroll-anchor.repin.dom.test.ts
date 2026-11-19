@@ -1205,10 +1205,12 @@ describe("locked native adapter and existing message scroll owner", () => {
     const h = mount()
     act(() => h.root.scrollTo({ top: h.root.scrollHeight - scrollFixture.height - 41 }))
     runFrames(2)
+    expect(scrollFixture.latest.belowCount).toBe(0)
     scrollFixture.height += 200
     resize()
     expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(0)
     expect(scrollFixture.latest.followingTail).toBe(false)
+    expect(scrollFixture.latest.readingTail).toBe(false)
   })
   it.each([0, 2, 40, 41, 100, 101])("preserves the footer policy at %ipx across native mobile/desktop tail padding", distance => {
     const h = mount({ tailPaddingEnd: 40 })
@@ -1386,10 +1388,12 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize(2)
     act(() => h.root.scrollTo({ top: h.root.scrollHeight - scrollFixture.height - 41 }))
     runFrames(2)
+    expect(scrollFixture.latest.belowCount).toBe(0)
     scrollFixture.height += 100
     resize()
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
     expect(scrollFixture.latest.followingTail).toBe(false)
+    expect(scrollFixture.latest.readingTail).toBe(false)
   })
   it.each([0, 2, 8, 40, 41, 100, 300])("preserves the %ipx footer policy in the first two resize frames", distance => {
     const h = mount()
@@ -1634,7 +1638,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     h.root.removeEventListener("scroll", scroll)
   })
-  it.each(["touch", "pointer"].flatMap(input => [2, 20, 40, 41].map(distance => ({ input, distance }))))("retains the idle $input release policy at $distance px before peer append", ({ input, distance }) => {
+  it.each(["touch", "pointer"].flatMap(input => [2, 20, 40, 41, 600].map(distance => ({ input, distance }))))("retains the idle $input release policy at $distance px before peer append", ({ input, distance }) => {
     const h = mount()
     h.move(h.root.scrollHeight - h.root.clientHeight - distance)
     const native = scrollFixture.latest.virtualizer
@@ -1654,6 +1658,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     }
     expect(native.isScrolling).toBe(false)
     const before = bodyTop(h.root, "m11")
+    const atLoadedBottom = scrollFixture.latest.belowCount === 0
+    expect(atLoadedBottom).toBe(distance <= 41)
     const end = vi.spyOn(native, "scrollToEnd")
     h.update({ items: [...h.input.items, message("received-after-idle-release")] })
     expect(end).toHaveBeenCalledTimes(distance <= CONVERSATION_TAIL_SPACE_PX ? 1 : 0)

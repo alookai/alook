@@ -248,7 +248,7 @@ describe("flattenMessageItems", () => {
 
   it("keeps the FlatItem key stable across temp id, server id, and GET refetch", () => {
     const keyFor = (message: Msg) =>
-      flattenMessageItems([message], undefined).find((item) => item.kind === "message")!.key
+      flattenMessageItems([message], undefined, false, false, true, "u_me").find((item) => item.kind === "message")!.key
     const optimistic = msg({ id: "temp_1", authorId: "u_me", clientNonce: "nonce-1" })
     const reconciled = { ...optimistic, id: "message_1", seq: 8 }
     const refetched = { ...reconciled, content: "canonical", createdAt: "2026-01-01T10:00:01.000Z" }
@@ -256,16 +256,30 @@ describe("flattenMessageItems", () => {
     expect(keyFor(reconciled)).toBe(keyFor(refetched))
   })
 
+  it.each([undefined, null, "viewer"])("keeps foreign message and divider keys stable across nonce publication with viewer=%s", viewerId => {
+    const peer = msg({ id: "peer", seq: 8, authorId: "other", clientNonce: "foreign-nonce" })
+    const before = flattenMessageItems([peer], "peer", false, false, true, viewerId)
+    for (const clientNonce of [undefined, "replacement-nonce", "srv:fallback"]) {
+      const after = flattenMessageItems([{ ...peer, clientNonce }], "peer", false, false, true, viewerId)
+      expect(after.map(item => item.key)).toEqual(before.map(item => item.key))
+      expect(after.find(item => item.kind === "message")?.m.clientNonce).toBe(clientNonce)
+    }
+  })
+
   it("pairs nonce identity with author and rejects server fallback nonces", () => {
     const keys = flattenMessageItems(
       [
         msg({ id: "m1", authorId: "u1", clientNonce: "same" }),
         msg({ id: "m2", authorId: "u2", clientNonce: "same" }),
-        msg({ id: "m3", authorId: "u3", clientNonce: "srv:fallback" }),
-        msg({ id: "m4", authorId: "u4" }),
+        msg({ id: "m3", authorId: "u1", clientNonce: "srv:fallback" }),
+        msg({ id: "m4", authorId: "u1" }),
       ],
-      undefined,
+      undefined, false, false, true, "u1",
     ).filter((item) => item.kind === "message").map((item) => item.key)
+    const confirmedKey = flattenMessageItems([msg({ id: "confirmed-own", authorId: "u1", clientNonce: "same" })],
+      undefined, false, false, true, "u1").find(item => item.kind === "message")!.key
+    expect(keys[0]).toBe(confirmedKey)
+    expect(keys[1]).toBe("msg:id:m2")
     expect(keys[0]).not.toBe(keys[1])
     expect(keys[2]).toBe("msg:id:m3")
     expect(keys[3]).toBe("msg:id:m4")

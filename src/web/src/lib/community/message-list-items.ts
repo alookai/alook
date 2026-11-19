@@ -1,9 +1,9 @@
 import { dateKey, formatDateLabel } from "./format-time"
 import type { Msg, RenderMsg } from "./models/message"
 
-function messageDisplayKey(message: Msg): string {
+function messageDisplayKey(message: Msg, viewerUserId?: string | null): string {
   const nonce = message.clientNonce
-  if (!message.authorId || !nonce || nonce.startsWith("srv:")) return `msg:id:${message.id}`
+  if (!viewerUserId || message.authorId !== viewerUserId || !nonce || nonce.startsWith("srv:")) return `msg:id:${message.id}`
   return `msg:client:${JSON.stringify([message.authorId, nonce])}`
 }
 
@@ -37,6 +37,7 @@ export function flattenMessageItems(
   hasMoreOlder = false,
   showNewerLoading = false,
   showLeading = true,
+  viewerUserId?: string | null,
 ): FlatItem[] {
   const items: FlatItem[] = []
   if (messages.length > 0) items.push({ kind: "leading", key: "rail:leading", ...(!showLeading ? { hidden: true } : {}) })
@@ -58,7 +59,7 @@ export function flattenMessageItems(
     if (showDateDivider || isNewDivider) {
       items.push({
         kind: "divider",
-        key: isNewDivider ? `new:${messageDisplayKey(m)}` : `date:${messageDisplayKey(m)}`,
+        key: isNewDivider ? `new:${messageDisplayKey(m, viewerUserId)}` : `date:${messageDisplayKey(m, viewerUserId)}`,
         messageId: m.id,
         ...(showDateDivider ? { dateLabel: formatDateLabel(m.createdAt!) } : {}),
         ...(isNewDivider ? { newDivider: true } : {}),
@@ -67,7 +68,7 @@ export function flattenMessageItems(
     items.push({
       kind: "message",
       m: { ...m, grouped },
-      key: messageDisplayKey(m),
+      key: messageDisplayKey(m, viewerUserId),
       paddingTop: joinsPrevious ? MESSAGE_ROW_VERTICAL_PADDING_PX / 2 : MESSAGE_ROW_VERTICAL_PADDING_PX,
       paddingBottom: MESSAGE_ROW_VERTICAL_PADDING_PX,
     })
