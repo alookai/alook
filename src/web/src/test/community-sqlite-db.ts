@@ -4,6 +4,7 @@ import { createDb } from "@alook/shared"
 import * as machineTables from "../../../shared/src/db/community-machine-schema"
 import * as tables from "../../../shared/src/db/community-schema"
 import { user } from "../../../shared/src/db/schema"
+import { prepareNativeD1BatchStatement } from "../../../shared/test/helpers/native-batch-prepare"
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite")
 const requireShared = createRequire(import.meta.resolve("@alook/shared"))
@@ -43,7 +44,7 @@ export function createCommunitySqliteDb() {
         record.statements.push({ sql, bindings: [...values] })
         if (values.length > 100) throw new Error("Existing D1 binding limit exceeded")
         let statement
-        try { statement = sqlite.prepare(sql) } catch (error) { throw new Error(`Test SQL preparation failed: ${sql}`, { cause: error }) }
+        try { statement = batched ? prepareNativeD1BatchStatement(sqlite, prepared, sql) : sqlite.prepare(sql) } catch (error) { throw new Error(`Test SQL preparation failed: ${sql}`, { cause: error }) }
         statement.setReturnArrays(arrays)
         return statement.all(...values)
       }

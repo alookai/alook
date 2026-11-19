@@ -6,10 +6,12 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Sqlite, analyzeQuery } from './analyze.mjs'
-import { instrumentDatabase, createCapture } from './capture.mjs'
+import { prepareBatchStatement, instrumentDatabase, createCapture } from './capture.mjs'
 import { sourceFrames, inventoryQueries } from './inventory.mjs'
 import { buildReport } from './report.mjs'
+import { instrumentBetterAuthQueries } from './dependency-source.mjs'
 
 test('native statement interception preserves binds, fluent raw statements, errors and cleanup', t => {
   const db = new Sqlite(':memory:')
@@ -131,6 +133,117 @@ test('deferred real Drizzle statements retain source without evaluating defaults
   assert.equal(allocations, 1)
   assert.equal(records[0].source.key, 'deferred-query')
   assert.deepEqual(records[0].params, ['1'])
+})
+
+test('native batch keeps distinct query object origins and only covers verified executions', t => {
+  const require = createRequire(new URL('../../src/shared/package.json', import.meta.url))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const { eq } = require('drizzle-orm')
+  const root = process.cwd()
+  const directory = mkdtempSync(join(tmpdir(), 'db-query-batch-origin-'))
+  const db = new Sqlite(':memory:')
+  db.exec("CREATE TABLE item(id TEXT PRIMARY KEY); INSERT INTO item VALUES ('one')")
+  const table = sqliteTable('item', { id: text('id').primaryKey() })
+  const orm = drizzle(db)
+  const capture = createCapture(root)
+  const queries = []
+  const transactions = []
+  const restore = instrumentDatabase(Sqlite.prototype, query => {
+    queries.push(query)
+    transactions.push(db.inTransaction)
+    capture.collect(query)
+  })
+  t.after(() => { restore(); db.close(); rmSync(directory, { recursive: true, force: true }) })
+  const file = 'src/shared/src/db/queries/batch-example.ts'
+  const sites = ['first', 'second', 'prepare-only', 'wrong-params'].map(key => ({ key, file, line: 1 }))
+  const fixture = { key: 'fixture', file: 'src/shared/test/batch-example.test.ts', line: 1, kind: 'test-fixture', proof: 'orm-builder', resolution: 'database-type' }
+  const compiled = site => registerQuerySource(orm.select().from(table).where(eq(table.id, 'one')), site).toSQL()
+  const [first, second, notExecuted, wrongParams] = sites.map(compiled)
+  assert.notEqual(first, second)
+  assert.deepEqual(first, second)
+  prepareBatchStatement(db, notExecuted)
+  assert.equal(queries.length, 0)
+  const productFrame = runInThisContext('(probe) => probe()', { filename: join(root, file) })
+  productFrame(() => querySource.run(sites[0], () => db.transaction(() => {
+    for (const query of [first, second, compiled(fixture), { ...first }]) {
+      assert.deepEqual(prepareBatchStatement(db, query).all(...query.params), [{ id: 'one' }])
+    }
+    assert.deepEqual(prepareBatchStatement(db, wrongParams).all('other'), [])
+  })()))
+  assert.deepEqual(queries.map(query => query.source?.key), ['first', 'second', 'fixture', undefined, undefined])
+  assert.deepEqual(transactions, [true, true, true, true, true])
+  capture.write(directory)
+  const report = buildReport(db, { filesScanned: 1, sites, fixtureSites: [fixture] }, directory, 0)
+  assert.deepEqual(report.inventory.filter(site => site.observed).map(site => site.key), ['first', 'second'])
+  assert.equal(report.testStatements[0]?.site, fixture.key)
+  assert.equal(report.testStatements.length, 1)
+  assert.equal(report.summary.unattributedStatements, 1)
+})
+
+test('real Drizzle D1 batches require the original prepared statement, SQL and bindings', async t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const { drizzle } = require('drizzle-orm/d1')
+  const { eq } = require('drizzle-orm')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const native = new Sqlite(':memory:')
+  native.exec("CREATE TABLE item(id TEXT PRIMARY KEY); INSERT INTO item VALUES ('one')")
+  const table = sqliteTable('item', { id: text('id').primaryKey() })
+  const calls = []
+  const restore = instrumentDatabase(Sqlite.prototype, call => calls.push(call))
+  t.after(() => { restore(); native.close() })
+  let mode
+  const adapter = {
+    prepare(sql) {
+      let params
+      const statement = {
+        bind(...args) { params = args; return statement },
+        execute() {
+          const identity = mode === 'copy' ? { ...statement } : statement
+          const prepared = prepareBatchStatement(native, identity, mode === 'sql' ? sql + ' ' : sql)
+          return { results: prepared.all(...(mode === 'params' ? ['other'] : params)) }
+        },
+      }
+      return statement
+    },
+    async batch(statements) { return native.transaction(() => statements.map(statement => statement.execute()))() },
+  }
+  const db = drizzle(adapter)
+  const file = 'src/shared/src/db/queries/d1-batch-example.ts'
+  const batch = runInThisContext('(invoke) => invoke()', { filename: join(root, file) })
+  for (mode of ['actual', 'copy', 'sql', 'params']) {
+    const site = { key: mode, file, line: 1 }
+    const query = registerQuerySource(db.select().from(table).where(eq(table.id, 'one')), site)
+    assert.deepEqual(await batch(() => db.batch([query])), mode === 'params' ? [[]] : [[{ id: 'one' }]])
+  }
+  assert.deepEqual(calls.map(call => call.source?.key), ['actual', undefined, undefined, undefined])
+  assert.deepEqual(calls.map(call => call.params), [['one'], ['one'], ['one'], ['other']])
+})
+
+test('repository SQL through the Better Auth SQLite dialect keeps its own unknown origin', async t => {
+  const root = process.cwd()
+  const web = createRequire(join(root, 'src/web/package.json'))
+  const auth = createRequire(web.resolve('better-auth'))
+  const adapter = createRequire(auth.resolve('@better-auth/kysely-adapter'))
+  const { Kysely } = await import(pathToFileURL(adapter.resolve('kysely')))
+  const { NodeSqliteDialect } = await import(pathToFileURL(auth.resolve('@better-auth/kysely-adapter/node-sqlite-dialect')))
+  const { DatabaseSync } = web('node:sqlite')
+  const native = new DatabaseSync(':memory:')
+  native.exec("CREATE TABLE item(id TEXT PRIMARY KEY); INSERT INTO item VALUES ('actual')")
+  const db = new Kysely({ dialect: new NodeSqliteDialect({ database: native }) })
+  const calls = []
+  const restoreCapture = instrumentDatabase(DatabaseSync.prototype, call => calls.push(call))
+  const restoreAuth = await instrumentBetterAuthQueries(root)
+  t.after(async () => { restoreAuth(); restoreCapture(); await db.destroy() })
+  const file = 'src/web/src/lib/kysely-probe.ts'
+  const query = runInThisContext('(async (db) => await db.selectFrom("item").select("id").where("id", "=", "actual").execute())',
+    { filename: join(root, file) })
+  assert.deepEqual((await query(db)).map(row => row.id), ['actual'])
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].dependencySource, undefined)
+  assert.deepEqual(calls[0].params, ['actual'])
+  assert.equal(sourceFrames(root, calls[0].stack)[0]?.file, file)
 })
 
 test('normal insert FK parents are proved from actual indexed fixture rows; missing parents stay unknown', t => {
@@ -363,4 +476,311 @@ test('optional real SQL retains binds, returned rows and lazy defaults; unknown 
     } finally { restore(); db.close() }
   }
   assert.deepEqual(execute(transformed ?? source, true), execute(source, false))
+})
+
+test('a final SQL plan covers only subqueries consumed by the real compiler', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { eq, exists } = require('drizzle-orm')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const sqlite = new Sqlite(':memory:')
+  sqlite.exec('CREATE TABLE entry(id TEXT PRIMARY KEY); CREATE TABLE member(id TEXT PRIMARY KEY)')
+  const db = drizzle(sqlite)
+  const entry = sqliteTable('entry', { id: text('id').primaryKey() })
+  const member = sqliteTable('member', { id: text('id').primaryKey() })
+  const file = 'src/shared/src/db/queries/composition-probe.ts'
+  const outerSite = { key: 'outer', file, line: 10 }
+  const consumedSite = { key: 'consumed', file, line: 11 }
+  const unusedSite = { key: 'unused', file, line: 12 }
+  const capture = createCapture(root)
+  const restore = instrumentDatabase(Sqlite.prototype, capture.collect)
+  const directory = mkdtempSync(join(tmpdir(), 'db-composition-test-'))
+  t.after(() => { restore(); sqlite.close(); rmSync(directory, { recursive: true, force: true }) })
+
+  const consumed = registerQuerySource(db.select({ id: member.id }).from(member).where(eq(member.id, entry.id)), consumedSite)
+  const unused = registerQuerySource(db.select({ id: member.id }).from(member).where(eq(member.id, 'other')), unusedSite)
+  unused.getSQL()
+  const statement = registerQuerySource(db.select().from(entry).where(exists(consumed)), outerSite)
+  assert.deepEqual(statement.all(), [])
+
+  capture.write(directory)
+  const report = buildReport(sqlite, { filesScanned: 1, sites: [outerSite, consumedSite, unusedSite] }, directory, 0)
+  assert.deepEqual(report.observations.map(query => query.sites), [[outerSite.key, consumedSite.key]])
+  assert.deepEqual(report.uncovered.map(site => site.key), [unusedSite.key])
+})
+
+test('instrumentation reaches an aliased builder before Drizzle compiles the subquery', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { eq } = require('drizzle-orm')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const db = new Sqlite(':memory:')
+  db.exec("CREATE TABLE item(id TEXT PRIMARY KEY); INSERT INTO item VALUES ('one')")
+  const table = sqliteTable('item', { id: text('id').primaryKey() })
+  const file = 'src/shared/src/db/queries/alias-probe.ts'
+  const source = `(db, table, eq) => {
+    const used = db.select({ id: table.id }).from(table).where(eq(table.id, 'one')).as('used');
+    db.select({ id: table.id }).from(table).where(eq(table.id, 'two')).as('unused');
+    return db.select().from(used).all();
+  }`
+  const inventory = inventoryQueries(root, { [file]: source })
+  assert.equal(inventory.sites.length, 3)
+  const [used, unused, outer] = inventory.sites
+  const directory = mkdtempSync(join(tmpdir(), 'db-alias-origin-'))
+  const capture = createCapture(root)
+  const previous = globalThis[sourceHook]
+  globalThis[sourceHook] = registerQuerySource
+  const restore = instrumentDatabase(Sqlite.prototype, capture.collect)
+  t.after(() => {
+    restore()
+    globalThis[sourceHook] = previous
+    db.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+  const code = instrumentModule(source, join(root, file), root, inventory.sites)
+  const execute = runInThisContext(`(${code})`, { filename: join(root, file) })
+  assert.deepEqual(execute(drizzle(db), table, eq), [{ id: 'one' }])
+  capture.write(directory)
+  const report = buildReport(db, inventory, directory, 0)
+  assert.deepEqual(report.observations.map(query => query.sites), [[outer.key, used.key]])
+  assert.deepEqual(report.uncovered.map(site => site.key), [unused.key])
+})
+
+test('counts an actual compiler result separately from native execution', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const ts = require('typescript')
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const native = new Sqlite(':memory:')
+  native.exec('CREATE TABLE item(id TEXT PRIMARY KEY)')
+  const orm = drizzle(native)
+  const table = sqliteTable('item', { id: text('id').primaryKey() })
+  const expected = orm.insert(table).values({ id: 'counted' }).toSQL()
+  const file = 'src/shared/src/db/queries/parameter-count-probe.ts'
+  const source = `
+    import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+    import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
+    export function fixture(db: BetterSQLite3Database, table: SQLiteTable) {
+      const count = db.insert(table).values({ id: 'counted' }).toSQL().params.length;
+      db.insert(table).values({ id: 'unused' });
+      db.insert(table).values({ id: 'compiled' }).toSQL();
+      db.insert(table).values({ id: 'written' }).run();
+      return count;
+    }
+    export function countBinding(db: BetterSQLite3Database, table: SQLiteTable, id: unknown) {
+      return db.insert(table).values({ id }).toSQL().params.length;
+    }`
+  const inventory = inventoryQueries(root, { [file]: source })
+  assert.equal(inventory.sites.length, 5)
+  const [counted, unused, compiled, written, countBinding] = inventory.sites
+  assert.deepEqual(inventory.sites.filter(site => site.compilationOnly), [counted, countBinding])
+
+  const directory = mkdtempSync(join(tmpdir(), 'db-parameter-count-'))
+  const capture = createCapture(root)
+  const previous = globalThis[sourceHook]
+  globalThis[sourceHook] = capture.register
+  const restore = instrumentDatabase(Sqlite.prototype, capture.collect)
+  t.after(() => {
+    restore()
+    globalThis[sourceHook] = previous
+    native.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+  const instrumented = instrumentModule(source, join(root, file), root, inventory.sites)
+  const { outputText } = ts.transpileModule(instrumented, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
+  const exported = {}
+  runInThisContext(`(function (exports) { ${outputText}\n })`, { filename: join(root, file) })(exported)
+  assert.equal(exported.fixture(orm, table), expected.params.length)
+  assert.deepEqual(native.prepare('SELECT id FROM item').all(), [{ id: 'written' }])
+
+  capture.write(directory)
+  const { records } = JSON.parse(readFileSync(join(directory, readdirSync(directory)[0])))
+  const [compilation] = records.filter(record => record.compilationOnly)
+  assert.equal(records.length, 2)
+  assert.equal(compilation.siteKey, counted.key)
+  assert.equal(compilation.sql, expected.sql)
+  assert.deepEqual(compilation.params, expected.params)
+  const report = buildReport(native, inventory, directory, 0)
+  assert.deepEqual(report.compilationOnlyPlans.map(query => query.sites), [[counted.key]])
+  assert.deepEqual(report.observations.map(query => query.sites), [[written.key]])
+  assert.deepEqual(report.uncovered.map(site => site.key), [unused.key, compiled.key, countBinding.key])
+  assert.deepEqual(report.inventory.filter(site => site.sourcePlanned).map(site => site.key), [counted.key])
+  assert.deepEqual(report.inventory.filter(site => site.observed).map(site => site.key), [written.key])
+  assert.equal(report.summary.hazards, 0)
+  assert.equal(report.summary.sourcePlanFailures, 0)
+
+  const invalidBinds = { ...compilation, params: [] }
+  const invalidPath = join(directory, 'invalid-binds.json')
+  writeFileSync(invalidPath, JSON.stringify({ records: [invalidBinds] }), { mode: 0o600 })
+  const invalid = buildReport(native, inventory, directory, 0)
+  assert.equal(invalid.outcome, 'failed')
+  assert.equal(invalid.summary.sourcePlanFailures, 1)
+  assert.equal(invalid.inventory.find(site => site.key === counted.key).sourcePlanned, false)
+  assert.deepEqual(invalid.observations.map(query => query.sites), [[written.key]])
+
+  rmSync(invalidPath)
+  const date = new Date('2026-01-01')
+  const dateQuery = orm.insert(table).values({ id: date }).toSQL()
+  assert.equal(dateQuery.params[0], date)
+  assert.throws(() => native.prepare(dateQuery.sql).run(...dateQuery.params), TypeError)
+  const serializesAsText = { toJSON() { throw new Error('must not serialize unsupported bindings') } }
+  assert.equal(exported.countBinding(orm, table, 'valid'), 1)
+  assert.equal(exported.countBinding(orm, table, date), 1)
+  assert.equal(exported.countBinding(orm, table, serializesAsText), 1)
+  capture.write(directory)
+  const unsupported = buildReport(native, inventory, directory, 0)
+  assert.deepEqual(unsupported.sourcePlanFailures, [
+    { siteKey: countBinding.key, reason: 'Unsupported binding at position 1 (object)' },
+  ])
+  assert.equal(unsupported.outcome, 'failed')
+  assert.deepEqual(unsupported.compilationOnlyPlans.map(query => query.sites), [[counted.key], [countBinding.key]])
+  assert.deepEqual(unsupported.inventory.filter(site => site.sourcePlanned).map(site => site.key), [counted.key])
+  assert.deepEqual(unsupported.observations.map(query => query.sites), [[written.key]])
+})
+
+test('pure EXISTS compiles real binds without crediting unused or correlated builders', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const ts = require('typescript')
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const native = new Sqlite(':memory:')
+  native.exec("CREATE TABLE user(id TEXT PRIMARY KEY); INSERT INTO user VALUES ('one')")
+  const orm = drizzle(native)
+  const user = sqliteTable('user', { id: text('id').primaryKey() })
+  const communityMention = sqliteTable('community_mention', { userId: text('user_id') })
+  const file = 'src/shared/src/db/queries/standalone-exists-probe.ts'
+  const source = `
+    import { eq, exists, sql } from 'drizzle-orm';
+    import type { Database } from '..';
+    import { user } from '../schema';
+    import { communityMention } from '../community-schema';
+    export function standalone(db: Database, id: string) {
+      return exists(db.select({ one: sql<number>\`1\` }).from(user).where(eq(user.id, id)));
+    }
+    export function unused(db: Database, id: string) {
+      db.select({ id: user.id }).from(user).where(eq(user.id, id));
+    }
+    export function correlated(db: Database) {
+      return exists(db.select({ id: user.id }).from(user).where(eq(user.id, communityMention.userId)));
+    }`
+  const inventory = inventoryQueries(root, { [file]: source })
+  const [standalone, unused, correlated] = inventory.sites
+  assert.equal(inventory.sites.length, 3)
+  assert.deepEqual(inventory.sites.filter(site => site.compilationOnly), [standalone])
+  const directory = mkdtempSync(join(tmpdir(), 'db-standalone-exists-'))
+  const capture = createCapture(root)
+  const previous = globalThis[sourceHook]
+  globalThis[sourceHook] = capture.register
+  t.after(() => {
+    globalThis[sourceHook] = previous
+    native.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+  const instrumented = instrumentModule(source, join(root, file), root, inventory.sites)
+  const { outputText } = ts.transpileModule(instrumented, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
+  const exported = {}
+  runInThisContext(`(function (exports, require) { ${outputText}\n })`, { filename: join(root, file) })(
+    exported, name => name === '../schema' ? { user } : name === '../community-schema' ? { communityMention } : require(name))
+  assert.deepEqual(orm.select({ present: exported.standalone(orm, 'one') }).from(user).all(), [{ present: 1 }])
+  exported.unused(orm, 'one')
+  const invalid = orm.select({ present: exported.correlated(orm) }).from(user).toSQL()
+  assert.throws(() => native.prepare(invalid.sql).all(...invalid.params), /no such column/)
+
+  capture.write(directory)
+  const { records } = JSON.parse(readFileSync(join(directory, readdirSync(directory)[0])))
+  assert.deepEqual(records.map(record => [record.siteKey, record.params]), [[standalone.key, ['one']]])
+  const report = buildReport(native, inventory, directory, 0)
+  assert.deepEqual(report.compilationOnlyPlans.map(query => [query.classification, query.sites]), [
+    ['compiled-standalone-exists', [standalone.key]],
+  ])
+  assert.deepEqual(report.inventory.filter(site => site.sourcePlanned && !site.observed).map(site => site.key), [standalone.key])
+  assert.deepEqual(report.uncovered.map(site => site.key), [unused.key, correlated.key])
+
+  exported.standalone(orm, new Date('2026-01-01'))
+  capture.write(directory)
+  const failed = buildReport(native, inventory, directory, 0)
+  assert.deepEqual(failed.sourcePlanFailures, [{ siteKey: standalone.key, reason: 'Unsupported binding at position 1 (object)' }])
+  assert.equal(failed.inventory.find(site => site.key === standalone.key).sourcePlanned, false)
+
+  let counterfeitCompilations = 0
+  const counterfeitBuilder = {
+    from() { return this },
+    where() { return this },
+    toSQL() { counterfeitCompilations++; return { sql: 'select id from user where id = ?', params: ['one'] } },
+  }
+  exported.standalone({ select: () => counterfeitBuilder }, 'one')
+  capture.write(directory)
+  const counterfeit = buildReport(native, inventory, directory, 0)
+  assert.equal(counterfeitCompilations, 0)
+  assert.ok(counterfeit.sourcePlanFailures.some(failure => failure.siteKey === standalone.key &&
+    failure.reason === 'Expected an unmodified Drizzle SQLite select builder'))
+  assert.equal(counterfeit.inventory.find(site => site.key === standalone.key).sourcePlanned, false)
+})
+
+test('native insert-select retains both typed positions and leaves unused builders uncovered', t => {
+  const root = process.cwd()
+  const require = createRequire(join(root, 'src/shared/package.json'))
+  const ts = require('typescript')
+  const { drizzle } = require('drizzle-orm/better-sqlite3')
+  const { eq } = require('drizzle-orm')
+  const { sqliteTable, text } = require('drizzle-orm/sqlite-core')
+  const db = new Sqlite(':memory:')
+  db.exec("CREATE TABLE original(id TEXT PRIMARY KEY); CREATE TABLE copied(id TEXT PRIMARY KEY); INSERT INTO original VALUES ('one')")
+  const original = sqliteTable('original', { id: text('id').primaryKey() })
+  const copied = sqliteTable('copied', { id: text('id').primaryKey() })
+  const file = 'src/shared/src/db/queries/insert-select-probe.ts'
+  const source = `(
+    db: import('../index').Database,
+    original: any,
+    copied: any,
+    eq: typeof import('drizzle-orm').eq,
+  ) => {
+    db.insert(copied).select(db.select({ id: original.id }).from(original).where(eq(original.id, 'unused')));
+    return db.insert(copied).select(db.select({ id: original.id }).from(original).where(eq(original.id, 'one'))).run();
+  }`
+  const inventory = inventoryQueries(root, { [file]: source })
+  assert.equal(inventory.sites.length, 6)
+  assert.equal(inventory.sites.every(site => site.resolution === 'database-type'), true)
+  const [unused, unusedInsert, unusedRead, used, usedInsert, usedRead] = inventory.sites
+  assert.equal(unused.insertBuilderSiteKey, unusedInsert.key)
+  assert.equal(used.insertBuilderSiteKey, usedInsert.key)
+  const capture = createCapture(root)
+  const directory = mkdtempSync(join(tmpdir(), 'db-insert-select-origin-'))
+  const previous = globalThis[sourceHook]
+  globalThis[sourceHook] = registerQuerySource
+  const restore = instrumentDatabase(Sqlite.prototype, capture.collect)
+  t.after(() => {
+    restore()
+    globalThis[sourceHook] = previous
+    db.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+  const instrumented = instrumentModule(source, join(root, file), root, inventory.sites)
+  const { outputText } = ts.transpileModule(instrumented, { compilerOptions: { target: ts.ScriptTarget.ES2022 } })
+  const execute = runInThisContext(outputText, { filename: join(root, file) })
+  assert.equal(execute(drizzle(db), original, copied, eq).changes, 1)
+  restore()
+  assert.deepEqual(db.prepare('SELECT id FROM copied').all(), [{ id: 'one' }])
+  capture.write(directory)
+  const report = buildReport(db, inventory, directory, 0)
+  assert.deepEqual(report.observations.map(query => query.sites), [[used.key, usedInsert.key, usedRead.key]])
+  assert.deepEqual(report.uncovered.map(site => site.key), [unused.key, unusedInsert.key, unusedRead.key])
+
+  const mismatch = createCapture(root)
+  const sql = report.observations[0].sql
+  mismatch.collect({
+    sql,
+    params: ['one'],
+    stack: '',
+    source: { ...unused, compiled: { sql: sql + ' ', siteKeys: [unusedRead.key] } },
+  })
+  const mismatchDirectory = mkdtempSync(join(directory, 'mismatch-'))
+  mismatch.write(mismatchDirectory)
+  const failedMatch = buildReport(db, inventory, mismatchDirectory, 0)
+  assert.deepEqual(failedMatch.observations.map(query => query.sites), [[unused.key]])
+  assert.equal(failedMatch.inventory.find(site => site.key === unusedInsert.key).observed, false)
 })

@@ -1,9 +1,59 @@
 import { describe, it, expect, vi } from "vitest";
 import * as memberQueries from "../../src/db/queries/community/member";
+import { communityServer, communityServerMember } from "../../src/db/community-schema";
+import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
 import {
   DEFAULT_MEMBERS_PAGE_SIZE,
   MAX_MEMBERS_PAGE_SIZE,
 } from "../../src/constants/community";
+
+it("keeps membership projections and role changes within their server scope", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    await db.insert(user).values([
+      ...["viewer", "peer", "friend", "outsider"].map(id => ({ id, name: id, email: id + "@example.test" })),
+      { id: "bot", name: "Bot", email: "bot@example.test", isBot: true, ownerUserId: "viewer" },
+      { id: "gone-bot", name: "Gone bot", email: "gone-bot@example.test", isBot: true, ownerUserId: "viewer", deletedAt: "2026-01-01" },
+    ]).run();
+    await db.insert(communityServer).values([
+      { id: "a", name: "A", ownerId: "viewer" },
+      { id: "b", name: "B", ownerId: "friend" },
+      { id: "foreign", name: "Foreign", ownerId: "outsider" },
+    ]).run();
+    await db.insert(communityServerMember).values([
+      { id: "viewer-a", userId: "viewer", serverId: "a" },
+      { id: "viewer-b", userId: "viewer", serverId: "b" },
+      { id: "peer-a", userId: "peer", serverId: "a" },
+      { id: "peer-b", userId: "peer", serverId: "b" },
+      { id: "friend-b", userId: "friend", serverId: "b" },
+      { id: "bot-a", userId: "bot", serverId: "a" },
+      { id: "gone-bot-a", userId: "gone-bot", serverId: "a" },
+      { id: "outsider-foreign", userId: "outsider", serverId: "foreign" },
+    ]).run();
+
+    const peerA = () => memberQueries.getMemberById(db, "peer-a", { serverId: "a" });
+    const peerB = () => memberQueries.getMemberById(db, "peer-b", { serverId: "b" });
+    await expect(memberQueries.getMemberById(db, "peer-a", { serverId: "b" })).resolves.toBeNull();
+    await expect(peerA()).resolves.toMatchObject({ userId: "peer", role: "member" });
+    const members = await memberQueries.getMembersByUserIds(db, "a", ["peer", "bot", "gone-bot", "friend", "peer", "outsider"]);
+    expect(members.map(row => row.userId).sort()).toEqual(["bot", "peer"]);
+    const memberships = await memberQueries.getMemberships(db, "viewer", ["a", "foreign", "a"]);
+    expect(memberships.map(row => row.id)).toEqual(["viewer-a"]);
+    await expect(memberQueries.listOwnerBotsInServer(db, "a", "viewer")).resolves.toEqual(["bot"]);
+    expect((await memberQueries.getCoMemberUserIds(db, "viewer")).sort()).toEqual(["bot", "friend", "gone-bot", "peer"]);
+
+    await expect(memberQueries.updateRole(db, "peer-a", "admin")).resolves.toMatchObject({ id: "peer-a", role: "admin" });
+    await expect(peerA()).resolves.toMatchObject({ role: "admin" });
+    await expect(peerB()).resolves.toMatchObject({ role: "member" });
+    await expect(memberQueries.removeMemberAndOwnerBots(db, "peer-a", "a", "peer", [])).resolves.toMatchObject({ id: "peer-a" });
+    await expect(peerA()).resolves.toBeNull();
+    await expect(peerB()).resolves.toMatchObject({ role: "member" });
+    await expect(memberQueries.listOwnerBotsInServer(db, "a", "viewer")).resolves.toEqual(["bot"]);
+  } finally {
+    sqlite.close();
+  }
+});
 
 function createSelectMock(rows: any[]) {
   const chain: any = {};

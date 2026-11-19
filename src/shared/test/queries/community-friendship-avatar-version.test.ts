@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   createOrGetDM: vi.fn(),
@@ -16,39 +16,15 @@ vi.mock("../../src/db/queries/community/message", () => ({
     mocks.listMessagesReferencingFriendship(...args),
 }))
 
+import { communityFriendship } from "../../src/db/community-schema"
+import { user } from "../../src/db/schema"
 import * as friendship from "../../src/db/queries/community/friendship"
+import { createMigratedDb } from "../helpers/migrated-db"
 
-function fakeDb(selectRows: unknown[][], updateRows: unknown[][] = []) {
-  let selectIndex = 0
-  let updateIndex = 0
-  const db: any = {
-    select: vi.fn(() => {
-      const chain: any = {}
-      chain.from = vi.fn(() => chain)
-      chain.innerJoin = vi.fn(() => chain)
-      chain.where = vi.fn(() => Promise.resolve(selectRows[selectIndex++] ?? []))
-      chain.limit = vi.fn(() => Promise.resolve(selectRows[selectIndex++] ?? []))
-      return chain
-    }),
-    update: vi.fn(() => {
-      const chain: any = {}
-      chain.set = vi.fn(() => chain)
-      chain.where = vi.fn(() => chain)
-      chain.returning = vi.fn(() => Promise.resolve(updateRows[updateIndex++] ?? []))
-      return chain
-    }),
-    insert: vi.fn(() => {
-      const chain: any = {}
-      chain.values = vi.fn(() => chain)
-      chain.returning = vi.fn(() => Promise.resolve([]))
-      return chain
-    }),
-    batch: vi.fn(),
-  }
-  return db
-}
+let fixture: ReturnType<typeof createMigratedDb>
 
 beforeEach(() => {
+  fixture = createMigratedDb()
   vi.clearAllMocks()
   mocks.createOrGetDM.mockResolvedValue({ id: "dm1" })
   mocks.createMessage.mockResolvedValue({
@@ -60,39 +36,28 @@ beforeEach(() => {
   mocks.listMessagesReferencingFriendship.mockResolvedValue([])
 })
 
+afterEach(() => fixture.sqlite.close())
+
 describe("friend approval MESSAGE_CREATE identity", () => {
   it("includes the gating bot avatar version on a newly created approval card", async () => {
-    const inserted = {
-      id: "friendship1",
-      requesterId: "human1",
-      addresseeId: "bot1",
-      status: "pending",
-      needsOwnerApproval: "owner1",
-      createdAt: "2026-08-29T00:00:00.000Z",
-      updatedAt: "2026-08-29T00:00:00.000Z",
-      resolvedAt: null,
-    }
-    const db = fakeDb([
-      [],
-      [
-        { id: "human1", isBot: false, ownerUserId: null, name: "Human" },
-        { id: "bot1", isBot: true, ownerUserId: "owner1", name: "Bot" },
-      ],
-      [
-        { id: "human1", name: "Human", discriminator: "0001", image: null, avatarVersion: 0, isBot: false, ownerUserId: null },
-        { id: "bot1", name: "Bot", discriminator: "0002", image: "/bot", avatarVersion: 7, isBot: true, ownerUserId: "owner1" },
-        { id: "owner1", name: "Owner", discriminator: "0003", image: null, avatarVersion: 0, isBot: false, ownerUserId: null },
-      ],
-      [{ id: "bot1", name: "Bot", discriminator: "0002", image: "/bot", avatarVersion: 7 }],
-      [],
-    ])
-    db.batch.mockResolvedValue([[], [inserted]])
+    const { db } = fixture
+    await db.insert(user).values([
+      { id: "human1", email: "human1@example.test", name: "Human", discriminator: "0001" },
+      { id: "owner1", email: "owner1@example.test", name: "Owner", discriminator: "0003" },
+      { id: "bot1", email: "bot1@example.test", name: "Bot", discriminator: "0002", image: "/bot", avatarVersion: 7, isBot: true, ownerUserId: "owner1" },
+    ]).run()
 
     const result = await friendship.sendRequest(db, {
       requesterId: "human1",
       addresseeId: "bot1",
     })
 
+    await expect(friendship.getFriendship(db, result.friendship.id)).resolves.toMatchObject({
+      requesterId: "human1",
+      addresseeId: "bot1",
+      status: "pending",
+      needsOwnerApproval: "owner1",
+    })
     expect(result.broadcasts[0]?.event).toMatchObject({
       type: "community:message.create",
       message: {
@@ -103,7 +68,14 @@ describe("friend approval MESSAGE_CREATE identity", () => {
   })
 
   it("includes the second bot avatar version when a two-hop gate advances", async () => {
-    const row = {
+    const { db } = fixture
+    await db.insert(user).values([
+      { id: "owner1", email: "owner1@example.test", name: "Owner One", discriminator: "0004" },
+      { id: "owner2", email: "owner2@example.test", name: "Owner Two", discriminator: "0003" },
+      { id: "bot1", email: "bot1@example.test", name: "Bot One", discriminator: "0001", image: "/bot1", avatarVersion: 4, isBot: true, ownerUserId: "owner1" },
+      { id: "bot2", email: "bot2@example.test", name: "Bot Two", discriminator: "0002", image: "/bot2", avatarVersion: 9, isBot: true, ownerUserId: "owner2" },
+    ]).run()
+    await db.insert(communityFriendship).values({
       id: "friendship2",
       requesterId: "bot1",
       addresseeId: "bot2",
@@ -111,23 +83,7 @@ describe("friend approval MESSAGE_CREATE identity", () => {
       needsOwnerApproval: "owner1",
       createdAt: "2026-08-29T00:00:00.000Z",
       updatedAt: "2026-08-29T00:00:00.000Z",
-      resolvedAt: null,
-    }
-    const updated = { ...row, needsOwnerApproval: "owner2" }
-    const db = fakeDb([
-      [row],
-      [
-        { id: "bot1", isBot: true, ownerUserId: "owner1", name: "Bot One" },
-        { id: "bot2", isBot: true, ownerUserId: "owner2", name: "Bot Two" },
-      ],
-      [
-        { id: "bot1", name: "Bot One", discriminator: "0001", image: "/bot1", avatarVersion: 4, isBot: true, ownerUserId: "owner1" },
-        { id: "bot2", name: "Bot Two", discriminator: "0002", image: "/bot2", avatarVersion: 9, isBot: true, ownerUserId: "owner2" },
-        { id: "owner2", name: "Owner Two", discriminator: "0003", image: null, avatarVersion: 0, isBot: false, ownerUserId: null },
-      ],
-      [{ id: "bot2", name: "Bot Two", discriminator: "0002", image: "/bot2", avatarVersion: 9 }],
-      [],
-    ], [[updated]])
+    }).run()
 
     const result = await friendship.ownerDecideOnRow(db, {
       friendshipId: "friendship2",
@@ -137,6 +93,10 @@ describe("friend approval MESSAGE_CREATE identity", () => {
 
     expect(result).toMatchObject({ ok: true })
     if (!result.ok) throw new Error("expected owner decision to succeed")
+    await expect(friendship.getFriendship(db, "friendship2")).resolves.toMatchObject({
+      status: "pending",
+      needsOwnerApproval: "owner2",
+    })
     expect(result.broadcasts[0]?.event).toMatchObject({
       type: "community:message.create",
       message: {

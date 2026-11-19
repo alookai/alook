@@ -1,6 +1,9 @@
 import { expect, it } from "vitest"
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
+import * as operators from "../../src/shared/node_modules/drizzle-orm"
+import { createDb } from "../../src/shared/src/db"
+import { compileSourceDrizzle } from "./source-compile.mjs"
 import { createMigratedDb } from "../../src/shared/test/helpers/migrated-db"
 import { hardDeleteMessage } from "../../src/shared/src/db/queries/community/message"
 import { deleteForumPost } from "../../src/shared/src/db/queries/community/forum-post-delete"
@@ -45,4 +48,12 @@ it.each(["message", "forum", "channel", "server"] as const)("executes the real %
   } finally {
     sqlite.close()
   }
+})
+
+
+it("compiles statically discovered source expressions without executing their queries", () => {
+  const inventory = JSON.parse(readFileSync(process.env.ALOOK_DB_QUERY_INVENTORY!, "utf8"))
+  const db = createDb({ prepare() { throw new Error("Source compilation cannot execute SQL") } } as unknown as Parameters<typeof createDb>[0])
+  const source = compileSourceDrizzle(inventory.sourceDrizzlePlans, db, operators)
+  writeFileSync(resolve(process.env.ALOOK_DB_QUERY_CAPTURE_DIR!, "source-drizzle.data"), JSON.stringify(source), { mode: 0o600 })
 })

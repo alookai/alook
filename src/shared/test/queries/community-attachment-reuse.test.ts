@@ -60,7 +60,7 @@ describe("reusable files with real SQLite authorization and transactions", () =>
     expect(await read("a", "peer")).not.toBeNull();
     const batch = fixture.db.batch.bind(fixture.db);
     fixture.db.batch = ((statements: any[]) => {
-      fixture.sqlite.exec("DELETE FROM community_server_member WHERE server_id = 's1' AND user_id = 'peer'");
+      fixture.sqlite.prepare("DELETE FROM community_server_member WHERE server_id = 's1' AND user_id = 'peer'").run();
       return batch(statements as any);
     }) as any;
     const error = await send("peer", "destination", ["a"]).catch(e => e);

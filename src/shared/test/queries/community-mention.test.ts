@@ -1,5 +1,42 @@
 import { describe, it, expect, vi } from "vitest";
 import * as mentionQueries from "../../src/db/queries/community/mention";
+import { communityChannel, communityMention, communityMessage } from "../../src/db/community-schema";
+import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
+
+it("uses the viewer and visible scopes for real unread mention queries", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    await db.insert(user).values(["reader", "author", "neighbor"].map(id => ({ id, name: id, email: id + "@example.test" }))).run();
+    await db.insert(communityChannel).values([{ id: "visible", type: "dm" }, { id: "hidden", type: "dm" }]).run();
+    await db.insert(communityMessage).values([
+      { id: "direct", channelId: "visible", seq: 1, authorId: "author", createdAt: "2026-09-07T06:01:00Z" },
+      { id: "reply", channelId: "visible", seq: 4, authorId: "author", createdAt: "2026-09-07T06:04:00Z" },
+      { id: "handled", channelId: "visible", seq: 7, authorId: "author", createdAt: "2026-09-07T06:07:00Z" },
+      { id: "hidden", channelId: "hidden", seq: 9, authorId: "author", createdAt: "2026-09-07T06:09:00Z" },
+    ]).run();
+    await db.insert(communityMention).values([
+      { id: "direct-mention", messageId: "direct", userId: "reader" },
+      { id: "reply-mention", messageId: "reply", userId: "reader", kind: "reply" },
+      { id: "handled-mention", messageId: "handled", userId: "reader", read: 1 },
+      { id: "hidden-mention", messageId: "hidden", userId: "reader" },
+      { id: "neighbor-mention", messageId: "handled", userId: "neighbor" },
+    ]).run();
+
+    const inbox = await mentionQueries.listUnreadMentions(db, "reader", { visibleChannelIds: ["visible"] });
+    expect(inbox.map(row => row.mention.id)).toEqual(["reply-mention", "direct-mention"]);
+    const limited = await mentionQueries.listUnreadMentions(db, "reader", { visibleChannelIds: ["visible"], limit: 1 });
+    expect(limited.map(row => row.mention.id)).toEqual(["reply-mention"]);
+    await expect(mentionQueries.listUnreadMentionScopes(db, "reader", ["visible"])).resolves.toMatchObject([
+      { channelId: "visible", attentionCount: 2, lastAttentionSeq: 4 },
+    ]);
+    await expect(mentionQueries.hasMentionForMessage(db, "direct", "reader")).resolves.toBe(true);
+    await expect(mentionQueries.hasMentionForMessage(db, "reply", "reader")).resolves.toBe(false);
+    await expect(mentionQueries.hasMentionForMessage(db, "direct", "neighbor")).resolves.toBe(false);
+  } finally {
+    sqlite.close();
+  }
+});
 
 // `markChannelMentionsReadBuilder` collapses the two-step "select ids, then
 // update by id" into a single UPDATE with a correlated subquery so it can go

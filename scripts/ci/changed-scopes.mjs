@@ -30,6 +30,16 @@ const GLOBAL_PATHS = new Set([
   "vitest.config.ts",
 ])
 const KNOWN_PREFIXES = [".claude/", ".openai/", "docs/"]
+const DB_QUERY_SKIP_DIRECTORIES = [
+  "src/desktop",
+  "src/storybook",
+  "src/videos",
+  "src/web/blog",
+  "src/web/public",
+  "src/web/src/components",
+  "src/web/src/contexts",
+  "src/web/src/stores",
+]
 const COVERAGE_EXCLUDES = [
   /(?:^|\/)\w[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$/,
   // Project/workspace configs execute before coverage instrumentation and are
@@ -91,6 +101,13 @@ function isMarkdown(path) {
 
 function pathWithin(path, root) {
   return path === root || path.startsWith(`${root}/`)
+}
+
+export function isDbQueryCheckPath(path) {
+  return !isMarkdown(path) && (
+    pathWithin(path, "src/web/src/components/community/channels")
+    || !DB_QUERY_SKIP_DIRECTORIES.some(directory => pathWithin(path, directory))
+  )
 }
 
 function coverageRootPrefix(glob) {
@@ -213,7 +230,7 @@ function validateCodecovTargets(manifest, root) {
 
 export function validateScopeManifest(manifest, options = {}) {
   const root = options.root || ROOT
-  if (manifest.schema_version !== 2 || manifest.policy_version !== 3) {
+  if (manifest.schema_version !== 2 || manifest.policy_version !== 4) {
     throw new Error("scope manifest schema/policy version must be 1/2")
   }
   if (!Array.isArray(manifest.packages) || manifest.packages.length === 0) {
@@ -355,6 +372,7 @@ function emptyJobs() {
     auth_build: false,
     worker_build: false,
     blog_build: false,
+    db_query_check: false,
     e2e: false,
     lighthouse: false,
     merge_reports: false,
@@ -555,6 +573,7 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   jobs.blog_build = blogBuild
   jobs.static_checks = suites.static.length > 0
   jobs.test_linux = suites.unit.length > 0 || suites.linux.length > 0 || suites.smoke.length > 0
+  jobs.db_query_check = full || paths.some(isDbQueryCheckPath)
   jobs.test_windows = suites.windows.length > 0
   jobs.app_packed_artifact = appArtifact
   jobs.e2e = suites.integration.length > 0
@@ -709,6 +728,7 @@ export function projectPlan(plan) {
     run_code_checks: String(plan.jobs.static_checks || plan.jobs.test_linux),
     run_static_checks: String(plan.jobs.static_checks),
     run_linux: String(plan.jobs.test_linux),
+    run_db_query_check: String(plan.jobs.db_query_check),
     run_windows: String(plan.jobs.test_windows),
     run_e2e: String(plan.jobs.e2e),
     run_ui_e2e: String(plan.jobs.ui_e2e),

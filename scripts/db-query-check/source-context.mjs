@@ -5,10 +5,62 @@ export const querySource = new AsyncLocalStorage()
 const origins = new WeakMap()
 const wrapped = new WeakSet()
 const wrappedSessions = new WeakSet()
+const wrappedCompilers = new WeakSet()
+const fragmentOrigins = new WeakMap()
+const compiledQueries = new WeakMap()
+const drizzleEntityKind = Symbol.for('drizzle:entityKind')
 export const sourceHook = Symbol.for('alook.db-query-check.source')
 
 export function queryOrigin(builder) {
   return origins.get(builder)
+}
+
+export function compiledQueryOrigin(query) {
+  return compiledQueries.get(query)
+}
+
+export function nativeBindingSupported(value) {
+  return value === null || typeof value === 'string' || typeof value === 'bigint' ||
+    (typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0)) ||
+    (ArrayBuffer.isView(value) && value instanceof Uint8Array)
+}
+
+export function copyNativeBindings(params) {
+  return params.map(value => Buffer.isBuffer(value) ? Buffer.from(value) : value instanceof Uint8Array ? new Uint8Array(value) : value)
+}
+
+function trackCompiledQuery(result, source, identity = result) {
+  if (!source || typeof result?.sql !== 'string' || !Array.isArray(result.params)) return
+  if (result.params.some(value => value !== null && typeof value === 'object' && !(value instanceof Uint8Array))) return
+  const params = copyNativeBindings(result.params)
+  const { compiled, ...site } = source
+  const origin = compiled?.sql === result.sql ? { ...site, compiled } : site
+  if (site.kind === 'test-fixture' && site.proof === 'orm-builder') origin.preparedSql = result.sql
+  compiledQueries.set(identity, { sql: result.sql, params, origin })
+}
+
+function trackSqlFragment(fragment, source) {
+  const compiler = fragment && Object.getPrototypeOf(fragment)
+  if (!source || source.kind === 'test-fixture' || !Array.isArray(fragment?.queryChunks) ||
+      typeof compiler?.toQuery !== 'function' || typeof compiler?.buildQueryFromSourceParams !== 'function') return
+  fragmentOrigins.set(fragment.queryChunks, source.key)
+  if (wrappedCompilers.has(compiler)) return
+  wrappedCompilers.add(compiler)
+  const toQuery = compiler.toQuery
+  const build = compiler.buildQueryFromSourceParams
+  compiler.toQuery = function (...args) {
+    const source = querySource.getStore()
+    if (!source || source.kind === 'test-fixture') return toQuery.apply(this, args)
+    const consumed = new Set()
+    const result = querySource.run({ ...source, consumed }, () => toQuery.apply(this, args))
+    source.compiled = { sql: result.sql, siteKeys: [...consumed].filter(key => key !== source.key) }
+    return result
+  }
+  compiler.buildQueryFromSourceParams = function (chunks, config) {
+    const key = fragmentOrigins.get(chunks)
+    if (key) querySource.getStore()?.consumed?.add(key)
+    return build.call(this, chunks, config)
+  }
 }
 
 export function registerQuerySource(builder, site) {
@@ -29,13 +81,26 @@ export function registerQuerySource(builder, site) {
   }
   if (wrapped.has(builder)) return builder
   wrapped.add(builder)
+  if (typeof builder.getSQL === 'function') {
+    const getSql = builder.getSQL
+    builder.getSQL = function (...args) {
+      const fragment = getSql.apply(this, args)
+      trackSqlFragment(fragment, origins.get(this) ?? origins.get(builder))
+      return fragment
+    }
+  }
   for (const method of ['_prepare', 'toSQL', 'bind', 'all', 'get', 'run', 'first', 'raw', 'execute']) {
     if (typeof builder[method] !== 'function') continue
     const original = builder[method]
     builder[method] = function (...args) {
       const source = origins.get(this) ?? origins.get(builder)
-      return querySource.run(source, () => {
+      return querySource.run(source && { ...source }, () => {
         const result = original.apply(this, args)
+        if (method === 'toSQL') trackCompiledQuery(result, querySource.getStore())
+        if (method === '_prepare' && result?.constructor?.[drizzleEntityKind] === 'D1PreparedQuery' &&
+            result.stmt && typeof result.stmt === 'object') {
+          trackCompiledQuery(result.getQuery(), querySource.getStore(), result.stmt)
+        }
         return method === 'bind' ? registerQuerySource(result, source) : result
       })
     }
@@ -48,7 +113,7 @@ export function instrumentSource(code, sites) {
   for (const site of sites) {
     if (site.instrumentation === 'optional-chain-unverified') continue
     inserts.push([site.start, `globalThis[Symbol.for('alook.db-query-check.source')](`])
-    inserts.push([site.builderEnd, `,${JSON.stringify({ key: site.key, file: site.file, line: site.line, kind: site.kind, proof: site.proof, literalSql: site.literalSql })})`])
+    inserts.push([site.builderEnd, `,${JSON.stringify({ key: site.key, file: site.file, line: site.line, kind: site.kind, proof: site.proof, literalSql: site.literalSql, insertBuilderSiteKey: site.insertBuilderSiteKey, compilationOnly: site.compilationOnly })})`])
   }
   for (const [position, text] of inserts.sort((a, b) => b[0] - a[0])) code = code.slice(0, position) + text + code.slice(position)
   return code

@@ -74,6 +74,26 @@ function createForumFixture() {
   return { sqlite, orm, db: orm as unknown as Database, queries, user: addUser, forum, thread, member, tag, baseline, members };
 }
 
+it("joins profiles for the exact thread notification roster", async () => {
+  const fixture = createForumFixture();
+  fixture.user("participant", "Participant", "0021");
+  fixture.user("access-only");
+  fixture.user("other-participant");
+  fixture.thread({ id: "thread" });
+  fixture.thread({ id: "other-thread" });
+  const addedAt = "2026-08-10T00:00:00.000Z";
+  fixture.member("thread", "participant", "notify", "added", addedAt);
+  fixture.member("thread", "participant", "access");
+  fixture.member("thread", "access-only", "access");
+  fixture.member("other-thread", "other-participant", "notify");
+
+  await expect(threadQueries.listThreadParticipants(fixture.db, "thread")).resolves.toEqual([{
+    userId: "participant", userName: "Participant", userImage: null, userAvatarVersion: 0,
+    discriminator: "0021", source: "added", addedAt,
+  }]);
+  await expect(threadQueries.listThreadParticipants(fixture.db, "absent")).resolves.toEqual([]);
+});
+
 function expectD1Budget(queries: Array<{ sql: string; params: unknown[] }>) {
   expect(queries.length).toBeGreaterThan(0);
   for (const query of queries) expect(query.params.length).toBeLessThanOrEqual(100);

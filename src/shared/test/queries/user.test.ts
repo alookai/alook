@@ -5,6 +5,33 @@ import { describe, it, expect, vi } from "vitest";
 import * as userQueries from "../../src/db/queries/user";
 import { computeDiscriminator } from "../../src/lib/discriminator";
 import type { Database } from "../../src/db";
+import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
+
+it("publishes only live human avatars and keeps the internal identity fields", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    await db.insert(user).values([
+      { id: "human", name: "Human", email: "human@example.test", avatarVersion: 4, avatarObjectKey: "old", image: "/old.jpg" },
+      { id: "gone", name: "Gone", email: "gone@example.test", deletedAt: "2026-09-07T06:00:00Z" },
+      { id: "bot", name: "Bot", email: "bot@example.test", isBot: true, ownerUserId: "human" },
+    ]).run();
+    await expect(userQueries.getUserInternal(db, "bot")).resolves.toMatchObject({ id: "bot", isBot: true, ownerUserId: "human" });
+    await expect(userQueries.getUserInternal(db, "gone")).resolves.toMatchObject({ id: "gone", deletedAt: "2026-09-07T06:00:00Z" });
+    await expect(userQueries.getLiveHumanAvatarState(db, "bot")).resolves.toBeNull();
+    await expect(userQueries.getLiveHumanAvatarState(db, "gone")).resolves.toBeNull();
+    const state = { id: "human", image: "/old.jpg", avatarVersion: 4, avatarObjectKey: "old" };
+    await expect(userQueries.getLiveHumanAvatarState(db, "human")).resolves.toEqual(state);
+    const candidate = { objectKey: "new", stableUrl: "/new.jpg" };
+    await expect(userQueries.publishHumanAvatar(db, "bot", candidate)).resolves.toBeNull();
+    await expect(userQueries.publishHumanAvatar(db, "gone", candidate)).resolves.toBeNull();
+    const published = { id: "human", image: candidate.stableUrl, avatarVersion: 5, avatarObjectKey: candidate.objectKey };
+    await expect(userQueries.publishHumanAvatar(db, "human", candidate)).resolves.toEqual({ previous: state, current: published });
+    await expect(userQueries.getLiveHumanAvatarState(db, "human")).resolves.toEqual(published);
+  } finally {
+    sqlite.close();
+  }
+});
 
 const OLD = "2026-01-01T00:00:00.000Z";
 const NOW = "2026-11-05T01:02:03.000Z";

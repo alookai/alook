@@ -1,5 +1,6 @@
 import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
+import { prepareNativeBatchStatement } from "../helpers/native-batch-prepare"
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 import * as q from "../../src/db/queries/community/bot-audit-log"
 import { touchBotRefreshContextForAuditEventStatement } from "../../src/db/queries/community/bot"
@@ -41,7 +42,7 @@ describe("listOwnedBotActivityEvents", () => {
     ) => sqlite.transaction(() =>
       statements.map((statement) => {
         const query = statement.toSQL()
-        const prepared = sqlite.prepare(query.sql)
+        const prepared = prepareNativeBatchStatement(sqlite, query)
         if (!prepared.reader) return prepared.run(...query.params)
         return prepared.all(...query.params).map((row: any) => {
           if (!("created_at" in row)) return row
@@ -314,7 +315,7 @@ describe("listOwnedBotActivityEvents", () => {
     `).run()
     const eventId = "bae_atomic_failure"
     const createdAt = "2026-08-25T14:00:00.000Z"
-    const failingStatement = (db as any)
+    const failingStatement = db
       .insert(communityBotActivityEvent)
       .values({
         id: "bae_collision",
