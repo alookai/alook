@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture, bodyTop } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
@@ -117,4 +117,47 @@ it("keeps renderer presentation read and page gates closed during zero-count vie
   runFrames()
   expect(scrollFixture.latest.readPositionReady).toBe(true)
   expect(scrollFixture.latest.paginationEnabled).toBe(true)
+})
+
+
+it.each(["wheel", "scroll"])("retains the upward body through idle and reading publication after %s input", input => {
+  scrollFixture.bodyHeights.set("m13", 2901)
+  const reading = vi.fn()
+  const h = mount({ onReadingMessage: reading })
+  const start = h.root.scrollTop
+  if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -600 })
+  act(() => h.root.scrollTo({ top: start - 600 }))
+  runFrames()
+  const before = h.root.scrollTop
+  const body = bodyTop(h.root, "m13")
+  act(() => vi.advanceTimersByTime(54000))
+  runFrames()
+  h.update({ items: [...h.input.items] })
+  expect(h.root.scrollTop).toBe(before)
+  expect(bodyTop(h.root, "m13")).toBe(body)
+  expect(scrollFixture.latest.belowCount).toBe(0)
+  expect(scrollFixture.latest.followingTail).toBe(false)
+  h.update({ items: [...h.input.items, message("peer-after-idle")] })
+  expect(h.root.scrollTop).toBe(before)
+  expect(bodyTop(h.root, "m13")).toBe(body)
+  h.move(h.root.scrollHeight - h.root.clientHeight - 60)
+  expect(scrollFixture.latest.belowCount).toBe(0)
+  fireEvent.wheel(h.root, { deltaY: 20 })
+  runFrames()
+  h.update({ items: [...h.input.items, message("peer-after-recovery")] })
+  expect(h.root.scrollTop).toBe(h.root.scrollHeight - h.root.clientHeight)
+})
+
+
+it("does not treat a downward geometry adjustment as new intent after upward takeover", () => {
+  const h = tallTail({ onReadingMessage: vi.fn() })
+  fireEvent.wheel(h.root, { deltaY: -20 })
+  act(() => h.root.scrollTo({ top: h.root.scrollTop - 20 }))
+  runFrames()
+  act(() => h.root.scrollTo({ top: h.root.scrollTop + 2 }))
+  runFrames()
+  const before = h.root.scrollTop
+  expect(scrollFixture.latest.followingTail).toBe(false)
+  h.update({ items: [...h.input.items, message("peer-after-adjustment")] })
+  expect(h.root.scrollTop).toBe(before)
 })

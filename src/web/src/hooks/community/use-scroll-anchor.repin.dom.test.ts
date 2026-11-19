@@ -1201,15 +1201,15 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollTop).toBe(distance <= CONVERSATION_TAIL_SPACE_PX ? before - 200 : Math.min(before, h.root.scrollHeight - h.root.clientHeight))
     if (distance === 0) expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(0)
   })
-  it("keeps a zero-count tail anchored when the footer grows before the scroll quiet period", () => {
+  it("keeps historical reading within bounds when the footer grows before the scroll quiet period", () => {
     const h = mount()
     act(() => h.root.scrollTo({ top: h.root.scrollHeight - scrollFixture.height - 41 }))
     runFrames(2)
     expect(scrollFixture.latest.belowCount).toBe(0)
     scrollFixture.height += 200
     resize()
-    expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(41)
-    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(false)
     expect(scrollFixture.latest.readingTail).toBe(false)
   })
   it.each([0, 2, 40, 41, 100, 101])("preserves the footer policy at %ipx across native mobile/desktop tail padding", distance => {
@@ -1382,7 +1382,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(end).toHaveBeenCalledTimes(commands)
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
   })
-  it("keeps a DM zero-count tail anchored through consecutive composer resizes", () => {
+  it("keeps DM historical reading within bounds through consecutive composer resizes", () => {
     const h = mount()
     scrollFixture.height -= 100
     resize(2)
@@ -1391,8 +1391,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.belowCount).toBe(0)
     scrollFixture.height += 100
     resize()
-    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(41)
-    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(false)
     expect(scrollFixture.latest.readingTail).toBe(false)
   })
   it.each([0, 2, 8, 40, 41, 100, 300])("preserves the %ipx footer policy in the first two resize frames", distance => {
@@ -1638,7 +1638,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     h.root.removeEventListener("scroll", scroll)
   })
-  it.each(["touch", "pointer"].flatMap(input => [2, 20, 40, 41, 600].map(distance => ({ input, distance }))))("uses loaded-bottom eligibility after idle $input release at $distance px before peer append", ({ input, distance }) => {
+  it.each(["touch", "pointer"].flatMap(input => [2, 20, 40, 41, 600].map(distance => ({ input, distance }))))("retains the idle $input release policy at $distance px before peer append", ({ input, distance }) => {
     const h = mount()
     h.move(h.root.scrollHeight - h.root.clientHeight - distance)
     const native = scrollFixture.latest.virtualizer
@@ -1662,8 +1662,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(atLoadedBottom).toBe(distance <= 41)
     const end = vi.spyOn(native, "scrollToEnd")
     h.update({ items: [...h.input.items, message("received-after-idle-release")] })
-    expect(end).toHaveBeenCalledTimes(atLoadedBottom ? 1 : 0)
-    if (atLoadedBottom) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(end).toHaveBeenCalledTimes(distance <= CONVERSATION_TAIL_SPACE_PX ? 1 : 0)
+    if (distance <= CONVERSATION_TAIL_SPACE_PX) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     else expect(bodyTop(h.root, "m11")).toBe(before)
   })
   it.each(["idle-only", "still scrolling"].flatMap(handoff => [
