@@ -161,3 +161,31 @@ it("does not treat a downward geometry adjustment as new intent after upward tak
   h.update({ items: [...h.input.items, message("peer-after-adjustment")] })
   expect(h.root.scrollTop).toBe(before)
 })
+
+
+it.each([41, 600])("keeps the reading position selected %ipx before the tail while the composer rectangle is pending", distance => {
+  scrollFixture.height = 1161
+  scrollFixture.width = 883
+  scrollFixture.bodyHeights.set("m13", 2901.421875)
+  const h = mount({ onReadingMessage: vi.fn() })
+  const height = scrollFixture.height
+  scrollFixture.height -= 168
+  act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - distance }))
+  runFrames(2)
+  expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+  const before = h.root.scrollTop, body = bodyTop(h.root, "m13")
+  resize()
+  expect(Math.abs(h.root.scrollTop - before)).toBeLessThanOrEqual(1)
+  expect(Math.abs(bodyTop(h.root, "m13") - body)).toBeLessThanOrEqual(1)
+  act(() => vi.advanceTimersByTime(155470))
+  runFrames()
+  if (distance === 41) {
+    scrollFixture.height = height
+    resize()
+    expect(Math.abs(h.root.scrollTop - Math.min(before, h.root.scrollHeight - h.root.clientHeight))).toBeLessThanOrEqual(1)
+  } else {
+    h.update({ items: [...h.input.items, message("peer-after-composer-handoff")] })
+    expect(Math.abs(h.root.scrollTop - before)).toBeLessThanOrEqual(1)
+    expect(Math.abs(bodyTop(h.root, "m13") - body)).toBeLessThanOrEqual(1)
+  }
+})

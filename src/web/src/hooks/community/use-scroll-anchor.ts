@@ -1519,13 +1519,18 @@ export function useScrollAnchor({
       if (current && previous?.epoch === positionOwnerRef.current.epoch && previous.root === root
         && previous.native === virtualizerRef.current && previous.entry === positionEntryRef.current
         && previous.window === current.window && previous.items === current.items
-        && previous.clientHeight === current.height && previous.clientWidth === current.width
+        && previous.clientWidth === current.width
         && previous.scrollHeight === current.scrollHeight && previous.total === current.total && previous.paddingEnd === current.paddingEnd
-        && positionKind.get() === "idle" && readReady.get() && contextRef.current.active && contextRef.current.visible
+        && positionOwnerRef.current.active && positionKind.get() === "idle" && readReady.get()
+        && contextRef.current.active && contextRef.current.visible
         && !ownsCorrection && !projectionAnchorRef.current && !semanticIntentRef.current && !paginationRef.current) {
-        if (current.offset < previous.scrollTop - 1
-          && root.scrollHeight - root.clientHeight - root.scrollTop > CONVERSATION_TAIL_SPACE_PX) {
+        const max = Math.max(0, current.scrollHeight - current.height)
+        const expectedOffset = Math.max(0, Math.min(max, previous.scrollTop
+          + (previous.pinEligible ? max - Math.max(0, previous.scrollHeight - previous.clientHeight) : 0)))
+        if (current.offset < expectedOffset - 1 && Math.abs(current.offset - previous.scrollTop) > 1
+          && max - current.offset > CONVERSATION_TAIL_SPACE_PX) {
           inputOwner.upward = true
+          acceptedGeometryRef.current = null
           setFollowSuspended(true)
         } else if (current.offset > previous.scrollTop + 1
           && (inputOwner.touch || inputOwner.pointers.size > 0
