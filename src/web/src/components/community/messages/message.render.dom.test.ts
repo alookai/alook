@@ -322,6 +322,25 @@ describe("Message memo comparator", () => {
 
 describe("Message visible reply body", () => {
 
+  it("reuses the shared pending quote and preserves its jump when the real reference arrives", () => {
+    const onJumpReply = vi.fn()
+    const props = { onOpenThread: vi.fn(), onJumpReply, m: baseMsg({ replyTo: { id: "prior", authorName: "Bob", text: "", loading: true } }) }
+    const view = mount(props)
+    const button = view.getByRole("button", { name: "Show original message", exact: true })
+    const reserved = getComputedStyle(button).height
+    expect(view.getByRole("status", { name: "Loading quoted message" })).toBeVisible()
+    expect(button.querySelector("[data-msg-id]")).toBeNull()
+    fireEvent.click(button)
+    expect(onJumpReply).toHaveBeenCalledTimes(1)
+    view.rerender(makeTree({ ...props, m: baseMsg({ replyTo: { id: "prior", authorName: "Bob", text: "Loading message…", loading: false } }) }))
+    expect(view.getByRole("button", { name: "Show original message", exact: true })).toBe(button)
+    expect(getComputedStyle(button).height).toBe(reserved)
+    expect(view.getByText("Loading message…")).toBeVisible()
+    expect(view.queryByRole("status", { name: "Loading quoted message" })).toBeNull()
+    fireEvent.click(button)
+    expect(onJumpReply).toHaveBeenCalledTimes(2)
+  })
+
   it("keeps the reply header and renders the full visible Markdown body", () => {
     const onJumpReply = vi.fn()
     const view = mount({ onJumpReply, m: baseMsg({ content: "@Bob Smith\n**visible** body", replyTo: { id: "prior", authorName: "Bob Smith", text: "original" } }) })

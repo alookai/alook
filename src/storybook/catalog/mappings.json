@@ -5342,5 +5342,75 @@
     "kind": "nonvisual",
     "examples": [],
     "reason": "Factory for the selected real SVG components; its hosts are rendered through the icon identity gallery and actual product controls. It has no independent specimen."
+  },
+  "src/web/src/components/community/messages/renderers/current-message-cell.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-message-renderer-trial--comparison",
+        "region": "Original message row after selecting Current"
+      }
+    ],
+    "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
+  },
+  "src/web/src/components/community/messages/renderers/chatscope-message-cell.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-message-renderer-trial--comparison",
+        "region": "Native Chatscope Message cell after selecting Chatscope"
+      }
+    ],
+    "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
+  },
+  "src/web/src/components/community/messages/renderers/message-cell.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-message-renderer-trial--comparison",
+        "region": "One selected visual cell inside the original MessageList"
+      }
+    ],
+    "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
+  },
+  "src/web/src/components/community/settings/message-renderer-settings.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-business-message-renderer-trial--comparison",
+        "region": "Local account selector above the single original message list"
+      }
+    ],
+    "reason": "The comparison mounts the actual local preference control. It does not prove authenticated application routing, reload or a server write."
+  },
+  "src/web/src/components/community/messages/renderers/lobe-message-cell.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-message-renderer-trial--comparison",
+        "region": "Native ChatItem using the canonical slots after selecting Lobe UI"
+      }
+    ],
+    "reason": "The story selects the actual lazy Lobe adapter inside the original MessageList. Native first-entry lifecycle and callbacks have finite DOM checks; this declaration does not qualify app geometry, reload, server actions or browser behavior."
+  },
+  "src/web/src/components/community/messages/message-reply-preview.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-message-renderer-trial--comparison",
+        "region": "Original Message reply quote in trialMessage rows where index % 10 is 2, shared by all three selected renderers"
+      }
+    ],
+    "reason": "The existing trial mounts the original MessageList and Message reply slot with a real referenced-message fixture. This declares the shared quote composition only; pending/deleted branches, actual rendering, jump behavior, geometry and backend acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/community/messages/renderers/message-cell-layout.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-message-renderer-trial--comparison",
+        "region": "Canonical action, quote, avatar and body host inside the actual Current, Chatscope and Lobe message cells"
+      }
+    ],
+    "reason": "The existing comparison selects the real message cell inside the original MessageList. Each actual renderer mounts this shared Current host; the declaration does not establish rendered appearance, anchor behavior, native lifecycle or backend acceptance."
   }
 }
