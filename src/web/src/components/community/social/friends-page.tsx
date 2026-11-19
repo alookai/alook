@@ -178,7 +178,7 @@ export function FriendsPage({
           render={
             <button
               onClick={() => { if (f.userId) onDm?.(f.userId) }}
-              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
+              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none"
             />
           }
         >

@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite"
 import { useState } from "react"
 import { fn } from "storybook/test"
-import { Activity, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, AtSign, Ban, Bell, BellOff, Bookmark, Bot, Box, Brain, Bug, Calendar, CalendarDays, Camera, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUpIcon, CircleCheck, CircleDot, CircleAlert, PlusCircle, HelpCircle, CircleStop, Code2Icon, Copy, CreditCard, Database, DollarSign, Download, MoreHorizontal, MoreVertical, ExternalLink, Eye, File, FileImage, FileSpreadsheet, FileText, Folder, FolderLock, Gauge, Globe, Hash, Highlighter, HouseIcon, ImageIcon, ImageOff, ImagePlus, Inbox, InfoIcon, KeyRound, ListChevronsUpDown, ListFilter, Loader2, Lock, LockKeyhole, LogOut, Mail, MailWarning, Maximize, Maximize2, MessageSquare, MessageSquareLock, MessagesSquare, Minimize, MinusIcon, Monitor, MonitorDot, Moon, Network, OctagonXIcon, Palette, Pause, Pencil, Pin, Play, Plus, Presentation, RefreshCw, Reply, RocketIcon, RotateCcw, Search, Settings, Share, Shield, Shuffle, Smartphone, Square, Sun, Tag, Terminal, WrapText, Trash2, TriangleAlertIcon, Upload, User, UserMinus, UserPlus, UserRound, Users, UsersRound, Volume1, Volume2, VolumeX, WifiOff, X } from "@/components/icons/lucide"
-import { ArchiveRestore, BriefcaseBusinessIcon, Dices, Smile, SmilePlus, FileCode2, FileWarning, FileAudio, FileVideo, Link2, Link2Off, MousePointer2 } from "lucide-react"
+import { Activity, Archive, ArchiveRestore, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, AtSign, Ban, Bell, BellOff, Bookmark, Bot, Box, Brain, Bug, Calendar, CalendarDays, Camera, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUpIcon, CircleCheck, CircleDot, CircleAlert, PlusCircle, HelpCircle, CircleStop, Code2Icon, Copy, CreditCard, Database, Dices, DollarSign, Download, MoreHorizontal, MoreVertical, ExternalLink, Eye, File, FileImage, FileSpreadsheet, FileText, Folder, FolderLock, Gauge, Globe, Hash, Highlighter, HouseIcon, ImageIcon, ImageOff, ImagePlus, Inbox, InfoIcon, KeyRound, Link2, Link2Off, ListChevronsUpDown, ListFilter, Loader2, Lock, LockKeyhole, LogOut, Mail, MailWarning, Maximize, Maximize2, MessageSquare, MessageSquareLock, MessagesSquare, Minimize, MinusIcon, Monitor, MonitorDot, Moon, Network, OctagonXIcon, Palette, Pause, Pencil, Pin, Play, Plus, Presentation, RefreshCw, Reply, RocketIcon, RotateCcw, Search, Settings, Share, Shield, Shuffle, Smartphone, Smile, SmilePlus, Square, Sun, Tag, Terminal, WrapText, Trash2, TriangleAlertIcon, Upload, User, UserMinus, UserPlus, UserRound, Users, UsersRound, Volume1, Volume2, VolumeX, WifiOff, X } from "@/components/icons/lucide"
+import { BriefcaseBusinessIcon, FileCode2, FileWarning, FileAudio, FileVideo, MousePointer2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import * as Select from "@/components/ui/select"
@@ -12,7 +12,7 @@ import { MachinePairMessageDiagram } from "@/components/community/machines/machi
 const identities: { name: string; Icon: typeof Activity; animated: boolean; aliases: string }[] = [
   { name: "activity", Icon: Activity, animated: true, aliases: "Activity" },
   { name: "archive", Icon: Archive, animated: true, aliases: "Archive" },
-  { name: "archive-arrow-up", Icon: ArchiveRestore, animated: false, aliases: "ArchiveRestore" },
+  { name: "archive-arrow-up", Icon: ArchiveRestore, animated: true, aliases: "ArchiveRestore" },
   { name: "arrow-down", Icon: ArrowDown, animated: true, aliases: "ArrowDown" },
   { name: "arrow-left", Icon: ArrowLeft, animated: true, aliases: "ArrowLeft" },
   { name: "arrow-right", Icon: ArrowRight, animated: true, aliases: "ArrowRight" },
@@ -47,15 +47,15 @@ const identities: { name: string; Icon: typeof Activity; animated: boolean; alia
   { name: "copy", Icon: Copy, animated: true, aliases: "Copy" },
   { name: "credit-card", Icon: CreditCard, animated: true, aliases: "CreditCard" },
   { name: "database", Icon: Database, animated: true, aliases: "Database" },
-  { name: "dices", Icon: Dices, animated: false, aliases: "Dices" },
+  { name: "dices", Icon: Dices, animated: true, aliases: "Dices" },
   { name: "dollar-sign", Icon: DollarSign, animated: true, aliases: "DollarSign" },
   { name: "download", Icon: Download, animated: true, aliases: "Download" },
   { name: "ellipsis", Icon: MoreHorizontal, animated: true, aliases: "MoreHorizontal" },
   { name: "ellipsis-vertical", Icon: MoreVertical, animated: true, aliases: "MoreVertical" },
   { name: "external-link", Icon: ExternalLink, animated: true, aliases: "ExternalLink" },
   { name: "eye", Icon: Eye, animated: true, aliases: "Eye" },
-  { name: "face-slightly-smiling", Icon: Smile, animated: false, aliases: "Smile" },
-  { name: "face-slightly-smiling-plus", Icon: SmilePlus, animated: false, aliases: "SmilePlus" },
+  { name: "face-slightly-smiling", Icon: Smile, animated: true, aliases: "Smile" },
+  { name: "face-slightly-smiling-plus", Icon: SmilePlus, animated: true, aliases: "SmilePlus" },
   { name: "file", Icon: File, animated: true, aliases: "File, FileIcon" },
   { name: "file-code-corner", Icon: FileCode2, animated: false, aliases: "FileCode2" },
   { name: "file-exclamation-point", Icon: FileWarning, animated: false, aliases: "FileWarning" },
@@ -77,8 +77,8 @@ const identities: { name: string; Icon: typeof Activity; animated: boolean; alia
   { name: "inbox", Icon: Inbox, animated: true, aliases: "Inbox" },
   { name: "info", Icon: InfoIcon, animated: true, aliases: "InfoIcon" },
   { name: "key-round", Icon: KeyRound, animated: true, aliases: "KeyRound" },
-  { name: "link-2", Icon: Link2, animated: false, aliases: "Link2" },
-  { name: "link-2-off", Icon: Link2Off, animated: false, aliases: "Link2Off" },
+  { name: "link-2", Icon: Link2, animated: true, aliases: "Link2" },
+  { name: "link-2-off", Icon: Link2Off, animated: true, aliases: "Link2Off" },
   { name: "list-chevrons-up-down", Icon: ListChevronsUpDown, animated: true, aliases: "ListChevronsUpDown" },
   { name: "list-filter", Icon: ListFilter, animated: true, aliases: "ListFilter" },
   { name: "loader-circle", Icon: Loader2, animated: true, aliases: "Loader2, Loader2Icon, LoaderCircle, LoaderCircleIcon" },

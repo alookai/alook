@@ -126,7 +126,7 @@ export function MachineListSkeleton({
         heading={(
           <header data-slot="community-machines-heading" className={MACHINE_LIST_HEADING_CLASS}>
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
-              <Skeleton className="h-7 w-24 rounded" />
+              <Skeleton className={onBack || reserveBackSlot ? "hidden h-7 w-24 rounded sm:block" : "h-7 w-24 rounded"} />
               <Skeleton aria-hidden className="h-11 w-36 max-w-full rounded-sm sm:h-6" />
             </div>
             <div data-slot="community-machines-heading-action" className={MACHINE_LIST_HEADING_ACTION_CLASS}>
@@ -474,7 +474,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
         heading={(
           <header data-slot="community-machines-heading" className={MACHINE_LIST_HEADING_CLASS}>
             <div data-slot="community-machines-heading-copy" className={MACHINE_LIST_HEADING_COPY_CLASS}>
-              <h1 className="text-xl font-medium text-foreground">Machines</h1>
+              <h1 className={onBack ? "hidden text-xl font-medium text-foreground sm:block" : "text-xl font-medium text-foreground"}>Machines</h1>
               {usage}
             </div>
             <div

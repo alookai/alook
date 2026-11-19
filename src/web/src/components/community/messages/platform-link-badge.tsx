@@ -1,7 +1,6 @@
 import type { ComponentPropsWithoutRef } from "react"
 import Image from "next/image"
-import { Link2 } from "lucide-react";
-import { Mail, MonitorDot } from "@/components/icons/lucide";
+import { Link2, Mail, MonitorDot } from "@/components/icons/lucide";
 import {
   SiAnthropic,
   SiArxiv,

@@ -2,8 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { memo, useRef } from "react"
-import { ArchiveRestore } from "lucide-react";
-import { Archive, MessagesSquare, Plus, Tag, Trash2 } from "@/components/icons/lucide";
+import { ArchiveRestore, Archive, MessagesSquare, Plus, Tag, Trash2 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { LineClamp } from "@/components/ui/line-clamp"
 import { formatRelativeTime } from "@/lib/community/format-time"

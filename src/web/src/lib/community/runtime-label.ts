@@ -1,12 +1,18 @@
 const backendLabels = new Map([
+  ["claude", "Claude"],
   ["codex", "Codex (automatic)"],
   ["codex-app", "Codex App"],
   ["codex-cli", "Codex CLI"],
-  ["agy", "antigravity cli"],
+  ["cursor", "Cursor"],
+  ["cursor-sdk", "Cursor SDK"],
+  ["grok", "Grok"],
+  ["opencode", "OpenCode"],
+  ["pi", "Pi"],
+  ["pi-durable", "Pi Durable"],
+  ["antigravity", "Antigravity"],
+  ["agy", "Antigravity CLI"],
   ["qoder", "Qoder"],
   ["copilot", "GitHub Copilot"],
-  ["cursor-sdk", "Cursor SDK"],
-  ["pi-durable", "Pi Durable"],
 ])
 
 export function runtimeLabel(runtime: string): string {

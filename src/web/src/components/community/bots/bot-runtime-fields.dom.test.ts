@@ -81,7 +81,7 @@ describe("BotRuntimeFields", () => {
       options: [{ id: "antigravity", unhealthy: false }, { id: "agy", unhealthy: false }],
       runtime: "antigravity",
     })
-    fireEvent.click(renderer.getByRole("radio", { name: "antigravity cli" }))
+    fireEvent.click(renderer.getByRole("radio", { name: "Antigravity CLI" }))
     expect(onRuntimeChange).toHaveBeenCalledWith("agy")
     expect(onModelChange).toHaveBeenCalledWith(null)
     expect(onReasoningEffortChange).toHaveBeenCalledWith(null)
@@ -104,7 +104,7 @@ describe("BotRuntimeFields", () => {
 
   it("supports keyboard selection and skips unavailable runtimes", async () => {
     const { renderer, onRuntimeChange, onModelChange, onReasoningEffortChange } = renderFields()
-    const selected = renderer.getByRole("radio", { name: /claude/ })
+    const selected = renderer.getByRole("radio", { name: /Claude/ })
     act(() => selected.focus())
     fireEvent.keyDown(selected, { key: "ArrowDown" })
     await waitFor(() => expect(renderer.getByRole("radio", { name: "Codex (automatic)" })).toHaveFocus())

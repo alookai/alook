@@ -9,7 +9,7 @@ export function PresenceStatus({ online, known = true, label, className }: { onl
       data-presence={!known ? "unknown" : online ? "online" : "offline"}
       className={cn(
         "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
-        online ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground",
+        online ? "bg-status-online/15 text-approval-pass dark:text-status-online" : "bg-muted text-muted-foreground",
         className,
       )}
     >

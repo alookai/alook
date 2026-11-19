@@ -5,8 +5,7 @@ import type {
   ReactNode,
 } from "react"
 import { EditorContent, type Editor } from "@tiptap/react"
-import { Smile } from "lucide-react";
-import { FileIcon, ImageIcon, PlusCircle, X } from "@/components/icons/lucide";
+import { Smile, FileIcon, ImageIcon, PlusCircle, X } from "@/components/icons/lucide";
 import { isMobile } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"

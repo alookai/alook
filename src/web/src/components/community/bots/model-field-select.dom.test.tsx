@@ -54,7 +54,7 @@ describe("ModelField with the real Select", () => {
     await act(async () => { fireEvent.click(screen.getByTestId("bot-model-select")) })
     expect(screen.getByRole("status")).toHaveTextContent("Loading models…")
     expect(screen.getByTestId("bot-model-select")).toHaveTextContent("gemini-3.1-pro-high")
-    expect(screen.getByRole("option", { name: "Default (antigravity's own default)" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "Default (Antigravity's own default)" })).toBeInTheDocument()
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -115,7 +115,7 @@ describe("ModelField with the real Select", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No matching models")
     expect(onChange).not.toHaveBeenCalled()
     expect(screen.getByTestId("bot-model-select")).toHaveTextContent("gemini-3.1-pro-high")
-    const option = screen.getByRole("option", { name: "Default (antigravity's own default)" })
+    const option = screen.getByRole("option", { name: "Default (Antigravity's own default)" })
     await act(async () => { fireEvent.pointerDown(option, { pointerType: "mouse" }) })
     await act(async () => { fireEvent.click(option) })
     expect(onChange).toHaveBeenLastCalledWith(null)

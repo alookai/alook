@@ -291,7 +291,7 @@ describe("ProfileCard contextual metadata", () => {
       onClose: vi.fn(),
     })))
     const badge = view.getByTestId("community-profile-bot-badge")
-    expect(badge).toHaveTextContent("antigravity cli")
+    expect(badge).toHaveTextContent("Antigravity CLI")
     expect(badge.querySelector('[data-provider-logo="antigravity"]')).not.toBeNull()
     view.unmount()
   })
