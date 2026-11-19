@@ -960,14 +960,8 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
         channelName: communityChannel.name,
         channelType: communityChannel.type,
       })
-      .from(communityChannel)
-      .innerJoin(
-        communityServerMember,
-        and(
-          eq(communityServerMember.serverId, communityChannel.serverId),
-          eq(communityServerMember.userId, userId)
-        )
-      )
+      .from(communityServerMember)
+      .crossJoin(communityChannel)
       .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
       .leftJoin(
         communityChannelMember,
@@ -979,6 +973,8 @@ export async function listChannelRefDirectoryForUser(db: Database, userId: strin
       )
       .where(
         and(
+          eq(communityServerMember.userId, userId),
+          eq(communityChannel.serverId, communityServerMember.serverId),
           isNull(communityChannel.parentChannelId),
           or(
             isNull(communityChannel.categoryId),
