@@ -77,11 +77,14 @@
 }
 
 .alook-video-player[data-expanded] {
+  --media-controls-before-start: visible;
   --media-foreground: var(--foreground);
   --media-controls-foreground: var(--foreground);
   --media-controls: var(--background);
   --media-popover: var(--popover);
   --media-popover-foreground: var(--popover-foreground);
+  --media-accent: var(--accent);
+  --media-accent-foreground: var(--accent-foreground);
   --media-border: var(--border);
   --media-muted: var(--muted);
   --media-muted-foreground: var(--muted-foreground);
@@ -99,6 +102,9 @@
 }
 
 .alook-video-player[data-expanded] .video-controls-content {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
   position: relative;
   inset: auto;
   width: 100%;
