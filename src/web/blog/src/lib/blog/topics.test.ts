@@ -46,14 +46,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 33 published slugs exactly once", () => {
+  it("covers all 34 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(33);
-    expect(new Set(slugs).size).toBe(33);
+    expect(slugs).toHaveLength(34);
+    expect(new Set(slugs).size).toBe(34);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -86,6 +86,7 @@ describe("blogTopics", () => {
       [
         "ai-agent-communication",
         "introducing-alook",
+        "human-agent-collaboration",
         "shared-context-between-agents",
         "alook-vs-buzz",
         "alook-vs-grok-bot",
@@ -159,6 +160,8 @@ describe("blogTopics", () => {
         "Choose the right communication layer for agents, protocols, and teams",
       "introducing-alook":
         "See how people and AI agents talk directly in shared rooms",
+      "human-agent-collaboration":
+        "Keep questions, evidence and decisions connected when teammates bring their own agents",
       "shared-context-between-agents":
         "Understand why agents drift without shared context",
       "alook-vs-buzz":

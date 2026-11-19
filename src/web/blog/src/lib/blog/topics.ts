@@ -97,6 +97,7 @@ export const blogTopics = [
         slug: "introducing-alook",
         userJob: "See how people and AI agents talk directly in shared rooms",
       },
+      { slug: "human-agent-collaboration", userJob: "Keep questions, evidence and decisions connected when teammates bring their own agents" },
       { slug: "shared-context-between-agents", userJob: "Understand why agents drift without shared context" },
       {
         slug: "alook-vs-buzz",
