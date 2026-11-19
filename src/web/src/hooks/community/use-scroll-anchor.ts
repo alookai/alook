@@ -343,7 +343,7 @@ export function useScrollAnchor({
   }, [writeFollowSuspended])
   const acceptedGeometryRef = useRef<Geometry | null>(null)
   const viewportCorrectionRef = useRef<{
-    epoch: number; root: HTMLDivElement; native: ReactVirtualizer<HTMLDivElement, Element>; offset: number
+    epoch: number; root: HTMLDivElement; native: ReactVirtualizer<HTMLDivElement, Element>; offset: number; acknowledged?: boolean
   } | null>(null)
   const readingViewportRef = useRef<{ epoch: number; width: number; height: number; offset: number } | null>(null)
   const projectionAnchorRef = useRef<{
@@ -1216,6 +1216,12 @@ export function useScrollAnchor({
       acceptedGeometryRef.current = {
         ...next, isScrolling: next.isScrolling && unchangedPosition ? previous.isScrolling : next.isScrolling,
       }
+      const correction = viewportCorrectionRef.current
+      if (correction?.epoch === next.epoch && correction.root === next.root && correction.native === next.native
+        && Math.abs(next.scrollTop - correction.offset) <= 1) {
+        correction.acknowledged = true
+        if (!next.isScrolling) viewportCorrectionRef.current = null
+      }
       if (readReady.get()) setResumeValidated(true)
       holdNativeOrigin(next.scrollTop <= 1 && !next.pinEligible ? currentItemsRef.current[0]?.key ?? null : null)
     }
@@ -1523,24 +1529,33 @@ export function useScrollAnchor({
         && previous.scrollHeight === current.scrollHeight && previous.total === current.total && previous.paddingEnd === current.paddingEnd
         && positionOwnerRef.current.active && positionKind.get() === "idle" && readReady.get()
         && contextRef.current.active && contextRef.current.visible
-        && !ownsCorrection && !projectionAnchorRef.current && !semanticIntentRef.current && !paginationRef.current) {
+        && !projectionAnchorRef.current && !semanticIntentRef.current && !paginationRef.current) {
         const max = Math.max(0, current.scrollHeight - current.height)
         const expectedOffset = Math.max(0, Math.min(max, previous.scrollTop
           + (previous.pinEligible ? max - Math.max(0, previous.scrollHeight - previous.clientHeight) : 0)))
         const movedUp = current.offset < expectedOffset - 1 && Math.abs(current.offset - previous.scrollTop) > 1
         const nativeRect = previous.native.scrollRect
         const nativeOffset = previous.native.scrollOffset
-        const crossedTailBoundary = previous.clientHeight === current.height && !!nativeRect
-          && Math.abs(nativeRect.height - current.height) <= 1 && Math.abs(nativeRect.width - current.width) <= 1
+        const stableViewportBoundary = previous.clientHeight === current.height && !!nativeRect
+          && Math.abs(nativeRect.height - current.height) <= 1
           && nativeOffset !== null && Math.abs(nativeOffset - current.offset) <= 1
+        const pendingViewportBoundary = previous.clientHeight !== current.height && !!nativeRect
+          && (Math.abs(nativeRect.height - previous.clientHeight) <= 1 || Math.abs(nativeRect.height - current.height) <= 1)
+          && nativeOffset !== null && Math.abs(current.offset - previous.scrollTop) > 1
+          && expectedOffset - current.offset === 1
+        const crossedTailBoundary = !!nativeRect && Math.abs(nativeRect.width - current.width) <= 1
+          && (stableViewportBoundary || pendingViewportBoundary)
           && expectedOffset - current.offset >= 1 && max - expectedOffset <= CONVERSATION_TAIL_SPACE_PX
-        if ((movedUp || crossedTailBoundary) && max - current.offset > CONVERSATION_TAIL_SPACE_PX) {
+        if ((!ownsCorrection && movedUp || crossedTailBoundary && (!ownsCorrection || correction?.acknowledged))
+          && max - current.offset > CONVERSATION_TAIL_SPACE_PX) {
           inputOwner.upward = true
           acceptedGeometryRef.current = null
           setFollowSuspended(true)
-        } else if (current.offset > previous.scrollTop + 1
+        } else if (!ownsCorrection && current.offset > previous.scrollTop + 1
           && (inputOwner.touch || inputOwner.pointers.size > 0
             || Math.abs(root.scrollHeight - root.clientHeight - root.scrollTop) <= 1)) inputOwner.upward = false
+        if (ownsCorrection && correction && current.offset === correction.offset
+          && previous.scrollTop === correction.offset && previous.clientHeight === current.height) correction.acknowledged = true
       }
       if (!readingMessageRef.current || contextRef.current.dataState !== "ready") return
       if (reading && current && positionOwnerRef.current.manualEpoch === reading.epoch

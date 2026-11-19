@@ -262,3 +262,59 @@ it("does not take reading ownership from a one-pixel viewport change without upw
   expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - 40)).toBeLessThanOrEqual(1)
   expect(scrollFixture.latest.followingTail).toBe(true)
 })
+
+
+it.each([0, 2, 26].flatMap(frames => [
+  { frames, order: "scroll-first" },
+  { frames, order: "measure-first" },
+]))("preserves reading after the complete composer resize history with $frames-frame $order delivery", ({ frames, order }) => {
+  scrollFixture.height = 683
+  scrollFixture.width = 905
+  const items = Array.from({ length: 36 }, (_, index) => message(`dm-history-${index}`))
+  const h = mount({ items, onReadingMessage: vi.fn() })
+  const deliverResize = () => order === "measure-first" ? resizeMeasureBeforeScroll(frames || 26) : resize(frames || 26)
+  let pendingResize = false
+  const setDistance = (distance: number) => {
+    act(() => {
+      h.root.scrollTop = Math.max(0, h.root.scrollHeight - h.root.clientHeight - distance)
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    if (pendingResize) {
+      pendingResize = false
+      deliverResize()
+    } else runFrames()
+    if (frames === 0) {
+      if (Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - distance) > 1) {
+        act(() => {
+          h.root.scrollTop = Math.max(0, h.root.scrollHeight - h.root.clientHeight - distance)
+          h.root.dispatchEvent(new Event("scroll"))
+        })
+        runFrames()
+      }
+      expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - distance)).toBeLessThanOrEqual(1)
+    } else expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+  }
+  for (const distance of [0, 2, 40, 41]) {
+    scrollFixture.height = 563
+    if (frames === 0) pendingResize = true
+    else deliverResize()
+    if (distance === 0) setDistance(41)
+    setDistance(distance)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    const before = h.root.scrollTop
+    const body = h.root.querySelector('[data-msg-id="dm-history-35"]')
+    const offset = bodyTop(h.root, "dm-history-35")
+    scrollFixture.height = 683
+    deliverResize()
+    if (distance <= 40) {
+      expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - distance)).toBeLessThanOrEqual(1)
+    } else {
+      const expected = Math.min(before, Math.max(0, h.root.scrollHeight - h.root.clientHeight))
+      expect(Math.abs(h.root.scrollTop - expected)).toBeLessThanOrEqual(1)
+      expect(h.root.querySelector('[data-msg-id="dm-history-35"]')).toBe(body)
+      expect(body?.isConnected).toBe(true)
+      expect(Math.abs(bodyTop(h.root, "dm-history-35") - (offset + before - expected))).toBeLessThanOrEqual(1)
+      expect(scrollFixture.latest.followingTail).toBe(false)
+    }
+  }
+})
