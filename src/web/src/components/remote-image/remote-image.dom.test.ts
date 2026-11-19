@@ -1,5 +1,5 @@
 import React from "react"
-import { ImageOff } from "lucide-react"
+import { ImageOff } from "@/components/icons/lucide";
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { renderCommunity } from "@/test/community-owner-harness"

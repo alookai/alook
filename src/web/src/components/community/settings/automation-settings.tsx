@@ -3,7 +3,7 @@
 import type { CSSProperties } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { AUTOMATION_PERMISSION_LIMITS, AUTOMATION_READ_PERMISSIONS, AutomationAccessCodeCreateSchema, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeCreateResponse, type AutomationExpiry, type AutomationPermissionPolicy } from "@alook/shared"
-import { ChevronDown, Copy, KeyRound, Pencil, Trash2 } from "lucide-react"
+import { ChevronDown, Copy, KeyRound, Pencil, Trash2 } from "@/components/icons/lucide";
 import { EmptyState } from "../empty-state"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Button } from "@/components/ui/button"

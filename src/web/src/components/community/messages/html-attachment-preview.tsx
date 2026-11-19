@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useSelector } from "@tanstack/react-store"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { LoaderCircle } from "lucide-react"
+import { LoaderCircle } from "@/components/icons/lucide";
 import { useTheme } from "next-themes"
 import { collectHtmlPreviewFonts, loadHtmlPreviewFonts } from "@/lib/community/html-preview-fonts"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"

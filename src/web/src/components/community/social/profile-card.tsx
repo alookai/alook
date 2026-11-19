@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, type ComponentProps, type CSSProperties, type ReactNode } from "react"
-import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
+import { Bot, MessagesSquare, Shield, UserRound } from "@/components/icons/lucide";
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"

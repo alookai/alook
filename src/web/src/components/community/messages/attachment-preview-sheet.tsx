@@ -4,7 +4,8 @@ import { EmptyState } from "../empty-state"
 import { useQuery } from "@tanstack/react-query"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import dynamic from "next/dynamic"
-import { CircleCheck, Download, Loader2, RefreshCw, FileWarning } from "lucide-react"
+import { FileWarning } from "lucide-react";
+import { CircleCheck, Download, Loader2, RefreshCw } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { cn } from "@/lib/utils"

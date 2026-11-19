@@ -1,6 +1,6 @@
 "use client"
 
-import { Hash } from "lucide-react"
+import { Hash } from "@/components/icons/lucide";
 import { EmptyState } from "../empty-state"
 import { useCommunityServerRoute } from "@/components/community/shell/community-route-context"
 import { useEffect, useRef } from "react"

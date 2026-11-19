@@ -1,13 +1,8 @@
 "use client"
 
 import { useId, type SubmitEvent } from "react"
-import {
-  CheckIcon,
-  LoaderCircleIcon,
-  PencilIcon,
-  RefreshCwIcon,
-  type LucideIcon,
-} from "lucide-react"
+import { type LucideIcon } from "lucide-react";
+import { CheckIcon, LoaderCircleIcon, PencilIcon, RefreshCwIcon } from "@/components/icons/lucide";
 
 import { Button } from "@/components/ui/button"
 import { ProviderLogo } from "@/components/provider-logo"

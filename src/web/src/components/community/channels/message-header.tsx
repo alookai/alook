@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 import { cn } from "@/lib/utils"

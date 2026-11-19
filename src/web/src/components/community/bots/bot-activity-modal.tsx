@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "../empty-state"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
-import { Activity } from "lucide-react"
+import { Activity } from "@/components/icons/lucide";
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"

@@ -1190,6 +1190,10 @@
       {
         "story": "web-business-product-compositions--onboarding-machines-and-billing",
         "region": "Machine dialogs, pair steps/diagram, list loading and machine capacity specimens"
+      },
+      {
+        "story": "web-foundations-icons--integrated",
+        "region": "Actual machine-pair SVG with FolderLock and MessageSquare nested SVG coordinates and stroke overrides"
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -4193,5 +4197,1150 @@
       }
     ],
     "reason": "Landing use cases are a homepage section composed from shared tabs, button and the closing collage piece; the homepage story shows the real section."
+  },
+  "src/web/src/components/icons/animateicons/activity.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "activity row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/archive.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "archive row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/arrow-down.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "arrow-down row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/arrow-left.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "arrow-left row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/arrow-right.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "arrow-right row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/arrow-up.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "arrow-up row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/arrow-up-right.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "arrow-up-right row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/at-sign.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "at-sign row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/ban.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "ban row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/bell.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "bell row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/bell-off.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "bell-off row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/bookmark.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "bookmark row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/bot.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "bot row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/box.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "box row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/brain.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "brain row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/bug.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "bug row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/calendar.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "calendar row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/calendar-days.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "calendar-days row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/camera.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "camera row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/chart-column.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "chart-column row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/check.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "check row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/chevron-down.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "chevron-down row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/chevron-left.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "chevron-left row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/chevron-right.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "chevron-right row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/chevron-up.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "chevron-up row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/circle-check.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "circle-check row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/circle-dot.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "circle-dot row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/circle-alert.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "circle-exclamation-point row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/circle-plus.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "circle-plus row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/circle-question-mark.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "circle-question-mark row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/circle-stop.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "circle-stop row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/code-xml.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "code-xml row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/copy.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "copy row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/credit-card.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "credit-card row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/database.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "database row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/dollar-sign.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "dollar-sign row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/download.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "download row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/ellipsis.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "ellipsis row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/ellipsis-vertical.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "ellipsis-vertical row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/external-link.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "external-link row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/eye.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "eye row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/file.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "file row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/file-image.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "file-image row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/file-spreadsheet.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "file-spreadsheet row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/file-text.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "file-text row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/folder.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "folder row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/folder-lock.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "folder-lock row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/gauge.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "gauge row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/globe.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "globe row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/hash.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "hash row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/highlighter.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "highlighter row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/house.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "house row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/image.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "image row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/image-off.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "image-off row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/image-plus.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "image-plus row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/inbox.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "inbox row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/info.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "info row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/key-round.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "key-round row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/list-chevrons-up-down.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "list-chevrons-up-down row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/list-filter.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "list-filter row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/loader-circle.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "loader-circle row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/lock.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "lock row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/lock-keyhole.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "lock-keyhole row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/log-out.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "log-out row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/mail.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "mail row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/mail-warning.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "mail-exclamation-point row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/maximize.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "maximize row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/maximize-2.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "maximize-2 row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/message-square.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "message-square row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/message-square-lock.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "message-square-lock row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/messages-square.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "messages-square row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/minimize.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "minimize row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/minus.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "minus row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/monitor.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "monitor row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/monitor-dot.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "monitor-dot row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/moon.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "moon row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/network.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "network row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/octagon-x.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "octagon-x row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/palette.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "palette row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/pause.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "pause row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/pencil.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "pencil row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/pin.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "pin row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/play.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "play row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/plus.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "plus row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/presentation.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "presentation row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/refresh-cw.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "refresh-cw row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/reply.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "reply row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/rocket.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "rocket row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/rotate-ccw.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "rotate-ccw row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/search.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "search row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/settings.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "settings row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/share.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "share row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/shield.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "shield row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/shuffle.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "shuffle row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/smartphone.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "smartphone row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/square.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "square row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/sun.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "sun row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/tag.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "tag row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/terminal.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "terminal row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/wrap-text.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "text-wrap row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/trash.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "trash row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/triangle-alert.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "triangle-exclamation-point row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/upload.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "upload row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/user.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "user row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/user-minus.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "user-minus row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/user-plus.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "user-plus row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/user-round.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "user-round row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/users.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "users row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/users-round.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "users-round row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/volume-1.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "volume-1 row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/volume-2.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "volume-2 row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/volume-x.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "volume-x row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/wifi-off.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "wifi-off row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animateicons/x.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-icons--all-identities",
+        "region": "x row; current 16px and 24px icons"
+      }
+    ],
+    "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/components/icons/animated-icon.tsx": {
+    "kind": "nonvisual",
+    "examples": [],
+    "reason": "Factory for the selected real SVG components; its hosts are rendered through the icon identity gallery and actual product controls. It has no independent specimen."
   }
 }

@@ -2,7 +2,7 @@
 
 import { EmptyState } from "../empty-state"
 import { useLayoutEffect, useState } from "react"
-import { MessagesSquare, Pin, Users } from "lucide-react"
+import { MessagesSquare, Pin, Users } from "@/components/icons/lucide";
 import { messagePreviewText, type CommunityRole as Role } from "@alook/shared"
 
 import { Avatar } from "@/components/community/avatar"

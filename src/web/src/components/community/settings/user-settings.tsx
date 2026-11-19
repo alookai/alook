@@ -9,7 +9,7 @@ import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toastApiError } from "@/lib/api/client"
-import { User, LogOut, Palette, Database, Camera, Shield, CreditCard, FileText, KeyRound } from "lucide-react"
+import { User, LogOut, Palette, Database, Camera, Shield, CreditCard, FileText, KeyRound } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"

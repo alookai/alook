@@ -4,7 +4,8 @@ import { EmptyState } from "../empty-state"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
-import { Users, Ban, Monitor, Bot, Shield, type LucideIcon, MessagesSquare } from "lucide-react"
+import { type LucideIcon } from "lucide-react";
+import { Users, Ban, Monitor, Bot, Shield, MessagesSquare } from "@/components/icons/lucide";
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"

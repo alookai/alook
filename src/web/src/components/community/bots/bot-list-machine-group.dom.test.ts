@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   usage: vi.fn(),
 }))
 
-vi.mock("lucide-react", () => ({
+vi.mock("@/components/icons/lucide", () => ({
   Activity: "activity-icon",
   ChevronDown: "chevron-icon",
   Monitor: "monitor-icon",

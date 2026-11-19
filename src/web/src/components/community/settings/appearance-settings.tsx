@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { Sun, Moon, Monitor } from "lucide-react"
+import { Sun, Moon, Monitor } from "@/components/icons/lucide";
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Field } from "./field"

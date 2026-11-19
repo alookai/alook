@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Download } from "lucide-react"
+import { Download } from "@/components/icons/lucide";
 import { FileDownloadButton } from "@/components/file-download-button"
 import { cn } from "@/lib/utils"
 import { useShareImageSource } from "./share-image-context"

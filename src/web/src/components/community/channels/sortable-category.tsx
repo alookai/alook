@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
-import { ChevronDown, Plus, Settings, MessagesSquare, MessageSquareLock, Trash2 } from "lucide-react"
+import { ChevronDown, Plus, Settings, MessagesSquare, MessageSquareLock, Trash2 } from "@/components/icons/lucide";
 import { useChannelDndItem } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, isKeyboardContextMenu } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, type ComponentPropsWithoutRef } from "react"
-import { LoaderCircle } from "lucide-react"
+import { LoaderCircle } from "@/components/icons/lucide";
 import styles from "./document-navigation-link.module.css"
 
 export function DocumentNavigationLink({ children, className, onClick, ...props }: ComponentPropsWithoutRef<"a">) {

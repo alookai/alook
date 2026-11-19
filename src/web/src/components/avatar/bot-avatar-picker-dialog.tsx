@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react";
-import { Camera, Shuffle } from "lucide-react";
+import { Camera, Shuffle } from "@/components/icons/lucide";
 import {
   Dialog,
   DialogTrigger,

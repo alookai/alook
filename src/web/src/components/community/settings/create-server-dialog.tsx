@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useId, useRef } from "react"
-import { ImagePlus } from "lucide-react"
+import { ImagePlus } from "@/components/icons/lucide";
 import { toast } from "sonner"
 import { SeededBackdrop } from "@/components/avatar"
 import { Button } from "@/components/ui/button"

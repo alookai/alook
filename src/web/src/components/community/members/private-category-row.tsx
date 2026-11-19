@@ -1,6 +1,6 @@
 "use client"
 
-import { Lock } from "lucide-react"
+import { Lock } from "@/components/icons/lucide";
 import { Switch } from "@/components/ui/switch"
 import {
   PRIVATE_CATEGORY_LABEL,

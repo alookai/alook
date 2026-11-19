@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import type React from "react"
-import { X } from "lucide-react"
+import { X } from "@/components/icons/lucide";
 import { MAX_STATUS_TEXT_LENGTH } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"

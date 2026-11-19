@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { CheckCircle2Icon, LoaderCircleIcon, RefreshCwIcon } from "lucide-react"
+import { CheckCircle2Icon, LoaderCircleIcon, RefreshCwIcon } from "@/components/icons/lucide";
 
 import { ProfileAvatar } from "@/components/avatar"
 import { ServerIcon } from "@/components/community/server-icon"

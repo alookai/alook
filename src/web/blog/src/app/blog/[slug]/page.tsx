@@ -8,7 +8,7 @@ import { ZoneLink } from "@/components/public-layout";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import technostalgia from "@/components/brand/technostalgia.module.css";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "@/components/icons/lucide";
 import { getAllPosts, getPostBySlug } from "@blog/lib/blog/posts";
 import { buildBlogPostingJsonLd } from "@blog/lib/blog/json-ld";
 import { getBlogTopicBySlug, getNextTopicBridge } from "@blog/lib/blog/topics";

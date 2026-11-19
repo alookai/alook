@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { isPresenceOnline } from "@alook/shared"
-import { Check, CircleAlert } from "lucide-react"
+import { Check, CircleAlert } from "@/components/icons/lucide";
 import { toast } from "sonner"
 
 import {

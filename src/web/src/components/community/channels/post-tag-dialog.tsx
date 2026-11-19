@@ -9,7 +9,7 @@ import {
   type ReactElement,
   type RefObject,
 } from "react"
-import { X } from "lucide-react"
+import { X } from "@/components/icons/lucide";
 import { FORUM_ARCHIVE_TAG, MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
 import {
   Dialog,

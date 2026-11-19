@@ -7,7 +7,7 @@ import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCallback, useEffect } from "react"
 import { toast } from "sonner"
-import { CircleHelp, Copy, Loader2, RefreshCw, TerminalIcon } from "lucide-react"
+import { CircleHelp, Copy, Loader2, RefreshCw, TerminalIcon } from "@/components/icons/lucide";
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"

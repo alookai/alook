@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useMutation } from "@tanstack/react-query"
 import { AUTOMATION_PERMISSION_LIMITS, AUTOMATION_READ_PERMISSIONS, AUTOMATION_WRITE_PERMISSIONS, isPresenceOnline, type AutomationAccessCodeCreateResponse } from "@alook/shared"
-import { RefreshCw, Loader2 } from "lucide-react"
+import { RefreshCw, Loader2 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { PromptCopyPreview } from "@/components/ui/prompt-copy-preview"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, OnboardingProgress } from "./onboarding-surface"

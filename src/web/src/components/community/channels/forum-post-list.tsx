@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { defaultRangeExtractor, measureElement, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual"
-import { ListChevronsUpDown } from "lucide-react"
+import { ListChevronsUpDown } from "@/components/icons/lucide";
 import { hashKey } from "@tanstack/react-query"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"

@@ -2,7 +2,8 @@
 
 import { tutorialModel } from "./example-data";
 
-import { MousePointer2, Terminal } from "lucide-react";
+import { MousePointer2 } from "lucide-react";
+import { Terminal } from "@/components/icons/lucide";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { LandingShellMotion, PrototypeSheet } from "@/components/home/landing-shell-motion";
 import { CommunityPreviewNavigation } from "@/components/community/shell/community-preview-navigation";

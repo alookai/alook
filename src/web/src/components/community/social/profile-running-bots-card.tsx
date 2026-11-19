@@ -1,7 +1,7 @@
 "use client"
 
 import { useId } from "react"
-import { Bot, ChevronRight } from "lucide-react"
+import { Bot, ChevronRight } from "@/components/icons/lucide";
 import { Avatar } from "../avatar"
 import {
   useRunningOwnedBots,

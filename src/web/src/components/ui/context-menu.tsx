@@ -7,7 +7,7 @@ import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu
 import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
 
 import { cn } from "@/lib/utils"
-import { ChevronRightIcon, CheckIcon } from "lucide-react"
+import { ChevronRightIcon, CheckIcon } from "@/components/icons/lucide";
 import { useAuthenticatedContextMenuPolicy } from "@/components/authenticated-context-menu-boundary"
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 

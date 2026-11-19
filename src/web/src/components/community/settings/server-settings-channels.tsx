@@ -3,7 +3,7 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { ChevronDown, Hash, Lock } from "lucide-react"
+import { ChevronDown, Hash, Lock } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { EntityIcon } from "../entity-icon"
 import { EmptyState } from "../empty-state"
