@@ -1527,8 +1527,14 @@ export function useScrollAnchor({
         const max = Math.max(0, current.scrollHeight - current.height)
         const expectedOffset = Math.max(0, Math.min(max, previous.scrollTop
           + (previous.pinEligible ? max - Math.max(0, previous.scrollHeight - previous.clientHeight) : 0)))
-        if (current.offset < expectedOffset - 1 && Math.abs(current.offset - previous.scrollTop) > 1
-          && max - current.offset > CONVERSATION_TAIL_SPACE_PX) {
+        const movedUp = current.offset < expectedOffset - 1 && Math.abs(current.offset - previous.scrollTop) > 1
+        const nativeRect = previous.native.scrollRect
+        const nativeOffset = previous.native.scrollOffset
+        const crossedTailBoundary = previous.clientHeight === current.height && !!nativeRect
+          && Math.abs(nativeRect.height - current.height) <= 1 && Math.abs(nativeRect.width - current.width) <= 1
+          && nativeOffset !== null && Math.abs(nativeOffset - current.offset) <= 1
+          && expectedOffset - current.offset >= 1 && max - expectedOffset <= CONVERSATION_TAIL_SPACE_PX
+        if ((movedUp || crossedTailBoundary) && max - current.offset > CONVERSATION_TAIL_SPACE_PX) {
           inputOwner.upward = true
           acceptedGeometryRef.current = null
           setFollowSuspended(true)

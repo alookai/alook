@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
-import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture, bodyTop } from "@/test/message-scroll-fixture"
+import { installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, resizeMeasureBeforeScroll, runFrames, scrollFixture, bodyTop } from "@/test/message-scroll-fixture"
 
 beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
@@ -188,4 +188,77 @@ it.each([41, 600])("keeps the reading position selected %ipx before the tail whi
     expect(Math.abs(h.root.scrollTop - before)).toBeLessThanOrEqual(1)
     expect(Math.abs(bodyTop(h.root, "m13") - body)).toBeLessThanOrEqual(1)
   }
+})
+
+it.each([
+  { height: 563, growth: 120, width: 905, order: "scroll-first" },
+  { height: 563, growth: 120, width: 905, order: "measure-first" },
+  { height: 993, growth: 168, width: 883, order: "scroll-first" },
+  { height: 993, growth: 168, width: 883, order: "measure-first" },
+])("preserves a one-pixel reading takeover at $height px with $order resize delivery", ({ height, growth, width, order }) => {
+  scrollFixture.height = height
+  scrollFixture.width = width
+  scrollFixture.bodyHeights.set("m13", 2901.421875)
+  const h = mount({ onReadingMessage: vi.fn() })
+  act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - 40 }))
+  runFrames()
+  expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(40)
+  act(() => h.root.scrollTo({ top: h.root.scrollTop - 1 }))
+  runFrames()
+  expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(41)
+  expect(scrollFixture.latest.belowCount).toBe(0)
+  expect(scrollFixture.latest.followingTail).toBe(false)
+  const before = h.root.scrollTop
+  const body = h.root.querySelector('[data-msg-id="m13"]')
+  const offset = bodyTop(h.root, "m13")
+  scrollFixture.height += growth
+  if (order === "measure-first") resizeMeasureBeforeScroll()
+  else resize()
+  const expected = Math.min(before, Math.max(0, h.root.scrollHeight - h.root.clientHeight))
+  expect(Math.abs(h.root.scrollTop - expected)).toBeLessThanOrEqual(1)
+  expect(h.root.querySelector('[data-msg-id="m13"]')).toBe(body)
+  expect(body?.isConnected).toBe(true)
+  expect(Math.abs(bodyTop(h.root, "m13") - (offset + before - expected))).toBeLessThanOrEqual(1)
+  expect(scrollFixture.latest.followingTail).toBe(false)
+  fireEvent.wheel(h.root, { deltaY: 20 })
+  runFrames()
+  expect(scrollFixture.latest.followingTail).toBe(true)
+})
+
+it.each([0, 2, 40])("retains the %ipx tail distance through composer shrink", distance => {
+  scrollFixture.height = 563
+  scrollFixture.width = 905
+  scrollFixture.bodyHeights.set("m13", 2901.421875)
+  const h = mount()
+  act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - distance }))
+  runFrames()
+  scrollFixture.height += 120
+  resize()
+  expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - distance)).toBeLessThanOrEqual(1)
+})
+
+it("keeps subpixel tail-boundary noise outside the one-pixel takeover", () => {
+  scrollFixture.height = 563
+  scrollFixture.bodyHeights.set("m13", 2901.421875)
+  const h = mount()
+  act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - 40 }))
+  runFrames()
+  act(() => h.root.scrollTo({ top: h.root.scrollTop - 0.5 }))
+  runFrames()
+  scrollFixture.height += 120
+  resize()
+  expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - 40.5)).toBeLessThanOrEqual(1)
+})
+
+it("does not take reading ownership from a one-pixel viewport change without upward movement", () => {
+  scrollFixture.height = 563
+  scrollFixture.bodyHeights.set("m13", 2901.421875)
+  const h = mount()
+  act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - 40 }))
+  runFrames()
+  scrollFixture.height -= 1
+  act(() => h.root.dispatchEvent(new Event("scroll")))
+  resize()
+  expect(Math.abs(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop - 40)).toBeLessThanOrEqual(1)
+  expect(scrollFixture.latest.followingTail).toBe(true)
 })
