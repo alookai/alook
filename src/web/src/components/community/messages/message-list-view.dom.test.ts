@@ -125,6 +125,43 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelectorAll(".mb-6")).toHaveLength(0)
   })
 
+  it.each([
+    { kind: "entry", ready: false },
+    { kind: "target", ready: false },
+    { kind: "New", ready: false },
+    { kind: "New", ready: true },
+  ])("keeps cached $kind failure out of flow with read/page readiness $ready", ({ kind, ready }) => {
+    const input = props({ loading: false })
+    const state = controller({ readPositionReady: ready, paginationEnabled: ready })
+    const renderRows = () => React.createElement("p", { "data-testid": "cached-body" }, "Original cached message")
+    const renderer = render(renderMessageListView(input, state, renderRows))
+    const root = renderer.container.firstElementChild!
+    const flow = [...root.children]
+    const scroller = renderer.getByTestId("community-message-scroller")
+    const content = renderer.container.querySelector("[data-message-list-content]")!
+    const rows = [...content.children]
+    const body = renderer.getByTestId("cached-body")
+    const failure = new Error("Transient loading failure")
+    renderer.rerender(renderMessageListView(
+      { ...input, initialLoadError: kind === "entry" ? failure : null, targetLoadError: kind === "target" ? failure : null },
+      { ...state, newLoadError: kind === "New" ? failure : null },
+      renderRows,
+    ))
+    expect(renderer.queryByRole("alert")).toBeNull()
+    expect(renderer.queryByRole("button", { name: /Retry/ })).toBeNull()
+    expect([...root.children]).toEqual(flow)
+    expect([...content.children]).toEqual(rows)
+    expect(renderer.getByTestId("cached-body")).toBe(body)
+    expect(content.textContent).toBe("Original cached message")
+    expect(renderer.getByTestId("community-message-scroller")).toBe(scroller)
+    expect(content).toHaveAttribute("data-read-position-ready", String(ready))
+    expect(scroller).toHaveAttribute("data-pagination-enabled", String(ready))
+    renderer.rerender(renderMessageListView(input, state, renderRows))
+    expect([...root.children]).toEqual(flow)
+    expect(renderer.getByTestId("cached-body")).toBe(body)
+    expect(renderer.getByTestId("community-message-scroller")).toBe(scroller)
+  })
+
 
   it("does not restore an accessory overlay inside the list while its Footer target is absent", () => {
     const renderer = render(renderView(props(), controller(), () => React.createElement("virtual-rows")))

@@ -62,6 +62,15 @@ beforeEach(() => { installMessageScrollFixture(); load.mockReset(); preCommand.l
 afterEach(restoreMessageScrollFixture)
 const kinds = ["text", "text-thread", "forum-post", "dm"] as const
 
+function expectSilentCachedList(view: ReturnType<typeof render>, root: HTMLElement, flowChildren: Element[]) {
+  expect(view.queryByRole("alert")).toBeNull()
+  expect(view.queryByRole("button", { name: "Retry" })).toBeNull()
+  const boundary = root.closest<HTMLElement>("[data-message-scroller-boundary]")!
+  expect(Array.from(boundary.parentElement!.children)).toEqual(flowChildren)
+  expect(root.querySelectorAll("[data-msg-id]").length).toBeGreaterThan(0)
+  expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "false")
+}
+
 it.each(["no-movement", "offset-before-event"] as const)("keeps far real DM movement beyond old committed rows before native scroll delivery with %s", async order => {
   scrollFixture.width = 390
   const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
@@ -1089,6 +1098,8 @@ it.each(kinds.flatMap(kind => [
     try {
       resize()
       let root = view.getByTestId("community-message-scroller")
+      const initialRoot = root
+      const flowChildren = Array.from(root.closest<HTMLElement>("[data-message-scroller-boundary]")!.parentElement!.children)
       expect(root).toHaveAttribute("aria-busy", "false")
       expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("data-initial-position-phase", "revealed")
       const cachedTail = root.querySelector<HTMLElement>('[data-msg-id="m35"]')!
@@ -1099,6 +1110,13 @@ it.each(kinds.flatMap(kind => [
       await act(async () => { reject(new Error("held entry failed")); await vi.advanceTimersByTimeAsync(2000) })
       resize()
       root = view.getByTestId("community-message-scroller")
+      expect(root).toBe(initialRoot)
+      expectSilentCachedList(view, root, flowChildren)
+      expect(feed.initialLoadError).toBeNull()
+      expect(feed.targetLoadError).toBeInstanceOf(Error)
+      expect(feed.targetPositionDataState).toBe("error")
+      expect(root).toHaveAttribute("data-pagination-enabled", "false")
+      expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
       expect(root.querySelector('[data-msg-id="m35"]')).toBe(cachedTail)
       expect(Math.abs(cachedTail.getBoundingClientRect().top - root.getBoundingClientRect().top - cachedTailOffset)).toBeLessThanOrEqual(1)
       let release!: (value: typeof packet) => void
@@ -1107,7 +1125,7 @@ it.each(kinds.flatMap(kind => [
       let failRepair = repairFailure
       load.mockImplementation((url: string) => url.includes("entry=1") ? retry
         : failRepair ? Promise.reject(new Error("owned window repair failed")) : Promise.resolve(repairPage))
-      fireEvent.click(view.getByRole("button", { name: "Retry" }))
+      act(() => feed.retryInitialLoad())
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
       resize()
       expect(root).toHaveAttribute("aria-busy", "false")
@@ -1130,8 +1148,12 @@ it.each(kinds.flatMap(kind => [
       resize()
       expect(view.getByTestId("community-message-scroller")).toBe(root)
       expect(root).toHaveAttribute("aria-busy", "false")
-      if (repairFailure) expect(view.getByRole("alert")).toHaveTextContent("Couldn’t load the requested messages")
-      else expect(view.queryByRole("alert")).toBeNull()
+      expectSilentCachedList(view, root, flowChildren)
+      expect(feed.initialLoadError).toBeNull()
+      if (repairFailure) {
+        expect(feed.targetLoadError).toBeInstanceOf(Error)
+        expect(feed.targetPositionDataState).toBe("error")
+      } else expect(feed.targetLoadError).toBeNull()
       if (takeover) {
         expect(feed.messages.map(row => row.id)).toContain(readerId)
         expect(root.querySelector(`[data-msg-id="${readerId}"]`)).toBe(reader)
@@ -1145,17 +1167,23 @@ it.each(kinds.flatMap(kind => [
       if (repairFailure) {
         expect(root).toHaveAttribute("data-pagination-enabled", "false")
         expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
-        fireEvent.click(view.getByRole("button", { name: "Retry" }))
+        act(() => feed.retryInitialLoad())
         await act(async () => { await vi.advanceTimersByTimeAsync(0) })
         resize()
-        expect(view.getByRole("alert")).toHaveTextContent("Couldn’t load the requested messages")
+        expectSilentCachedList(view, root, flowChildren)
+        expect(feed.targetLoadError).toBeInstanceOf(Error)
+        expect(feed.targetPositionDataState).toBe("error")
+        expect(root).toHaveAttribute("data-pagination-enabled", "false")
+        expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
         expect(root).toHaveAttribute("aria-busy", "false")
         expect(feed.messages.map(row => row.id)).toContain(readerId)
         failRepair = false
-        fireEvent.click(view.getByRole("button", { name: "Retry" }))
+        act(() => feed.retryInitialLoad())
         await act(async () => { await vi.advanceTimersByTimeAsync(0) })
         resize()
-        expect(view.queryByRole("alert")).toBeNull()
+        expectSilentCachedList(view, root, flowChildren)
+        expect(feed.targetLoadError).toBeNull()
+        expect(feed.retryingInitialLoad).toBe(false)
         expect(view.getByTestId("community-message-scroller")).toBe(root)
         expect(root).toHaveAttribute("aria-busy", "false")
         expect(feed.messages.map(row => row.id)).toEqual(rows.map(row => row.id))
@@ -1206,6 +1234,10 @@ it.each(kinds.flatMap(kind => (["success", "offline", "timeout"] as const).map(r
     try {
       resize()
       const root = view.getByTestId("community-message-scroller")
+      const flowChildren = Array.from(root.closest<HTMLElement>("[data-message-scroller-boundary]")!.parentElement!.children)
+      const cachedBody = root.querySelector<HTMLElement>("[data-msg-id]")!
+      const cachedBodyId = cachedBody.dataset.msgId!
+      const cachedOffset = cachedBody.getBoundingClientRect().top - root.getBoundingClientRect().top
       expect(feed.initialDisplayReady).toBe(true)
       expect(feed.initialPositionKnown).toBe(false)
       expect(feed.readSnapshotFetching).toBe(true)
@@ -1236,19 +1268,34 @@ it.each(kinds.flatMap(kind => (["success", "offline", "timeout"] as const).map(r
       } else {
         expect(feed.messages).toHaveLength(42)
         expect(feed.targetPositionDataState).toBe("error")
-        expect(view.getByRole("alert")).toHaveTextContent("Couldn’t load the requested messages")
+        expectSilentCachedList(view, root, flowChildren)
+        expect(feed.initialLoadError).toBeNull()
+        expect(feed.targetLoadError).toBeInstanceOf(Error)
+        expect(root.querySelector(`[data-msg-id="${cachedBodyId}"]`)).toBe(cachedBody)
+        expect(Math.abs(cachedBody.getBoundingClientRect().top - root.getBoundingClientRect().top - cachedOffset)).toBeLessThanOrEqual(1)
+        expect(root).toHaveAttribute("data-pagination-enabled", "false")
+        expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
         let resume!: (value: typeof fresh) => void
         load.mockReturnValue(new Promise(yes => { resume = yes }))
-        fireEvent.click(view.getByRole("button", { name: "Retry" }))
+        act(() => feed.retryInitialLoad())
         await act(async () => { await vi.advanceTimersByTimeAsync(0) })
         resize()
         expect(view.getByTestId("community-message-scroller")).toBe(root)
         expect(root).toHaveAttribute("aria-busy", "false")
-        expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "false")
+        expectSilentCachedList(view, root, flowChildren)
+        expect(feed.retryingInitialLoad).toBe(true)
+        expect(root).toHaveAttribute("data-pagination-enabled", "false")
+        expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
+        expect(root.querySelector(`[data-msg-id="${cachedBodyId}"]`)).toBe(cachedBody)
         await act(async () => { resume(fresh); await vi.advanceTimersByTimeAsync(0) })
         resize()
         expect(feed.initialPositionKnown).toBe(true)
-        expect(view.queryByRole("alert")).toBeNull()
+        expectSilentCachedList(view, root, flowChildren)
+        expect(feed.initialLoadError).toBeNull()
+        expect(feed.targetLoadError).toBeNull()
+        expect(feed.targetPositionDataState).toBe("ready")
+        expect(feed.retryingInitialLoad).toBe(false)
+        expect(root.querySelector('[data-msg-id="m60"]')).not.toBeNull()
       }
     } finally { view.unmount(); owner.client.clear() }
   },
