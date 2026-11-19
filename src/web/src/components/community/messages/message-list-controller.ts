@@ -77,8 +77,8 @@ export function useMessageListController({
 
   const items = useMemo(
     () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer && (!!isFetchingNewer || !!newerLoadError),
-      !!historyStartKnown || !!isFetchingOlder || !!olderLoadError),
-    [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer, newerLoadError, historyStartKnown, isFetchingOlder, olderLoadError],
+      !!historyStartKnown || !!isFetchingOlder || !!olderLoadError, viewerUserId ?? positionScope?.proof.viewerId),
+    [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer, newerLoadError, historyStartKnown, isFetchingOlder, olderLoadError, viewerUserId, positionScope?.proof.viewerId],
   )
 
   const footerSlot = useConversationFooterSlot()

@@ -5,6 +5,8 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, queries: { ...actual.queries, communityFriendship: { ...actual.queries.communityFriendship, hydrateApprovalsForDmMessages: creationMocks.approvals }, communityBotCreation: { hydrateCreationRequestsForDmMessages: creationMocks.hydrate }, communityAttachment: { listByMessageIds: creationMocks.attachments }, communityReaction: { listReactionsByMessageIds: creationMocks.reactions } } }
 })
+import { flattenMessageItems } from "./message-list-items"
+import { presentCanonicalMessage } from "./message-wire"
 import { botCreationFixture } from "@/test/bot-creation-fixtures"
 import { readCommunityMessageResource, mapMessageForApi, mapMessageForWs, type MessageRow } from "./message-payload"
 
@@ -115,6 +117,19 @@ describe("mapMessageForApi", () => {
 
     const withoutThread = mapMessageForApi(baseRow, emptyApiCtx, BUSINESS_SCHEMA_VERSION, "channel")
     expect(withoutThread.thread).toBeUndefined()
+  })
+
+  it.each(["u_alice", "other-viewer"])("keeps message and New row identity through actual WS to GET with viewer=%s", viewerId => {
+    const row = { ...baseRow, clientNonce: "client-1" }
+    const live = mapMessageForWs(row, emptyWsCtx, BUSINESS_SCHEMA_VERSION, "channel")
+    const refreshed = mapMessageForApi(row, { ...emptyApiCtx, viewerId }, BUSINESS_SCHEMA_VERSION, "channel")
+    expect(live.clientNonce).toBe("client-1")
+    expect(refreshed.clientNonce).toBe(viewerId === row.authorId ? "client-1" : null)
+    const keys = (resource: typeof live) => flattenMessageItems([presentCanonicalMessage(resource)],
+      resource.id, false, false, true, viewerId).map(item => item.key)
+    expect(keys(refreshed)).toEqual(keys(live))
+    expect(refreshed.id).toBe(live.id)
+    expect(refreshed.authorId).toBe(live.authorId)
   })
 
   it("returns client-provided nonces and filters srv fallbacks", () => {
