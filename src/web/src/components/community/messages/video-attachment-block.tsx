@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { createPortal } from "react-dom"
 import { Container, Controls, Menu, MuteButton, PlayButton, PlaybackRateRadioGroup, Time, TimeSlider, VolumePopover, VolumeSlider } from "@videojs/react"
 import { Video, VideoPlayer, usePlayer } from "@videojs/react/video"
@@ -9,6 +10,9 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { fileDownloadStatusText, useFileDownload } from "@/lib/file-download"
 import { tid } from "@/lib/community/testids"
+import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import { renderCommunityThumbnail } from "@/lib/community-image-thumbnail"
+import { captureVideoPreviewOwner, readVideoPreview, saveVideoPreview, type VideoPreviewOwner } from "@/lib/community/video-preview-cache"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import "@videojs/react/video/neutral-skin.css"
 import "./video-attachment.css"
@@ -20,6 +24,7 @@ function VideoControls({ attachment, download, expanded, onExpand }: {
   const expandButton = useRef<HTMLButtonElement>(null)
   const focusFrame = useRef<number | null>(null)
   const releaseControls = useRef<(() => void) | null>(null)
+  useLayoutEffect(() => expanded ? requestControlsLock() : undefined, [expanded, requestControlsLock])
   useLayoutEffect(() => () => {
     if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current)
     releaseControls.current?.()
@@ -120,7 +125,7 @@ function VideoControls({ attachment, download, expanded, onExpand }: {
   </>
 }
 
-function VideoAttachmentSession({ attachment }: { attachment: FileAttachment }) {
+function VideoAttachmentSession({ attachment, registry }: { attachment: FileAttachment; registry: CommunityDbRegistry | null }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null)
   const [maskSlot, setMaskSlot] = useState<HTMLDivElement | null>(null)
@@ -131,11 +136,88 @@ function VideoAttachmentSession({ attachment }: { attachment: FileAttachment }) 
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)
+  const [poster, setPoster] = useState<string | undefined>()
+  const [previewSettled, setPreviewSettled] = useState(false)
   const download = useFileDownload(attachment)
   const activatedRef = useRef(false)
   const previewSeeked = useRef(false)
   const currentVideo = useRef<HTMLVideoElement | null>(null)
+  const metadataSeen = useRef(false)
+  const retryVersion = useRef(0)
+  const capturedFrame = useRef(false)
+  const frameController = useRef<AbortController | null>(null)
+  const previewLease = useRef<{ active: boolean; current: () => boolean; ready: Promise<VideoPreviewOwner | null> } | null>(null)
   const bindVideo = useCallback((node: HTMLVideoElement | null) => { currentVideo.current = node; setVideo(node) }, [])
+
+  useEffect(() => {
+    const generation = registry?.runtime.lifecycle.get().generation
+    const version = retryVersion.current
+    let objectUrl: string | undefined
+    const lease = {
+      active: true,
+      current: () => lease.active && (!registry || registry.runtime.lifecycle.get().active && registry.runtime.lifecycle.get().generation === generation),
+      ready: Promise.resolve<VideoPreviewOwner | null>(null),
+    }
+    previewLease.current = lease
+    setPoster(undefined)
+    setPreviewSettled(false)
+    lease.ready = (async () => {
+      try {
+        if (!registry?.accountId) return null
+        await registry.ready
+        if (!lease.current()) return null
+        const owner = await captureVideoPreviewOwner(registry.accountId, attachment.url)
+        const saved = owner ? await readVideoPreview(owner, attachment.url) : null
+        if (!lease.current()) return null
+        if (saved && retryVersion.current === version) {
+          if (!metadataSeen.current) setDimensions({ width: saved.width, height: saved.height })
+          if (saved.poster && !activatedRef.current) {
+            try {
+              objectUrl = URL.createObjectURL(saved.poster)
+              setPoster(objectUrl)
+              setReady(true)
+            } catch {}
+          }
+        }
+        return owner
+      } finally { if (lease.current()) setPreviewSettled(true) }
+    })().catch(() => null)
+    return () => {
+      lease.active = false
+      frameController.current?.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      if (previewLease.current === lease) previewLease.current = null
+    }
+  }, [attachment.url, registry])
+
+  async function rememberPreview(media: HTMLVideoElement, frame = false) {
+    const lease = previewLease.current
+    if (!lease || !lease.current() || currentVideo.current !== media || media.videoWidth <= 0 || media.videoHeight <= 0) return
+    const width = media.videoWidth, height = media.videoHeight
+    const owner = await lease.ready
+    if (!owner || !lease.current() || currentVideo.current !== media) return
+    let image: Blob | undefined
+    if (frame) {
+      if (activatedRef.current || capturedFrame.current || !previewSeeked.current) return
+      capturedFrame.current = true
+      const controller = new AbortController()
+      frameController.current?.abort()
+      frameController.current = controller
+      try {
+        image = await renderCommunityThumbnail(width, height, (w, h) => {
+          if (!lease.current() || currentVideo.current !== media || activatedRef.current) return null
+          const canvas = document.createElement("canvas")
+          canvas.width = w; canvas.height = h
+          const context = canvas.getContext("2d")
+          if (!context) return null
+          context.drawImage(media, 0, 0, w, h)
+          return quality => new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", quality))
+        }, controller.signal) ?? undefined
+      } catch { return }
+      if (controller.signal.aborted || activatedRef.current) return
+    }
+    if (lease.current() && currentVideo.current === media) await saveVideoPreview(owner, attachment.url, { width, height, poster: image })
+  }
 
   useLayoutEffect(() => {
     const element = document.createElement("div")
@@ -168,6 +250,9 @@ function VideoAttachmentSession({ attachment }: { attachment: FileAttachment }) 
   }
 
   function retry() {
+    frameController.current?.abort()
+    capturedFrame.current = false
+    retryVersion.current += 1
     activatedRef.current = false
     previewSeeked.current = false
     setActivated(false)
@@ -184,16 +269,20 @@ function VideoAttachmentSession({ attachment }: { attachment: FileAttachment }) 
   const player = <VideoPlayer>
     <Container className="media-skin media-container video-skin alook-video-player" data-theme="neutral" data-preset="video" data-active={activated || undefined} data-expanded={expanded || undefined}>
       <div className="alook-video-picture">
-      <Video key={attempt} ref={bindVideo} src={attachment.url} preload="metadata" playsInline controls={false}
+      <Video key={attempt} ref={bindVideo} src={attachment.url} poster={poster}
+        preload={previewSettled && (!poster || attempt > 0) ? "metadata" : "none"} playsInline controls={false}
         data-testid={tid.mediaPlayer(attachment.name)} className="alook-video-element"
         onLoadedMetadata={event => {
           const media = event.currentTarget
+          metadataSeen.current = true
           if (media.videoWidth > 0 && media.videoHeight > 0) setDimensions({ width: media.videoWidth, height: media.videoHeight })
+          void rememberPreview(media)
+          if (poster && attempt === 0) return
           if (activatedRef.current || previewSeeked.current) return
           previewSeeked.current = true
           media.currentTime = Number.isFinite(media.duration) && media.duration > 0 ? Math.min(0.1, media.duration / 2) : 0.1
         }}
-        onSeeked={() => setReady(true)}
+        onSeeked={event => { setReady(true); void rememberPreview(event.currentTarget, true) }}
         onLoadedData={() => { if (activatedRef.current) setReady(true) }}
         onPlay={() => { activatedRef.current = true; setActivated(true); setError(null) }}
         onError={() => setError("Couldn’t play this file")}
@@ -202,7 +291,7 @@ function VideoAttachmentSession({ attachment }: { attachment: FileAttachment }) 
       {!ready && !error && <span className="sr-only" role="status">Loading media…</span>}
       {error && <div className="alook-video-error"><p role="alert">{error}</p><button type="button" onClick={error.startsWith("Playback was blocked") ? play : retry} data-testid={tid.mediaRetry(attachment.name)}>{error.startsWith("Playback was blocked") ? "Try playing" : "Retry"} {attachment.name}</button></div>}
       </div>
-      {activated && <VideoControls attachment={attachment} download={download} expanded={expanded} onExpand={() => setExpanded(value => !value)} />}
+      {(activated || expanded) && <VideoControls attachment={attachment} download={download} expanded={expanded} onExpand={() => setExpanded(value => !value)} />}
       {expanded && downloadError}
     </Container>
   </VideoPlayer>
@@ -239,5 +328,6 @@ function VideoAttachmentSession({ attachment }: { attachment: FileAttachment }) 
 }
 
 export function VideoAttachmentBlock({ attachment }: { attachment: FileAttachment }) {
-  return <VideoAttachmentSession key={`${attachment.url}\u0000${attachment.name}`} attachment={attachment} />
+  const registry = getCommunityDbRegistry(useQueryClient())
+  return <VideoAttachmentSession key={`${registry?.accountId ?? ""}\u0000${attachment.url}\u0000${attachment.name}`} attachment={attachment} registry={registry} />
 }

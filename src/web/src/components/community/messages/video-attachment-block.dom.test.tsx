@@ -1,4 +1,9 @@
 import React from "react"
+import "fake-indexeddb/auto"
+import { Blob as NativeBlob } from "node:buffer"
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
@@ -6,6 +11,11 @@ import { VideoAttachmentBlock } from "./video-attachment-block"
 import { Message } from "./message"
 import { requestNativeBack } from "@/components/ui/native-back-layer"
 import type { FileAttachment } from "@/lib/community/models/message"
+import { createIdbPersister, clearAllPersistedCaches } from "@/lib/query-persister"
+import { captureVideoPreviewOwner, readVideoPreview, saveVideoPreview } from "@/lib/community/video-preview-cache"
+import * as previewCache from "@/lib/community/video-preview-cache"
+import { keys } from "idb-keyval"
+import { cacheStore } from "@/lib/query-cache-store"
 
 const attachment: FileAttachment = { kind: "file", name: "clip.mp4", url: "/attachments/clip", contentType: "video/mp4", size: "1 KB", sizeBytes: 1024 }
 let play = vi.fn<() => Promise<void>>()
@@ -88,7 +98,137 @@ function fallbackMenus() {
   styles.push(style)
 }
 
+function previewPlatform() {
+  vi.stubGlobal("Blob", NativeBlob)
+  const revoke = vi.fn()
+  const create = vi.fn(() => "blob:restored-video-preview")
+  const OriginalURL = URL
+  vi.stubGlobal("URL", class extends OriginalURL {
+    static createObjectURL = create
+    static revokeObjectURL = revoke
+  })
+  return { create, revoke }
+}
+
+async function previewOwner(source: string) {
+  await clearAllPersistedCaches()
+  const persister = createIdbPersister("viewer")
+  await persister.rememberAccountIdentity({ id: "viewer", email: "viewer@example.test" }, () => {})
+  const owner = await captureVideoPreviewOwner("viewer", source)
+  if (!owner) throw new Error("Preview fixture has no qualified current account")
+  return { owner, persister }
+}
+
+const cachedAttachment: FileAttachment = { ...attachment, id: "preview-clip", url: "/api/community/channels/preview-channel/attachments/preview-clip" }
+
 describe("video attachment", () => {
+  it("keeps the expanded bar and before-start skin usable through idle, error and retry", async () => {
+    const style = document.createElement("style")
+    style.textContent = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "video-attachment.css"), "utf8")
+    document.head.appendChild(style); styles.push(style)
+    const { screen, video } = setup()
+    metadata(video); fireEvent.seeked(video)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Play video clip.mp4" })))
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Expand video" })))
+    const toolbar = screen.getByRole("toolbar", { name: "Video controls" })
+    const player = video.closest<HTMLElement>(".alook-video-player")!
+    fireEvent.pointerLeave(player)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2200)) })
+    expect(player).toHaveAttribute("data-controls-visible")
+    expect(toolbar).toHaveAttribute("data-visible")
+    expect(getComputedStyle(player).getPropertyValue("--media-controls-before-start").trim()).toBe("visible")
+    fireEvent.error(video)
+    expect(screen.getByRole("toolbar")).toBe(toolbar)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry clip.mp4" })))
+    const replacement = document.querySelector<HTMLVideoElement>('video')!
+    expect(replacement).not.toBe(video)
+    expect(document.querySelectorAll("video")).toHaveLength(1)
+    expect(screen.getByRole("toolbar")).toBe(toolbar)
+    expect(toolbar).not.toHaveAttribute("data-started")
+    expect(toolbar).toHaveAttribute("data-visible")
+    expect(toolbar.closest("[inert]")).toBeNull()
+    expect(getComputedStyle(toolbar).visibility).toBe("visible")
+    expect(getComputedStyle(toolbar).opacity).toBe("1")
+    expect(getComputedStyle(toolbar).pointerEvents).toBe("auto")
+    expect(screen.getByRole("button", { name: "More" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Shrink video" })).toBeEnabled()
+    metadata(replacement); fireEvent.seeked(replacement)
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Shrink video" })))
+    expect(screen.queryByRole("toolbar")).toBeNull()
+    expect(screen.getByRole("button", { name: "Play video clip.mp4" })).toBeVisible()
+    expect(getComputedStyle(player).getPropertyValue("--media-controls-before-start").trim()).toBe("")
+  })
+
+  it("captures from the original paused video, commits, and restores a Blob poster in a new UI owner", async () => {
+    const platform = previewPlatform()
+    const { owner, persister } = await previewOwner(cachedAttachment.url)
+    const draw = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: draw } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => {
+      queueMicrotask(() => callback(new Blob([new Uint8Array([255, 216, 255, 224, 1, 2, 3])], { type: "image/jpeg" })))
+    })
+    const first = render(<VideoAttachmentBlock attachment={cachedAttachment} />); mounted.push(first)
+    const video = first.container.querySelector("video")!
+    await waitFor(() => expect(video.preload).toBe("metadata"))
+    metadata(video); fireEvent.seeked(video)
+    await waitFor(async () => expect((await readVideoPreview(owner, cachedAttachment.url))?.poster).toBeInstanceOf(Blob))
+    expect(draw).toHaveBeenCalledExactlyOnceWith(video, 0, 0, 640, 480)
+    expect(play).not.toHaveBeenCalled()
+    first.unmount()
+    const second = render(<VideoAttachmentBlock attachment={cachedAttachment} />); mounted.push(second)
+    const restored = second.container.querySelector("video")!
+    await waitFor(() => expect(restored.poster).toBe("blob:restored-video-preview"))
+    expect(restored.preload).toBe("none")
+    expect(second.container.querySelector("article")?.style.aspectRatio).toBe("640/480")
+    metadata(restored)
+    expect(restored.currentTime).toBe(0)
+    expect(draw).toHaveBeenCalledTimes(1)
+    expect(platform.create).toHaveBeenCalledTimes(1)
+    second.unmount()
+    expect(platform.revoke).toHaveBeenCalledExactlyOnceWith("blob:restored-video-preview")
+    persister.stopPersisting()
+  })
+
+  it("does not capture a later playing frame or rewind an early user play for the cache", async () => {
+    previewPlatform()
+    const { owner, persister } = await previewOwner(cachedAttachment.url)
+    const draw = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: draw } as unknown as CanvasRenderingContext2D)
+    const screen = render(<VideoAttachmentBlock attachment={cachedAttachment} />); mounted.push(screen)
+    const video = screen.container.querySelector("video")!
+    await waitFor(() => expect(video.preload).toBe("metadata"))
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Play video clip.mp4" })))
+    video.currentTime = 3
+    metadata(video); fireEvent.seeked(video)
+    await waitFor(async () => expect(await readVideoPreview(owner, cachedAttachment.url)).toMatchObject({ width: 640, height: 480 }))
+    expect((await readVideoPreview(owner, cachedAttachment.url))?.poster).toBeUndefined()
+    expect(draw).not.toHaveBeenCalled()
+    expect(video.currentTime).toBe(3)
+    expect(play).toHaveBeenCalledTimes(1)
+    persister.stopPersisting()
+  })
+
+  it("cannot repopulate cleared storage when an already captured JPEG completes late", async () => {
+    previewPlatform()
+    const { persister } = await previewOwner(cachedAttachment.url)
+    const saving = vi.spyOn(previewCache, "saveVideoPreview")
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+    let finish: BlobCallback | undefined
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => { finish = callback })
+    const screen = render(<VideoAttachmentBlock attachment={cachedAttachment} />); mounted.push(screen)
+    const video = screen.container.querySelector("video")!
+    await waitFor(() => expect(video.preload).toBe("metadata"))
+    metadata(video); fireEvent.seeked(video)
+    await waitFor(() => expect(finish).toBeDefined())
+    await waitFor(() => expect(saving).toHaveBeenCalledTimes(1))
+    await clearAllPersistedCaches()
+    await act(async () => finish!(new Blob([new Uint8Array([255, 216, 255, 224])], { type: "image/jpeg" })))
+    await waitFor(() => expect(saving).toHaveBeenCalledTimes(2))
+    expect(await saving.mock.results[1]!.value).toBe(false)
+    expect((await keys(cacheStore)).filter(key => previewCache.isVideoPreviewCacheKey(key))).toHaveLength(0)
+    expect(play).not.toHaveBeenCalled()
+    persister.stopPersisting()
+  })
   it("keeps touch menu actions local while ordinary message body taps still open its menu", async () => {
     fallbackMenus()
     const fetch = vi.fn().mockRejectedValue(new Error("offline"))
