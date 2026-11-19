@@ -2,7 +2,7 @@
 
 Date: 2026-10-21. Stable 2.1.304, macOS arm64. Official artifact checksum: b9ac5374839f14abf3f1f45610637c332b5daee5ce0d1634726cef87aab78e6a.
 
-Publication status: review attachment only. No public URL has been created. Publish this sanitized record beside the article and link it before claiming that readers can download the evidence.
+This sanitized record accompanies the published article and is available at https://alook.ai/blog/claude-code-memory/test-record.md.
 
 ## Scope and starting state
 
