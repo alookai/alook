@@ -832,12 +832,13 @@ export async function listBotsForMachine(
       reasoningEffort: communityBotBinding.reasoningEffort,
       runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
-    .from(user)
-    .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+    .from(communityBotBinding)
+    .crossJoin(user)
     .innerJoin(owner, eq(owner.id, user.ownerUserId))
     .where(
       and(
         eq(communityBotBinding.machineId, machineId),
+        eq(user.id, communityBotBinding.userId),
         options.includeInactive ? undefined : eq(communityBotBinding.isActive, true),
         eq(user.isBot, true),
         isNull(user.deletedAt),

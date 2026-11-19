@@ -8,6 +8,7 @@ describe("listUnreadForumOpeners — scoped forum projection", () => {
     const chain: any = {};
     chain.select = vi.fn((fields: any) => fields?.value ? createDb({} as any).select(fields) : chain);
     chain.from = vi.fn(() => chain);
+    chain.crossJoin = vi.fn(() => chain);
     chain.innerJoin = vi.fn(() => chain);
     chain.leftJoin = vi.fn(() => chain);
     chain.where = vi.fn(() => Promise.resolve(responseSets[call++] ?? []));

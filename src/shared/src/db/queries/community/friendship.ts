@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, inArray, desc } from "drizzle-orm";
+import { eq, and, or, isNull, inArray, desc, sql } from "drizzle-orm";
 import {
   communityFriendship,
   communityUserProfile,
@@ -808,10 +808,16 @@ export async function getFriendUserIds(db: Database, userId: string): Promise<st
       .from(user)
       .where(
         and(
+          eq(user.id, userId),
           eq(user.isBot, true),
-          or(eq(user.id, userId), eq(user.ownerUserId, userId)),
           isNull(user.deletedAt)
         )
+      )
+      .union(
+        db
+          .select({ id: sql<string>`${user.id}`, ownerUserId: sql<string | null>`${user.ownerUserId}` })
+          .from(sql`${user} indexed by idx_user_ownerUserId_isBot`)
+          .where(and(eq(user.ownerUserId, userId), eq(user.isBot, true), isNull(user.deletedAt)))
       ),
   ]);
   const friendIds = rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId));

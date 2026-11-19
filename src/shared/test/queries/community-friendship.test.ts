@@ -1,14 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as q from "../../src/db/queries/community/friendship";
-import { user } from "../../src/db/schema";
+import { createMigratedDb } from "../helpers/migrated-db";
 
-/**
- * `getFriendUserIds` now issues two parallel selects — the real
- * `communityFriendship` rows, and the owner↔own-bot implicit-friendship rows
- * off the `user` table (see the function's doc comment). Route each mock
- * `.from(table)` to its own canned rows so the two queries don't bleed into
- * each other.
- */
 function createDb(opts: {
   friendshipRows?: unknown[];
   selfBotRows?: unknown[];
@@ -21,39 +14,22 @@ function createDb(opts: {
   const friendshipRows = opts.friendshipRows ?? [];
   const selfBotRows = opts.selfBotRows ?? [];
   const liveOtherIds = opts.liveOtherIds;
-  const selectCalls: unknown[] = [];
-  const whereCalls: unknown[] = [];
-  let userSelectCount = 0;
   const db: any = {
-    select: vi.fn((cols: unknown) => {
-      selectCalls.push(cols);
+    select: vi.fn((cols: Record<string, unknown>) => {
       const chain: any = {};
-      chain.from = vi.fn((table: unknown) => {
-        chain.where = vi.fn((cond: unknown) => {
-          whereCalls.push(cond);
-          if (table !== user) return Promise.resolve(friendshipRows);
-          // Two possible `user`-table queries:
-          //   1. selfBotRows (isBot=true, either self or owner match)
-          //   2. live-owner filter (inArray + isNull(deletedAt))
-          // They fire in that order.
-          userSelectCount += 1;
-          if (userSelectCount === 1) return Promise.resolve(selfBotRows);
-          // Live-owner filter — default is "all live" (return each other-side id).
-          if (liveOtherIds === undefined) {
-            const allOtherIds = (selfBotRows as Array<{ id: string; ownerUserId: string | null }>)
-              .flatMap((r) => [r.id, r.ownerUserId])
-              .filter((id): id is string => !!id);
-            return Promise.resolve(allOtherIds.map((id) => ({ id })));
-          }
-          return Promise.resolve(liveOtherIds.map((id) => ({ id })));
-        });
-        return chain;
+      chain.from = vi.fn(() => chain);
+      chain.union = vi.fn(() => Promise.resolve(selfBotRows));
+      chain.where = vi.fn(() => {
+        if ("requesterId" in cols) return Promise.resolve(friendshipRows);
+        if ("ownerUserId" in cols) return chain;
+        const ids = liveOtherIds ?? (selfBotRows as Array<{ id: string; ownerUserId: string | null }>)
+          .flatMap((row) => [row.id, row.ownerUserId])
+          .filter((id): id is string => !!id);
+        return Promise.resolve(ids.map((id) => ({ id })));
       });
       return chain;
     }),
   };
-  db.__selectCalls = selectCalls;
-  db.__whereCalls = whereCalls;
   return db;
 }
 
@@ -87,18 +63,24 @@ describe("getFriendUserIds", () => {
     expect(result).toEqual([]);
   });
 
-  it("issues exactly one `where` per sub-query (real friendships + self-bot), no extra unfiltered fetch — no self-bot pair means no 3rd query", async () => {
-    const db = createDb();
-    await q.getFriendUserIds(db, "u_me");
-    expect(db.__whereCalls).toHaveLength(2);
-    expect(db.select).toHaveBeenCalledTimes(2);
-  });
-
-  it("adds a THIRD query (live-owner filter) when a self-bot pair exists — needed to filter tombstoned owners", async () => {
-    const db = createDb({ selfBotRows: [{ id: "bot-1", ownerUserId: "owner-1" }] });
-    await q.getFriendUserIds(db, "bot-1");
-    expect(db.__whereCalls).toHaveLength(3);
-    expect(db.select).toHaveBeenCalledTimes(4);
+  it("only runs the live-account lookup when an owner–bot pair exists", async () => {
+    const logQuery = vi.fn();
+    const { sqlite, db } = createMigratedDb({ logQuery });
+    try {
+      sqlite.exec(`
+        INSERT INTO user(id, name, email, discriminator)
+        VALUES ('owner-1', 'Owner', 'owner@example.test', '0001');
+        INSERT INTO user(id, name, email, discriminator, isBot, ownerUserId)
+        VALUES ('bot-1', 'Bot', 'bot@example.test', '0001', 1, 'owner-1');
+      `);
+      expect(await q.getFriendUserIds(db, "unrelated")).toEqual([]);
+      expect(logQuery).toHaveBeenCalledTimes(2);
+      logQuery.mockClear();
+      expect(await q.getFriendUserIds(db, "bot-1")).toEqual(["owner-1"]);
+      expect(logQuery).toHaveBeenCalledTimes(3);
+    } finally {
+      sqlite.close();
+    }
   });
 
   it("filters out a soft-deleted OWNER from the returned audience (regression guard)", async () => {
