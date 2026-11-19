@@ -7,7 +7,7 @@ import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/run
 import { useCallback, useEffect, useRef, type ReactNode } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { toast } from "sonner"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft } from "@/components/icons/lucide";
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"

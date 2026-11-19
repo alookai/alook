@@ -13,6 +13,7 @@ import { useEffect, useMemo } from "react"
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
+import { ApiError } from "@/lib/errors"
 
 export type ReactionDetailsProfile = CommunityReactionActorProfile
 export type ReactionDetailsEnvelope = CommunityReactionDetailsRead
@@ -21,19 +22,39 @@ const loadReactionDetails = async (queryClient: QueryClient, messageId: string, 
   const original = captureCommunityLiveSnapshotToken(queryClient)
   const registry = original.registry
   if (!registry) throw new DOMException("Missing reaction owner", "AbortError")
+  const queryKey = communityKeys.reactionDetails(messageId), query = queryClient.getQueryCache().find({ queryKey, exact: true })
+  const assert = () => {
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, original, signal)
+    if (query && queryClient.getQueryCache().find({ queryKey, exact: true }) !== query) throw new DOMException("Retired reaction details", "AbortError")
+  }
   await registry.ready
   await Promise.all([registry.collections.messages.preload(), registry.collections.channels.preload()])
-  assertCommunityLiveSnapshotTokenCurrent(queryClient, original, signal)
+  assert()
   const message = registry.collections.messages.get(messageId)
   const channel = message ? registry.collections.channels.get(message.channelId) : undefined
   if (!message || !channel || channel.type !== "dm" && !channel.serverId) throw new Error("Missing reaction request scope")
   const scope: CommunityReactionDetailsRead["scope"] = channel.type === "dm" ? { kind: "dm", channelId: channel.id } : { kind: "server", channelId: channel.id, serverId: channel.serverId! }
-  const data = await apiFetchProfiles<ReactionDetailsEnvelope>(
-    `/api/community/messages/${messageId}/reactions`,
-    (data) => parseCommunityReactionDetailsRead(data, messageId, scope).actors.flatMap((actor) => actor.profile ? [communityUserProfilePatch(actor.userId, actor.profile)] : []),
-    communityRequestOptions(queryClient, original, signal), original.registry,
-  )
-  return { messageId: data.messageId, scope: data.scope, actors: data.actors.map((actor) => ({ userId: actor.userId, profilePresent: !!actor.profile })) }
+  const auxiliaryReadEpoch = await registry.captureAuxiliaryReadEpoch()
+  assert()
+  try {
+    const data = await apiFetchProfiles<ReactionDetailsEnvelope>(
+      `/api/community/messages/${messageId}/reactions`,
+      (data) => { assert(); return parseCommunityReactionDetailsRead(data, messageId, scope).actors.flatMap((actor) => actor.profile ? [communityUserProfilePatch(actor.userId, actor.profile)] : []) },
+      communityRequestOptions(queryClient, original, signal, assert), original.registry, original,
+    )
+    assert()
+    return { messageId: data.messageId, scope: data.scope, actors: data.actors.map((actor) => ({ userId: actor.userId, profilePresent: !!actor.profile })),
+      observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
+  } catch (error) {
+    assert()
+    if (error instanceof ApiError && [403, 404].includes(error.status)) {
+      await registry.retireAuxiliaryDisk([{ kind: "reaction-message", id: messageId }]).catch(cause => console.error("Reaction cache retirement failed", cause))
+      if (!query || queryClient.getQueryCache().find({ queryKey, exact: true }) === query) {
+        query?.setState({ data: undefined, dataUpdatedAt: 0 })
+      }
+    }
+    throw error
+  }
 }
 
 export function useReactionDetails({

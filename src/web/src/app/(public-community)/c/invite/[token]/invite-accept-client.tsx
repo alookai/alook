@@ -8,7 +8,7 @@ import { PublicQueryProvider, applicationKey, runApplicationRequest } from "@/li
 import { useApplicationViewSource } from "@/hooks/use-application-view-source"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { CircleAlert } from "lucide-react"
+import { CircleAlert } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { avatarInitial } from "@/lib/community/avatar"
 import { Skeleton } from "@/components/ui/skeleton"

@@ -3,7 +3,8 @@
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo } from "react"
-import { Link2, Loader2, Search } from "lucide-react"
+import { Link2 } from "lucide-react";
+import { Loader2, Search } from "@/components/icons/lucide";
 import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"

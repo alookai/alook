@@ -3,7 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect } from "react";
 import { useTheme } from "next-themes";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button";
 
 /** The one light/dark switch: an icon key (public pages, landing hero and nav). */

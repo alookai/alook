@@ -32,8 +32,8 @@ vi.mock("../avatar", () => ({
     "data-avatar-label": label,
   }),
 }))
-vi.mock("lucide-react", async (importOriginal) => ({
-  ...await importOriginal<typeof import("lucide-react")>(),
+vi.mock("@/components/icons/lucide", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/components/icons/lucide")>(),
   Activity: "activity-icon",
   ChevronRight: "chevron-icon",
   CircleStop: "stop-icon",

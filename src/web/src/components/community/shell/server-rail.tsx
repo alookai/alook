@@ -16,7 +16,7 @@ import {
   type Ref,
 } from "react"
 import type { ServerRailEntry } from "@alook/shared"
-import { Plus } from "lucide-react"
+import { Plus } from "@/components/icons/lucide";
 import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd"
 import { RailIcon } from "./rail-icon"
 import { AnimatedAlookLogo } from "./animated-alook-logo"

@@ -11,7 +11,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { isAbortError } from "@/lib/errors"
 import type React from "react"
-import { Users, MessagesSquare, ChevronLeft, Check, LoaderCircle, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
+import { Users, MessagesSquare, ChevronLeft, Check, LoaderCircle, X, AtSign, UserMinus, Ban, UserPlus, Search } from "@/components/icons/lucide";
 import { toastApiError } from "@/lib/api/client"
 
 import { Button } from "@/components/ui/button"

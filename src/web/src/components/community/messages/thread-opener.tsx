@@ -2,7 +2,7 @@
 
 import { withImageGallery } from "./image-preview-gallery"
 
-import { ImageOff, Hash, ArrowUpRight } from "lucide-react"
+import { ImageOff, Hash, ArrowUpRight } from "@/components/icons/lucide";
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
 import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"

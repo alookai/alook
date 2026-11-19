@@ -4,7 +4,7 @@ import { ForumPostCount } from "./forum-post-count"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
+import { BellOff, Loader2, Pencil, Trash2, Users } from "@/components/icons/lucide";
 import { EntityIcon } from "../entity-icon"
 import { useChannelDndItem } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, isKeyboardContextMenu } from "@/components/ui/context-menu"

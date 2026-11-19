@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react"
 import type { CommunityMachineRuntime } from "@alook/shared"
-import { CircleAlert } from "lucide-react"
+import { CircleAlert } from "@/components/icons/lucide";
 import { ProviderLogo } from "@/components/provider-logo"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"

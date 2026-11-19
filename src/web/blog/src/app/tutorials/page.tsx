@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight } from "@/components/icons/lucide";
 import { HandAccent } from "@/components/brand/hand-accent";
 import { ZoneLink } from "@/components/public-layout";
 import { stepGuides } from "@/lib/step-guides";

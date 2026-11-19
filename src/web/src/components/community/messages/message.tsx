@@ -8,11 +8,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { memo, useRef } from "react"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
-import {
-  ImageOff,
-  MessagesSquare, UserPlus, SmilePlus, Reply,
-  MoreHorizontal, X, Share, Check,
-} from "lucide-react"
+import { SmilePlus } from "lucide-react";
+import { ImageOff, MessagesSquare, UserPlus, Reply, MoreHorizontal, X, Share, Check } from "@/components/icons/lucide";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isSecondaryContextPointer } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"

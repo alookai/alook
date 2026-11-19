@@ -2,7 +2,7 @@ import { createElement, type PropsWithChildren } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, setupUser } from "@/test/react-dom-harness"
 
-vi.mock("lucide-react", () => ({ AlertCircle: () => createElement("span") }))
+vi.mock("@/components/icons/lucide", () => ({ AlertCircle: () => createElement("span") }))
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, size: _size, variant: _variant, ...props }:
     PropsWithChildren<Record<string, unknown>>) => createElement("button", props, children),

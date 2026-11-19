@@ -7,7 +7,7 @@ function isAuxiliaryWindowScopeKey(key: string) {
 }
 
 export type AuxiliaryWindowScope =
-  | { kind: "server" | "invite" | "friendship" | "bot" | "bot-memberships" | "server-admin" | "server-resource" | "channel-resource" | "message"; id: string }
+  | { kind: "server" | "invite" | "friendship" | "bot" | "bot-memberships" | "server-admin" | "server-resource" | "channel-resource" | "message" | "access-code" | "access-code-list" | "message-marked" | "reaction-message" | "reaction-server" | "reaction-dm"; id: string }
   | { kind: "bot-server" | "bot-channel"; botId: string; id: string }
   | { kind: "server-member"; serverId: string; memberId: string }
   | { kind: "channel-member"; channelId: string; userId: string; relation: "access" | "notify" }
@@ -28,7 +28,7 @@ export function auxiliaryWindowRetiredKeys(reads: readonly { auxiliaryReadEpoch?
   const current = !!epoch && reads.every(read => read.auxiliaryReadEpoch === epoch)
   const retained = !!reference && reads.every(read => !!read.auxiliaryReadEpoch && (read.auxiliaryReadEpoch === epoch || reference.epochs.has(read.auxiliaryReadEpoch)))
   return new Set([...retired.keys()].filter(key => {
-    if (!isAuxiliaryWindowScopeKey(key) || ["server-resource", "channel-resource", "message"].some(kind => key.startsWith(`["auxiliary-window","${kind}",`))) return true
+    if (!isAuxiliaryWindowScopeKey(key) || ["server-resource", "channel-resource", "message", "access-code"].some(kind => key.startsWith(`["auxiliary-window","${kind}",`))) return true
     return !current && !(retained && reference?.scopes.has(key) && !reference.changed.has(key))
   }))
 }

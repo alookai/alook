@@ -3,7 +3,7 @@
 import { EmptyState } from "../empty-state"
 import type { PiiPlugin } from "@alook/shared"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { MoreHorizontal, Trash2, Shield } from "lucide-react"
+import { MoreHorizontal, Trash2, Shield } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"

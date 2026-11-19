@@ -1,6 +1,6 @@
 "use client"
 
-import { Folder, Lock } from "lucide-react"
+import { Folder, Lock } from "@/components/icons/lucide";
 import { useMemo } from "react"
 import { DndDragPreview } from "../dnd-drag-preview"
 import { EntityIcon } from "../entity-icon"

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef, type CSSProperties } from "react"
-import { Check, Copy, WrapText } from "lucide-react"
+import { Check, Copy, WrapText } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { highlightCode, MAX_CODE_HIGHLIGHT_LINES, type CodeHighlightResult, type CodeToken } from "@/lib/community/code-highlight"

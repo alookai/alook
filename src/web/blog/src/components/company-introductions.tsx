@@ -1,6 +1,7 @@
 import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo";
 import { RailIcon } from "@/components/community/shell/rail-icon";
-import { Bell, ChevronDown, Inbox, Plus, Settings, Smile, UsersRound } from "lucide-react";
+import { Smile } from "lucide-react";
+import { Bell, ChevronDown, Inbox, Plus, Settings, UsersRound } from "@/components/icons/lucide";
 import styles from "./company-introductions.module.css";
 const messages = [
   ["Sales", "I’m Sales. I research prospects and turn inquiries into a proposed job brief. Once you approve the scope, I pass the job to Delivery."],

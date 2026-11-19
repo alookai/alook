@@ -1,7 +1,7 @@
 "use client"
 
 import { PII_TEXT_MAX_BYTES, utf8ByteLength } from "@alook/shared"
-import { Check, ListFilter, Play } from "lucide-react"
+import { Check, ListFilter, Play } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { RedactedText } from "@/components/community/messages/redacted-text"

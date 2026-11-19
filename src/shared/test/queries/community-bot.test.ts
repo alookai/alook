@@ -514,6 +514,7 @@ describe("listBotsForMachine", () => {
     const chain: any = {}
     chain.select = vi.fn(() => chain)
     chain.from = vi.fn(() => chain)
+    chain.crossJoin = vi.fn(() => chain)
     chain.innerJoin = vi.fn(() => chain)
     chain.leftJoin = vi.fn(() => chain)
     // `where` is awaited directly (no `.limit` in listBotsForMachine).

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, FileText, Home, Mail, MessageSquare } from "lucide-react";
+import { ArrowUp, FileText, Home, Mail, MessageSquare } from "@/components/icons/lucide";
 import { MessageBubble } from "@/components/chat-primitives/message-bubble";
 import { MessageCluster } from "@/components/chat-primitives/message-cluster";
 import { PresenceLine } from "@/components/agent-chat/presence-line";

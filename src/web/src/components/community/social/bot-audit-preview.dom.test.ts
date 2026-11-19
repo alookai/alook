@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/hooks/community/use-bot-audit-preview", () => ({
   useBotAuditPreview: () => mocks.result,
 }))
-vi.mock("lucide-react", () => ({
+vi.mock("@/components/icons/lucide", () => ({
   Activity: "activity-icon",
   ChevronRight: "chevron-icon",
   Lock: "lock-icon",

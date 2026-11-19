@@ -17,6 +17,7 @@ import { isPageListQueryKey, pageListMessageIds, pageListWindowComplete, readPag
 import { directoryWindowChannelMembershipIds, directoryWindowComplete, directoryWindowRetiredKeys, directoryWindowScopeKeys, directoryWindowServerMembershipIds, isDirectoryWindowKey, MAX_PERSISTED_DIRECTORY_WINDOWS, projectDirectoryWindow, readDirectoryWindow, type DirectoryWindow } from "@/lib/community/directory-window-persistence"
 import { botDirectoryWindowComplete, botDirectoryWindowRetiredKeys, botDirectoryWindowScopeKeys, isBotDirectoryWindowKey, readBotDirectoryWindow, type BotDirectoryWindow } from "@/lib/community/bot-directory-window"
 import { AUXILIARY_READ_EPOCH_KEY, auxiliaryWindowScopeKey, type AuxiliaryReadReference, type AuxiliaryWindowScope } from "@/lib/community/auxiliary-window-contract"
+import { displayWindowComplete, displayWindowIdentity, displayWindowRetiredKeys, displayWindowScopeKeys, readDisplayWindow, type DisplayDomain, type DisplayWindow } from "@/lib/community/display-window-persistence"
 import {
   communityCollectionSchemas,
   type CommunityCollectionName,
@@ -50,7 +51,7 @@ function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
 }
 
 export function shouldPersistQueryKey(queryKey: readonly unknown[]): boolean {
-  return isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isPageListQueryKey(queryKey) || isDirectoryWindowKey(queryKey) || isBotDirectoryWindowKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey) || messageWindowIdentity(queryKey) !== undefined
+  return displayWindowIdentity(queryKey)?.domain === "community" || isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isPageListQueryKey(queryKey) || isDirectoryWindowKey(queryKey) || isBotDirectoryWindowKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey) || messageWindowIdentity(queryKey) !== undefined
 }
 
 export function shouldPersistQuery(
@@ -61,13 +62,37 @@ export function shouldPersistQuery(
     || readPageListWindow(queryKey, data) !== undefined
     || readDirectoryWindow(queryKey, data) !== undefined
     || readBotDirectoryWindow(queryKey, data) !== undefined
+    || readDisplayWindow(queryKey, data)?.domain === "community"
     || isServerDirectoryWindowKey(queryKey) && readServerDirectoryWindow(data)?.serverId === queryKey[2]
     || isForumSidebarWindowKey(queryKey) && readForumSidebarWindowResult(data)?.window.serverId === queryKey[2]
 }
 
 export function shouldDehydrateCommunityQuery(query: { queryKey: readonly unknown[]; state: { status: string; data: unknown } }) {
-  return (query.state.status === "success" || isForumSidebarWindowKey(query.queryKey) || isPageListQueryKey(query.queryKey) || isDirectoryWindowKey(query.queryKey) || isBotDirectoryWindowKey(query.queryKey) || messageWindowIdentity(query.queryKey) !== undefined)
+  return (query.state.status === "success" || displayWindowIdentity(query.queryKey)?.domain === "community" || isForumSidebarWindowKey(query.queryKey) || isPageListQueryKey(query.queryKey) || isDirectoryWindowKey(query.queryKey) || isBotDirectoryWindowKey(query.queryKey) || messageWindowIdentity(query.queryKey) !== undefined)
     && shouldPersistQuery(query.queryKey, query.state.data)
+}
+
+export function shouldDehydrateApplicationQuery(query: { queryKey: readonly unknown[]; state: { data: unknown } }) {
+  return readDisplayWindow(query.queryKey, query.state.data)?.domain === "application"
+}
+
+type PersistedQuery = PersistedClient["clientState"]["queries"][number]
+function displayQuery(query: PersistedQuery, window: DisplayWindow): PersistedQuery {
+  return { ...query, state: { ...query.state, data: window.data, status: "success", error: null, errorUpdatedAt: 0,
+    errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } }
+}
+
+function currentDisplayTime(query: PersistedQuery) {
+  return Number.isFinite(query.state.dataUpdatedAt) && query.state.dataUpdatedAt > 0 && Date.now() - query.state.dataUpdatedAt <= PERSIST_MAX_AGE_MS
+}
+
+function scrubApplicationClient(client: PersistedClient, userId: string | null) {
+  const queries = client.clientState.queries.slice().sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)
+    .flatMap(query => {
+      const window = readDisplayWindow(query.queryKey, query.state.data)
+      return window && currentDisplayTime(query) && displayWindowComplete(window, {}, userId, "application") ? [displayQuery(query, window)] : []
+    }).slice(0, MAX_PERSISTED_DIRECTORY_WINDOWS)
+  return { ...client, clientState: { queries, mutations: [] } }
 }
 
 export type CommunityRestoredCollections = Partial<{
@@ -125,7 +150,9 @@ function scrubDehydratedClient(
   userId: string | null,
   retired: ReadonlyMap<string, ChannelDiskFence> = new Map(),
   previous?: { snapshot: PersistedClient; changed: ReadonlySet<string> },
+  domain: DisplayDomain = "community",
 ): PersistedClient {
+  if (domain === "application") return scrubApplicationClient(client, userId)
   const queries: typeof client.clientState.queries = []
   const canonical = new Map<CommunityCollectionName, unknown[]>()
   for (const q of client.clientState.queries) {
@@ -185,17 +212,18 @@ function scrubDehydratedClient(
       if (query.state.dataUpdatedAt <= 0 || Date.now() - query.state.dataUpdatedAt > PERSIST_MAX_AGE_MS) continue
       const directory = readDirectoryWindow(query.queryKey, query.state.data)
       const bot = directory ? undefined : readBotDirectoryWindow(query.queryKey, query.state.data)
-      if (!directory && !bot) continue
+      const display = directory || bot ? undefined : readDisplayWindow(query.queryKey, query.state.data)
+      if (!directory && !bot && !display) continue
       const reads = directory ? directory.kind === "members" ? directory.data.pages : [directory.data]
-        : bot!.kind === "bot-audit" ? bot!.data.pages : [bot!.data]
+        : bot ? bot.kind === "bot-audit" ? bot.data.pages : [bot.data] : [display!.data]
       const epochs = new Set(reads.flatMap(read => read.auxiliaryReadEpoch ? [read.auxiliaryReadEpoch] : []))
       if (!epochs.size) continue
       references.set(JSON.stringify(query.queryKey), { epochs, changed: previous.changed,
-        scopes: directory ? directoryWindowScopeKeys(directory, { serverMemberships: previousMembers }, userId) : botDirectoryWindowScopeKeys(bot!) })
+        scopes: directory ? directoryWindowScopeKeys(directory, { serverMemberships: previousMembers }, userId) : bot ? botDirectoryWindowScopeKeys(bot) : displayWindowScopeKeys(display!) })
     }
   }
   type AuxiliaryCandidate = { query: typeof client.clientState.queries[number]; retired: Set<string> } & (
-    { family: "directory"; window: DirectoryWindow } | { family: "bot"; window: BotDirectoryWindow }
+    { family: "directory"; window: DirectoryWindow } | { family: "bot"; window: BotDirectoryWindow } | { family: "display"; window: DisplayWindow }
   )
   const auxiliaryDirectories = userId ? client.clientState.queries.slice().sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)
     .flatMap((query): AuxiliaryCandidate[] => {
@@ -204,12 +232,20 @@ function scrubDehydratedClient(
       const window = input && projectDirectoryWindow(input, directoryRows, windowRetired)
       if (window && directoryWindowComplete(window, directoryRows, userId, windowRetired)) return [{ family: "directory", query, window, retired: windowRetired! }]
       const botWindow = readBotDirectoryWindow(query.queryKey, query.state.data)
-      if (!botWindow || !Number.isFinite(query.state.dataUpdatedAt) || query.state.dataUpdatedAt <= 0 || Date.now() - query.state.dataUpdatedAt > PERSIST_MAX_AGE_MS) return []
-      const botRetired = botDirectoryWindowRetiredKeys(botWindow, retired, references.get(JSON.stringify(query.queryKey)))
-      return botDirectoryWindowComplete(botWindow, directoryRows, userId, botRetired) ? [{ family: "bot", query, window: botWindow, retired: botRetired }] : []
+      if (!currentDisplayTime(query)) return []
+      if (botWindow) {
+        const botRetired = botDirectoryWindowRetiredKeys(botWindow, retired, references.get(JSON.stringify(query.queryKey)))
+        return botDirectoryWindowComplete(botWindow, directoryRows, userId, botRetired) ? [{ family: "bot", query, window: botWindow, retired: botRetired }] : []
+      }
+      const display = readDisplayWindow(query.queryKey, query.state.data)
+      if (!display) return []
+      const displayRetired = displayWindowRetiredKeys(display, retired, references.get(JSON.stringify(query.queryKey)))
+      return displayWindowComplete(display, { ...directoryRows, messages: rows("messages") }, userId, domain, displayRetired)
+        ? [{ family: "display", query, window: display, retired: displayRetired }] : []
     }).slice(0, MAX_PERSISTED_DIRECTORY_WINDOWS) : []
   const directoryWindows = auxiliaryDirectories.flatMap(candidate => candidate.family === "directory" ? [candidate] : [])
   const botWindows = auxiliaryDirectories.flatMap(candidate => candidate.family === "bot" ? [candidate] : [])
+  const displayWindows = auxiliaryDirectories.flatMap(candidate => candidate.family === "display" ? [candidate] : [])
   const directoryServerMemberships = new Set(directoryWindows.flatMap(({ window }) => directoryWindowServerMembershipIds(window)))
   const directoryChannelMemberships = new Set(directoryWindows.flatMap(({ window }) => directoryWindowChannelMembershipIds(window)))
   let forumWindows = 0
@@ -226,12 +262,13 @@ function scrubDehydratedClient(
       if (auxiliary) auxiliaryWindows++
       return [{ query, window }]
     }) : []
-  const pageListDependencies = new Set(pageLists.flatMap(({ window }) => pageListMessageIds(window, retainedChannels, rows("messages"))))
+  const pageListDependencies = new Set([...pageLists.flatMap(({ window }) => pageListMessageIds(window, retainedChannels, rows("messages"))),
+    ...displayWindows.flatMap(({ window }) => window.kind === "reactions" ? [window.messageId] : [])])
   const retainedDmIds = new Set(
     retainedChannels.filter((row) => row.type === "dm").map((row) => row.id),
   )
-  const allMessages = rows("messages")
-    .filter((row) => !retired.has(row.channelId))
+  const allMessages = retired.size ? rows("messages")
+    .filter((row) => !retired.has(row.channelId) && !retired.has(auxiliaryWindowScopeKey({ kind: "message", id: row.id }))) : rows("messages")
   const messagesByScope = new Map<string, typeof allMessages>()
   for (const message of allMessages) {
     if (!retainedChannelIds.has(message.channelId)) continue
@@ -328,6 +365,9 @@ function scrubDehydratedClient(
     queries.push({ ...query, state: { ...query.state, data: window.data, status: "success", error: null, errorUpdatedAt: 0,
       errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
   }
+  for (const { query, window, retired: windowRetired } of displayWindows) {
+    if (displayWindowComplete(window, { ...directoryRows, messages: retainedMessages, serverMemberships: retainedServerMemberships, channelMemberships: retainedChannelMemberships }, userId, domain, windowRetired)) queries.push(displayQuery(query, window))
+  }
   for (const { query, window } of messageWindows) {
     if (!userId || !persistedMessageWindowComplete(window, { ...windowRows, messages: retainedMessages, channelMemberships: retainedChannelMemberships }, userId, retiredIds)) continue
     queries.push({ ...query, state: { ...query.state, data: window.data, status: "success", error: null, errorUpdatedAt: 0,
@@ -355,7 +395,7 @@ function scrubDehydratedClient(
   }
   return {
     ...client,
-    clientState: { ...client.clientState, queries },
+    clientState: { ...client.clientState, queries, mutations: [] },
   }
 }
 
@@ -492,9 +532,20 @@ async function withEligiblePersister<T>(
   })
 }
 
+function boundDomainWindows(payloads: Array<{ domain: DisplayDomain; snapshot: PersistedClient }>) {
+  const auxiliary = (query: PersistedQuery, domain: DisplayDomain) => readDisplayWindow(query.queryKey, query.state.data)?.domain === domain
+    || domain === "community" && (readDirectoryWindow(query.queryKey, query.state.data) !== undefined || readBotDirectoryWindow(query.queryKey, query.state.data) !== undefined)
+  const identity = (domain: DisplayDomain, query: PersistedQuery) => JSON.stringify([domain, query.queryKey])
+  const allowed = new Set(payloads.flatMap(({ domain, snapshot }) => snapshot.clientState.queries
+    .filter(query => auxiliary(query, domain)).map(query => ({ identity: identity(domain, query), time: query.state.dataUpdatedAt })))
+    .sort((a, b) => b.time - a.time || a.identity.localeCompare(b.identity)).slice(0, MAX_PERSISTED_DIRECTORY_WINDOWS).map(row => row.identity))
+  return payloads.map(({ domain, snapshot }) => ({ ...snapshot, clientState: { ...snapshot.clientState, mutations: [],
+    queries: snapshot.clientState.queries.filter(query => !auxiliary(query, domain) || allowed.has(identity(domain, query))) } }))
+}
+
 /** Native TanStack persister, qualified against durable device/account epochs. */
-export function createIdbPersister(userId: string | null): QualifiedPersister {
-  const key = blobKeyFor(userId)
+export function createIdbPersister(userId: string | null, domain: DisplayDomain = "community"): QualifiedPersister {
+  const key = blobKeyFor(userId, domain)
   let persisting = true
   let initialSnapshot: { raw: string; decoded: NonNullable<ReturnType<typeof decodeDiskSnapshot>> } | undefined
   let captureInitialSnapshot = true
@@ -514,8 +565,19 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
           const reference = prior && prior.ownerEpochs.device === device && prior.ownerEpochs.account === account && prior.snapshot.buster === PERSIST_BUSTER
             && Date.now() - prior.snapshot.timestamp <= PERSIST_MAX_AGE_MS
             ? { snapshot: prior.snapshot, changed: new Set(changedChannelFences(current, prior.fences).keys()) } : undefined
-          const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected), reference)
-          if (persisting) store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, ownerEpochs: { device, account }, channelFences: [...current] }), key)
+          const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected), reference, domain)
+          const peerDomain: DisplayDomain = domain === "community" ? "application" : "community"
+          const peerKey = blobKeyFor(userId, peerDomain)
+          const [peerRaw, peerScope] = await Promise.all([promisifyRequest<unknown>(store.get(peerKey)), promisifyRequest<unknown>(store.get(scopeEpochKey(peerKey)))])
+          const peer = decodeDiskSnapshot(peerRaw)
+          const qualifiedPeer = peer && communityScopeEpoch(peerScope) && peer.ownerEpochs.device === device && peer.ownerEpochs.account === account
+            && peer.snapshot.timestamp > 0 && Date.now() - peer.snapshot.timestamp <= PERSIST_MAX_AGE_MS ? peer : undefined
+          const [bounded, boundedPeer] = boundDomainWindows([{ domain, snapshot }, ...(qualifiedPeer ? [{ domain: peerDomain, snapshot: qualifiedPeer.snapshot }] : [])])
+          if (persisting) {
+            store.put(JSON.stringify({ ...bounded, version: PERSIST_VERSION, ownerEpochs: { device, account }, channelFences: [...current] }), key)
+            if (qualifiedPeer && boundedPeer && boundedPeer.clientState.queries.length !== qualifiedPeer.snapshot.clientState.queries.length)
+              store.put(JSON.stringify({ ...boundedPeer, version: PERSIST_VERSION, ownerEpochs: qualifiedPeer.ownerEpochs, channelFences: [...qualifiedPeer.fences] }), peerKey)
+          }
         },
       ),
       // Expiry/buster removal removes only this payload. It does not retire
@@ -525,7 +587,7 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
       ),
     },
     key: "alook-query-cache",
-    serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId)),
+    serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId, undefined, undefined, domain)),
   })
   const persister: Persister = {
     persistClient: (client) => { if (!persisting) return; discardInitialSnapshot(); return writer.persistClient(client) },
@@ -540,8 +602,9 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
           return { ...decoded, retired: changedChannelFences(current, decoded.fences) }
         }), persister)
         return input && observeRestoreDecode(persister, () => {
-          const snapshot = scrubDehydratedClient(input.snapshot, userId, input.retired)
+          const snapshot = scrubDehydratedClient(input.snapshot, userId, input.retired, undefined, domain)
           if (!snapshot.timestamp || Date.now() - snapshot.timestamp <= PERSIST_MAX_AGE_MS) return snapshot
+          if (domain === "application") return snapshot
           const profiles = snapshot.clientState.queries.filter(query => isCommunityDbCollectionKey(query.queryKey)
             && query.queryKey[2] === userId && query.queryKey[3] === "profiles" && Array.isArray(query.state.data) && query.state.data.length > 0)
           return profiles.length ? { ...snapshot, timestamp: Date.now(), clientState: { queries: profiles, mutations: [] } } : snapshot
@@ -555,7 +618,7 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
     rememberAccountIdentity: (identity: PersistedAccountIdentity, assertCurrent: () => void) => withEligiblePersister(
       key, userId, eligibility, "readwrite", undefined, async store => {
         assertCurrent()
-        if (identity.id !== userId || !identity.email) return
+        if (domain !== "community" || identity.id !== userId || !identity.email) return
         const { device, account, scope } = await eligibility
         assertCurrent()
         store.put({ id: identity.id, email: identity.email, version: PERSIST_VERSION, device, account, scope }, LAST_ACCOUNT_KEY)
@@ -564,14 +627,14 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
     isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),
     retireChannels: (ids: Iterable<string>, deleted = false) => {
       discardInitialSnapshot()
-      return withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, deleted))
+      return withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, deleted, domain))
     },
     retireAuxiliaryScopes: (scopes: Iterable<AuxiliaryWindowScope>) => {
       discardInitialSnapshot()
       const ids = [...scopes].map(auxiliaryWindowScopeKey)
       if (!ids.length) return Promise.resolve()
       ids.push(AUXILIARY_READ_EPOCH_KEY)
-      return withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, true))
+      return withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, true, domain))
     },
     captureAuxiliaryReadEpoch: () => withEligiblePersister(key, userId, eligibility, "readonly", undefined, (_store, current) => Promise.resolve(current.get(AUXILIARY_READ_EPOCH_KEY)?.epoch)).catch(() => undefined),
     retireAccount: async () => {
@@ -616,7 +679,7 @@ async function clearAccountRows(store: IDBObjectStore, userId: string | null, le
   })
 }
 
-async function retireChannelRows(store: IDBObjectStore, key: string, userId: string | null, current: Map<string, ChannelDiskFence>, ids: Iterable<string>, deleted: boolean) {
+async function retireChannelRows(store: IDBObjectStore, key: string, userId: string | null, current: Map<string, ChannelDiskFence>, ids: Iterable<string>, deleted: boolean, domain: DisplayDomain = "community") {
   const scopes = [...ids]
   if (!scopes.length) return
   await clearAccountRows(store, userId, true)
@@ -625,7 +688,7 @@ async function retireChannelRows(store: IDBObjectStore, key: string, userId: str
   store.put(fences, channelFenceKey(userId))
   const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
   if (decoded) {
-    const snapshot = scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(fences, decoded.fences))
+    const snapshot = scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(fences, decoded.fences), undefined, domain)
     store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, ownerEpochs: decoded.ownerEpochs, channelFences: [...fences] }), key)
   } else store.delete(key)
 }

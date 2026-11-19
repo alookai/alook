@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
-import { X } from "lucide-react"
+import { X } from "@/components/icons/lucide";
 import styles from "./settings-shell.module.css"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"

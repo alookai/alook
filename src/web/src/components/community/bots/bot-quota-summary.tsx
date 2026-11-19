@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { ChevronDown } from "lucide-react"
+import { ChevronDown } from "@/components/icons/lucide";
 import type { QuotaLimit } from "@alook/shared"
 import { ProviderLogo } from "@/components/provider-logo"
 import {

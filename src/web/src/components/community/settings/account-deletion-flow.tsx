@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { MailWarning, Trash2 } from "lucide-react"
+import { MailWarning, Trash2 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
 import {

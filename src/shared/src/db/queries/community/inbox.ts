@@ -168,6 +168,7 @@ export async function listUnreadForumOpeners(
 ): Promise<UnreadForumOpenerRow[]> {
   if (forumParentIds.length === 0) return [];
 
+  const forumIds = jsonTextSet(db, [...new Set(forumParentIds)]).as("forum_inbox_ids");
   const childChannel = aliasedTable(communityChannel, "forum_inbox_child");
   const rows = await db
     .select({
@@ -179,11 +180,9 @@ export async function listUnreadForumOpeners(
       childName: childChannel.name,
       createdAt: communityMessage.createdAt,
     })
-    .from(communityMessage)
-    .innerJoin(
-      communityChannel,
-      eq(communityChannel.id, communityMessage.channelId)
-    )
+    .from(forumIds)
+    .crossJoin(communityChannel)
+    .crossJoin(communityMessage)
     .innerJoin(
       childChannel,
       and(
@@ -207,7 +206,8 @@ export async function listUnreadForumOpeners(
     )
     .where(
       and(
-        inArray(communityChannel.id, jsonTextSet(db, forumParentIds)),
+        eq(communityChannel.id, forumIds.value),
+        eq(communityMessage.channelId, communityChannel.id),
         isNull(communityChannel.parentChannelId),
         eq(communityChannel.type, "forum"),
         eq(communityChannel.archived, 0),

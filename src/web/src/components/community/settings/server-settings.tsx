@@ -8,7 +8,8 @@ import { useCallback, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import type { ServerSettingsEditor } from "./server-settings-editor"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera, Hash } from "lucide-react"
+import { Link2 } from "lucide-react";
+import { Settings, Users, Bell, Trash2, X, Shield, Search, Camera, Hash } from "@/components/icons/lucide";
 import {
   isServerOwner,
   NOTIF_LEVELS,

@@ -2,7 +2,7 @@ import { observeVisibilitySentinel } from "@/lib/observe-visibility-sentinel"
 import { Button } from "@/components/ui/button"
 import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
-import { Users } from "lucide-react"
+import { Users } from "@/components/icons/lucide";
 import {
   anchoredPopoverStyle,
   useAnchoredPopover,

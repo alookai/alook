@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button"
 import { messageNotification } from "@/components/ui/toast"
 import { applyMessageReaction, type Msg } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
-import { Inbox } from "lucide-react"
+import { Inbox } from "@/components/icons/lucide";
 import { BotFormFields } from "@/components/community/bots/bot-form-fields"
 import { CreateChannelDialog } from "@/components/community/settings/create-channel-dialog"
 import { MachineCard } from "@/components/community/machines/machine-card"

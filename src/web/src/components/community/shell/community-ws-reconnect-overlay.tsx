@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { WifiOff } from "lucide-react"
+import { WifiOff } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import { useCommunityWsStore } from "@/stores/community/ws"

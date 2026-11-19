@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { XIcon } from "lucide-react"
+import { XIcon } from "@/components/icons/lucide";
 
 import { Button } from "@/components/ui/button"
 import {

@@ -1,4 +1,4 @@
-import { Hash, ListChevronsUpDown } from "lucide-react"
+import { Hash, ListChevronsUpDown } from "@/components/icons/lucide";
 import { ChannelIcon } from "./channels/channel-icon"
 import type { EntityKind } from "@/lib/community/models/navigation"
 

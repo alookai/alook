@@ -5,7 +5,7 @@ import { captureAnalyticsOwner } from "@/lib/analytics-owner"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { FounderPlanChangeDialog } from "./founder-plan-change-dialog"
-import { ExternalLink, RefreshCw } from "lucide-react"
+import { ExternalLink, RefreshCw } from "@/components/icons/lucide";
 import type { BillingSummary } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -33,12 +33,13 @@ export function BillingContent({ billing }: { billing: BillingController }) {
   const [founderOfferId, setFounderOfferId] = useAtom(useCreateAtom<string | null>(null))
   const setFounderOffer = (offer: BillingSummary["offers"][number] | null) => setFounderOfferId(offer?.priceId ?? null)
   const summary = billing.data
+  const currentRead = billing.isCurrentRead()
   const founderOffer = summary?.offers.find((offer) => offer.priceId === founderOfferId) ?? null
   const subscription = summary?.isFounder ? null : summary?.subscription
   const currentOffer = summary?.offers.find((offer) => offer.plan.id === summary.plan.id)
   const checkoutPending = billing.returnFrom === "checkout" && (summary?.isFounder || !subscription || subscription.plan.id !== summary?.plan.id)
   const chooseOffer = (offer: BillingSummary["offers"][number]) => {
-    if (!summary) return
+    if (!summary || !billing.isCurrentRead()) return
     const planId = toAnalyticsPlanId(offer.plan.id)
     if (planId && planId !== "free") {
       const params = {
@@ -72,12 +73,12 @@ export function BillingContent({ billing }: { billing: BillingController }) {
       {summary && <>
         {(summary.isFounder || currentOffer || subscription) && <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           {summary.isFounder ? <p className="text-sm text-muted-foreground">Permanent {summary.plan.displayName} access</p> : currentOffer && <p className="text-sm text-muted-foreground">{formatOffer(currentOffer)}</p>}
-          {subscription && !summary.isFounder && <Button variant="outline" onClick={() => void billing.portal()} disabled={billing.isBusy} data-testid={tid.billingPortal}>Manage billing<ExternalLink className="size-3.5" /></Button>}
+          {subscription && !summary.isFounder && <Button variant="outline" onClick={() => void billing.portal()} disabled={billing.isBusy || !currentRead} data-testid={tid.billingPortal}>Manage billing<ExternalLink className="size-3.5" /></Button>}
         </div>}
         {(subscription?.scheduledChange || subscription?.cancelAt || subscription?.currentPeriodEnd || subscription?.status === "past_due") && <div className="mt-5 flex flex-col gap-3 border-t border-border pt-4 text-sm">
           {subscription?.scheduledChange && <div className="flex flex-wrap items-center justify-between gap-3">
             <p>Changes to {subscription.scheduledChange.plan.displayName} on {dateLabel(subscription.scheduledChange.effectiveAt)}</p>
-            {!summary.isFounder && <Button variant="outline" size="sm" onClick={() => void billing.cancelChange()} disabled={billing.isBusy} data-testid={tid.billingCancelChange}>{billing.isCancelingChange ? "Keeping current plan…" : "Keep current plan"}</Button>}
+            {!summary.isFounder && <Button variant="outline" size="sm" onClick={() => void billing.cancelChange()} disabled={billing.isBusy || !currentRead} data-testid={tid.billingCancelChange}>{billing.isCancelingChange ? "Keeping current plan…" : "Keep current plan"}</Button>}
           </div>}
           {subscription?.cancelAt && <p>Ends {dateLabel(subscription.cancelAt)}. Your current access stays until then.</p>}
           {subscription && !subscription.cancelAt && !subscription.scheduledChange && subscription.currentPeriodEnd && <p className="text-muted-foreground">Current period ends {dateLabel(subscription.currentPeriodEnd)}</p>}
@@ -106,7 +107,7 @@ export function BillingContent({ billing }: { billing: BillingController }) {
               <p className={styles.limit}>Up to <strong>{offer.botLimit}</strong> active bots</p>
               <p className={styles.limit}>Up to <strong>{offer.machineLimit}</strong> online machine{offer.machineLimit === 1 ? "" : "s"}</p>
             </div>
-            <Button className={styles.action} variant={isCurrent || isScheduled ? "outline" : "default"} onClick={() => chooseOffer(offer)} disabled={billing.isBusy || Boolean(checkoutPending) || isCurrent || isScheduled} data-testid={subscription ? tid.billingChangePlan : tid.billingCheckout} data-price-id={offer.priceId}>
+            <Button className={styles.action} variant={isCurrent || isScheduled ? "outline" : "default"} onClick={() => chooseOffer(offer)} disabled={billing.isBusy || !currentRead || Boolean(checkoutPending) || isCurrent || isScheduled} data-testid={subscription ? tid.billingChangePlan : tid.billingCheckout} data-price-id={offer.priceId}>
               {billing.isBusy && !billing.isCancelingChange ? "Opening…" : isScheduled ? "Scheduled" : isCurrent ? "Current plan" : `Choose ${offer.plan.displayName}`}
             </Button>
             <div className={styles.stub}><span>Alook · {offer.botLimit} bots</span><PlanBotDots count={offer.botLimit} className={styles.botDots} /></div>
@@ -115,7 +116,7 @@ export function BillingContent({ billing }: { billing: BillingController }) {
       </div>
       <p className="text-xs text-muted-foreground">{subscription ? "Review changes and any payment on Stripe." : "Continue to Stripe to review and pay."}</p>
     </section>}
-    <FounderPlanChangeDialog offer={founderOffer} busy={billing.isBusy} onCancel={() => setFounderOffer(null)} onConfirm={() => { if (!founderOffer) return; const priceId = founderOffer.priceId; setFounderOffer(null); void billing.checkout(priceId, true, "billing_sheet") }} />
+    <FounderPlanChangeDialog offer={founderOffer} busy={billing.isBusy} confirmDisabled={!currentRead} onCancel={() => setFounderOffer(null)} onConfirm={() => { if (!founderOffer || !billing.isCurrentRead()) return; const priceId = founderOffer.priceId; setFounderOffer(null); void billing.checkout(priceId, true, "billing_sheet") }} />
     {billing.actionError && <p role="alert" className="text-sm text-destructive">{billing.actionError}</p>}
   </div>
 }

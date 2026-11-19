@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { AlertCircle, Search, Users } from "lucide-react"
+import { AlertCircle, Search, Users } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"

@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useId, useMemo } from "react"
-import { LoaderCircle } from "lucide-react"
+import { LoaderCircle } from "@/components/icons/lucide";
 import {
   modelSelectState,
   modelNameFromSelect,

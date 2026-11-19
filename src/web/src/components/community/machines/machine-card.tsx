@@ -2,7 +2,7 @@
 
 import { PresenceStatus } from "../presence-status"
 import { useMemo, type ReactNode } from "react"
-import { Monitor, MoreVertical } from "lucide-react"
+import { Monitor, MoreVertical } from "@/components/icons/lucide";
 import type { MachineSummary } from "@/hooks/community/use-machines"
 import { isPresenceOnline } from "@alook/shared"
 import { Card } from "@/components/ui/card"

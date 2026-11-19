@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronLeft, Plus } from "lucide-react"
+import { ChevronLeft, Plus } from "@/components/icons/lucide";
 import { FriendsPage } from "@/components/community/social/friends-page"
 import { HOME_TAB_COLUMN_CLASS } from "@/components/community/home-tab-layout"
 import { renderBotListView } from "@/components/community/bots/bot-list-view"

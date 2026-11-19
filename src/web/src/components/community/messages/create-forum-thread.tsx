@@ -6,7 +6,7 @@ import { useCallback, useRef, useMemo, useEffect } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import type { UploadFileArgs, UploadFileResult } from "@/lib/community/attachment-upload"
-import { PlusCircle, Upload, X } from "lucide-react"
+import { PlusCircle, Upload, X } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import {

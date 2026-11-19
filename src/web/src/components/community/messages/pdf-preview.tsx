@@ -3,7 +3,8 @@
 import { EmptyState } from "../empty-state"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react"
-import { Loader2, FileWarning } from "lucide-react"
+import { FileWarning } from "lucide-react";
+import { Loader2 } from "@/components/icons/lucide";
 import {
   getDocument,
   GlobalWorkerOptions,

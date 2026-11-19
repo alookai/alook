@@ -6,7 +6,7 @@ import { requiresExplicitModel } from "@alook/shared";
 import Image from "next/image";
 import { ProviderLogo } from "@/components/provider-logo";
 import { notFound } from "next/navigation";
-import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight } from "@/components/icons/lucide";
 import { ZoneLink } from "@/components/public-layout";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { getStepGuide, stepGuides, tutorialAgents, type TutorialPair } from "@/lib/step-guides";

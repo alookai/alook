@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { TemplateAccountLink } from "../_components/template-account-link"
 
-import { Check } from "lucide-react";
+import { Check } from "@/components/icons/lucide";
 import { PublicLayout } from "@/components/public-layout";
 import { MemberCard } from "./_components/member-card";
 import type { TemplatePreset } from "@/lib/templates";

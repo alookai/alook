@@ -7,8 +7,8 @@ import { AutomationCodeForm, AutomationSettings } from "./automation-settings"
 vi.mock("./automation-setup-prompt", () => ({ AutomationSetupPrompt: () => null }))
 
 const fixture: AutomationAccessCode = { id: "code-1", name: "Build script", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z", permissions: [{ permission: "bot.create", limit: 12, period: "day" }] }
-const state = vi.hoisted(() => ({ execute: vi.fn(), refetch: vi.fn(), data: { accessCodes: [] as AutomationAccessCode[] }, isError: false, isPending: false }))
-vi.mock("@/hooks/community/use-automation", () => ({ useAutomation: () => ({ list: { data: state.data, isError: state.isError, isPending: state.isPending, refetch: state.refetch }, execute: state.execute, pending: false }) }))
+const state = vi.hoisted(() => ({ execute: vi.fn(), refetch: vi.fn(), data: { accessCodes: [] as AutomationAccessCode[] } as { accessCodes: AutomationAccessCode[] } | undefined, isError: false, isPending: false }))
+vi.mock("@/hooks/community/use-automation", () => ({ useAutomation: () => ({ list: { data: state.data, isError: state.isError, isPending: state.isPending, refetch: state.refetch }, isCurrentRead: () => !state.isError && !state.isPending, execute: state.execute, pending: false }) }))
 vi.mock("@/hooks/community/use-community-view-source", () => ({ useCommunityViewSource: () => ({ capture: () => Object.assign(() => {}, { signal: new AbortController().signal }) }) }))
 beforeEach(() => {
   state.execute.mockReset(); state.refetch.mockReset(); state.data = { accessCodes: [] }; state.isError = false; state.isPending = false
@@ -140,6 +140,7 @@ describe("Automation settings", () => {
     expect(state.execute).toHaveBeenCalledWith({ kind: "update", id: fixture.id, data: { name: fixture.name, permissions: [policy] } })
   })
   it("shows loading and errors without a false empty state", async () => {
+    state.data = undefined
     state.isPending = true
     const view = render(<AutomationSettings userId="owner" />)
     expect(screen.getByRole("status", { name: "Loading access codes" })).toBeInTheDocument()
@@ -147,6 +148,19 @@ describe("Automation settings", () => {
     view.rerender(<AutomationSettings userId="owner" />)
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load access codes")
     expect(screen.queryByText(/No access codes yet/)).not.toBeInTheDocument()
+    await setupUser().click(screen.getByRole("button", { name: "Retry" }))
+    expect(state.refetch).toHaveBeenCalledOnce()
+  })
+  it("retains known empty and populated display after refresh errors without enabling old row commands", async () => {
+    state.isError = true
+    const view = render(<AutomationSettings userId="owner" />)
+    expect(screen.getByText("No access codes yet")).toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load access codes")
+    state.data = { accessCodes: [fixture] }
+    view.rerender(<AutomationSettings userId="owner" />)
+    expect(screen.getByText(fixture.name)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: `Edit ${fixture.name}` })).toBeDisabled()
+    expect(screen.getByRole("button", { name: `Delete ${fixture.name}` })).toBeDisabled()
     await setupUser().click(screen.getByRole("button", { name: "Retry" }))
     expect(state.refetch).toHaveBeenCalledOnce()
   })

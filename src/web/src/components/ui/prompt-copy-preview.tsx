@@ -1,6 +1,6 @@
 "use client"
 
-import { Check, Copy } from "lucide-react"
+import { Check, Copy } from "@/components/icons/lucide";
 import { Button } from "./button"
 
 export function PromptCopyPreview({ value, label, onCopy, copied = false, testId }: {

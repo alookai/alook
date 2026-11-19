@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { useUiHandlers } from "@/stores/community"
 import { BotPiiView } from "./bot-pii-view"

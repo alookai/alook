@@ -3,7 +3,7 @@
 import type { CSSProperties } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { AUTOMATION_PERMISSION_LIMITS, AUTOMATION_READ_PERMISSIONS, AutomationAccessCodeCreateSchema, type AutomationAccessCode, type AutomationAccessCodeCreate, type AutomationAccessCodeCreateResponse, type AutomationExpiry, type AutomationPermissionPolicy } from "@alook/shared"
-import { ChevronDown, Copy, KeyRound, Pencil, Trash2 } from "lucide-react"
+import { ChevronDown, Copy, KeyRound, Pencil, Trash2 } from "@/components/icons/lucide";
 import { EmptyState } from "../empty-state"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Button } from "@/components/ui/button"
@@ -169,7 +169,7 @@ function CreatedCode({ result, onDone }: { result: AutomationAccessCodeCreateRes
 }
 
 export function AutomationSettings({ userId }: { userId: string }) {
-  const { list, execute, pending } = useAutomation(userId)
+  const { list, isCurrentRead, execute, pending } = useAutomation(userId)
   const [editing, setEditing] = useAtom(useCreateAtom<AutomationAccessCode | "new" | null>(null))
   const [created, setCreated] = useAtom(useCreateAtom<AutomationAccessCodeCreateResponse | null>(null))
   const [deleting, setDeleting] = useAtom(useCreateAtom<AutomationAccessCode | null>(null))
@@ -188,15 +188,15 @@ export function AutomationSettings({ userId }: { userId: string }) {
         </div>
         <Button className={control} data-testid={tid.automationCreate} onClick={() => { setError(null); setEditing("new") }}>Create access code</Button>
       </div>
-      {list.isPending ? <div aria-label="Loading access codes" role="status" className="space-y-4">{[0, 1].map((i) => <div key={i} className="space-y-2 py-4"><Skeleton className="h-5 w-40" /><Skeleton className="h-4 w-64 max-w-full" /><Skeleton className="h-4 w-48" /></div>)}</div>
-        : list.isError ? <ConversationResolutionErrorFrame as="div" title="Could not load access codes." retrying={list.isFetching} onRetry={() => { void list.refetch() }} />
-        : !list.data?.accessCodes.length ? <EmptyState icon={KeyRound} label="No access codes yet" description="Create one to allow a script to act on your behalf." />
+      {list.isError ? <ConversationResolutionErrorFrame as="div" title="Could not load access codes." retrying={list.isFetching} onRetry={() => { void list.refetch() }} /> : null}
+      {list.isPending && !list.data ? <div aria-label="Loading access codes" role="status" className="space-y-4">{[0, 1].map((i) => <div key={i} className="space-y-2 py-4"><Skeleton className="h-5 w-40" /><Skeleton className="h-4 w-64 max-w-full" /><Skeleton className="h-4 w-48" /></div>)}</div>
+        : !list.data ? null : !list.data.accessCodes.length ? <EmptyState icon={KeyRound} label="No access codes yet" description="Create one to allow a script to act on your behalf." />
         : <ul className="divide-y divide-border">{list.data.accessCodes.map((code) => <li key={code.id} data-testid={tid.automationCode(code.id)} className="space-y-4 py-4 first:pt-0">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2">
             <h2 className="flex min-h-11 min-w-0 items-center gap-2 text-base leading-6 font-medium sm:min-h-8"><span className="min-w-0 wrap-break-word">{code.name}</span>{code.purpose === "onboarding" ? <Badge variant="secondary">Onboarding</Badge> : null}</h2>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label={`Edit ${code.name}`} onClick={() => { setError(null); setEditing(code) }}><Pencil className="size-4" /></Button>
-              <Button variant="ghost" size="icon" className="size-11 sm:size-8" aria-label={`Delete ${code.name}`} onClick={() => { setError(null); setDeleting(code) }}><Trash2 className="size-4" /></Button>
+              <Button variant="ghost" size="icon" className="size-11 sm:size-8" disabled={!isCurrentRead(code.id)} aria-label={`Edit ${code.name}`} onClick={() => { setError(null); setEditing(code) }}><Pencil className="size-4" /></Button>
+              <Button variant="ghost" size="icon" className="size-11 sm:size-8" disabled={!isCurrentRead(code.id)} aria-label={`Delete ${code.name}`} onClick={() => { setError(null); setDeleting(code) }}><Trash2 className="size-4" /></Button>
             </div>
             <p className="col-span-2 text-xs leading-5 text-muted-foreground">{expiryLabel(code)}</p>
           </div>

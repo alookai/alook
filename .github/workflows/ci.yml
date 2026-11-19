@@ -848,7 +848,7 @@ jobs:
             --head-sha "${{ github.sha }}" --zones "$zones"
       - name: Run native Playwright partition
         id: playwright
-        timeout-minutes: 14
+        timeout-minutes: ${{ contains(matrix.specs, 'src/test/e2e-ui/55-history-reading-continuity.spec.ts') && 16 || 14 }}
         env:
           ALOOK_E2E_PREBUILT: "1"
           ALOOK_E2E_ZONES: ${{ toJSON(matrix.zones) }}

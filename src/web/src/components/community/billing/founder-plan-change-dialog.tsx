@@ -4,9 +4,10 @@ import type { BillingSummary } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 
-export function FounderPlanChangeDialog({ offer, busy, onCancel, onConfirm }: {
+export function FounderPlanChangeDialog({ offer, busy, confirmDisabled = false, onCancel, onConfirm }: {
   offer: BillingSummary["offers"][number] | null
   busy: boolean
+  confirmDisabled?: boolean
   onCancel: () => void
   onConfirm: () => void
 }) {
@@ -18,7 +19,7 @@ export function FounderPlanChangeDialog({ offer, busy, onCancel, onConfirm }: {
       </DialogHeader>
       <DialogFooter>
         <Button variant="outline" disabled={busy} onClick={onCancel}>Keep Founder</Button>
-        <Button disabled={busy} onClick={onConfirm}>{busy ? "Opening…" : "Continue to checkout"}</Button>
+        <Button disabled={busy || confirmDisabled} onClick={onConfirm}>{busy ? "Opening…" : "Continue to checkout"}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

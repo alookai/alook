@@ -3,7 +3,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useLayoutEffect } from "react"
 
 
-import { Inbox } from "lucide-react"
+import { Inbox } from "@/components/icons/lucide";
 import { NumberTicker } from "@/components/ui/number-ticker"
 import styles from "./inbox-unread-indicator.module.css"
 

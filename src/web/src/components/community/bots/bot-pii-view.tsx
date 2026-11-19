@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw } from "@/components/icons/lucide";
 import { useConversationActivity } from "@/contexts/view-activity"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"

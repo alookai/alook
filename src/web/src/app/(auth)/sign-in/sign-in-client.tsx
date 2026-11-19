@@ -34,7 +34,7 @@ import {
 } from "@/components/home/landing-shell-motion-timeline"
 import galleryStyles from "@/components/home/landing-shell-motion.module.css"
 import { DEV_PASSWORD } from "@alook/shared"
-import { ArrowLeft, CircleCheck, Mail } from "lucide-react"
+import { ArrowLeft, CircleCheck, Mail } from "@/components/icons/lucide";
 import Image from "next/image"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { cn } from "@/lib/utils"

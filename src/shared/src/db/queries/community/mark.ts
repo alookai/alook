@@ -176,11 +176,12 @@ export async function listOtherBotMarks(
       note: communityMessageMark.note,
       updatedAt: communityMessageMark.updatedAt,
     }).from(communityMessageMark)
-      .innerJoin(user, eq(user.id, communityMessageMark.userId))
+      .crossJoin(user)
       .innerJoin(communityMessage, eq(communityMessage.id, communityMessageMark.messageId))
       .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
       .where(and(
         inArray(communityMessageMark.messageId, ids),
+        eq(user.id, communityMessageMark.userId),
         ne(user.id, viewerId),
         eq(user.isBot, true),
         isNull(user.deletedAt),

@@ -1,7 +1,7 @@
 "use client"
 
 import type { CSSProperties } from "react"
-import { ArrowUpRight } from "lucide-react"
+import { ArrowUpRight } from "@/components/icons/lucide";
 import { HandAccent } from "@/components/brand/hand-accent"
 import { PaperSticker } from "@/components/brand/paper-sticker"
 import { MessageAuthorLine } from "@/components/community/messages/message-author-line"

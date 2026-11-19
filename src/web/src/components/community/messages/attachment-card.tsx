@@ -1,22 +1,8 @@
 "use client"
 
 import type { LucideIcon } from "lucide-react"
-import {
-  Archive,
-  CircleCheck,
-  Download,
-  Eye,
-  File,
-  FileAudio,
-  FileCode2,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileVideo,
-  LoaderCircle,
-  Presentation,
-  RefreshCw,
-} from "lucide-react"
+import { FileAudio, FileCode2, FileVideo } from "lucide-react";
+import { Archive, CircleCheck, Download, Eye, File, FileImage, FileSpreadsheet, FileText, LoaderCircle, Presentation, RefreshCw } from "@/components/icons/lucide";
 import type { FileAttachment } from "@/lib/community/models/message"
 import { MediaAttachmentBlock } from "./media-attachment-block"
 import { VideoAttachmentBlock } from "./video-attachment-block"

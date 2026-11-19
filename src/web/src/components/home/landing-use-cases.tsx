@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { ArrowRight } from "lucide-react"
+import { ArrowRight } from "@/components/icons/lucide";
 import { HandAccent } from "@/components/brand/hand-accent"
 import { buttonVariants } from "@/components/ui/button"
 import { StepSlide } from "@/components/ui/step-slide"

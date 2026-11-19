@@ -1,4 +1,4 @@
-import { Network, Activity, ChevronDown, Monitor, MoreVertical, RotateCcw } from "lucide-react"
+import { Network, Activity, ChevronDown, Monitor, MoreVertical, RotateCcw } from "@/components/icons/lucide";
 import { isPresenceOnline } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import {

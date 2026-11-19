@@ -1,5 +1,5 @@
 import type { ComponentPropsWithoutRef } from "react";
-import { Monitor } from "lucide-react";
+import { Monitor } from "@/components/icons/lucide";
 
 function ClaudeLogo({ className }: { className: string }) {
   return (

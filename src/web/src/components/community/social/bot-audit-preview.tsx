@@ -2,7 +2,7 @@
 
 import { useMountedClock } from "@/hooks/use-mounted-clock"
 
-import { Activity, ChevronRight, Lock } from "lucide-react"
+import { Activity, ChevronRight, Lock } from "@/components/icons/lucide";
 import { useEffect } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
 import { compareAuditEventsNewestFirst, type AuditEvent } from "@/lib/community/models/audit"

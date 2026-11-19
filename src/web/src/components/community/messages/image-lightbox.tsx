@@ -5,7 +5,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "@/components/icons/lucide";
 import type { ImagePreview } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import {
