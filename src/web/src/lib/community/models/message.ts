@@ -51,7 +51,7 @@ export type ReplyTarget = Pick<NonNullable<CommunityMessageResource["replyTo"]>,
 export type Msg = Pick<CommunityMessageResource, "id" | "type"> & Partial<Omit<CommunityMessageResource,
   "id" | "type" | "channelId" | "replyToId" | "clientNonce" | "attachments" | "embeds" | "authorAvatar" | "thread" | "replyTo"
 >> & {
-  replyTo?: NonNullable<CommunityMessageResource["replyTo"]> & { text: string }
+  replyTo?: NonNullable<CommunityMessageResource["replyTo"]> & { text: string; loading?: boolean }
   color?: string
   failed?: boolean
   clientNonce?: string

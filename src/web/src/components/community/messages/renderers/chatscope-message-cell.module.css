@@ -1,0 +1,34 @@
+.message {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+}
+
+.message :global(.cs-message__content-wrapper),
+.message :global(.cs-message__header),
+.message :global(.cs-message__content),
+.message :global(.cs-message__custom-content),
+.message :global(.cs-message__footer) {
+  display: contents;
+  color: inherit;
+  font: inherit;
+}
+
+.message :global(.cs-message__avatar:empty) {
+  display: none;
+}

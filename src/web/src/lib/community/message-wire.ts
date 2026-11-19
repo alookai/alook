@@ -30,9 +30,10 @@ function projectMessageRichContent(value: unknown): Pick<Msg, "attachments" | "e
 
 export function presentCanonicalMessage(message: CommunityMessageResource, replyTarget?: CommunityMessageResource): Msg {
   const { channelId: _channelId, replyToId: _replyToId, clientNonce, authorAvatar, attachments: _attachments, embeds: _embeds, thread, replyTo, ...fields } = message
+  const resolvedReply = replyTo && replyTarget?.id === replyTo.id && replyTarget.channelId === message.channelId ? replyTarget : undefined
   return {
     ...fields,
-    ...(replyTo ? { replyTo: { ...replyTo, text: replyTarget?.id === replyTo.id && replyTarget.channelId === message.channelId ? messagePreview(replyTarget) : replyTo.deleted ? "" : "Loading message…" } } : {}),
+    ...(replyTo ? { replyTo: { ...replyTo, text: !replyTo.deleted && resolvedReply ? messagePreview(resolvedReply) : "", ...(!replyTo.deleted && !resolvedReply ? { loading: true } : {}) } } : {}),
     ...(authorAvatar === undefined ? {} : { authorAvatar: authorAvatar ?? avatarInitial(message.authorName ?? "") }),
     ...(clientNonce != null ? { clientNonce } : {}),
     ...(thread ? { thread: presentMessageThread(thread) } : {}),

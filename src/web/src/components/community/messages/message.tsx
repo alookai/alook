@@ -1,6 +1,8 @@
 "use client"
 
 import { withImageGallery } from "./image-preview-gallery"
+import { MessageCell } from "./renderers/message-cell"
+import { MessageReplyPreview } from "./message-reply-preview"
 
 import { Button } from "@/components/ui/button"
 
@@ -643,8 +645,24 @@ function MessageImpl({
           }
         : undefined}
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-      {interactive && activated && !selectMode && (
+      <MessageCell
+        message={m}
+        authorName={authorName}
+        timestamp={formatMessageTime(m.createdAt)}
+        viewerUserId={viewerUserId}
+        compact={!!compact}
+        grouped={m.grouped}
+        selected={!!selected}
+        highlighted={!!highlighted}
+        onReply={onReply}
+        onMentionAuthor={onMentionAuthor}
+        onCopy={onCopy}
+        onReact={onReact}
+        onToggleReaction={onToggleReaction}
+        onContentResize={onImageLoad}
+        slots={{
+          actions: <>
+            {interactive && activated && !selectMode && (
         <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "top-0 -translate-y-full" : "-top-2"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
@@ -680,25 +698,10 @@ function MessageImpl({
           </DropdownMenu>
         </div>
       )}
-
-      {m.replyTo && (
-        <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-2">
-          <Button variant="link" size="sm" aria-label="Show original message" onClick={onJumpReply} className="h-auto whitespace-normal p-0 col-start-2 flex min-w-0 items-center justify-start gap-2 text-left text-[13px] font-normal text-muted-foreground hover:text-foreground hover:no-underline">
-            <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
-            {m.replyTo.deleted ? (
-              <span className="italic text-muted-foreground">Original message was deleted</span>
-            ) : (
-              <>
-                <span className="shrink-0 text-foreground/80">@{replyAuthorName}</span>
-                <span className="min-w-0 truncate">{m.replyTo.text}</span>
-              </>
-            )}
-          </Button>
-        </div>
-      )}
-
-      <div className="flex gap-2">
-        {m.grouped ? (
+          </>,
+          reply: <MessageReplyPreview reply={m.replyTo} authorName={replyAuthorName} onJump={onJumpReply} />,
+          avatar: <>
+            {m.grouped ? (
           <div className="w-10 shrink-0" />
         ) : (
           <button
@@ -711,8 +714,9 @@ function MessageImpl({
             <Avatar label={authorAvatar} seed={m.authorId} size={40} />
           </button>
         )}
-        <div className="relative flex min-w-0 flex-1 flex-col gap-2">
-          {m.grouped && selectable && (
+          </>,
+          selection: <>
+            {m.grouped && selectable && (
             <span
               aria-hidden
               data-message-selection-checkbox
@@ -724,7 +728,9 @@ function MessageImpl({
               {selected && <Check className="size-3" strokeWidth={3} />}
             </span>
           )}
-          {!m.grouped && (
+          </>,
+          header: <>
+            {!m.grouped && (
             <div className={`relative flex items-baseline gap-2${selectable ? " pr-6" : ""}`}>
               <MessageAuthorLine
                 authorName={authorName}
@@ -747,7 +753,9 @@ function MessageImpl({
               )}
             </div>
           )}
-          {m.botCreation ? (
+          </>,
+          content: <>
+            {m.botCreation ? (
             <BotCreationRequestCard key={m.botCreation.requestId} request={m.botCreation} messageId={m.id} viewerUserId={viewerUserId} onOpenProfile={onOpenProfile} />
           ) : m.approval ? (
             <BotApprovalCard approval={m.approval} />
@@ -902,8 +910,9 @@ function MessageImpl({
               ))}
             </div>
           )}
-
-          {m.reactions && (
+          </>,
+          footer: <>
+            {m.reactions && (
             <div className={m.reactions.length ? undefined : "sr-only"}>
               <MessageReactions
                 messageId={m.id}
@@ -950,9 +959,9 @@ function MessageImpl({
               )}
             </div>
           )}
-        </div>
-      </div>
-      </div>
+          </>,
+        }}
+      />
     </div>
   )
 

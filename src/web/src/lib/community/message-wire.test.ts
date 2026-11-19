@@ -26,9 +26,28 @@ describe("projectCommunityMessageCreate", () => {
     const reply = wire({ replyToId: target.id, replyTo: { id: target.id, authorId: "u1", authorName: "Gus" } })
     expect(presentCanonicalMessage(reply, target).replyTo?.text).toBe("Visible [Spoiler] file_name.ts Photo: photo.png")
     expect(reply.replyTo).not.toHaveProperty("text")
-    expect(presentCanonicalMessage(reply).replyTo?.text).toBe("Loading message…")
-    expect(presentCanonicalMessage(reply, { ...target, channelId: "other" }).replyTo?.text).toBe("Loading message…")
+    expect(presentCanonicalMessage(reply).replyTo).toMatchObject({ text: "", loading: true })
+    expect(presentCanonicalMessage(reply, { ...target, channelId: "other" }).replyTo).toMatchObject({ text: "", loading: true })
     expect(presentCanonicalMessage(reply, { ...target, content: "edited" }).replyTo?.text).toBe("edited Photo: photo.png")
+    expect(reply.replyTo).not.toHaveProperty("loading")
+  })
+
+  it.each(["Loading message…", "Loading message..."])("keeps real target text %s distinct from pending presentation state", content => {
+    const target = wire({ id: "target", content })
+    const reply = wire({ replyToId: target.id, replyTo: { id: target.id, authorId: "u1", authorName: "Gus" } })
+    expect(presentCanonicalMessage(reply, target).replyTo).toEqual({ ...reply.replyTo, text: content })
+    expect(presentCanonicalMessage(reply, target).replyTo).not.toHaveProperty("loading")
+    expect(reply.replyTo).toEqual({ id: target.id, authorId: "u1", authorName: "Gus" })
+  })
+
+  it("preserves deleted reply state without treating it as a pending or stale quote", () => {
+    const target = wire({ id: "target", content: "stale deleted text" })
+    const reply = wire({ replyToId: target.id, replyTo: { id: target.id, authorId: "u1", authorName: "Gus", deleted: true } })
+    expect(presentCanonicalMessage(reply, target).replyTo).toEqual({ ...reply.replyTo, text: "" })
+    expect(presentCanonicalMessage(reply).replyTo).toEqual({ ...reply.replyTo, text: "" })
+    expect(presentCanonicalMessage(reply, target).replyTo).not.toHaveProperty("loading")
+    expect(presentCanonicalMessage(reply).replyTo).not.toHaveProperty("loading")
+    expect(reply.replyTo).not.toHaveProperty("loading")
   })
   it("presents full thread participants without altering stored facts", () => {
     const thread = { id: "thread", name: null, messageCount: 2, lastReplyAt: null, participants: [

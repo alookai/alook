@@ -64,6 +64,7 @@ export const tid = {
   automationSecret: "community-automation-secret",
   automationCode: (id: string) => `community-automation-code-${id}`,
   settingsCacheSize: "community-settings-cache-size",
+  settingsMessageRenderer: "community-settings-message-renderer",
   analyticsConsentBanner: "analytics-consent-banner",
   ahrefsAnalyticsFrame: "ahrefs-analytics-frame",
   analyticsPreferenceControl: "analytics-preference-control",
