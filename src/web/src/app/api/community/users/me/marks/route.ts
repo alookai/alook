@@ -5,6 +5,7 @@ import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  COMMUNITY_INBOX_CONTEXT_HEADER,
   DEFAULT_INBOX_PAGE_SIZE,
   MAX_INBOX_PAGE_SIZE,
   readOrStale,
@@ -131,6 +132,12 @@ export const GET = withAuth(communityActorPolicy(), async (req, ctx) => {
     }
   })
 
-  const resources = await readCommunityResourceBundle(db, userId, { channelIds: [...new Set(rows.map(row => row.mark.channelId))], messageIds: rows.map(row => row.message.id) })
+  const includeContext = req.headers.get(COMMUNITY_INBOX_CONTEXT_HEADER) === "1"
+  const resources = await readCommunityResourceBundle(db, userId, {
+    channelIds: [...new Set(rows.map(row => row.mark.channelId))],
+    messageIds: rows.map(row => row.message.id),
+    includeCategories: includeContext,
+    includeDmPeers: includeContext,
+  })
   return writeJSON({ marked, limit, resources })
 })

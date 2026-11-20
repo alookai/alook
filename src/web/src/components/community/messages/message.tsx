@@ -175,7 +175,7 @@ export function messageLinkClickUsesMenu({
 }
 
 function MessageImpl({
-  m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
+  m, compact, pinned, readOnly, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
@@ -184,7 +184,8 @@ function MessageImpl({
   m: RenderMsg
   compact?: boolean
   pinned?: boolean
-  onOpenThread: (id: string) => void
+  readOnly?: boolean
+  onOpenThread?: (id: string) => void
   onOpenProfile?: OpenProfile
   onJumpReply?: () => void
   onToggleReaction?: (emoji: string) => void
@@ -277,7 +278,7 @@ function MessageImpl({
   // while a menu that shows the item is open (never per-row on mount) — so a
   // channel scroll doesn't pre-load mark state for every row. Defaults to
   // "Mark"; flips to "Unmark" silently once the read resolves (no spinner).
-  const markMenuOpen = (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
+  const markMenuOpen = !readOnly && (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
   const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
   const [activated, setActivated] = useAtom(useCreateAtom(false))
 
@@ -312,7 +313,7 @@ function MessageImpl({
     },
   }
   const showMenu = hasMessageMenu(menuHandlers)
-  const interactive = !compact && !m.failed && showMenu
+  const interactive = !readOnly && !compact && !m.failed && showMenu
   const touchInputCapable = !hoverCapable
   const desktopMenuInputActive = menuInputModality === "desktop"
   const touchFallbackActive = menuInputModality === "touch"
@@ -702,6 +703,8 @@ function MessageImpl({
           avatar: <>
             {m.grouped ? (
           <div className="w-10 shrink-0" />
+        ) : readOnly ? (
+          <div className="shrink-0 self-start"><Avatar label={authorAvatar} seed={m.authorId} size={40} /></div>
         ) : (
           <button
             {...avatarMention}
@@ -733,7 +736,7 @@ function MessageImpl({
             <div className={`relative flex items-baseline gap-2${selectable ? " pr-6" : ""}`}>
               <MessageAuthorLine
                 authorName={authorName}
-                onAuthorClick={(e) => onOpenProfile?.(authorName, e, undefined, m.authorId)}
+                onAuthorClick={readOnly ? undefined : (e) => onOpenProfile?.(authorName, e, undefined, m.authorId)}
                 color={m.color ?? "var(--foreground)"}
                 timestamp={formatMessageTime(m.createdAt)}
                 timestampProps={{ dateTime: m.createdAt }}
@@ -755,9 +758,9 @@ function MessageImpl({
           </>,
           content: <>
             {m.botCreation ? (
-            <BotCreationRequestCard key={m.botCreation.requestId} request={m.botCreation} messageId={m.id} viewerUserId={viewerUserId} onOpenProfile={onOpenProfile} />
+            <BotCreationRequestCard key={m.botCreation.requestId} request={m.botCreation} messageId={m.id} viewerUserId={readOnly ? undefined : viewerUserId} onOpenProfile={onOpenProfile} />
           ) : m.approval ? (
-            <BotApprovalCard approval={m.approval} />
+            <BotApprovalCard approval={m.approval} readOnly={readOnly} />
           ) : (
             visibleContent && (
               <MessageBody
@@ -927,7 +930,7 @@ function MessageImpl({
             </div>
           )}
 
-          {m.thread && !compact && (
+          {m.thread && !compact && onOpenThread && (
             <button
               data-testid={tid.threadIndicator(m.id)}
               onClick={() => onOpenThread(m.thread!.id)}

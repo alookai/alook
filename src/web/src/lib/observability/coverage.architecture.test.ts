@@ -41,6 +41,7 @@ it("keeps existing mutation owners inventoried and semantic variants on the whit
 })
 
 const mutationCoverage = [
+  { file: "src/web/src/hooks/community/use-inbox-channel-messages.ts", owner: "useMarkInboxChannelRead", action: "inbox.channel.read" },
   { file: "src/web/src/components/community/onboarding/onboarding-agent-dialog.tsx", owner: "OnboardingAgentDialog", action: "automation.access_code.create" },
   { file: "src/web/src/hooks/community/use-automation.ts", owner: "useAutomation", action: "automation.access_code.command" },
   { "file": "src/web/src/hooks/community/use-bot-memberships.ts", "owner": "useBotMemberships", "action": "community.command" },

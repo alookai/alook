@@ -243,6 +243,7 @@ export const actionNames = [
   "forum.tags.update",
   "forum.thread.create",
   "forum.thread.delete",
+  "inbox.channel.read",
   "inbox.read_all",
   "invitation.copy",
   "invitation.send",

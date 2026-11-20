@@ -123,6 +123,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
         : extensionContent && extension && (
           <UserBarPopover
             anchor={baseRef}
+            inbox={extension.active === "inbox"}
             companion={extension.active === "profile" ? extension.profileCompanion : undefined}
             onDismiss={extension.onDismiss}
             onEscape={dismissExtensionWithFocus}

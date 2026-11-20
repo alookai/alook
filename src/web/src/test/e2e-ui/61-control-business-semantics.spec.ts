@@ -65,7 +65,7 @@ test("App friend acceptance keeps its semantic icon through both surfaces and pe
   }
 })
 
-test("App secondary reaction and mention actions retain supporting colors and their actions", async ({ caseActors }) => {
+test("App secondary reaction and channel-read actions retain supporting colors and their actions", async ({ caseActors }) => {
   test.setTimeout(180_000)
   const actors = await caseActors(["alice", "bob"])
   const serverId = await actors.seed.seedServer("alice", `Semantic controls ${Date.now()}`)
@@ -95,12 +95,12 @@ test("App secondary reaction and mention actions retain supporting colors and th
     await page.keyboard.press("Escape")
     await expect(reaction).toHaveAttribute("aria-expanded", "false")
     await page.getByTestId(tid.inboxTrigger).click()
-    await page.getByRole("tab", { name: /^Mentions/ }).click()
-    const markRead = page.getByRole("button", { name: "Mark mention as read", exact: true })
+    await expect(page.getByRole("tab", { name: /^Mentions/ })).toHaveCount(0)
+    const markRead = page.getByTestId(tid.inboxMarkChannelRead(mentionChannel))
     await expectIconTone(markRead, "--muted-foreground")
     const dismissed = page.waitForResponse((response) =>
-      response.request().method() === "DELETE"
-      && new URL(response.url()).pathname.startsWith("/api/community/users/me/inbox/mentions/"))
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${mentionChannel}/read`)
     await markRead.click()
     expect((await dismissed).ok()).toBe(true)
     await expect(markRead).toHaveCount(0)

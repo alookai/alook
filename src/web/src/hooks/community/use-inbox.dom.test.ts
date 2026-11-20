@@ -1,14 +1,15 @@
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
-import { attentionSnapshotScenarioFixture, fullResourceBundleFixture, serverResourceFixture, channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
+import { attentionSnapshotScenarioFixture, fullResourceBundleFixture, serverResourceFixture, channelResourceFixture, messageResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
 import React, { useLayoutEffect } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import type { AccountAttentionSnapshot } from "@alook/shared"
+import { COMMUNITY_INBOX_CONTEXT_HEADER, type AccountAttentionSnapshot } from "@alook/shared"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   CommunityDbProvider,
+  useDmProjection,
 } from "@/lib/community-db/projections"
 import {
   createCommunityDbRegistry,
@@ -347,13 +348,14 @@ async function createHarness({
   registry.runtime.ws.actions.reset()
   registry.runtime.ws.actions.activateProfileAccount("viewer")
   let latest: ReturnType<typeof useInboxAttention> | undefined
-  const paints: Array<{ count: number; children: string[] }> = []
+  const paints: Array<{ count: number; channels: string[]; children: string[] }> = []
   function Probe() {
     const attention = useInboxAttention()
     latest = attention
     useLayoutEffect(() => {
       paints.push({
         count: attention.exactAttentionCount,
+        channels: attention.servers.flatMap(server => server.channels.filter(channel => channel.hasDirectUnread !== false).map(channel => channel.channelId)),
         children: attention.servers.flatMap((server) => (
           server.channels.flatMap((channel) => channel.children.map((child) => child.channelId))
         )),
@@ -558,7 +560,7 @@ describe("useInboxAttention", () => {
     }
   })
 
-  it("uses forum-item fallback rows and sorts parent and child channels deterministically", async () => {
+  it("keeps forum opener facts in their parent channel and sorts independent channels", async () => {
     const snapshot = forumSnapshot()
     snapshot.scopes[0] = {
       ...snapshot.scopes[0]!,
@@ -594,10 +596,10 @@ describe("useInboxAttention", () => {
         .toEqual(["direct", "forum"]))
       expect(harness.latest.servers[0]?.channels[1]).toMatchObject({
         channelId: "forum",
-        hasDirectUnread: false,
+        hasDirectUnread: true,
+        lastUnreadSeq: 20,
       })
-      expect(harness.latest.servers[0]?.channels[1]?.children.map((row) => row.channelId))
-        .toEqual(["child-20", "child-10"])
+      expect(harness.latest.servers[0]?.channels[1]?.children).toEqual([])
     } finally {
       harness.dispose()
     }
@@ -718,6 +720,36 @@ describe("useInboxAttention", () => {
     }
   })
 
+  it("resolves the peer of a saved outgoing DM before the DM list is read", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const dm = channelResourceFixture({ id: "dm", type: "dm", serverId: null })
+    const message = messageResourceFixture({ id: "outgoing", channelId: dm.id, authorId: "viewer", content: "Saved outgoing DM" })
+    const peer = profileResourceFixture({ id: "peer", name: "Mika", discriminator: "0017", avatar: "M" })
+    apiFetchMock.mockResolvedValueOnce({
+      resources: {
+        ...fullResourceBundleFixture("viewer", [], [dm], [message], [profileResourceFixture(), peer]),
+        dmPeers: [{ channelId: dm.id, userId: peer.id }],
+      },
+      marked: [{
+        id: "mark", server: "", serverId: null, channel: "Conversation", channelId: dm.id,
+        m: { id: message.id },
+      }],
+    })
+    const rendered = renderHook(() => ({ marked: useInboxMarked(true), dms: useDmProjection() }), {
+      wrapper: ({ children }: React.PropsWithChildren) => React.createElement(
+        QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children),
+      ),
+    })
+    await waitFor(() => {
+      expect(rendered.result.current.marked.marked[0]?.m.content).toBe("Saved outgoing DM")
+      expect(rendered.result.current.dms).toEqual([
+        expect.objectContaining({ id: dm.id, userId: peer.id, name: "Mika", avatar: "M" }),
+      ])
+    })
+    const options = apiFetchMock.mock.calls[0]?.[1] as { headers?: HeadersInit } | undefined
+    expect(new Headers(options?.headers).get(COMMUNITY_INBOX_CONTEXT_HEADER)).toBe("1")
+  })
+
   it("counts an aggregate-only attention conversation when bounded items are absent", async () => {
     const harness = await createHarness()
     try {
@@ -762,67 +794,73 @@ describe("useInboxAttention", () => {
     }
   })
 
-  it("publishes two unread forum siblings as two exact presentation rows", async () => {
+  it("keeps two genuinely unread children separate without an unread parent cursor", async () => {
+    const snapshot = forumSnapshot()
+    snapshot.scopes = [10, 20].map((seq, index) => ({
+      scopeId: `child-${seq}`, channelId: `child-${seq}`, serverId: "server", parentChannelId: "forum",
+      ordinaryUnread: true, lastUnreadSeq: index + 3, lastAttentionSeq: null, attentionCount: 0,
+    }))
+    snapshot.items = []
     const harness = await createHarness()
     try {
-      act(() => ingestAttentionSnapshot(harness.registry, forumSnapshot()))
-      await waitFor(() => {
-        expect(harness.latest.servers[0]?.channels[0]?.children.map((row) => row.channelId))
-          .toEqual(["child-20", "child-10"])
-      })
-      expect(harness.latest.servers[0]?.channels[0]).toMatchObject({
-        channelId: "forum",
-        hasDirectUnread: false,
-      })
-      expect(harness.latest.exactAttentionCount).toBe(2)
-      expect(harness.latest.mentions).toEqual([])
-    } finally {
-      harness.dispose()
-    }
+      act(() => ingestAttentionSnapshot(harness.registry, snapshot))
+      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(2))
+      const parent = harness.latest.servers[0]?.channels[0]
+      expect(parent).toMatchObject({ channelId: "forum", hasDirectUnread: false })
+      expect(parent?.children).toEqual([
+        expect.objectContaining({ channelId: "child-20", lastUnreadSeq: 4, openerSeq: 20 }),
+        expect.objectContaining({ channelId: "child-10", lastUnreadSeq: 3, openerSeq: 10 }),
+      ])
+      expect(parent?.lastUnreadSeq).toBeUndefined()
+    } finally { harness.dispose() }
   })
 
-  it("removes only the older forum unit when its parent read target advances", async () => {
+  it("keeps two unread forum openers in one actual parent channel card", async () => {
     const harness = await createHarness()
     try {
       act(() => ingestAttentionSnapshot(harness.registry, forumSnapshot()))
-      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(2))
-      act(() => {
-        clearAttentionScopeOptimistically(harness.registry, "forum", 10)
-      })
-      await waitFor(() => {
-        expect(harness.latest.servers[0]?.channels[0]?.children.map((row) => row.channelId))
-          .toEqual(["child-20"])
-      })
+      await waitFor(() => expect(harness.latest.servers[0]?.channels[0]).toMatchObject({ channelId: "forum", hasDirectUnread: true, lastUnreadSeq: 20, children: [] }))
       expect(harness.latest.exactAttentionCount).toBe(1)
-    } finally {
-      harness.dispose()
-    }
+      expect(harness.latest.items.map(item => item.messageId)).toEqual(["opener-10", "opener-20"])
+      expect(harness.latest.mentions).toEqual([])
+    } finally { harness.dispose() }
   })
 
-  it("never paints a positive badge without its forum rows", async () => {
+  it("keeps only the newer opener fact in the same parent card after a partial read", async () => {
     const harness = await createHarness()
     try {
       act(() => ingestAttentionSnapshot(harness.registry, forumSnapshot()))
-      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(2))
-      expect(harness.paints.some((paint) => paint.count > 0 && paint.children.length === 0))
-        .toBe(false)
-    } finally {
-      harness.dispose()
-    }
+      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(1))
+      act(() => { clearAttentionScopeOptimistically(harness.registry, "forum", 10) })
+      await waitFor(() => expect(harness.latest.items.map(item => item.messageId)).toEqual(["opener-20"]))
+      expect(harness.latest.servers[0]?.channels[0]).toMatchObject({ channelId: "forum", hasDirectUnread: true, lastUnreadSeq: 20, children: [] })
+      expect(harness.latest.exactAttentionCount).toBe(1)
+      act(() => { clearAttentionScopeOptimistically(harness.registry, "forum", 20) })
+      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(0))
+      expect(harness.latest.servers).toEqual([])
+    } finally { harness.dispose() }
   })
 
-  it("keeps the last complete state when a refresh fails", async () => {
+  it("never paints a positive badge without an actual unread channel card", async () => {
+    const harness = await createHarness()
+    try {
+      act(() => ingestAttentionSnapshot(harness.registry, forumSnapshot()))
+      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(1))
+      expect(harness.paints.some(paint => paint.count > 0 && paint.channels.length + paint.children.length === 0)).toBe(false)
+    } finally { harness.dispose() }
+  })
+
+  it("keeps the last complete channel state when a refresh fails", async () => {
     apiFetchMock.mockResolvedValueOnce(forumSnapshot())
     const harness = await createHarness({ owner: true })
     try {
-      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(2))
+      await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(1))
       apiFetchMock.mockRejectedValueOnce(new Error("offline"))
       await act(async () => { await harness.latest.refetch() })
-      expect(harness.latest.exactAttentionCount).toBe(2)
+      expect(harness.latest.exactAttentionCount).toBe(1)
+      expect(harness.latest.servers[0]?.channels[0]).toMatchObject({ channelId: "forum", lastUnreadSeq: 20, children: [] })
       expect(harness.latest.isInitialError).toBe(false)
-    } finally {
-      harness.dispose()
-    }
+    } finally { harness.dispose() }
   })
 
   it("exposes an initial error instead of an empty success", async () => {

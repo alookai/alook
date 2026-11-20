@@ -1,22 +1,28 @@
 import {
   AccountAttentionSnapshotSchema, communityMessageProfileIds, COMMUNITY_RESOURCE_CONTRACT_VERSION,
-  CommunityChannelMembershipResourceSchema, CommunityResourceBundleSchema, CommunityServerResourceSchema, communityChannelResourceFromStorage, isServerOwner, queries,
+  CommunityCategoryResourceSchema, CommunityChannelMembershipResourceSchema, CommunityResourceBundleSchema, CommunityServerResourceSchema, communityChannelResourceFromStorage, isServerOwner, queries,
   withD1Retry, type CommunityResourceBundle, type AccountAttentionProjection, type AccountAttentionSnapshot, type Database,
 } from "@alook/shared"
 import { loadApiMessageContext, mapMessageForApi } from "./message-payload"
 import { serverIconUrl } from "./storage"
 import { readCommunityResourceProfiles } from "./resource-profiles.server"
 
-export async function hydrateAttentionResources(db: Database, viewerId: string, projection: AccountAttentionProjection): Promise<AccountAttentionSnapshot> {
+export async function hydrateAttentionResources(db: Database, viewerId: string, projection: AccountAttentionProjection, includeCategories = false): Promise<AccountAttentionSnapshot> {
   const resources = await readCommunityResourceBundle(db, viewerId, {
     channelIds: [...projection.included.channels.map(row => row.id), ...projection.included.dms.map(row => row.id), ...projection.included.messages.map(row => row.channelId)],
     profileIds: projection.included.profiles.map(row => row.userId), messageIds: projection.included.messages.map(row => row.id), serverIds: projection.included.servers.map(row => row.id),
+    includeCategories,
   })
   return AccountAttentionSnapshotSchema.parse({ ...projection, resources: { ...resources, memberships: resources.memberships.filter(row => row.relation === "access") } })
 }
 
 export async function readCommunityResourceBundle(db: Database, viewerId: string, input: {
-  channelIds: string[]; profileIds?: string[]; messageIds?: string[]; serverIds?: string[]
+  channelIds: string[]
+  profileIds?: string[]
+  messageIds?: string[]
+  serverIds?: string[]
+  includeCategories?: boolean
+  includeDmPeers?: boolean
 }): Promise<CommunityResourceBundle> {
   const channelIds = new Set(input.channelIds)
   const readChannels = async (ids: string[]) => {
@@ -29,17 +35,27 @@ export async function readCommunityResourceBundle(db: Database, viewerId: string
   const missingParents = [...new Set(channels.flatMap(row => row.parentChannelId && !channelIds.has(row.parentChannelId) ? [row.parentChannelId] : []))]
   if (missingParents.length) channels.push(...await readChannels(missingParents))
   const allowedIds = channels.map(row => row.id)
-  const [messageRows, serverRows, membershipRows] = await Promise.all([
+  const categoryIds = input.includeCategories
+    ? [...new Set(channels.flatMap(row => row.categoryId ? [row.categoryId] : []))]
+    : []
+  const dmIds = input.includeDmPeers ? channels.filter(row => row.type === "dm").map(row => row.id) : []
+  const [messageRows, serverRows, membershipRows, categories, dmPeerRows] = await Promise.all([
     queries.communityMessage.getMessagesByIdsInChannels(db, input.messageIds ?? [], allowedIds),
     channels.some(row => row.serverId !== null) || input.serverIds?.length ? queries.communityServer.listUserServers(db, viewerId) : Promise.resolve([]),
     queries.communityChannel.listChannelMembershipsForUserInChannels(db, viewerId, allowedIds),
+    categoryIds.length ? queries.communityCategory.getCategoriesByIds(db, categoryIds) : Promise.resolve([]),
+    dmIds.length ? queries.communityDm.listOtherDmAccessMembers(db, viewerId, dmIds) : Promise.resolve([]),
   ])
   if (input.messageIds?.some(id => !messageRows.some(row => row.id === id))) throw new Error("Requested message resource missing from scope")
   const context = await loadApiMessageContext(db, viewerId, messageRows.map(row => row.id), () =>
     queries.communityMessage.getMessagesByIdsInChannels(db, messageRows.flatMap(row => row.replyToId ? [row.replyToId] : []), allowedIds), { skipEmpty: true, rootMessages: messageRows })
   const messages = messageRows.map(row => mapMessageForApi(row, context(row.channelId), COMMUNITY_RESOURCE_CONTRACT_VERSION, row.channelId))
   messages.push(...[...new Map(messageRows.flatMap(row => context(row.channelId).relatedMessages ?? []).map(message => [message.id, message])).values()])
-  const profiles = await readCommunityResourceProfiles(db, [viewerId, ...(input.profileIds ?? []), ...communityMessageProfileIds(messages)])
+  const profiles = await readCommunityResourceProfiles(db, [
+    viewerId, ...(input.profileIds ?? []), ...dmPeerRows.map(row => row.userId), ...communityMessageProfileIds(messages),
+  ])
+  const profileIds = new Set(profiles.map(row => row.id))
+  const dmPeers = new Map(dmPeerRows.filter(row => profileIds.has(row.userId)).map(row => [row.channelId, row]))
   const serverIds = new Set([...(input.serverIds ?? []), ...channels.flatMap(row => row.serverId ? [row.serverId] : [])])
   const selectedServers = serverRows.flatMap((row, position) => serverIds.has(row.id) ? [{ row, position }] : [])
   const relations = membershipRows.map(row => CommunityChannelMembershipResourceSchema.parse(row))
@@ -52,6 +68,11 @@ export async function readCommunityResourceBundle(db: Database, viewerId: string
       })),
       serverMemberships: selectedServers.map(({ row }) => ({ serverId: row.id, userId: viewerId, memberId: row.memberId, role: row.role })),
       channels,
+      ...(input.includeCategories ? { categories: categories.map(row => CommunityCategoryResourceSchema.parse({
+        id: row.id, serverId: row.serverId, name: row.name, position: row.position,
+        private: row.private === 1, creatorId: row.creatorId,
+      })) } : {}),
+      ...(input.includeDmPeers ? { dmPeers: [...dmPeers.values()] } : {}),
       memberships: [...channels.map(row => accessByChannel.get(row.id) ?? { channelId: row.id, userId: viewerId, relation: "access", source: "access-decision" }), ...relations.filter(row => row.relation === "notify")],
       profiles,
       messages,

@@ -7,6 +7,7 @@ import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 import type { Database } from "../../index";
 import type { SQLWrapper } from "drizzle-orm";
+import { jsonTextSet } from "../_json-set";
 
 function dmChannelQuery(
   db: Database,
@@ -225,6 +226,18 @@ export async function listDmPeerUserIds(
       ),
     ))
   return rows.map((row) => row.userId)
+}
+
+export async function listOtherDmAccessMembers(db: Database, viewerId: string, readableDmIds: string[]) {
+  if (readableDmIds.length === 0) return [];
+  return db
+    .select({ channelId: communityChannelMember.channelId, userId: communityChannelMember.userId })
+    .from(communityChannelMember)
+    .where(and(
+      inArray(communityChannelMember.channelId, jsonTextSet(db, [...new Set(readableDmIds)])),
+      eq(communityChannelMember.relation, "access"),
+      ne(communityChannelMember.userId, viewerId),
+    ));
 }
 
 export async function listDMs(db: Database, userId: string) {

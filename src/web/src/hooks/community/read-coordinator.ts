@@ -5,7 +5,7 @@ import type { z } from "zod"
 import { createStore } from "@tanstack/react-store"
 import type { Mutation, QueryClient } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { reconcileAccountReadState } from "./community-ws/read-state-reconciliation"
@@ -43,6 +43,7 @@ export type ReadIntent = {
 }
 
 export type ReadSurface = { kind: "timeline"; channelId: string }
+type ReadTarget = Pick<ReadIntent, "channelId" | "messageId" | "seq">
 
 type QueuedReadIntent = {
   intent: ReadIntent
@@ -284,6 +285,39 @@ class ReadCoordinator {
     }
   }
 
+  markChannelRead(target: ReadTarget, request: ApiRequestOptions) {
+    const assertActive = () => {
+      request.assertActive?.()
+      if (this.disposed || request.signal?.aborted) throw new DOMException("Retired read intent", "AbortError")
+    }
+
+    return this.queryClient.getMutationCache().build<ReadMutationResponse, Error, void, unknown>(this.queryClient, {
+      ...this.readMutationOptions(target.channelId),
+      meta: { observabilityDelegate: true },
+      retry: false,
+      mutationFn: async () => {
+        assertActive()
+        const receipt = await this.sendRead(target, { ...request, assertActive })
+        assertActive()
+        if (receipt.targetSeq !== target.seq) throw new Error("Unread receipt mismatch")
+        await reconcileAccountReadState(this.queryClient, { targetRevision: receipt.revision })
+        assertActive()
+        return receipt
+      },
+    }).execute(undefined)
+  }
+
+  private readMutationOptions(channelId: string) {
+    const mutationKey = ["community", "read-command", this.ownerUserId, channelId]
+    return { mutationKey, scope: { id: JSON.stringify(mutationKey) }, gcTime: 0 }
+  }
+
+  private sendRead(target: ReadTarget, request: ApiRequestOptions) {
+    return apiFetch<ReadMutationResponse>("/api/community/channels/" + encodeURIComponent(target.channelId) + "/read", {
+      ...request, method: "PUT", body: JSON.stringify({ lastReadMessageId: target.messageId }),
+    })
+  }
+
   private schedule(key: string, delay: number) {
     const scope = this.scope(key)
     if (this.disposed || !scope || scope.inFlight || scope.timer !== null) return
@@ -360,15 +394,13 @@ class ReadCoordinator {
       if (controller.signal.aborted || !this.attemptActive(key, attemptEpoch, identityEpoch)) throw new DOMException("Retired read intent", "AbortError")
     }
     const mutation = this.queryClient.getMutationCache().build<ReadMutationResponse, Error, void, unknown>(this.queryClient, {
-      mutationKey: ["community", "read-command", this.ownerUserId, target.intent.channelId],
-      scope: { id: JSON.stringify(["community", "read-command", this.ownerUserId, target.intent.channelId]) },
-      gcTime: 0,
+      ...this.readMutationOptions(target.intent.channelId),
       retry: (count, error) => !controller.signal.aborted && this.attemptActive(key, attemptEpoch, identityEpoch) && retryable(error) && count < 3,
       retryDelay: (count) => 250 * 2 ** count,
       mutationFn: async () => {
         assertActive()
         try {
-          const response = await apiFetch<ReadMutationResponse>("/api/community/channels/" + target.intent.channelId + "/read", { ...target.request, signal: controller.signal, assertActive, method: "PUT", body: JSON.stringify({ lastReadMessageId: target.intent.messageId }) })
+          const response = await this.sendRead(target.intent, { ...target.request, signal: controller.signal, assertActive })
           assertActive()
           return response
         } catch (error) {

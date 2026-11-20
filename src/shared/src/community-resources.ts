@@ -9,6 +9,7 @@ import { BotCreationPayloadSchema } from "./community-bot-creation"
 const id = z.string().min(1)
 const nullableId = id.nullable()
 export const COMMUNITY_CONVERSATION_ANCHOR_MISSING = "conversation_anchor_missing"
+export const COMMUNITY_INBOX_CONTEXT_HEADER = "x-alook-inbox-context"
 const storedArchivedSchema = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((value) => value === true || value === 1)
 
 export const CommunityServerResourceSchema = z.strictObject({
@@ -184,12 +185,23 @@ export const CommunityResourceBundleSchema = CommunityMessageResourcesSchema.saf
   viewerId: id,
   servers: z.array(CommunityServerResourceSchema), serverMemberships: z.array(CommunityServerMembershipResourceSchema),
   channels: z.array(CommunityChannelResourceSchema), memberships: z.array(CommunityChannelMembershipResourceSchema),
+  categories: z.array(CommunityCategoryResourceSchema).optional(),
+  dmPeers: z.array(z.strictObject({ channelId: id, userId: id })).optional(),
 }).superRefine((bundle, ctx) => {
   const channels = new Set(bundle.channels.map(row => row.id))
   const servers = new Set(bundle.servers.map(row => row.id))
+  const categories = bundle.categories ?? []
+  const dmPeers = bundle.dmPeers ?? []
+  const dmChannels = new Set(bundle.channels.filter(row => row.type === "dm").map(row => row.id))
+  const profiles = new Set(bundle.profiles.map(row => row.id))
+  const readableCategories = new Map(bundle.channels.flatMap(row => row.categoryId ? [[row.categoryId, row.serverId] as const] : []))
   if (channels.size !== bundle.channels.length || servers.size !== bundle.servers.length
+    || new Set(categories.map(row => row.id)).size !== categories.length
+    || categories.some(row => readableCategories.get(row.id) !== row.serverId)
+    || new Set(dmPeers.map(row => row.channelId)).size !== dmPeers.length
+    || dmPeers.some(row => !dmChannels.has(row.channelId) || row.userId === bundle.viewerId || !profiles.has(row.userId))
     || new Set(bundle.messages.map(row => row.id)).size !== bundle.messages.length
-    || new Set(bundle.profiles.map(row => row.id)).size !== bundle.profiles.length
+    || profiles.size !== bundle.profiles.length
     || new Set(bundle.memberships.map(row => `${row.channelId}:${row.userId}:${row.relation}`)).size !== bundle.memberships.length
     || new Set(bundle.serverMemberships.map(row => `${row.serverId}:${row.userId}`)).size !== bundle.serverMemberships.length
     || bundle.messages.some(row => !channels.has(row.channelId))

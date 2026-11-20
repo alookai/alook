@@ -301,6 +301,13 @@ export const tid = {
   inboxUnreadChannel: (id: string) => `community-inbox-unread-channel-${id}`,
   inboxUnreadChild: (id: string) => `community-inbox-unread-child-${id}`,
   inboxUnreadDm: (id: string) => `community-inbox-unread-dm-${id}`,
+  inboxUnreadCard: (id: string) => `community-inbox-unread-card-${id}`,
+  inboxMarkedCard: (id: string) => `community-inbox-marked-card-${id}`,
+  inboxUnmark: (id: string) => `community-inbox-unmark-${id}`,
+  inboxMention: (id: string) => `community-inbox-mention-${id}`,
+  inboxUnreadMessages: (id: string) => `community-inbox-unread-messages-${id}`,
+  inboxMarkChannelRead: (id: string) => `community-inbox-mark-channel-read-${id}`,
+  inboxToggleChannel: (id: string) => `community-inbox-toggle-channel-${id}`,
   inboxFriendRequest: (id: string) => `community-inbox-friend-request-${id}`,
   inboxFriendRequestOpen: (id: string) => `community-inbox-friend-request-open-${id}`,
   inboxFriendRequestAccept: (id: string) => `community-inbox-friend-request-accept-${id}`,
@@ -315,7 +322,7 @@ export const tid = {
   inboxMobileSurface: "community-inbox-mobile-surface",
   inboxMobileCard: "community-inbox-mobile-card",
   inboxTabList: "community-inbox-tab-list",
-  inboxTabScroll: (tab: "unreads" | "mentions" | "marked") =>
+  inboxTabScroll: (tab: "unreads" | "marked") =>
     `community-inbox-${tab}-scroll`,
   channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,
   signInStepTrack: "sign-in-step-track",

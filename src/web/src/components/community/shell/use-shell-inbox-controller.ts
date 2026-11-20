@@ -3,11 +3,13 @@ import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import type { Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useRef, type ComponentProps } from "react"
+import { createElement, useCallback, useRef, type ComponentProps } from "react"
 import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
 import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
+import { InboxUnreadMessages } from "./inbox-unread-messages"
+import { useMarkInboxChannelRead } from "@/hooks/community/use-inbox-channel-messages"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   inboxChannelRowTarget,
@@ -21,7 +23,6 @@ import {
   useMarkAllInboxRead,
   useAcceptFriendRequest,
   useRejectFriendRequest,
-  useDeleteMention,
   useUnmarkMessage,
 } from "@/hooks/community/mutations"
 import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
@@ -72,13 +73,12 @@ export function useShellInboxController({
   const [activeTab, setActiveTab] = useAtom(useCreateAtom<InboxTab>("unreads"))
   const scrollOffsetsRef = useRef<Record<InboxTab, number>>({
     unreads: 0,
-    mentions: 0,
     marked: 0,
   })
   const inboxMarked = useInboxMarked(markedTabOpened)
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
-  const deleteMention = useDeleteMention()
+  const markChannelRead = useMarkInboxChannelRead()
   const acceptFriendRequest = useAcceptFriendRequest()
   const rejectFriendRequest = useRejectFriendRequest()
   const inbox = useInboxAutoCollapse({
@@ -308,7 +308,8 @@ export function useShellInboxController({
     getScrollOffset,
     onScrollOffsetChange: setScrollOffset,
     onMarkAllRead: () => { markAllInboxRead.mutate() },
-    onDeleteMention: (id) => deleteMention.mutate({ mentionId: id }),
+    onMarkChannelRead: (channelId, throughSeq) => markChannelRead.mutateAsync({ channelId, throughSeq }),
+    renderUnreadMessages: (input) => createElement(InboxUnreadMessages, { ...input, onOpenMention: openMention }),
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),
   }
   const unreadCount = attention.exactAttentionCount

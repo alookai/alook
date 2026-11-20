@@ -93,6 +93,20 @@ it.each(["none", "viewer", "peer"] as const)("returns the complete current atten
   expect(new Set(snapshot.resources.channels.map(row => row.id))).toEqual(expected)
 })
 
+it("projects a saved DM's peer from that readable channel without loading other peers", async () => {
+  const store = await dmFixture("none")
+  const { db } = store
+  const bundle = await readCommunityResourceBundle(db, "viewer", {
+    channelIds: ["allowed-dm"], includeDmPeers: true,
+  })
+  expect(bundle.dmPeers).toEqual([{ channelId: "allowed-dm", userId: "other" }])
+  expect(bundle.profiles.map(profile => profile.id).sort()).toEqual(["other", "viewer"])
+  await blockDm(store, "peer")
+  await expect(readCommunityResourceBundle(db, "viewer", {
+    channelIds: ["blocked-dm"], includeDmPeers: true,
+  })).rejects.toThrow("Attention access changed")
+})
+
 it("still rejects hydration when a real block happens after the earlier projection", async () => {
   const store = await dmFixture("none")
   const projection = await queries.communityAttention.getAccountAttentionProjection(store.db, "viewer")
@@ -112,6 +126,32 @@ describe("full resource hydrator with actual scoped SQL", () => {
     expect(record.invocations).toBeLessThanOrEqual(1000)
     expect(record.statements.every(row => row.bindings.length <= 100)).toBe(true)
   })
+})
+
+it("returns opted-in category data only for the readable resource window", async () => {
+  const { db, record, sqlite, ids } = fixture(3)
+  const insert = sqlite.prepare("INSERT INTO community_category (id,server_id,name,position) VALUES (?,'server',?,?)")
+  insert.run("release", "Release", 0)
+  for (let index = 0; index < 250; index++) insert.run(`unrelated-${index}`, `Unrelated ${index}`, index + 1)
+  const assign = sqlite.prepare("UPDATE community_channel SET category_id = ? WHERE id = ?")
+  assign.run("release", ids[0]!)
+  assign.run("release", ids[1]!)
+  assign.run("unrelated-0", ids[2]!)
+  const channelIds = ids.slice(0, 2)
+  const original = await readCommunityResourceBundle(db, "viewer", { channelIds })
+  expect(original).not.toHaveProperty("categories")
+
+  const statementCount = record.statements.length
+  const bundle = await readCommunityResourceBundle(db, "viewer", { channelIds, includeCategories: true })
+  expect(bundle.categories).toEqual([
+    { id: "release", serverId: "server", name: "Release", position: 0, private: false, creatorId: null },
+  ])
+  const categoryReads = record.statements.slice(statementCount)
+    .filter(statement => /from "community_category" where /i.test(statement.sql))
+  expect(categoryReads).toHaveLength(1)
+  const categoryRead = categoryReads[0]!
+  const plan = sqlite.prepare("EXPLAIN QUERY PLAN " + categoryRead.sql).all(...categoryRead.bindings)
+  expect(plan.map(row => row.detail).join("\n")).toMatch(/SEARCH community_category USING INDEX .*\(id=\?\)/)
 })
 
 it("uses one scoped SQL statement for a deduplicated collection, without hiding fanout in batch", async () => {

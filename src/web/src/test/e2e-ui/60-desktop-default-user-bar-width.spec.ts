@@ -13,6 +13,7 @@ const layoutStorageKey = COMMUNITY_LAYOUT_STORAGE_KEY
 const expectedDefaultSidebarWidth = 317
 const expectedOuterWidth = 375
 const expectedVisibleWidth = 359
+const desktopInboxWidth = 480
 const geometryEpsilon = 1
 
 const shellPanel = (page: Page, id: "sidebar" | "main") => (
@@ -355,9 +356,9 @@ async function readComposerGeometry(page: Page): Promise<ComposerGeometry> {
   })
 }
 
-async function expectExtensionGeometry(page: Page) {
+async function expectExtensionGeometry(page: Page, width = 320) {
   const extension = page.getByTestId(tid.userBarExtension)
-  await expect.poll(async () => (await extension.boundingBox())?.width ?? 0).toBeCloseTo(320, 0)
+  await expect.poll(async () => (await extension.boundingBox())?.width ?? 0).toBeCloseTo(width, 0)
   const base = page.getByTestId(tid.userBar).locator(
     '[data-slot="community-user-bar-base"]',
   )
@@ -367,7 +368,7 @@ async function expectExtensionGeometry(page: Page) {
   ])
   expect(extensionBox).not.toBeNull()
   expect(baseBox).not.toBeNull()
-  expect(Math.abs(extensionBox!.width - 320)).toBeLessThanOrEqual(
+  expect(Math.abs(extensionBox!.width - width)).toBeLessThanOrEqual(
     geometryEpsilon,
   )
   expect(Math.abs(baseBox!.width - expectedVisibleWidth)).toBeLessThanOrEqual(
@@ -939,29 +940,35 @@ test.describe("desktop default User Bar width", () => {
       const extension = bob.page.getByTestId(tid.userBarExtension)
       await expect(extension).toHaveAttribute("data-extension", "inbox")
       await waitForElementMotion(extension)
-      expect((await extension.boundingBox())!.width).toBeCloseTo(320, 0)
+      expect((await extension.boundingBox())!.width).toBeCloseTo(desktopInboxWidth, 0)
 
       const evidence: Array<Record<string, unknown>> = []
-      for (const tab of ["Unreads", "Mentions", "Marked"] as const) {
+      for (const tab of ["Unreads", "Marked"] as const) {
         await bob.page.getByRole("tab", { name: tab }).click()
-        const tabKey = tab.toLowerCase() as "unreads" | "mentions" | "marked"
+        const tabKey = tab.toLowerCase() as "unreads" | "marked"
         const activeBody = bob.page.getByTestId(tid.inboxTabScroll(tabKey))
         await expect(activeBody).toBeVisible()
         if (tab === "Unreads") {
           const requestRow = bob.page.getByTestId(tid.inboxFriendRequest(friendRequestId))
           await expect(requestRow).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxUnreadChannel(floorChannelId))).toBeVisible()
+          await expect(bob.page.getByRole("tab", { name: "Mentions", exact: true })).toHaveCount(0)
+          await bob.page.getByTestId(tid.inboxToggleChannel(floorChannelId)).click()
+          await expect(activeBody).toContainText(`Mention ${stamp}`)
+          await expect(bob.page.getByTestId(tid.inboxMarkChannelRead(floorChannelId))).toBeVisible()
+          await expect(bob.page.getByTestId(tid.inboxUnreadCard(floorChannelId)).locator("header")).toHaveCSS("position", "sticky")
+          await expect(bob.page.getByTestId(tid.inboxUnreadMessages(floorChannelId)).locator("[data-message-renderer]").first()).toBeVisible()
           await requestRow.hover()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestAccept(friendRequestId))).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestReject(friendRequestId))).toBeVisible()
         } else {
-          const content = tab === "Mentions" ? `Mention ${stamp}` : `Marked ${stamp}`
+          const content = `Marked ${stamp}`
           await expect(activeBody).toContainText(
             content,
           )
           const rowButton = activeBody.getByRole("button", { name: new RegExp(content) })
           const row = rowButton.locator("..")
-          const action = row.getByRole("button", { name: tab === "Mentions" ? "Mark mention as read" : "More", exact: true })
+          const action = row.getByRole("button", { name: "More", exact: true })
           await expect(row).toHaveCount(1)
           await expect(action).toHaveCount(1)
           await row.hover()
@@ -1241,7 +1248,7 @@ test.describe("desktop default User Bar width", () => {
         await expect(extension).toHaveAttribute("data-extension", "inbox")
         await expect(extension).toBeFocused()
         await waitForElementMotion(extension)
-        await expectExtensionGeometry(authenticated.page)
+        await expectExtensionGeometry(authenticated.page, desktopInboxWidth)
         await attachScreenshot(
           authenticated.page,
           testInfo,

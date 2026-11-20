@@ -13,7 +13,7 @@ type UseQueryResult,
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import type { CommunityResourceBundle } from "@alook/shared"
+import { COMMUNITY_INBOX_CONTEXT_HEADER, type CommunityResourceBundle } from "@alook/shared"
 import type {
 InboxFriendRequest,
 Marked,
@@ -72,9 +72,6 @@ export function useInboxAttention() {
 
   const projected = useMemo(() => {
     const scopesById = new Map(query.scopes.map((scope) => [scope.scopeId, scope]))
-    const forumParentScopeIds = new Set(query.items.flatMap((item) => (
-      item.kind === "forum_post" && item.scopeId ? [item.scopeId] : []
-    )))
     const dmById = new Map((dmProjection ?? []).map((dm) => [dm.id, dm]))
     const grouped = new Map<string, Map<string, ProjectedUnreadChannel>>()
     const dms: UnreadDm[] = []
@@ -93,7 +90,7 @@ export function useInboxAttention() {
           otherUserAvatar: dm.avatar,
           otherUserAvatarVersion: dm.avatarVersion,
           lastMessageAt: channel.lastMessageAt ?? "",
-          lastUnreadSeq: scope.lastUnreadSeq,
+          lastUnreadSeq: Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0),
           unreadCount: scope.unreadCount,
         })
         continue
@@ -119,7 +116,7 @@ export function useInboxAttention() {
           channelName: channel.name ?? "",
           type: "thread",
           lastMessageAt: channel.lastMessageAt ?? "",
-          lastUnreadSeq: scope.lastUnreadSeq,
+          lastUnreadSeq: Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0),
           mentionCount: scope.attentionCount,
           parentChannelId: parent.id,
           ...(channel.parentMessageId ? { openerMessageId: channel.parentMessageId } : {}),
@@ -136,55 +133,31 @@ export function useInboxAttention() {
         channelName: channel.name ?? "",
         type: channel.type === "forum" ? "forum" : "text",
         lastMessageAt: channel.lastMessageAt ?? "",
-        lastUnreadSeq: scope.lastUnreadSeq,
+        lastUnreadSeq: Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0),
         mentionCount: scope.attentionCount,
-        hasDirectUnread: scope.attentionCount > 0 || (
-          scope.ordinaryUnread && !forumParentScopeIds.has(scope.scopeId)
-        ),
+        hasDirectUnread: scope.ordinaryUnread || scope.attentionCount > 0,
         children: previous?.children ?? [],
       })
     }
 
     for (const item of query.items) {
-      if (
-        item.kind !== "forum_post"
-        || !item.scopeId
-        || !item.childChannelId
-        || item.openerSeq === undefined
-        || !item.messageId
-      ) continue
+      if (item.kind !== "forum_post" || !item.scopeId || item.openerSeq === undefined) continue
       const scope = scopesById.get(item.scopeId)
       const parent = scope ? channelsById.get(scope.channelId) : undefined
-      const child = channelsById.get(item.childChannelId)
-      const opener = messagesById?.get(item.messageId)
-      if (!scope?.serverId || !parent || !child || !opener) continue
+      if (!scope?.serverId || !parent) continue
       const serverChannels = grouped.get(scope.serverId) ?? new Map<string, ProjectedUnreadChannel>()
       grouped.set(scope.serverId, serverChannels)
-      const parentRow = serverChannels.get(parent.id) ?? {
+      const previous = serverChannels.get(parent.id)
+      serverChannels.set(parent.id, {
         channelId: parent.id,
         channelName: parent.name ?? "",
         type: "forum",
         lastMessageAt: parent.lastMessageAt ?? "",
+        lastUnreadSeq: Math.max(previous?.lastUnreadSeq ?? 0, scope.lastUnreadSeq, item.openerSeq),
         mentionCount: scope.attentionCount,
-        hasDirectUnread: scope.ordinaryUnread,
-        children: [],
-      }
-      const existingIndex = parentRow.children.findIndex((row) => row.channelId === child.id)
-      const childRow = {
-        channelId: child.id,
-        channelName: opener.content?.trim() || child.name || "",
-        type: "thread" as const,
-        lastMessageAt: opener.createdAt ?? child.lastMessageAt ?? "",
-        lastUnreadSeq: item.openerSeq,
-        mentionCount: 0,
-        parentChannelId: parent.id,
-        openerMessageId: item.messageId,
-        openerSeq: item.openerSeq,
-        openerUnread: true,
-      }
-      if (existingIndex >= 0) parentRow.children[existingIndex] = childRow
-      else parentRow.children.push(childRow)
-      serverChannels.set(parent.id, parentRow)
+        hasDirectUnread: true,
+        children: previous?.children ?? [],
+      })
     }
 
     const servers: UnreadServer[] = [...grouped].flatMap(([serverId, rows]) => {
@@ -287,7 +260,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
     const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
     const data = throwIfStale(await apiFetchCommunity<MarkedResponse & { stale?: boolean }>(
       "/api/community/users/me/marks",
-      signal ? { signal } : undefined, publicationToken,
+      { signal, headers: { [COMMUNITY_INBOX_CONTEXT_HEADER]: "1" } }, publicationToken,
     ))
     await publishCommunityResourceBundle(queryClient, data.resources, { token: publicationToken, signal }, data.marked.map(row => ({ id: row.m.id, channelId: row.channelId })))
     return { marked: data.marked.map((row) => ({ ...row, m: { id: row.m.id } })) }

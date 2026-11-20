@@ -9,7 +9,7 @@
   "summary": {
     "server-output": 11,
     "composition": 348,
-    "environment": 10,
+    "environment": 12,
     "nonvisual": 32,
     "direct": 161
   },
@@ -4404,14 +4404,17 @@
       "application": "Web",
       "candidates": [
         "AttentionLoadError",
+        "InboxCard",
         "InboxCountBadge",
+        "InboxDmCardIdentity",
         "InboxPopover",
         "InboxRowsSkeleton",
         "InboxScrollBody",
+        "InboxServerCardIdentity",
         "InboxUnreadsSkeleton",
         "MarkedTab",
-        "MentionsTab",
         "ResizeObserverConstructor",
+        "UnreadChannelCard",
         "UnreadsTab"
       ],
       "kind": "composition",
@@ -4620,6 +4623,16 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/community/shell/inbox-message-preview.tsx",
+      "application": "Web",
+      "candidates": [
+        "InboxMessagePreview"
+      ],
+      "kind": "environment",
+      "examples": [],
+      "reason": "Expanded Inbox cards use the canonical conversation message renderer with stored message and profile data. The current Inbox story mounts an empty shell. Actual unread and saved rows require account-backed Web QA."
+    },
+    {
       "source": "src/web/src/components/community/shell/inbox-unread-indicator.tsx",
       "application": "Web",
       "candidates": [
@@ -4633,6 +4646,16 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/shell/inbox-unread-messages.tsx",
+      "application": "Web",
+      "candidates": [
+        "InboxUnreadMessages"
+      ],
+      "kind": "environment",
+      "examples": [],
+      "reason": "Authenticated Inbox preview requires the original account-qualified read-state snapshot, channel-access lifecycle and canonical message/profile collections. Isolated workbench stories mount the empty Inbox with local inputs and do not mount this connected preview; its loading, message, pagination, retry and access branches require real application QA."
     },
     {
       "source": "src/web/src/components/community/shell/me-root-route.tsx",

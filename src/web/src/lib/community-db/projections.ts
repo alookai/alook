@@ -367,12 +367,14 @@ export function useMessageWindowProjection(channelId: string | null, ids: readon
   return { canonicalMessages, relatedMessages, windowIds: ids, status }
 }
 
-function useCollectionById<N extends "channels" | "servers">(name: N) {
+function useCollectionById<N extends "categories" | "channels" | "servers">(name: N) {
   const rows = useCollectionRows(name)
   return useMemo(() => new Map((rows ?? []).map((row) => [row.id, row])), [rows])
 }
 
 export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> { return useCollectionById("channels") }
+
+export function useCanonicalCategoriesById() { return useCollectionById("categories") }
 
 export function useFriendshipProjection(ids?: readonly string[]) {
   return useCollectionQuery("friendships", ({ row }) => ids === undefined ? eq(1, 1) : inArray(row.id, [...ids]))

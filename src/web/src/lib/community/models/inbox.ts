@@ -18,6 +18,12 @@ export type Mention = {
   pending?: boolean
 }
 
+export type InboxUnreadMessagesInput = {
+  channelId: string
+  throughSeq: number
+  mentions: Mention[]
+}
+
 // A single per-user saved ("marked") message, as returned by
 // `/api/community/users/me/marks`. Cross-channel newest-first — each row carries
 // the serverId + channelId + seq needed to deep-link back to the message
