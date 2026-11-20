@@ -14,6 +14,7 @@ import { messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
 import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
+import { observeMessageReading } from "@/lib/community/message-reading-diagnostic"
 
 export function useMessageListController({
   messages,
@@ -282,6 +283,20 @@ export function useMessageListController({
     return () => onScrollRoot(null)
   }, [onScrollRoot, scrollRef])
 
+  useLayoutEffect(() => {
+    observeMessageReading("controller.bind", () => ({ refs: { root: scrollRef.current, virtualizer, reader: onReadingMessage,
+      loader: onLoadOlder, beforeLoad: captureOlderPageAnchor, window: messageWindow, requestKey: messageNeighborhood?.page },
+    values: { source: "layout", direction: "older", count: items.length, paginationEnabled, paginationRequestPending, readPositionReady,
+      initialError: !!initialLoadError, neighborhoodPresent: !!messageNeighborhood, olderEligible: messageNeighborhood?.older,
+      newerEligible: messageNeighborhood?.newer, fetching: !!isFetching, fetchingOlder: !!isFetchingOlder, fetchingNewer: !!isFetchingNewer,
+      olderError: !!olderLoadError, newerError: !!newerLoadError } }))
+    observeMessageReading("controller.bind", () => ({ refs: { root: scrollRef.current, virtualizer, reader: onReadingMessage,
+      loader: onLoadNewer, beforeLoad: captureNewerPageAnchor, window: messageWindow, requestKey: messageNeighborhood?.page },
+    values: { source: "layout", direction: "newer", count: items.length, paginationEnabled, paginationRequestPending, readPositionReady,
+      initialError: !!initialLoadError, neighborhoodPresent: !!messageNeighborhood, olderEligible: messageNeighborhood?.older,
+      newerEligible: messageNeighborhood?.newer, fetching: !!isFetching, fetchingOlder: !!isFetchingOlder, fetchingNewer: !!isFetchingNewer,
+      olderError: !!olderLoadError, newerError: !!newerLoadError } }))
+  })
   const retryOlder = useVirtualCursorPagination({
     virtualizer,
     count: items.length,

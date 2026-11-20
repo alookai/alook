@@ -21,6 +21,7 @@ import type { MessageNeighborhood, MessagePositionState, MessageRequest, Message
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { isFailedMessageRepair, messageReconcileOptions, reconcileWindow } from "@/lib/community/message-reconcile"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
+import { observeMessageReading } from "@/lib/community/message-reading-diagnostic"
 
 export { channelMessagesQueryFn } from "@/lib/community/message-window"
 export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
@@ -146,7 +147,11 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const missingCanonical = ids.some(id => !canonicalById.has(id))
   const projectionFailed = projection.status === "error"
   const selectedWindowReady = entry.windowReady && !!query.data && projection.canonicalMessages !== undefined && !missingCanonical && !projectionFailed
-  useLayoutEffect(() => { committedWindowReady.current = selectedWindowReady }, [selectedWindowReady])
+  useLayoutEffect(() => {
+    committedWindowReady.current = selectedWindowReady
+    observeMessageReading("surface.ready", () => ({ refs: { owner: committed.current, query: committed.current?.query },
+      values: { windowReady: selectedWindowReady } }))
+  }, [selectedWindowReady])
   const [projectionFailure, setProjectionFailure] = useState<{ window: object; attempt: object | null; viewKey: string } | null>(null)
   useEffect(() => {
     if (!entry.canRead || !query.data || !missingCanonical || projectionFailed) return
@@ -186,33 +191,84 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     ? { page: reading, ...messagePageNeighbors(query.data, reading.key) } : undefined, [query.data, reading])
   const onReadingMessage = useCallback((messageId: string) => {
     const original = committed.current
-    if (!original?.enabled || original !== owner || !original.query || !committedWindowReady.current) return
+    observeMessageReading("reading.parent", () => ({ refs: { owner, committedOwner: original, present, query: original?.query },
+      identities: { message: messageId, queryKey: original?.query?.queryHash },
+      values: { enabled: original?.enabled ?? false, ownerCurrent: original === owner, queryPresent: !!original?.query, windowReady: committedWindowReady.current } }))
+    if (!original?.enabled || original !== owner || !original.query || !committedWindowReady.current) {
+      observeMessageReading("reading.parent-result", () => ({ refs: { owner, present }, identities: { message: messageId },
+        values: { accepted: false, reason: "invalid-owner" } }))
+      return
+    }
     const data = original.query.state.data as MessageWindowData | undefined
-    if (!data) return
+    if (!data) {
+      observeMessageReading("reading.parent-result", () => ({ refs: { owner, present, query: original.query },
+        identities: { message: messageId }, values: { accepted: false, reason: "no-query-data" } }))
+      return
+    }
     const current = present.get().reading
     const key = messagePageForReading(data, messageId, current?.query === original.query ? current.key : undefined)
-    if (!key || current?.query === original.query && current.key === key) return
+    if (!key || current?.query === original.query && current.key === key) {
+      observeMessageReading("reading.parent-result", () => ({ refs: { owner, present, query: original.query, window: data, requestKey: current },
+        identities: { message: messageId, pageKey: key, previousPageKey: current?.key },
+        values: { result: key ? "unchanged" : "rejected", reason: key ? "unchanged" : "no-page", sameQuery: current?.query === original.query, samePage: current?.key === key } }))
+      return
+    }
     present.setState(state => ({ ...state, reading: { query: original.query!, key } }))
+    observeMessageReading("reading.parent-result", () => ({ refs: { owner, present, query: original.query, window: data, requestKey: present.get().reading },
+      identities: { message: messageId, pageKey: key, previousPageKey: current?.key },
+      values: { accepted: true, reason: "accepted", pageCount: data.pages.length } }))
   }, [owner, present])
   const fetchPage = useCallback((direction: "older" | "newer"): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) return { accepted: false }
-    if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) return { accepted: false }
+    observeMessageReading("fetch.gate", () => ({ refs: { owner, committedOwner: original, present: owner.present, query: original?.query },
+      identities: { channel: channelId, queryKey: original?.query?.queryHash, pageKey: owner.present.get().reading?.key },
+      values: { direction, enabled: original?.enabled ?? false, ownerCurrent: original === owner, queryPresent: !!original?.query,
+        windowReady: committedWindowReady.current, hasMore: direction === "older" ? query.hasNextPage : query.hasPreviousPage,
+        isFetching: direction === "older" ? query.isFetchingNextPage : query.isFetchingPreviousPage } }))
+    if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) {
+      observeMessageReading("fetch.complete", () => ({ refs: { owner, present: owner.present }, values: { direction, accepted: false, reason: "invalid-owner" } }))
+      return { accepted: false }
+    }
+    if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) {
+      observeMessageReading("fetch.complete", () => ({ refs: { owner, present: owner.present, query: original.query }, values: { direction, accepted: false, reason: "no-next-page" } }))
+      return { accepted: false }
+    }
     const token = captureChannelMetadataToken(client, channelId)
     const isCurrent = () => committed.current === original && isChannelMetadataTokenCurrent(token)
       && client.getQueryCache().get(original.query!.queryHash) === original.query
     const fetch = async (): Promise<MessageRequestResult> => {
-      while (isCurrent() && original.query!.state.fetchStatus !== "idle") await query.refetch({ cancelRefetch: false })
-      if (!isCurrent()) return { status: "retired" }
+      while (isCurrent() && original.query!.state.fetchStatus !== "idle") {
+        observeMessageReading("fetch.wait", () => ({ refs: { owner, present: owner.present, query: original.query }, values: { direction, pending: true } }))
+        await query.refetch({ cancelRefetch: false })
+      }
+      if (!isCurrent()) {
+        observeMessageReading("fetch.complete", () => ({ refs: { owner, present: owner.present, query: original.query }, values: { direction, result: "retired" } }))
+        return { status: "retired" }
+      }
+      observeMessageReading("fetch.start", () => ({ refs: { owner, present: owner.present, query: original.query, window: original.query!.state.data as object | undefined },
+        identities: { channel: channelId, queryKey: original.query!.queryHash }, values: { direction, accepted: true } }))
       const result = direction === "older" ? await query.fetchNextPage({ cancelRefetch: false })
         : await query.fetchPreviousPage({ cancelRefetch: false })
-      if (!isCurrent()) return { status: "retired" }
+      if (!isCurrent()) {
+        observeMessageReading("fetch.complete", () => ({ refs: { owner, present: owner.present, query: original.query }, values: { direction, result: "retired" } }))
+        return { status: "retired" }
+      }
+      observeMessageReading("fetch.complete", () => ({ refs: { owner, present: owner.present, query: original.query, window: result.data },
+        values: { direction, result: result.isError || !result.data ? "error" : "success" } }))
       return result.isError || !result.data ? { status: "error" } : { status: "success", window: result.data }
     }
     return { accepted: true, completed: fetch().catch(() => ({ status: "error" })) }
   }, [channelId, client, owner, query])
   const fetchOlder = useCallback(() => fetchPage("older"), [fetchPage])
   const fetchNewer = useCallback(() => fetchPage("newer"), [fetchPage])
+  observeMessageReading("surface.bind", () => ({ refs: { owner, present, query: originalQuery, window: query.data,
+    reader: onReadingMessage, callback: fetchPage, loader: fetchOlder, requestKey: reading },
+  identities: { channel: channelId, queryKey: hashKey(queryKey), pageKey: reading?.key },
+  values: { direction: "older", enabled: owner.enabled, windowReady: selectedWindowReady, pageCount: pages.length } }))
+  observeMessageReading("surface.bind", () => ({ refs: { owner, present, query: originalQuery, window: query.data,
+    reader: onReadingMessage, callback: fetchPage, loader: fetchNewer, requestKey: reading },
+  identities: { channel: channelId, queryKey: hashKey(queryKey), pageKey: reading?.key },
+  values: { direction: "newer", enabled: owner.enabled, windowReady: selectedWindowReady, pageCount: pages.length } }))
   const jumpToPresent = useCallback((): MessageRequest => {
     const original = committed.current
     if (!channelId || !original?.enabled || original !== owner || !committedWindowReady.current || present.get().pending) return { accepted: false }

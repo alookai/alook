@@ -843,6 +843,7 @@ jobs:
       - name: Run native Playwright partition
         timeout-minutes: 14
         env:
+          ALOOK_READING_DIAGNOSTIC: "1"
           ALOOK_E2E_PREBUILT: "1"
           ALOOK_E2E_ZONES: ${{ toJSON(matrix.zones) }}
           E2E_SPECS: ${{ needs.scope.outputs.ui_specs }}
