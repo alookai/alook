@@ -466,8 +466,8 @@ test.describe("actionable Inbox friend requests", () => {
 
       await inboxTrigger.click()
       await expect(inboxRow).toBeVisible()
-      await expectExactRect("640px Inbox Accept", inboxAccept, 32)
-      await expectExactRect("640px Inbox Reject", inboxReject, 32)
+      await expectExactRect("640px Inbox Accept", inboxAccept, 44)
+      await expectExactRect("640px Inbox Reject", inboxReject, 44)
     } finally {
       if (!bob.page.isClosed()) {
         await bob.page.unroute(`**${inboxAcceptPath}`)
