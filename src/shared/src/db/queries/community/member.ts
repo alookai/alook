@@ -530,3 +530,37 @@ export async function getCoMemberUserIds(db: Database, userId: string): Promise<
     );
   return rows.map((r) => r.userId);
 }
+
+export async function findServerMembersByHandles(
+  db: Database,
+  serverId: string,
+  handles: readonly { name: string; discriminator: string }[],
+): Promise<Array<{ userId: string; userName: string; discriminator: string }>> {
+  if (handles.length === 0) return [];
+  const discriminators = [...new Set(handles.map((h) => h.discriminator))];
+  const wanted = new Set(handles.map((h) => `${h.name.toLowerCase()}#${h.discriminator}`));
+  const rows = (
+    await Promise.all(
+      chunk(discriminators, maxInParams(1)).map((batch) =>
+        db
+          .select({
+            userId: communityServerMember.userId,
+            userName: user.name,
+            discriminator: user.discriminator,
+          })
+          .from(communityServerMember)
+          .innerJoin(user, eq(communityServerMember.userId, user.id))
+          .where(
+            and(
+              eq(communityServerMember.serverId, serverId),
+              isNull(user.deletedAt),
+              inArray(user.discriminator, batch),
+            ),
+          ),
+      ),
+    )
+  ).flat();
+  return rows.filter(
+    (row) => Boolean(row.userName) && wanted.has(`${row.userName.toLowerCase()}#${row.discriminator}`),
+  );
+}

@@ -121,7 +121,11 @@ export function estimateRowHeight(item: FlatItem): number {
   if (item.kind === "divider") return item.dateLabel ? DATE_DIVIDER_ESTIMATE_PX : NEW_DIVIDER_ESTIMATE_PX
   const m = item.m
   let height = MESSAGE_BASE_ESTIMATE_PX + (item.paddingTop ?? MESSAGE_ROW_VERTICAL_PADDING_PX)
-    + (item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX) + estimateTextHeight(m.content) + estimateAttachmentsHeight(m)
+    + (item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX)
+    + (m.decisionCard
+      ? 140 + (m.decisionCard.questions.length > 1 ? 44 : 0) + Math.max(2, m.decisionCard.questions[0]?.options.length ?? 2) * 48
+      : estimateTextHeight(m.content))
+    + estimateAttachmentsHeight(m)
   if (m.replyTo) height += REPLY_HEADER_ESTIMATE_PX
   if (m.embeds?.length) height += EMBED_ESTIMATE_PX * m.embeds.length
   if (m.reactions?.length) height += REACTIONS_ESTIMATE_PX

@@ -174,10 +174,27 @@ describe("InboxPopover thread opener rows", () => {
     expect(unreads.querySelectorAll("button[aria-expanded=\"false\"]")).toHaveLength(3)
     const check = renderer.getByTestId(tid.inboxMarkChannelRead("f1"))
     const arrow = renderer.getByTestId(tid.inboxToggleChannel("f1"))
-    expect(check).toHaveAttribute("data-variant", "secondary")
+    expect(check).toHaveAttribute("data-variant", "ghost")
     expect(arrow).toHaveAttribute("data-variant", "ghost")
+    expect(check).toHaveAttribute("data-size", "icon")
+    expect(arrow).toHaveAttribute("data-size", "icon")
+    expect(check).toHaveClass("bg-accent")
+    expect(arrow).not.toHaveClass("bg-accent")
+    expect(check.querySelector("svg")).toHaveClass("size-4")
+    expect(arrow.querySelector("svg")).toHaveClass("size-4")
+    expect(check.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7", "max-sm:group-enabled/button:bg-accent")
+    expect(arrow.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7")
     expect(check.nextElementSibling).toBe(arrow)
     expect(icon.closest("header")).toBe(arrow.closest("header"))
+    expect(icon.nextElementSibling?.matches("svg")).toBe(false)
+    const identity = renderer.getByTestId(tid.inboxUnreadChannel("f1"))
+    expect(identity.querySelector("span.size-5 > svg.size-4")).not.toBeNull()
+    for (const tab of ["unreads", "marked"] as const) {
+      const scroller = renderer.getByTestId(tid.inboxTabScroll(tab))
+      expect(scroller).toHaveClass("scroll-fade-b", "scroll-fade-4")
+      expect(scroller).not.toHaveClass("p-3")
+      expect(scroller.firstElementChild).toHaveClass("p-3")
+    }
   })
 
   it("renders the authoritative opener title and passes parent/opener targets", () => {
@@ -196,6 +213,37 @@ describe("InboxPopover thread opener rows", () => {
       unreadFixture()[0]!.channels[0]!.children[0],
     )
     expect(onOpenChannel).not.toHaveBeenCalled()
+  })
+
+  it("opens an exact unread forum opener from the parent card preview", () => {
+    const unreads = unreadFixture()
+    const server = unreads[0]!
+    const parent = server.channels[0]!
+    const firstOpener = {
+      ...parent.children[0]!,
+      openerMessageId: "opener-1",
+      openerSeq: 7,
+      openerUnread: true as const,
+    }
+    parent.children = []
+    parent.forumOpeners = [firstOpener]
+    const openThread = vi.fn()
+    const markChannelRead = vi.fn()
+    const view = render(React.createElement(InboxPopover, {
+      unreads, unreadDms: [], mentions: [], marked: [],
+      hasProjectedUnreads: true, hasProjectedMentions: false,
+      onOpenThread: openThread, onMarkChannelRead: markChannelRead,
+      renderUnreadMessages: ({ openForumPosts }) => React.createElement(
+        "button", { onClick: openForumPosts?.get("opener-1") }, "First post",
+      ),
+    }))
+    fireEvent.click(view.getByTestId(tid.inboxToggleChannel(parent.channelId)))
+    expect(openThread).not.toHaveBeenCalled()
+    expect(markChannelRead).not.toHaveBeenCalled()
+    expect(view.queryByTestId(tid.inboxUnreadChild(firstOpener.channelId))).toBeNull()
+    fireEvent.click(view.getByRole("button", { name: "First post" }))
+    expect(openThread).toHaveBeenCalledExactlyOnceWith(server, parent, firstOpener)
+    expect(markChannelRead).not.toHaveBeenCalled()
   })
 
   it("passes reply-only children through the same exact thread-row callback", () => {
@@ -241,6 +289,7 @@ describe("InboxPopover thread opener rows", () => {
     const onOpenChannel = vi.fn()
     const unreads = unreadFixture()
     unreads[0]!.channels[0]!.mentionCount = 2
+    unreads[0]!.channels[0]!.unreadCount = 3
     const renderer = render(React.createElement(InboxPopover, {
       unreads,
       unreadDms: [],
@@ -254,7 +303,7 @@ describe("InboxPopover thread opener rows", () => {
     const parentRows = renderer.queryAllByTestId(tid.inboxUnreadChannel("f1"))
     expect(parentRows).toHaveLength(1)
     expect(renderer.queryAllByTestId(tid.inboxUnreadChild("p1"))).toHaveLength(1)
-    expect(textOf(parentRows[0]!)).toContain("2")
+    expect(parentRows[0]!.querySelector('[aria-label="3 unread messages"]')).toHaveTextContent("3")
     fireEvent.click(parentRows[0]!)
     expect(onOpenChannel).toHaveBeenCalledWith(
       unreads[0],
@@ -284,7 +333,11 @@ describe("InboxPopover thread opener rows", () => {
   it("renders canonical direct and child truth without tombstone filtering", () => {
     const onOpenChannel = vi.fn()
     const unreads = unreadFixture()
-    unreads[0]!.channels[0]!.mentionCount = 2
+    const parent = unreads[0]!.channels[0]!
+    parent.mentionCount = 2
+    parent.unreadCount = 3
+    parent.children[0]!.unreadCount = 5
+    parent.children[1]!.unreadCount = 1
     const renderer = render(React.createElement(InboxPopover, {
       unreads,
       unreadDms: [],
@@ -302,7 +355,9 @@ describe("InboxPopover thread opener rows", () => {
     expect(renderer.queryAllByTestId(tid.inboxUnreadChild("t1"))).toHaveLength(1)
     expect(textOf(parentRows[0]!)).toContain("Forum")
     expect(textOf(openerRows[0]!)).toContain("Full authoritative opener content")
-    expect(textOf(parentRows[0]!)).toContain("2")
+    expect(parentRows[0]!.querySelector('[aria-label="3 unread messages"]')).toHaveTextContent("3")
+    expect(openerRows[0]!.querySelector('[aria-label="5 unread messages"]')).toHaveTextContent("5")
+    expect(renderer.getByTestId(tid.inboxUnreadChild("t1")).querySelector('[aria-label="1 unread message"]')).toHaveTextContent("1")
     fireEvent.click(parentRows[0]!)
     expect(onOpenChannel).toHaveBeenCalledWith(
       unreads[0],
@@ -435,6 +490,11 @@ describe("InboxPopover friend requests", () => {
     expect(open.textContent).toBe("Ada#0001")
     expect(open.querySelector(".text-xs")?.textContent).toBe("#0001")
     const accept = renderer.getByTestId(tid.inboxFriendRequestAccept("fr_1"))
+    const reject = renderer.getByTestId(tid.inboxFriendRequestReject("fr_1"))
+    for (const action of [accept, reject]) {
+      expect(action).toHaveClass("size-11", "sm:size-8")
+      expect(action.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7")
+    }
     expect(open.contains(accept)).toBe(false)
     fireEvent.click(accept)
     expect(onAcceptFriendRequest).toHaveBeenCalledWith(friendRequest)

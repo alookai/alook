@@ -1,4 +1,4 @@
-import { queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageThreadParticipantSchema, type CommunityMessageResource, type CommunityResourceProfile, type CommunityContract } from "@alook/shared"
+import { DECISION_CARD_MESSAGE_TYPE, queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageThreadParticipantSchema, type CommunityMessageResource, type CommunityResourceProfile, type CommunityContract } from "@alook/shared"
 import type { getDb } from "@/lib/db"
 import { loadApiMessageContext, mapMessageForApi, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { canonicalUserImage } from "@/lib/community/storage"
@@ -22,9 +22,10 @@ export async function enrichMessages(
   const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
   const creationMessageIds = items.filter((message) => message.type === "bot_creation_request").map((message) => message.id)
+  const questionMessageIds = items.filter((message) => message.type === DECISION_CARD_MESSAGE_TYPE).map((message) => message.id)
   const replyToIds = items.flatMap((row) => row.replyToId ? [row.replyToId] : [])
 
-  const [contextForChannel, childChannels, latestSeq, approvalByMessageId, botCreationByMessageId] = await Promise.all([
+  const [contextForChannel, childChannels, latestSeq, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId] = await Promise.all([
     loadApiMessageContext(db, userId, messageIds, () => replyToIds.length > 0
       ? withD1Retry(
         () => queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId }),
@@ -46,6 +47,13 @@ export async function enrichMessages(
     isDm && creationMessageIds.length > 0
       ? queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, creationMessageIds, userId)
       : Promise.resolve(new Map()),
+    questionMessageIds.length > 0
+      ? queries.communityMessage.listReplierUserIdsByReplyTargets(db, scope.channelId, questionMessageIds).then((found) => {
+        const complete = new Map<string, string[]>()
+        for (const id of questionMessageIds) complete.set(id, found.get(id) ?? [])
+        return complete
+      })
+      : Promise.resolve(new Map<string, string[]>()),
   ])
 
   const context = contextForChannel(scope.channelId)
@@ -106,6 +114,7 @@ export async function enrichMessages(
       ...context,
       threadByMessageId,
       botCreationByMessageId,
+      respondedUserIdsByMessageId,
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }, scope.contract, scope.channelId),
   )

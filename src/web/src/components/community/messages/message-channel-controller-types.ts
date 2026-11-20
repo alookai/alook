@@ -58,6 +58,11 @@ export type MessageChannelControllerValue = {
     attachments?: SendAttachment[],
     mentionType?: MentionType,
   ) => boolean
+  sendDecisionReply: (
+    messageId: string,
+    content: string,
+    nonce: string,
+  ) => Promise<{ replyToId: string | null }>
   localSubmitVersion: number
   handleTyping: () => void
   typingUsers: string[]

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead } from "@alook/shared"
+import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead, DecisionCardEmbed } from "@alook/shared"
 import type { InfiniteData } from "@tanstack/react-query"
 
 // ── Messages ───────────────────────────────────────────────────────────────
@@ -57,6 +57,7 @@ export type Msg = Pick<CommunityMessageResource, "id" | "type"> & Partial<Omit<C
   clientNonce?: string
   attachments?: Attachment[]
   embeds?: Embed[]
+  decisionCard?: DecisionCardEmbed
   authorAvatar?: string
   thread?: CommunityMessageResource["thread"]
 }

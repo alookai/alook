@@ -430,22 +430,23 @@ describe("useTimelineReadObserver", () => {
     expect(coordinator.submit).toHaveBeenCalledOnce()
   })
 
-  it("keeps the mounted mobile parent silent until its inert layer becomes active", () => {
+  it.each(["inert", "data-read-observation-paused"])("keeps a mounted parent silent under %s until observation resumes", (attribute) => {
     const row = makeRow("message-4")
     const root = makeRoot([row])
     const parent = document.createElement("section")
     parent.setAttribute("data-thread-parent", "")
-    parent.setAttribute("inert", "")
+    parent.setAttribute(attribute, "")
     parent.append(root)
     useTestRender({ scrollRootEl: root })
     takeUnmounts()
+    expect(mutationObserveOptions?.attributeFilter).toContain(attribute)
     trigger(observers[0]!, row)
     for (const listener of pageShowListeners) listener()
     expect(coordinator.submit).not.toHaveBeenCalled()
     expect(coordinator.resume).not.toHaveBeenCalled()
-    parent.removeAttribute("inert")
+    parent.removeAttribute(attribute)
     act(() => mutationCallback!([{
-      type: "attributes", target: parent, attributeName: "inert", oldValue: "",
+      type: "attributes", target: parent, attributeName: attribute, oldValue: "",
       addedNodes: [], removedNodes: [],
     } as unknown as MutationRecord], {} as MutationObserver))
     trigger(observers[0]!, row)

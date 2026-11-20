@@ -3317,3 +3317,103 @@ it.each([
     approval: { friendshipId: "friendship", status: "pending", waitingOn: "you", otherProfile: { id: other.id, name: "Card label", discriminator: "0042", image, avatarVersion: 2 }, botProfile: { id: author.id, name: author.name, discriminator: author.discriminator, image: null, avatarVersion: 0 } } }) })
   expect(db.collections.profiles.get(other.id)).toMatchObject({ name: "Current Other", avatar: expected, avatarVersion: expectedVersion })
 })
+
+describe("decision card responder preservation in community-db sync", () => {
+  it("preserves hydrated out-of-window responders across unchecked snapshots and appends live committed replies", async () => {
+    const { buildDecisionCardEmbed, extractDecisionCardFromEmbeds } = await import("@alook/shared")
+    const db = await registry()
+    const baseEmbed = buildDecisionCardEmbed(
+      {
+        questions: [
+          {
+            id: "q1",
+            question: "Ship?",
+            options: [
+              { id: "yes", label: "Yes" },
+              { id: "no", label: "No" },
+            ],
+          },
+        ],
+      },
+      [
+        { userId: "u_gus", handle: "@gus#1813" },
+        { userId: "u_alice", handle: "@alice#0001" },
+      ],
+    )
+    const hydratedEmbed = { ...baseEmbed, respondedUserIds: ["u_gus"] }
+    const channel = channelResourceFixture({ id: "c1", type: "dm", serverId: null })
+    const cardMsg = messageResourceFixture({
+      id: "card_1",
+      channelId: "c1",
+      authorId: "bot_evan",
+      embeds: [hydratedEmbed],
+    })
+    await publishCommunityResourceBundle(
+      db.queryClient,
+      fullResourceBundleFixture("viewer", [], [channel], [cardMsg]),
+      { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+      [{ id: cardMsg.id, channelId: channel.id }],
+    )
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus"])
+
+    // Unchecked snapshot (respondedUserIds omitted) arrives for the same card — must NOT wipe u_gus.
+    const uncheckedCard = messageResourceFixture({
+      id: "card_1",
+      channelId: "c1",
+      authorId: "bot_evan",
+      embeds: [baseEmbed],
+    })
+    await publishCommunityResourceBundle(
+      db.queryClient,
+      fullResourceBundleFixture("viewer", [], [channel], [uncheckedCard]),
+      { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+      [{ id: uncheckedCard.id, channelId: channel.id }],
+    )
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus"])
+
+    // Live committed reply from u_alice arrives in the same channel — appends u_alice.
+    const aliceProfile = profileResourceFixture({ id: "u_alice", name: "alice" })
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:message.create",
+      channelId: "c1",
+      profiles: [aliceProfile],
+      message: messageResourceFixture({
+        id: "reply_alice",
+        channelId: "c1",
+        authorId: "u_alice",
+        authorName: "alice",
+        replyToId: "card_1",
+      }),
+    })
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice"])
+
+    // Self-reply by card author and cross-channel reply must NOT be counted.
+    const botProfile = profileResourceFixture({ id: "bot_evan", name: "Evan You" })
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:message.create",
+      channelId: "c1",
+      profiles: [botProfile],
+      message: messageResourceFixture({
+        id: "reply_self",
+        channelId: "c1",
+        authorId: "bot_evan",
+        authorName: "Evan You",
+        replyToId: "card_1",
+      }),
+    })
+    const otherProfile = profileResourceFixture({ id: "u_other", name: "other" })
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:message.create",
+      channelId: "c_other",
+      profiles: [otherProfile],
+      message: messageResourceFixture({
+        id: "reply_cross",
+        channelId: "c_other",
+        authorId: "u_other",
+        authorName: "other",
+        replyToId: "card_1",
+      }),
+    })
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice"])
+  })
+})

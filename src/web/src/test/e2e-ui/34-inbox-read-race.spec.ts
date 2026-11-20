@@ -319,7 +319,7 @@ test.describe("Inbox/read refresh ownership", () => {
     expect(puts).toBe(2)
   })
 
-  test("cold forum openers publish exact child units and read only the selected opener", async ({ caseActors }) => {
+  test("reads only the selected cold forum opener while its parent is visible in split view", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
     const { seedChannel, seedJoinServer, seedServer } = actors.seed
@@ -338,9 +338,11 @@ test.describe("Inbox/read refresh ownership", () => {
       return (await response.json() as { threadId: string }).threadId
     }
     const firstChildId = await createEmptyPost(`First opener ${stamp}`)
+    const middleChildId = await createEmptyPost(`Middle opener ${stamp}`)
     const laterChildId = await createEmptyPost(`Later opener ${stamp}`)
 
     const { page } = await asUser("bob")
+    await page.setViewportSize({ width: 1600, height: 900 })
     await gotoAfterUserWsAuth(page, "/c/me")
     const unreadResponse = await confirmCommunityFixtureApiResponse(page.request.get("/api/community/users/me/attention", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS }))
     expect(unreadResponse.status()).toBe(200)
@@ -354,12 +356,13 @@ test.describe("Inbox/read refresh ownership", () => {
     }
     const forumItems = unread.items.filter((item) => item.kind === "forum_post")
     const first = forumItems.find((item) => item.childChannelId === firstChildId)
+    const middle = forumItems.find((item) => item.childChannelId === middleChildId)
     const later = forumItems.find((item) => item.childChannelId === laterChildId)
     expect(first).toMatchObject({ childChannelId: firstChildId })
+    expect(middle).toMatchObject({ childChannelId: middleChildId })
     expect(later).toMatchObject({ childChannelId: laterChildId })
 
-    await page.setViewportSize({ width: 768, height: 844 })
-
+    const childIds = [firstChildId, middleChildId, laterChildId]
     const parentTargets: string[] = []
     const childTargets: string[] = []
     page.on("request", (request) => {
@@ -369,32 +372,57 @@ test.describe("Inbox/read refresh ownership", () => {
         ?.lastReadMessageId
       if (!target) return
       if (path === `/api/community/channels/${forumId}/read`) parentTargets.push(target)
-      if (path === `/api/community/channels/${firstChildId}/read`) childTargets.push(target)
+      if (childIds.some((id) => path === `/api/community/channels/${id}/read`)) childTargets.push(target)
     })
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
-    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toBeVisible()
-    await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toBeVisible()
+    for (const childId of childIds) await expect(page.getByTestId(tid.inboxUnreadChild(childId))).toHaveCount(0)
+    await page.getByTestId(tid.inboxToggleChannel(forumId)).click()
+    const preview = page.getByTestId(tid.inboxUnreadMessages(forumId))
+    const firstOpener = preview.getByText(`First opener ${stamp}`, { exact: true })
+    await expect(firstOpener).toBeVisible()
+    await expect(preview.getByText(`Middle opener ${stamp}`, { exact: true })).toBeVisible()
+    await expect(preview.getByText(`Later opener ${stamp}`, { exact: true })).toBeVisible()
+    expect(parentTargets).toEqual([])
+    expect(childTargets).toEqual([])
     const parentRead = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${forumId}/read`
     ))
-    await page.getByTestId(tid.inboxUnreadChild(firstChildId)).click()
+    await firstOpener.click()
     expect((await parentRead).status()).toBe(200)
+    await expect(page).toHaveURL(`/c/channels/${serverId}/${firstChildId}`)
+    await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split")
+    const parentPane = page.getByTestId(tid.threadSplitParent)
+    for (const childId of childIds) await expect(parentPane.getByTestId(tid.forumThreadCard(childId))).toBeInViewport()
+    await page.waitForTimeout(1_200) // Allow any deferred visible-parent read to reach the transport.
     expect(parentTargets).toEqual([first!.messageId])
     expect(childTargets).toEqual([])
 
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
-    await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toHaveCount(0)
-    await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toBeVisible()
+    await page.getByTestId(tid.inboxToggleChannel(forumId)).click()
+    await expect(preview.getByText(`Middle opener ${stamp}`, { exact: true })).toBeVisible()
+    await expect(preview.getByText(`Later opener ${stamp}`, { exact: true })).toBeVisible()
+    await expect(preview.getByText(`First opener ${stamp}`, { exact: true })).toHaveCount(0)
     const snapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
       "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
     ))).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
     expect(snapshot.readStates.find((row) => row.channelId === forumId)?.lastReadSeq)
       .toBe(first!.openerSeq)
-    expect(snapshot.readStates.some((row) => row.channelId === firstChildId)).toBe(false)
+    expect(snapshot.readStates.some((row) => childIds.includes(row.channelId))).toBe(false)
+
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
+    const visibleParentRead = page.waitForResponse((response) => (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${forumId}/read`
+    ))
+    await parentPane.getByTestId(tid.forumThreadCard(laterChildId)).hover()
+    await page.mouse.wheel(0, -120)
+    expect((await visibleParentRead).status()).toBe(200)
+    expect(parentTargets).toEqual([first!.messageId, later!.messageId])
+    expect(childTargets).toEqual([])
   })
 
   test("cold text-child evidence projects through the canonical parent row", async ({ caseActors }) => {

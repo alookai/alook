@@ -8,6 +8,8 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { channelResourceFixture, fullResourceBundleFixture, messageReadPageFixture, messageResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { captureCommunityLiveSnapshotToken, publishCommunityResourceBundle } from "@/lib/community-db/sync"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
+import { messageWindowOptions } from "@/lib/community/message-window"
+import { communityKeys } from "@/lib/query-keys"
 import { useInboxChannelMessages, useMarkInboxChannelRead } from "./use-inbox-channel-messages"
 import { flushPendingReadIntents, getLocalReadingPosition, registerReadSurface, releaseReadSurface, submitReadIntent } from "./read-coordinator"
 
@@ -51,18 +53,86 @@ describe("read-only Inbox channel messages", () => {
     expect(mocks.api).toHaveBeenCalledOnce()
   })
 
-  it("uses the original older cursor and stops exposing pagination at the read boundary", async () => {
+  it.each([
+    { boundary: "at history start", messages: [row(1), row(3), row(5)], hasMore: false, cursor: undefined },
+    { boundary: "above older read history", messages: [row(3), row(5)], hasMore: true, cursor: `${row(3).createdAt}|m3` },
+  ])("renders a complete shared conversation cache with zero requests $boundary", async ({ messages, hasMore, cursor }) => {
     const owner = await setup()
-    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [row(4), row(5)], hasMore: true, cursor: `${row(4).createdAt}|m4` }))
-      .mockResolvedValueOnce(messageReadPageFixture({ messages: [row(1), row(3)], hasMore: false }))
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages, hasMore, cursor }))
+    await owner.client.infiniteQuery(messageWindowOptions(owner.client, "parent", { mode: "newest" }))
+    mocks.api.mockClear()
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [row(1), row(2)], hasMore: false }))
     const view = renderHook(() => useInboxChannelMessages("parent", 5), { wrapper: owner.wrapper })
-    await waitFor(() => expect(view.result.current.hasEarlierUnread).toBe(true))
-    await act(async () => { await view.result.current.fetchNextPage() })
-    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m5"]))
-    expect(view.result.current.hasEarlierUnread).toBe(false)
-    expect(mocks.api.mock.calls[1]![0]).toBe(`/api/community/channels/parent/messages?cursor=${encodeURIComponent(`${row(4).createdAt}|m4`)}`)
+    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m5"]))
+    await waitFor(() => expect(view.result.current.loading).toBe(false))
+    expect(mocks.api).not.toHaveBeenCalled()
+    expect(owner.client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages("parent") }).map(query => query.queryKey))
+      .toEqual([communityKeys.channelMessages("parent")])
+    const edited = { ...owner.registry.collections.messages.get("m3")!, content: "Updated canonical body" }
+    await act(async () => { await writeCommunityCollectionRows(owner.registry, "messages", [edited], message => message.id) })
+    await waitFor(() => expect(view.result.current.messages[0]?.content).toBe("Updated canonical body"))
+    expect(mocks.api).not.toHaveBeenCalled()
+  })
+
+  it("automatically fills only missing older shared pages and reuses them on reopen", async () => {
+    const owner = await setup()
+    const latestCursor = `${row(6).createdAt}|m6`
+    const earlierCursor = `${row(4).createdAt}|m4`
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [row(6), row(7)], hasMore: true, cursor: latestCursor }))
+    await owner.client.infiniteQuery(messageWindowOptions(owner.client, "parent", { mode: "newest" }))
+    mocks.api.mockClear()
+    let release!: (value: unknown) => void
+    const held = new Promise(resolve => { release = resolve })
+    mocks.api.mockReturnValueOnce(held)
+      .mockResolvedValueOnce(messageReadPageFixture({ messages: [row(2), row(3)], hasMore: true, cursor: `${row(2).createdAt}|m2` }))
+    const view = renderHook(() => useInboxChannelMessages("parent", 7), { wrapper: owner.wrapper })
+    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m6", "m7"]))
+    expect(view.result.current.loading).toBe(true)
+    await act(async () => { release(messageReadPageFixture({ messages: [row(4), row(5)], hasMore: true, cursor: earlierCursor })); await held })
+    const complete = ["m3", "m4", "m5", "m6", "m7"]
+    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(complete))
+    expect(view.result.current.loading).toBe(false)
+    expect(mocks.api.mock.calls.map(([path]) => path)).toEqual([
+      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(latestCursor)}`,
+      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(earlierCursor)}`,
+    ])
     expect(mocks.api.mock.calls.every(([, options]) => !options?.method)).toBe(true)
+    expect(mocks.reconcile).not.toHaveBeenCalled()
     expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
+    view.unmount()
+    const reopened = renderHook(() => useInboxChannelMessages("parent", 7), { wrapper: owner.wrapper })
+    await waitFor(() => expect(reopened.result.current.messages.map(message => message.id)).toEqual(complete))
+    expect(mocks.api).toHaveBeenCalledTimes(2)
+  })
+
+  it("fills a stale shared tail using its newest cursor", async () => {
+    const owner = await setup()
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [row(2), row(3), row(4)], hasMore: false }))
+    await owner.client.infiniteQuery(messageWindowOptions(owner.client, "parent", { mode: "newest" }))
+    mocks.api.mockClear()
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [row(6)], hasMoreNewer: false }))
+    const view = renderHook(() => useInboxChannelMessages("parent", 6), { wrapper: owner.wrapper })
+    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m6"]))
+    expect(view.result.current.loading).toBe(false)
+    expect(mocks.api.mock.calls.map(([path]) => path)).toEqual([
+      `/api/community/channels/parent/messages?since=${encodeURIComponent(`${row(4).createdAt}|m4`)}`,
+    ])
+    expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
+  })
+
+  it("retries the failed older cursor without refetching cached messages", async () => {
+    const owner = await setup()
+    const cursor = `${row(4).createdAt}|m4`
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [row(4), row(5)], hasMore: true, cursor }))
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(messageReadPageFixture({ messages: [row(3)], hasMore: false }))
+    const view = renderHook(() => useInboxChannelMessages("parent", 5), { wrapper: owner.wrapper })
+    await waitFor(() => expect(view.result.current.isError).toBe(true))
+    expect(view.result.current.messages.map(message => message.id)).toEqual(["m4", "m5"])
+    await act(async () => { await view.result.current.refetch() })
+    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m5"]))
+    const earlier = `/api/community/channels/parent/messages?cursor=${encodeURIComponent(cursor)}`
+    expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", earlier, earlier])
   })
 
   it("retries a failed preview through the read-only message door", async () => {

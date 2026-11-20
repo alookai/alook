@@ -1,5 +1,5 @@
 
-import { AlertCircle, Bookmark, Check, ChevronDown, ChevronRight, Inbox, LoaderCircle, Trash2, X } from "@/components/icons/lucide";
+import { AlertCircle, Bookmark, Check, ChevronDown, Inbox, LoaderCircle, Trash2, X } from "@/components/icons/lucide";
 import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -25,6 +25,7 @@ import {
   useState,
   useLayoutEffect,
   useRef,
+  type ComponentProps,
   type KeyboardEvent,
   type ReactNode,
   type UIEvent,
@@ -96,7 +97,7 @@ function InboxScrollBody({
       ref={ref}
       data-testid={tid.inboxTabScroll(tab)}
       // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
-      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar p-3"
+      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar scroll-fade-b scroll-fade-4"
       onScroll={onScroll}
       onWheel={() => { transientScrollRef.current = true }}
       onKeyDown={onKeyDown}
@@ -104,7 +105,7 @@ function InboxScrollBody({
       onPointerUp={() => { pointerScrollRef.current = false }}
       onPointerCancel={() => { pointerScrollRef.current = false }}
     >
-      <div ref={contentRef} className="flex flex-1 flex-col">{children}</div>
+      <div ref={contentRef} className="flex flex-1 flex-col p-3">{children}</div>
     </div>
   )
 }
@@ -112,14 +113,37 @@ function InboxScrollBody({
 function InboxCountBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
-    <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">
+    <span role="img" aria-label={`${count} unread ${count === 1 ? "message" : "messages"}`}
+      className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">
       {count}
     </span>
   )
 }
 
-const identityActionClassName = "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
+const identityActionClassName = "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm transition-transform duration-150 active:scale-[0.99] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
 const cardActionClassName = "size-11 shrink-0 sm:size-8"
+const unreadChannelActionClassName = "text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-inset dark:hover:bg-accent"
+
+function InboxIconAction({ children, className, mobileRestingTint, ...props }:
+  Omit<ComponentProps<typeof Button>, "className" | "size"> & { className?: string; mobileRestingTint?: boolean }
+) {
+  return (
+    <Button {...props} size="icon" className={cn(
+      cardActionClassName,
+      // Keep the branded button paint inside the compact mobile surface.
+      "max-sm:rounded-lg! max-sm:border-transparent! max-sm:bg-none! max-sm:bg-transparent! max-sm:shadow-none! max-sm:filter-none! max-sm:[text-shadow:none]! max-sm:before:content-none!",
+      "max-sm:focus-visible:ring-inset max-sm:active:transform-none! max-sm:active:scale-[0.97]!",
+      className,
+    )}>
+      <span aria-hidden="true" data-slot="inbox-action-visual" className={cn(
+        "pointer-events-none grid place-items-center max-sm:size-7 max-sm:rounded-lg max-sm:transition-colors max-sm:duration-150 max-sm:group-hover/button:bg-accent max-sm:motion-reduce:transition-none",
+        mobileRestingTint && "max-sm:group-enabled/button:bg-accent",
+      )}>
+        {children}
+      </span>
+    </Button>
+  )
+}
 
 function useInboxCardDirectory() {
   const channels = useCanonicalChannelsById()
@@ -149,10 +173,11 @@ function InboxServerCardIdentity({ server, name, kind, location }: {
     <>
       <ServerIcon id={server.serverId} name={server.serverName} initial={avatarInitial(server.serverName)}
         icon={server.serverIcon} size={32} className="shrink-0 rounded-lg" />
-      <ChevronRight aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1 font-medium">
-          <EntityIcon kind={kind} className="h-4 shrink-0 text-muted-foreground" />
+          <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
+            <EntityIcon kind={kind} className="size-4" />
+          </span>
           <span className="truncate" title={name}>{name}</span>
         </span>
         <span className="block truncate text-xs text-muted-foreground" title={context}>{context}</span>
@@ -188,15 +213,16 @@ function InboxCard({ testId, identity, actions, hasBody, children }: {
   children: ReactNode
 }) {
   return (
-    <article data-testid={testId} className="mb-2 min-w-0 rounded-lg border border-border bg-card text-card-foreground">
+    <article data-testid={testId} className="mb-2 isolate min-w-0 overflow-clip rounded-lg border-x border-b border-border bg-card text-card-foreground">
       <header data-slot="inbox-card-header" className={cn(
-        "sticky top-0 z-10 flex min-w-0 items-center gap-2 rounded-t-lg bg-card p-2 sm:px-4",
-        hasBody ? "border-b border-border" : "rounded-b-lg",
+        "sticky top-0 z-10 flex min-w-0 items-center gap-2 border-t border-border bg-card p-2 transition-colors duration-150 hover:text-accent-foreground motion-reduce:transition-none sm:px-4",
+        "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-accent before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-100 motion-reduce:before:transition-none",
+        hasBody && "border-b",
       )}>
         {identity}
         {actions}
       </header>
-      {children}
+      {hasBody && <div className="relative z-0">{children}</div>}
     </article>
   )
 }
@@ -225,20 +251,21 @@ function UnreadChannelCard({ channelId, name, throughSeq = 0, mentions, renderUn
   }
   return (
     <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={children} hasBody={expanded || read?.failed}
-      actions={<>
-        <Button variant="secondary" size="icon" className={cardActionClassName} data-testid={tid.inboxMarkChannelRead(channelId)}
+      actions={<div className="-me-2 flex shrink-0 items-center sm:-me-4">
+        <InboxIconAction variant="ghost" mobileRestingTint className={cn(unreadChannelActionClassName, "bg-accent")}
+          data-testid={tid.inboxMarkChannelRead(channelId)}
           aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || read?.pending}
           onClick={() => { void mark(throughSeq) }}>
           {read?.pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
-        </Button>
-        <Button variant="ghost" size="icon"
-          className={cn(cardActionClassName, "text-muted-foreground hover:text-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-muted hover:aria-expanded:text-foreground")}
+        </InboxIconAction>
+        <InboxIconAction variant="ghost"
+          className={cn(unreadChannelActionClassName, "aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-accent hover:aria-expanded:text-foreground")}
           data-testid={tid.inboxToggleChannel(channelId)}
           aria-label={`${expanded ? "Hide" : "Show"} unread messages in ${name}`} aria-expanded={expanded} aria-controls={bodyId}
           onClick={() => setExpanded(value => !value)}>
           <ChevronDown className={`size-4 transition-transform motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} />
-        </Button>
-      </>}
+        </InboxIconAction>
+      </div>}
     >
       {read?.failed && <div role="alert" className="flex items-center justify-between gap-2 px-2 pb-2 text-xs">
         <span>Couldn&apos;t update read status</span>
@@ -348,32 +375,30 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
                     </span>
                   </button>
                   <div className="flex shrink-0 gap-1">
-                    <Button
+                    <InboxIconAction
                       data-testid={tid.inboxFriendRequestAccept(request.id)}
                       variant="secondary"
-                      size="icon"
                       disabled={pending}
                       onClick={() => onAcceptFriendRequest?.(item)}
                       aria-label={`Accept ${profile.name}'s friend request`}
-                      className="size-11 rounded-full sm:size-8"
+                      className="rounded-full"
                     >
                       {pending && item.action === "accept"
                         ? <LoaderCircle className="size-4 animate-spin" />
                         : <Check className={pending ? "size-4" : "size-4 text-status-online"} />}
-                    </Button>
-                    <Button
+                    </InboxIconAction>
+                    <InboxIconAction
                       data-testid={tid.inboxFriendRequestReject(request.id)}
                       variant="secondary"
-                      size="icon"
                       disabled={pending}
                       onClick={() => onRejectFriendRequest?.(item)}
                       aria-label={`Reject ${profile.name}'s friend request`}
-                      className="size-11 rounded-full text-destructive sm:size-8"
+                      className="rounded-full text-destructive"
                     >
                       {pending && item.action === "reject"
                         ? <LoaderCircle className="size-4 animate-spin" />
-                        : <X className="size-4" />}
-                    </Button>
+                        : <X className="size-4 max-sm:text-destructive" />}
+                    </InboxIconAction>
                   </div>
                 </div>
                 {item.error && (
@@ -400,12 +425,19 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
       })}
       {visibleServers.flatMap(({ server, channels }) => channels.flatMap(({ channel, directVisible, children }) => [
         ...(directVisible ? [<UnreadChannelCard key={channel.channelId} channelId={channel.channelId} name={channel.channelName} throughSeq={channel.lastUnreadSeq}
-          mentions={mentions.filter(mention => mention.channelId === channel.channelId)} renderUnreadMessages={renderMessages} onMarkChannelRead={onMarkChannelRead}>
+          mentions={mentions.filter(mention => mention.channelId === channel.channelId)}
+          renderUnreadMessages={input => renderMessages({
+            ...input,
+            openForumPosts: channel.forumOpeners?.length ? new Map(channel.forumOpeners.map(opener => [
+              opener.openerMessageId, () => onOpenThread(server, channel, opener),
+            ])) : undefined,
+          })}
+          onMarkChannelRead={onMarkChannelRead}>
           <button type="button" data-testid={tid.inboxUnreadChannel(channel.channelId)}
             onClick={() => onOpenChannel?.(server, channel, true)} className={identityActionClassName}>
             <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
               location={channelLocation(directory, channel.channelId)} />
-            <InboxCountBadge count={channel.mentionCount} />
+            <InboxCountBadge count={channel.unreadCount ?? 0} />
           </button>
         </UnreadChannelCard>] : []),
         ...children.map(child => <UnreadChannelCard key={child.channelId} channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq}
@@ -413,7 +445,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           <button type="button" data-testid={tid.inboxUnreadChild(child.channelId)}
             onClick={() => onOpenThread(server, channel, child)} className={identityActionClassName}>
             <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} />
-            <InboxCountBadge count={child.mentionCount} />
+            <InboxCountBadge count={child.unreadCount ?? 0} />
           </button>
         </UnreadChannelCard>),
       ]))}

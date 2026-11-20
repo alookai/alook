@@ -193,6 +193,9 @@ export const communityMessage = sqliteTable(
       t.mentionType,
       t.createdAt
     ),
+    index("idx_community_message_channel_reply_author")
+      .on(t.channelId, t.replyToId, t.authorId)
+      .where(sql`${t.replyToId} IS NOT NULL`),
   ]
 );
 

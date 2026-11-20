@@ -1,5 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { CommunityAgentSendRequestSchema, PiiLocalRequestSchema, PII_TEXT_MAX_BYTES } from "@alook/shared";
+import {
+  CommunityAgentSendRequestSchema,
+  DECISION_CARD_MAX_BYTES,
+  DecisionCardInputSchema,
+  PiiLocalRequestSchema,
+  PII_TEXT_MAX_BYTES,
+  decisionCardUtf8Bytes,
+  type DecisionCardInput,
+} from "@alook/shared";
 import type { PiiStore } from "./store.js";
 import { PiiError } from "./evaluator.js";
 
@@ -62,12 +70,79 @@ export async function handleLocalPii(request: IncomingMessage, response: ServerR
   } catch (error) { writePiiError(response, error); }
 }
 
+async function filterQuestionPii(
+  rawQuestion: unknown,
+  botId: string,
+  pii: PiiProxy,
+): Promise<{ question: DecisionCardInput; triggeredFilters: { id: string; name: string }[] }> {
+  const parsed = DecisionCardInputSchema.safeParse(rawQuestion);
+  if (!parsed.success) throw new PiiError("PII_INVALID_REQUEST");
+
+  const triggeredById = new Map<string, { id: string; name: string }>();
+  const runField = async (value: string): Promise<string> => {
+    const result = await pii.filterWithResult(botId, value);
+    for (const filter of result.triggeredFilters) {
+      if (!triggeredById.has(filter.id)) triggeredById.set(filter.id, filter);
+    }
+    return result.text;
+  };
+
+  const source = parsed.data;
+  const summary = source.summary !== undefined ? await runField(source.summary) : undefined;
+  const questions = [];
+  for (const question of source.questions) {
+    const header = question.header !== undefined ? await runField(question.header) : undefined;
+    const prompt = await runField(question.question);
+    const options = [];
+    for (const option of question.options) {
+      const label = await runField(option.label);
+      const description = option.description !== undefined ? await runField(option.description) : undefined;
+      options.push({
+        ...(option.id !== undefined ? { id: option.id } : {}),
+        label,
+        ...(description !== undefined ? { description } : {}),
+        ...(option.recommended !== undefined ? { recommended: option.recommended } : {}),
+      });
+    }
+    questions.push({
+      ...(question.id !== undefined ? { id: question.id } : {}),
+      ...(header !== undefined ? { header } : {}),
+      question: prompt,
+      ...(question.multiSelect !== undefined ? { multiSelect: question.multiSelect } : {}),
+      ...(question.allowOther !== undefined ? { allowOther: question.allowOther } : {}),
+      options,
+    });
+  }
+
+  const filtered = {
+    ...(source.mentions !== undefined ? { mentions: source.mentions } : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    questions,
+  };
+  if (decisionCardUtf8Bytes(filtered) > DECISION_CARD_MAX_BYTES) {
+    throw new PiiError("PII_OUTPUT_TOO_LARGE");
+  }
+  const validated = DecisionCardInputSchema.safeParse(filtered);
+  if (!validated.success) throw new PiiError("PII_INVALID_RESULT");
+  return { question: validated.data, triggeredFilters: [...triggeredById.values()] };
+}
+
 export async function filterPiiRequest(request: IncomingMessage, botId: string, pii: PiiProxy): Promise<{ body: Buffer; triggeredFilters: { id: string; name: string }[] }> {
   const body = await readJson(request);
   const content = body.content;
   if (!content || typeof content !== "object" || Array.isArray(content)
     || ((content as { text?: unknown }).text !== undefined && typeof (content as { text?: unknown }).text !== "string")) {
     throw new PiiError("PII_INVALID_REQUEST");
+  }
+  if (body.question !== undefined) {
+    if (((content as { text?: string }).text ?? "").trim().length > 0) {
+      throw new PiiError("PII_INVALID_REQUEST");
+    }
+    const filteredQuestion = await filterQuestionPii(body.question, botId, pii);
+    body.content = { ...content, text: "" };
+    body.question = filteredQuestion.question;
+    if (!CommunityAgentSendRequestSchema.safeParse(body).success) throw new PiiError("PII_INVALID_RESULT");
+    return { body: Buffer.from(JSON.stringify(body)), triggeredFilters: filteredQuestion.triggeredFilters };
   }
   const { text, triggeredFilters } = await pii.filterWithResult(botId, (content as { text?: string }).text ?? "");
   if (Buffer.byteLength(text, "utf8") > PII_TEXT_MAX_BYTES) throw new PiiError("PII_OUTPUT_TOO_LARGE");

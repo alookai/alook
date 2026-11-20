@@ -117,6 +117,7 @@ export function useInboxAttention() {
           type: "thread",
           lastMessageAt: channel.lastMessageAt ?? "",
           lastUnreadSeq: Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0),
+          unreadCount: scope.unreadCount,
           mentionCount: scope.attentionCount,
           parentChannelId: parent.id,
           ...(channel.parentMessageId ? { openerMessageId: channel.parentMessageId } : {}),
@@ -134,6 +135,7 @@ export function useInboxAttention() {
         type: channel.type === "forum" ? "forum" : "text",
         lastMessageAt: channel.lastMessageAt ?? "",
         lastUnreadSeq: Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0),
+        unreadCount: scope.unreadCount,
         mentionCount: scope.attentionCount,
         hasDirectUnread: scope.ordinaryUnread || scope.attentionCount > 0,
         children: previous?.children ?? [],
@@ -141,10 +143,11 @@ export function useInboxAttention() {
     }
 
     for (const item of query.items) {
-      if (item.kind !== "forum_post" || !item.scopeId || item.openerSeq === undefined) continue
+      if (item.kind !== "forum_post" || !item.scopeId || !item.childChannelId || !item.messageId || item.openerSeq === undefined) continue
       const scope = scopesById.get(item.scopeId)
       const parent = scope ? channelsById.get(scope.channelId) : undefined
-      if (!scope?.serverId || !parent) continue
+      const child = channelsById.get(item.childChannelId)
+      if (!scope?.serverId || !parent || child?.parentChannelId !== parent.id || child.parentMessageId !== item.messageId) continue
       const serverChannels = grouped.get(scope.serverId) ?? new Map<string, ProjectedUnreadChannel>()
       grouped.set(scope.serverId, serverChannels)
       const previous = serverChannels.get(parent.id)
@@ -154,9 +157,21 @@ export function useInboxAttention() {
         type: "forum",
         lastMessageAt: parent.lastMessageAt ?? "",
         lastUnreadSeq: Math.max(previous?.lastUnreadSeq ?? 0, scope.lastUnreadSeq, item.openerSeq),
+        unreadCount: scope.unreadCount,
         mentionCount: scope.attentionCount,
         hasDirectUnread: true,
         children: previous?.children ?? [],
+        forumOpeners: [...(previous?.forumOpeners ?? []), {
+          channelId: child.id,
+          channelName: child.name ?? "",
+          type: "thread",
+          lastMessageAt: child.lastMessageAt ?? "",
+          mentionCount: 0,
+          parentChannelId: parent.id,
+          openerMessageId: item.messageId,
+          openerSeq: item.openerSeq,
+          openerUnread: true,
+        }],
       })
     }
 

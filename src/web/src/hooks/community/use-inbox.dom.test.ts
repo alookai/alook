@@ -66,6 +66,7 @@ function forumSnapshot(): AccountAttentionSnapshot {
       parentChannelId: null,
       ordinaryUnread: true,
       lastUnreadSeq: 20,
+      unreadCount: 2,
       lastAttentionSeq: null,
       attentionCount: 0,
     }],
@@ -819,7 +820,13 @@ describe("useInboxAttention", () => {
     const harness = await createHarness()
     try {
       act(() => ingestAttentionSnapshot(harness.registry, forumSnapshot()))
-      await waitFor(() => expect(harness.latest.servers[0]?.channels[0]).toMatchObject({ channelId: "forum", hasDirectUnread: true, lastUnreadSeq: 20, children: [] }))
+      await waitFor(() => expect(harness.latest.servers[0]?.channels[0]).toMatchObject({
+        channelId: "forum", hasDirectUnread: true, lastUnreadSeq: 20, unreadCount: 2, children: [],
+        forumOpeners: [
+          { channelId: "child-10", openerMessageId: "opener-10", openerSeq: 10, openerUnread: true },
+          { channelId: "child-20", openerMessageId: "opener-20", openerSeq: 20, openerUnread: true },
+        ],
+      }))
       expect(harness.latest.exactAttentionCount).toBe(1)
       expect(harness.latest.items.map(item => item.messageId)).toEqual(["opener-10", "opener-20"])
       expect(harness.latest.mentions).toEqual([])
@@ -833,7 +840,10 @@ describe("useInboxAttention", () => {
       await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(1))
       act(() => { clearAttentionScopeOptimistically(harness.registry, "forum", 10) })
       await waitFor(() => expect(harness.latest.items.map(item => item.messageId)).toEqual(["opener-20"]))
-      expect(harness.latest.servers[0]?.channels[0]).toMatchObject({ channelId: "forum", hasDirectUnread: true, lastUnreadSeq: 20, children: [] })
+      expect(harness.latest.servers[0]?.channels[0]).toMatchObject({
+        channelId: "forum", hasDirectUnread: true, lastUnreadSeq: 20, children: [],
+        forumOpeners: [{ channelId: "child-20", openerMessageId: "opener-20", openerSeq: 20 }],
+      })
       expect(harness.latest.exactAttentionCount).toBe(1)
       act(() => { clearAttentionScopeOptimistically(harness.registry, "forum", 20) })
       await waitFor(() => expect(harness.latest.exactAttentionCount).toBe(0))

@@ -33,6 +33,7 @@ export interface UnreadChannelRow {
 
 export interface EligibleUnreadChannelRow extends UnreadChannelRow {
   mentionCount: number;
+  unreadCount: number;
   /** Highest unread message sequence represented by this row. */
   lastUnreadSeq: number;
   /** Highest unread attention-bearing message sequence, when present. */
@@ -87,6 +88,7 @@ export async function listEligibleUnreadChannels(
             lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
             mentionCount: sql<number>`SUM(CASE WHEN ${hasUnreadAttentionSql(userId, communityMessage.id)} THEN 1 ELSE 0 END)`,
             lastUnreadSeq: sql<number>`MAX(${communityMessage.seq})`.mapWith(Number),
+            unreadCount: count(),
             lastAttentionSeq: sql<number | null>`MAX(CASE WHEN ${hasUnreadAttentionSql(userId, communityMessage.id)} THEN ${communityMessage.seq} ELSE NULL END)`,
           })
           .from(communityMessage)

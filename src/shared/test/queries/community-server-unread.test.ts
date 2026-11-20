@@ -116,6 +116,44 @@ describe("listEligibleUnreadChannels", () => {
     expect(select).not.toHaveBeenCalled();
   });
 
+  it("counts existing eligible messages separately across a parent and two children", async () => {
+    sqlite.exec(`
+      INSERT INTO community_channel(id,server_id,type,name,parent_channel_id,parent_message_id,archived,created_at) VALUES
+        ('child-a','server-a','thread','Child A','channel-a','a-1',0,'2026-01-02T00:00:00Z'),
+        ('child-b','server-a','thread','Child B','channel-a','a-2',0,'2026-01-02T00:00:00Z');
+      INSERT INTO community_channel_member(id,channel_id,user_id,relation,added_at) VALUES
+        ('notify-a','child-a','viewer','notify','2026-01-02T00:00:00Z'),
+        ('notify-b','child-b','viewer','notify','2026-01-02T00:00:00Z');
+      INSERT INTO community_message(id,author_id,content,created_at,channel_id,seq) VALUES
+        ('a-deleted','author','gone','2026-01-04T00:00:00Z','channel-a',3),
+        ('a-latest','author','parent','2026-01-04T00:00:01Z','channel-a',9),
+        ('ca-read','author','read','2026-01-04T00:00:02Z','child-a',1),
+        ('ca-first','author','first','2026-01-04T00:00:03Z','child-a',4),
+        ('ca-second','author','second','2026-01-04T00:00:04Z','child-a',8),
+        ('cb-first','author','child B','2026-01-04T00:00:05Z','child-b',2);
+      DELETE FROM community_message WHERE id = 'a-deleted';
+      INSERT INTO community_read_state(id,user_id,channel_id,last_read_at,last_read_seq)
+        VALUES ('read-ca','viewer','child-a','2026-01-04T00:00:02Z',1);
+    `)
+    const channelIds = ["channel-a", "child-a", "child-b"]
+    const counts = async () => Object.fromEntries(
+      (await listEligibleUnreadChannels(db, "viewer", channelIds))
+        .map(row => [row.channelId, [row.unreadCount, row.lastUnreadSeq]]),
+    )
+    await expect(counts()).resolves.toEqual({
+      "channel-a": [2, 9],
+      "child-a": [2, 8],
+      "child-b": [1, 2],
+    })
+    sqlite.exec("UPDATE community_read_state SET last_read_seq = 9 WHERE id = 'read-a'")
+    await expect(counts()).resolves.toEqual({ "child-a": [2, 8], "child-b": [1, 2] })
+    sqlite.exec(`
+      INSERT INTO community_notification_setting(id,user_id,channel_id,level)
+        VALUES ('mute-child','viewer','child-a','nothing')
+    `)
+    await expect(counts()).resolves.toEqual({ "child-b": [1, 2] })
+  })
+
   it("joins only authorized forum openers and enriches exact child roots from persisted rows", async () => {
     sqlite.exec(`
       UPDATE community_channel SET type = 'forum' WHERE id IN ('channel-a', 'channel-b');

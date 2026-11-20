@@ -1,6 +1,7 @@
 import { MachineRefreshCommandSchema } from "./machine-refresh-contract";
 import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
 import type { BotFeedbackInput } from "./community-feedback";
+import type { DecisionCardInput } from "./community-decision-card";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
  * Server API contract — the agent ⇄ server boundary.
@@ -339,6 +340,8 @@ export interface SendRequest {
   /** Path ref of the destination channel/DM/thread. */
   channel: ChannelRef;
   content: MessageContent;
+  /** Structured decision card payload sent via `alook message ask`. */
+  question?: DecisionCardInput;
   /**
    * Attachment ids returned by prior `attachmentUpload` calls. Order matters —
    * position on the resulting message is stamped left-to-right (0-indexed).

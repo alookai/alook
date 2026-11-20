@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
-import { useInfiniteQuery, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useInfiniteQuery, useIsRestoring, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useChannelReadStateProjection, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
@@ -9,12 +9,13 @@ import { communityServerRetirementId, communityServerRetirementKey } from "@/lib
 import { communityScopeAllowsAccess } from "@/stores/community/ws-store"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { withConversationReadDeadline } from "@/lib/community/conversation-read"
-import { messageWindowOptions } from "@/lib/community/message-window"
+import { messageWindowOptions, type MessageWindowData } from "@/lib/community/message-window"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { getReadCoordinator } from "./read-coordinator"
 
 export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const client = useQueryClient()
+  const restoring = useIsRestoring()
   const registry = useOptionalCommunityDbRegistry()
   const channel = useCanonicalChannelsById().get(channelId)
   const retiringServers = useMutationState({ filters: { mutationKey: communityServerRetirementKey, status: "pending" }, select: mutation => communityServerRetirementId(mutation, registry) })
@@ -22,27 +23,71 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
     && !(channel?.serverId && retiringServers.includes(channel.serverId))
   const { readState, hasSnapshot } = useChannelReadStateProjection(channelId)
   const afterSeq = readState?.lastReadSeq ?? 0
+  const enabled = hasSnapshot && accessAllowed && !restoring && afterSeq < throughSeq
   const options = messageWindowOptions(client, channelId, { mode: "newest" })
   const query = useInfiniteQuery({
     ...options,
-    queryKey: [...options.queryKey, "inbox", afterSeq, throughSeq],
-    enabled: hasSnapshot && accessAllowed,
+    enabled,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    getPreviousPageParam: (...args) => {
+      const [page, pages] = args
+      const previous = options.getPreviousPageParam?.(...args)
+      if (previous) return previous
+      const tail = pages.find(part => part.newestCursor)
+      const cursor = tail?.newestCursor
+      if (!cursor || (page.latestSeq ?? 0) >= throughSeq || page.messages.some(message => (message.seq ?? 0) >= throughSeq)) return
+      return { mode: "newer" as const, cursor }
+    },
   })
   const references = useMemo(() => query.data?.pages.flatMap(page => page.messages) ?? [], [query.data])
   const ids = useMemo(() => [...new Set(references.map(message => message.id))], [references])
   const canonical = useCanonicalMessagesById(ids)
-  const messages = ids.flatMap(id => {
+  const messages = useMemo(() => ids.flatMap(id => {
     const message = canonical?.get(id)
     return accessAllowed && message && typeof message.seq === "number" && message.seq > afterSeq && message.seq <= throughSeq
       ? [message] : []
-  }).sort((left, right) => left.seq! - right.seq!)
-  const oldestSeq = Math.min(...references.flatMap(message => typeof message.seq === "number" ? [message.seq] : []))
+  }).sort((left, right) => left.seq! - right.seq!), [accessAllowed, afterSeq, canonical, ids, throughSeq])
+  const first = query.data?.pages[0]
+  const oldest = query.data?.pages.at(-1)?.messages[0]
+  const oldestSeq = oldest && (oldest.seq ?? canonical?.get(oldest.id)?.seq)
+  const newerId = first?.hasMoreNewer ? first.newerCursor?.split("|").at(-1) : undefined
+  const newestSeq = newerId
+    ? first?.messages.find(message => message.id === newerId)?.seq ?? canonical?.get(newerId)?.seq ?? 0
+    : first?.messages.reduce((latest, message) => Math.max(latest, message.seq ?? canonical?.get(message.id)?.seq ?? 0),
+      first.hasMoreNewer ? 0 : first.latestSeq ?? 0) ?? 0
+  const [reachedTail, setReachedTail] = useState<{ client: typeof client; channelId: string; throughSeq: number; page: MessageWindowData["pages"][number] } | null>(null)
+  const checkedTail = reachedTail?.client === client && reachedTail.channelId === channelId
+    && reachedTail.throughSeq === throughSeq && reachedTail.page === first
+  const needsNewer = !!first && newestSeq < throughSeq && !checkedTail
+  const firstUnreadSeq = afterSeq + 1
+  const needsOlder = query.hasNextPage && (oldestSeq === undefined || oldestSeq > firstUnreadSeq)
+  const { fetchNextPage, fetchPreviousPage, hasPreviousPage, isError, isFetching, isPending, refetch } = query
+  const loadMissing = useCallback(async () => {
+    if (needsNewer) {
+      const result = hasPreviousPage
+        ? await fetchPreviousPage({ cancelRefetch: false })
+        : await refetch({ cancelRefetch: false })
+      const head = result.data?.pages[0]
+      // A fresh terminal page can cover the tail even when a captured row was deleted.
+      if (!result.isError && head && !head.hasMoreNewer && (!hasPreviousPage || head !== first)) {
+        setReachedTail({ client, channelId, throughSeq, page: head })
+      }
+      return
+    }
+    if (needsOlder) await fetchNextPage({ cancelRefetch: false })
+    else await refetch({ cancelRefetch: false })
+  }, [channelId, client, fetchNextPage, fetchPreviousPage, first, hasPreviousPage, needsNewer, needsOlder, refetch, throughSeq])
+  useEffect(() => {
+    if (enabled && !isFetching && !isError && (needsNewer || needsOlder)) void loadMissing()
+  }, [enabled, isError, isFetching, loadMissing, needsNewer, needsOlder])
   return {
-    ...query,
     messages,
     accessAllowed,
-    loading: accessAllowed && (!hasSnapshot || query.isPending || ids.some(id => !canonical?.has(id))),
-    hasEarlierUnread: query.hasNextPage && oldestSeq > afterSeq + 1,
+    isError: enabled && isError && (isPending || !first || needsNewer || needsOlder),
+    isFetching,
+    loading: accessAllowed && (!hasSnapshot || restoring || enabled && (isPending || needsNewer || needsOlder || ids.some(id => !canonical?.has(id)))),
+    refetch: loadMissing,
   }
 }
 

@@ -9,12 +9,14 @@ export function InboxMessagePreview({
   message,
   testId,
   onOpen,
+  onOpenThread,
   paddingTop = MESSAGE_ROW_VERTICAL_PADDING_PX,
   paddingBottom = MESSAGE_ROW_VERTICAL_PADDING_PX,
 }: {
   message: RenderMsg
   testId?: string
   onOpen?: () => void
+  onOpenThread?: () => void
   paddingTop?: number
   paddingBottom?: number
 }) {
@@ -34,7 +36,7 @@ export function InboxMessagePreview({
       onClick={openMessage}
     >
       {onOpen && <button type="button" className="sr-only focus:not-sr-only focus:underline" onClick={onOpen}>Open message</button>}
-      <Message m={message} readOnly />
+      <Message m={message} onOpenThread={onOpenThread} readOnly />
     </div>
   )
 }

@@ -2,6 +2,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ComponentProps } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
 import { toastApiError } from "@/lib/api/client"
@@ -33,6 +34,7 @@ import {
   THREAD_OPENER_HANDOFF_PARAM,
   useThreadOpenerRouteGate,
 } from "@/hooks/community/thread-opener-read-handoff"
+import { getThreadOpenerReservationHandoff } from "@/hooks/community/inbox-read-reservation"
 import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
 import { MobilePage } from "@/components/community/shell/mobile-page"
@@ -140,6 +142,24 @@ function ChannelRouteFrame(target: RouteTarget) {
   const uiHandlers = useUiHandlers()
   const split = isThread && mode === "split"
   const layoutPending = isThread && mode === "pending"
+  const queryClient = useQueryClient()
+  const openerNonce = searchParams.get(THREAD_OPENER_HANDOFF_PARAM)
+  const armedOpener = openerNonce ? getThreadOpenerReservationHandoff(queryClient, openerNonce) : null
+  const inboxOpener = armedOpener?.serverId === serverId && armedOpener.childChannelId === channelId
+    ? armedOpener : null
+  const [parentReadEntry, setParentReadEntry] = useState({ channelId, inboxOpener, activated: false })
+  // The exact opener can be claimed before the parent list reports its first intersections.
+  // Keep the pause for this entry after the handoff removes its URL parameter.
+  if (parentReadEntry.channelId !== channelId || inboxOpener && parentReadEntry.inboxOpener?.nonce !== inboxOpener.nonce) {
+    setParentReadEntry({ channelId, inboxOpener, activated: false })
+  }
+  const parentReadPaused = parentReadEntry.channelId === channelId
+    && !!parentReadEntry.inboxOpener
+    && parentReadEntry.inboxOpener.parentChannelId === parentChannelId
+    && !parentReadEntry.activated
+  const resumeParentRead = useCallback(() => {
+    setParentReadEntry(current => current.activated ? current : { ...current, activated: true })
+  }, [])
   const [parentIdentity, setParentIdentity] = useAtom(useCreateAtom<{ id: string; confirmed: boolean } | null>(null))
   const onParentIdentity = useCallback((id: string, confirmed: boolean) => {
     setParentIdentity((current) => current?.id === id && current.confirmed === confirmed ? current : { id, confirmed })
@@ -167,6 +187,7 @@ function ChannelRouteFrame(target: RouteTarget) {
     <ThreadSplitView
       modeMarkerRef={modeMarkerRef}
       split={split} layoutPending={layoutPending} resolvingParent={resolvingLayout || resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      parentReadPaused={parentReadPaused} onResumeParentRead={resumeParentRead}
       parent={split && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}

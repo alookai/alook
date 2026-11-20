@@ -26,7 +26,8 @@ export const READ_VISIBILITY_THRESHOLD = 0.2
 const MESSAGE_LIST_CONTENT_SELECTOR = "[data-message-list-content]"
 
 function readPresentationReadable(scrollRootEl: HTMLElement) {
-  if (scrollRootEl.closest("[data-thread-parent][inert]")) return false
+  const parentLayer = scrollRootEl.closest("[data-thread-parent]")
+  if (parentLayer?.hasAttribute("inert") || parentLayer?.hasAttribute("data-read-observation-paused")) return false
   const content = scrollRootEl.querySelector<HTMLElement>(MESSAGE_LIST_CONTENT_SELECTOR)
   if (!content) return true
   return content.getAttribute("aria-hidden") === "false"
@@ -293,7 +294,7 @@ export function useTimelineReadObserver({
     })
     const parentLayer = scrollRootEl.closest("[data-thread-parent]")
     if (parentLayer) mutations?.observe(parentLayer, {
-      attributes: true, attributeFilter: ["inert"], attributeOldValue: true,
+      attributes: true, attributeFilter: ["inert", "data-read-observation-paused"], attributeOldValue: true,
     })
     document.addEventListener("visibilitychange", sample)
     window.addEventListener("pageshow", sample)

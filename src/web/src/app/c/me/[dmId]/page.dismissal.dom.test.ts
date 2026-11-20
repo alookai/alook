@@ -136,6 +136,7 @@ vi.mock("@/hooks/community/mutations", () => ({
   useToggleReactionApi: () => vi.fn(),
   useToggleMark: () => vi.fn(),
   useSetChannelNotif: () => ({ mutate: vi.fn() }),
+  useSendDmMessage: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock("@/hooks/community/use-dm-message-sender", () => ({
   useDmMessageSender: () => ({ accept: vi.fn(), retry: vi.fn() }),

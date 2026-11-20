@@ -20,6 +20,46 @@ const shellPanel = (page: Page, id: "sidebar" | "main") => (
   page.locator(`[data-slot="resizable-panel"][data-testid="${id}"]`)
 )
 
+async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator) {
+  const header = card.locator('[data-slot="inbox-card-header"]')
+  const cardId = await card.getAttribute("data-testid")
+  await list.evaluate((element, cardId) => {
+    const cardElement = element.querySelector(`[data-testid="${cardId}"]`)!
+    element.scrollTop += cardElement.getBoundingClientRect().top - element.getBoundingClientRect().top + 80
+  }, cardId)
+  await expect.poll(async () => {
+    const [listBox, headerBox] = await Promise.all([list.boundingBox(), header.boundingBox()])
+    return !listBox || !headerBox ? Infinity : Math.abs(listBox.y - headerBox.y)
+  }).toBeLessThanOrEqual(1)
+  const box = await header.boundingBox()
+  if (!box) throw new Error("Pinned Inbox card header is unavailable")
+  await page.mouse.move(box.x + 2, box.y + 2)
+  await expect(header).toHaveCSS("border-top-width", "1px")
+  await expect(header).toHaveCSS("border-top-style", "solid")
+  await expect.poll(() => header.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const bodyOverlaps = [...(element.parentElement?.querySelectorAll("[data-message-renderer]") ?? [])]
+      .some(row => {
+        const body = row.getBoundingClientRect()
+        return body.top < rect.bottom && body.bottom > rect.top
+      })
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = 1
+    const context = canvas.getContext("2d")!
+    context.fillStyle = getComputedStyle(element).backgroundColor
+    context.fillRect(0, 0, 1, 1)
+    return {
+      bodyOverlaps,
+      hovered: element.matches(":hover"),
+      coversCorners: [rect.left + 2, rect.right - 2].every(x => (
+        element.contains(document.elementFromPoint(x, rect.top + 2))
+      )),
+      alpha: context.getImageData(0, 0, 1, 1).data[3],
+    }
+  })).toEqual({ bodyOverlaps: true, hovered: true, coversCorners: true, alpha: 255 })
+  await expect(list).toHaveCSS("mask-image", /linear-gradient/)
+}
+
 type LayoutSample = {
   frame: number
   sidebar: number
@@ -910,7 +950,7 @@ test.describe("desktop default User Bar width", () => {
       const markedMessageId = await seedMessage(
         "alice",
         floorChannelId,
-        `Marked ${stamp} ${"very-long-row-content ".repeat(12)}`,
+        `Marked ${stamp} ${"very-long-row-content ".repeat(12)}${"\n\nLong unread message body.".repeat(20)}`,
       )
       await seedMessage(
         "alice",
@@ -956,8 +996,11 @@ test.describe("desktop default User Bar width", () => {
           await bob.page.getByTestId(tid.inboxToggleChannel(floorChannelId)).click()
           await expect(activeBody).toContainText(`Mention ${stamp}`)
           await expect(bob.page.getByTestId(tid.inboxMarkChannelRead(floorChannelId))).toBeVisible()
-          await expect(bob.page.getByTestId(tid.inboxUnreadCard(floorChannelId)).locator("header")).toHaveCSS("position", "sticky")
+          const card = bob.page.getByTestId(tid.inboxUnreadCard(floorChannelId))
+          await expect(card.getByLabel("2 unread messages")).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxUnreadMessages(floorChannelId)).locator("[data-message-renderer]").first()).toBeVisible()
+          await expectPinnedInboxHeader(bob.page, activeBody, card)
+          await expect(card.getByLabel("2 unread messages")).toBeVisible()
           await requestRow.hover()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestAccept(friendRequestId))).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestReject(friendRequestId))).toBeVisible()
@@ -966,13 +1009,12 @@ test.describe("desktop default User Bar width", () => {
           await expect(activeBody).toContainText(
             content,
           )
-          const rowButton = activeBody.getByRole("button", { name: new RegExp(content) })
-          const row = rowButton.locator("..")
-          const action = row.getByRole("button", { name: "More", exact: true })
-          await expect(row).toHaveCount(1)
-          await expect(action).toHaveCount(1)
-          await row.hover()
+          const action = activeBody.getByTestId(tid.inboxUnmark(markedMessageId))
+          const row = action.locator("xpath=ancestor::article[1]")
+          await expect(row).toContainText(content)
+          await expect(action).toHaveAccessibleName("Unmark")
           await expect(action).toBeVisible()
+          await expectPinnedInboxHeader(bob.page, activeBody, row)
         }
 
         const sample = await extension.evaluate((element, ids) => {

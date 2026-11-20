@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { InboxMessagePreview } from "./inbox-message-preview"
 
-export function InboxUnreadMessages({ channelId, throughSeq, mentions, onOpenMention }: InboxUnreadMessagesInput & {
+export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForumPosts, onOpenMention }: InboxUnreadMessagesInput & {
   onOpenMention?: (mention: Mention) => void
 }) {
   const query = useInboxChannelMessages(channelId, throughSeq)
@@ -17,19 +17,17 @@ export function InboxUnreadMessages({ channelId, throughSeq, mentions, onOpenMen
     .sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0))
   if (!query.accessAllowed) return <p className="p-2 text-sm text-muted-foreground">This conversation is unavailable</p>
   return <div className="flex flex-col gap-2" data-testid={tid.inboxUnreadMessages(channelId)}>
-    {query.hasEarlierUnread && <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-8" disabled={query.isFetchingNextPage}
-      onClick={() => { void query.fetchNextPage() }}>
-      {query.isFetchingNextPage ? "Loading earlier messages…" : "Load earlier unread messages"}
-    </Button>}
-    {query.loading && messages.length === 0 && <div role="status" aria-label="Loading unread messages" className="flex flex-col gap-2">
+    {query.loading && !query.isError && messages.length === 0 && <div role="status" aria-label="Loading unread messages" className="flex flex-col gap-2">
       <Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-full" />
     </div>}
     {flattenMessageItems(messages, undefined, false, false, false).map(item => {
       if (item.kind !== "message") return null
       const mention = mentionById.get(item.m.id)
+      const openForumPost = openForumPosts?.get(item.m.id)
       return <InboxMessagePreview key={item.key} message={item.m}
         testId={mention ? tid.inboxMention(mention.id) : undefined}
-        onOpen={mention && onOpenMention ? () => onOpenMention(mention) : undefined}
+        onOpen={mention && onOpenMention ? () => onOpenMention(mention) : openForumPost}
+        onOpenThread={openForumPost}
         paddingTop={item.paddingTop} paddingBottom={item.paddingBottom} />
     })}
     {query.isError && <div role="alert" className="flex items-center justify-between gap-2 text-sm">

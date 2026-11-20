@@ -162,6 +162,7 @@ export function TextChannelSurface({
                   onReadNewBoundary={feed.readNewBoundary}
                   onOpenThread={onOpenThread}
                   {...controller.messageActions}
+                  onSubmitDecisionCard={controller.sendDecisionReply}
                   onPin={canManagePins ? controller.messageActions.onPin : undefined}
                   onOpenProfile={onOpenProfile}
                   resolveUserName={resolveUserName}
