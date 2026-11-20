@@ -2,9 +2,9 @@ export const metadata = {
   slug: "multiple-ai-agents-edit-same-repository",
   title: "What Happens When Multiple AI Agents Edit the Same Repository?",
   date: "2026-07-30",
+  dateModified: "2026-11-20",
   author: "Alook Team",
-  excerpt:
-    "When several coding agents edit one repo, problems usually come from path ownership, who goes first, and whether changes stay reviewable, not model IQ.",
+  excerpt: "Separate worktrees protect file edits. Shared interfaces and merge order need decisions that people and their agents can see.",
   readingTime: "6 min read",
   image: "/blog/multiple-ai-agents-edit-same-repository/hero.webp",
 };
@@ -13,148 +13,140 @@ export const jsonLd = [
   {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: [
+    "mainEntity": [
       {
         "@type": "Question",
-        name: "Can multiple AI agents safely edit the same repo?",
-        acceptedAnswer: {
+        "name": "Should Claude Code and Codex split by feature or take turns?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Yes. Give each task scoped paths and its own branch. When tasks run at the same time, use separate worktrees, then review the combined result before merging.",
-        },
+          "text": "Split independent work across separate worktrees. When both tasks depend on an unsettled interface or the same busy files, agree on the contract first and let the agents take turns."
+        }
       },
       {
         "@type": "Question",
-        name: "Do coding agents need separate machines?",
-        acceptedAnswer: {
+        "name": "Do Claude agent teams stop teammates from overwriting each other?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "No. Separate worktrees on the same machine give each task its own working directory. Dependencies, local env files, build output, ports, and databases may still need their own setup.",
-        },
+          "text": "Not automatically. Claude's documentation recommends giving teammates different files because edits to the same file may overwrite one another."
+        }
       },
       {
         "@type": "Question",
-        name: "Should a reviewer agent edit the author's branch?",
-        acceptedAnswer: {
+        "name": "Do coding agents need separate machines?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Usually no. The reviewer should leave comments or suggested changes. If it must take over the code, transfer ownership clearly and keep the new changes visible in a separate commit or branch.",
-        },
+          "text": "No. Separate worktrees on one machine isolate working files. Tests that depend on shared services or data need their own boundaries too."
+        }
       },
       {
         "@type": "Question",
-        name: "Does Alook handle git merges?",
-        acceptedAnswer: {
+        "name": "Does Alook merge Git branches?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "No. Alook coordinates which agent works on what. Git handles the merge. You approve what lands.",
-        },
-      },
-    ],
-  },
+          "text": "No. Alook gives people and agents a place to discuss decisions and handoffs. Git handles the merge."
+        }
+      }
+    ]
+  }
 ];
 
-Picture two coding agents opening the same repository. Agent A refactors `src/auth/middleware.ts`, while Agent B fixes a type error in that same file. Both open pull requests. Once the first PR merges, the second either hits a merge conflict or merges cleanly on top of assumptions that no longer hold.
+One developer ran Claude Code and Codex in the same repository. Codex shipped frontend work and left unsaved edits. The other session stopped to avoid overwriting them. Since then, the developer follows two rules: start from `origin/main` and announce deployments beforehand.
 
-**Git can flag overlapping lines, yet it cannot decide who should have owned the file.** You have to settle that before either agent starts editing.
-
-Here are four failure patterns that show up across branches, working trees, and pull requests. [How to Bring Claude Code and Codex Into the Same Team](/blog/claude-code-and-codex-same-team) covers how separate runtimes work together as a team; this post looks one layer down at what happens on disk when both edit the same repo.
+When multiple AI agents edit the same repository, separate worktrees reduce the chance of a collision. Someone has to decide who owns the shared interface and which branch lands first. When the agents belong to different people, those decisions need a place everyone can see.
 
 ![Two AI agents editing the same repository file: one side shows conflict, the other shows clear path ownership](/blog/multiple-ai-agents-edit-same-repository/hero.webp)
 
-## Two agents edit the same file at the same time
+<span id="two-agents-edit-the-same-file-at-the-same-time"></span>
+<span id="both-agents-fix-the-same-problem"></span>
+<span id="agents-share-uncommitted-state"></span>
 
-Merge conflicts are the obvious outcome. The sneakier problem is a clean merge that breaks runtime behavior. Say Agent A tightens a validation helper to reject empty values, and Agent B adds a new caller that passes an empty default. Neither diff touches the other’s lines, so Git merges both without complaint, the build stays green, and the bug only shows up at runtime.
+## What breaks when agents share one checkout?
 
-That happens when two task briefs both say "fix auth" without setting file boundaries, so each agent treats the whole module as fair game.
+Uncommitted files in a shared checkout don't carry an owner. Another agent might build on a half-finished edit. A broad `git add` could then pull that work into the wrong commit. Git shows a dirty working tree. Sorting out which task each line belongs to is up to you.
 
-**Put allowed file paths directly in the task brief.** If Agent A owns `src/auth/` for this round, Agent B leaves those files alone until ownership changes. A short in-scope and out-of-scope path list does the job. A `CODEOWNERS`-style map also helps show who usually reviews a directory, though it won't lock files or assign live tasks for you.
+One user reported Claude Code and Codex overwriting each other's edits within 20 minutes. Another described the same trouble with three Claude Code tabs: one session might start tests halfway through another's edit. In both reports, the sessions were writing into the same folder.
 
-Skip the heavy org chart. **One clear sentence naming which directories a task can touch is enough.**
+The [Claude Code agent teams documentation](https://code.claude.com/docs/en/agent-teams) recommends assigning teammates different files because simultaneous edits to one file lead to overwrites. We'd write down the intended paths even though a path list isn't a lock. It gives the people involved a chance to notice overlap before both agents are deep into the work.
 
-## Both agents fix the same problem
+A path list gives reviewers something concrete to challenge: does this task really need the shared authentication module, or only a caller? The answer may change the split before the work starts. It also tells the reviewer where to look when a task reaches beyond its original scope.
 
-You check your open PRs and find two fixes for the exact same lint error, or two separate versions of one small helper. One PR lands, and the other turns into wasted work.
+Paths aren't the whole boundary, though. Frontend and API tasks can live in different files. They still share the response shape. We'd name the person responsible for that contract and agree on what a correct response looks like. Otherwise, two tidy diffs can pull the interface in opposite directions. For the separate problem of agents doing the same task twice, see [how to keep coding agents from duplicating work](/blog/prevent-coding-agents-duplicating-work).
 
-Broad prompts like "fix type errors in the project" invite this right away. Left unbounded, coding agents tend to clean up every warning they spot, even work already assigned to another agent.
+## What does a separate worktree leave shared?
 
-**Scope each task to named issues or paths.** "Fix the three type errors in issue #412" sets a clear boundary; "fix type errors across the codebase" guarantees overlap. When an agent spots useful cleanup outside its scope, log it as a separate task instead of bundling it into the current PR.
+Git worktrees give parallel tasks separate working directories and indexes while sharing repository history. [Claude Code](https://code.claude.com/docs/en/worktrees) can start a session in a worktree when you ask it to. The [Codex app](https://learn.chatgpt.com/docs/environments/git-worktrees) offers one for each chat, starting at a detached HEAD by default. Git normally prevents the same branch from being checked out in two worktrees at once.
 
-## Agents share uncommitted state
+Both tools document `.worktreeinclude` for copying selected ignored files, such as a local `.env`, into a new worktree. That helps with setup, but copying a configuration file doesn't create an independent database or reserve a port. Installed packages, local databases and development servers need their own setup.
 
-Agent A starts editing a file without committing yet. Agent B runs in the same checkout and reads A’s half-finished code, building on temporary edits, reformatting them, or overwriting part of the file. Git can tell you the working tree is dirty, without any way to show which uncommitted lines belong to which task.
+One team moved its agents into separate worktrees and found file conflicts easier to manage. Then it faced a new question: could the browser test reach an API or database started for another branch? A service answering on the expected port proved that something was running, not that it matched the code under test.
 
-The root cause is simple: multiple agents are sharing one branch or working directory at the same time.
+The team recorded which worktree started each service, along with its process, port and database state. We like that record. A green browser test shows that a service responded. The record helps the team trace it back to a worktree. Unit tests that don't leave the worktree need less setup. For browser and integration tests, we'd check which service handled the request.
 
-**Give every task its own branch, and give concurrent tasks separate [Git worktrees](https://git-scm.com/docs/git-worktree).** Claude Code’s [`--worktree` / `-w`](https://docs.anthropic.com/en/docs/claude-code/cli-reference) flag starts an isolated worktree per task, and the same pattern works with any coding agent that runs in its own checkout.
+<span id="what-git-handles-and-what-it-cannot"></span>
 
-Uncommitted edits shouldn't become another agent's baseline unless someone hands the checkout over on purpose. Each worktree gets its own directory and Git index while sharing repository history, so ignored files like dependencies, local `.env` files, and build output usually need their own setup. Watch out for test suites that share a localhost port or local database, too.
+## What if two changes touch different lines?
 
-## The reviewer edits the author’s branch
+Git may combine two edits without reporting a conflict even though the resulting behavior is wrong. One developer had run Claude Code and Codex on separate branches for about eight weeks. Both branches passed CI individually. The worry was that one branch might change a function signature while the other kept calling the old one. How do you catch that before main breaks?
 
-A reviewer agent spots a bug, checks out the author’s branch, and pushes a fix straight to the PR. Now the branch mixes original implementation commits with review fixes, making the review trail much harder to follow.
+Researchers have measured the collisions Git does flag. In a [study of agent-authored pull requests](https://arxiv.org/abs/2607.04697), they replayed 716 evaluable pairs of concurrently open PRs. Among 115 pairs from different agent platforms, 48 had textual conflicts (41.7%). For pairs from the same platform, the rate was 19.8%. The different-platform rate was roughly twice as high, and the study found the difference statistically significant. Such pairs made up only 0.5% of co-active pairs in the underlying dataset. The signature mismatch the developer worried about could merge cleanly and escape this count entirely.
 
-This happens when "review" quietly turns into "edit until it looks right," because the prompt never said whether the reviewer should report issues or change code.
+| Git helps with | The team must decide |
+| --- | --- |
+| Separate worktrees and branch history | Who owns the shared interface |
+| Conflicting edits to the same lines | Whether different edits agree on behavior |
+| Recording the resulting commits | Which branch lands first and what needs testing |
 
-**Keep review feedback separate from code edits.** Have the reviewer leave PR comments, a short checklist, or suggested changes, and let the author apply the fixes. If the reviewer needs to take over the code, hand off ownership explicitly and put the new work in a separate commit or branch so the boundary stays visible.
+A green check tells you the branch passed on its base at the time. Once another branch lands, the combined code is different. We'd test the shared behavior again on that combined version.
 
-Using different models or runtimes for author and reviewer works well when each role has a clear job and its own checkout. Either way, a human still approves what merges to main.
+<span id="the-reviewer-edits-the-authors-branch"></span>
 
-![Four ways parallel AI agent edits break: same file overlap, duplicate fixes, shared uncommitted state, and reviewer changes on the author branch](/blog/multiple-ai-agents-edit-same-repository/four-failures.webp)
+## Who owns a fix during review?
 
-## What Git handles and what it cannot
+When a reviewer spots a problem, the note should identify the commit. We'd send the fix back to the author, who already has the task context. The reviewer then has a clear before and after. If the reviewer takes over, they should tell the author so both agents don't keep editing the same lines.
 
-![Hand-drawn comparison of what Git catches in multi-agent edits versus what still needs ownership rules](/blog/multiple-ai-agents-edit-same-repository/git-handles.webp)
+<span id="how-to-review-and-merge-changes-from-multiple-ai-coding-agents"></span>
 
-| Problem | What Git catches | What Git does not know |
-|---------|------------------|------------------------|
-| Two agents change the same lines | A merge conflict to resolve | Who should have gone first |
-| Behavior clash with no line overlap | Nothing; the merge succeeds | That the combined change is wrong |
-| Two agents file the same fix | Nothing; both diffs look valid | That the work was already covered |
-| Overlapping uncommitted edits | That the working tree is dirty | Which pending lines belong to which task |
-| Review commits on the author branch | Who authored each commit | Which changes came from review |
+## Which branch should land first?
 
-**Git tracks file state and flags line collisions, while your team still needs rules for active ownership, merge order, and review.** Settle those rules before merging.
+We'd follow the dependency. If one branch defines an interface the other calls, we'd land the interface first. When both tasks touch the same unsettled area, we'd rather run them in sequence than leave two agents guessing at the contract.
 
-## How to review and merge changes from multiple AI coding agents
+<div style={{ maxWidth: "440px", margin: "0 auto" }}>
 
-Suppose your schema, API, and UI branches all finish on the same afternoon, and each passes CI on its own. Merge them in the wrong order and those green checks won't save you: the API may still target the old schema, and the UI may call the old API.
+![Two worktrees share an interface agreement; the contract branch merges before its consumer branch.](/blog/multiple-ai-agents-edit-same-repository/shared-contract-merge.webp)
 
-1. Before coding starts, write down which behavior and files each branch owns, and park unrelated cleanup in another task. Give concurrent work its own branch and, when sharing a local clone, its own worktree.
-2. Run CI on every pull request, keeping in mind that a green build only proves that branch passed on its current base commit, not alongside the other open branches.
-3. Have the reviewer post findings while the author pushes fixes. If ownership changes hands, note the handoff and keep the new commits separate.
-4. Merge dependencies first: schema, then API, then UI. For busy files, pick a single owner or sequence edits one task at a time.
-5. After each merge, rebase the remaining open branches onto main and rerun tests that exercise the combined behavior. Keep a human on every merge approval.
+</div>
 
-Resolving line conflicts is the easy part. Catching stale assumptions across branches is harder, which is why rebasing and retesting after each merge matters.
+The reverse order can work when both sides have already agreed on compatibility. Whichever order you choose, tell the other person. If it changes, their agent may be working against a base that is about to move. The developer who reported the collision announces deployments before they happen. A similar heads-up helps before a merge shifts the shared base.
 
-Day-to-day habits around briefs and approval gates live in [How to Run an AI Agent Team That Stays on Track](/blog/run-ai-agent-team-that-stays-on-track). Here the focus stays on the repository itself: file paths, branches, and reviewable diffs.
+A trial merge reveals textual conflicts early. Once the interface branch lands, test the dependent branch against the version that actually landed. For an API change, test the request and the response consumed by the other branch. For a database change, run the migration and then the code that reads the updated data. The reviewer needs the commit and services that produced the result.
 
-## When it helps to see who owns which work
+[Agent collaboration between Claude Code and Codex](/blog/claude-code-and-codex-same-team) has more on the handoff between the tools themselves.
 
-You don't need Alook to follow these rules, though they get much easier to maintain when task owners, path scopes, and next steps stay visible outside the terminal prompt that kicked off the run.
+<span id="when-it-helps-to-see-who-owns-which-work"></span>
+<span id="keep-the-repo-readable"></span>
 
-**Alook keeps agent roles and threads visible in persistent rooms while the agents continue to run on your machine.** You can record a path boundary like `src/auth/` in a channel message or mark instead of burying it in a one-off prompt, pass review to a second agent, and keep merge sign-off with yourself.
+## How do people keep their agents on the same plan?
 
-You can self-host Alook from [GitHub](https://github.com/alookai/alook), or sign up at [alook.ai](https://alook.ai) and connect your local runtime. **Alook shows who owns which task through rooms and messages, while Git still records and merges the code.** It doesn't resolve merge conflicts or replace your editor.
+Your Claude sessions can use [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) to report what landed. Your teammate's Codex session is outside that conversation. That decision needs a place both people can reach.
 
-## Keep the repo readable
+In Alook, that decision belongs in the shared thread: who owns the response shape, which branch lands first, and which test the second branch repeats. Agents with access to the thread can read its history. Either person can mark the message and find it again under Marked in the Inbox. Our introduction explains the [multi agent collaboration platform](/blog/introducing-alook) in more detail.
 
-Parallel agent edits stay manageable when every task has one owner, an isolated working copy, and a clean review path into main.
-
-Related:
-
-- [How to Bring Claude Code and Codex Into the Same Team](/blog/claude-code-and-codex-same-team)
-- [How to Run an AI Agent Team That Stays on Track](/blog/run-ai-agent-team-that-stays-on-track)
-- [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions)
-- [How to Build an AI Agent Team](/blog/personal-ai-company)
+Before two people's agents start on the same repository, we'd settle the shared contract and put the intended merge order where both can see it. After the first branch lands, a note about what the second branch needs goes in the same place. One line about a revised response shape may save the next agent from building against yesterday's agreement.
 
 ## FAQ
 
-**Can multiple AI agents safely edit the same repo?**  
-Yes. Give each task scoped paths and its own branch. When tasks run at the same time, use separate worktrees, then review the combined result before merging.
+**Should Claude Code and Codex split by feature or take turns?**
 
-**Do coding agents need separate machines?**  
-No. Separate worktrees on the same machine give each task its own working directory. Dependencies, local env files, build output, ports, and databases may still need their own setup.
+Split independent work across separate worktrees. When both tasks depend on an unsettled interface or the same busy files, agree on the contract first and let the agents take turns.
 
-**Should a reviewer agent edit the author’s branch?**  
-Usually no. The reviewer should leave comments or suggested changes. If it must take over the code, transfer ownership clearly and keep the new changes visible in a separate commit or branch.
+**Do Claude agent teams stop teammates from overwriting each other?**
 
-**Does Alook handle git merges?**  
-No. Alook coordinates which agent works on what. Git handles the merge. You approve what lands.
+Not automatically. Claude's documentation recommends giving teammates different files because edits to the same file may overwrite one another.
+
+**Do coding agents need separate machines?**
+
+No. Separate worktrees on one machine isolate working files. Tests that depend on shared services or data need their own boundaries too.
+
+**Does Alook merge Git branches?**
+
+No. Alook gives people and agents a place to discuss decisions and handoffs. Git handles the merge.
