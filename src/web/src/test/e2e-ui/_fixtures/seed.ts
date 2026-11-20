@@ -3,7 +3,7 @@ import { communityFixtureFetch, assertCurrentCommunityFixtureResponse } from "./
 import { WEB_URL } from "../_setup/paths"
 import { sessionCookie, userId } from "./community-fixture"
 import type { UserKey } from "../_setup/users"
-import { isRetryableSeedStatus, retrySeedRequest, seedRetryDelayMs } from "./seed-retry"
+import { fixtureClockScope, isRetryableSeedStatus, measureFixtureClock, retrySeedRequest as retryRequest, seedRetryDelayMs } from "./seed-retry"
 import { manifest } from "./manifest"
 
 // API-driven precondition seeding for the Playwright specs. Deliberately does
@@ -28,10 +28,11 @@ type SeedIdentity = {
   onDmCreated?: (first: UserKey, second: UserKey, dmId: string) => Promise<void>
 }
 
-export function createSeed(identity: SeedIdentity) {
+export function createSeed(identity: SeedIdentity, scope = fixtureClockScope()) {
   const { sessionCookie, userId } = identity
+  const retrySeedRequest: typeof retryRequest = (request, wait) => retryRequest(request, wait, scope)
   async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Response> {
-    return communityFixtureFetch(`${WEB_URL}${path}`, {
+    return measureFixtureClock(scope, "fixture-request", () => communityFixtureFetch(`${WEB_URL}${path}`, {
       method: "POST",
       headers: {
         Cookie: sessionCookie(key),
@@ -39,7 +40,7 @@ export function createSeed(identity: SeedIdentity) {
         Origin: WEB_URL,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-    })
+    }), { method: "POST", routeTemplate: path }, response => ({ status: response.status }))
   }
 
   async function post(key: UserKey, path: string, body?: unknown): Promise<Response> {
@@ -337,7 +338,7 @@ export function createSeed(identity: SeedIdentity) {
       reqRes = response
       // 409 = already friends / request already sent — a valid idempotent state.
       if (response.ok || response.status === 409 || !isRetryableSeedStatus(response.status)) break
-      await new Promise((r) => setTimeout(r, seedRetryDelayMs(response)))
+      await measureFixtureClock(scope, "retry-wait", () => new Promise<void>((r) => setTimeout(r, seedRetryDelayMs(response, scope))))
     }
     if (reqRes!.status === 409) {
       const existing = await findFriendshipId(requester, targetUserId)

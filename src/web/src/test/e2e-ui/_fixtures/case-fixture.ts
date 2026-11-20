@@ -12,7 +12,7 @@ import { USER_KEYS, type SeededUser, type UserKey } from "../_setup/users"
 import { test as base } from "./community-fixture"
 import { manifest } from "./manifest"
 import { createSeed, type CaseSeed } from "./seed"
-import { retrySeedRequest } from "./seed-retry"
+import { fixtureClockScope, measureFixtureClock, retrySeedRequest } from "./seed-retry"
 import type { HistoricalRow } from "./historical-profile"
 import { seedLocalHistory } from "./local-history"
 
@@ -116,6 +116,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       workerIndex: testInfo.workerIndex,
       parallelIndex: testInfo.parallelIndex,
     }
+    const clockScope = fixtureClockScope(testInfo)
     const shardPath = resolve(AUTH_DIR, "../../../../e2e-shard-manifest/shard-manifest.json")
     const shard = existsSync(shardPath) ? readFileSync(shardPath, "utf8") : "local"
     const stamp = createHash("sha256").update(JSON.stringify(identity)).update(shard).digest("hex").slice(0, 24)
@@ -185,7 +186,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       return state.cookies.filter((cookie) => cookie.name.startsWith("better-auth")).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ")
     }
     const read = async (key: UserKey, path: string): Promise<Record<string, unknown>> => {
-      const response = await retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}${path}`, { headers: { Cookie: sessionCookie(key), Origin: WEB_URL } }))
+      const response = await measureFixtureClock(clockScope, "fixture-read", () => retrySeedRequest(() => communityFixtureFetch(`${WEB_URL}${path}`, { headers: { Cookie: sessionCookie(key), Origin: WEB_URL } }), undefined, clockScope), { method: "GET", routeTemplate: path }, value => ({ status: value.status }))
       if (!response.ok) throw new Error(`Case baseline ${key} GET ${path} failed (${response.status})`)
       const body = await response.json() as Record<string, unknown>
       if (!body || typeof body !== "object" || body.stale === true || body.truncated === true) throw new Error(`Case baseline ${key} GET ${path} is incomplete`)
@@ -213,7 +214,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
           if ((row?.lastReadSeq ?? 0) !== 0) throw new Error(`Case DM handshake violates the original zero-cursor premise for ${key}`)
         }
       },
-    })
+    }, clockScope)
     const seed = Object.fromEntries(Object.entries(originalSeed).map(([name, operation]) => [name, (...args: unknown[]) => {
       if (typeof args[0] === "string" && USER_KEYS.includes(args[0] as UserKey)) businessRoles.add(args[0] as UserKey)
       return (operation as (...values: unknown[]) => unknown)(...args)
@@ -311,7 +312,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
     let bodyError: unknown
     let bodyFailed = false
     try {
-      const allocate: CaseExitOwner["allocate"] = async (roles) => {
+      const allocate: CaseExitOwner["allocate"] = async (roles) => measureFixtureClock(clockScope, "actors", async () => {
         if (allocated) throw new Error("A test must allocate its case actors once and reuse them for all devices")
         allocated = true
         const state = readLifecycleState(SERVICE_STATE_PATH)
@@ -417,7 +418,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
           userName: (key) => user(key).name,
           sessionCookie,
           seed,
-          seedHistory: async (channelId, rows) => {
+          seedHistory: async (channelId, rows) => measureFixtureClock(clockScope, "history-profile", async () => {
             const startedAt = new Date().toISOString()
             const started = performance.now()
             if (exiting || !resources.has(`channel:${channelId}`)) throw new Error("History channel belongs to a different case owner")
@@ -429,34 +430,36 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
             })
             await testInfo.attach("historical-profile", { body: JSON.stringify({ identity, channelId, count: result.count, firstSeq: result.firstSeq, lastSeq: result.lastSeq, transport: "local canonical D1", proxyDisposed: true, startedAt, finishedAt: new Date().toISOString(), durationMs: performance.now() - started }), contentType: "application/json" })
             return result.ids
-          },
+          }),
           onCleanup: (operation) => { own(operation, async (captured) => { await captured() }) },
           confirmSignedOut,
           recordServerDeletion,
         }
-      }
-      await provide({ allocate, resources: caseResources })
+      })
+      await measureFixtureClock(clockScope, "case-body", () => provide({ allocate, resources: caseResources }))
     } catch (error) {
       bodyError = error
       bodyFailed = true
     } finally {
-      exiting = true
-      const errors = await cleanupOwned(new Set(retiredSessions.keys()))
-      if (pendingSessionRetirement) errors.push(new Error("Original session retirement remains unresolved"))
-      const outcomes = { operations: operationOutcomes, contexts: contextOutcomes, servers: serverOutcomes }
-      try {
-        await testInfo.attach("case-cleanup", { body: JSON.stringify({ identity, requestedContexts: contextCount, requestedOperations: operationCount, outcomes }), contentType: "application/json" })
-      } catch (error) { errors.push(error) }
-      const failure: CleanupFailure = { identity, unresolvedServers: [...owned].map(([id, value]) => ({ owner: value.owner, id })), unresolvedContexts: [...contexts.values()], unresolvedOperations: operations.size, pendingSessionRetirement, errorCount: errors.length }
-      if (errors.length > 0) {
+      await measureFixtureClock(clockScope, "case-cleanup", async () => {
+        exiting = true
+        const errors = await cleanupOwned(new Set(retiredSessions.keys()))
+        if (pendingSessionRetirement) errors.push(new Error("Original session retirement remains unresolved"))
+        const outcomes = { operations: operationOutcomes, contexts: contextOutcomes, servers: serverOutcomes }
         try {
-          if (!existsSync(failurePath)) writeFileSync(failurePath, JSON.stringify(failure), { flag: "wx", mode: 0o600 })
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") errors.push(error)
+          await testInfo.attach("case-cleanup", { body: JSON.stringify({ identity, requestedContexts: contextCount, requestedOperations: operationCount, outcomes }), contentType: "application/json" })
+        } catch (error) { errors.push(error) }
+        const failure: CleanupFailure = { identity, unresolvedServers: [...owned].map(([id, value]) => ({ owner: value.owner, id })), unresolvedContexts: [...contexts.values()], unresolvedOperations: operations.size, pendingSessionRetirement, errorCount: errors.length }
+        if (errors.length > 0) {
+          try {
+            if (!existsSync(failurePath)) writeFileSync(failurePath, JSON.stringify(failure), { flag: "wx", mode: 0o600 })
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") errors.push(error)
+          }
+          try { await testInfo.attach("case-cleanup-failure", { body: JSON.stringify(failure), contentType: "application/json" }) } catch (error) { errors.push(error) }
+          throw new AggregateError(bodyFailed ? [bodyError, ...errors] : errors, "Case cleanup failed; successor fixtures are blocked")
         }
-        try { await testInfo.attach("case-cleanup-failure", { body: JSON.stringify(failure), contentType: "application/json" }) } catch (error) { errors.push(error) }
-        throw new AggregateError(bodyFailed ? [bodyError, ...errors] : errors, "Case cleanup failed; successor fixtures are blocked")
-      }
+      })
     }
     if (bodyFailed) throw bodyError
   },

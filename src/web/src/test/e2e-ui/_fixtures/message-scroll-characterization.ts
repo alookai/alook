@@ -7,6 +7,7 @@ import { communityFrameEvents, proxyCommunityWebSockets } from "./community-ws-p
 import { abortScrollTrace, attachScrollTrace, createScrollTraceIdentity, finishScrollTrace, markScrollTrace, type ScrollTraceResult } from "./scroll-trace"
 import { tid } from "./testids"
 import { WEB_URL } from "../_setup/paths"
+import { fixtureClockScope, measureFixtureClock } from "./seed-retry"
 
 export const VIEWPORT = { width: 1280, height: 800 }
 
@@ -103,25 +104,27 @@ export async function seedProfile(
   authors: "rotate" | "alice" = "rotate",
   checkpointAt?: number,
 ): Promise<{ ids: string[]; estimates: Record<string, number> }> {
-  const { seedMessage } = actors.seed
-  const ids: string[] = []
-  const estimates: Record<string, number> = {}
-  for (let index = 0; index < count; index += 1) {
-    const content = imageAtTail && index === count - 1
-      ? `async image row ${index}\n![async fixture](/icon-512.png?scroll-trace=1)`
-      : profileContent(index)
-    const afterCheckpoint = checkpointAt !== undefined && index > checkpointAt
-    const author = afterCheckpoint
-      ? index % 2 === 0 ? "bob" : "carol"
-      : authors === "alice"
-      ? "alice"
-      : index % 3 === 0 ? "alice" : index % 3 === 1 ? "bob" : "carol"
-    const id = await seedMessage(author, channelId, content)
-    ids.push(id)
-    estimates[id] = estimatePlainMessage(content)
-    if (index === checkpointAt) await setReadCheckpoint(actors, channelId, id)
-  }
-  return { ids, estimates }
+  return measureFixtureClock(fixtureClockScope(), "scroll-profile", async () => {
+    const { seedMessage } = actors.seed
+    const ids: string[] = []
+    const estimates: Record<string, number> = {}
+    for (let index = 0; index < count; index += 1) {
+      const content = imageAtTail && index === count - 1
+        ? `async image row ${index}\n![async fixture](/icon-512.png?scroll-trace=1)`
+        : profileContent(index)
+      const afterCheckpoint = checkpointAt !== undefined && index > checkpointAt
+      const author = afterCheckpoint
+        ? index % 2 === 0 ? "bob" : "carol"
+        : authors === "alice"
+        ? "alice"
+        : index % 3 === 0 ? "alice" : index % 3 === 1 ? "bob" : "carol"
+      const id = await seedMessage(author, channelId, content)
+      ids.push(id)
+      estimates[id] = estimatePlainMessage(content)
+      if (index === checkpointAt) await setReadCheckpoint(actors, channelId, id)
+    }
+    return { ids, estimates }
+  })
 }
 
 export async function seedDmProfile(
@@ -129,16 +132,18 @@ export async function seedDmProfile(
   dmId: string,
   count: number,
 ): Promise<{ ids: string[]; estimates: Record<string, number> }> {
-  const { seedDmMessage } = actors.seed
-  const ids: string[] = []
-  const estimates: Record<string, number> = {}
-  for (let index = 0; index < count; index += 1) {
-    const content = profileContent(index)
-    const id = await seedDmMessage("alice", dmId, content)
-    ids.push(id)
-    estimates[id] = estimatePlainMessage(content)
-  }
-  return { ids, estimates }
+  return measureFixtureClock(fixtureClockScope(), "dm-profile", async () => {
+    const { seedDmMessage } = actors.seed
+    const ids: string[] = []
+    const estimates: Record<string, number> = {}
+    for (let index = 0; index < count; index += 1) {
+      const content = profileContent(index)
+      const id = await seedDmMessage("alice", dmId, content)
+      ids.push(id)
+      estimates[id] = estimatePlainMessage(content)
+    }
+    return { ids, estimates }
+  })
 }
 
 export async function setReadCheckpoint(actors: CaseActors, channelId: string, messageId: string): Promise<void> {
@@ -550,28 +555,32 @@ export async function expectMessageCreateIdentity(
 }
 
 export async function seedScrollServer(actors: CaseActors) {
-  const { seedServer, seedJoinServer } = actors.seed
-  const serverId = await seedServer("alice", `Scroll characterization ${Date.now()}`)
-  await seedJoinServer("alice", "bob", serverId)
-  await seedJoinServer("alice", "carol", serverId)
-  return serverId
+  return measureFixtureClock(fixtureClockScope(), "scroll-server", async () => {
+    const { seedServer, seedJoinServer } = actors.seed
+    const serverId = await seedServer("alice", `Scroll characterization ${Date.now()}`)
+    await seedJoinServer("alice", "bob", serverId)
+    await seedJoinServer("alice", "carol", serverId)
+    return serverId
+  })
 }
 
 export async function seedScrollCase(actors: CaseActors, options: { loadingCount?: number } = {}) {
-  const { seedChannel, seedDm } = actors.seed
-  const { userId } = actors
-  const stamp = Date.now()
-  const serverId = await seedScrollServer(actors)
-  const coldChannelId = await seedChannel("alice", serverId, `scroll-cold-${stamp}`)
-  const loadingChannelId = await seedChannel("alice", serverId, `scroll-loading-${stamp}`)
-  const upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
-  const composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
-  const composerDmId = await seedDm("alice", userId("bob"))
-  const loadingProfile = await seedProfile(actors, loadingChannelId, options.loadingCount ?? 130, false, "rotate", 64)
-  const upwardProfile = await seedProfile(actors, upwardChannelId, 72, false, "rotate", 23)
-  const composerProfile = await seedProfile(actors, composerChannelId, 36, true, "alice")
-  const composerDmProfile = await seedDmProfile(actors, composerDmId, 36)
-  return { serverId, coldChannelId, loadingChannelId, upwardChannelId, composerChannelId, composerDmId, loadingProfile, upwardProfile, composerProfile, composerDmProfile }
+  return measureFixtureClock(fixtureClockScope(), "scroll-case", async () => {
+    const { seedChannel, seedDm } = actors.seed
+    const { userId } = actors
+    const stamp = Date.now()
+    const serverId = await seedScrollServer(actors)
+    const coldChannelId = await seedChannel("alice", serverId, `scroll-cold-${stamp}`)
+    const loadingChannelId = await seedChannel("alice", serverId, `scroll-loading-${stamp}`)
+    const upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
+    const composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
+    const composerDmId = await seedDm("alice", userId("bob"))
+    const loadingProfile = await seedProfile(actors, loadingChannelId, options.loadingCount ?? 130, false, "rotate", 64)
+    const upwardProfile = await seedProfile(actors, upwardChannelId, 72, false, "rotate", 23)
+    const composerProfile = await seedProfile(actors, composerChannelId, 36, true, "alice")
+    const composerDmProfile = await seedDmProfile(actors, composerDmId, 36)
+    return { serverId, coldChannelId, loadingChannelId, upwardChannelId, composerChannelId, composerDmId, loadingProfile, upwardProfile, composerProfile, composerDmProfile }
+  })
 }
 
 export function tracedAsUser(actors: CaseActors): CaseActors["asUser"] {
