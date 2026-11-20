@@ -14,7 +14,7 @@ import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/c
 import { notifyManager,type QueryClient } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"
-import { FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
+import { appendDecisionCardResponder, mergeDecisionCardEmbeds, FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
 import type { CommunityDmsRead as DmsResponse } from "@alook/shared"
 import type { FoldersResponse, ServersResponse } from "@/lib/community/models/navigation"
 import type { queries } from "@alook/shared"
@@ -1002,10 +1002,42 @@ export function ingestMessages(
 function ingestMessageResources(registry: CommunityDbRegistry, resources: readonly CommunityMessageResource[], profiles: readonly CommunityResourceProfile[]) {
   const fullProfiles = new Map(profiles.map(profile => [profile.id, profile]))
   const viewerId = registry.accountId
-  const rows = resources.map(resource => resource.reactions ? { ...resource,
-    reactions: resource.reactions.map(reaction => ({ ...reaction, me: viewerId !== null && reaction.userIds.includes(viewerId) })),
-  } : resource)
-  upsertRows(registry, "messages", rows)
+  const incomingById = new Map<string, CommunityMessageResource>()
+  const rows = resources.map(resource => {
+    const existing = registry.collections.messages.get(resource.id)
+    const mergedEmbeds = mergeDecisionCardEmbeds(existing?.embeds, resource.embeds)
+    const next: CommunityMessageResource = {
+      ...resource,
+      ...(mergedEmbeds !== undefined ? { embeds: mergedEmbeds } : {}),
+      ...(resource.reactions ? {
+        reactions: resource.reactions.map(reaction => ({ ...reaction, me: viewerId !== null && reaction.userIds.includes(viewerId) })),
+      } : {}),
+    }
+    incomingById.set(next.id, next)
+    return next
+  })
+
+  // Fold live committed direct replies onto cached/incoming decision-card targets
+  // so window-evicted history responders and new live responders stay merged.
+  const responderPatches = new Map<string, CommunityMessageResource>()
+  for (const reply of rows) {
+    if (!reply.replyToId || reply.seq <= 0) continue
+    const target = responderPatches.get(reply.replyToId)
+      ?? incomingById.get(reply.replyToId)
+      ?? registry.collections.messages.get(reply.replyToId)
+    if (!target || target.channelId !== reply.channelId || target.authorId === reply.authorId) continue
+    const updatedEmbeds = appendDecisionCardResponder(target.embeds, reply.authorId)
+    if (!updatedEmbeds) continue
+    const patched: CommunityMessageResource = { ...target, embeds: updatedEmbeds }
+    responderPatches.set(patched.id, patched)
+    if (incomingById.has(patched.id)) incomingById.set(patched.id, patched)
+  }
+
+  const finalRows = [
+    ...rows.map(row => responderPatches.get(row.id) ?? row),
+    ...[...responderPatches.values()].filter(patch => !incomingById.has(patch.id)),
+  ]
+  upsertRows(registry, "messages", finalRows)
   afterCanonicalWrites(registry, () => {
   const threads = new Map<string, CommunityCollectionRows["channels"]>()
   for (const resource of resources) {

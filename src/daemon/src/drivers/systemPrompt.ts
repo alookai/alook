@@ -202,6 +202,15 @@ function messagingSection(): string {
     "ALOOK_MESSAGE_7F3C",
     "```",
     "",
+    "#### Ask for a decision",
+    "",
+    `Alook users cannot see native question prompts. When you need someone to choose from options, use \`${CLI} message send --ask\` with JSON on stdin (max 8 KiB).`,
+    "Name channel or thread respondents in `mentions`. Omit `mentions` in DMs. Use short `header` values as tab labels on multi-question cards. In `inbox pull`, match `content.replyTo.seq` in the original conversation.",
+    "",
+    "```json",
+    '{"mentions":["@alice#0001"],"questions":[{"question":"Ship today?","options":[{"label":"Ship","recommended":true},"Wait"]}]}',
+    "```",
+    "",
     "#### Pulled messages",
     "",
     "```json",
@@ -276,11 +285,10 @@ function cliCommandsSection(): string {
     "### Messaging",
     "",
     `1. \`${CLI} inbox pull\` — fetch unread messages and advance their read waterlines.`,
-    `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> --stdin\` — send to a ` +
+    `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> [--ask] --stdin\` — Send to a ` +
       `channel, DM, or thread. ` +
-      `The body is required through \`--stdin\` and limited to 1 KiB of UTF-8. ` +
-      `Attach files with \`--attachment <id>\` (repeatable, order matters). ` +
-      `\`--remind-after\` accepts \`0\`, or a whole-number duration from \`1m\` to \`24h\`.`,
+      `For plain messages, pass up to 1 KiB of UTF-8 text through stdin and use \`--attachment <id>\` for files (repeatable, order matters). ` +
+      `\`--remind-after\` accepts \`0\` or a whole-number duration from \`1m\` to \`24h\`.`,
     `3. \`${CLI} message attachment upload --file <path>\` — upload a local file and get a reusable attachment ID. Supports Markdown and inline HTML; see Communication for formatting.`,
     `4. \`${CLI} message attachment download --id <id> [--out <path>]\` — download an attachment you can read, including your own unsent uploads.`,
     `5. \`${CLI} message property set --target <full-message-ref> --json <json>\` — add a supported property value to a message.`,

@@ -76,6 +76,8 @@ export function renderMessageListRow(
             m={item.m}
             hoverCapable={props.hoverCapable}
             viewerUserId={props.viewerUserId}
+            onSubmitDecisionCard={item.m.decisionCard ? props.onSubmitDecisionCard : undefined}
+            liveRespondedUserIds={item.m.decisionCard ? props.replierUserIdsByMessageId?.get(item.m.id) : undefined}
             pinned={props.pinnedIds?.has(item.m.id)}
             highlighted={controller.jumped === item.m.id}
             onOpenThread={props.onOpenThread}

@@ -265,6 +265,7 @@ export function ThreadChannelSurface({
                   onReadNewBoundary={controller.feed.readNewBoundary}
                   onOpenThread={ignoreNestedThread}
                   {...controller.threadActions}
+                  onSubmitDecisionCard={controller.sendDecisionReply}
                   onPin={canManagePins ? controller.threadActions.onPin : undefined}
                   onOpenProfile={onOpenProfile}
                   resolveUserName={resolveUserName}

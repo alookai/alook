@@ -15,6 +15,7 @@ const mockGetThreadChannelByParentMessage = vi.fn()
 const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
+const mockFilterChannelVisibleUserIds = vi.fn(async (_db: unknown, _channelId: string, ids: string[]) => new Set(ids))
 const mockCreateChannelMember = vi.fn()
 const firstAgentReplyStatement = { kind: "first-agent-reply-statement" }
 const mockRecordFirstAgentReplyPersistedStatement = vi.fn(() => firstAgentReplyStatement)
@@ -52,6 +53,7 @@ vi.mock("@alook/shared", async () => {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
+        filterChannelVisibleUserIds: (...a: unknown[]) => mockFilterChannelVisibleUserIds(...a),
         createChannelMember: (...a: unknown[]) => mockCreateChannelMember(...a),
       },
       communityFunnelAnalytics: {
@@ -1078,5 +1080,48 @@ describe("first Agent reply funnel boundary", () => {
 
     expect(mockCreateMessage).not.toHaveBeenCalled()
     expect(mockRecordFirstAgentReplyPersistedStatement).not.toHaveBeenCalled()
+  })
+})
+
+describe("decision card message-handler boundaries", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateMessage.mockResolvedValue({ id: "msg_q1" })
+    mockGetMessage.mockResolvedValue(messageRow({ id: "msg_q1", authorId: "bot_1" }))
+    mockListByMessageIds.mockResolvedValue([])
+    mockFilterChannelVisibleUserIds.mockImplementation(async (_db: unknown, _channelId: string, ids: string[]) => new Set(ids))
+  })
+
+  it("uses explicitMentionedUserIds only, checks visibility via filterChannelVisibleUserIds, and ignores @handles inside prose", async () => {
+    mockListMembers.mockResolvedValue([
+      { userId: "u_gus", userName: "gus", discriminator: "1813" },
+      { userId: "u_bystander", userName: "bystander", discriminator: "9999" },
+    ])
+    mockFilterChannelVisibleUserIds.mockResolvedValueOnce(new Set(["u_gus"]))
+
+    const res = await createCommunityMessage({
+      db: {} as never,
+      authorId: "bot_1",
+      authorKind: "bot",
+      target: { kind: "thread", channelId: "thread_1", parentChannelId: "c1", serverId: "s1" },
+      body: { content: "@gus#1813 Should we ask @bystander#9999?", mentionType: "everyone" },
+      source: "cli",
+      type: "question",
+      embeds: JSON.stringify([{ kind: "decision_card" }]),
+      explicitMentionedUserIds: ["u_gus", "u_outsider"],
+    })
+
+    expect(res.ok).toBe(true)
+    const createCall = mockCreateMessage.mock.calls[0]![1]
+    expect(createCall.type).toBe("question")
+    expect(createCall.mentionType).toBeUndefined()
+    expect(createCall.mentions).toEqual([{ userId: "u_gus", kind: "mention" }])
+    expect(createCall.participants).toEqual([
+      { userId: "bot_1", source: "spoke" },
+      { userId: "u_gus", source: "mention" },
+    ])
+    expect(mockFilterChannelVisibleUserIds).toHaveBeenCalledWith({}, "thread_1", ["u_gus", "u_outsider"])
+    expect(mockListMembers).not.toHaveBeenCalled()
+    expect(mockGetPrivateChannelAudienceUserIds).not.toHaveBeenCalled()
   })
 })

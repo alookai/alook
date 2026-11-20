@@ -213,4 +213,32 @@ describe("projectPostedMessage", () => {
     })
     expect(projectPostedMessage(full, "nonce", "channel-1")).toEqual(full)
   })
+
+  it("extracts decision_card embeds onto decisionCard and keeps old MessageEmbedSchema ignoring them", async () => {
+    const { buildDecisionCardEmbed, DecisionCardInputSchema } = await import("@alook/shared")
+    const { MessageEmbedSchema } = await import("@/lib/community/models/message")
+    const card = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Pick timing",
+        questions: [
+          {
+            header: "Release",
+            question: "Ship today?",
+            options: [{ label: "Yes", recommended: true }, { label: "Later" }],
+          },
+        ],
+      }),
+      [{ userId: "u_gus", handle: "gus#1813" }],
+    )
+    expect(MessageEmbedSchema.safeParse(card).success).toBe(false)
+
+    const linkEmbed = { title: "Release notes", url: "https://example.com" }
+    const presented = presentCanonicalMessage(wire({ embeds: [card, linkEmbed] }))
+    expect(presented.decisionCard).toEqual(card)
+    expect(presented.embeds).toEqual([linkEmbed])
+
+    const cardOnly = presentCanonicalMessage(wire({ embeds: [card] }))
+    expect(cardOnly.decisionCard).toEqual(card)
+    expect(cardOnly.embeds).toEqual([])
+  })
 })

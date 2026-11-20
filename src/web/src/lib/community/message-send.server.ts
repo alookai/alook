@@ -9,6 +9,7 @@ import { createMessageWithThread } from "./create-channels"
 import { resolveMessageTarget, type MessageTargetDescriptor } from "./message-door"
 import { broadcastToUserSafe } from "./fanout"
 import { isDuplicateBotMessage, DUPLICATE_MESSAGE_ERROR } from "./jev-send-dedup"
+import { prepareBotDecisionCard } from "./decision-card.server"
 
 /**
  * Human/web arm — real channelId in the path (id descriptor). Rate-limit +
@@ -222,9 +223,20 @@ export async function handleBotSend(
     }
   }
 
+  let preparedQuestion: Extract<Awaited<ReturnType<typeof prepareBotDecisionCard>>, { ok: true }> | null = null
+  if (body.question !== undefined) {
+    const prepared = await prepareBotDecisionCard(db, target, body.question)
+    if (!prepared.ok) {
+      return NextResponse.json({ error: prepared.error }, { status: prepared.status })
+    }
+    preparedQuestion = prepared
+  }
+
+  const effectiveContent = preparedQuestion ? preparedQuestion.content : body.content.text
+
   if (!body.force && target.kind !== "dm" && await isDuplicateBotMessage({
     db, env, channelId, authorId: botUserId,
-    content: body.content.text,
+    content: effectiveContent,
   })) {
     const replay = await replayResponse()
     if (replay) return replay
@@ -274,11 +286,16 @@ export async function handleBotSend(
     authorId: botUserId,
     authorKind: "bot",
     target,
-    body: { content: body.content.text, replyToId },
+    body: { content: effectiveContent, replyToId },
     source: "cli",
     ...(latestSeq !== undefined ? { expectedSeq: latestSeq } : {}),
     attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
     clientNonce: body.nonce,
+    ...(preparedQuestion ? {
+      type: preparedQuestion.type,
+      embeds: preparedQuestion.embeds,
+      explicitMentionedUserIds: preparedQuestion.explicitMentionedUserIds,
+    } : {}),
     extraStatements: [
       queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
     ],

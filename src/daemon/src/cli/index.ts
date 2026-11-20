@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { MEMORY_COMMIT_MAX_BYTES, validateMemoryCommit } from "../memory/commit.js";
-import { BOT_FEEDBACK_MAX_BYTES } from "@alook/shared";
+import {
+  BOT_FEEDBACK_MAX_BYTES,
+  DECISION_CARD_MAX_BYTES,
+  parseDecisionCardCliInput,
+} from "@alook/shared";
 import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
@@ -167,6 +171,7 @@ async function readLiteralInput(args: {
   filePath?: string;
   fileOption?: string;
   maxBytes?: number;
+  strictUtf8?: boolean;
 }): Promise<string | undefined> {
   const { command, stdinSelected, stdin, filePath, fileOption } = args;
   if (stdinSelected && filePath !== undefined) {
@@ -188,8 +193,17 @@ async function readLiteralInput(args: {
         if (args.maxBytes !== undefined && byteCount > args.maxBytes) throw new CliError(`${command}: input exceeds ${args.maxBytes} UTF-8 bytes`);
         chunks.push(bytes);
       }
-      return Buffer.concat(chunks).toString("utf8");
+      const raw = Buffer.concat(chunks);
+      if (args.strictUtf8) {
+        try {
+          return new TextDecoder("utf-8", { fatal: true }).decode(raw);
+        } catch {
+          throw new CliError(`${command}: --stdin must be valid UTF-8 JSON`);
+        }
+      }
+      return raw.toString("utf8");
     } catch (err) {
+      if (err instanceof CliError) throw err;
       throw new CliError(`${command}: cannot read stdin: ${(err as Error).message}`);
     }
   }
@@ -257,72 +271,26 @@ async function sendWithRetry(
   return withTransientMutationRetry(() => api.send(req));
 }
 
-async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
-  // Commander enforces presence via requiredOption. Validate the full duration
-  // before any server mutation so a bad value can never send a message first.
-  const remindAfterFlag = opts.remindAfter as string;
-  const remindAfterMs = parseRemindAfter(remindAfterFlag);
-  const api = getApi();
-  const agent = agentId(opts);
-  const channel = opts.target as string;
-  if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
-  parseRef(channel);
-
-  const literalText = await readLiteralInput({
-    command: "message send",
-    stdinSelected: opts.stdin === true,
-    stdin,
-  });
-  const text = stripMalformedAlookHeredocTail(literalText ?? "");
-  const textBytes = Buffer.byteLength(text, "utf8");
-  if (textBytes > CLIENT_MAX_MESSAGE_BODY_BYTES) {
-    throw new CliError(
-      `message send: --stdin body is ${textBytes} bytes; max ${CLIENT_MAX_MESSAGE_BODY_BYTES}. ` +
-      `Rewrite it before retrying.\n\n${MESSAGE_SEND_STDIN_POLICY}`,
-    );
+function parseReplySeqOption(command: string, replyFlag: unknown): number | undefined {
+  if (replyFlag === undefined || replyFlag === "") return undefined;
+  const raw = String(replyFlag).trim();
+  const stripped = raw.startsWith("#") ? raw.slice(1) : raw;
+  const n = Number(stripped);
+  if (!/^\d+$/.test(stripped) || !Number.isInteger(n) || n < 1) {
+    throw new CliError(`${command}: --reply must be a message seq like "#37"`);
   }
+  return n;
+}
 
-  const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
-
-  const hasText = text.trim().length > 0;
-  if (!hasText && attachmentIds.length === 0) {
-    throw new CliError("message send: --stdin must contain text unless --attachment <id> is present");
-  }
-
-  // `--reply` accepts the hash form the agent already sees in payloads (`"#37"`)
-  // or a bare number; strip the leading `#` and require a positive integer.
-  let replyToSeq: number | undefined;
-  const replyFlag = opts.reply as string | number | undefined;
-  if (replyFlag !== undefined && replyFlag !== "") {
-    const raw = String(replyFlag).trim();
-    const stripped = raw.startsWith("#") ? raw.slice(1) : raw;
-    // Require a plain decimal seq. `Number("0x25")`/`Number("1e3")` would
-    // otherwise coerce hex/exponential forms to a silently-wrong seq.
-    const n = Number(stripped);
-    if (!/^\d+$/.test(stripped) || !Number.isInteger(n) || n < 1) {
-      throw new CliError('message send: --reply must be a message seq like "#37"');
-    }
-    replyToSeq = n;
-  }
-
-  // One idempotency nonce per logical send, reused across sendWithRetry's
-  // internal attempts. A "committed-but-response-lost" 5xx is absorbed by the
-  // same-nonce retry (server returns the canonical/deduped message) so the
-  // agent never sees a false failure and never naively re-runs — the root of
-  // the duplicate-send bug. A brand-new invocation gets a fresh nonce, so two
-  // genuinely-distinct identical sends are never collapsed.
-  const nonce = randomUUID();
+async function dispatchSendAndArmReminder(
+  api: ServerApi,
+  channel: string,
+  remindAfterMs: number,
+  req: Parameters<ServerApi["send"]>[0],
+): Promise<unknown> {
   let res: Awaited<ReturnType<ServerApi["send"]>>;
   try {
-    res = await sendWithRetry(api, {
-      agentId: agent,
-      channel,
-      content: { text: text ?? "" },
-      attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
-      replyToSeq,
-      nonce,
-      ...(opts.force === true ? { force: true } : {}),
-    });
+    res = await sendWithRetry(api, req);
   } catch (err) {
     if (err instanceof Error && "code" in err && err.code === "duplicate_message") {
       (err as Error & { hint?: string }).hint = "If this message really needs to be sent, retry with --force. This only bypasses duplicate detection; channel alignment is still required.";
@@ -336,9 +304,6 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
         `adjust, or skip your message.`,
     );
   }
-  // `deduped` (a same-nonce retry matched the already-committed message) is a
-  // SUCCESS — the message is in the channel; surface its canonical ref exactly
-  // like a fresh send, never as an error.
   const sent = `${res.message.channel}${res.message.seq}`;
   const pii = res.pii?.triggeredFilters.length ? { pii: res.pii } : {};
   const seqText = res.message.seq.replace(/^#/, "");
@@ -354,10 +319,90 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
     });
     return { sent, ...pii, reminder };
   } catch {
-    // The send is already committed. Never turn a local arming problem into a
-    // command error that invites the agent to re-run and duplicate the send.
     return { sent, ...pii, reminder: { armed: false, reason: "local reminder request failed" } };
   }
+}
+
+async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
+  const remindAfterFlag = opts.remindAfter as string;
+  const remindAfterMs = parseRemindAfter(remindAfterFlag);
+  const api = getApi();
+  const agent = agentId(opts);
+  const channel = opts.target as string;
+  if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
+  parseRef(channel);
+
+  const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
+  const replyToSeq = parseReplySeqOption("message send", opts.reply);
+
+  if (opts.ask === true) {
+    if (attachmentIds.length > 0) {
+      throw new CliError("message send --ask: cannot combine --ask with --attachment");
+    }
+    const rawBody = await readLiteralInput({
+      command: "message send --ask",
+      stdinSelected: opts.stdin === true,
+      stdin,
+      maxBytes: DECISION_CARD_MAX_BYTES,
+      strictUtf8: true,
+    });
+    const cleaned = stripMalformedAlookHeredocTail(rawBody ?? "").trim();
+    if (!cleaned) {
+      throw new CliError("message send --ask: --stdin must contain a JSON decision card payload");
+    }
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(cleaned);
+    } catch {
+      throw new CliError("message send --ask: --stdin must be valid UTF-8 JSON");
+    }
+    const validated = parseDecisionCardCliInput(parsedJson);
+    if (!validated.success) {
+      const issue = validated.error.issues[0];
+      const path = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
+      throw new CliError(`message send --ask: invalid decision card payload (${path}${issue?.message ?? "invalid schema"})`);
+    }
+    const nonce = randomUUID();
+    return dispatchSendAndArmReminder(api, channel, remindAfterMs, {
+      agentId: agent,
+      channel,
+      content: { text: "" },
+      question: validated.data,
+      replyToSeq,
+      nonce,
+      ...(opts.force === true ? { force: true } : {}),
+    });
+  }
+
+  const literalText = await readLiteralInput({
+    command: "message send",
+    stdinSelected: opts.stdin === true,
+    stdin,
+  });
+  const text = stripMalformedAlookHeredocTail(literalText ?? "");
+  const textBytes = Buffer.byteLength(text, "utf8");
+  if (textBytes > CLIENT_MAX_MESSAGE_BODY_BYTES) {
+    throw new CliError(
+      `message send: --stdin body is ${textBytes} bytes; max ${CLIENT_MAX_MESSAGE_BODY_BYTES}. ` +
+      `Rewrite it before retrying.\n\n${MESSAGE_SEND_STDIN_POLICY}`,
+    );
+  }
+
+  const hasText = text.trim().length > 0;
+  if (!hasText && attachmentIds.length === 0) {
+    throw new CliError("message send: --stdin must contain text unless --attachment <id> is present");
+  }
+
+  const nonce = randomUUID();
+  return dispatchSendAndArmReminder(api, channel, remindAfterMs, {
+    agentId: agent,
+    channel,
+    content: { text: text ?? "" },
+    attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
+    replyToSeq,
+    nonce,
+    ...(opts.force === true ? { force: true } : {}),
+  });
 }
 
 function parseMessagePropertyJson(command: string, raw: unknown): unknown {
@@ -769,7 +814,8 @@ function buildProgram(stdin: CliInputStream): Command {
     .command("send")
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
-    .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB)")
+    .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB, or 8 KiB JSON with --ask)")
+    .option("--ask", "send a structured decision card by reading UTF-8 JSON from --stdin (text channel, thread, or DM)")
     .option(
       "-a, --attachment <id>",
       "attach an uploaded file by id (repeatable — order = message order)",

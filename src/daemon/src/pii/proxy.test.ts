@@ -194,3 +194,67 @@ it("does not report a successful send when the annotated upstream response break
   const { request } = await fixture(true, { abort: true });
   await expect(request("/api/community/channels/resolve/messages", { channel: "/test#1234/general", content: { text: "person@company.cn" } }).then(response => response.text())).rejects.toThrow();
 });
+
+it("filters PII across all visible decision card fields and deduplicates triggered filters", async () => {
+  const { proxy, a, seen, request } = await fixture();
+  const api = createProxyServerApi({ proxyUrl: proxy.url, voucher: a.voucher });
+  const receipt = await api.send({
+    agentId: "a",
+    channel: "/test#1234/general",
+    content: { text: "" },
+    nonce: "ask-pii-1",
+    question: {
+      mentions: ["@gus#1813"],
+      summary: "Contact owner@company.cn first",
+      questions: [
+        {
+          header: "owner@a.cn",
+          question: `Rotate sk_test_${"a".repeat(32)} now?`,
+          options: [
+            { label: "Email bob@company.cn", description: "Uses alice@company.cn" },
+            { label: "Wait", description: "Keep current" },
+          ],
+        },
+      ],
+    },
+  });
+  expect(receipt).toMatchObject({
+    state: "sent",
+    pii: {
+      triggeredFilters: [
+        { id: "builtin.emails", name: "Email addresses" },
+        { id: "builtin.secrets", name: "Keys" },
+      ],
+    },
+  });
+  expect(seen).toHaveLength(1);
+  expect(JSON.stringify(seen[0]!.body)).not.toContain("owner@company.cn");
+  expect(JSON.stringify(seen[0]!.body)).not.toContain("bob@company.cn");
+  expect(JSON.stringify(seen[0]!.body)).not.toContain("alice@company.cn");
+  expect(JSON.stringify(seen[0]!.body)).not.toContain("sk_test_");
+  expect(seen[0]!.body.question).toEqual({
+    mentions: ["@gus#1813"],
+    summary: "Contact [REDACTED_EMAIL] first",
+    questions: [
+      {
+        header: "[REDACTED_EMAIL]",
+        question: "Rotate [REDACTED_API_KEY] now?",
+        options: [
+          { label: "Email [REDACTED_EMAIL]", description: "Uses [REDACTED_EMAIL]" },
+          { label: "Wait", description: "Keep current" },
+        ],
+      },
+    ],
+  });
+
+  // Rejects combining non-empty content.text with question payload before upstream.
+  const bad = await request("/api/community/channels/resolve/messages", {
+    channel: "/test#1234/general",
+    content: { text: "conflict" },
+    question: {
+      questions: [{ question: "Q?", options: [{ label: "A" }, { label: "B" }] }],
+    },
+  });
+  expect(bad.status).toBe(422);
+  expect(seen).toHaveLength(1);
+});

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { BOT_MODEL_NAME_MAX_LENGTH } from "./community/bot-model";
 import { DiagnosticReportIdSchema } from "./diagnostics-contract";
 import { AGENT_EVENT_PROMPT_MAX_LENGTH, BOT_AUDIT_TEXT_MAX_BYTES } from "./community-cli-contract";
+import { DecisionCardInputSchema } from "./community-decision-card";
 import {
   DAILY_TOKEN_USAGE_WINDOW_DAYS,
   DailyUsageSnapshotSchema,
@@ -505,6 +506,7 @@ export const CommunityAgentSendRequestSchema = z
   .object({
     channel: z.string().min(1),
     content: CommunityAgentMessageContentSchema,
+    question: DecisionCardInputSchema.optional(),
     attachments: z
       .array(z.string().min(1))
       .max(MAX_ATTACHMENTS_PER_MESSAGE)
@@ -512,19 +514,34 @@ export const CommunityAgentSendRequestSchema = z
     seenUpToSeq: CommunityAgentSeqSchema.optional(),
     replyToSeq: CommunityAgentPositiveSeqSchema.optional(),
     force: z.boolean().optional(),
-    // Idempotency key — generated once per logical message, reused across
-    // retries; server dedupes on (author, nonce). Bounded length so a client
-    // can't stuff arbitrary data. Absent = no dedup (legacy behavior).
     nonce: z.string().min(1).max(128).optional(),
-    // When the resolved target is a forum this message becomes the opener and
-    // the server synchronously creates its child thread. A first reply is a
-    // separate ordinary send to the returned thread ref; there is no combined
-    // title/body field on the canonical message contract.
   })
-  .refine(
-    (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
-    { message: "message must have text or attachments" }
-  );
+  .superRefine((d, ctx) => {
+    if (d.question !== undefined) {
+      if (d.attachments.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["attachments"],
+          message: "decision card messages cannot include attachments",
+        });
+      }
+      if (d.content.text.trim().length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["content", "text"],
+          message: "decision card messages must omit content.text",
+        });
+      }
+      return;
+    }
+    if (d.content.text.trim().length === 0 && d.attachments.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: [],
+        message: "message must have text or attachments",
+      });
+    }
+  });
 export type CommunityAgentSendRequest = z.infer<typeof CommunityAgentSendRequestSchema>;
 
 // Response body for POST /api/community/channels/{id}/attachments. Bots see

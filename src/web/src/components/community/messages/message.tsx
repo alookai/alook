@@ -26,6 +26,7 @@ import {
 } from "./message-external-link"
 import { BotApprovalCard } from "../social/bot-approval-card"
 import { BotCreationRequestCard } from "../social/bot-creation-request-card"
+import { DecisionCard } from "./decision-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
@@ -64,6 +65,7 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
   return !compact
     && !m.approval
     && !m.botCreation
+    && !m.decisionCard
     && (
       !!(m.content ?? "")
       || !!m.attachments?.some((attachment) => attachment.kind === "image")
@@ -179,7 +181,7 @@ function MessageImpl({
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
-  viewerUserId, hoverCapable = true,
+  viewerUserId, onSubmitDecisionCard, liveRespondedUserIds, hoverCapable = true,
 }: {
   m: RenderMsg
   compact?: boolean
@@ -220,6 +222,8 @@ function MessageImpl({
   onEnterSelect?: () => void
   onShareSingle?: () => void
   viewerUserId?: string
+  onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  liveRespondedUserIds?: readonly string[]
   // Resolved once by MessageList and threaded into virtualized rows. Keeping
   // the media-query subscription at the list level avoids one listener per
   // visible message. Non-interactive standalone previews can use the desktop
@@ -238,7 +242,7 @@ function MessageImpl({
     ? (replyAuthorProfile?.name ?? "Deleted user")
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = m.content ?? ""
-  const htmlPreviews = selectHtmlPreviews(m.approval || m.botCreation ? "" : visibleContent, m.attachments)
+  const htmlPreviews = selectHtmlPreviews(m.approval || m.botCreation || m.decisionCard ? "" : visibleContent, m.attachments)
 
   const visibleAttachments = m.attachments?.map((attachment, index) => ({ attachment, index }))
     .filter(({ attachment }) => !attachment.id || !htmlPreviews.has(attachment.id)) ?? []
@@ -758,6 +762,18 @@ function MessageImpl({
             <BotCreationRequestCard key={m.botCreation.requestId} request={m.botCreation} messageId={m.id} viewerUserId={viewerUserId} onOpenProfile={onOpenProfile} />
           ) : m.approval ? (
             <BotApprovalCard approval={m.approval} />
+          ) : m.decisionCard ? (
+            <DecisionCard
+              key={m.id}
+              card={m.decisionCard}
+              messageId={m.id}
+              authorId={m.authorId}
+              viewerUserId={viewerUserId}
+              onSubmit={onSubmitDecisionCard}
+              liveRespondedUserIds={liveRespondedUserIds}
+              onOpenProfile={onOpenProfile}
+              compact={compact}
+            />
           ) : (
             visibleContent && (
               <MessageBody
