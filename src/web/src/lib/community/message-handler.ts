@@ -174,6 +174,14 @@ export async function createCommunityMessage(params: {
    */
   extraStatements?: unknown[]
   forumThread?: Parameters<typeof queries.communityMessage.createMessage>[1]["forumThread"]
+  type?: string
+  embeds?: string
+  /**
+   * Trusted server override for mention targets (e.g., decision cards). When
+   * provided, bypasses text `@` scanning and `@everyone` expansion so mention
+   * strings inside question/option prose cannot notify unintended users.
+   */
+  explicitMentionedUserIds?: readonly string[]
 }): Promise<CreateMessageResult> {
   const {
     db,
@@ -187,6 +195,9 @@ export async function createCommunityMessage(params: {
     attachmentIds,
     clientNonce,
     extraStatements,
+    type,
+    embeds,
+    explicitMentionedUserIds,
   } = params
 
   const content = typeof body.content === "string" ? body.content : ""
@@ -261,7 +272,7 @@ export async function createCommunityMessage(params: {
     }
   }
   const mentionType: MentionType | undefined =
-    !isDmTarget(target) && isMentionType(body.mentionType)
+    explicitMentionedUserIds === undefined && !isDmTarget(target) && isMentionType(body.mentionType)
       ? body.mentionType
       : undefined
 
@@ -296,61 +307,78 @@ export async function createCommunityMessage(params: {
   // the notification dimension). See the thread-participation block below.
   const explicitMentionTargets = new Set<string>()
   if (!isDmTarget(target)) {
-
-    const isPrivate = await withD1Retry(
-      () => queries.communityChannel.isChannelPrivate(db, target.channelId),
-      { route: "message-handler:is-private" },
-    )
-    const audienceIds = isPrivate
-      ? new Set(
-          await withD1Retry(
-            () => queries.communityChannel.getPrivateChannelAudienceUserIds(db, target.channelId),
-            { route: "message-handler:private-audience" },
-          ),
-        )
-      : null
-
-    const hasAtMention = typeof content === "string" && content.includes("@")
-    if (hasAtMention) {
-      const allMembers = await withD1Retry(
-        () => queries.communityMember.listMembers(db, target.serverId),
-        { route: "message-handler:list-members" },
-      )
-
-      const members = audienceIds
-        ? allMembers.filter((m) => audienceIds.has(m.userId))
-        : allMembers
-      if (mentionType === "everyone") {
-        for (const m of members) {
-          if (m.userId !== authorId) mentionTargets.add(m.userId)
-        }
-      }
-      if (content) {
-        const candidates = members
-          .filter((m) => m.userId !== authorId && m.userName)
-          .map((m) => ({ userId: m.userId, name: m.userName as string, discriminator: m.discriminator }))
-        for (const id of extractChatMentionedUserIds(content, candidates)) {
-          mentionTargets.add(id)
-          explicitMentionTargets.add(id)
-        }
-      }
-    } else if (mentionType === "everyone") {
-      const userIds = audienceIds
-        ? [...audienceIds]
-        : await withD1Retry(
-            () => queries.communityMember.listMemberUserIds(db, target.serverId),
-            { route: "message-handler:list-member-ids" },
+    if (explicitMentionedUserIds !== undefined) {
+      const candidatesToCheck = [...new Set([...explicitMentionedUserIds, ...replyTargets])].filter((uid) => uid !== authorId)
+      const visibleIds = candidatesToCheck.length > 0
+        ? await withD1Retry(
+            () => queries.communityChannel.filterChannelVisibleUserIds(db, target.channelId, candidatesToCheck),
+            { route: "message-handler:filter-visible" },
           )
-      for (const uid of userIds) {
-        if (uid !== authorId) mentionTargets.add(uid)
+        : new Set<string>()
+      for (const uid of explicitMentionedUserIds) {
+        if (uid === authorId || !visibleIds.has(uid)) continue
+        mentionTargets.add(uid)
+        explicitMentionTargets.add(uid)
       }
-    }
+      for (const id of [...replyTargets]) {
+        if (!visibleIds.has(id)) replyTargets.delete(id)
+      }
+    } else {
+      const isPrivate = await withD1Retry(
+        () => queries.communityChannel.isChannelPrivate(db, target.channelId),
+        { route: "message-handler:is-private" },
+      )
+      const audienceIds = isPrivate
+        ? new Set(
+            await withD1Retry(
+              () => queries.communityChannel.getPrivateChannelAudienceUserIds(db, target.channelId),
+              { route: "message-handler:private-audience" },
+            ),
+          )
+        : null
 
-    // Reply targets outside the private audience are dropped (a former member
-    // whose message is being replied to shouldn't get a notification for a
-    // channel they can no longer see).
-    if (audienceIds) {
-      for (const id of [...replyTargets]) if (!audienceIds.has(id)) replyTargets.delete(id)
+      const hasAtMention = typeof content === "string" && content.includes("@")
+      if (hasAtMention) {
+        const allMembers = await withD1Retry(
+          () => queries.communityMember.listMembers(db, target.serverId),
+          { route: "message-handler:list-members" },
+        )
+
+        const members = audienceIds
+          ? allMembers.filter((m) => audienceIds.has(m.userId))
+          : allMembers
+        if (mentionType === "everyone") {
+          for (const m of members) {
+            if (m.userId !== authorId) mentionTargets.add(m.userId)
+          }
+        }
+        if (content) {
+          const candidates = members
+            .filter((m) => m.userId !== authorId && m.userName)
+            .map((m) => ({ userId: m.userId, name: m.userName as string, discriminator: m.discriminator }))
+          for (const id of extractChatMentionedUserIds(content, candidates)) {
+            mentionTargets.add(id)
+            explicitMentionTargets.add(id)
+          }
+        }
+      } else if (mentionType === "everyone") {
+        const userIds = audienceIds
+          ? [...audienceIds]
+          : await withD1Retry(
+              () => queries.communityMember.listMemberUserIds(db, target.serverId),
+              { route: "message-handler:list-member-ids" },
+            )
+        for (const uid of userIds) {
+          if (uid !== authorId) mentionTargets.add(uid)
+        }
+      }
+
+      // Reply targets outside the private audience are dropped (a former member
+      // whose message is being replied to shouldn't get a notification for a
+      // channel they can no longer see).
+      if (audienceIds) {
+        for (const id of [...replyTargets]) if (!audienceIds.has(id)) replyTargets.delete(id)
+      }
     }
   }
 
@@ -420,6 +448,8 @@ export async function createCommunityMessage(params: {
     authorKind,
     content,
     channelId: target.channelId,
+    ...(type ? { type } : {}),
+    ...(embeds !== undefined ? { embeds } : {}),
     replyToId,
     mentionType,
     clientNonce,

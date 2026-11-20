@@ -502,6 +502,109 @@ describe("message send --reply", () => {
   });
 });
 
+describe("message send --ask", () => {
+  it("parses stdin JSON with string option shorthand and forwards question payload", async () => {
+    const sendSpy = vi.fn(async () => ({
+      state: "sent" as const,
+      message: { seq: "#9", channel: "/s#0042/general", sender: "@a", content: { text: "@gus#1813" }, time: "" },
+    }));
+    setApiForTesting(stubApi({ send: sendSpy }));
+    const payload = JSON.stringify({
+      mentions: ["@gus#1813"],
+      summary: "Confirm timing",
+      questions: [
+        {
+          header: "Release",
+          question: "When should we publish?",
+          options: ["Today", { label: "Next week", description: "Hold for next batch", recommended: true }],
+        },
+      ],
+    });
+    await mainWithStdin(
+      ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--reply", "#4", "--stdin"],
+      payload,
+    );
+    const env = parseEnvelope(cap.lines());
+    expect(env.success).toMatchObject({ sent: "/s#0042/general#9" });
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "/s#0042/general",
+        content: { text: "" },
+        replyToSeq: 4,
+        nonce: expect.any(String),
+        question: {
+          mentions: ["@gus#1813"],
+          summary: "Confirm timing",
+          questions: [
+            {
+              header: "Release",
+              question: "When should we publish?",
+              options: [
+                { label: "Today" },
+                { label: "Next week", description: "Hold for next batch", recommended: true },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it("rejects malformed JSON without calling send", async () => {
+    const sendSpy = vi.fn();
+    setApiForTesting(stubApi({ send: sendSpy }));
+
+    await mainWithStdin(
+      ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--stdin"],
+      "{not json",
+    );
+    expect(parseEnvelope(cap.lines()).error).toContain("valid UTF-8 JSON");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid question schema and --attachment combination without calling send", async () => {
+    const sendSpy = vi.fn();
+    setApiForTesting(stubApi({ send: sendSpy }));
+
+    await mainWithStdin(
+      ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--stdin"],
+      JSON.stringify({ questions: [{ question: "Only one option", options: ["Yes"] }] }),
+    );
+    expect(parseEnvelope(cap.lines()).error).toContain("invalid decision card payload");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects combining --ask with --attachment before calling send", async () => {
+    const sendSpy = vi.fn();
+    setApiForTesting(stubApi({ send: sendSpy }));
+
+    await mainWithStdin(
+      ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--attachment", "att-1", "--stdin"],
+      JSON.stringify({ questions: [{ question: "Ship?", options: ["Yes", "No"] }] }),
+    );
+    expect(parseEnvelope(cap.lines()).error).toContain("cannot combine --ask with --attachment");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid UTF-8 raw bytes inside --ask stdin before calling send", async () => {
+    const sendSpy = vi.fn();
+    setApiForTesting(stubApi({ send: sendSpy }));
+    const rawBytes = Buffer.concat([
+      Buffer.from('{"questions":[{"question":"Ship '),
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('?","options":["Yes","No"]}]}'),
+    ]);
+    const stdin = Readable.from([rawBytes]) as CliInputStream;
+
+    await main(
+      ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--stdin"],
+      { stdin },
+    );
+    expect(parseEnvelope(cap.lines()).error).toContain("valid UTF-8 JSON");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("inbox pull", () => {
   it("never partially acks a non-JSON 500 and advances the rich batch once after repair", async () => {
     const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({

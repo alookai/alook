@@ -1113,3 +1113,38 @@ export async function getFirstMessageResourcesByChannelIds(db: Database, channel
   }))).flat();
   return rows.map(parseEmbeds);
 }
+
+export async function listReplierUserIdsByReplyTargets(
+  db: Database,
+  channelId: string,
+  replyToIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const uniqueIds = [...new Set(replyToIds.filter((id) => id.length > 0))];
+  const result = new Map<string, string[]>();
+  if (uniqueIds.length === 0) return result;
+  const rows = (
+    await Promise.all(
+      chunk(uniqueIds, D1_MAX_IN_PARAMS - 1).map((batch) =>
+        db
+          .selectDistinct({
+            replyToId: communityMessage.replyToId,
+            authorId: communityMessage.authorId,
+          })
+          .from(communityMessage)
+          .where(
+            and(
+              eq(communityMessage.channelId, channelId),
+              inArray(communityMessage.replyToId, batch),
+            ),
+          ),
+      ),
+    )
+  ).flat();
+  for (const row of rows) {
+    if (!row.replyToId) continue;
+    const list = result.get(row.replyToId) ?? [];
+    if (!list.includes(row.authorId)) list.push(row.authorId);
+    result.set(row.replyToId, list);
+  }
+  return result;
+}

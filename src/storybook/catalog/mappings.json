@@ -219,6 +219,16 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/ui/checkbox.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-checkbox--default",
+        "region": "Checkbox choices and disabled state"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
   "src/web/src/components/ui/radio-group.tsx": {
     "kind": "direct",
     "examples": [
@@ -1617,6 +1627,20 @@
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/community/messages/decision-card.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-business-decisioncard--interactive",
+        "region": "DecisionCard interactive single-select, multi-select, Recommended badge, and Other input specimen"
+      },
+      {
+        "story": "web-business-decisioncard--read-only-other-viewer",
+        "region": "DecisionCard read-only waiting notice for unassigned viewers"
+      }
+    ],
+    "reason": "Direct authored story mounting DecisionCard in interactive and read-only states inside the shared Fixtures wrapper."
   },
   "src/web/src/components/community/social/bot-creation-request-card.tsx": {
     "kind": "composition",

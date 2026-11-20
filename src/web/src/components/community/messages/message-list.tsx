@@ -76,13 +76,34 @@ function MessageListOwner({ variant, initialScrollReady, renderer, ...props }: M
   const hoverCapable = useHoverCapable()
   const conversationActive = useConversationActivity()
   const conversationPresented = useContext(ConversationPresentationContext) ?? conversationActive
+  const hasAccessError = isConversationAccessError(props.initialLoadError)
+  const visibleMessages = useMemo(
+    () => (hasAccessError ? [] : props.messages),
+    [hasAccessError, props.messages],
+  )
+  const replierUserIdsByMessageId = useMemo(() => {
+    if (!visibleMessages.some((m) => m.decisionCard)) return undefined
+    const map = new Map<string, string[]>()
+    for (const m of visibleMessages) {
+      const targetId = m.replyTo?.id
+      if (!targetId || !m.authorId) continue
+      const list = map.get(targetId)
+      if (!list) {
+        map.set(targetId, [m.authorId])
+      } else if (!list.includes(m.authorId)) {
+        list.push(m.authorId)
+      }
+    }
+    return map
+  }, [visibleMessages])
   const resolvedProps: ResolvedMessageListProps = {
     ...props,
     onPreviewImage: props.onPreviewImage ? previewImage : undefined,
-    messages: isConversationAccessError(props.initialLoadError) ? [] : props.messages,
+    messages: visibleMessages,
     variant,
     initialScrollReady,
     hoverCapable,
+    replierUserIdsByMessageId,
     active: conversationActive && props.active !== false,
     positioningActive: conversationPresented && (props.positioningActive ?? props.active) !== false,
   }

@@ -11,7 +11,7 @@
     "composition": 348,
     "environment": 10,
     "nonvisual": 32,
-    "direct": 161
+    "direct": 163
   },
   "entries": [
     {
@@ -3181,6 +3181,26 @@
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/messages/decision-card.tsx",
+      "application": "Web",
+      "candidates": [
+        "AssigneeMention",
+        "DecisionCard"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-decisioncard--interactive",
+          "region": "DecisionCard interactive single-select, multi-select, Recommended badge, and Other input specimen"
+        },
+        {
+          "story": "web-business-decisioncard--read-only-other-viewer",
+          "region": "DecisionCard read-only waiting notice for unassigned viewers"
+        }
+      ],
+      "reason": "Direct authored story mounting DecisionCard in interactive and read-only states inside the shared Fixtures wrapper."
     },
     {
       "source": "src/web/src/components/community/messages/emoji-picker-interactive.tsx",
@@ -8247,6 +8267,21 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/ui/checkbox.tsx",
+      "application": "Web",
+      "candidates": [
+        "Checkbox"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-checkbox--default",
+          "region": "Checkbox choices and disabled state"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/ui/confirm-dialog.tsx",
       "application": "Web",
       "candidates": [
@@ -9089,6 +9124,24 @@
       "source": "src/storybook/stories/business/create-channel.stories.tsx"
     },
     {
+      "id": "web-business-decisioncard--interactive",
+      "title": "Web/Business/DecisionCard",
+      "name": "Interactive",
+      "source": "src/storybook/stories/business/decision-card.stories.tsx"
+    },
+    {
+      "id": "web-business-decisioncard--read-only-other-viewer",
+      "title": "Web/Business/DecisionCard",
+      "name": "Read Only Other Viewer",
+      "source": "src/storybook/stories/business/decision-card.stories.tsx"
+    },
+    {
+      "id": "web-business-decisioncard--in-message-stream",
+      "title": "Web/Business/DecisionCard",
+      "name": "In Message Stream",
+      "source": "src/storybook/stories/business/decision-card.stories.tsx"
+    },
+    {
       "id": "web-business-development-diagnostic--draggable",
       "title": "Web/Business/Development diagnostic",
       "name": "Draggable",
@@ -9561,6 +9614,18 @@
       "title": "Web/Foundations/Card",
       "name": "Small",
       "source": "src/storybook/stories/foundations/card.stories.tsx"
+    },
+    {
+      "id": "web-foundations-checkbox--default",
+      "title": "Web/Foundations/Checkbox",
+      "name": "Default",
+      "source": "src/storybook/stories/foundations/checkbox.stories.tsx"
+    },
+    {
+      "id": "web-foundations-checkbox--disabled",
+      "title": "Web/Foundations/Checkbox",
+      "name": "Disabled",
+      "source": "src/storybook/stories/foundations/checkbox.stories.tsx"
     },
     {
       "id": "web-foundations-confirm-dialog--ready",

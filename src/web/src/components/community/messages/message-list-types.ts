@@ -29,6 +29,7 @@ export type MessageListProps = {
   onReact?: (id: string, emoji: string) => void
   onOpenContextId?: (id: string) => void
   onReply?: (id: string) => void
+  onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
   resolveAuthorMentionText?: (authorId: string) => string | null
   onInsertMentionText?: (text: string) => void
   onPin?: (id: string) => void
@@ -83,4 +84,5 @@ export type ResolvedMessageListProps = MessageListProps & {
   variant: "channel" | "dm"
   initialScrollReady: boolean
   hoverCapable: boolean
+  replierUserIdsByMessageId?: ReadonlyMap<string, readonly string[]>
 }

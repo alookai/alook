@@ -274,6 +274,31 @@ export function useMessageChannelController({
     return accepted
   }, [captureSendCommand, channelId, communityRuntime, hasMoreNewer, jumpToPresent, messageScope, replyTo, runAcceptedIntent, setLocalSubmitVersion, setReplyTo, viewer.avatar, viewer.id, viewer.name])
 
+  const sendDecisionReply = useCallback(async (
+    messageId: string,
+    content: string,
+    nonce: string,
+  ): Promise<{ replyToId: string | null }> => {
+    if (committedFeed.current.navigationBlocked) {
+      throw new Error("Conversation is unavailable")
+    }
+    const { assertActive, assertCommand } = captureSendCommand()
+    const result = await sendMessageAsync({
+      channelId,
+      serverId,
+      forumParentChannelId,
+      content,
+      replyToId: messageId,
+      nonce,
+      author: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
+      assertActive,
+      assertCommand,
+    })
+    if (hasMoreNewer) jumpToPresent()
+    setLocalSubmitVersion((version) => version + 1)
+    return { replyToId: result.message.replyToId ?? null }
+  }, [captureSendCommand, channelId, forumParentChannelId, hasMoreNewer, jumpToPresent, sendMessageAsync, serverId, setLocalSubmitVersion, viewer.avatar, viewer.id, viewer.name])
+
   return useMemo<MessageChannelControllerValue>(() => ({
     feed,
     pinnedIds,
@@ -291,11 +316,12 @@ export function useMessageChannelController({
     messageActions,
     threadActions: { ...messageActions, onCreateThread: undefined },
     acceptMessage,
+    sendDecisionReply,
     localSubmitVersion,
     handleTyping: () => {
       if (committedFeed.current.navigationBlocked) return
       communityWsSendTyping(communityRuntime, { channelId })
     },
     typingUsers: typingUserIds.map((id) => typingNames[id] ?? resolveUserName(id)),
-  }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, openContextId, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
+  }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, openContextId, onSheetReply, jumpToSeq, messageActions, acceptMessage, sendDecisionReply, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
 }

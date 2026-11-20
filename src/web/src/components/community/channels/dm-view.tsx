@@ -42,6 +42,7 @@ import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-direct
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
   useAddReactionApi,
+  useSendDmMessage,
   useToggleReactionApi,
   useToggleMark,
 } from "@/hooks/community/mutations"
@@ -223,6 +224,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   const typingUsers = useTypingUsersForScope(`dm:${dmId}`)
   const typingNames = useTypingNamesForScope(`dm:${dmId}`)
   const { accept: acceptDmMessage, retry: retryDmMessage } = useDmMessageSender()
+  const { mutateAsync: sendDmMessageAsync } = useSendDmMessage()
   const toggleReaction = useToggleReactionApi()
   const addReaction = useAddReactionApi()
   const toggleMark = useToggleMark()
@@ -326,6 +328,25 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     },
   }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, sendView, communityRuntime.messageStream.actions, uiHandlers, sendAllowed])
 
+  const sendDmDecisionReply = useCallback(async (
+    messageId: string,
+    content: string,
+    nonce: string,
+  ): Promise<{ replyToId: string | null }> => {
+    if (!sendAllowed) throw new Error("You cannot send messages in this conversation")
+    const assertActive = sendView.capture()
+    const result = await sendDmMessageAsync({
+      dmId,
+      content,
+      replyToId: messageId,
+      nonce,
+      assertActive,
+    })
+    if (hasMoreNewerMessages) jumpToPresent()
+    setLocalSubmitVersion((version) => version + 1)
+    return { replyToId: result.message.replyToId ?? null }
+  }, [dmId, hasMoreNewerMessages, jumpToPresent, sendAllowed, sendDmMessageAsync, sendView, setLocalSubmitVersion])
+
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
   const acceptDmSend = (markdown: string, attachments?: SendAttachment[]): boolean => {
@@ -425,6 +446,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
             onReact={dmBlocked ? undefined : messageActions.onReact}
             onReply={dmBlocked ? undefined : messageActions.onReply}
+            onSubmitDecisionCard={sendAllowed ? sendDmDecisionReply : undefined}
             onCopy={messageActions.onCopy}
             onMark={dmBlocked ? undefined : messageActions.onMark}
             onRetry={sendAllowed ? messageActions.onRetry : undefined}

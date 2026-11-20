@@ -866,6 +866,67 @@ export async function getPrivateChannelAudienceUserIds(
   return [...set];
 }
 
+export async function filterChannelVisibleUserIds(
+  db: Database,
+  channelId: string,
+  candidateUserIds: readonly string[],
+): Promise<Set<string>> {
+  const uniqueIds = [...new Set(candidateUserIds.filter((id) => id.length > 0))];
+  if (uniqueIds.length === 0) return new Set();
+
+  const target = await db
+    .select({
+      id: communityChannel.id,
+      creatorId: communityChannel.creatorId,
+      parentChannelId: communityChannel.parentChannelId,
+    })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, channelId))
+    .limit(1);
+  if (target.length === 0) return new Set();
+
+  const privateFlag = await isChannelPrivate(db, channelId);
+  if (!privateFlag) return new Set(uniqueIds);
+
+  const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
+  const anchorCreatorId =
+    anchorId === target[0]!.id
+      ? target[0]!.creatorId
+      : (
+          await db
+            .select({ creatorId: communityChannel.creatorId })
+            .from(communityChannel)
+            .where(eq(communityChannel.id, anchorId))
+            .limit(1)
+        )[0]?.creatorId ?? null;
+
+  const memberRows = (
+    await Promise.all(
+      chunk(uniqueIds, D1_MAX_IN_PARAMS - 2).map((batch) =>
+        db
+          .select({ userId: communityChannelMember.userId })
+          .from(communityChannelMember)
+          .where(
+            and(
+              eq(communityChannelMember.channelId, anchorId),
+              eq(communityChannelMember.relation, "access"),
+              inArray(communityChannelMember.userId, batch),
+            ),
+          ),
+      ),
+    )
+  ).flat();
+
+  const memberSet = new Set(memberRows.map((row) => row.userId));
+  const visible = new Set<string>();
+  for (const uid of uniqueIds) {
+    if ((anchorCreatorId !== null && anchorCreatorId === uid) || memberSet.has(uid)) {
+      visible.add(uid);
+    }
+  }
+  return visible;
+}
+
 /**
  * Top-level channels a viewer may SEE in a server (backs the server-detail
  * tree). Unified model:

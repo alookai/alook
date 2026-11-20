@@ -1,4 +1,4 @@
-import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, messagePreview, type CommunityMessageResource } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, extractDecisionCardFromEmbeds, messagePreview, type CommunityMessageResource } from "@alook/shared"
 import { MessageEmbedSchema, type Msg, type CanonicalMessage } from "@/lib/community/models/message"
 import { avatarInitial } from "@/lib/community/avatar"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
@@ -20,11 +20,19 @@ function projectEmbed(value: unknown): UiEmbed | undefined {
   return parsed.success ? omitUndefined(parsed.data) : undefined
 }
 
-function projectMessageRichContent(value: unknown): Pick<Msg, "attachments" | "embeds"> {
+function projectMessageRichContent(value: unknown): Pick<Msg, "attachments" | "embeds" | "decisionCard"> {
   const { attachments, embeds } = richContentSchema.parse(value)
+  const extracted = extractDecisionCardFromEmbeds(embeds)
+  const genericEmbeds = extracted.otherEmbeds?.flatMap((entry) => {
+    const embed = projectEmbed(entry)
+    return embed ? [embed] : []
+  })
   return {
     ...(attachments ? { attachments: attachments.map(presentMessageAttachment) } : {}),
-    ...(embeds ? { embeds: embeds.flatMap((value) => { const embed = projectEmbed(value); return embed ? [embed] : [] }) } : {}),
+    ...(embeds
+      ? { embeds: genericEmbeds ?? [] }
+      : {}),
+    ...(extracted.card ? { decisionCard: extracted.card } : {}),
   }
 }
 
