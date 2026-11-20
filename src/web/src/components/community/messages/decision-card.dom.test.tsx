@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from "@testing-library/react"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 import { DecisionCardInputSchema, buildDecisionCardEmbed, type DecisionCardEmbed } from "@alook/shared"

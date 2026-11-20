@@ -21,10 +21,8 @@ export const DECISION_CARD_OPTION_LABEL_MAX_LENGTH = 120;
 export const DECISION_CARD_OPTION_DESC_MAX_LENGTH = 240;
 export const DECISION_CARD_OTHER_TEXT_MAX_LENGTH = 500;
 
-const utf8Encoder = new TextEncoder();
-
 export function decisionCardUtf8Bytes(value: unknown): number {
-  return utf8Encoder.encode(JSON.stringify(value)).byteLength;
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
 const idFieldSchema = z
@@ -306,14 +304,15 @@ export function extractDecisionCardFromEmbeds(embeds: readonly unknown[] | undef
 }
 
 function truncateUtf8Bytes(value: string, maxBytes: number): string {
-  if (utf8Encoder.encode(value).byteLength <= maxBytes) return value;
-  const ellipsisBytes = utf8Encoder.encode("…").byteLength;
+  const encoder = new TextEncoder();
+  if (encoder.encode(value).byteLength <= maxBytes) return value;
+  const ellipsisBytes = encoder.encode("…").byteLength;
   if (maxBytes <= ellipsisBytes) return "…";
   const budget = maxBytes - ellipsisBytes;
   let out = "";
   let used = 0;
   for (const ch of value) {
-    const chBytes = utf8Encoder.encode(ch).byteLength;
+    const chBytes = encoder.encode(ch).byteLength;
     if (used + chBytes > budget) break;
     out += ch;
     used += chBytes;
