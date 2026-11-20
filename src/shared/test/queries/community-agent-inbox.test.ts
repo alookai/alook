@@ -5,6 +5,7 @@ import { user } from "../../src/db/schema";
 import * as agentInbox from "../../src/db/queries/community/agent-inbox";
 import * as marks from "../../src/db/queries/community/mark";
 import { formatRef, formatSeq, DM_SERVER } from "../../src/community-cli-contract";
+import { buildDecisionCardEmbed, DecisionCardInputSchema } from "../../src/community-decision-card";
 import { createMigratedDb } from "../helpers/migrated-db";
 
 /**
@@ -476,6 +477,92 @@ describe("toAgentMessages", () => {
       .toEqual({ seq: formatSeq(11), sender: "@Ana#0012" });
     expect(byChannel.get(formatRef({ server: "studio#0042", channel: "random" }))!.content.replyTo)
       .toEqual({ seq: formatSeq(22), sender: "@Ben#3456" });
+  });
+
+  it("read/question: returns structured content.question JSON (no text, no internal userId) for string or array embeds, and falls back to text when malformed", async () => {
+    const card = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "定一下时间",
+        questions: [
+          {
+            id: "day",
+            header: "日期",
+            question: "哪天开会？",
+            options: [
+              { id: "thu", label: "周四", recommended: true },
+              { id: "fri", label: "周五" },
+            ],
+          },
+        ],
+      }),
+      [{ userId: "u_internal_gus", handle: "gus#1813" }],
+    );
+
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "m_prev", seq: 4, authorName: "Gus", discriminator: "1813" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+    ]);
+
+    const [fromJsonString, fromParsedArray, malformedFallback] = await agentInbox.toAgentMessages(
+      db,
+      [
+        rawMsg({
+          id: "m_q1",
+          seq: 5,
+          content: "定一下时间\n哪天开会？",
+          replyToId: "m_prev",
+          type: "question",
+          embeds: JSON.stringify([{ ...card, respondedUserIds: ["u_internal_gus"] }]),
+        }),
+        rawMsg({
+          id: "m_q2",
+          seq: 6,
+          content: "定一下时间\n哪天开会？",
+          type: "question",
+          embeds: [card],
+        }),
+        rawMsg({
+          id: "m_q_bad",
+          seq: 7,
+          content: "fallback summary",
+          type: "question",
+          embeds: "{invalid-json",
+        }),
+      ],
+      "viewer_1",
+    );
+
+    const expectedQuestion = {
+      mentions: ["@gus#1813"],
+      summary: "定一下时间",
+      questions: [
+        {
+          id: "day",
+          header: "日期",
+          question: "哪天开会？",
+          multiSelect: false,
+          allowOther: true,
+          options: [
+            { id: "thu", label: "周四", recommended: true },
+            { id: "fri", label: "周五" },
+          ],
+        },
+      ],
+    };
+
+    expect(fromJsonString!.content).toEqual({
+      question: expectedQuestion,
+      replyTo: { seq: "#4", sender: "@Gus#1813" },
+    });
+    expect(fromJsonString!.content).not.toHaveProperty("text");
+    expect(JSON.stringify(fromJsonString!.content)).not.toContain("u_internal_gus");
+
+    expect(fromParsedArray!.content).toEqual({ question: expectedQuestion });
+    expect(fromParsedArray!.content).not.toHaveProperty("text");
+
+    expect(malformedFallback!.content).toEqual({ text: "fallback summary" });
   });
 });
 

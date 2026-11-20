@@ -13,6 +13,7 @@ import {
   formatDecisionCardSummary,
   mergeDecisionCardEmbeds,
   parseDecisionCardCliInput,
+  toDecisionCardAgentPayload,
   validateDecisionCardAnswers,
 } from "./community-decision-card";
 import { CommunityAgentSendRequestSchema } from "./schemas";
@@ -143,9 +144,50 @@ describe("community-decision-card", () => {
     });
     const card = buildDecisionCardEmbed(parsed, [{ userId: "u1", handle: "gus#1813" }]);
     const summary = formatDecisionCardSummary(card);
-    expect(summary).toContain("@gus#1813 Need two calls");
-    expect(summary).toContain("1. [Mode] Which mode?");
-    expect(summary).toContain("Fast (Recommended) / Safe / Other");
+    expect(summary).toBe("Need two calls");
+    expect(summary).not.toContain("@gus#1813");
+    expect(summary).not.toContain("Fast");
+    expect(summary).not.toContain("[Mode]");
+
+    expect(toDecisionCardAgentPayload({ ...card, respondedUserIds: ["u1"] })).toEqual({
+      mentions: ["@gus#1813"],
+      summary: "Need two calls",
+      questions: card.questions,
+    });
+
+    const singleQuestionCard = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        questions: [{ question: "哪天开会？", options: [{ label: "周四", recommended: true }, { label: "周五" }] }],
+      }),
+      [],
+    );
+    expect(formatDecisionCardSummary(singleQuestionCard)).toBe("哪天开会？");
+    expect(toDecisionCardAgentPayload(singleQuestionCard)).toEqual({
+      questions: singleQuestionCard.questions,
+    });
+
+    const multiNoSummaryCard = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        questions: [
+          { question: "哪天开会？", options: [{ label: "周四" }, { label: "周五" }] },
+          { question: "包含哪些模块？", options: [{ label: "Web" }, { label: "Daemon" }] },
+        ],
+      }),
+      [],
+    );
+    expect(formatDecisionCardSummary(multiNoSummaryCard)).toBe("1. 哪天开会？ 2. 包含哪些模块？");
+
+    // Non-handle fallback assignees (e.g. raw internal userId in DM when peer profile was missing) must never leak as mentions.
+    const rawIdFallbackCard = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }],
+      }),
+      [{ userId: "usr_internal_1", handle: "usr_internal_1" }],
+    );
+    expect(toDecisionCardAgentPayload(rawIdFallbackCard)).toEqual({
+      questions: rawIdFallbackCard.questions,
+    });
+    expect(toDecisionCardAgentPayload(rawIdFallbackCard)).not.toHaveProperty("mentions");
 
     const answerInput = DecisionCardAnswerInputSchema.parse({
       answers: [
@@ -217,10 +259,10 @@ describe("community-decision-card", () => {
     expect(withBodyText.success).toBe(false);
   });
 
-  it("bounds readable summary to 1 KiB UTF-8 and preserves checked-zero vs unchecked responder states", () => {
+  it("bounds readable summary via message preview truncation and preserves checked-zero vs unchecked responder states", () => {
     const cjkCard = buildDecisionCardEmbed(
       DecisionCardInputSchema.parse({
-        summary: "请确认以下四个发布问题并选择最合适的执行策略".repeat(4),
+        summary: "请确认以下四个发布问题并选择最合适的执行策略".repeat(8),
         questions: Array.from({ length: 4 }, (_, i) => ({
           header: `问题${i + 1}`,
           question: `第${i + 1}个需要决策的详细问题说明，包含完整上下文与约束条件。`.repeat(3),
@@ -233,6 +275,7 @@ describe("community-decision-card", () => {
       [{ userId: "u1", handle: "gus#1813" }],
     );
     const summary = formatDecisionCardSummary(cjkCard);
+    expect(summary.length).toBeLessThanOrEqual(120);
     expect(new TextEncoder().encode(summary).byteLength).toBeLessThanOrEqual(DECISION_CARD_SUMMARY_MAX_BYTES);
     expect(summary.endsWith("…")).toBe(true);
 

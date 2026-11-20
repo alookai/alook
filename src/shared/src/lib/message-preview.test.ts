@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { MESSAGE_PREVIEW_LENGTH } from "../constants/community"
+import { buildDecisionCardEmbed, DecisionCardInputSchema } from "../community-decision-card"
 import { messagePreview, messagePreviewText } from "./message-preview"
 
 describe("semantic message previews", () => {
@@ -42,6 +43,20 @@ describe("semantic message previews", () => {
     expect(messagePreviewText({ content: '{"internal":"data"}', approval: { friendshipId: "f1" } })).toBe("Friend request")
     expect(messagePreviewText({ botCreation: { requestId: "b1" } })).toBe("Bot creation request")
     expect(messagePreviewText({ type: "system", systemKind: "thread" })).toBe("Thread created")
+
+    const card = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "发布窗口",
+        questions: [
+          { question: "哪天开会？", options: [{ label: "周四", recommended: true }, { label: "周五" }] },
+        ],
+      }),
+      [{ userId: "u1", handle: "gus#1813" }],
+    )
+    expect(messagePreviewText({ content: "@gus#1813 legacy verbose text\n周四 (Recommended) / 周五", embeds: [card] }))
+      .toBe("发布窗口")
+    expect(messagePreviewText({ content: "legacy verbose text", decisionCard: card }))
+      .toBe("发布窗口")
   })
 
   it("parses the entire message before the existing UTF-16 truncation", () => {

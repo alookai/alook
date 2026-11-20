@@ -1,5 +1,10 @@
 import type { Root } from "mdast"
 import type { CommunityMessageResource } from "../community-resources"
+import {
+  extractDecisionCardFromEmbeds,
+  formatDecisionCardSummary,
+  type DecisionCardEmbed,
+} from "../community-decision-card"
 import { truncateMessagePreview } from "../constants/community"
 import { chatMarkdownProcessor } from "./chat-markdown"
 import { replaceHtmlPreviewMarkers, type HtmlPreviewAttachment } from "./html-preview"
@@ -7,7 +12,12 @@ import { REDACTED } from "./redaction"
 
 export type MessagePreviewInput = Partial<Pick<CommunityMessageResource,
   "content" | "type" | "systemKind" | "embeds"
->> & { attachments?: readonly HtmlPreviewAttachment[]; approval?: Pick<NonNullable<CommunityMessageResource["approval"]>, "friendshipId">; botCreation?: Pick<NonNullable<CommunityMessageResource["botCreation"]>, "requestId"> }
+>> & {
+  attachments?: readonly HtmlPreviewAttachment[]
+  approval?: Pick<NonNullable<CommunityMessageResource["approval"]>, "friendshipId">
+  botCreation?: Pick<NonNullable<CommunityMessageResource["botCreation"]>, "requestId">
+  decisionCard?: DecisionCardEmbed
+}
 
 type TextNode = {
   type: string
@@ -52,6 +62,10 @@ function attachmentText(attachment: HtmlPreviewAttachment): string {
 export function messagePreviewText(message: MessagePreviewInput): string {
   if (message.approval) return "Friend request"
   if (message.botCreation) return "Bot creation request"
+  const decisionCard = message.decisionCard ?? extractDecisionCardFromEmbeds(message.embeds).card
+  if (decisionCard) {
+    return formatDecisionCardSummary(decisionCard).replace(REDACTED, "[redacted]").replace(/\s+/gu, " ").trim()
+  }
   const content = message.content ?? ""
   const tree = chatMarkdownProcessor.runSync(chatMarkdownProcessor.parse(content)) as Root
   const selected = replaceHtmlPreviewMarkers(tree, { text: content, attachments: message.attachments })

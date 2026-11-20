@@ -95,6 +95,7 @@ function seedDb() {
       id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL REFERENCES community_message(id),
       user_id TEXT NOT NULL REFERENCES user(id),
+      channel_id TEXT NOT NULL DEFAULT 'thread_1',
       note TEXT,
       created_at TEXT NOT NULL DEFAULT '2026-11-20T00:00:00.000Z',
       updated_at TEXT NOT NULL DEFAULT '2026-11-20T00:00:00.000Z',
@@ -181,16 +182,75 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
     const askJson = await askRes.json()
     expect(askJson.state).toBe("sent")
     expect(askJson.message.seq).toBe("#1")
+    const expectedQuestionPayload = {
+      mentions: ["@gus#1813", "@alice#0001"],
+      summary: "Confirm release timing",
+      questions: [
+        {
+          id: "timing",
+          header: "Timing",
+          question: "When should we publish? (do not ping @bystander#0002)",
+          multiSelect: false,
+          allowOther: true,
+          options: [
+            { id: "today", label: "Today", description: "Publish now", recommended: true },
+            { id: "next", label: "Next week", description: "Ask @bystander#0002 later" },
+          ],
+        },
+      ],
+    }
+    expect(askJson.message.content).toEqual({ question: expectedQuestionPayload })
+    expect(askJson.message.content).not.toHaveProperty("text")
+    expect(JSON.stringify(askJson.message.content)).not.toContain("u_gus")
 
     const qRow = fixture.sqlite
       .prepare("SELECT id, type, content, embeds FROM community_message WHERE channel_id = 'thread_1' AND seq = 1")
       .get() as { id: string; type: string; content: string; embeds: string }
     expect(qRow.type).toBe(DECISION_CARD_MESSAGE_TYPE)
-    expect(qRow.content).toContain("@gus#1813 @alice#0001 Confirm release timing")
+    expect(qRow.content).toBe("Confirm release timing")
+    expect(qRow.content).not.toContain("@gus#1813")
+    expect(qRow.content).not.toContain("Today")
     const parsedEmbeds = JSON.parse(qRow.embeds)
     expect(parsedEmbeds).toHaveLength(1)
     expect(parsedEmbeds[0].kind).toBe(DECISION_CARD_EMBED_KIND)
     expect("title" in parsedEmbeds[0]).toBe(false)
+
+    // Bot read paths (history, resolve, inbox pull, marks) all deliver structured content.question JSON.
+    const historyPage = await queries.communityAgentInbox.listMessagesBySeq(fixture.db as Database, { channelId: "thread_1" }, {})
+    const historyMessages = await queries.communityAgentInbox.toAgentMessages(fixture.db as Database, historyPage.items, "bot_evan")
+    expect(historyMessages[0]?.content).toEqual({ question: expectedQuestionPayload })
+
+    const resolvedRow = await queries.communityMessage.getMessageByChannelAndSeq(fixture.db as Database, { channelId: "thread_1" }, 1)
+    const resolvedMessage = await queries.communityAgentInbox.toAgentMessage(fixture.db as Database, resolvedRow!, "bot_evan")
+    expect(resolvedMessage.content).toEqual({ question: expectedQuestionPayload })
+
+    fixture.sqlite.exec(`
+      INSERT INTO user (id, name, email, discriminator, isBot, ownerUserId) VALUES ('bot_peer', 'Peer', 'peer@alook.test', '0099', 1, 'u_gus');
+      INSERT INTO community_server_member (id, server_id, user_id, role, joined_at) VALUES ('sm_peer', 'srv_1', 'bot_peer', 'member', '2026-11-19T00:00:00.000Z');
+      INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_at) VALUES
+        ('tm_peer', 'thread_1', 'bot_peer', 'notify', 'added', '2026-11-19T00:00:00.000Z');
+    `)
+    const peerUnread = await queries.communityAgentInbox.listUnreadMessagesForAgent(fixture.db as Database, "bot_peer", {})
+    const peerPulled = await queries.communityAgentInbox.toAgentMessages(fixture.db as Database, peerUnread, "bot_peer")
+    expect(peerPulled.find((m) => m.channel === "/Alook#5620/general/#1" && m.seq === "#1")?.content).toEqual({
+      question: expectedQuestionPayload,
+    })
+
+    await queries.communityMessageMark.markMessage(fixture.db as Database, {
+      userId: "bot_peer",
+      messageId: qRow.id,
+      channelId: "thread_1",
+      note: "waiting on answer",
+    })
+    const markRows = await queries.communityMessageMark.listMarksForUser(fixture.db as Database, "bot_peer", {
+      visibleChannelIds: ["thread_1"],
+    })
+    const markedMessages = await queries.communityAgentInbox.toAgentMessages(
+      fixture.db as Database,
+      markRows.map((row) => row.message),
+      "bot_peer",
+    )
+    expect(markedMessages[0]?.content).toEqual({ question: expectedQuestionPayload })
 
     // Only explicit mentions received mention rows — @bystander#0002 in question/option prose did NOT.
     const mentions = fixture.sqlite

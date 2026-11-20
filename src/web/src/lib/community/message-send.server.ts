@@ -237,6 +237,7 @@ export async function handleBotSend(
   if (!body.force && target.kind !== "dm" && await isDuplicateBotMessage({
     db, env, channelId, authorId: botUserId,
     content: effectiveContent,
+    ...(preparedQuestion ? { question: preparedQuestion.questionPayload } : {}),
   })) {
     const replay = await replayResponse()
     if (replay) return replay

@@ -48,7 +48,7 @@ describe("decision-card.server", () => {
     if (!result.ok) return
     expect(result.type).toBe(DECISION_CARD_MESSAGE_TYPE)
     expect(result.explicitMentionedUserIds).toEqual([])
-    expect(result.content).toContain("@gus#1813 Quick call")
+    expect(result.content).toBe("Quick call")
     expect(JSON.parse(result.embeds)).toEqual([
       expect.objectContaining({
         kind: "decision_card",

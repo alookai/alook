@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
+import { MAX_MESSAGE_CONTENT_LENGTH, truncateMessagePreview } from "./constants/community";
 import { parseNameAndTag } from "./lib/discriminator";
 
 export const DECISION_CARD_MESSAGE_TYPE = "question" as const;
@@ -326,32 +326,49 @@ function truncateText(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+export function parseRawEmbedsArray(raw: unknown): unknown[] | undefined {
+  if (!raw) return undefined;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+export type DecisionCardAgentPayload = {
+  mentions?: string[];
+  summary?: string;
+  questions: DecisionCardNormalizedQuestion[];
+};
+
+export function toDecisionCardAgentPayload(card: DecisionCardEmbed): DecisionCardAgentPayload {
+  const mentions = card.assignees
+    .map((assignee) => assignee.handle.trim())
+    .filter((handle) => parseNameAndTag(handle) !== null)
+    .map((handle) => `@${handle}`);
+  return {
+    ...(mentions.length > 0 ? { mentions } : {}),
+    ...(card.summary ? { summary: card.summary } : {}),
+    questions: card.questions,
+  };
+}
+
 export function formatDecisionCardSummary(
   card: DecisionCardEmbed,
   maxBytes: number = DECISION_CARD_SUMMARY_MAX_BYTES,
 ): string {
-  const lines: string[] = [];
-  const mentionLine = card.assignees.map((assignee) => `@${assignee.handle}`).join(" ");
-  if (mentionLine && card.summary) {
-    lines.push(`${mentionLine} ${card.summary}`);
-  } else if (mentionLine) {
-    lines.push(mentionLine);
-  } else if (card.summary) {
-    lines.push(card.summary);
-  }
-
-  const numbered = card.questions.length > 1;
-  card.questions.forEach((question, index) => {
-    const prefix = numbered ? `${index + 1}. ` : "";
-    const tag = question.header ? `[${question.header}] ` : "";
-    lines.push(`${prefix}${tag}${question.question}`);
-    const optionSummary = question.options
-      .map((option) => (option.recommended ? `${option.label} (Recommended)` : option.label))
-      .join(" / ");
-    lines.push(`   ${optionSummary}${question.allowOther ? " / Other" : ""}`);
-  });
-
-  return truncateUtf8Bytes(lines.join("\n"), maxBytes);
+  const raw = card.summary
+    ? card.summary
+    : card.questions.length === 1
+      ? card.questions[0]!.question
+      : card.questions.map((question, index) => `${index + 1}. ${question.question}`).join(" ");
+  const normalized = raw.replace(/\s+/gu, " ").trim();
+  return truncateUtf8Bytes(truncateMessagePreview(normalized), maxBytes);
 }
 
 export const DecisionCardAnswerItemSchema = z.strictObject({

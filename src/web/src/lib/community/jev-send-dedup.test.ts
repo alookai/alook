@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { Database } from "@alook/shared"
+import {
+  DECISION_CARD_MESSAGE_TYPE,
+  DecisionCardInputSchema,
+  buildDecisionCardEmbed,
+  toDecisionCardAgentPayload,
+  type Database,
+} from "@alook/shared"
 
 const mocks = vi.hoisted(() => ({ recent: vi.fn(), author: vi.fn(), previous: vi.fn(), decide: vi.fn(), create: vi.fn() }))
 vi.mock("@alook/shared", async () => {
@@ -111,5 +117,72 @@ describe("bot send duplicate judgment", () => {
     mocks.recent.mockResolvedValue([{ ...row(1), content: "€".repeat(50_000) }])
     expect(await isDuplicateBotMessage(input)).toBe(false)
     expect(mocks.decide).not.toHaveBeenCalled()
+  })
+
+  it("passes question prompts and option labels/recommended (without option descriptions) for proposed and recent decision cards", async () => {
+    const previousCard = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "定一下时间",
+        questions: [{
+          question: "哪天开会？",
+          options: [
+            { label: "周四", description: "internal note A", recommended: true },
+            { label: "周五", description: "internal note B" },
+          ],
+        }],
+      }),
+      [{ userId: "u_gus", handle: "gus#1813" }],
+    )
+    const proposedCard = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "定一下时间",
+        questions: [{
+          question: "哪天开会？",
+          options: [
+            { label: "下周一", description: "internal note C" },
+            { label: "下周二" },
+          ],
+        }],
+      }),
+      [{ userId: "u_gus", handle: "gus#1813" }],
+    )
+    const proposedQuestion = toDecisionCardAgentPayload(proposedCard)
+    mocks.recent.mockResolvedValue([
+      {
+        ...row(1),
+        content: "定一下时间",
+        type: DECISION_CARD_MESSAGE_TYPE,
+        embeds: JSON.stringify([previousCard]),
+      },
+    ])
+    mocks.decide.mockResolvedValue({ answers: { duplicate: { type: "noul", noul: 0.1 } }, model: "test" })
+
+    expect(await isDuplicateBotMessage({ ...input, content: "定一下时间", question: proposedQuestion })).toBe(false)
+    const request = mocks.decide.mock.calls[0][0]
+    expect(request.state).toEqual({
+      proposed_message: {
+        handle: "helper#5678",
+        question: {
+          summary: "定一下时间",
+          questions: [{
+            question: "哪天开会？",
+            allowOther: true,
+            options: [{ label: "下周一" }, { label: "下周二" }],
+          }],
+        },
+      },
+      recent_messages: [{
+        handle: "other1#1234",
+        question: {
+          summary: "定一下时间",
+          questions: [{
+            question: "哪天开会？",
+            allowOther: true,
+            options: [{ label: "周四", recommended: true }, { label: "周五" }],
+          }],
+        },
+      }],
+    })
+    expect(JSON.stringify(request.state)).not.toContain("internal note")
   })
 })

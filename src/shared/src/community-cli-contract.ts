@@ -1,7 +1,7 @@
 import { MachineRefreshCommandSchema } from "./machine-refresh-contract";
 import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
 import type { BotFeedbackInput } from "./community-feedback";
-import type { DecisionCardInput } from "./community-decision-card";
+import type { DecisionCardAgentPayload, DecisionCardInput } from "./community-decision-card";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 /**
  * Server API contract — the agent ⇄ server boundary.
@@ -204,14 +204,25 @@ export interface ReplyRef {
   sender: string;
 }
 
-export interface MessageContent {
+export interface SendMessageContent {
   text: string;
+  [extra: string]: unknown;
+}
+
+export interface MessageContent {
+  /** Present on ordinary messages (and fallback rows without a structured question payload). */
+  text?: string;
+  /**
+   * Present on `question` messages (decision cards): structured payload matching
+   * `--ask` input with public `@handle` mentions (no internal user IDs).
+   */
+  question?: DecisionCardAgentPayload;
   /** Populated only on the read side (`inboxPull`, `send` response, `resolve`). */
   attachments?: AgentAttachmentRef[];
   /**
    * Present only on the read side, and only when this message replies to an
    * in-scope, non-deleted message. Lives inside `content` alongside
-   * `text`/`attachments`. On the write side the reply intent travels as the
+   * `text`/`question`/`attachments`. On the write side the reply intent travels as the
    * top-level `SendRequest.replyToSeq`, not here — the route ignores any
    * `content.replyTo` on input.
    */
@@ -339,8 +350,8 @@ export interface SendRequest {
   agentId: AgentId;
   /** Path ref of the destination channel/DM/thread. */
   channel: ChannelRef;
-  content: MessageContent;
-  /** Structured decision card payload sent via `alook message ask`. */
+  content: SendMessageContent;
+  /** Structured decision card payload sent via `--ask`. */
   question?: DecisionCardInput;
   /**
    * Attachment ids returned by prior `attachmentUpload` calls. Order matters —

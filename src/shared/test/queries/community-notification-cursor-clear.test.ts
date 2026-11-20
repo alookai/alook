@@ -84,7 +84,9 @@ describe("notification setting read-state isolation contract", () => {
         content TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         seq INTEGER NOT NULL,
-        reply_to_id TEXT
+        reply_to_id TEXT,
+        type TEXT NOT NULL DEFAULT 'default',
+        embeds TEXT
       );
       CREATE TABLE community_read_state (
         id TEXT PRIMARY KEY,
