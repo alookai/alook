@@ -1,6 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth-policy"
 import {
   AccountAttentionSnapshotSchema,
+  COMMUNITY_INBOX_CONTEXT_HEADER,
   DEFAULT_INBOX_PAGE_SIZE,
   MAX_INBOX_PAGE_SIZE,
   queries,
@@ -20,8 +21,9 @@ export const GET = withAuth(humanAuthPolicy, async (request, ctx) => {
     DEFAULT_INBOX_PAGE_SIZE,
     MAX_INBOX_PAGE_SIZE,
   )
+  const includeCategories = request.headers.get(COMMUNITY_INBOX_CONTEXT_HEADER) === "1"
   const { value, stale } = await readOrStale(
-    async () => hydrateAttentionResources(db, ctx.userId, await queries.communityAttention.getAccountAttentionProjection(db, ctx.userId, limit)),
+    async () => hydrateAttentionResources(db, ctx.userId, await queries.communityAttention.getAccountAttentionProjection(db, ctx.userId, limit), includeCategories),
     {
       resources: { viewerId: ctx.userId, servers: [], serverMemberships: [], channels: [], memberships: [], profiles: [], messages: [] },
       scopes: [],

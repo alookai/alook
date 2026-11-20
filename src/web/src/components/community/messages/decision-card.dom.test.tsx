@@ -277,4 +277,55 @@ describe("DecisionCard", () => {
     expect(view.queryByText("PLAIN_FALLBACK_SUMMARY")).toBeNull()
     view.unmount()
   })
+
+  it("keeps DecisionCard choices and profiles read-only in a Message even when callbacks are supplied", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const card = sampleCard()
+    const message = {
+      id: "m_inbox_decision",
+      type: "chat" as const,
+      grouped: false,
+      decisionCard: { ...card, questions: card.questions.slice(0, 1) },
+    }
+    const onOpenProfile = vi.fn()
+    const onSubmitDecisionCard = vi.fn(async () => ({ replyToId: message.id }))
+    const row = (readOnly: boolean) => (
+      <QueryClientProvider client={client}>
+        <Message
+          m={message}
+          readOnly={readOnly}
+          viewerUserId="u_gus"
+          onOpenProfile={onOpenProfile}
+          onSubmitDecisionCard={onSubmitDecisionCard}
+        />
+      </QueryClientProvider>
+    )
+    const view = render(row(true))
+
+    expect(view.getByTestId(tid.decisionCard)).toBeVisible()
+    const choice = () => view.getByTestId(tid.decisionCardOption("timing", "today"))
+    expect(choice().querySelector('[role="radio"]')).toHaveAttribute("aria-disabled", "true")
+    const assignee = () => view.getByText("@gus", { exact: true })
+    expect(assignee().closest("button")).toBeNull()
+    fireEvent.click(assignee())
+    fireEvent.click(choice())
+    expect(view.queryByTestId(tid.decisionCardSubmit)).toBeNull()
+    expect(onOpenProfile).not.toHaveBeenCalled()
+    expect(onSubmitDecisionCard).not.toHaveBeenCalled()
+
+    view.rerender(row(false))
+    expect(assignee().closest("button")).not.toBeNull()
+    fireEvent.click(assignee())
+    expect(onOpenProfile).toHaveBeenCalledExactlyOnceWith("gus", expect.anything(), "1813", "u_gus")
+    fireEvent.click(choice())
+    await act(async () => {
+      fireEvent.click(view.getByTestId(tid.decisionCardSubmit))
+    })
+    expect(onSubmitDecisionCard).toHaveBeenCalledExactlyOnceWith(
+      message.id,
+      expect.stringContaining("Timing: Today"),
+      expect.any(String),
+    )
+    view.unmount()
+  })
 })

@@ -13,11 +13,52 @@ const layoutStorageKey = COMMUNITY_LAYOUT_STORAGE_KEY
 const expectedDefaultSidebarWidth = 317
 const expectedOuterWidth = 375
 const expectedVisibleWidth = 359
+const desktopInboxWidth = 480
 const geometryEpsilon = 1
 
 const shellPanel = (page: Page, id: "sidebar" | "main") => (
   page.locator(`[data-slot="resizable-panel"][data-testid="${id}"]`)
 )
+
+async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator) {
+  const header = card.locator('[data-slot="inbox-card-header"]')
+  const cardId = await card.getAttribute("data-testid")
+  await list.evaluate((element, cardId) => {
+    const cardElement = element.querySelector(`[data-testid="${cardId}"]`)!
+    element.scrollTop += cardElement.getBoundingClientRect().top - element.getBoundingClientRect().top + 80
+  }, cardId)
+  await expect.poll(async () => {
+    const [listBox, headerBox] = await Promise.all([list.boundingBox(), header.boundingBox()])
+    return !listBox || !headerBox ? Infinity : Math.abs(listBox.y - headerBox.y)
+  }).toBeLessThanOrEqual(1)
+  const box = await header.boundingBox()
+  if (!box) throw new Error("Pinned Inbox card header is unavailable")
+  await page.mouse.move(box.x + 2, box.y + 2)
+  await expect(header).toHaveCSS("border-top-width", "1px")
+  await expect(header).toHaveCSS("border-top-style", "solid")
+  await expect.poll(() => header.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const bodyOverlaps = [...(element.parentElement?.querySelectorAll("[data-message-renderer]") ?? [])]
+      .some(row => {
+        const body = row.getBoundingClientRect()
+        return body.top < rect.bottom && body.bottom > rect.top
+      })
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = 1
+    const context = canvas.getContext("2d")!
+    context.fillStyle = getComputedStyle(element).backgroundColor
+    context.fillRect(0, 0, 1, 1)
+    return {
+      bodyOverlaps,
+      hovered: element.matches(":hover"),
+      coversCorners: [rect.left + 2, rect.right - 2].every(x => (
+        element.contains(document.elementFromPoint(x, rect.top + 2))
+      )),
+      alpha: context.getImageData(0, 0, 1, 1).data[3],
+    }
+  })).toEqual({ bodyOverlaps: true, hovered: true, coversCorners: true, alpha: 255 })
+  await expect(list).toHaveCSS("mask-image", /linear-gradient/)
+}
 
 type LayoutSample = {
   frame: number
@@ -355,9 +396,9 @@ async function readComposerGeometry(page: Page): Promise<ComposerGeometry> {
   })
 }
 
-async function expectExtensionGeometry(page: Page) {
+async function expectExtensionGeometry(page: Page, width = 320) {
   const extension = page.getByTestId(tid.userBarExtension)
-  await expect.poll(async () => (await extension.boundingBox())?.width ?? 0).toBeCloseTo(320, 0)
+  await expect.poll(async () => (await extension.boundingBox())?.width ?? 0).toBeCloseTo(width, 0)
   const base = page.getByTestId(tid.userBar).locator(
     '[data-slot="community-user-bar-base"]',
   )
@@ -367,7 +408,7 @@ async function expectExtensionGeometry(page: Page) {
   ])
   expect(extensionBox).not.toBeNull()
   expect(baseBox).not.toBeNull()
-  expect(Math.abs(extensionBox!.width - 320)).toBeLessThanOrEqual(
+  expect(Math.abs(extensionBox!.width - width)).toBeLessThanOrEqual(
     geometryEpsilon,
   )
   expect(Math.abs(baseBox!.width - expectedVisibleWidth)).toBeLessThanOrEqual(
@@ -909,7 +950,7 @@ test.describe("desktop default User Bar width", () => {
       const markedMessageId = await seedMessage(
         "alice",
         floorChannelId,
-        `Marked ${stamp} ${"very-long-row-content ".repeat(12)}`,
+        `Marked ${stamp} ${"very-long-row-content ".repeat(12)}${"\n\nLong unread message body.".repeat(20)}`,
       )
       await seedMessage(
         "alice",
@@ -939,33 +980,41 @@ test.describe("desktop default User Bar width", () => {
       const extension = bob.page.getByTestId(tid.userBarExtension)
       await expect(extension).toHaveAttribute("data-extension", "inbox")
       await waitForElementMotion(extension)
-      expect((await extension.boundingBox())!.width).toBeCloseTo(320, 0)
+      expect((await extension.boundingBox())!.width).toBeCloseTo(desktopInboxWidth, 0)
 
       const evidence: Array<Record<string, unknown>> = []
-      for (const tab of ["Unreads", "Mentions", "Marked"] as const) {
+      for (const tab of ["Unreads", "Marked"] as const) {
         await bob.page.getByRole("tab", { name: tab }).click()
-        const tabKey = tab.toLowerCase() as "unreads" | "mentions" | "marked"
+        const tabKey = tab.toLowerCase() as "unreads" | "marked"
         const activeBody = bob.page.getByTestId(tid.inboxTabScroll(tabKey))
         await expect(activeBody).toBeVisible()
         if (tab === "Unreads") {
           const requestRow = bob.page.getByTestId(tid.inboxFriendRequest(friendRequestId))
           await expect(requestRow).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxUnreadChannel(floorChannelId))).toBeVisible()
+          await expect(bob.page.getByRole("tab", { name: "Mentions", exact: true })).toHaveCount(0)
+          await bob.page.getByTestId(tid.inboxToggleChannel(floorChannelId)).click()
+          await expect(activeBody).toContainText(`Mention ${stamp}`)
+          await expect(bob.page.getByTestId(tid.inboxMarkChannelRead(floorChannelId))).toBeVisible()
+          const card = bob.page.getByTestId(tid.inboxUnreadCard(floorChannelId))
+          await expect(card.getByLabel("2 unread messages")).toBeVisible()
+          await expect(bob.page.getByTestId(tid.inboxUnreadMessages(floorChannelId)).locator("[data-message-renderer]").first()).toBeVisible()
+          await expectPinnedInboxHeader(bob.page, activeBody, card)
+          await expect(card.getByLabel("2 unread messages")).toBeVisible()
           await requestRow.hover()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestAccept(friendRequestId))).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestReject(friendRequestId))).toBeVisible()
         } else {
-          const content = tab === "Mentions" ? `Mention ${stamp}` : `Marked ${stamp}`
+          const content = `Marked ${stamp}`
           await expect(activeBody).toContainText(
             content,
           )
-          const rowButton = activeBody.getByRole("button", { name: new RegExp(content) })
-          const row = rowButton.locator("..")
-          const action = row.getByRole("button", { name: tab === "Mentions" ? "Mark mention as read" : "More", exact: true })
-          await expect(row).toHaveCount(1)
-          await expect(action).toHaveCount(1)
-          await row.hover()
+          const action = activeBody.getByTestId(tid.inboxUnmark(markedMessageId))
+          const row = action.locator("xpath=ancestor::article[1]")
+          await expect(row).toContainText(content)
+          await expect(action).toHaveAccessibleName("Unmark")
           await expect(action).toBeVisible()
+          await expectPinnedInboxHeader(bob.page, activeBody, row)
         }
 
         const sample = await extension.evaluate((element, ids) => {
@@ -1241,7 +1290,7 @@ test.describe("desktop default User Bar width", () => {
         await expect(extension).toHaveAttribute("data-extension", "inbox")
         await expect(extension).toBeFocused()
         await waitForElementMotion(extension)
-        await expectExtensionGeometry(authenticated.page)
+        await expectExtensionGeometry(authenticated.page, desktopInboxWidth)
         await attachScreenshot(
           authenticated.page,
           testInfo,

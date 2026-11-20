@@ -10,7 +10,9 @@ export async function waitForElementMotion(locator: Locator): Promise<void> {
     const animations: Animation[] = []
     for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
       animations.push(...ancestor.getAnimations().filter((animation) => (
-        animation.effect?.getTiming().iterations !== Infinity
+        // The next scroll action drives scroll-linked effects.
+        animation.timeline instanceof DocumentTimeline
+        && animation.effect?.getTiming().iterations !== Infinity
       )))
     }
     await Promise.all(animations.map((animation) => animation.finished.catch(() => {})))

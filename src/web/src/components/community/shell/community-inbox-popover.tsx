@@ -1,30 +1,31 @@
 
-import { AlertCircle, Bookmark, Check, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "@/components/icons/lucide";
-import { formatHandle, messagePreviewText } from "@alook/shared"
+import { AlertCircle, Bookmark, Check, ChevronDown, Inbox, LoaderCircle, Trash2, X } from "@/components/icons/lucide";
 import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { CommunityNavigationLink } from "./community-navigation-link"
+import { InboxMessagePreview } from "./inbox-message-preview"
 import { Avatar } from "../avatar"
-import { ChannelIcon } from "../channels/channel-icon"
 import { EmptyState } from "../empty-state"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
-import { formatRelativeTime } from "@/lib/community/format-time"
-import type { InboxFriendRequest, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { InboxFriendRequest, InboxUnreadMessagesInput, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import type { ActionableFriendRequest } from "@/hooks/community/use-friend-request-action-state"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalCategoriesById, useCanonicalChannelsById, useCanonicalProfilesByUserId, useCanonicalServersById, useDmProjection } from "@/lib/community-db/projections"
+import type { EntityKind } from "@/lib/community/models/navigation"
+import { cn } from "@/lib/utils"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { avatarInitial } from "@/lib/community/avatar"
 import {
+  useId,
+  useState,
   useLayoutEffect,
   useRef,
+  type ComponentProps,
   type KeyboardEvent,
   type ReactNode,
   type UIEvent,
@@ -32,7 +33,7 @@ import {
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
-export type InboxTab = "unreads" | "mentions" | "marked"
+export type InboxTab = "unreads" | "marked"
 
 function InboxScrollBody({
   tab,
@@ -96,7 +97,7 @@ function InboxScrollBody({
       ref={ref}
       data-testid={tid.inboxTabScroll(tab)}
       // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
-      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar p-3"
+      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar scroll-fade-b scroll-fade-4"
       onScroll={onScroll}
       onWheel={() => { transientScrollRef.current = true }}
       onKeyDown={onKeyDown}
@@ -104,7 +105,7 @@ function InboxScrollBody({
       onPointerUp={() => { pointerScrollRef.current = false }}
       onPointerCancel={() => { pointerScrollRef.current = false }}
     >
-      <div ref={contentRef} className="flex flex-1 flex-col">{children}</div>
+      <div ref={contentRef} className="flex flex-1 flex-col p-3">{children}</div>
     </div>
   )
 }
@@ -112,9 +113,168 @@ function InboxScrollBody({
 function InboxCountBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
-    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">
+    <span role="img" aria-label={`${count} unread ${count === 1 ? "message" : "messages"}`}
+      className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">
       {count}
     </span>
+  )
+}
+
+const identityActionClassName = "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm transition-transform duration-150 active:scale-[0.99] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
+const cardActionClassName = "size-11 shrink-0 sm:size-8"
+const unreadChannelActionClassName = "text-muted-foreground hover:bg-accent hover:text-foreground dark:hover:bg-accent"
+
+function InboxIconAction({ children, className, compact, mobileRestingTint, ...props }:
+  Omit<ComponentProps<typeof Button>, "className" | "size" | "variant"> & { className?: string; compact?: boolean; mobileRestingTint?: boolean }
+) {
+  return (
+    <Button {...props} variant="ghost" size="icon" className={cn(
+      compact ? "size-11 shrink-0 bg-transparent!" : `${cardActionClassName} max-sm:bg-transparent!`,
+      "focus-visible:ring-inset",
+      className,
+    )}>
+      <span aria-hidden="true" data-slot="inbox-action-visual" className={cn(
+        "pointer-events-none grid place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none",
+        compact ? "size-7 group-hover/button:bg-accent" : "max-sm:size-7 max-sm:group-hover/button:bg-accent",
+        mobileRestingTint && "max-sm:group-enabled/button:bg-accent",
+      )}>
+        {children}
+      </span>
+    </Button>
+  )
+}
+
+function useInboxCardDirectory() {
+  const channels = useCanonicalChannelsById()
+  const categories = useCanonicalCategoriesById()
+  const servers = useCanonicalServersById()
+  const dms = useDmProjection()
+  return { channels, categories, servers, dms }
+}
+
+type InboxCardDirectory = ReturnType<typeof useInboxCardDirectory>
+
+function channelLocation(directory: InboxCardDirectory, channelId: string, parentChannelId?: string | null) {
+  const channel = directory.channels.get(channelId)
+  const parent = channel?.parentChannelId ?? parentChannelId
+  if (parent) return directory.channels.get(parent)?.name
+  return channel?.categoryId ? directory.categories.get(channel.categoryId)?.name : undefined
+}
+
+function InboxServerCardIdentity({ server, name, kind, location }: {
+  server: Pick<UnreadServer, "serverId" | "serverName" | "serverIcon">
+  name: string
+  kind?: EntityKind
+  location?: string | null
+}) {
+  const context = location ? `${server.serverName} › ${location}` : server.serverName
+  return (
+    <>
+      <ServerIcon id={server.serverId} name={server.serverName} initial={avatarInitial(server.serverName)}
+        icon={server.serverIcon} size={32} className="shrink-0 rounded-lg" />
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-1 font-medium">
+          <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
+            <EntityIcon kind={kind} className="size-4" />
+          </span>
+          <span className="truncate" title={name}>{name}</span>
+        </span>
+        <span className="block truncate text-xs text-muted-foreground" title={context}>{context}</span>
+      </span>
+    </>
+  )
+}
+
+function InboxDmCardIdentity({ name, avatar, userId, discriminator }: {
+  name: string
+  avatar: string
+  userId: string
+  discriminator?: string
+}) {
+  return (
+    <>
+      <Avatar label={avatar} seed={userId} size={32} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium" title={name}>
+          {name}{discriminator && <span className="ml-1 text-xs text-muted-foreground">#{discriminator}</span>}
+        </span>
+        <span className="block text-xs text-muted-foreground">Direct Messages</span>
+      </span>
+    </>
+  )
+}
+
+function InboxCard({ testId, identity, actions, hasBody, children }: {
+  testId: string
+  identity: ReactNode
+  actions: ReactNode
+  hasBody?: boolean
+  children: ReactNode
+}) {
+  return (
+    <article data-testid={testId} className="mb-2 isolate min-w-0 overflow-clip rounded-lg border-x border-b border-border bg-card text-card-foreground">
+      <header data-slot="inbox-card-header" className={cn(
+        "sticky top-0 z-10 flex min-w-0 items-center gap-2 border-t border-border bg-card p-2 transition-colors duration-150 hover:text-accent-foreground motion-reduce:transition-none sm:px-4",
+        "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-accent before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-100 motion-reduce:before:transition-none",
+        hasBody && "border-b",
+      )}>
+        {identity}
+        {actions}
+      </header>
+      {hasBody && <div className="relative z-0">{children}</div>}
+    </article>
+  )
+}
+
+function UnreadChannelCard({ channelId, name, throughSeq = 0, mentions, renderUnreadMessages, onMarkChannelRead, children }: {
+  channelId: string
+  name: string
+  throughSeq?: number
+  mentions: Mention[]
+  renderUnreadMessages: (input: InboxUnreadMessagesInput) => ReactNode
+  onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
+  children: ReactNode
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [read, setRead] = useState<{ throughSeq: number; pending: boolean; failed: boolean } | null>(null)
+  const bodyId = useId()
+  const mark = async (seq: number) => {
+    if (!onMarkChannelRead || read?.pending) return
+    setRead({ throughSeq: seq, pending: true, failed: false })
+    try {
+      await onMarkChannelRead(channelId, seq)
+      setRead(null)
+    } catch {
+      setRead({ throughSeq: seq, pending: false, failed: true })
+    }
+  }
+  return (
+    <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={children} hasBody={expanded || read?.failed}
+      actions={<div className="-me-2 flex shrink-0 items-center sm:-me-4">
+        <InboxIconAction mobileRestingTint className={cn(unreadChannelActionClassName, "bg-accent")}
+          data-testid={tid.inboxMarkChannelRead(channelId)}
+          aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || read?.pending}
+          onClick={() => { void mark(throughSeq) }}>
+          {read?.pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+        </InboxIconAction>
+        <InboxIconAction
+          className={cn(unreadChannelActionClassName, "aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-accent hover:aria-expanded:text-foreground")}
+          data-testid={tid.inboxToggleChannel(channelId)}
+          aria-label={`${expanded ? "Hide" : "Show"} unread messages in ${name}`} aria-expanded={expanded} aria-controls={bodyId}
+          onClick={() => setExpanded(value => !value)}>
+          <ChevronDown className={`size-4 transition-transform motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} />
+        </InboxIconAction>
+      </div>}
+    >
+      {read?.failed && <div role="alert" className="flex items-center justify-between gap-2 px-2 pb-2 text-xs">
+        <span>Couldn&apos;t update read status</span>
+        <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-8" aria-label={`Retry marking ${name} read`}
+          onClick={() => { void mark(read.throughSeq) }}>Retry</Button>
+      </div>}
+      {expanded && <section id={bodyId} aria-label={`Unread messages in ${name}`} className="min-w-0 px-2 sm:px-4">
+        {renderUnreadMessages({ channelId, throughSeq, mentions })}
+      </section>}
+    </InboxCard>
   )
 }
 
@@ -123,7 +283,7 @@ function AttentionLoadError({ onRetry, retrying = false }: { onRetry?: () => voi
   return <div role="alert" className="flex flex-1 flex-col"><EmptyState icon={AlertCircle} label="Couldn't load Inbox" /></div>
 }
 
-function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, onOpenMention, renderUnreadMessages, onMarkChannelRead, mentions, profilesByUserId, directory, getScrollOffset, onScrollOffsetChange }: {
   friendRequests: Array<ActionableFriendRequest<InboxFriendRequest>>
   servers: UnreadServer[]
   dms: UnreadDm[]
@@ -142,10 +302,20 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
   ) => void
   onOpenThread: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
   onOpenDm?: (dm: UnreadDm) => void
+  onOpenMention?: (mention: Mention) => void
+  renderUnreadMessages?: (input: InboxUnreadMessagesInput) => ReactNode
+  onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
+  mentions: Mention[]
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
+  directory: InboxCardDirectory
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
+  const renderMessages = renderUnreadMessages ?? ((input: InboxUnreadMessagesInput) => <div data-testid={tid.inboxUnreadMessages(input.channelId)} className="flex flex-col gap-2">
+    {input.mentions.length === 0 && <p className="p-2 text-sm text-muted-foreground">No unread messages</p>}
+    {input.mentions.map(mention => <InboxMessagePreview key={mention.id} message={{ ...mention.m, grouped: false }}
+      testId={tid.inboxMention(mention.id)} onOpen={onOpenMention ? () => onOpenMention(mention) : undefined} />)}
+  </div>)
   const visibleDms = dms
   const visibleServers = servers.map((server) => ({
     server,
@@ -204,32 +374,28 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
                     </span>
                   </button>
                   <div className="flex shrink-0 gap-1">
-                    <Button
+                    <InboxIconAction compact
                       data-testid={tid.inboxFriendRequestAccept(request.id)}
-                      variant="secondary"
-                      size="icon"
                       disabled={pending}
                       onClick={() => onAcceptFriendRequest?.(item)}
                       aria-label={`Accept ${profile.name}'s friend request`}
-                      className="size-11 rounded-full sm:size-8"
+                      className="text-muted-foreground"
                     >
                       {pending && item.action === "accept"
                         ? <LoaderCircle className="size-4 animate-spin" />
                         : <Check className={pending ? "size-4" : "size-4 text-status-online"} />}
-                    </Button>
-                    <Button
+                    </InboxIconAction>
+                    <InboxIconAction compact
                       data-testid={tid.inboxFriendRequestReject(request.id)}
-                      variant="secondary"
-                      size="icon"
                       disabled={pending}
                       onClick={() => onRejectFriendRequest?.(item)}
                       aria-label={`Reject ${profile.name}'s friend request`}
-                      className="size-11 rounded-full text-destructive sm:size-8"
+                      className="text-muted-foreground"
                     >
                       {pending && item.action === "reject"
                         ? <LoaderCircle className="size-4 animate-spin" />
-                        : <X className="size-4" />}
-                    </Button>
+                        : <X className="size-4 text-destructive" />}
+                    </InboxIconAction>
                   </div>
                 </div>
                 {item.error && (
@@ -243,133 +409,48 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           })}
         </div>
       )}
-      {visibleDms.length > 0 && (
-        <>
-        {friendRequests.length > 0 && <Separator className="mb-3" />}
-        <div className="mb-3">
-          <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">Direct Messages</div>
-          {visibleDms.map((d) => {
-            const profile = readCommunityProfile(
-              profilesByUserId.get(d.otherUserId),
-              d.otherUserId,
-            )
-            return (
-            <CommunityNavigationLink
-              key={d.channelId}
-              data-testid={tid.inboxUnreadDm(d.channelId)}
-              href={`/c/me/${encodeURIComponent(d.channelId)}`}
-              onActivate={() => onOpenDm?.(d)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
-            >
-              <Avatar label={profile.avatar} seed={d.otherUserId} size={24} />
-              <span className="min-w-0 flex-1 truncate">{profile.name}{profile.discriminator && <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">#{profile.discriminator}</span>}</span>
-              <InboxCountBadge count={d.unreadCount ?? 0} />
-            </CommunityNavigationLink>
-            )
-          })}
-        </div>
-        </>
-      )}
-      {visibleServers.length > 0 && (friendRequests.length > 0 || visibleDms.length > 0) && <Separator className="mb-3" />}
-      {visibleServers.map(({ server, channels }) => (
-        <div key={server.serverId} className="mb-3">
-          <div className="flex items-center gap-2 px-2 pb-1 text-sm font-semibold text-muted-foreground">
-            <ServerIcon id={server.serverId} name={server.serverName} initial={avatarInitial(server.serverName)} icon={server.serverIcon} size={14} className="shrink-0 rounded-sm" />
-            <span className="truncate">{server.serverName}</span>
-          </div>
-          {channels.map(({ channel, directVisible, children }) => (
-            <div key={channel.channelId}>
-              <button
-                data-testid={tid.inboxUnreadChannel(channel.channelId)}
-                onClick={() => onOpenChannel?.(server, channel, directVisible)}
-                className="flex w-full items-center gap-2 rounded-md py-2 pl-6 pr-2 text-left text-sm transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none"
-              >
-                <EntityIcon kind={channel.type} className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{channel.channelName}</span>
-                {directVisible && <InboxCountBadge count={channel.mentionCount} />}
-              </button>
-              {children.map((child) => (
-                <button
-                  key={child.channelId}
-                  data-testid={tid.inboxUnreadChild(child.channelId)}
-                  onClick={() => onOpenThread(server, channel, child)}
-                  className="flex w-full items-center gap-2 rounded-md py-1.5 pl-10 pr-2 text-left text-sm transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none"
-                >
-                  <EntityIcon kind={child.type} className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{child.channelName}</span>
-                  <InboxCountBadge count={child.mentionCount} />
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
-      ))}
-    </InboxScrollBody>
-  )
-}
-
-function MentionsTab({ mentions, loading, error, retrying, onRetry, onOpenMention, onDeleteMention, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
-  mentions: Mention[]
-  loading?: boolean
-  error?: boolean
-  retrying?: boolean
-  onRetry?: () => void
-  onOpenMention?: (m: Mention) => void
-  onDeleteMention?: (id: string) => void
-  profilesByUserId: ReadonlyMap<string, CommunityProfile>
-  getScrollOffset?: (tab: InboxTab) => number
-  onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
-}) {
-  const visibleMentions = mentions
-  return (
-    <InboxScrollBody tab="mentions" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
-      {loading && visibleMentions.length === 0 && <InboxRowsSkeleton />}
-      {error && visibleMentions.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
-      {!loading && !error && visibleMentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
-      {visibleMentions.map((mn) => {
-        if (mn.pending) {
-          return (
-            <div key={mn.id} className="flex items-start gap-3 rounded-md p-2" aria-busy="true">
-              <Skeleton className="size-9 shrink-0 rounded-full" />
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <Skeleton className="h-3.5 w-2/5 rounded" />
-                <Skeleton className="h-3 w-3/4 rounded" />
-                <Skeleton className="h-3 w-full rounded" />
-              </div>
-            </div>
-          )
-        }
-        const author = readCommunityProfile(
-          mn.m.authorId ? profilesByUserId.get(mn.m.authorId) : undefined,
-          mn.m.authorId ?? "",
-        )
-        return (
-        <div key={mn.id} className="grid w-full grid-cols-[minmax(0,1fr)_20px] items-start rounded-md p-2 text-left hover:bg-accent">
-          <button onClick={() => onOpenMention?.(mn)} className="col-span-2 col-start-1 row-start-1 flex min-w-0 items-start gap-3 text-left">
-            <Avatar label={author.avatar} seed={mn.m.authorId} size={36} />
-            <div className="min-w-0 flex-1">
-              <div className="flex h-5 items-center pr-7 text-sm font-medium leading-5">
-                <span className="truncate">{author.discriminator ? formatHandle(author.name, author.discriminator) : author.name}</span>
-              </div>
-              <div data-slot="inbox-mention-context" className="truncate text-[11px] leading-4 text-muted-foreground/75">
-                {mn.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mn.channel}
-              </div>
-              <div className="truncate text-sm text-muted-foreground">{messagePreviewText(mn.m)}</div>
-            </div>
-          </button>
-          {onDeleteMention && (
-            <Button variant="secondary" size="icon" onClick={() => onDeleteMention(mn.id)} aria-label="Mark mention as read" className="z-10 col-start-2 row-start-1 size-5">
-              <Check className="size-3.5 text-muted-foreground" />
-            </Button>
-          )}
-        </div>
-        )
+      {visibleDms.map(dm => {
+        const profile = readCommunityProfile(profilesByUserId.get(dm.otherUserId), dm.otherUserId)
+        return <UnreadChannelCard key={dm.channelId} channelId={dm.channelId} name={profile.name} throughSeq={dm.lastUnreadSeq}
+          mentions={mentions.filter(mention => mention.channelId === dm.channelId)} renderUnreadMessages={renderMessages} onMarkChannelRead={onMarkChannelRead}>
+          <CommunityNavigationLink data-testid={tid.inboxUnreadDm(dm.channelId)} href={`/c/me/${encodeURIComponent(dm.channelId)}`}
+            onActivate={() => onOpenDm?.(dm)} className={identityActionClassName}>
+            <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} />
+            <InboxCountBadge count={dm.unreadCount ?? 0} />
+          </CommunityNavigationLink>
+        </UnreadChannelCard>
       })}
+      {visibleServers.flatMap(({ server, channels }) => channels.flatMap(({ channel, directVisible, children }) => [
+        ...(directVisible ? [<UnreadChannelCard key={channel.channelId} channelId={channel.channelId} name={channel.channelName} throughSeq={channel.lastUnreadSeq}
+          mentions={mentions.filter(mention => mention.channelId === channel.channelId)}
+          renderUnreadMessages={input => renderMessages({
+            ...input,
+            openForumPosts: channel.forumOpeners?.length ? new Map(channel.forumOpeners.map(opener => [
+              opener.openerMessageId, () => onOpenThread(server, channel, opener),
+            ])) : undefined,
+          })}
+          onMarkChannelRead={onMarkChannelRead}>
+          <button type="button" data-testid={tid.inboxUnreadChannel(channel.channelId)}
+            onClick={() => onOpenChannel?.(server, channel, true)} className={identityActionClassName}>
+            <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
+              location={channelLocation(directory, channel.channelId)} />
+            <InboxCountBadge count={channel.unreadCount ?? 0} />
+          </button>
+        </UnreadChannelCard>] : []),
+        ...children.map(child => <UnreadChannelCard key={child.channelId} channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq}
+          mentions={mentions.filter(mention => mention.channelId === child.channelId)} renderUnreadMessages={renderMessages} onMarkChannelRead={onMarkChannelRead}>
+          <button type="button" data-testid={tid.inboxUnreadChild(child.channelId)}
+            onClick={() => onOpenThread(server, channel, child)} className={identityActionClassName}>
+            <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} />
+            <InboxCountBadge count={child.unreadCount ?? 0} />
+          </button>
+        </UnreadChannelCard>),
+      ]))}
     </InboxScrollBody>
   )
 }
 
-function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, onUnmark, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
+function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, onUnmark, directory, getScrollOffset, onScrollOffsetChange }: {
   marked: Marked[]
   loading?: boolean
   error?: boolean
@@ -377,52 +458,43 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
   onRetry?: () => void
   onOpenMarked?: (m: Marked) => void
   onUnmark?: (messageId: string) => void
-  profilesByUserId: ReadonlyMap<string, CommunityProfile>
+  directory: InboxCardDirectory
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
+  const peersByChannel = new Map(directory.dms?.map(dm => [dm.id, dm]))
   return (
     <InboxScrollBody tab="marked" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && marked.length === 0 && <InboxRowsSkeleton />}
       {error && marked.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
-      {marked.map((mk) => {
-        const author = readCommunityProfile(
-          mk.m.authorId ? profilesByUserId.get(mk.m.authorId) : undefined,
-          mk.m.authorId ?? "",
-        )
+      {marked.map(mk => {
+        const channel = directory.channels.get(mk.channelId)
+        const server = mk.serverId ? directory.servers.get(mk.serverId) : undefined
+        const peer = peersByChannel.get(mk.channelId)
+        const name = peer?.name ?? channel?.name ?? mk.channel
+        const open = onOpenMarked ? () => onOpenMarked(mk) : undefined
         return (
-        <div key={mk.id} className="group flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-accent">
-          <button onClick={() => onOpenMarked?.(mk)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
-            <Avatar label={author.avatar} seed={mk.m.authorId} size={36} />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm">
-                <span className="font-medium">{author.name}</span>{" "}
-                <span className="text-xs text-muted-foreground">
-                  in{" "}
-                  {mk.serverId
-                    ? <>{mk.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mk.channel}</>
-                    : "DM"}
-                  {mk.m.createdAt && <> · {formatRelativeTime(mk.m.createdAt)}</>}
-                </span>
-              </div>
-              <div className="truncate text-sm text-muted-foreground">{messagePreviewText(mk.m)}</div>
+          <InboxCard key={mk.id} testId={tid.inboxMarkedCard(mk.id)} hasBody
+            identity={<button type="button" className={identityActionClassName} onClick={open}>
+              {mk.serverId
+                ? <InboxServerCardIdentity name={name} kind={channel?.type === "dm" ? undefined : channel?.type}
+                    location={channelLocation(directory, mk.channelId, mk.parentChannelId)}
+                    server={{ serverId: mk.serverId, serverName: server?.name ?? mk.server, serverIcon: server?.icon }} />
+                : <InboxDmCardIdentity name={name} avatar={peer?.avatar ?? avatarInitial(name)}
+                    userId={peer?.userId ?? mk.channelId} discriminator={peer?.discriminator} />}
+            </button>}
+            actions={onUnmark && <Button variant="ghost" size="icon" aria-label="Unmark" title="Unmark"
+              data-testid={tid.inboxUnmark(mk.m.id)}
+              className={cn(cardActionClassName, "text-muted-foreground hover:text-foreground")}
+              onClick={() => onUnmark(mk.m.id)}>
+              <Trash2 className="size-4" />
+            </Button>}
+          >
+            <div className="min-w-0 px-2 sm:px-4">
+              <InboxMessagePreview message={{ ...mk.m, grouped: false }} onOpen={open} />
             </div>
-          </button>
-          {onUnmark && (
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
-                <MoreHorizontal className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={4} className="w-36">
-                <DropdownMenuItem onClick={() => onUnmark(mk.m.id)}>
-                  <Trash2 className="size-4" />
-                  Unmark
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+          </InboxCard>
         )
       })}
     </InboxScrollBody>
@@ -455,7 +527,6 @@ export function InboxPopover({
   onOpenDm,
   onOpenMention,
   onOpenMarked,
-  onDeleteMention,
   onUnmark,
   onMarkedTabSelected,
   onMarkAllRead,
@@ -463,6 +534,8 @@ export function InboxPopover({
   onActiveTabChange,
   getScrollOffset,
   onScrollOffsetChange,
+  renderUnreadMessages,
+  onMarkChannelRead,
   surface = "desktop",
 }: {
   friendRequests?: Array<ActionableFriendRequest<InboxFriendRequest>>
@@ -494,7 +567,6 @@ export function InboxPopover({
   onOpenDm?: (dm: UnreadDm) => void
   onOpenMention?: (m: Mention) => void
   onOpenMarked?: (m: Marked) => void
-  onDeleteMention?: (id: string) => void
   onUnmark?: (messageId: string) => void
 
   onMarkedTabSelected?: () => void
@@ -503,16 +575,16 @@ export function InboxPopover({
   onActiveTabChange?: (tab: InboxTab) => void
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
+  renderUnreadMessages?: (input: InboxUnreadMessagesInput) => ReactNode
+  onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
   surface?: "desktop" | "mobile" | "extension"
 }) {
   const profilesByUserId = useCanonicalProfilesByUserId()
+  const directory = useInboxCardDirectory()
   const hasUnreads = hasProjectedUnreads
   const hasMentions = hasProjectedMentions
   const showUnreadDot = selectUnreadPresentation({
     accountUnread: hasUnreads || hasOutstandingFriendRequest,
-  }).showDot
-  const showMentionDot = selectUnreadPresentation({
-    accountUnread: hasMentions,
   }).showDot
   const hasMessageUnread = hasUnreads || hasMentions
   return (
@@ -546,12 +618,6 @@ export function InboxPopover({
             {showUnreadDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
-        <TabsTrigger value="mentions">
-          <span className="inline-flex items-center gap-1">
-            Mentions
-            {showMentionDot && <span className="size-1.5 rounded-full bg-primary" />}
-          </span>
-        </TabsTrigger>
         <TabsTrigger value="marked">Marked</TabsTrigger>
       </TabsList>
       <TabsContent value="unreads" className="min-h-0 flex-1">
@@ -559,6 +625,10 @@ export function InboxPopover({
           friendRequests={friendRequests}
           servers={unreads}
           dms={unreadDms}
+          mentions={mentions}
+          onOpenMention={onOpenMention}
+          renderUnreadMessages={renderUnreadMessages}
+          onMarkChannelRead={onMarkChannelRead}
           loading={loading}
           error={attentionError}
           retrying={attentionRetrying}
@@ -571,15 +641,13 @@ export function InboxPopover({
           onOpenThread={onOpenThread ?? (() => {})}
           onOpenDm={onOpenDm}
           profilesByUserId={profilesByUserId}
+          directory={directory}
           getScrollOffset={getScrollOffset}
           onScrollOffsetChange={onScrollOffsetChange}
         />
       </TabsContent>
-      <TabsContent value="mentions" className="min-h-0 flex-1">
-        <MentionsTab mentions={mentions} loading={loading} error={attentionError} retrying={attentionRetrying} onRetry={onRetryAttention} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
-      </TabsContent>
       <TabsContent value="marked" className="min-h-0 flex-1">
-        <MarkedTab marked={marked} loading={markedLoading} error={markedError} retrying={markedRetrying} onRetry={onRetryMarked} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
+        <MarkedTab marked={marked} loading={markedLoading} error={markedError} retrying={markedRetrying} onRetry={onRetryMarked} onOpenMarked={onOpenMarked} onUnmark={onUnmark} directory={directory} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
     </Tabs>
   )

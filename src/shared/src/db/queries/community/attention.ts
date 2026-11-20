@@ -55,6 +55,7 @@ export async function getAccountAttentionProjection(
       parentChannelId: row.parentChannelId,
       ordinaryUnread: true,
       lastUnreadSeq: row.lastUnreadSeq,
+      unreadCount: row.unreadCount,
       lastAttentionSeq: attention?.lastAttentionSeq ?? null,
       attentionCount: attention?.attentionCount ?? 0,
     })

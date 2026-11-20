@@ -45,7 +45,8 @@ describe("account attention snapshot", () => {
       channelId: "c1",
       serverId: "s1",
       parentChannelId: null,
-      lastUnreadSeq: 9,
+      lastUnreadSeq: 12,
+      unreadCount: 10,
       lastAttentionSeq: 9,
       mentionCount: 9,
     }])
@@ -108,7 +109,7 @@ describe("account attention snapshot", () => {
     const snapshot = await getAccountAttentionProjection({} as never, "viewer", 2)
 
     expect(snapshot.truncated).toBe(true)
-    expect(snapshot.scopes[0]?.attentionCount).toBe(9)
+    expect(snapshot.scopes[0]).toMatchObject({ attentionCount: 9, unreadCount: 10 })
     expect(snapshot.items.filter((item) => item.kind !== "friend_request")).toHaveLength(2)
     expect(snapshot.items.filter((item) => item.kind === "friend_request")).toHaveLength(3)
     expect(snapshot.included?.profiles).toHaveLength(5)

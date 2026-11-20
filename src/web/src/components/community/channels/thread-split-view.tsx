@@ -32,6 +32,8 @@ export function ThreadSplitView({
   conversationSubtype = "thread",
   resolvingParent = false,
   modeMarkerRef,
+  parentReadPaused = false,
+  onResumeParentRead,
 }: {
   split: boolean
   layoutPending?: boolean
@@ -40,6 +42,8 @@ export function ThreadSplitView({
   conversationSubtype?: "unknown" | "text" | "forum" | "thread"
   resolvingParent?: boolean
   modeMarkerRef?: RefCallback<HTMLElement>
+  parentReadPaused?: boolean
+  onResumeParentRead?: () => void
 }) {
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "community-thread-split-layout",
@@ -62,6 +66,7 @@ export function ThreadSplitView({
     onLayoutChanged(layout, meta)
   }, [onLayoutChanged, restorePersistedLayout])
   const isThread = conversationSubtype === "thread"
+  const resumeParentRead = parentReadPaused ? onResumeParentRead : undefined
 
   return (
     <main
@@ -108,6 +113,10 @@ export function ThreadSplitView({
           {(split || layoutPending) && <section
             data-testid={tid.threadSplitParent}
             data-thread-parent
+            data-read-observation-paused={parentReadPaused || undefined}
+            onPointerDownCapture={resumeParentRead}
+            onWheelCapture={resumeParentRead}
+            onKeyDownCapture={resumeParentRead}
             inert={!split}
             aria-hidden={!split || undefined}
             aria-label="Parent conversation"

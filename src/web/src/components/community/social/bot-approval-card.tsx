@@ -14,7 +14,7 @@ import { readCommunityProfile } from "@/lib/community/profile-read"
  * projection (`status` × `waitingOn`). Only the actionable state
  * (`pending, waitingOn='you'`) shows Approve/Deny; everything else is a chip.
  */
-export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload }) {
+export function BotApprovalCard({ approval, readOnly }: { approval: FriendApprovalPayload; readOnly?: boolean }) {
   const decide = useOwnerDecision()
   const { status, waitingOn, otherProfile, botProfile, waitingOnProfile } = approval
   const other = readCommunityProfile(
@@ -80,6 +80,8 @@ export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload 
     const name = waitingOnProfile ? waiting.name : "them"
     return chip(`Approved — waiting on ${name}`)
   }
+
+  if (readOnly) return chip("Awaiting your decision")
 
   return (
     <div className={cardBase} data-testid="bot-approval-card" data-approval-status={status}>

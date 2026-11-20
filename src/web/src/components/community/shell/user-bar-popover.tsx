@@ -5,10 +5,11 @@ import { Popover, PopoverPortal, PopoverPositioner, PopoverPopup } from "@/compo
 import { tid } from "@/lib/community/testids"
 import { useProfileSecondaryPosition } from "@/components/community/social/profile-secondary-position"
 
-export function UserBarPopover({ anchor, children, companion, onDismiss, onEscape }: {
+export function UserBarPopover({ anchor, children, companion, inbox, onDismiss, onEscape }: {
   anchor: RefObject<HTMLElement | null>
   children: ReactNode
   companion?: ReactNode
+  inbox?: boolean
   onDismiss: () => void
   onEscape: () => void
 }) {
@@ -38,7 +39,7 @@ export function UserBarPopover({ anchor, children, companion, onDismiss, onEscap
           <PopoverPopup
             ref={popoverRef}
             role="presentation"
-            className={`relative w-80 max-w-[calc(var(--app-safe-width)-1rem)] border-0 bg-transparent p-0 shadow-none ${companion && !ready ? "overflow-hidden" : "overflow-visible"}`}
+            className={`relative max-w-[calc(var(--app-safe-width)-1rem)] border-0 bg-transparent p-0 shadow-none ${inbox ? "w-[30rem]" : "w-80"} ${companion && !ready ? "overflow-hidden" : "overflow-visible"}`}
             initialFocus={() => cardRef.current?.querySelector<HTMLElement>(`[data-testid="${tid.userBarExtension}"]`) ?? false}
             finalFocus={false}
           >

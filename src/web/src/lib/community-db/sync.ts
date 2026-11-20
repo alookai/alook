@@ -1142,8 +1142,12 @@ function ingestCommunityResources(registry: CommunityDbRegistry, input: Communit
     ...registry.collections.serverMemberships.get(serverMembershipKey(row.serverId, row.userId)),
     ...row, id: serverMembershipKey(row.serverId, row.userId), viewer: true,
   })))
+  if (resources.categories?.length) upsertRows(registry, "categories", resources.categories.map(row => ({ ...row, pending: false })))
   upsertRows(registry, "channels", resources.channels.map(row => canonicalChannelRow(row, registry.collections.channels.get(row.id))))
-  upsertRows(registry, "channelMemberships", resources.memberships.map(row => canonicalChannelMembershipRow(row.channelId, row.userId, row.relation, { source: row.source })))
+  upsertRows(registry, "channelMemberships", [
+    ...resources.memberships.map(row => canonicalChannelMembershipRow(row.channelId, row.userId, row.relation, { source: row.source })),
+    ...(resources.dmPeers ?? []).map(row => canonicalChannelMembershipRow(row.channelId, row.userId, "access", { source: "added" })),
+  ])
   writeCanonicalProfilePatches(registry, resources.profiles.map(row => communityUserProfilePatch(row.id, row)))
   for (const channel of resources.channels) ingestMessages(registry, channel.id, resources.messages.filter(row => row.channelId === channel.id), resources.profiles)
 }

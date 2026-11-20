@@ -18,6 +18,13 @@ export type Mention = {
   pending?: boolean
 }
 
+export type InboxUnreadMessagesInput = {
+  channelId: string
+  throughSeq: number
+  mentions: Mention[]
+  openForumPosts?: ReadonlyMap<string, () => void>
+}
+
 // A single per-user saved ("marked") message, as returned by
 // `/api/community/users/me/marks`. Cross-channel newest-first — each row carries
 // the serverId + channelId + seq needed to deep-link back to the message
@@ -51,6 +58,7 @@ type UnreadChild = {
   type?: EntityKind
   lastMessageAt: string
   lastUnreadSeq?: number
+  unreadCount?: number
   mentionCount: number
   // Required together when canonical parent-opener metadata is available.
   // The child id remains the navigation target; opener seq belongs to the
@@ -59,6 +67,12 @@ type UnreadChild = {
   openerMessageId?: string
   openerSeq?: number
   openerUnread?: boolean
+}
+
+type UnreadForumOpener = UnreadChild & {
+  openerMessageId: string
+  openerSeq: number
+  openerUnread: true
 }
 
 // "Unreads" — channels with unread messages, grouped by server. Each channel
@@ -76,9 +90,11 @@ export type UnreadServer = {
     type?: EntityKind
     lastMessageAt: string
     lastUnreadSeq?: number
+    unreadCount?: number
     mentionCount: number
     hasDirectUnread?: boolean
     children: UnreadChild[]
+    forumOpeners?: UnreadForumOpener[]
   }>
 }
 

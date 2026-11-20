@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   markedError: false,
   markAll: vi.fn(),
   deleteMention: vi.fn(),
+  markChannel: vi.fn().mockResolvedValue(undefined),
   unmark: vi.fn(),
   accept: vi.fn(),
   reject: vi.fn(),
@@ -137,6 +138,10 @@ vi.mock("@/hooks/community/mutations", async () => {
   useRejectFriendRequest: () => useRequest("reject"),
   }
 })
+vi.mock("@/hooks/community/use-inbox-channel-messages", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/hooks/community/use-inbox-channel-messages")>(),
+  useMarkInboxChannelRead: () => ({ mutateAsync: mocks.markChannel }),
+}))
 vi.mock("@/hooks/community/channel-route-verification", () => ({
   startChannelRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
 }))
@@ -560,13 +565,14 @@ describe("useShellInboxController", () => {
     expect(order.filter((item) => item === "cancel")).toHaveLength(2)
   })
 
-  it("wires mark/delete/unmark payloads", async () => {
+  it("wires global read, exact channel read and unmark without navigation", async () => {
     const hook = await renderController()
     await act(async () => hook.current.popoverProps.onMarkAllRead?.())
-    await act(async () => hook.current.popoverProps.onDeleteMention?.("mn1"))
+    await act(async () => hook.current.popoverProps.onMarkChannelRead?.("child", 7))
     await act(async () => hook.current.popoverProps.onUnmark?.("msg1"))
     expect(mocks.markAll).toHaveBeenCalledWith()
-    expect(mocks.deleteMention).toHaveBeenCalledWith({ mentionId: "mn1" })
+    expect(mocks.markChannel).toHaveBeenCalledWith({ channelId: "child", throughSeq: 7 })
+    expect(hook.pushed).toEqual([])
     expect(mocks.unmark).toHaveBeenCalledWith({ messageId: "msg1" })
   })
 })

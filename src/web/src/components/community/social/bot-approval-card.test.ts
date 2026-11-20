@@ -15,7 +15,7 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await 
 const OTHER = { id: "u_alice", name: "Alice", discriminator: "0042", image: null, avatarVersion: 0 }
 const BOT = { id: "bot_zoe", name: "Zoe", discriminator: "0007", image: null, avatarVersion: 0 }
 
-function render(approval: FriendApprovalPayload): string {
+function render(approval: FriendApprovalPayload, readOnly = false): string {
   profileState.map = new Map([
     approval.otherProfile,
     approval.botProfile,
@@ -29,7 +29,7 @@ function render(approval: FriendApprovalPayload): string {
   }] as const] : []))
   const client = new QueryClient()
   return renderToStaticMarkup(
-    createElement(QueryClientProvider, { client }, createElement(BotApprovalCard, { approval })),
+    createElement(QueryClientProvider, { client }, createElement(BotApprovalCard, { approval, readOnly })),
   )
 }
 
@@ -52,6 +52,13 @@ describe("BotApprovalCard states", () => {
     expect(html).toContain("Deny")
     expect(html).toContain("Alice#0042")
     expect(html).toContain('data-approval-status="pending"')
+  })
+
+  it("shows a pending decision without its action buttons in a read-only message", () => {
+    const html = render(base({}), true)
+    expect(html).toContain("Awaiting your decision")
+    expect(html).not.toContain(">Approve<")
+    expect(html).not.toContain(">Deny<")
   })
 
   it("pending + waitingOn=addressee → chip 'Approved — waiting on <name>', no buttons", () => {

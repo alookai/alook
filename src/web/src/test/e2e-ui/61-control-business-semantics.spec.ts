@@ -22,6 +22,56 @@ async function expectIconTone(control: Locator, token: string) {
   }).toBe(true)
 }
 
+function inboxActionFace(control: Locator) {
+  return control.locator('[data-slot="inbox-action-visual"]')
+}
+
+async function expectCompactInboxAction(control: Locator) {
+  await expect(control).toHaveCSS("width", "44px")
+  await expect(control).toHaveCSS("height", "44px")
+  await expect(control).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  await expect(control).toHaveCSS("background-image", "none")
+  const face = inboxActionFace(control)
+  await expect(face).toHaveCSS("width", "28px")
+  await expect(face).toHaveCSS("height", "28px")
+  await expect.poll(() => face.evaluate(element => {
+    const visual = element.getBoundingClientRect()
+    const target = element.closest("button")!.getBoundingClientRect()
+    return [visual.left - target.left, target.right - visual.right, visual.top - target.top, target.bottom - visual.bottom]
+  })).toEqual([8, 8, 8, 8])
+}
+
+async function expectInboxHeaderHover(page: Page, action: Locator) {
+  const header = page.locator('[data-slot="inbox-card-header"]').filter({ has: action })
+  const colors = await header.evaluate((element) => {
+    const probe = document.createElement("span")
+    element.appendChild(probe)
+    probe.style.backgroundColor = "var(--card)"
+    const idle = getComputedStyle(probe).backgroundColor
+    probe.style.backgroundColor = "var(--accent)"
+    const hovered = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return { idle, hovered }
+  })
+  expect(colors.hovered).not.toBe(colors.idle)
+  const expectTint = (opacity: string) => expect.poll(() => header.evaluate((element) => {
+    const tint = getComputedStyle(element, "::before")
+    return {
+      base: getComputedStyle(element).backgroundColor,
+      tint: tint.backgroundColor,
+      opacity: tint.opacity,
+    }
+  })).toEqual({ base: colors.idle, tint: colors.hovered, opacity })
+  await page.mouse.move(0, 0)
+  await expectTint("0")
+  await header.hover({ position: { x: 3, y: 4 } })
+  await expectTint("1")
+  await header.locator("button").first().hover()
+  await expectTint("1")
+  await action.hover()
+  await expectTint("1")
+}
+
 async function acceptWhilePending(page: Page, control: Locator, friendshipId: string) {
   let release!: () => void
   const hold = new Promise<void>((resolve) => { release = resolve })
@@ -53,9 +103,20 @@ test("App friend acceptance keeps its semantic icon through both surfaces and pe
     const accept = page.getByRole("button", { name: `Accept ${actors.userName("bob")}'s friend request`, exact: true })
     await expectIconTone(accept, "--status-online")
     await acceptWhilePending(page, accept, bobRequest)
+    if (colorScheme === "dark") {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await gotoAfterUserWsAuth(page, "/c/me")
+    }
+    await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible()
     await page.getByTestId(tid.inboxTrigger).click()
     const inboxAccept = page.getByTestId(tid.inboxFriendRequestAccept(carolRequest))
+    const inboxReject = page.getByTestId(tid.inboxFriendRequestReject(carolRequest))
+    for (const action of [inboxAccept, inboxReject]) {
+      await expect(action).toHaveAttribute("data-variant", "ghost")
+      await expectCompactInboxAction(action)
+    }
     await expectIconTone(inboxAccept, "--status-online")
+    await expectIconTone(inboxReject, "--destructive")
     await acceptWhilePending(page, inboxAccept, carolRequest)
     const response = await page.request.get("/api/community/friends/accepted", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS })
     expect(response.ok()).toBe(true)
@@ -65,7 +126,7 @@ test("App friend acceptance keeps its semantic icon through both surfaces and pe
   }
 })
 
-test("App secondary reaction and mention actions retain supporting colors and their actions", async ({ caseActors }) => {
+test("App reaction and matching Inbox header controls retain their colors and actions", async ({ caseActors }) => {
   test.setTimeout(180_000)
   const actors = await caseActors(["alice", "bob"])
   const serverId = await actors.seed.seedServer("alice", `Semantic controls ${Date.now()}`)
@@ -76,6 +137,7 @@ test("App secondary reaction and mention actions retain supporting colors and th
   for (const colorScheme of ["light", "dark"] as const) {
     const messageId = await actors.seed.seedMessage("alice", reactionChannel, `Reaction ${colorScheme}`)
     await actors.seed.seedReaction("alice", messageId, "👍")
+    await actors.seed.seedMark("bob", reactionChannel, messageId)
     await actors.seed.seedMessage("alice", mentionChannel, `@${bob.name}#${bob.discriminator} Supporting action ${colorScheme}`)
     const { page, context } = await actors.asUser("bob", { colorScheme, viewport: { width: 1280, height: 900 } })
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${reactionChannel}`)
@@ -94,16 +156,84 @@ test("App secondary reaction and mention actions retain supporting colors and th
     await expectIconTone(reaction, "--foreground")
     await page.keyboard.press("Escape")
     await expect(reaction).toHaveAttribute("aria-expanded", "false")
+    const narrow = colorScheme === "dark"
+    if (narrow) {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await gotoAfterUserWsAuth(page, "/c/me")
+    }
+    await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible()
     await page.getByTestId(tid.inboxTrigger).click()
-    await page.getByRole("tab", { name: /^Mentions/ }).click()
-    const markRead = page.getByRole("button", { name: "Mark mention as read", exact: true })
+    await expect(page.getByRole("tab", { name: /^Mentions/ })).toHaveCount(0)
+    const markRead = page.getByTestId(tid.inboxMarkChannelRead(mentionChannel))
+    const arrow = page.getByTestId(tid.inboxToggleChannel(mentionChannel))
+    await expect(markRead).toHaveAttribute("data-variant", "ghost")
+    await expect(arrow).toHaveAttribute("data-variant", "ghost")
+    if (narrow) {
+      await expectCompactInboxAction(markRead)
+      await expectCompactInboxAction(arrow)
+    }
+    const markPaint = narrow ? inboxActionFace(markRead) : markRead
+    const arrowPaint = narrow ? inboxActionFace(arrow) : arrow
+    await page.mouse.move(0, 0)
     await expectIconTone(markRead, "--muted-foreground")
+    const readBackground = await markPaint.evaluate(element => getComputedStyle(element).backgroundColor)
+    expect(readBackground).not.toBe("rgba(0, 0, 0, 0)")
+    await expect(arrowPaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expectInboxHeaderHover(page, markRead)
+    await expect(markPaint).toHaveCSS("background-color", readBackground)
+    await arrow.hover()
+    await expect(arrowPaint).toHaveCSS("background-color", readBackground)
+    await expect(markRead).toHaveCSS("width", narrow ? "44px" : "32px")
+    await expect(arrow).toHaveCSS("width", narrow ? "44px" : "32px")
+    await expect.poll(() => arrow.evaluate((element) => {
+      const read = element.previousElementSibling!
+      const arrowButton = element.getBoundingClientRect()
+      const readButton = read.getBoundingClientRect()
+      const arrowIcon = element.querySelector("svg")!.getBoundingClientRect()
+      const readIcon = read.querySelector("svg")!.getBoundingClientRect()
+      return {
+        buttonGap: arrowButton.left - readButton.right,
+        iconGap: arrowIcon.left - readIcon.right,
+        arrowInset: arrowButton.right - arrowIcon.right,
+        readInset: readButton.right - readIcon.right,
+      }
+    })).toEqual(narrow
+      ? { buttonGap: 0, iconGap: 28, arrowInset: 14, readInset: 14 }
+      : { buttonGap: 0, iconGap: 16, arrowInset: 8, readInset: 8 })
+
+    const readPath = `/api/community/channels/${mentionChannel}/read`
+    let readRequests = 0
+    page.on("request", request => {
+      if (request.method() === "PUT" && new URL(request.url()).pathname === readPath) readRequests += 1
+    })
+    await markRead.focus()
+    await page.keyboard.press("Tab")
+    await expect(arrow).toBeFocused()
+    await expect.poll(() => arrow.evaluate(element => element.matches(":focus-visible"))).toBe(true)
+    await arrow.press("Enter")
+    await expect(arrow).toHaveAttribute("aria-expanded", "true")
+    await expect(page.getByTestId(tid.inboxUnreadMessages(mentionChannel))).toContainText(`Supporting action ${colorScheme}`)
+    await page.mouse.move(0, 0)
+    await expect(arrowPaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await arrow.hover()
+    await expect(arrowPaint).toHaveCSS("background-color", readBackground)
+    await arrow.press("Space")
+    await expect(arrow).toHaveAttribute("aria-expanded", "false")
+    expect(readRequests).toBe(0)
     const dismissed = page.waitForResponse((response) =>
-      response.request().method() === "DELETE"
-      && new URL(response.url()).pathname.startsWith("/api/community/users/me/inbox/mentions/"))
-    await markRead.click()
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === readPath)
+    if (colorScheme === "light") await markRead.click()
+    else {
+      await page.keyboard.press("Shift+Tab")
+      await expect(markRead).toBeFocused()
+      await markRead.press("Enter")
+    }
     expect((await dismissed).ok()).toBe(true)
     await expect(markRead).toHaveCount(0)
+    expect(readRequests).toBe(1)
+    await page.getByRole("tab", { name: "Marked", exact: true }).click()
+    await expectInboxHeaderHover(page, page.getByTestId(tid.inboxUnmark(messageId)))
     await context.close()
   }
 })

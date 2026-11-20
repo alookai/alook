@@ -5,6 +5,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import {
   AccountAttentionSnapshotSchema,
   COMMUNITY_CONTRACT_HEADER,
+  COMMUNITY_INBOX_CONTEXT_HEADER,
   COMMUNITY_RESOURCE_CONTRACT_VERSION,
   type AccountAttentionSnapshot,
 } from "@alook/shared"
@@ -38,6 +39,7 @@ class StaleAttentionReadError extends Error {
 async function fetchAccountAttention(options: ApiRequestOptions): Promise<AccountAttentionSnapshot> {
   const headers = new Headers(options.headers)
   headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_RESOURCE_CONTRACT_VERSION))
+  headers.set(COMMUNITY_INBOX_CONTEXT_HEADER, "1")
   const response = await apiFetch<AccountAttentionSnapshot & { stale?: boolean }>(
     "/api/community/users/me/attention",
     { ...options, headers },

@@ -140,7 +140,8 @@ function InteractiveShell() {
   const inbox = <InboxPopover surface="extension" unreads={unreadServers} unreadDms={[]} mentions={mentions} marked={marked} hasProjectedUnreads={totalUnread > 0} hasProjectedMentions={mentions.length > 0}
     activeTab={inboxTab} onActiveTabChange={setInboxTab} onOpenChannel={(item, room) => openUnread(item.serverId, room.channelId)} onOpenMention={(item) => openUnread(item.serverId!, item.channelId!)}
     onOpenMarked={(item) => openUnread(item.serverId ?? serverId, item.channelId)} onUnmark={(id) => setMarked((items) => items.filter((item) => item.m.id !== id))}
-    onDeleteMention={(id) => setUnread((items) => ({ ...items, [id]: 0 }))} onMarkAllRead={() => { setUnread({}); setPresentVersion((value) => value + 1) }} />
+    renderUnreadMessages={({ channelId }) => <div className="flex flex-col gap-2">{(messages[channelId] ?? []).slice(-(unread[channelId] ?? 0)).map((message) => <div key={message.id} className="p-2 text-sm"><span className="block text-xs font-medium">{message.authorName}</span><span className="whitespace-pre-wrap wrap-break-word">{message.content}</span></div>)}</div>}
+    onMarkChannelRead={async (id) => { setUnread((items) => ({ ...items, [id]: 0 })) }} onMarkAllRead={() => { setUnread({}); setPresentVersion((value) => value + 1) }} />
   const runningBots = [...DEMO_PROFILES.values()].filter((person) => person.kind === "bot" && person.ownerUserId === "demo-gus").map((person) => ({ id: person.id, name: person.name!, image: person.avatar ?? null, activityEmoji: person.statusEmoji!, activityText: person.statusText! }))
   const profileCompanion = <ProfileRunningBotsCardView runningBots={runningBots} onOpenBotAudit={(id) => {
     const anchor = document.activeElement?.getBoundingClientRect()

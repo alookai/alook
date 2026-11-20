@@ -739,11 +739,13 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     const markedScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
     await expect(markedScroll.getByText(`Marked ${stamp} 13`, { exact: true })).toBeAttached()
     await waitForElementMotion(markedScroll)
-    const priorScroll = await markedScroll.evaluate((element) => {
+    const { priorScroll, tailCardId } = await markedScroll.evaluate((element) => {
+      const cards = element.querySelectorAll("article[data-testid^='community-inbox-marked-card-']")
       element.scrollTop = element.scrollHeight
-      return element.scrollTop
+      return { priorScroll: element.scrollTop, tailCardId: cards[cards.length - 1]!.getAttribute("data-testid")! }
     })
     expect(priorScroll).toBeGreaterThan(0)
+    await expect(markedScroll.getByTestId(tailCardId).locator("[data-message-renderer]")).toBeInViewport()
     await waitForElementMotion(markedScroll)
     await expect.poll(() => markedScroll.evaluate((element) => element.scrollTop)).toBe(priorScroll)
     const getsBeforeResize = inboxGets.length
@@ -755,8 +757,11 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
     const desktopScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
     await waitForElementMotion(desktopScroll)
-    await expect.poll(() => desktopScroll.evaluate((element) => element.scrollTop))
-      .toBeGreaterThanOrEqual(priorScroll - 1)
+    await expect.poll(() => desktopScroll.evaluate((element, savedOffset) => {
+      const maxOffset = element.scrollHeight - element.clientHeight
+      return Math.abs(element.scrollTop - Math.min(savedOffset, maxOffset))
+    }, priorScroll)).toBeLessThanOrEqual(1)
+    await expect(desktopScroll.getByTestId(tailCardId).locator("[data-message-renderer]")).toBeInViewport()
 
     await bob.page.setViewportSize({ width: 639, height: 844 })
     await expect(bob.page.getByTestId(tid.userBarExtension)).toBeVisible()
@@ -771,16 +776,17 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       restoredMobileScroll.scrollTop
         - Math.min(priorScroll, restoredMobileScroll.maxScrollTop),
     )).toBeLessThanOrEqual(1)
+    await expect(mobileScroll.getByTestId(tailCardId).locator("[data-message-renderer]")).toBeInViewport()
 
     await bob.page.setViewportSize({ width: 1280, height: 900 })
     const desktopContent = bob.page.getByTestId(tid.userBarExtension)
     await expect(desktopContent).toBeVisible()
     await expect.poll(async () => (await desktopContent.boundingBox())?.width ?? 0)
-      .toBeCloseTo(320, 0)
+      .toBeCloseTo(480, 0)
     const desktopBox = await desktopContent.boundingBox()
     const desktopBaseBox = await bob.page.locator("[data-slot='community-user-bar-base']").boundingBox()
     expect(desktopBaseBox).not.toBeNull()
-    expect(desktopBox!.width).toBeCloseTo(320, 0)
+    expect(desktopBox!.width).toBeCloseTo(480, 0)
     expect(desktopBox!.y + desktopBox!.height).toBeLessThan(desktopBaseBox!.y)
     await expect(desktopContent).toHaveAttribute("data-presentation", "popup")
     await expect(bob.page.getByTestId(tid.inboxMobileBackdrop)).toHaveCount(0)
