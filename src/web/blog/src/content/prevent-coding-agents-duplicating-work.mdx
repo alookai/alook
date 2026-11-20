@@ -1,146 +1,151 @@
 export const metadata = {
-  slug: "prevent-coding-agents-duplicating-work",
-  title: "How to Prevent Coding Agents From Duplicating Work",
-  date: "2026-08-03",
-  author: "Alook Team",
-  excerpt:
-    "Stop coding agents from duplicating work with visible task ownership, searchable decisions, and handoffs that point to what already exists.",
-  readingTime: "6 min read",
-  image: "/blog/prevent-coding-agents-duplicating-work/hero.webp",
+  "slug": "prevent-coding-agents-duplicating-work",
+  "title": "How to Prevent Coding Agents From Duplicating Work",
+  "date": "2026-08-03",
+  "dateModified": "2026-11-20",
+  "author": "Alook Team",
+  "excerpt": "Prevent duplicate coding-agent work with clear ownership, shared decisions, and handoffs between sessions.",
+  "readingTime": "6 min read",
+  "image": "/blog/prevent-coding-agents-duplicating-work/hero-handoff.webp"
 };
 
 export const jsonLd = [
   {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: [
+    "mainEntity": [
       {
         "@type": "Question",
-        name: "Why do coding agents duplicate work?",
-        acceptedAnswer: {
+        "name": "Do worktrees stop agents from duplicating work?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Coding agents duplicate work when separate briefs describe the same outcome and no shared record shows that the goal is already claimed, done, or rejected. Different wording can hide the overlap, especially when each agent only sees its own prompt.",
-        },
+          "text": "Worktrees separate working copies. The assignment still needs to distinguish each agent's goal, even when its files are isolated."
+        }
       },
       {
         "@type": "Question",
-        name: "Is duplicate agent work a Git problem?",
-        acceptedAnswer: {
+        "name": "What if two agents claim a task at the same time?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Usually no. Git catches overlapping edits to the same files, whereas duplicate tasks often land on clean, separate branches. You prevent that earlier with visible ownership, up-to-date status, and links to finished work.",
-        },
+          "text": "Use an assignment mechanism that handles concurrent claims, or have one coordinator assign the work. A plain shared note depends on participants checking it before they start. It won't stop two agents from claiming the same task at the same moment."
+        }
       },
       {
         "@type": "Question",
-        name: "What should a coding-agent handoff include?",
-        acceptedAnswer: {
+        "name": "Should two agents ever work on the same issue?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "Include the goal, definition of done, current owner and status, links to existing outputs, rejected approaches with reasons, and the remaining gap. That lets the next agent see what to build without piecing together an earlier session.",
-        },
+          "text": "Yes. Independent reviews are one reason to revisit the same patch. The second agent has a separate question to answer, and someone compares its findings with the original work."
+        }
       },
       {
         "@type": "Question",
-        name: "Does Alook automatically detect duplicate work?",
-        acceptedAnswer: {
+        "name": "What should happen when an agent stops mid-task?",
+        "acceptedAnswer": {
           "@type": "Answer",
-          text: "No. Alook makes ownership and task history visible in shared rooms and messages, but it does not decide whether two briefs describe the same goal. A person or agent still needs to check existing work, claim the task, and resolve any overlap.",
-        },
-      },
-    ],
-  },
+          "text": "Update the status and link the current changes, checks and unresolved questions. The next agent can assess what remains before continuing."
+        }
+      }
+    ]
+  }
 ];
 
-Claude Code finishes a competitor pricing table on Monday. On Wednesday, Codex gets a vague prompt: “Look into competitor pricing.” It builds nearly the same table from scratch. Neither branch conflicts and no files overlap, yet you paid twice for the same output because the second session couldn't see what Monday's run already finished.
+A developer on a team using Claude Code, Cursor and Codex found that one agent had spent 40 minutes solving a problem another agent had solved the day before. The second session hadn't seen that earlier result.
 
-**To stop coding agents from duplicating work, assign one visible owner per goal, keep task status up to date, link finished and rejected work in new briefs, and check existing tasks before starting.** Git catches line-level merge conflicts, not two agents solving the same problem on separate branches.
+Two agents can work on separate branches and arrive at the same answer. Git tracks changes to files, so a clean merge may give the reviewer no warning that both sessions did the same job.
 
-Below are four common ways agents duplicate tasks and how to prevent them. If your agents are stepping on each other inside the same files, read [What Happens When Multiple AI Agents Edit the Same Repository?](/blog/multiple-ai-agents-edit-same-repository). Here we focus on the task layer: who owns this goal right now, and how does the next agent find out?
+To prevent coding agents from duplicating work, make the intended outcome and its owner visible before starting a task. When work moves to another session, send the existing result and say what remains to be done. The next agent starts with what's done and works on the gap.
 
-![Two AI agents building the same pricing table because the goal was never claimed, contrasted with one claimed owner and a clear done status](/blog/prevent-coding-agents-duplicating-work/hero.webp)
+It happens when you open a fresh session and ask it to look into a problem the team discussed yesterday. You may remember the topic without knowing an agent already found an answer. The new session won't know either unless someone brings that result along.
 
-## Claim one owner so coding agents do not collide
+![A task record links a code file to a review document](/blog/prevent-coding-agents-duplicating-work/hero-handoff.webp)
 
-Say you ask one agent to “implement rate limiting,” and another brief tells a second agent to “prevent API abuse.” Different words, same underlying job. Both start writing middleware. The same thing happens when you run Claude Code in one terminal and Codex in another without a shared claim on the outcome.
+## Two clean branches can solve the same problem
 
-Backlogs without visible owners invite this kind of overlap. Anthropic ran into the same issue while building its multi-agent research system: two subagents researched semiconductor supply chains in parallel because their task boundaries were too loose. Their takeaway was simple: give every subagent a distinct objective, output format, and boundary ([Anthropic, 2025](https://www.anthropic.com/engineering/multi-agent-research-system)).
+Each worktree gives an agent its own working copy. Separate working copies keep uncommitted changes apart when agents edit at the same time. They don't show whether another agent has already started the feature.
 
-**Assign one owner to each goal before any agent makes its first tool call.** Once a task is claimed, any second agent joining in should review, extend, or take a clearly split subtask rather than rebuilding the whole thing.
+A merge conflict exposes overlapping file changes. Two agents pursuing the same outcome may produce a clean merge. The result is sometimes two helpers for the same calculation. Both can pass their tests.
 
-You don't need heavy tooling for this. Issue assignees exist to make clear who owns an item ([GitHub Docs](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/assigning-issues-and-pull-requests-to-other-github-users)), and a shared board or task file works just as well. Tag the bot name, runtime, session ID, or human owner so the next session sees the claim before starting.
+Our guide to [multiple AI agents editing the same repository](/blog/multiple-ai-agents-edit-same-repository) covers shared interfaces and merge order. Duplicate tasks start before either branch is ready to merge.
 
-## Point finished work so the next agent does not restart
+<span id="claim-one-owner-so-coding-agents-do-not-collide"></span>
+<span id="search-the-board-before-agents-invent-duplicates"></span>
 
-Even after Monday's pricing table is done, a fresh prompt asking an agent to “research competitor pricing” without linking that table will usually trigger a full rebuild. Why would the new session know to look for it?
+## Compare the outcome before assigning another task
 
-**If the next agent can't find finished work, it will redo it.** Close every completed task with a direct link to its output, whether that's a PR, report, decision note, or chat message. Then frame follow-up briefs as changes against that existing file:
+Task titles can mislead. “Billing totals” and “invoice summary” sound different until both descriptions point to the same screen and calculation. We'd compare the expected result instead. What changes for the user, and what will the agent hand back?
 
-> Start from Monday’s pricing comparison. Add the new annual plan and verify the enterprise limits. Do not rebuild the table.
+We want a task record to show the outcome and its owner, with the current state and a link to the work. A short sentence about what is outside that task helps when two requests are close. We'd start with the goal before listing files. Files may change as the agent investigates. The goal gives the person assigning the next task a steadier point of comparison.
 
-That single link turns a blank-slate research task into a quick targeted update. If part of the earlier doc is outdated, name the stale section directly. [How to Keep Context Across Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions) walks through where to keep these links so they survive closed or compacted chats.
+The shared list also needs a way to handle simultaneous claims. In Claude Code agent teams, the lead and teammates use a shared task list, and the documented claim operation uses file locking to prevent two teammates claiming the same task at once. The lock covers that team's task list. A separate Cursor or Codex session needs another place to find the assignment.
 
-## Keep rejected approaches searchable for agents
+A claim isn't the same as a finished result. When an agent stops or gets blocked, the record should say so and point to what it left behind. Otherwise another agent sees an owner and has no way to tell whether the work is still moving.
 
-Suppose your team reviews a write-through cache PR and rejects it because concurrent writes can clobber newer data. Two weeks later, another agent gets a prompt saying “add caching” and writes a clean write-through cache all over again. The code might look fine, yet the team already ruled that design out.
+<span id="point-finished-work-so-the-next-agent-does-not-restart"></span>
+<span id="keep-rejected-approaches-searchable-for-agents"></span>
 
-Shipped features leave code in the repo. Rejected ideas usually vanish inside old chat logs.
+## Make the earlier decision findable
 
-**Log rejected approaches right next to the goal, along with why they failed.** Two sentences are plenty:
+In one public repository test, coding agents created a design-system file, but two omitted its entry from the document list later agents were expected to read. The file existed. Its list entry didn't.
 
-> Rejected: write-through cache. Reason: concurrent writes can overwrite newer values. Revisit only if the write model changes.
+We'd name the design decisions that apply to the interface change. A filename alone leaves the next agent to work out why it matters.
 
-Point future briefs at that note whenever they touch caching. If the system changes and the design becomes safe later, reopen the original record and note what changed instead of filing a brand-new ticket that buries the history. For wider practices on steering active agents, see [How to Run an AI Agent Team That Stays on Track](/blog/run-ai-agent-team-that-stays-on-track).
+Reviews also record why a team set aside an earlier approach. We'd carry that reason forward when it affects the next job. Then the next agent knows why it was dropped and what evidence would change that decision.
 
-## Search the board before agents invent duplicates
+For work that pauses between sessions, [keeping context across coding agent sessions](/blog/keep-context-across-coding-agent-sessions) covers where to store the handoff and how to pick it up again.
 
-Agent A writes a “billing summary” helper while Agent B builds an “invoice rollup” for the exact same page. Their ticket titles look different on the board, and Git merges both cleanly. You only spot the duplicate during code review.
+## Decide when overlap is useful
 
-**Check open, claimed, done, and rejected tasks by outcome, not just by title.** Concrete titles help here: “Show invoice totals on the billing screen” is much easier to spot in search than “Improve billing.”
+Sometimes two agents should investigate the same question. Independent reviews can catch different mistakes, and competing solutions can be worth comparing when the direction is genuinely uncertain. The difference is that someone chose the overlap and knows who will compare the results.
 
-When a matching task already exists, build on that thread or carve out only what's missing. Otherwise, claim the task and get started. Grepping the repo still helps you reuse existing helpers, while checking the task board first stops you from assigning a solved problem twice.
+For routine implementation, we'd give one agent the change and the other a focused review. The reviewer might check whether the patch covers the reported failure. That gives the second agent a specific question to answer. Two complete fixes would leave someone comparing both patches and deciding which work to keep. A review finds gaps in the first patch without creating that extra choice.
 
-![Four ways coding agents duplicate work: two claims on one goal, restarting finished work, reopening rejected approaches, and inventing the same purpose twice](/blog/prevent-coding-agents-duplicating-work/four-duplicates.webp)
+Anthropic found a similar problem in its research system. A broad request about semiconductor shortages led two subagents to repeat searches about current supply chains, while another explored the earlier automotive shortage. The team improved delegation by specifying each subagent's objective and boundaries. Coding tasks need the same care when two briefs describe the same goal.
 
-## Use a coding-agent handoff that prevents redo
+<span id="use-a-coding-agent-handoff-that-prevents-redo"></span>
 
-![Hand-drawn checklist of five handoff fields that stop coding agents from redoing finished or rejected work](/blog/prevent-coding-agents-duplicating-work/handoff-five.webp)
+## What to hand from one coding agent to another
 
-A good handoff doesn't dump a full chat transcript on the next agent. Five short fields are enough to prevent repeat work:
+The next tool doesn't automatically receive the original session's context. For a handoff between Claude Code, Cursor and Codex, we'd put the result somewhere the receiving session can read it. An issue, a pull request or a shared task file can hold the handoff.
 
-1. **Goal and definition of done:** What concrete result counts as finished?
-2. **Owner and status:** Who owns this right now, and is it open, active, done, or rejected?
-3. **Existing artifacts:** Which PR, doc, report, or message already covers the completed parts?
-4. **Do-not-redo notes:** Which approaches were ruled out, and why?
-5. **Remaining gap:** What specific work is left?
+Say Claude Code has prepared a patch and the next request goes to Codex for review. We'd start with a link to the commit and a short explanation of the change. The reviewer checks the reported failure against that patch.
 
-That fifth line becomes the next agent's starting prompt. Leave it out, and the new session may treat the whole problem as greenfield again. [How agents keep decisions outside one chat](/blog/shared-context-between-agents) covers broader multi-agent handoffs; these five fields focus specifically on keeping ownership and past decisions intact.
+The earlier session's test results inform that review. A failed check or an unresolved question belongs in the same handoff, so the reviewer knows what still needs attention. The full transcript can stay behind.
 
-Before spinning up another agent, ask yourself one question: **What will this run produce that we don't already have?** If you can't name it clearly, tighten the brief first.
+<div className="mx-auto max-w-[440px]">
 
-## When visible assignment replaces manual sync
+![A patch and test results are sent from one session to another for a focused review](/blog/prevent-coding-agents-duplicating-work/handoff-review.webp)
 
-You can run this workflow in GitHub Issues, a markdown task file, or a Kanban board. The habit matters more than the app: claim the task first, keep status current, and link the output when closing it. Where manual tracking usually breaks down is multi-session or overnight work, when stale tickets make claimed tasks look up for grabs.
+</div>
 
-Alook gives local coding agents like Claude Code and Codex a shared workspace where ownership and progress stay visible through persistent messages, threads, and task marks. You can self-host it from [GitHub](https://github.com/alookai/alook) or sign up at [alook.ai](https://alook.ai) and connect agents running on your own machine. Alook does **not** guess whether two differently worded prompts mean the same thing, auto-merge duplicate tickets, or lock repo files. People and agents still claim tasks and record rejections; Alook keeps those records visible in one shared place.
+[View image at full size](/blog/prevent-coding-agents-duplicating-work/handoff-review.webp)
 
-Most duplicate agent work starts before a single line of code is written. Make ownership visible, link past outputs and rejections, and spell out only what remains so parallel agents build new pieces instead of redoing finished ones.
+Before that review, Codex needs to be able to open the repository and branch. A link alone won't put the files in its reach. Then we'd ask it to describe what it found in the patch and what remains before it makes changes.
+
+<span id="when-visible-assignment-replaces-manual-sync"></span>
+
+## Keep the decision where people and agents can see it
+
+We use Alook as a [multi agent collaboration workspace](/) where people and agents share conversations. Open the thread and the request, the agent's answer and the follow-up appear together. Whoever joins later can read the discussion behind the decision.
+
+We make the next request explicit in that conversation, linking the current work and saying what needs checking. A bare “look into this” invites another round of the same research, even with the earlier discussion in view.
+
+The developer's 40-minute repeat began with an answer in one session and another agent working without it. A link to the earlier result puts yesterday's answer in front of the second agent. The next 40 minutes could go to checking the fix or handling the part that remains.
 
 ## FAQ
 
-**Why do coding agents duplicate work?**  
-Coding agents duplicate work when separate briefs describe the same outcome and no shared record shows that the goal is already claimed, done, or rejected. Different wording can hide the overlap, especially when each agent only sees its own prompt.
+**Do worktrees stop agents from duplicating work?**
 
-**Is duplicate agent work a Git problem?**  
-Usually no. Git catches overlapping edits to the same files, whereas duplicate tasks often land on clean, separate branches. You prevent that earlier with visible ownership, up-to-date status, and links to finished work.
+Worktrees separate working copies. The assignment still needs to distinguish each agent's goal, even when its files are isolated.
 
-**What should a coding-agent handoff include?**  
-Include the goal, definition of done, current owner and status, links to existing outputs, rejected approaches with reasons, and the remaining gap. That lets the next agent see what to build without piecing together an earlier session.
+**What if two agents claim a task at the same time?**
 
-**Does Alook automatically detect duplicate work?**  
-No. Alook makes ownership and task history visible in shared rooms and messages, but it does not decide whether two briefs describe the same goal. A person or agent still needs to check existing work, claim the task, and resolve any overlap.
+Use an assignment mechanism that handles concurrent claims, or have one coordinator assign the work. A plain shared note depends on participants checking it before they start. It won't stop two agents from claiming the same task at the same moment.
 
-Related:
+**Should two agents ever work on the same issue?**
 
-- [What Happens When Multiple AI Agents Edit the Same Repository?](/blog/multiple-ai-agents-edit-same-repository)
-- [How to Run an AI Agent Team That Stays on Track](/blog/run-ai-agent-team-that-stays-on-track)
-- [How Shared Context Between Agents Actually Works](/blog/shared-context-between-agents)
-- [How to Keep Context Across Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions)
+Yes. Independent reviews are one reason to revisit the same patch. The second agent has a separate question to answer, and someone compares its findings with the original work.
+
+**What should happen when an agent stops mid-task?**
+
+Update the status and link the current changes, checks and unresolved questions. The next agent can assess what remains before continuing.
