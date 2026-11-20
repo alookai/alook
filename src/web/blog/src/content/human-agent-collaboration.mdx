@@ -1,0 +1,102 @@
+export const metadata = {
+  "slug": "human-agent-collaboration",
+  "title": "Human Agent Collaboration: What Happens When Every Teammate Brings an Agent?",
+  "date": "2026-11-19",
+  "author": "Alook Team",
+  "excerpt": "See how people and their agents keep questions, evidence and decisions together through real team handoffs.",
+  "readingTime": "6 min read",
+  "image": "/blog/human-agent-collaboration/hero.webp"
+};
+
+export const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Does every agent decision need human approval?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Teams choose boundaries that fit the work. A routine research check and a decision to change the goal call for different levels of human involvement. The person responsible for the work decides which choices need their attention. When a decision changes an agent's task, the team sends the new direction to the agent in a conversation it can access."
+      }
+    }
+  ]
+};
+
+![Two people and two agents exchange messages around a shared conversation.](/blog/human-agent-collaboration/hero.webp)
+
+Carry, our outreach agent, reported a 403 (access denied) error while checking a site. A person on our team opened the same site successfully. Carry tried again in a browser and confirmed it was accessible there.
+
+![The first check returned a 403 access-denied error; a browser check opened the page.](/blog/human-agent-collaboration/two-checks.webp)
+
+The two results weren't a contradiction. They came from different checks. If the next teammate had seen only “the site is down,” that detail would have been lost.
+
+Human agent collaboration is people and AI agents working toward the same result, sharing the information and decisions that shape the work. When several teammates bring agents to a job, an answer is only a starting point. The next person may need the question behind it, the evidence, or a decision before work can continue.
+
+We've run into each of those gaps in our own work. Some take a follow-up question to resolve. Others need a person to set a new direction, then agents to carry it into the next task.
+
+## What does human agent collaboration look like on a team?
+
+One teammate may know why a customer asked a question. Another knows a product limit. Their agents work with the information and tools each person has given them.
+
+In separate conversations, an answer can look complete to the person who requested it and leave the next teammate with more questions. Where did the information come from? Was a concern resolved, or simply left out of the summary? Who decides the next step?
+
+Our X monitoring work answers one of those questions: who decides. A monitoring agent finds relevant conversations. Windy, our social media agent, checks which conversations are worth a reply. A person decides whether to respond. In one report, the monitoring agent highlighted several posts and included the originals for the team to review.
+
+The person making that call can read the original posts. For questions about an agent's findings, teammates can follow up with the agent instead of sending someone back and forth between chats.
+
+## What causes gaps in human agent collaboration?
+
+### The answer arrives without the question
+
+A copied result often loses the conversation around it. The recipient sees what an agent concluded but not what it was asked to find. A source that was useful for one question may not answer the next teammate's question at all.
+
+With the question beside the answer, a colleague can see what was actually asked. The agent can follow the next question without relying on a secondhand summary.
+
+The alternative is a chain of summaries: the agent explains the work to the person who set it up, who retells it to a colleague. The follow-up travels back the same way. That takes time, and someone has to decide which details to leave out at each step.
+
+### The conclusion travels, but the evidence doesn't
+
+Carry's 403 at the start of this article shows why a teammate needs the source and checking method alongside the answer. That person doesn't have to read every tool log, but can see what the check actually showed.
+
+### The team sees a question, but no one knows who decides
+
+The X monitoring report brought those posts to the team, and a person had to decide whether to reply. The original post and why the agent selected it help that person make it. A status such as “needs a decision” helps the team only when someone knows they are responsible for answering it.
+
+Routine searches can continue while a person considers a reply. Changing the goal or speaking for the team is a different kind of decision. The person responsible for the work makes it.
+
+### A teammate's agent answers: who is responsible?
+
+When a colleague asks an agent for help, the agent uses tools chosen by the person who set it up. The colleague still decides how to use the answer.
+
+In an Alook channel that both the colleague and the agent can access, the colleague can ask that agent a question. The person who set up the agent can join the discussion to clarify the request. Each person keeps control of their own agent's tools and file access.
+
+The answer shows which agent gave it. The teammate using it can ask where it came from, then decide whether to act on it.
+
+## How do people and agents keep the work moving?
+
+During a website update, Toni, our marketing agent, found a warning while checking page previews. Would the preview images actually work? Toni asked Madox, an engineering agent belonging to another teammate, to investigate.
+
+Madox asked for the files behind the result. The earlier output had been overwritten during another check, so Toni saved a fresh version and sent the logs and files. Madox then asked for a testable bundle made from that saved version, without rebuilding it. Toni sent the bundle, and Madox used it to check the preview images independently.
+
+The preview check passed for the version Madox tested. The person responsible for the complete update still had a decision to make.
+
+![Toni sends logs, files and a bundle; Madox tests the saved version, whose preview images work.](/blog/human-agent-collaboration/handoff.webp)
+
+We learned to hand over material a colleague can check, rather than just the conclusion: without the saved files, Madox couldn't test that version. Our introduction to Alook explains how the workspace supports [multi agent collaboration with teammates](https://alook.ai/blog/introducing-alook).
+
+## Human agent collaboration vs. human in the loop
+
+Human in the loop describes a point in a process where a person reviews, directs or approves an agent's work. Human agent collaboration covers the wider work around those moments: how people and agents share information and continue after a decision.
+
+In a separate research task, a person on our team corrected the direction. Toni then asked Carry to review relevant articles with the new direction.
+
+Our guide to [keeping an AI agent team on track](https://alook.ai/blog/run-ai-agent-team-that-stays-on-track) covers pausing and correcting work that has gone off course. The guide explains how to make the correction reach the work already in progress.
+
+## Keep the work visible to the people doing it
+
+When a teammate can follow up with the agent that did the work, the person who set it up doesn't have to relay every message. The question and evidence stay with the answer. The people doing the work can see who makes the next decision.
+
+## Does every agent decision need human approval?
+
+No. Teams choose boundaries that fit the work. A routine research check and a decision to change the goal call for different levels of human involvement. The person responsible for the work decides which choices need their attention. When a decision changes an agent's task, the team sends the new direction to the agent in a conversation it can access.
