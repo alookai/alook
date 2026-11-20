@@ -122,21 +122,20 @@ function InboxCountBadge({ count }: { count: number }) {
 
 const identityActionClassName = "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm transition-transform duration-150 active:scale-[0.99] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
 const cardActionClassName = "size-11 shrink-0 sm:size-8"
-const unreadChannelActionClassName = "text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-inset dark:hover:bg-accent"
+const unreadChannelActionClassName = "text-muted-foreground hover:bg-accent hover:text-foreground dark:hover:bg-accent"
 
-function InboxIconAction({ children, className, mobileRestingTint, ...props }:
-  Omit<ComponentProps<typeof Button>, "className" | "size"> & { className?: string; mobileRestingTint?: boolean }
+function InboxIconAction({ children, className, compact, mobileRestingTint, ...props }:
+  Omit<ComponentProps<typeof Button>, "className" | "size" | "variant"> & { className?: string; compact?: boolean; mobileRestingTint?: boolean }
 ) {
   return (
-    <Button {...props} size="icon" className={cn(
-      cardActionClassName,
-      // Keep the branded button paint inside the compact mobile surface.
-      "max-sm:rounded-lg! max-sm:border-transparent! max-sm:bg-none! max-sm:bg-transparent! max-sm:shadow-none! max-sm:filter-none! max-sm:[text-shadow:none]! max-sm:before:content-none!",
-      "max-sm:focus-visible:ring-inset max-sm:active:transform-none! max-sm:active:scale-[0.97]!",
+    <Button {...props} variant="ghost" size="icon" className={cn(
+      compact ? "size-11 shrink-0 bg-transparent!" : `${cardActionClassName} max-sm:bg-transparent!`,
+      "focus-visible:ring-inset",
       className,
     )}>
       <span aria-hidden="true" data-slot="inbox-action-visual" className={cn(
-        "pointer-events-none grid place-items-center max-sm:size-7 max-sm:rounded-lg max-sm:transition-colors max-sm:duration-150 max-sm:group-hover/button:bg-accent max-sm:motion-reduce:transition-none",
+        "pointer-events-none grid place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none",
+        compact ? "size-7 group-hover/button:bg-accent" : "max-sm:size-7 max-sm:group-hover/button:bg-accent",
         mobileRestingTint && "max-sm:group-enabled/button:bg-accent",
       )}>
         {children}
@@ -252,13 +251,13 @@ function UnreadChannelCard({ channelId, name, throughSeq = 0, mentions, renderUn
   return (
     <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={children} hasBody={expanded || read?.failed}
       actions={<div className="-me-2 flex shrink-0 items-center sm:-me-4">
-        <InboxIconAction variant="ghost" mobileRestingTint className={cn(unreadChannelActionClassName, "bg-accent")}
+        <InboxIconAction mobileRestingTint className={cn(unreadChannelActionClassName, "bg-accent")}
           data-testid={tid.inboxMarkChannelRead(channelId)}
           aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || read?.pending}
           onClick={() => { void mark(throughSeq) }}>
           {read?.pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
         </InboxIconAction>
-        <InboxIconAction variant="ghost"
+        <InboxIconAction
           className={cn(unreadChannelActionClassName, "aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-accent hover:aria-expanded:text-foreground")}
           data-testid={tid.inboxToggleChannel(channelId)}
           aria-label={`${expanded ? "Hide" : "Show"} unread messages in ${name}`} aria-expanded={expanded} aria-controls={bodyId}
@@ -375,29 +374,27 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
                     </span>
                   </button>
                   <div className="flex shrink-0 gap-1">
-                    <InboxIconAction
+                    <InboxIconAction compact
                       data-testid={tid.inboxFriendRequestAccept(request.id)}
-                      variant="secondary"
                       disabled={pending}
                       onClick={() => onAcceptFriendRequest?.(item)}
                       aria-label={`Accept ${profile.name}'s friend request`}
-                      className="rounded-full"
+                      className="text-muted-foreground"
                     >
                       {pending && item.action === "accept"
                         ? <LoaderCircle className="size-4 animate-spin" />
                         : <Check className={pending ? "size-4" : "size-4 text-status-online"} />}
                     </InboxIconAction>
-                    <InboxIconAction
+                    <InboxIconAction compact
                       data-testid={tid.inboxFriendRequestReject(request.id)}
-                      variant="secondary"
                       disabled={pending}
                       onClick={() => onRejectFriendRequest?.(item)}
                       aria-label={`Reject ${profile.name}'s friend request`}
-                      className="rounded-full text-destructive"
+                      className="text-muted-foreground"
                     >
                       {pending && item.action === "reject"
                         ? <LoaderCircle className="size-4 animate-spin" />
-                        : <X className="size-4 max-sm:text-destructive" />}
+                        : <X className="size-4 text-destructive" />}
                     </InboxIconAction>
                   </div>
                 </div>

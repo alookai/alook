@@ -492,8 +492,9 @@ describe("InboxPopover friend requests", () => {
     const accept = renderer.getByTestId(tid.inboxFriendRequestAccept("fr_1"))
     const reject = renderer.getByTestId(tid.inboxFriendRequestReject("fr_1"))
     for (const action of [accept, reject]) {
-      expect(action).toHaveClass("size-11", "sm:size-8")
-      expect(action.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7")
+      expect(action).toHaveAttribute("data-variant", "ghost")
+      expect(action).toHaveClass("size-11")
+      expect(action.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("size-7")
     }
     expect(open.contains(accept)).toBe(false)
     fireEvent.click(accept)

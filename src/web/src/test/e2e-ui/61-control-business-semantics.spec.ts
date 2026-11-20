@@ -26,7 +26,7 @@ function inboxActionFace(control: Locator) {
   return control.locator('[data-slot="inbox-action-visual"]')
 }
 
-async function expectCompactMobileInboxAction(control: Locator) {
+async function expectCompactInboxAction(control: Locator) {
   await expect(control).toHaveCSS("width", "44px")
   await expect(control).toHaveCSS("height", "44px")
   await expect(control).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
@@ -103,11 +103,18 @@ test("App friend acceptance keeps its semantic icon through both surfaces and pe
     const accept = page.getByRole("button", { name: `Accept ${actors.userName("bob")}'s friend request`, exact: true })
     await expectIconTone(accept, "--status-online")
     await acceptWhilePending(page, accept, bobRequest)
-    await page.setViewportSize({ width: 390, height: 844 })
+    if (colorScheme === "dark") {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await gotoAfterUserWsAuth(page, "/c/me")
+    }
+    await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible()
     await page.getByTestId(tid.inboxTrigger).click()
     const inboxAccept = page.getByTestId(tid.inboxFriendRequestAccept(carolRequest))
     const inboxReject = page.getByTestId(tid.inboxFriendRequestReject(carolRequest))
-    for (const action of [inboxAccept, inboxReject]) await expectCompactMobileInboxAction(action)
+    for (const action of [inboxAccept, inboxReject]) {
+      await expect(action).toHaveAttribute("data-variant", "ghost")
+      await expectCompactInboxAction(action)
+    }
     await expectIconTone(inboxAccept, "--status-online")
     await expectIconTone(inboxReject, "--destructive")
     await acceptWhilePending(page, inboxAccept, carolRequest)
@@ -152,8 +159,9 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     const narrow = colorScheme === "dark"
     if (narrow) {
       await page.setViewportSize({ width: 390, height: 844 })
-      await gotoAfterUserWsAuth(page, "/c/me/friends")
+      await gotoAfterUserWsAuth(page, "/c/me")
     }
+    await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible()
     await page.getByTestId(tid.inboxTrigger).click()
     await expect(page.getByRole("tab", { name: /^Mentions/ })).toHaveCount(0)
     const markRead = page.getByTestId(tid.inboxMarkChannelRead(mentionChannel))
@@ -161,8 +169,8 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     await expect(markRead).toHaveAttribute("data-variant", "ghost")
     await expect(arrow).toHaveAttribute("data-variant", "ghost")
     if (narrow) {
-      await expectCompactMobileInboxAction(markRead)
-      await expectCompactMobileInboxAction(arrow)
+      await expectCompactInboxAction(markRead)
+      await expectCompactInboxAction(arrow)
     }
     const markPaint = narrow ? inboxActionFace(markRead) : markRead
     const arrowPaint = narrow ? inboxActionFace(arrow) : arrow
