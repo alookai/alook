@@ -102,7 +102,7 @@ function setRoute(href: string, pending = false) {
   }}
 }
 const wrapper = ({children}:PropsWithChildren) => createElement(CommunityRouteContext,{value:route},children)
-function useNotifications() { useNativeSystemNotifications("viewer", route.frame, route.navigation, consumer) }
+function useNotifications() { return useNativeSystemNotifications("viewer", route.frame, route.navigation, consumer) }
 function presentation(identity:unknown) {
   return (window as Window & {alookNativeNotificationPresentationV1?:(value:unknown)=>boolean}).alookNativeNotificationPresentationV1?.(identity)
 }
@@ -308,6 +308,23 @@ describe("notification activation",()=>{
   })
 })
 describe("current native conversation",()=>{
+  it.each(["desktop", "mobile", "web"])("can dismiss a confirmed Inbox conversation from %s without navigating", async platform => {
+    hookMocks.desktop = platform === "desktop"
+    hookMocks.mobile = platform === "mobile"
+    setRoute("/c/me")
+    const rendered = renderHook(() => useNotifications(), { wrapper })
+    act(() => {
+      rendered.result.current("another_viewer", target)
+      rendered.result.current("viewer", target)
+    })
+    if (platform === "desktop") await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledExactlyOnceWith("viewer", target))
+    else expect(hookMocks.dismissConversation).not.toHaveBeenCalled()
+    if (platform === "mobile") await waitFor(() => expect(hookMocks.mobileDismissConversation).toHaveBeenCalledExactlyOnceWith("viewer", target.channelId))
+    else expect(hookMocks.mobileDismissConversation).not.toHaveBeenCalled()
+    await waitFor(() => expect(window.localStorage.length).toBe(0))
+    expect(route.navigation.pushImmediate).not.toHaveBeenCalled()
+    rendered.unmount()
+  })
   function useCurrent(ready=true) {useNotifications();useNativeSystemNotificationConversationDismissal("viewer",target,ready)}
   it("consumes an arrival after the initial ready dismissal has finished",async()=>{
     let wake!:()=>void;hookMocks.listen.mockImplementation(async cb=>{wake=cb;return()=>undefined})

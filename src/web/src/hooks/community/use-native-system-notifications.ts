@@ -1,7 +1,7 @@
 "use client"
 import { createNotificationActivationDrain } from "@/lib/community/notification-activation-drain";
 
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react"
 
 import { useQueryClient, QueryObserver, type QueryClient } from "@tanstack/react-query"
 import { useSelector } from "@tanstack/react-store"
@@ -47,6 +47,7 @@ import {
 } from "@/lib/community/native-system-notification-dismissal"
 
 type OriginalView = (() => void) & { signal: AbortSignal }
+export type RequestNativeConversationDismissal = (viewerUserId: string, target: NativeSystemNotificationConversation) => void
 const nativeRetryDelays = [1_000, 5_000, 30_000, 60_000] as const
 function nativeCommand<T>(client: QueryClient, key: readonly unknown[], original: OriginalView, load: () => Promise<T>, retry = false) {
   original()
@@ -125,6 +126,19 @@ function drainNativeSystemNotificationConversationDismissals(
   }
 }
 
+function queueNativeSystemNotificationConversationDismissal(
+  platform: NativeSystemNotificationPlatform,
+  viewerUserId: string,
+  target: NativeSystemNotificationConversation,
+  queue: ReturnType<typeof createNativeSystemNotificationConversationDismissalQueue>,
+  client: QueryClient,
+  original: OriginalView,
+) {
+  const queued = queue.queue(platform, viewerUserId, target)
+  traceNotificationDiagnostic("queue.write", { platform, viewerUserId, dismissalTarget: target, queued })
+  drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, original)
+}
+
 export function useNativeSystemNotificationConversationDismissal(
   viewerUserId: string,
   target: NativeSystemNotificationConversation,
@@ -178,9 +192,7 @@ export function useNativeSystemNotificationConversationDismissal(
       },
       requestDismiss: () => {
         if (!consumer.matches(viewerUserId, channelId)) return
-        const queued = queue.queue(platform, viewerUserId, dismissalTarget)
-        traceNotificationDiagnostic("queue.write", { platform, viewerUserId, dismissalTarget, queued })
-        drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, original)
+        queueNativeSystemNotificationConversationDismissal(platform, viewerUserId, dismissalTarget, queue, client, original)
       },
     }
     const actual = current.current
@@ -261,6 +273,7 @@ export function useNativeSystemNotifications(
 ) {
   const currentRoute = useRef({ frame, navigation })
   const committedDismissal = useRef<() => void>(() => undefined)
+  const conversationDismissal = useRef<RequestNativeConversationDismissal | null>(null)
   useLayoutEffect(() => { currentRoute.current = { frame, navigation } }, [frame, navigation])
   const client = useQueryClient()
   const registry = useOptionalCommunityDbRegistry()!
@@ -294,12 +307,18 @@ export function useNativeSystemNotifications(
       setItem: (key, value) => window.localStorage.setItem(key, value),
       removeItem: (key) => window.localStorage.removeItem(key),
     })
+    const platform = isDesktop() ? "desktop" : isMobile() ? "mobile" : null
+    const dismissConversation: RequestNativeConversationDismissal = (viewer, target) => {
+      if (!platform || viewer !== viewerUserId) return
+      try { original() } catch { return }
+      queueNativeSystemNotificationConversationDismissal(platform, viewer, target, conversationDismissals, client, original)
+    }
+    conversationDismissal.current = dismissConversation
     const dismissPending = () => {
       try { original() } catch { return }
       const { frame: actualFrame, navigation: currentNavigation } = currentRoute.current
       if (currentNavigation.navigationPending
         || normalizeCommunityHref(currentNavigation.publishedHref).href !== actualFrame.href) return
-      const platform = isDesktop() ? "desktop" : isMobile() ? "mobile" : null
       if (!platform) return
       dismissPendingNativeSystemNotification(platform, viewerUserId, actualFrame.pathname,
         dismissal, platform === "desktop" ? dismissDesktopSystemNotification : dismissMobileSystemNotification,
@@ -309,9 +328,10 @@ export function useNativeSystemNotifications(
     const releaseDismissal = () => {
       if (presentationWindow.alookNativeNotificationPresentationV1 === presentation) delete presentationWindow.alookNativeNotificationPresentationV1
       if (committedDismissal.current === dismissPending) committedDismissal.current = () => undefined
+      if (conversationDismissal.current === dismissConversation) conversationDismissal.current = null
     }
 
-    if (isDesktop()) {
+    if (platform === "desktop") {
       const drainConversations = () => drainNativeSystemNotificationConversationDismissals(
         "desktop",
         viewerUserId,
@@ -343,7 +363,7 @@ export function useNativeSystemNotifications(
       }
     }
 
-    if (!isMobile()) return releaseDismissal
+    if (platform !== "mobile") return releaseDismissal
 
     resumeMobileSystemNotificationRegistration()
     dismissPending()
@@ -407,4 +427,7 @@ export function useNativeSystemNotifications(
     }
   }, [viewerUserId, client, source, notificationConsumer, onlineAccount, registry])
   useEffect(() => { committedDismissal.current() }, [frame.href, navigation.publishedHref, navigation.navigationPending])
+  return useCallback<RequestNativeConversationDismissal>((viewer, target) => {
+    conversationDismissal.current?.(viewer, target)
+  }, [])
 }

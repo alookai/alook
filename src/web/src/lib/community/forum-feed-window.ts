@@ -1,6 +1,7 @@
 import { FORUM_ARCHIVE_TAG, communityReadSchemas, messagePreviewText, type CommunityChannelResource, type CommunityThreadsRead, type CommunityMessageResource, type CommunityMemberRelation } from "@alook/shared"
 import type { InfiniteData } from "@tanstack/react-query"
-import type { Msg, Thread } from "@/lib/community/models/message"
+import { avatarInitial } from "@/lib/community/avatar"
+import type { ForumThread, Msg, Thread } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
 
 export function projectThread(thread: ChannelRow, opener: Msg | undefined, parentType: string, first?: Msg): Thread {
@@ -11,6 +12,27 @@ export function projectThread(thread: ChannelRow, opener: Msg | undefined, paren
     lastMessageAt: thread.lastMessageAt ?? "",
     parent: { authorId: opener?.authorId, authorName: opener?.authorName ?? "", text: parentType === "forum" ? first ? messagePreviewText(first) : "" : opener ? messagePreviewText(opener) : "" },
     ...(opener?.seq === undefined ? {} : { parentSeq: opener.seq }),
+  }
+}
+
+export function projectForumThread(
+  thread: ChannelRow,
+  opener: Msg,
+  first: Msg | undefined,
+  participants: ForumThread["participants"] = [],
+): ForumThread {
+  const summary = projectThread(thread, opener, "forum", first)
+  return {
+    ...summary,
+    authorId: opener.authorId ?? thread.creatorId ?? "",
+    authorAvatar: opener.authorAvatar ?? avatarInitial(opener.authorName ?? ""),
+    authorAvatarVersion: opener.authorAvatarVersion ?? 0,
+    openerMessageId: opener.id,
+    ...(opener.createdAt === undefined ? {} : { openerCreatedAt: opener.createdAt }),
+    tags: thread.tags,
+    preview: summary.parent.text,
+    participants,
+    participantCount: thread.participantCount ?? 0,
   }
 }
 

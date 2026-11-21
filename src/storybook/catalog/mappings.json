@@ -1942,6 +1942,16 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/community/channels/forum-post-item.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-product-compositions--channels-messages-and-composer",
+        "region": "Forum specimen post title, preview, author, tags and reply count"
+      }
+    ],
+    "reason": "The populated forum story renders the shared Forum post item with its production layout."
+  },
   "src/web/src/components/community/channels/forum-post-list.tsx": {
     "kind": "composition",
     "examples": [

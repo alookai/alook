@@ -15,6 +15,7 @@ import { messageWindowOptions, type MessageWindowData } from "@/lib/community/me
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { getReadCoordinator } from "./read-coordinator"
+import type { RequestNativeConversationDismissal } from "./use-native-system-notifications"
 
 const previewRetryDelays = [5_000, 15_000]
 
@@ -117,7 +118,7 @@ type InboxChannelReadIntent = InboxChannelReadInput & { original: ReturnType<typ
 export type InboxChannelReadAction = { throughSeq: number; status: "pending" | "error" }
 const inboxChannelReadKey = ["community", "inbox-channel-read"] as const
 
-export function useMarkInboxChannelRead() {
+export function useMarkInboxChannelRead(dismissConversation?: RequestNativeConversationDismissal) {
   const client = useQueryClient()
   const origin = useCommunityMutationOrigin()
   const command = useMutation({
@@ -126,9 +127,10 @@ export function useMarkInboxChannelRead() {
     mutationFn: async ({ channelId, throughSeq, original }: InboxChannelReadIntent) => {
       origin.assert(original)
       if (!Number.isSafeInteger(throughSeq) || throughSeq <= 0) throw new Error("Missing unread boundary")
-      const accountId = original.registry?.accountId
-      if (!accountId) throw new DOMException("Missing Inbox account", "AbortError")
-      return origin.runWith(original, request => getReadCoordinator(client, accountId).markChannelRead(
+      const registry = original.registry
+      const accountId = registry?.accountId
+      if (!registry || !accountId) throw new DOMException("Missing Inbox account", "AbortError")
+      const receipt = await origin.runWith(original, request => getReadCoordinator(client, accountId).markChannelRead(
         { channelId, seq: throughSeq },
         request,
         async () => {
@@ -138,6 +140,13 @@ export function useMarkInboxChannelRead() {
           return target.id
         },
       ))
+      const channel = registry.collections.channels.get(channelId)
+      const remaining = registry.collections.attentionScopes.get(channelId)
+      if (channel && Math.max(remaining?.lastUnreadSeq ?? 0, remaining?.lastAttentionSeq ?? 0) <= receipt.targetSeq) {
+        if (channel.type === "dm") dismissConversation?.(accountId, { kind: "dm", channelId })
+        else if (channel.serverId) dismissConversation?.(accountId, { kind: "server", serverId: channel.serverId, channelId })
+      }
+      return receipt
     },
   })
   const capture = useCallback((input: InboxChannelReadInput): InboxChannelReadIntent => ({

@@ -161,6 +161,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     view,
     activeServerId,
   })
+  const dismissNativeConversation = useNativeSystemNotifications(currentUser.id, committedFrame, navigation, notificationConsumer)
   const inbox = useShellInboxController({
     router: navigation,
     queryClient,
@@ -169,6 +170,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     navigationPending: navigation.navigationPending,
     pendingHref: navigation.pendingHref,
     viewerId: currentUser.id,
+    dismissNativeConversation,
   })
   const [userBarExtension, setUserBarExtension] = useAtom(useCreateAtom(initialUserBarExtensionState))
   const dispatchUserBarExtension = useCallback((action: Parameters<typeof userBarExtensionReducer>[1]) => {
@@ -256,7 +258,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     applyInboxOpenChange(true)
   }, [applyInboxOpenChange, breakpoint, checkpoint.surface, committedFrame, currentUser.id, inboxOpenRequest,
     navigation.navigationPending, navigation.pendingHref, navigation.publishedHref, setInboxOpenRequest])
-  useNativeSystemNotifications(currentUser.id, committedFrame, navigation, notificationConsumer)
   const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
     name,
     event,

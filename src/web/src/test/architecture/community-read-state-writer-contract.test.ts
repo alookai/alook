@@ -125,9 +125,11 @@ describe("human account read-state writer contract", () => {
 
   it("adapts forum cards into generic message rows and leaves navigation write-free", () => {
     const forumView = source("src/web/src/components/community/channels/forum-view.tsx")
+    const forumPostItem = source("src/web/src/components/community/channels/forum-post-item.tsx")
     const forumSurface = source("src/web/src/components/community/channels/forum-surface.tsx")
     expect(forumSurface).toContain("useTimelineReadObserver")
-    expect(forumView).toContain("data-msg-id={p.openerMessageId || undefined}")
+    expect(forumView).toContain("<ForumPostItem")
+    expect(forumPostItem).toContain("data-msg-id={p.openerMessageId || undefined}")
     expect(forumSurface).toContain("channelId: forumChannelId")
 
     const thread = source("src/web/src/components/community/channels/thread-channel-surface.tsx")

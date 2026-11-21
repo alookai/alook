@@ -264,7 +264,8 @@ describe("exact Inbox channel check", () => {
     let resolveTarget!: (value: { id: string }) => void
     const target = new Promise<{ id: string }>(resolve => { resolveTarget = resolve })
     mocks.api.mockReturnValueOnce(target).mockRejectedValueOnce(new Error("Read unavailable"))
-    const view = renderHook(() => useMarkInboxChannelRead(), { wrapper: owner.wrapper })
+    const dismiss = vi.fn()
+    const view = renderHook(() => useMarkInboxChannelRead(dismiss), { wrapper: owner.wrapper })
     let result!: Promise<unknown>
     act(() => {
       result = view.result.current.mutateAsync({ channelId: "parent", throughSeq: 23 }).catch(error => error)
@@ -290,6 +291,7 @@ describe("exact Inbox channel check", () => {
       expect(owner.registry.collections.attentionScopes.get("parent")).toMatchObject(newer)
       await waitFor(() => expect(view.result.current.actions.get("parent")).toEqual({ throughSeq: 23, status: "error" }))
       expect(mocks.reconcile).not.toHaveBeenCalled()
+      expect(dismiss).not.toHaveBeenCalled()
     } finally {
       resolveTarget({ id: "captured-23" })
       await result
@@ -298,16 +300,38 @@ describe("exact Inbox channel check", () => {
 
   it.each(["parent", "child", "dm"])("reads only %s at the captured boundary", async channelId => {
     const owner = await setup()
+    const dismiss = vi.fn()
+    mocks.reconcile.mockImplementationOnce(async () => { expect(dismiss).not.toHaveBeenCalled() })
     mocks.api.mockImplementation(async (path: string, options?: { method?: string }) => {
       if (path === `/api/community/channels/${channelId}/messages/seq/23`) return { id: "captured-23" }
       if (path === `/api/community/channels/${channelId}/read` && options?.method === "PUT") return { changed: true, targetSeq: 23, revision: 4 }
       throw new Error(`Unexpected request ${path}`)
     })
-    const view = renderHook(() => useMarkInboxChannelRead(), { wrapper: owner.wrapper })
+    const view = renderHook(() => useMarkInboxChannelRead(dismiss), { wrapper: owner.wrapper })
     await act(async () => { await view.result.current.mutateAsync({ channelId, throughSeq: 23 }) })
     expect(mocks.api.mock.calls.map(([path]) => path)).toEqual([`/api/community/channels/${channelId}/messages/seq/23`, `/api/community/channels/${channelId}/read`])
     expect(mocks.api.mock.calls[1]![1]).toMatchObject({ method: "PUT", body: JSON.stringify({ lastReadMessageId: "captured-23" }), authenticationAccount: owner.account })
     expect(mocks.reconcile).toHaveBeenCalledExactlyOnceWith(owner.client, { targetRevision: 4 })
+    expect(dismiss).toHaveBeenCalledExactlyOnceWith(owner.account, channelId === "dm"
+      ? { kind: "dm", channelId }
+      : { kind: "server", serverId: "s1", channelId })
+  })
+
+  it("keeps conversation notifications when a newer unread arrives during the write", async () => {
+    const owner = await setup()
+    const dismiss = vi.fn()
+    mocks.api.mockResolvedValueOnce({ id: "captured-23" })
+      .mockResolvedValueOnce({ changed: true, targetSeq: 23, revision: 4 })
+    mocks.reconcile.mockImplementationOnce(() => writeCommunityCollectionRows(owner.registry, "attentionScopes", [{
+      scopeId: "parent", channelId: "parent", serverId: "s1", parentChannelId: null,
+      ordinaryUnread: true, lastUnreadSeq: 24, unreadCount: 1, attentionCount: 0,
+    }], row => row.scopeId))
+    const view = renderHook(() => useMarkInboxChannelRead(dismiss), { wrapper: owner.wrapper })
+    await act(async () => {
+      await expect(view.result.current.mutateAsync({ channelId: "parent", throughSeq: 23 }))
+        .resolves.toMatchObject({ targetSeq: 23 })
+    })
+    expect(dismiss).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -388,7 +412,8 @@ describe("exact Inbox channel check", () => {
     let release!: (value: { id: string }) => void
     const held = new Promise<{ id: string }>(resolve => { release = resolve })
     mocks.api.mockReturnValueOnce(held)
-    const view = renderHook(() => useMarkInboxChannelRead(), { wrapper: owner.wrapper })
+    const dismiss = vi.fn()
+    const view = renderHook(() => useMarkInboxChannelRead(dismiss), { wrapper: owner.wrapper })
     let pending!: Promise<unknown>
     act(() => { pending = view.result.current.mutateAsync({ channelId: "child", throughSeq: 23 }).catch(error => error) })
     await waitFor(() => expect(mocks.api).toHaveBeenCalledOnce())
@@ -401,5 +426,6 @@ describe("exact Inbox channel check", () => {
     expect(error).toMatchObject({ name: "AbortError" })
     expect(mocks.api).toHaveBeenCalledOnce()
     expect(mocks.reconcile).not.toHaveBeenCalled()
+    expect(dismiss).not.toHaveBeenCalled()
   })
 })
