@@ -12,6 +12,7 @@ import {
   extractDecisionCardFromEmbeds,
   formatDecisionCardAnswerMessage,
   formatDecisionCardSummary,
+  isAssignedDecisionCardForUser,
   mergeDecisionCardEmbeds,
   parseDecisionCardCliInput,
   toDecisionCardAgentPayload,
@@ -137,6 +138,28 @@ describe("community-decision-card", () => {
     const extracted = extractDecisionCardFromEmbeds([linkEmbed, card]);
     expect(extracted.card).toEqual(card);
     expect(extracted.otherEmbeds).toEqual([linkEmbed]);
+  });
+
+  it("uses the same Todo assignment rules for stored and live decision cards", () => {
+    const card = DecisionCardInputSchema.parse({
+      summary: "Confirm ship",
+      questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }],
+    });
+    const assigned = buildDecisionCardEmbed(card, [{ userId: "viewer", handle: "Viewer#0001" }]);
+    const unassigned = buildDecisionCardEmbed(card, []);
+
+    for (const encode of [(embeds: unknown[]) => embeds, (embeds: unknown[]) => JSON.stringify(embeds)]) {
+      expect(isAssignedDecisionCardForUser(encode([assigned]), "viewer", false)).toBe(true);
+      expect(isAssignedDecisionCardForUser(encode([assigned]), "other", true)).toBe(false);
+      expect(isAssignedDecisionCardForUser(encode([unassigned]), "viewer", true)).toBe(true);
+      expect(isAssignedDecisionCardForUser(encode([unassigned]), "viewer", false)).toBe(false);
+    }
+  });
+
+  it("ignores missing and malformed stored decision card embeds", () => {
+    for (const embeds of [null, undefined, "{not JSON", "{}", '["plain text"]', []]) {
+      expect(isAssignedDecisionCardForUser(embeds, "viewer", true)).toBe(false);
+    }
   });
 
   it("formats readable summary and canonical reply text", () => {

@@ -987,4 +987,118 @@ describe("useInboxAttention", () => {
       harness.dispose()
     }
   })
+
+  it("projects server-channel Todo items with server name and skips question items without a decisionCard", async () => {
+    const { buildDecisionCardEmbed, DecisionCardInputSchema } = await import("@alook/shared")
+    const embed = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Approve migration",
+        questions: [{
+          id: "q1",
+          question: "Apply migration?",
+          options: [
+            { id: "yes", label: "Yes" },
+            { id: "no", label: "No" },
+          ],
+        }],
+      }),
+      [{ userId: "viewer", handle: "viewer#0001" }],
+    )
+    const base = truncatedAttentionWithBoundedItemSnapshot()
+    const validQuestion = messageResourceFixture({
+      id: "srv-q1",
+      channelId: "channel",
+      seq: 11,
+      authorId: "peer",
+      authorName: "Peer",
+      type: "question",
+      content: "Approve migration",
+      createdAt: "2026-09-27T00:05:00.000Z",
+      embeds: [embed],
+    })
+    const cardlessQuestion = messageResourceFixture({
+      id: "srv-q-empty",
+      channelId: "channel",
+      seq: 12,
+      authorId: "peer",
+      authorName: "Peer",
+      type: "question",
+      content: "Missing card payload",
+      createdAt: "2026-09-27T00:06:00.000Z",
+      embeds: [],
+    })
+    const snapshot = {
+      ...base,
+      scopes: [],
+      items: [
+        {
+          id: "question:srv-q1",
+          kind: "question" as const,
+          sourceId: "srv-q1",
+          scopeId: "channel",
+          messageId: "srv-q1",
+          actorUserId: "peer",
+          createdAt: "2026-09-27T00:05:00.000Z",
+        },
+        {
+          id: "question:srv-q-empty",
+          kind: "question" as const,
+          sourceId: "srv-q-empty",
+          scopeId: "channel",
+          messageId: "srv-q-empty",
+          actorUserId: "peer",
+          createdAt: "2026-09-27T00:06:00.000Z",
+        },
+      ],
+      included: {
+        ...base.included,
+        messages: [
+          {
+            id: "srv-q1",
+            channelId: "channel",
+            type: "question" as const,
+            authorId: "peer",
+            authorName: "Peer",
+            seq: 11,
+            createdAt: "2026-09-27T00:05:00.000Z",
+            content: "Approve migration",
+          },
+          {
+            id: "srv-q-empty",
+            channelId: "channel",
+            type: "question" as const,
+            authorId: "peer",
+            authorName: "Peer",
+            seq: 12,
+            createdAt: "2026-09-27T00:06:00.000Z",
+            content: "Missing card payload",
+          },
+        ],
+      },
+      resources: {
+        ...base.resources,
+        profiles: [
+          ...base.resources.profiles.filter((profile) => profile.id !== "peer"),
+          profileResourceFixture({ id: "peer", name: "Peer", discriminator: "0002", avatar: "P" }),
+        ],
+        messages: [validQuestion, cardlessQuestion],
+      },
+    }
+
+    const harness = await createHarness()
+    try {
+      act(() => ingestAttentionSnapshot(harness.registry, snapshot))
+      await waitFor(() => expect(harness.latest.todos).toHaveLength(1))
+      expect(harness.latest.todos[0]).toMatchObject({
+        id: "question:srv-q1",
+        messageId: "srv-q1",
+        channelId: "channel",
+        serverId: "server",
+        server: "Server",
+      })
+      expect(harness.latest.hasTodo).toBe(true)
+    } finally {
+      harness.dispose()
+    }
+  })
 })

@@ -581,4 +581,122 @@ describe("useShellInboxController", () => {
     expect(hook.pushed).toEqual([])
     expect(mocks.unmark).toHaveBeenCalledWith({ messageId: "msg1" })
   })
+
+  it("opens server and DM Todo items with exact seq/msg URLs and reopens on navigation error", async () => {
+    const hook = await renderController()
+    order.length = 0
+
+    await act(async () => hook.current.popoverProps.onOpenTodo?.({
+      id: "question:q_srv",
+      messageId: "q_srv",
+      serverId: "s1",
+      server: "Server",
+      channelId: "c1",
+      channel: "Channel",
+      parentChannelId: null,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      m: { id: "q_srv", seq: 12 },
+    } as never))
+    expect(order).toEqual(["close", "cancel", "clear", "push"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1?seq=12&msg=q_srv"])
+    expect(mocks.warmup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      href: "/c/channels/s1/c1?seq=12&msg=q_srv",
+      serverId: "s1",
+      channelId: "c1",
+      scopeKind: "channel",
+      anchorMessageId: "q_srv",
+    }), undefined)
+
+    await act(async () => hook.current.popoverProps.onOpenTodo?.({
+      id: "question:q_noseq",
+      messageId: "q_noseq",
+      serverId: "s1",
+      server: "Server",
+      channelId: "c1",
+      channel: "Channel",
+      parentChannelId: null,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      m: { id: "q_noseq" },
+    } as never))
+    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/c1?msg=q_noseq")
+
+    await act(async () => hook.current.popoverProps.onOpenTodo?.({
+      id: "question:q_dm",
+      messageId: "q_dm",
+      serverId: null,
+      server: "Peer",
+      channelId: "dm1",
+      channel: "Peer",
+      parentChannelId: null,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      m: { id: "q_dm", seq: 9 },
+    } as never))
+    expect(hook.pushed.at(-1)).toBe("/c/me/dm1?seq=9")
+    expect(mocks.warmup).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      href: "/c/me/dm1?seq=9",
+      channelId: "dm1",
+      scopeKind: "dm",
+      expectedSurfaceKind: "dm",
+    }), undefined)
+
+    await act(async () => hook.current.popoverProps.onOpenTodo?.({
+      id: "question:q_dm_noseq",
+      messageId: "q_dm_noseq",
+      serverId: null,
+      server: "Peer",
+      channelId: "dm1",
+      channel: "Peer",
+      parentChannelId: null,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      m: { id: "q_dm_noseq" },
+    } as never))
+    expect(hook.pushed.at(-1)).toBe("/c/me/dm1")
+
+    const errorHook = await renderController(undefined, () => { throw new Error("todo push failed") })
+    await expect(act(async () => errorHook.current.popoverProps.onOpenTodo?.({
+      id: "question:q_err",
+      messageId: "q_err",
+      serverId: "s1",
+      server: "Server",
+      channelId: "c1",
+      channel: "Channel",
+      parentChannelId: null,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      m: { id: "q_err", seq: 3 },
+    } as never))).rejects.toThrow("todo push failed")
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(true)
+  })
+
+  it("wires submitTodo and dismissTodo without navigation", async () => {
+    const hook = await renderController()
+    const todo = {
+      id: "question:q1",
+      messageId: "q1",
+      serverId: "s1",
+      server: "Server",
+      channelId: "c1",
+      channel: "Channel",
+      parentChannelId: null,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      m: { id: "q1", seq: 4 },
+    } as never
+
+    let result: unknown
+    await act(async () => {
+      result = await hook.current.popoverProps.onSubmitTodo?.(todo, "Yes", "nonce-1")
+    })
+    expect(result).toEqual({ replyToId: "q1" })
+    expect(mocks.submitTodo).toHaveBeenCalledWith({
+      channelId: "c1",
+      messageId: "q1",
+      content: "Yes",
+      nonce: "nonce-1",
+    })
+
+    await act(async () => {
+      hook.current.popoverProps.onDismissTodo?.(todo)
+    })
+    expect(mocks.dismissTodo).toHaveBeenCalledWith({ messageId: "q1" })
+    expect(hook.pushed).toEqual([])
+  })
 })
