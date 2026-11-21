@@ -562,13 +562,37 @@ describe("message send --ask", () => {
     expect(sendSpy).not.toHaveBeenCalled();
   });
 
+  it("rejects missing summary without calling send", async () => {
+    const sendSpy = vi.fn();
+    setApiForTesting(stubApi({ send: sendSpy }));
+
+    await mainWithStdin(
+      ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--stdin"],
+      JSON.stringify({ questions: [{ question: "Ship today?", options: ["Yes", "No"] }] }),
+    );
+    expect(parseEnvelope(cap.lines()).error).toContain("summary:");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects whitespace-only summary without calling send", async () => {
+    const sendSpy = vi.fn();
+    setApiForTesting(stubApi({ send: sendSpy }));
+
+    await mainWithStdin(
+      ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--stdin"],
+      JSON.stringify({ summary: "   ", questions: [{ question: "Ship today?", options: ["Yes", "No"] }] }),
+    );
+    expect(parseEnvelope(cap.lines()).error).toContain("summary:");
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid question schema and --attachment combination without calling send", async () => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
 
     await mainWithStdin(
       ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--stdin"],
-      JSON.stringify({ questions: [{ question: "Only one option", options: ["Yes"] }] }),
+      JSON.stringify({ summary: "Confirm choice", questions: [{ question: "Only one option", options: ["Yes"] }] }),
     );
     expect(parseEnvelope(cap.lines()).error).toContain("invalid decision card payload");
     expect(sendSpy).not.toHaveBeenCalled();
@@ -580,7 +604,7 @@ describe("message send --ask", () => {
 
     await mainWithStdin(
       ["message", "send", "--ask", "--target", "/s#0042/general", "--remind-after", "0", "--attachment", "att-1", "--stdin"],
-      JSON.stringify({ questions: [{ question: "Ship?", options: ["Yes", "No"] }] }),
+      JSON.stringify({ summary: "Confirm ship", questions: [{ question: "Ship?", options: ["Yes", "No"] }] }),
     );
     expect(parseEnvelope(cap.lines()).error).toContain("cannot combine --ask with --attachment");
     expect(sendSpy).not.toHaveBeenCalled();

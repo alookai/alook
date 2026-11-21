@@ -95,6 +95,7 @@ function seedDb() {
       id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL REFERENCES community_message(id),
       user_id TEXT NOT NULL REFERENCES user(id),
+      channel_id TEXT NOT NULL DEFAULT 'thread_1',
       note TEXT,
       created_at TEXT NOT NULL DEFAULT '2026-11-20T00:00:00.000Z',
       updated_at TEXT NOT NULL DEFAULT '2026-11-20T00:00:00.000Z',
@@ -181,16 +182,75 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
     const askJson = await askRes.json()
     expect(askJson.state).toBe("sent")
     expect(askJson.message.seq).toBe("#1")
+    const expectedQuestionPayload = {
+      mentions: ["@gus#1813", "@alice#0001"],
+      summary: "Confirm release timing",
+      questions: [
+        {
+          id: "timing",
+          header: "Timing",
+          question: "When should we publish? (do not ping @bystander#0002)",
+          multiSelect: false,
+          allowOther: true,
+          options: [
+            { id: "today", label: "Today", description: "Publish now", recommended: true },
+            { id: "next", label: "Next week", description: "Ask @bystander#0002 later" },
+          ],
+        },
+      ],
+    }
+    expect(askJson.message.content).toEqual({ question: expectedQuestionPayload })
+    expect(askJson.message.content).not.toHaveProperty("text")
+    expect(JSON.stringify(askJson.message.content)).not.toContain("u_gus")
 
     const qRow = fixture.sqlite
       .prepare("SELECT id, type, content, embeds FROM community_message WHERE channel_id = 'thread_1' AND seq = 1")
       .get() as { id: string; type: string; content: string; embeds: string }
     expect(qRow.type).toBe(DECISION_CARD_MESSAGE_TYPE)
-    expect(qRow.content).toContain("@gus#1813 @alice#0001 Confirm release timing")
+    expect(qRow.content).toBe("Confirm release timing")
+    expect(qRow.content).not.toContain("@gus#1813")
+    expect(qRow.content).not.toContain("Today")
     const parsedEmbeds = JSON.parse(qRow.embeds)
     expect(parsedEmbeds).toHaveLength(1)
     expect(parsedEmbeds[0].kind).toBe(DECISION_CARD_EMBED_KIND)
     expect("title" in parsedEmbeds[0]).toBe(false)
+
+    // Bot read paths (history, resolve, inbox pull, marks) all deliver structured content.question JSON.
+    const historyPage = await queries.communityAgentInbox.listMessagesBySeq(fixture.db as Database, { channelId: "thread_1" }, {})
+    const historyMessages = await queries.communityAgentInbox.toAgentMessages(fixture.db as Database, historyPage.items, "bot_evan")
+    expect(historyMessages[0]?.content).toEqual({ question: expectedQuestionPayload })
+
+    const resolvedRow = await queries.communityMessage.getMessageByChannelAndSeq(fixture.db as Database, { channelId: "thread_1" }, 1)
+    const resolvedMessage = await queries.communityAgentInbox.toAgentMessage(fixture.db as Database, resolvedRow!, "bot_evan")
+    expect(resolvedMessage.content).toEqual({ question: expectedQuestionPayload })
+
+    fixture.sqlite.exec(`
+      INSERT INTO user (id, name, email, discriminator, isBot, ownerUserId) VALUES ('bot_peer', 'Peer', 'peer@alook.test', '0099', 1, 'u_gus');
+      INSERT INTO community_server_member (id, server_id, user_id, role, joined_at) VALUES ('sm_peer', 'srv_1', 'bot_peer', 'member', '2026-11-19T00:00:00.000Z');
+      INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_at) VALUES
+        ('tm_peer', 'thread_1', 'bot_peer', 'notify', 'added', '2026-11-19T00:00:00.000Z');
+    `)
+    const peerUnread = await queries.communityAgentInbox.listUnreadMessagesForAgent(fixture.db as Database, "bot_peer", {})
+    const peerPulled = await queries.communityAgentInbox.toAgentMessages(fixture.db as Database, peerUnread, "bot_peer")
+    expect(peerPulled.find((m) => m.channel === "/Alook#5620/general/#1" && m.seq === "#1")?.content).toEqual({
+      question: expectedQuestionPayload,
+    })
+
+    await queries.communityMessageMark.markMessage(fixture.db as Database, {
+      userId: "bot_peer",
+      messageId: qRow.id,
+      channelId: "thread_1",
+      note: "waiting on answer",
+    })
+    const markRows = await queries.communityMessageMark.listMarksForUser(fixture.db as Database, "bot_peer", {
+      visibleChannelIds: ["thread_1"],
+    })
+    const markedMessages = await queries.communityAgentInbox.toAgentMessages(
+      fixture.db as Database,
+      markRows.map((row) => row.message),
+      "bot_peer",
+    )
+    expect(markedMessages[0]?.content).toEqual({ question: expectedQuestionPayload })
 
     // Only explicit mentions received mention rows — @bystander#0002 in question/option prose did NOT.
     const mentions = fixture.sqlite
@@ -345,6 +405,7 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
           content: { text: "" },
           nonce: "dm-ask-1",
           question: {
+            summary: "Confirm deployment mode",
             questions: [
               {
                 id: "mode",
@@ -420,6 +481,7 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
           nonce: "priv-ask-1",
           question: {
             mentions: ["@gus#1813", "@bystander#0002"],
+            summary: "Approve secret release",
             questions: [
               {
                 id: "q1",
@@ -438,5 +500,85 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toContain("@bystander#0002")
+  })
+
+  it("rejects new decision cards with missing or blank summary, while still reading and answering legacy cards without summary", async () => {
+    currentActor = { kind: "bot", userId: "bot_evan" }
+    currentTarget = { kind: "thread", channelId: "thread_1", parentChannelId: "chan_1", serverId: "srv_1" }
+
+    for (const [nonce, question] of [
+      ["missing-summary", { questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }] }],
+      ["blank-summary", { summary: "   ", questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }] }],
+    ] as const) {
+      const res = await POST(
+        new NextRequest("http://localhost/api/community/channels/resolve/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            channel: "/Alook#5620/general/#1",
+            content: { text: "" },
+            nonce,
+            question,
+          }),
+        }),
+        { params: Promise.resolve({ id: "resolve" }) },
+      )
+      expect(res.status).toBe(400)
+    }
+
+    // Seed a legacy decision card stored before summary became required.
+    const legacyEmbed = {
+      kind: DECISION_CARD_EMBED_KIND,
+      version: 1,
+      assignees: [{ userId: "u_gus", handle: "gus#1813" }],
+      questions: [
+        {
+          id: "q1",
+          question: "Legacy ship?",
+          multiSelect: false,
+          allowOther: true,
+          options: [
+            { id: "yes", label: "Yes" },
+            { id: "no", label: "No" },
+          ],
+        },
+      ],
+    }
+    fixture.sqlite
+      .prepare(
+        "INSERT INTO community_message (id, author_id, content, type, embeds, created_at, channel_id, seq) VALUES (?, ?, ?, ?, ?, '2026-11-20T01:00:00.000Z', 'thread_1', 1)",
+      )
+      .run("m_legacy_card", "bot_evan", "@gus#1813 Legacy ship?\n   Yes / No", DECISION_CARD_MESSAGE_TYPE, JSON.stringify([legacyEmbed]))
+    fixture.sqlite
+      .prepare("INSERT OR REPLACE INTO community_message_seq (channel_id, next_seq) VALUES ('thread_1', 1)")
+      .run()
+
+    // Bot read path still returns structured content.question (omitting summary).
+    const legacyRow = await queries.communityMessage.getMessage(fixture.db as Database, "m_legacy_card")
+    const botMsg = await queries.communityAgentInbox.toAgentMessage(fixture.db as Database, legacyRow!, "bot_evan")
+    expect(botMsg.content).toEqual({
+      question: {
+        mentions: ["@gus#1813"],
+        questions: legacyEmbed.questions,
+      },
+    })
+    expect(botMsg.content.question).not.toHaveProperty("summary")
+
+    // Human can still answer the legacy card and Web enrichment hydrates responders.
+    currentActor = { kind: "human", userId: "u_gus" }
+    const replyRes = await POST(
+      new NextRequest("http://localhost/api/community/channels/thread_1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "Legacy ship?: Yes", replyToId: "m_legacy_card", nonce: "legacy-ans-1" }),
+      }),
+      { params: Promise.resolve({ id: "thread_1" }) },
+    )
+    expect(replyRes.status).toBe(201)
+
+    const enriched = await enrichMessages(fixture.db as Database, "u_gus", { channelId: "thread_1" }, [legacyRow!])
+    const hydrated = extractDecisionCardFromEmbeds(enriched.messages[0]!.embeds).card
+    expect(hydrated?.summary).toBeUndefined()
+    expect(hydrated?.respondedUserIds).toEqual(["u_gus"])
   })
 })

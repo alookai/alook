@@ -88,7 +88,7 @@ async function filterQuestionPii(
   };
 
   const source = parsed.data;
-  const summary = source.summary !== undefined ? await runField(source.summary) : undefined;
+  const summary = await runField(source.summary);
   const questions = [];
   for (const question of source.questions) {
     const header = question.header !== undefined ? await runField(question.header) : undefined;
@@ -116,7 +116,7 @@ async function filterQuestionPii(
 
   const filtered = {
     ...(source.mentions !== undefined ? { mentions: source.mentions } : {}),
-    ...(summary !== undefined ? { summary } : {}),
+    summary,
     questions,
   };
   if (decisionCardUtf8Bytes(filtered) > DECISION_CARD_MAX_BYTES) {

@@ -730,6 +730,8 @@ export async function listRecentMessagesForDuplicateCheck(db: Database, channelI
     name: user.name,
     discriminator: user.discriminator,
     content: communityMessage.content,
+    type: communityMessage.type,
+    embeds: communityMessage.embeds,
     createdAt: communityMessage.createdAt,
   })
     .from(communityMessage)
@@ -853,6 +855,8 @@ export async function getMessageByChannelAndSeq(
       channelId: communityMessage.channelId,
       seq: communityMessage.seq,
       replyToId: communityMessage.replyToId,
+      type: communityMessage.type,
+      embeds: communityMessage.embeds,
     })
     .from(communityMessage)
     .where(and(eq(communityMessage.channelId, target.channelId), eq(communityMessage.seq, seq)));

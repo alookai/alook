@@ -5,8 +5,10 @@ import {
   formatHandle,
   parseNameAndTag,
   queries,
+  toDecisionCardAgentPayload,
   withD1Retry,
   type Database,
+  type DecisionCardAgentPayload,
   type DecisionCardAssignee,
   type DecisionCardInput,
 } from "@alook/shared"
@@ -20,6 +22,7 @@ export type PreparedBotDecisionCard =
     embeds: string
     type: typeof DECISION_CARD_MESSAGE_TYPE
     explicitMentionedUserIds: string[]
+    questionPayload: DecisionCardAgentPayload
   }
   | { ok: false; status: 400; error: string }
 
@@ -121,5 +124,6 @@ export async function prepareBotDecisionCard(
     embeds: JSON.stringify([embed]),
     type: DECISION_CARD_MESSAGE_TYPE,
     explicitMentionedUserIds,
+    questionPayload: toDecisionCardAgentPayload(embed),
   }
 }

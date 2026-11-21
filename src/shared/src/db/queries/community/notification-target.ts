@@ -8,6 +8,7 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import { communityBotCreationRequest } from "../../bot-creation-schema";
+import { parseRawEmbedsArray } from "../../../community-decision-card";
 import type { MessagePreviewInput } from "../../../lib/message-preview";
 import type { Database } from "../../index";
 
@@ -76,6 +77,8 @@ export async function getPushNotificationTarget(
       asc(communityAttachment.createdAt),
     );
 
+  const parsedEmbeds = parseRawEmbedsArray(message.embeds);
+
   return {
     messageId: message.messageId,
     channelId: message.channelId,
@@ -93,6 +96,6 @@ export async function getPushNotificationTarget(
     ...(message.friendshipId ? { approval: { friendshipId: message.friendshipId } } : {}),
     ...(message.requestId ? { botCreation: { requestId: message.requestId } } : {}),
     ...(message.type === "thread_created" ? { systemKind: "thread" as const } : {}),
-    ...(Array.isArray(message.embeds) ? { embeds: message.embeds } : {}),
+    ...(parsedEmbeds ? { embeds: parsedEmbeds } : {}),
   };
 }

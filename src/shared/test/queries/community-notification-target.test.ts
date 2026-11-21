@@ -5,6 +5,13 @@ import * as coreSchema from "../../src/db/schema";
 import * as communitySchema from "../../src/db/community-schema";
 import type { Database } from "../../src/db";
 import { getPushNotificationTarget } from "../../src/db/queries/community/notification-target";
+import {
+  DECISION_CARD_EMBED_KIND,
+  DecisionCardEmbedSchema,
+  DecisionCardInputSchema,
+  buildDecisionCardEmbed,
+} from "../../src/community-decision-card";
+import { buildCommunityNotificationCopy } from "../../src/utils/community-notification-copy";
 
 const schema = { ...coreSchema, ...communitySchema };
 
@@ -151,6 +158,51 @@ describe("community notification target query", () => {
       channelName: "Still pushable",
       parentChannelName: null,
       attachments: [],
+    });
+  });
+
+  it("parses JSON string embeds so decision card notifications render the short summary (including legacy cards without summary)", async () => {
+    const newCard = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "定一下时间",
+        questions: [{ question: "哪天开会？", options: [{ label: "周四", recommended: true }, { label: "周五" }] }],
+      }),
+      [{ userId: "u_gus", handle: "gus#1813" }],
+    );
+    sqlite.prepare(
+      "INSERT INTO community_message (id, author_id, content, channel_id, type, embeds) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("message-question", "author-1", "定一下时间", "channel-1", "question", JSON.stringify([newCard]));
+
+    const target = await getPushNotificationTarget(db, "message-question");
+    expect(target?.embeds).toEqual([newCard]);
+    expect(buildCommunityNotificationCopy(target!)).toEqual({
+      title: "Studio · #general",
+      body: "Alice: 定一下时间",
+    });
+
+    const legacyCard = DecisionCardEmbedSchema.parse({
+      kind: DECISION_CARD_EMBED_KIND,
+      version: 1,
+      assignees: [{ userId: "u_gus", handle: "gus#1813" }],
+      questions: [
+        {
+          id: "q1",
+          question: "哪天开会？",
+          multiSelect: false,
+          allowOther: true,
+          options: [{ id: "o1", label: "周四", recommended: true }, { id: "o2", label: "周五" }],
+        },
+      ],
+    });
+    sqlite.prepare(
+      "INSERT INTO community_message (id, author_id, content, channel_id, type, embeds) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("message-question-legacy", "author-1", "@gus#1813 legacy verbose\n周四 / 周五", "channel-1", "question", JSON.stringify([legacyCard]));
+
+    const legacyTarget = await getPushNotificationTarget(db, "message-question-legacy");
+    expect(legacyTarget?.embeds).toEqual([legacyCard]);
+    expect(buildCommunityNotificationCopy(legacyTarget!)).toEqual({
+      title: "Studio · #general",
+      body: "Alice: 哪天开会？",
     });
   });
 

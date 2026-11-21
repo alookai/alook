@@ -21,6 +21,12 @@ import {
   type Seq,
   type ChannelRef,
 } from "../../../community-cli-contract";
+import {
+  DECISION_CARD_MESSAGE_TYPE,
+  extractDecisionCardFromEmbeds,
+  parseRawEmbedsArray,
+  toDecisionCardAgentPayload,
+} from "../../../community-decision-card";
 import { formatHandle } from "../../../lib/discriminator";
 import { listVisibleChannelIdsForUser } from "./channel";
 import { listDmChannelIdsForUser } from "./dm";
@@ -40,6 +46,8 @@ type RawAgentMessage = {
   channelId: string;
   seq: number;
   replyToId: string | null;
+  type?: string | null;
+  embeds?: unknown;
 };
 
 const AGENT_MESSAGE_COLUMNS = {
@@ -50,6 +58,8 @@ const AGENT_MESSAGE_COLUMNS = {
   channelId: communityMessage.channelId,
   seq: communityMessage.seq,
   replyToId: communityMessage.replyToId,
+  type: communityMessage.type,
+  embeds: communityMessage.embeds,
 } as const;
 
 type ScopeInfo = {
@@ -270,7 +280,12 @@ export async function toAgentMessages(
     // Absent (not empty array) when a message has no attachments — smaller
     // wire payload; documented invariant in the plan.
     const atts = attachmentsByMessageId?.get(r.id);
-    const content: MessageContent = { text: r.content };
+    const decisionCard = r.type === DECISION_CARD_MESSAGE_TYPE
+      ? extractDecisionCardFromEmbeds(parseRawEmbedsArray(r.embeds)).card
+      : undefined;
+    const content: MessageContent = decisionCard
+      ? { question: toDecisionCardAgentPayload(decisionCard) }
+      : { text: r.content };
     if (atts && atts.length > 0) content.attachments = atts;
     const replyTo = r.replyToId ? replyByMessageId.get(r.replyToId) : undefined;
     if (replyTo) content.replyTo = replyTo;

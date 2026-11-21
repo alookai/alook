@@ -3324,6 +3324,7 @@ describe("decision card responder preservation in community-db sync", () => {
     const db = await registry()
     const baseEmbed = buildDecisionCardEmbed(
       {
+        summary: "Confirm ship",
         questions: [
           {
             id: "q1",

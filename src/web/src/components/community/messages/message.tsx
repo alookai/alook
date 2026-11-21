@@ -24,6 +24,7 @@ import {
   openMessageExternalLink,
   type MessageExternalLinkTarget,
 } from "./message-external-link"
+import { messagePreviewText } from "@alook/shared"
 import { BotApprovalCard } from "../social/bot-approval-card"
 import { BotCreationRequestCard } from "../social/bot-creation-request-card"
 import { DecisionCard } from "./decision-card"
@@ -935,7 +936,7 @@ function MessageImpl({
               <MessageReactions
                 messageId={m.id}
                 authorName={authorName}
-                messagePreview={visibleContent}
+                messagePreview={m.decisionCard ? messagePreviewText(m) : visibleContent}
                 reactions={m.reactions}
                 hoverCapable={hoverCapable}
                 tooltipActive={activated}

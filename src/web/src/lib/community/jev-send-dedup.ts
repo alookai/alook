@@ -1,9 +1,46 @@
-import { createLogger, formatHandle, queries, type Database } from "@alook/shared"
+import {
+  DECISION_CARD_MESSAGE_TYPE,
+  createLogger,
+  extractDecisionCardFromEmbeds,
+  formatHandle,
+  parseRawEmbedsArray,
+  queries,
+  toDecisionCardAgentPayload,
+  type Database,
+  type DecisionCardAgentPayload,
+} from "@alook/shared"
 import { createJevDecisionProvider, resolveJevProviderConfig } from "./jev-decision-provider"
 
 const log = createLogger({ service: "jev-send-dedup" })
 const TIMEOUT_MS = 1_500
 const THRESHOLD = 0.5
+
+type JevJsonValue = string | number | boolean | null | JevJsonValue[] | { [key: string]: JevJsonValue }
+
+function toJevQuestionJson(card: DecisionCardAgentPayload): { [key: string]: JevJsonValue } {
+  const out: { [key: string]: JevJsonValue } = {
+    questions: card.questions.map((question) => ({
+      question: question.question,
+      allowOther: question.allowOther,
+      options: question.options.map((option) => {
+        const optObj: { [key: string]: JevJsonValue } = { label: option.label }
+        if (option.recommended !== undefined) optObj.recommended = option.recommended
+        return optObj
+      }),
+    })),
+  }
+  if (card.summary !== undefined) out.summary = card.summary
+  return out
+}
+
+function toJevMessageEntry(
+  handle: string,
+  payload: { content: string } | { question: DecisionCardAgentPayload },
+): { [key: string]: JevJsonValue } {
+  return "question" in payload
+    ? { handle, question: toJevQuestionJson(payload.question) }
+    : { handle, content: payload.content }
+}
 
 export const DUPLICATE_MESSAGE_ERROR = "Message rejected: duplicate or substantially similar content adds no new information to this channel."
 
@@ -13,6 +50,7 @@ export async function isDuplicateBotMessage(input: {
   channelId: string
   authorId: string
   content: string
+  question?: DecisionCardAgentPayload
 }): Promise<boolean> {
   const config = resolveJevProviderConfig(input.env)
   if (!config) return false
@@ -28,14 +66,20 @@ export async function isDuplicateBotMessage(input: {
     if (!author) return false
     const request = {
       state: {
-        proposed_message: {
-          handle: formatHandle(author.name, author.discriminator),
-          content: input.content,
-        },
-        recent_messages: [...messages].reverse().map((message) => ({
-          handle: formatHandle(message.name, message.discriminator),
-          content: message.content,
-        })),
+        proposed_message: toJevMessageEntry(
+          formatHandle(author.name, author.discriminator),
+          input.question ? { question: input.question } : { content: input.content },
+        ),
+        recent_messages: [...messages].reverse().map((message) => {
+          const handle = formatHandle(message.name, message.discriminator)
+          const card = message.type === DECISION_CARD_MESSAGE_TYPE
+            ? extractDecisionCardFromEmbeds(parseRawEmbedsArray(message.embeds)).card
+            : undefined
+          return toJevMessageEntry(
+            handle,
+            card ? { question: toDecisionCardAgentPayload(card) } : { content: message.content },
+          )
+        }),
       },
       questions: {
         duplicate: {
