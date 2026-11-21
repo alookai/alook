@@ -5,6 +5,16 @@ import { Message } from "../messages/message"
 import { MESSAGE_GROUPED_ROW_PADDING_PX, MESSAGE_ROW_VERTICAL_PADDING_PX } from "@/lib/community/message-list-items"
 import type { RenderMsg } from "@/lib/community/models/message"
 
+const interactivePreviewContent = "a,button,input,textarea,select,label,summary,audio[controls],video[controls],[contenteditable=true],[role=button],[role=link],[tabindex]:not([tabindex='-1'])"
+
+export function isInboxPreviewContentClick(event: MouseEvent<HTMLElement>) {
+  const { currentTarget, target } = event
+  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+    || !(target instanceof Element) || !currentTarget.contains(target)) return false
+  const control = target.closest(interactivePreviewContent)
+  return (!control || !currentTarget.contains(control)) && currentTarget.ownerDocument.getSelection()?.isCollapsed !== false
+}
+
 export function InboxMessagePreview({
   message,
   testId,
@@ -23,11 +33,7 @@ export function InboxMessagePreview({
   paddingBottom?: number
 }) {
   const openMessage = onOpen && ((event: MouseEvent<HTMLDivElement>) => {
-    if (!(event.target instanceof Element)
-      || !event.currentTarget.contains(event.target)
-      || event.target.closest("a,button,input,textarea,select,[role=button],[role=link]")
-      || event.currentTarget.ownerDocument.getSelection()?.isCollapsed === false) return
-    onOpen()
+    if (isInboxPreviewContentClick(event)) onOpen()
   })
 
   const row = continuation ? { ...message, grouped: true } : message

@@ -3,7 +3,7 @@
 import { createStore } from "@tanstack/react-store"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, getCanonicalCommunityAttentionScopes, getCanonicalCommunityAttentionItems, getCanonicalCommunityChannels, getCanonicalCommunityMessages } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
-import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import type { QueryClient } from "@tanstack/react-query"
 import {
   getCommunityDbRegistry,
@@ -225,10 +225,6 @@ export function inboxReadCandidateFingerprint(
   ])
 }
 
-function inboxMentionFingerprint(mention: Mention) {
-  return JSON.stringify([mention.id, mention.m.id, mention.m.seq ?? null])
-}
-
 export function inboxChannelRowTarget(
   server: UnreadServer,
   channel: UnreadServer["channels"][number],
@@ -296,17 +292,6 @@ export function inboxDmRowTarget(dm: UnreadDm): InboxRowTarget {
     confirmationChannelId: dm.channelId,
     channelId: dm.channelId,
     ...(dm.lastUnreadSeq !== undefined ? { reservedThroughSeq: dm.lastUnreadSeq } : {}),
-  }
-}
-
-export function inboxMentionRowTarget(mention: Mention): InboxRowTarget | null {
-  if (!mention.serverId || !mention.channelId) return null
-  return {
-    kind: "mention",
-    identity: JSON.stringify(["mention", mention.id]),
-    fingerprint: inboxMentionFingerprint(mention),
-    confirmationChannelId: mention.channelId,
-    mentionId: mention.id,
   }
 }
 

@@ -5,7 +5,7 @@ import type { Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { createElement, useCallback, useRef, type ComponentProps } from "react"
 import { channelHref } from "@/lib/community/community-route"
-import type { InboxTodo, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { InboxTodo, Marked, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
 import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
 import { InboxUnreadMessages } from "./inbox-unread-messages"
@@ -14,7 +14,6 @@ import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   inboxChannelRowTarget,
   inboxDmRowTarget,
-  inboxMentionRowTarget,
   inboxThreadRowTarget,
   terminateThreadOpenerReservationHandoff,
   type InboxRowTarget,
@@ -259,18 +258,6 @@ export function useShellInboxController({
     )
   }, [pushProjected, queryClient])
 
-  const openMention = useCallback((mention: Mention) => {
-    const target = inboxMentionRowTarget(mention)
-    if (!target || !mention.serverId || !mention.channelId) return
-    const href = `${channelHref(mention.serverId, mention.channelId)}?msg=${mention.m.id}`
-    pushProjected(target, href, {
-      channelId: mention.channelId,
-      serverId: mention.serverId,
-      scopeKind: "channel",
-      anchorMessageId: mention.m.id,
-    })
-  }, [pushProjected])
-
   const openTodo = useCallback((todo: InboxTodo) => {
     const previousOpen = inbox.closeWithoutProjection()
     cancelPendingNavigation()
@@ -346,7 +333,6 @@ export function useShellInboxController({
     onOpenChannel: openServerChannel,
     onOpenThread: openThread,
     onOpenDm: openDm,
-    onOpenMention: openMention,
     onOpenTodo: openTodo,
     onSubmitTodo: submitTodo,
     onDismissTodo: dismissTodo,
@@ -363,7 +349,7 @@ export function useShellInboxController({
     onMarkAllRead: () => { markAllInboxRead.mutate() },
     onMarkChannelRead: (channelId, throughSeq) => markChannelRead.mutateAsync({ channelId, throughSeq }),
     channelReadActions: markChannelRead.actions,
-    renderUnreadMessages: (input) => createElement(InboxUnreadMessages, { ...input, onOpenMention: openMention }),
+    renderUnreadMessages: (input) => createElement(InboxUnreadMessages, input),
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),
   }
   const unreadCount = attention.exactAttentionCount

@@ -441,21 +441,6 @@ describe("useShellInboxController", () => {
     expect(hook.pushed).toEqual(["/c/channels/s1/child?inboxThreadOpener=nonce-1"])
   })
 
-  it("leaves an invalid Mention completely untouched", async () => {
-    const hook = await renderController()
-    order.length = 0
-    await act(async () => hook.current.popoverProps.onOpenMention?.({ id: "bad" } as Mention))
-    expect(order).toEqual([])
-  })
-
-  it("projects a valid Mention and submits its channel synchronously", async () => {
-    const hook = await renderController()
-    order.length = 0
-    await act(async () => hook.current.popoverProps.onOpenMention?.(mention))
-    expect(order).toEqual(["project", "cancel", "clear", "push", "submitted"])
-    expect(hook.pushed).toEqual(["/c/channels/s1/c1?msg=msg1"])
-  })
-
   it("closes Marked without creating a projection", async () => {
     const hook = await renderController()
     order.length = 0
