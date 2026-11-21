@@ -23,6 +23,7 @@ export type InboxUnreadMessagesInput = {
   throughSeq: number
   mentions: Mention[]
   openForumPosts?: ReadonlyMap<string, () => void>
+  continuation?: boolean
 }
 
 // A single per-user saved ("marked") message, as returned by

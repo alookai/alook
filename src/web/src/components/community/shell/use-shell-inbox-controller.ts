@@ -309,6 +309,7 @@ export function useShellInboxController({
     onScrollOffsetChange: setScrollOffset,
     onMarkAllRead: () => { markAllInboxRead.mutate() },
     onMarkChannelRead: (channelId, throughSeq) => markChannelRead.mutateAsync({ channelId, throughSeq }),
+    channelReadActions: markChannelRead.actions,
     renderUnreadMessages: (input) => createElement(InboxUnreadMessages, { ...input, onOpenMention: openMention }),
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),
   }

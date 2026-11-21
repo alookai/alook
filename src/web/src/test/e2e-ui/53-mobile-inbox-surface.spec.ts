@@ -1,5 +1,6 @@
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
+import { expectPaintedInboxCardSurface, expectPaintedInboxDivider } from "./_fixtures/inbox-divider"
 import type { Page, Request } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
@@ -724,7 +725,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
         completedInboxGets.push(path)
       }
     })
-    await bob.page.setViewportSize({ width: 639, height: 844 })
+    await bob.page.setViewportSize({ width: 390, height: 844 })
     await bob.page.goto(`/c/channels/${emptyServerId}`, { waitUntil: "commit" })
     await expect.poll(() => eagerInboxPaths.every((path) => (
       completedInboxGets.filter((completed) => completed === path).length >= 1
@@ -735,9 +736,27 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     const wsBefore = ws.frames.length
 
     await bob.page.getByTestId(tid.inboxTrigger).click()
+    const collapsedCard = bob.page.getByTestId(tid.inboxUnreadCard(channelId))
+    await expect(collapsedCard).toBeVisible()
+    await waitForElementMotion(collapsedCard)
+    await expectPaintedInboxCardSurface(collapsedCard)
     await bob.page.getByRole("tab", { name: "Marked" }).click()
     const markedScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
     await expect(markedScroll.getByText(`Marked ${stamp} 13`, { exact: true })).toBeAttached()
+    await waitForElementMotion(markedScroll)
+    const firstCard = markedScroll.locator("article[data-testid^='community-inbox-marked-card-']").first()
+    await expectPaintedInboxDivider(firstCard)
+    await expect(firstCard.locator('[data-slot="inbox-card-messages"]')).toHaveCSS("--inbox-preview-fade-edge", "0%")
+    await expect.poll(() => firstCard.evaluate((card, scrollId) => {
+      const header = card.querySelector('[data-slot="inbox-card-header"]')!
+      const list = card.closest(`[data-testid="${scrollId}"]`)!
+      const listTop = list.getBoundingClientRect().top
+      return {
+        cardInset: Math.round(header.getBoundingClientRect().top - listTop),
+        listInset: Math.round(listTop - list.parentElement!.getBoundingClientRect().top),
+      }
+    }, tid.inboxTabScroll("marked"))).toEqual({ cardInset: 0, listInset: 12 })
+    await bob.page.setViewportSize({ width: 639, height: 844 })
     await waitForElementMotion(markedScroll)
     const { priorScroll, tailCardId } = await markedScroll.evaluate((element) => {
       const cards = element.querySelectorAll("article[data-testid^='community-inbox-marked-card-']")

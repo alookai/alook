@@ -107,6 +107,101 @@ async function watchInboxRow(page: Parameters<typeof gotoAfterUserWsAuth>[0], te
 test.describe("Inbox/read refresh ownership", () => {
   test.setTimeout(180_000)
 
+  test("the channel check rolls back and retries its original unread range", async ({ caseActors }) => {
+    const { asUser, onCleanup, seed } = await caseActors(["alice", "bob"])
+    const stamp = Date.now()
+    const serverId = await seed.seedServer("alice", `Inbox channel check ${stamp}`)
+    const channelId = await seed.seedChannel("alice", serverId, `check-${stamp}`)
+    const siblingId = await seed.seedChannel("alice", serverId, `other-${stamp}`)
+    await seed.seedJoinServer("alice", "bob", serverId)
+    const original = await seed.seedMessage("alice", channelId, `Original ${stamp}`)
+    await seed.seedMessage("alice", siblingId, `Other ${stamp}`)
+
+    const { page } = await asUser("bob")
+    await gotoAfterUserWsAuth(page, "/c/me/friends")
+    const trigger = page.getByTestId(tid.inboxTrigger)
+    const count = trigger.locator('[data-slot="inbox-unread-indicator"]')
+    await trigger.click()
+    const card = page.getByTestId(tid.inboxUnreadCard(channelId))
+    const sibling = page.getByTestId(tid.inboxUnreadCard(siblingId))
+    await expect(card.getByLabel("1 unread message")).toBeVisible()
+    await expect(sibling).toBeVisible()
+    await expect(count).toHaveAttribute("data-count", "2")
+
+    const fail = deferred()
+    const previewGate = deferred()
+    onCleanup(async () => {
+      fail.resolve()
+      previewGate.resolve()
+    })
+    const sentIds: string[] = []
+    const previewPattern = (url: URL) => url.pathname === `/api/community/channels/${channelId}/messages`
+    await page.route(previewPattern, async route => {
+      if (route.request().method() === "GET") await previewGate.promise
+      await route.continue()
+    })
+    const routePattern = `**/api/community/channels/${channelId}/read`
+    await page.route(routePattern, async (route) => {
+      if (route.request().method() !== "PUT") return route.continue()
+      const body = route.request().postDataJSON() as { lastReadMessageId: string }
+      sentIds.push(body.lastReadMessageId)
+      if (sentIds.length !== 1) return route.continue()
+      await fail.promise
+      await route.fulfill(currentCommunityFixtureError("retry", 503))
+    })
+    try {
+      await card.getByTestId(tid.inboxMarkChannelRead(channelId)).click()
+      await expect(card).toHaveCount(0)
+      await expect(sibling).toBeVisible()
+      await expect(count).toHaveAttribute("data-count", "1")
+      await expect.poll(() => sentIds).toEqual([original])
+      fail.resolve()
+
+      const retry = card.getByRole("button", { name: /^Retry marking / })
+      await expect(retry).toBeVisible()
+      await expect(count).toHaveAttribute("data-count", "2")
+      const later = `Later ${stamp}`
+      await seed.seedMessage("alice", channelId, later)
+      await expect(card.getByLabel("2 unread messages")).toBeVisible()
+      const receipt = page.waitForResponse(response => response.request().method() === "PUT" && response.url().endsWith(`/channels/${channelId}/read`))
+      await retry.click()
+      expect((await receipt).status()).toBe(200)
+      expect(sentIds).toEqual([original, original])
+      await expect(card.getByLabel("1 unread message")).toBeVisible()
+      await expect(retry).toHaveCount(0)
+      await expect(count).toHaveAttribute("data-count", "2")
+      await expect(sibling).toBeVisible()
+      const disclosure = card.getByTestId(tid.inboxToggleChannel(channelId))
+      await expect(disclosure.getByLabel("1 unread message")).toBeVisible()
+      await disclosure.click()
+      await expect(disclosure).toHaveAttribute("aria-expanded", "true")
+      const preview = card.getByTestId(tid.inboxUnreadMessages(channelId))
+      const loading = preview.getByRole("status", { name: "Loading unread messages" })
+      await expect(loading).toBeVisible()
+      await expect.poll(() => loading.evaluate(element => {
+        const bounds = element.getBoundingClientRect()
+        const rows = element.querySelectorAll('[data-slot="skeleton"]')
+        const first = rows[0]!.getBoundingClientRect()
+        const last = rows[1]!.getBoundingClientRect()
+        return [first.top - bounds.top, last.top - first.bottom, bounds.bottom - last.bottom]
+      })).toEqual([8, 8, 8])
+      previewGate.resolve()
+      await expect(preview.getByText(later, { exact: true })).toBeVisible()
+      await expect(preview.getByText(`Original ${stamp}`, { exact: true })).toHaveCount(0)
+
+      const snapshot = await (await confirmCommunityFixtureApiResponse(page.request.get(
+        "/api/community/users/me/read-state", { headers: CURRENT_COMMUNITY_FIXTURE_HEADERS },
+      ))).json() as { readStates: Array<{ channelId: string; lastReadMessageId: string; lastReadSeq: number }> }
+      expect(snapshot.readStates.find(row => row.channelId === channelId)?.lastReadMessageId).toBe(original)
+      expect(snapshot.readStates.find(row => row.channelId === siblingId)?.lastReadSeq ?? 0).toBe(0)
+    } finally {
+      fail.resolve()
+      previewGate.resolve()
+      await page.unroute(routePattern)
+      await page.unroute(previewPattern)
+    }
+  })
+
   test("an Inbox click closes, publishes, and hides only its exact row before read settles", async ({ caseActors }) => {
     const actors = await caseActors(["alice", "bob"])
     const { asUser } = actors
