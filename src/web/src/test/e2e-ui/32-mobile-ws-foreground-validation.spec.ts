@@ -351,7 +351,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
 
   const reloadFrameStart = proxy.connectionFrames.length
   const reloadConnectionBaseline = proxy.connectionCount()
-  const reloadSuccessfulTokenBaseline = successfulTokenResponses
+  const reloadTokenBaseline = tokenRequests
   await alice.page.evaluate(() => {
     document.documentElement.removeAttribute("data-e2e-user-ws-authenticated")
   })
@@ -367,15 +367,15 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
     expect(await reloadedComposer.isVisible()).toBe(true)
   }).toPass({ timeout: 20_000 })
   await expect.poll(() => proxy.connectionCount()).toBe(reloadConnectionBaseline + 1)
-  await expect.poll(() => successfulTokenResponses).toBe(reloadSuccessfulTokenBaseline + 1)
   await alice.page.waitForTimeout(500)
   expect(proxy.connectionCount()).toBe(reloadConnectionBaseline + 1)
-  expect(successfulTokenResponses).toBe(reloadSuccessfulTokenBaseline + 1)
-  expect(proxy.connectionFrames.slice(reloadFrameStart).filter((frame) =>
-    frame.direction === "client-to-server"
-    && frame.connectionId === reloadConnectionBaseline + 1
-    && frame.type === "connection.ping",
-  )).toEqual([])
+  expect(tokenRequests).toBe(reloadTokenBaseline)
+  const reloadFrames = proxy.connectionFrames.slice(reloadFrameStart).filter((frame) =>
+    frame.connectionId === reloadConnectionBaseline + 1,
+  )
+  expect(reloadFrames.filter((frame) => frame.direction === "client-to-server" && frame.type === "auth")).toHaveLength(1)
+  expect(reloadFrames.filter((frame) => frame.direction === "server-to-client" && frame.type === "auth.ok")).toHaveLength(1)
+  expect(reloadFrames.filter((frame) => frame.direction === "client-to-server" && frame.type === "connection.ping")).toEqual([])
 
   const body = `foreground recovery ${stamp}`
   await sendMessage(bob.page, body)
