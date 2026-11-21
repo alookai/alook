@@ -1,5 +1,6 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
+import { expectPaintedInboxDivider, expectPaintedInboxMessageFade } from "./_fixtures/inbox-divider"
 import type { Locator, Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
@@ -22,6 +23,17 @@ const shellPanel = (page: Page, id: "sidebar" | "main") => (
 
 async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator) {
   const header = card.locator('[data-slot="inbox-card-header"]')
+  const preview = card.locator('[data-slot="inbox-card-preview"]')
+  const messages = preview.locator('[data-slot="inbox-card-messages"]')
+  const expectHeaderShape = async () => {
+    await expect(header).toHaveCSS("border-width", "0px")
+    await expect(header).toHaveCSS("border-top-left-radius", /^[1-9]\d*(?:\.\d+)?px$/)
+    await expect(header).toHaveCSS("border-top-right-radius", /^[1-9]\d*(?:\.\d+)?px$/)
+  }
+  await expectHeaderShape()
+  await expect(preview.locator("..")).toHaveCSS("border-width", "0px")
+  await expect(messages).toHaveCSS("--inbox-preview-fade-edge", "0%")
+  await expectPaintedInboxDivider(card)
   const cardId = await card.getAttribute("data-testid")
   await list.evaluate((element, cardId) => {
     const cardElement = element.querySelector(`[data-testid="${cardId}"]`)!
@@ -33,12 +45,12 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
   }).toBeLessThanOrEqual(1)
   const box = await header.boundingBox()
   if (!box) throw new Error("Pinned Inbox card header is unavailable")
-  await page.mouse.move(box.x + 2, box.y + 2)
-  await expect(header).toHaveCSS("border-top-width", "1px")
-  await expect(header).toHaveCSS("border-top-style", "solid")
+  await page.mouse.move(box.x + box.width / 2, box.y + 2)
+  await expectHeaderShape()
+  await expectPaintedInboxDivider(card)
   await expect.poll(() => header.evaluate((element) => {
     const rect = element.getBoundingClientRect()
-    const bodyOverlaps = [...(element.parentElement?.querySelectorAll("[data-message-renderer]") ?? [])]
+    const bodyOverlaps = [...(element.closest("article")?.querySelectorAll("[data-message-renderer]") ?? [])]
       .some(row => {
         const body = row.getBoundingClientRect()
         return body.top < rect.bottom && body.bottom > rect.top
@@ -52,12 +64,17 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
       bodyOverlaps,
       hovered: element.matches(":hover"),
       coversCorners: [rect.left + 2, rect.right - 2].every(x => (
-        element.contains(document.elementFromPoint(x, rect.top + 2))
+        element.parentElement?.contains(document.elementFromPoint(x, rect.top + 2))
       )),
       alpha: context.getImageData(0, 0, 1, 1).data[3],
     }
   })).toEqual({ bodyOverlaps: true, hovered: true, coversCorners: true, alpha: 255 })
-  await expect(list).toHaveCSS("mask-image", /linear-gradient/)
+  await expect(list).toHaveCSS("mask-image", "none")
+  await expect(header).toHaveCSS("mask-image", "none")
+  await expect(preview).toHaveCSS("mask-image", "none")
+  await expect(messages).toHaveCSS("mask-image", /linear-gradient/)
+  await expect(messages).not.toHaveCSS("--inbox-preview-fade-edge", "0%")
+  await expectPaintedInboxMessageFade(messages)
 }
 
 type LayoutSample = {
@@ -993,14 +1010,18 @@ test.describe("desktop default User Bar width", () => {
           await expect(requestRow).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxUnreadChannel(floorChannelId))).toBeVisible()
           await expect(bob.page.getByRole("tab", { name: "Mentions", exact: true })).toHaveCount(0)
-          await bob.page.getByTestId(tid.inboxToggleChannel(floorChannelId)).click()
+          const card = bob.page.getByTestId(tid.inboxUnreadCard(floorChannelId))
+          const disclosure = card.getByTestId(tid.inboxToggleChannel(floorChannelId))
+          await expect(disclosure.getByLabel("2 unread messages")).toBeVisible()
+          await disclosure.click()
           await expect(activeBody).toContainText(`Mention ${stamp}`)
           await expect(bob.page.getByTestId(tid.inboxMarkChannelRead(floorChannelId))).toBeVisible()
-          const card = bob.page.getByTestId(tid.inboxUnreadCard(floorChannelId))
-          await expect(card.getByLabel("2 unread messages")).toBeVisible()
+          await expect(disclosure).toHaveAttribute("aria-expanded", "true")
+          await expect(disclosure.locator("svg")).toBeVisible()
+          await expect(card.getByLabel("2 unread messages")).toHaveCount(0)
           await expect(bob.page.getByTestId(tid.inboxUnreadMessages(floorChannelId)).locator("[data-message-renderer]").first()).toBeVisible()
           await expectPinnedInboxHeader(bob.page, activeBody, card)
-          await expect(card.getByLabel("2 unread messages")).toBeVisible()
+          await expect(disclosure.locator("svg")).toBeVisible()
           await requestRow.hover()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestAccept(friendRequestId))).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestReject(friendRequestId))).toBeVisible()
@@ -1014,7 +1035,17 @@ test.describe("desktop default User Bar width", () => {
           await expect(row).toContainText(content)
           await expect(action).toHaveAccessibleName("Unmark")
           await expect(action).toBeVisible()
+          const header = row.locator('[data-slot="inbox-card-header"]')
+          const readHeaderInset = () => header.evaluate((element, panelId) => {
+            const panel = element.closest(`[data-testid="${panelId}"]`)
+            if (!panel) throw new Error("Missing Inbox panel for the header position")
+            return element.getBoundingClientRect().top - panel.getBoundingClientRect().top
+          }, tid.userBarExtension)
+          await waitForElementMotion(header)
+          const rest = await readHeaderInset()
           await expectPinnedInboxHeader(bob.page, activeBody, row)
+          const pinned = await readHeaderInset()
+          expect(Math.abs(pinned - rest)).toBeLessThanOrEqual(1)
         }
 
         const sample = await extension.evaluate((element, ids) => {

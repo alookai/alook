@@ -1,0 +1,38 @@
+.cardSurface {
+  background-color: var(--popover);
+  background-color: color-mix(in oklab, var(--popover), var(--popover-foreground) 4%);
+}
+
+.cardSurface[data-slot="inbox-card-header"]::before {
+  background-color: var(--accent);
+  background-color: color-mix(in oklab, var(--popover), var(--popover-foreground) 7%);
+}
+
+@property --inbox-preview-fade-edge {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
+@keyframes fadePreviewPastHeader {
+  from {
+    --inbox-preview-fade-edge: 0%;
+  }
+  to {
+    --inbox-preview-fade-edge: 100%;
+  }
+}
+
+@supports (animation-timeline: view(block 0px 0px)) and (animation-range: exit-crossing) {
+  .preview [data-slot="inbox-card-messages"] {
+    --inbox-preview-fade-depth: calc(var(--spacing) * 4);
+    mask-image: linear-gradient(
+      to bottom,
+      transparent var(--inbox-preview-fade-edge),
+      black calc(var(--inbox-preview-fade-edge) + min(var(--inbox-preview-fade-edge), var(--inbox-preview-fade-depth)))
+    );
+    animation: fadePreviewPastHeader auto linear forwards;
+    animation-timeline: view(block var(--inbox-sticky-header-height, 0px) 0px);
+    animation-range: exit-crossing 1px;
+  }
+}

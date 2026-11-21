@@ -41,14 +41,33 @@ async function expectCompactInboxAction(control: Locator) {
   })).toEqual([8, 8, 8, 8])
 }
 
+async function expectAdjacentInboxActions(disclosure: Locator, targetSize: number, artworkSize: number) {
+  const readInset = (targetSize - 16) / 2
+  const disclosureInset = (targetSize - artworkSize) / 2
+  await expect(disclosure).toHaveCSS("width", `${targetSize}px`)
+  await expect.poll(() => disclosure.evaluate((element) => {
+    const read = element.previousElementSibling!
+    const disclosureButton = element.getBoundingClientRect()
+    const readButton = read.getBoundingClientRect()
+    const artwork = element.querySelector('[data-slot="inbox-action-visual"]')!.firstElementChild!.getBoundingClientRect()
+    const readIcon = read.querySelector("svg")!.getBoundingClientRect()
+    return {
+      buttonGap: disclosureButton.left - readButton.right,
+      artworkGap: artwork.left - readIcon.right,
+      disclosureInset: disclosureButton.right - artwork.right,
+      readInset: readButton.right - readIcon.right,
+    }
+  })).toEqual({ buttonGap: 0, artworkGap: readInset + disclosureInset, disclosureInset, readInset })
+}
+
 async function expectInboxHeaderHover(page: Page, action: Locator) {
   const header = page.locator('[data-slot="inbox-card-header"]').filter({ has: action })
   const colors = await header.evaluate((element) => {
     const probe = document.createElement("span")
     element.appendChild(probe)
-    probe.style.backgroundColor = "var(--card)"
+    probe.style.backgroundColor = "color-mix(in oklab, var(--popover), var(--popover-foreground) 4%)"
     const idle = getComputedStyle(probe).backgroundColor
-    probe.style.backgroundColor = "var(--accent)"
+    probe.style.backgroundColor = "color-mix(in oklab, var(--popover), var(--popover-foreground) 7%)"
     const hovered = getComputedStyle(probe).backgroundColor
     probe.remove()
     return { idle, hovered }
@@ -165,41 +184,30 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     await page.getByTestId(tid.inboxTrigger).click()
     await expect(page.getByRole("tab", { name: /^Mentions/ })).toHaveCount(0)
     const markRead = page.getByTestId(tid.inboxMarkChannelRead(mentionChannel))
-    const arrow = page.getByTestId(tid.inboxToggleChannel(mentionChannel))
+    const disclosure = page.getByTestId(tid.inboxToggleChannel(mentionChannel))
+    const badge = disclosure.getByLabel("1 unread message")
     await expect(markRead).toHaveAttribute("data-variant", "ghost")
-    await expect(arrow).toHaveAttribute("data-variant", "ghost")
+    await expect(disclosure).toHaveAttribute("data-variant", "ghost")
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+    await expect(badge).toBeVisible()
     if (narrow) {
       await expectCompactInboxAction(markRead)
-      await expectCompactInboxAction(arrow)
+      await expectCompactInboxAction(disclosure)
     }
     const markPaint = narrow ? inboxActionFace(markRead) : markRead
-    const arrowPaint = narrow ? inboxActionFace(arrow) : arrow
+    const disclosurePaint = narrow ? inboxActionFace(disclosure) : disclosure
     await page.mouse.move(0, 0)
     await expectIconTone(markRead, "--muted-foreground")
     const readBackground = await markPaint.evaluate(element => getComputedStyle(element).backgroundColor)
     expect(readBackground).not.toBe("rgba(0, 0, 0, 0)")
-    await expect(arrowPaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expect(disclosurePaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
     await expectInboxHeaderHover(page, markRead)
     await expect(markPaint).toHaveCSS("background-color", readBackground)
-    await arrow.hover()
-    await expect(arrowPaint).toHaveCSS("background-color", readBackground)
-    await expect(markRead).toHaveCSS("width", narrow ? "44px" : "32px")
-    await expect(arrow).toHaveCSS("width", narrow ? "44px" : "32px")
-    await expect.poll(() => arrow.evaluate((element) => {
-      const read = element.previousElementSibling!
-      const arrowButton = element.getBoundingClientRect()
-      const readButton = read.getBoundingClientRect()
-      const arrowIcon = element.querySelector("svg")!.getBoundingClientRect()
-      const readIcon = read.querySelector("svg")!.getBoundingClientRect()
-      return {
-        buttonGap: arrowButton.left - readButton.right,
-        iconGap: arrowIcon.left - readIcon.right,
-        arrowInset: arrowButton.right - arrowIcon.right,
-        readInset: readButton.right - readIcon.right,
-      }
-    })).toEqual(narrow
-      ? { buttonGap: 0, iconGap: 28, arrowInset: 14, readInset: 14 }
-      : { buttonGap: 0, iconGap: 16, arrowInset: 8, readInset: 8 })
+    await disclosure.hover()
+    await expect(disclosurePaint).toHaveCSS("background-color", readBackground)
+    const targetSize = narrow ? 44 : 32
+    await expect(markRead).toHaveCSS("width", `${targetSize}px`)
+    await expectAdjacentInboxActions(disclosure, targetSize, 20)
 
     const readPath = `/api/community/channels/${mentionChannel}/read`
     let readRequests = 0
@@ -208,17 +216,21 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     })
     await markRead.focus()
     await page.keyboard.press("Tab")
-    await expect(arrow).toBeFocused()
-    await expect.poll(() => arrow.evaluate(element => element.matches(":focus-visible"))).toBe(true)
-    await arrow.press("Enter")
-    await expect(arrow).toHaveAttribute("aria-expanded", "true")
+    await expect(disclosure).toBeFocused()
+    await expect.poll(() => disclosure.evaluate(element => element.matches(":focus-visible"))).toBe(true)
+    await disclosure.press("Enter")
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true")
+    await expect(badge).toHaveCount(0)
+    await expect(disclosure.locator("svg.lucide-chevron-down")).toBeVisible()
+    await expectAdjacentInboxActions(disclosure, targetSize, 16)
     await expect(page.getByTestId(tid.inboxUnreadMessages(mentionChannel))).toContainText(`Supporting action ${colorScheme}`)
     await page.mouse.move(0, 0)
-    await expect(arrowPaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
-    await arrow.hover()
-    await expect(arrowPaint).toHaveCSS("background-color", readBackground)
-    await arrow.press("Space")
-    await expect(arrow).toHaveAttribute("aria-expanded", "false")
+    await expect(disclosurePaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await disclosure.hover()
+    await expect(disclosurePaint).toHaveCSS("background-color", readBackground)
+    await disclosure.press("Space")
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+    await expect(badge).toBeVisible()
     expect(readRequests).toBe(0)
     const dismissed = page.waitForResponse((response) =>
       response.request().method() === "PUT"
