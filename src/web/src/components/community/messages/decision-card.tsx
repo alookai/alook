@@ -535,13 +535,14 @@ export function DecisionCard({
   return (
     <Card
       size="sm"
+      surface="sticker"
       role="region"
       aria-label={card.summary ?? "Decision card"}
       data-testid={tid.decisionCard}
       data-swipe-ignore=""
-      className="w-full max-w-lg min-w-0 py-4"
+      className="my-2 w-full max-w-lg min-w-0"
     >
-      <CardContent className="flex flex-col gap-4 px-4">
+      <CardContent className="flex flex-col gap-4">
         {(card.summary || hasAssignees || respondedUserIds.size > 0) && (
           <div className="flex flex-col gap-1.5">
             {card.summary && (

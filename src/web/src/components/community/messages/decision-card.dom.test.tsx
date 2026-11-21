@@ -274,6 +274,7 @@ describe("DecisionCard", () => {
       </QueryClientProvider>,
     )
     expect(view.getByTestId(tid.decisionCard)).toBeVisible()
+    expect(view.getByTestId(tid.decisionCard)).toHaveAttribute("data-surface", "sticker")
     expect(view.queryByText("PLAIN_FALLBACK_SUMMARY")).toBeNull()
     view.unmount()
   })
