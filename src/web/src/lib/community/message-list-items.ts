@@ -9,6 +9,7 @@ function messageDisplayKey(message: Msg, viewerUserId?: string | null): string {
 
 const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000
 export const MESSAGE_ROW_VERTICAL_PADDING_PX = 8
+export const MESSAGE_GROUPED_ROW_PADDING_PX = MESSAGE_ROW_VERTICAL_PADDING_PX / 2
 
 export type FlatItem = {
   kind: "message"
@@ -55,7 +56,7 @@ export function flattenMessageItems(
       && elapsed >= 0 && elapsed < MESSAGE_GROUP_WINDOW_MS)
     const grouped = isPendingWindowFirst || joinsPrevious
     const previousItem = items.at(-1)
-    if (joinsPrevious && previousItem?.kind === "message") previousItem.paddingBottom = MESSAGE_ROW_VERTICAL_PADDING_PX / 2
+    if (joinsPrevious && previousItem?.kind === "message") previousItem.paddingBottom = MESSAGE_GROUPED_ROW_PADDING_PX
     if (showDateDivider || isNewDivider) {
       items.push({
         kind: "divider",
@@ -69,7 +70,7 @@ export function flattenMessageItems(
       kind: "message",
       m: { ...m, grouped },
       key: messageDisplayKey(m, viewerUserId),
-      paddingTop: joinsPrevious ? MESSAGE_ROW_VERTICAL_PADDING_PX / 2 : MESSAGE_ROW_VERTICAL_PADDING_PX,
+      paddingTop: joinsPrevious ? MESSAGE_GROUPED_ROW_PADDING_PX : MESSAGE_ROW_VERTICAL_PADDING_PX,
       paddingBottom: MESSAGE_ROW_VERTICAL_PADDING_PX,
     })
     seenFirstMessage = true

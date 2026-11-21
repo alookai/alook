@@ -129,8 +129,17 @@ test.describe("Inbox/read refresh ownership", () => {
     await expect(count).toHaveAttribute("data-count", "2")
 
     const fail = deferred()
-    onCleanup(async () => { fail.resolve() })
+    const previewGate = deferred()
+    onCleanup(async () => {
+      fail.resolve()
+      previewGate.resolve()
+    })
     const sentIds: string[] = []
+    const previewPattern = (url: URL) => url.pathname === `/api/community/channels/${channelId}/messages`
+    await page.route(previewPattern, async route => {
+      if (route.request().method() === "GET") await previewGate.promise
+      await route.continue()
+    })
     const routePattern = `**/api/community/channels/${channelId}/read`
     await page.route(routePattern, async (route) => {
       if (route.request().method() !== "PUT") return route.continue()
@@ -162,8 +171,21 @@ test.describe("Inbox/read refresh ownership", () => {
       await expect(retry).toHaveCount(0)
       await expect(count).toHaveAttribute("data-count", "2")
       await expect(sibling).toBeVisible()
-      await card.getByTestId(tid.inboxToggleChannel(channelId)).click()
+      const disclosure = card.getByTestId(tid.inboxToggleChannel(channelId))
+      await expect(disclosure.getByLabel("1 unread message")).toBeVisible()
+      await disclosure.click()
+      await expect(disclosure).toHaveAttribute("aria-expanded", "true")
       const preview = card.getByTestId(tid.inboxUnreadMessages(channelId))
+      const loading = preview.getByRole("status", { name: "Loading unread messages" })
+      await expect(loading).toBeVisible()
+      await expect.poll(() => loading.evaluate(element => {
+        const bounds = element.getBoundingClientRect()
+        const rows = element.querySelectorAll('[data-slot="skeleton"]')
+        const first = rows[0]!.getBoundingClientRect()
+        const last = rows[1]!.getBoundingClientRect()
+        return [first.top - bounds.top, last.top - first.bottom, bounds.bottom - last.bottom]
+      })).toEqual([8, 8, 8])
+      previewGate.resolve()
       await expect(preview.getByText(later, { exact: true })).toBeVisible()
       await expect(preview.getByText(`Original ${stamp}`, { exact: true })).toHaveCount(0)
 
@@ -174,7 +196,9 @@ test.describe("Inbox/read refresh ownership", () => {
       expect(snapshot.readStates.find(row => row.channelId === siblingId)?.lastReadSeq ?? 0).toBe(0)
     } finally {
       fail.resolve()
+      previewGate.resolve()
       await page.unroute(routePattern)
+      await page.unroute(previewPattern)
     }
   })
 

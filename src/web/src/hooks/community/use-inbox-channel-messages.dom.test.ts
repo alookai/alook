@@ -2,7 +2,7 @@ import "fake-indexeddb/auto"
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { channelResourceFixture, fullResourceBundleFixture, messageReadPageFixture, messageResourceFixture, resourceBundleFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
@@ -10,6 +10,8 @@ import { captureCommunityLiveSnapshotToken, ingestAttentionSnapshot, publishComm
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { messageWindowOptions } from "@/lib/community/message-window"
 import { communityKeys } from "@/lib/query-keys"
+import { InboxUnreadMessages } from "@/components/community/shell/inbox-unread-messages"
+import { ApiError } from "@/lib/errors"
 import { useInboxChannelMessages, useMarkInboxChannelRead } from "./use-inbox-channel-messages"
 import { flushPendingReadIntents, getLocalReadingPosition, registerReadSurface, releaseReadSurface, submitReadIntent } from "./read-coordinator"
 
@@ -37,6 +39,18 @@ async function setup() {
 }
 
 const row = (seq: number) => messageResourceFixture({ id: `m${seq}`, channelId: "parent", seq, authorId: "peer", createdAt: `2026-10-01T00:00:${String(seq).padStart(2, "0")}.000Z`, content: `Body ${seq}` })
+
+const advancePreviewTime = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
+
+async function waitForPreviewFailure(client: Awaited<ReturnType<typeof setup>>["client"], count: number) {
+  await act(async () => {
+    await vi.waitFor(() => expect(client.getQueryState(communityKeys.channelMessages("parent"))).toMatchObject({
+      status: "error", fetchStatus: "idle", errorUpdateCount: count,
+    }))
+  })
+  await advancePreviewTime(1)
+  return client.getQueryState(communityKeys.channelMessages("parent"))!.errorUpdatedAt
+}
 
 describe("read-only Inbox channel messages", () => {
   it("projects only the unread interval and never advances any read state", async () => {
@@ -120,30 +134,89 @@ describe("read-only Inbox channel messages", () => {
     expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
   })
 
-  it("retries the failed older cursor without refetching cached messages", async () => {
+  it("retries the failed older cursor in the background and keeps cached messages", async () => {
     const owner = await setup()
     const cursor = `${row(4).createdAt}|m4`
     mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [row(4), row(5)], hasMore: true, cursor }))
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(messageReadPageFixture({ messages: [row(3)], hasMore: false }))
-    const view = renderHook(() => useInboxChannelMessages("parent", 5), { wrapper: owner.wrapper })
-    await waitFor(() => expect(view.result.current.isError).toBe(true))
-    expect(view.result.current.messages.map(message => message.id)).toEqual(["m4", "m5"])
-    await act(async () => { await view.result.current.refetch() })
-    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m5"]))
-    const earlier = `/api/community/channels/parent/messages?cursor=${encodeURIComponent(cursor)}`
-    expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", earlier, earlier])
+    vi.useFakeTimers()
+    try {
+      const view = renderHook(() => useInboxChannelMessages("parent", 5), { wrapper: owner.wrapper })
+      await waitForPreviewFailure(owner.client, 1)
+      expect(view.result.current.messages.map(message => message.id)).toEqual(["m4", "m5"])
+      await advancePreviewTime(5_000)
+      await act(async () => { await vi.waitFor(() => expect(owner.registry.collections.messages.has("m3")).toBe(true)) })
+      await advancePreviewTime(1)
+      expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m5"])
+      const earlier = `/api/community/channels/parent/messages?cursor=${encodeURIComponent(cursor)}`
+      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", earlier, earlier])
+      expect(mocks.reconcile).not.toHaveBeenCalled()
+      expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
+    } finally { vi.useRealTimers() }
   })
 
-  it("retries a failed preview through the read-only message door", async () => {
+  it.each(["during expansion", "before expansion"])("silently recovers a first read failure %s", async stage => {
     const owner = await setup()
-    mocks.api.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(messageReadPageFixture({ messages: [row(3)], hasMore: false }))
-    const view = renderHook(() => useInboxChannelMessages("parent", 3), { wrapper: owner.wrapper })
-    await waitFor(() => expect(view.result.current.isError).toBe(true))
-    await act(async () => { await view.result.current.refetch() })
-    await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3"]))
-    expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", "/api/community/channels/parent/messages"])
-    expect(mocks.reconcile).not.toHaveBeenCalled()
+    mocks.api.mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(messageReadPageFixture({ messages: [row(3)], hasMore: false }))
+    if (stage === "before expansion") {
+      await expect(owner.client.infiniteQuery(messageWindowOptions(owner.client, "parent", { mode: "newest" }))).rejects.toThrow("offline")
+    }
+    vi.useFakeTimers()
+    try {
+      const view = render(createElement(InboxUnreadMessages, { channelId: "parent", throughSeq: 3, mentions: [] }), { wrapper: owner.wrapper })
+      await waitForPreviewFailure(owner.client, 1)
+      expect(mocks.api).toHaveBeenCalledOnce()
+      expect(view.queryByRole("alert")).toBeNull()
+      expect(view.queryByRole("button", { name: "Retry" })).toBeNull()
+      expect(view.queryByText("No unread messages")).toBeNull()
+      await advancePreviewTime(5_000)
+      await act(async () => { await vi.waitFor(() => expect(owner.registry.collections.messages.has("m3")).toBe(true)) })
+      await advancePreviewTime(1)
+      expect(view.getByText("Body 3")).toBeVisible()
+      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", "/api/community/channels/parent/messages"])
+      expect(mocks.reconcile).not.toHaveBeenCalled()
+      expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
+    } finally { vi.useRealTimers() }
+  })
+
+  it("backs off and stops when an expanded preview repeatedly fails", async () => {
+    const owner = await setup()
+    mocks.api.mockRejectedValue(new Error("offline"))
+    vi.useFakeTimers()
+    try {
+      const view = renderHook(({ throughSeq }) => useInboxChannelMessages("parent", throughSeq), {
+        wrapper: owner.wrapper, initialProps: { throughSeq: 3 },
+      })
+      const firstFailureAt = await waitForPreviewFailure(owner.client, 1)
+      await advancePreviewTime(2_000)
+      view.rerender({ throughSeq: 4 })
+      await advancePreviewTime(firstFailureAt + 4_999 - Date.now())
+      expect(mocks.api).toHaveBeenCalledOnce()
+      await advancePreviewTime(1)
+      const secondFailureAt = await waitForPreviewFailure(owner.client, 2)
+      await advancePreviewTime(secondFailureAt + 14_999 - Date.now())
+      expect(mocks.api).toHaveBeenCalledTimes(2)
+      await advancePreviewTime(1)
+      await waitForPreviewFailure(owner.client, 3)
+      await advancePreviewTime(60_000)
+      expect(mocks.api).toHaveBeenCalledTimes(3)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(["after collapse", "after access changes", "on an access error"])("does not retry a failed preview %s", async reason => {
+    const owner = await setup()
+    mocks.api.mockRejectedValue(reason === "on an access error" ? new ApiError("denied", 403) : new Error("offline"))
+    vi.useFakeTimers()
+    try {
+      const view = renderHook(() => useInboxChannelMessages("parent", 3), { wrapper: owner.wrapper })
+      await waitForPreviewFailure(owner.client, 1)
+      if (reason === "after collapse") view.unmount()
+      if (reason === "after access changes") act(() => owner.runtime.ws.actions.revokeChannelAccess("s1", "parent"))
+      await advancePreviewTime(60_000)
+      expect(mocks.api).toHaveBeenCalledOnce()
+    } finally { vi.useRealTimers() }
   })
   it.each(["access", "account"])("withdraws a loaded preview immediately when its %s owner changes", async change => {
     const owner = await setup()
@@ -171,7 +244,7 @@ describe("read-only Inbox channel messages", () => {
       else owner.runtime.ws.actions.activateProfileAccount("other")
     })
     await act(async () => { release(messageReadPageFixture({ messages: [row(3)], hasMore: false })); await held })
-    await waitFor(() => expect(view.result.current.isFetching).toBe(false))
+    await waitFor(() => expect(owner.client.getQueryState(communityKeys.channelMessages("parent"))?.fetchStatus).not.toBe("fetching"))
     expect(view.result.current.messages).toEqual([])
     expect(owner.registry.collections.messages.get("m3")).toBeUndefined()
     expect(mocks.reconcile).not.toHaveBeenCalled()

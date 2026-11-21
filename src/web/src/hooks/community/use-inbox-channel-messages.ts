@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery, useIsRestoring, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useChannelReadStateProjection, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
@@ -9,11 +9,14 @@ import { communityServerRetirementId, communityServerRetirementKey } from "@/lib
 import { communityScopeAllowsAccess } from "@/stores/community/ws-store"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { apiFetch } from "@/lib/api/client"
-import { withConversationReadDeadline } from "@/lib/community/conversation-read"
+import { isConversationAccessError, isConversationAnchorMissingError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { isAbortError } from "@/lib/errors"
 import { messageWindowOptions, type MessageWindowData } from "@/lib/community/message-window"
+import { communityKeys } from "@/lib/query-keys"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { getReadCoordinator } from "./read-coordinator"
+
+const previewRetryDelays = [5_000, 15_000]
 
 export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const client = useQueryClient()
@@ -32,6 +35,7 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
     enabled,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
+    retryOnMount: false,
     getPreviousPageParam: (...args) => {
       const [page, pages] = args
       const previous = options.getPreviousPageParam?.(...args)
@@ -64,7 +68,10 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const needsNewer = !!first && newestSeq < throughSeq && !checkedTail
   const firstUnreadSeq = afterSeq + 1
   const needsOlder = query.hasNextPage && (oldestSeq === undefined || oldestSeq > firstUnreadSeq)
-  const { fetchNextPage, fetchPreviousPage, hasPreviousPage, isError, isFetching, isPending, refetch } = query
+  const needsPages = needsNewer || needsOlder
+  const windowIncomplete = !first || needsPages
+  const { error, errorUpdatedAt, errorUpdateCount, fetchNextPage, fetchPreviousPage, hasPreviousPage, isError, isFetching, isPending, isSuccess, refetch } = query
+  const recovery = useRef<{ client: typeof client; channelId: string; attempts: number } | null>(null)
   const loadMissing = useCallback(async () => {
     if (needsNewer) {
       const result = hasPreviousPage
@@ -81,16 +88,28 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
     else await refetch({ cancelRefetch: false })
   }, [channelId, client, fetchNextPage, fetchPreviousPage, first, hasPreviousPage, needsNewer, needsOlder, refetch, throughSeq])
   useEffect(() => {
-    if (enabled && !isFetching && !isError && (needsNewer || needsOlder)) void loadMissing()
-  }, [enabled, isError, isFetching, loadMissing, needsNewer, needsOlder])
-  return {
-    messages,
-    accessAllowed,
-    isError: enabled && isError && (isPending || !first || needsNewer || needsOlder),
-    isFetching,
-    loading: accessAllowed && (!hasSnapshot || restoring || enabled && (isPending || needsNewer || needsOlder || ids.some(id => !canonical?.has(id)))),
-    refetch: loadMissing,
-  }
+    if (!enabled || isFetching) return
+    if (isSuccess) {
+      recovery.current = null
+      if (needsPages) void loadMissing()
+      return
+    }
+    if (!isError || !windowIncomplete || isAbortError(error) || isConversationAccessError(error) || isConversationAnchorMissingError(error)) return
+    const previous = recovery.current
+    const attempts = previous?.client === client && previous.channelId === channelId ? previous.attempts : 0
+    const delay = previewRetryDelays[attempts]
+    if (delay === undefined) return
+    const timer = setTimeout(() => {
+      const current = client.getQueryState(communityKeys.channelMessages(channelId))
+      if (current?.status !== "error" || current.fetchStatus !== "idle" || current.errorUpdateCount !== errorUpdateCount) return
+      recovery.current = { client, channelId, attempts: attempts + 1 }
+      void loadMissing()
+    }, Math.max(0, errorUpdatedAt + delay - Date.now()))
+    return () => clearTimeout(timer)
+  }, [channelId, client, enabled, error, errorUpdatedAt, errorUpdateCount, isError, isFetching, isSuccess, loadMissing, needsPages, windowIncomplete])
+  const loading = accessAllowed && (!hasSnapshot || restoring
+    || enabled && (isPending || !isError && needsPages || ids.some(id => !canonical?.has(id))))
+  return { messages, accessAllowed, loading, empty: !loading && (!enabled || !windowIncomplete) }
 }
 
 type InboxChannelReadInput = { channelId: string; throughSeq: number }

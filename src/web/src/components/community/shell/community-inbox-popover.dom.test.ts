@@ -70,15 +70,30 @@ describe("Inbox channel cards", () => {
     const renderUnreadMessages = vi.fn(({ channelId }: { channelId: string }) => React.createElement("div", null, `unread ${channelId}`))
     const onMarkChannelRead = vi.fn()
     const onOpenThread = vi.fn()
-    const view = render(React.createElement(InboxPopover, {
-      unreads: unreadFixture(), unreadDms: [], mentions: [], marked: [], hasProjectedUnreads: true, hasProjectedMentions: false,
-      renderUnreadMessages, onMarkChannelRead, onOpenThread,
-    }))
+    const unreads = unreadFixture()
+    unreads[0]!.channels[0]!.children[1]!.unreadCount = 2
+    const props = { unreads, unreadDms: [], mentions: [], marked: [], hasProjectedUnreads: true, hasProjectedMentions: false,
+      renderUnreadMessages, onMarkChannelRead, onOpenThread }
+    const view = render(React.createElement(InboxPopover, props))
+    const disclosure = view.getByRole("button", { name: "Show unread messages in Reply-only thread" })
+    expect(disclosure).toHaveAccessibleDescription("2 unread messages")
+    expect(disclosure).toHaveTextContent("2")
+    expect(disclosure.querySelector("svg")).toBeNull()
     expect(renderUnreadMessages).not.toHaveBeenCalled()
-    fireEvent.click(view.getByRole("button", { name: "Show unread messages in Reply-only thread" }))
+    fireEvent.click(disclosure)
+    expect(view.getByRole("button", { name: "Hide unread messages in Reply-only thread" })).toBe(disclosure)
+    expect(disclosure).toHaveAttribute("aria-expanded", "true")
+    expect(disclosure).not.toHaveTextContent("2")
+    expect(disclosure.querySelector("svg")).toHaveClass("rotate-180")
     expect(view.getByText("unread t1")).toBeDefined()
     expect(view.queryByText("unread p1")).toBeNull()
-    fireEvent.click(view.getByRole("button", { name: "Hide unread messages in Reply-only thread" }))
+    const updated = structuredClone(unreads)
+    updated[0]!.channels[0]!.children[1]!.unreadCount = 4
+    view.rerender(React.createElement(InboxPopover, { ...props, unreads: updated }))
+    expect(disclosure).not.toHaveTextContent("4")
+    fireEvent.click(disclosure)
+    expect(disclosure).toHaveAccessibleDescription("4 unread messages")
+    expect(disclosure).toHaveTextContent("4")
     expect(view.queryByText("unread t1")).toBeNull()
     expect(onMarkChannelRead).not.toHaveBeenCalled()
     expect(onOpenThread).not.toHaveBeenCalled()
@@ -158,7 +173,7 @@ function popover(onOpenChannel: ReturnType<typeof vi.fn>, onOpenThread: ReturnTy
 }
 
 describe("InboxPopover thread opener rows", () => {
-  it.each([undefined, 0, 3])("shows a known positive DM unread count: %s", (unreadCount) => {
+  it.each([undefined, 0, 3, 123456])("shows a positive DM count on its disclosure: %s", (unreadCount) => {
     mocks.profiles.set("peer", { id: "peer", name: "Mika", discriminator: "0042" })
     const dm: UnreadDm = { channelId: "dm1", otherUserId: "peer", otherUserName: "Mika", otherUserDiscriminator: "0042", otherUserAvatar: "M", otherUserAvatarVersion: 0, lastMessageAt: "2026-10-24T00:00:00Z", unreadCount }
     const onOpenDm = vi.fn()
@@ -166,7 +181,17 @@ describe("InboxPopover thread opener rows", () => {
       unreads: [], unreadDms: [dm], mentions: [], marked: [], hasProjectedUnreads: true, hasProjectedMentions: false, onOpenDm,
     }))
     const row = renderer.getByTestId(tid.inboxUnreadDm("dm1"))
-    expect(row.textContent).toBe(unreadCount ? "Mika#0042Direct Messages3" : "Mika#0042Direct Messages")
+    expect(row.querySelector('[title="Mika"]')?.textContent).toBe("Mika#0042")
+    const disclosure = renderer.getByTestId(tid.inboxToggleChannel("dm1"))
+    if (unreadCount) {
+      expect(disclosure).toHaveAccessibleDescription(`${unreadCount} unread messages`)
+      expect(disclosure).toHaveTextContent(String(unreadCount))
+      expect(row).not.toHaveTextContent(String(unreadCount))
+    } else {
+      expect(disclosure).toHaveAccessibleDescription("")
+      expect(disclosure.querySelector("svg")).not.toBeNull()
+    }
+    expect(row).not.toHaveTextContent("Direct Messages")
     expect(row.querySelector(".text-xs")?.textContent).toBe("#0042")
     fireEvent.click(row)
     expect(onOpenDm).toHaveBeenCalledExactlyOnceWith(dm)
@@ -175,8 +200,8 @@ describe("InboxPopover thread opener rows", () => {
   it("shows server identity and an independent disclosure on every channel card", () => {
     const renderer = render(popover(vi.fn(), vi.fn()))
     const icon = renderer.getAllByRole("img", { name: "Server" })[0]!
-    expect(icon.style.width).toBe("32px")
-    expect(icon.style.height).toBe("32px")
+    expect(icon.style.width).toBe("40px")
+    expect(icon.style.height).toBe("40px")
     const unreads = renderer.getByTestId(tid.inboxTabScroll("unreads"))
     expect(unreads.querySelectorAll("button[aria-expanded=\"false\"]")).toHaveLength(3)
     const check = renderer.getByTestId(tid.inboxMarkChannelRead("f1"))
@@ -304,7 +329,7 @@ describe("InboxPopover thread opener rows", () => {
     const parentRows = renderer.queryAllByTestId(tid.inboxUnreadChannel("f1"))
     expect(parentRows).toHaveLength(1)
     expect(renderer.queryAllByTestId(tid.inboxUnreadChild("p1"))).toHaveLength(1)
-    expect(parentRows[0]!.querySelector('[aria-label="3 unread messages"]')).toHaveTextContent("3")
+    expect(renderer.getByTestId(tid.inboxToggleChannel("f1"))).toHaveAccessibleDescription("3 unread messages")
     fireEvent.click(parentRows[0]!)
     expect(onOpenChannel).toHaveBeenCalledWith(
       unreads[0],
@@ -356,9 +381,9 @@ describe("InboxPopover thread opener rows", () => {
     expect(renderer.queryAllByTestId(tid.inboxUnreadChild("t1"))).toHaveLength(1)
     expect(textOf(parentRows[0]!)).toContain("Forum")
     expect(textOf(openerRows[0]!)).toContain("Full authoritative opener content")
-    expect(parentRows[0]!.querySelector('[aria-label="3 unread messages"]')).toHaveTextContent("3")
-    expect(openerRows[0]!.querySelector('[aria-label="5 unread messages"]')).toHaveTextContent("5")
-    expect(renderer.getByTestId(tid.inboxUnreadChild("t1")).querySelector('[aria-label="1 unread message"]')).toHaveTextContent("1")
+    expect(renderer.getByTestId(tid.inboxToggleChannel("f1"))).toHaveAccessibleDescription("3 unread messages")
+    expect(renderer.getByTestId(tid.inboxToggleChannel("p1"))).toHaveAccessibleDescription("5 unread messages")
+    expect(renderer.getByTestId(tid.inboxToggleChannel("t1"))).toHaveAccessibleDescription("1 unread message")
     fireEvent.click(parentRows[0]!)
     expect(onOpenChannel).toHaveBeenCalledWith(
       unreads[0],
@@ -385,6 +410,8 @@ describe("InboxPopover channel mentions", () => {
     expect(renderer.getByText("Alice")).toBeDefined()
     expect(renderer.getByTestId(tid.inboxUnreadMessages("f1"))).toBeDefined()
     const preview = renderer.getByTestId(tid.inboxMention(mention.id))
+    const avatar = preview.querySelector<HTMLElement>('[data-slot="avatar"]')
+    expect(avatar).toHaveStyle({ width: "40px", height: "40px" })
     expect(preview.querySelector("[data-message-renderer]")).not.toBeNull()
     fireEvent.click(preview)
     expect(onOpenMention).toHaveBeenCalledExactlyOnceWith(mention)
@@ -484,8 +511,11 @@ describe("InboxPopover friend requests", () => {
     }))
     const text = renderer.container.textContent ?? ""
     expect(text).not.toContain("sent you a friend request")
-    expect(text.indexOf("Friend requests — 1")).toBeLessThan(text.indexOf("Direct Messages"))
-    expect(text.indexOf("Direct Messages")).toBeLessThan(text.indexOf("Server"))
+    const requestTitle = renderer.getByText("Friend requests — 1")
+    const dm = renderer.getByTestId(tid.inboxUnreadDm("dm1"))
+    const channel = renderer.getByTestId(tid.inboxUnreadChannel("f1"))
+    expect(requestTitle.compareDocumentPosition(dm)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(dm.compareDocumentPosition(channel)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 
     const open = renderer.getByTestId(tid.inboxFriendRequestOpen("fr_1"))
     expect(open.textContent).toBe("Ada#0001")
@@ -614,6 +644,46 @@ describe("InboxPopover attention errors", () => {
 })
 
 describe("InboxPopover DM rows", () => {
+  it("uses the conversation continuation layout in both DM previews", () => {
+    mocks.profiles.set("peer", { id: "peer", name: "Mika", discriminator: "0042", avatar: "M" })
+    const dm: UnreadDm = {
+      channelId: "dm1", otherUserId: "peer", otherUserName: "Mika", otherUserAvatar: "M", otherUserAvatarVersion: 0,
+      lastMessageAt: "2026-10-24T00:00:00Z", lastUnreadSeq: 8,
+    }
+    const mention: Mention = {
+      id: "mention-dm", channelId: dm.channelId, server: "", channel: "Mika",
+      m: { id: "m7", seq: 7, type: "chat", authorId: "peer", content: "First DM body" },
+    }
+    const next: Mention = { ...mention, id: "mention-next", m: { ...mention.m, id: "m8", seq: 8, content: "Second DM body" } }
+    const saved: Marked = {
+      id: "mark-dm", channelId: dm.channelId, serverId: null, server: "", channel: "Mika",
+      m: { id: "m9", seq: 9, type: "chat", authorName: "Sender", content: "Saved DM body" },
+    }
+    const view = renderInboxMessages(React.createElement(InboxPopover, {
+      unreads: [], unreadDms: [dm], mentions: [mention, next], marked: [saved],
+      hasProjectedUnreads: true, hasProjectedMentions: true,
+    }))
+    fireEvent.click(view.getByTestId(tid.inboxToggleChannel(dm.channelId)))
+    const unread = view.getByTestId(tid.inboxUnreadCard(dm.channelId))
+    const marked = view.getByTestId(tid.inboxMarkedCard(saved.id))
+    for (const card of [unread, marked]) {
+      const avatar = card.querySelector<HTMLElement>('header [data-slot="avatar"]')
+      expect(avatar).toHaveStyle({ width: "40px", height: "40px" })
+    }
+    for (const { row, content, padding } of [
+      { row: view.getByTestId(tid.inboxMention(mention.id)), content: "First DM body", padding: "4px 4px" },
+      { row: view.getByTestId(tid.inboxMention(next.id)), content: "Second DM body", padding: "4px 8px" },
+      { row: marked.querySelector<HTMLElement>('[data-slot="inbox-card-messages"] > div')!, content: "Saved DM body", padding: "4px 8px" },
+    ]) {
+      const rendered = row.querySelector("[data-message-renderer]")!
+      expect(rendered).toHaveTextContent(content)
+      expect(rendered).not.toHaveTextContent(/Mika|Sender/)
+      expect(rendered.querySelector('[data-slot="avatar"], time')).toBeNull()
+      expect(rendered.querySelector(".w-10")).not.toBeNull()
+      expect(row.style.paddingBlock).toBe(padding)
+    }
+  })
+
   it("passes the complete DM summary to the open callback", () => {
     const dm: UnreadDm = {
       channelId: "dm-new",
