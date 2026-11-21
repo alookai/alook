@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import Sqlite from "better-sqlite3";
+import { getTableName } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { Database } from "../../src/db";
+import { communityQuestionTodo } from "../../src/db/community-schema";
 import {
   buildDecisionCardEmbed,
   DecisionCardInputSchema,
@@ -192,6 +195,48 @@ function createSqliteAttentionDb(applyMigration = true) {
 }
 
 describe("0122_community_question_todo migration and bounded per-user Todo queries", () => {
+  it("keeps Todo foreign keys aligned and fills the creation time for an ORM insert", () => {
+    const { sqlite } = createSqliteAttentionDb();
+    try {
+      sqlite.exec(`
+        INSERT INTO user (id, name) VALUES ('viewer', 'Viewer'), ('asker', 'Asker');
+        INSERT INTO community_channel (id, type, created_at) VALUES ('dm', 'dm', '2026-01-01T00:00:00.000Z');
+        INSERT INTO community_message (id, author_id, type, channel_id, seq, created_at)
+          VALUES ('q', 'asker', 'question', 'dm', 1, '2026-01-01T00:00:00.000Z');
+      `);
+
+      const config = getTableConfig(communityQuestionTodo);
+      const declared = config.foreignKeys.map((key) => {
+        const reference = key.reference();
+        return {
+          from: reference.columns[0].name,
+          table: getTableName(reference.foreignTable),
+          to: reference.foreignColumns[0].name,
+          on_delete: key.onDelete?.toUpperCase(),
+        };
+      });
+      expect(declared).toHaveLength(3);
+      expect(sqlite.pragma("foreign_key_list(community_question_todo)")).toEqual(
+        expect.arrayContaining(declared.map((key) => expect.objectContaining(key))),
+      );
+
+      const orm = drizzle(sqlite);
+      const startedAt = Date.now();
+      const row = orm.insert(communityQuestionTodo)
+        .values({ userId: "viewer", messageId: "q", channelId: "dm" })
+        .returning()
+        .get();
+      expect(Date.parse(row.createdAt)).toBeGreaterThanOrEqual(startedAt);
+      expect(Date.parse(row.createdAt)).toBeLessThanOrEqual(Date.now());
+      expect(row.dismissedAt).toBeNull();
+
+      sqlite.prepare("DELETE FROM community_message WHERE id = 'q'").run();
+      expect(orm.select().from(communityQuestionTodo).all()).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("backfills assigned historical question cards safely and ignores invalid/self/unassigned rows", () => {
     const { sqlite } = createSqliteAttentionDb(false);
     sqlite.exec(`
@@ -327,9 +372,10 @@ describe("0122_community_question_todo migration and bounded per-user Todo queri
     expect(await listPendingQuestionMessages(db, "viewer", ["c1"], [], { limit: 10 })).toEqual([]);
 
     sqlite.prepare("DELETE FROM community_message WHERE id = 'reply_1'").run();
-    expect((await listPendingQuestionMessages(db, "viewer", ["c1"], [], { limit: 10 })).map((r) => r.id)).toEqual(["q_viewer_old"]);
+    expect((await listPendingQuestionMessages(db, "viewer", ["c1"], [])).map((r) => r.id)).toEqual(["q_viewer_old"]);
 
     // Dismiss hides the Todo and is idempotent on retry.
+    expect(await dismissQuestionTodoWithRevision(db, "viewer", "missing")).toEqual({ changed: false, revision: 0 });
     const firstDismiss = await dismissQuestionTodoWithRevision(db, "viewer", "q_viewer_old");
     expect(firstDismiss.changed).toBe(true);
     expect(firstDismiss.revision).toBe(1);
@@ -422,6 +468,11 @@ describe("0122_community_question_todo migration and bounded per-user Todo queri
       INSERT INTO community_question_todo (user_id, message_id, channel_id, created_at, dismissed_at)
       VALUES ('viewer', 'q_dm_read', 'dm_1', '2026-01-02T00:00:00.000Z', NULL)
     `).run();
+    const unread = await getAccountAttentionProjection(db, "viewer", 10);
+    expect(unread.scopes).toEqual([expect.objectContaining({ scopeId: "dm_1", lastUnreadSeq: 1 })]);
+    expect(unread.included.dms).toEqual([expect.objectContaining({ id: "dm_1", lastUnreadSeq: 1 })]);
+    expect(unread.items).toEqual([expect.objectContaining({ kind: "question", messageId: "q_dm_read" })]);
+
     // Mark DM as fully read so listEligibleUnreadDms returns [] and attention hydrates dm_1 via listReadableDmSummariesByChannelIds.
     sqlite.prepare(`
       INSERT INTO community_read_state (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)

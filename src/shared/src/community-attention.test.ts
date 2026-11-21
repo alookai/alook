@@ -419,6 +419,17 @@ describe("account attention wire schemas", () => {
       truncated: false,
       included: questionIncluded,
     }).success).toBe(true)
+    const missingActor = AccountAttentionSnapshotSchema.safeParse({
+      resources: questionResources,
+      scopes: [],
+      items: [{ ...questionItem, actorUserId: "unavailable" }],
+      limit: 100,
+      truncated: false,
+      included: questionIncluded,
+    })
+    expect(missingActor.error?.issues).toContainEqual(expect.objectContaining({
+      message: "question attention references incomplete owners: question:m7",
+    }))
     expect(AttentionItemSchema.safeParse({ ...questionItem, childChannelId: "post" }).success).toBe(false)
     expect(AttentionItemSchema.safeParse({ ...questionItem, actorUserId: null }).success).toBe(false)
   })
