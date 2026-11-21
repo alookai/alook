@@ -9353,6 +9353,12 @@
       "source": "src/storybook/stories/business/message-renderer-trial.stories.tsx"
     },
     {
+      "id": "web-business-message-renderer-trial--updates",
+      "title": "Web/Business/Message renderer trial",
+      "name": "Updates",
+      "source": "src/storybook/stories/business/message-renderer-trial.stories.tsx"
+    },
+    {
       "id": "web-business-message--text",
       "title": "Web/Business/Message",
       "name": "Text",

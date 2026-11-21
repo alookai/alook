@@ -10,11 +10,13 @@ import { hashKey } from "@tanstack/react-query"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { useMessageListController } from "./message-list-controller"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
+import { useReducedMotion } from "@/hooks/use-reduced-motion"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
 import type { MessageListProps, ResolvedMessageListProps } from "./message-list-types"
 import { renderMessageListRow } from "./message-list-row"
 import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
 import { VirtualRows } from "./virtual-cursor-list"
+import { MessageUpdateMotionContext, useMessageArrivalMotion } from "./message-update-motion"
 import { ConversationPresentationContext, useConversationActivity } from "@/contexts/view-activity"
 
 import { MessageRendererContext, MessageRendererError } from "./renderers/message-cell"
@@ -110,15 +112,27 @@ function MessageListOwner({ variant, initialScrollReady, renderer, ...props }: M
   const footerSlot = useConversationFooterSlot()
   const capsuleHeight = footerSlot?.capsuleHeight ?? 0
   const controller = useMessageListController(resolvedProps, capsuleHeight, { revision: renderer.revision, available: !!renderer.component })
+  const reducedMotion = useReducedMotion()
+  const motionActive = resolvedProps.active === true && controller.initialPosition.contentInteractive && !reducedMotion
+  useMessageArrivalMotion(controller.items, controller.scrollRef, {
+    active: motionActive,
+    channel: props.channel,
+    entry: props.positionEntry,
+    rendererRevision: renderer.revision,
+    tailAttached: !props.hasMoreNewer && !props.isFetchingNewer && !props.presentPending,
+    viewerId: props.viewerUserId ?? props.positionScope?.proof.viewerId,
+  })
   const visible = visibleVirtualItems(controller.virtualizer).flatMap(item => { const row = controller.items[item.index]; return row?.kind === "message" ? [row.m] : [] })
   useObservedRegion("messages", controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive && !resolvedProps.initialLoadError && (!props.messages.length || visible.length > 0), visible.length, { ...props.observation, wait_reason: props.observation?.wait_reason === "none" && !(controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive) ? "position" : props.observation?.wait_reason })
   return renderMessageListView(resolvedProps, controller, () => (
-    <VirtualRows
-      reactLayout
-      items={controller.items}
-      virtualizer={controller.virtualizer}
-      onLayoutCommit={controller.onRowsLayoutCommit}
-      renderItem={(item) => renderMessageListRow(item, resolvedProps, controller)}
-    />
+    <MessageUpdateMotionContext.Provider value={motionActive ? renderer.revision : null}>
+      <VirtualRows
+        reactLayout
+        items={controller.items}
+        virtualizer={controller.virtualizer}
+        onLayoutCommit={controller.onRowsLayoutCommit}
+        renderItem={(item) => renderMessageListRow(item, resolvedProps, controller)}
+      />
+    </MessageUpdateMotionContext.Provider>
   ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, capsuleHeight)
 }

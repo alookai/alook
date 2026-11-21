@@ -51,6 +51,7 @@ import {
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { MessageReactions } from "./message-reactions"
+import { useMessageReactionMotion } from "./message-update-motion"
 import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-image/remote-image"
 
 // Whether the "Share as Image" action is offered for a message. Share is
@@ -178,13 +179,14 @@ export function messageLinkClickUsesMenu({
 }
 
 function MessageImpl({
-  m, compact, pinned, readOnly, onOpenThread, onOpenProfile, onJumpReply,
+  m, bodyKey, compact, pinned, readOnly, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
   viewerUserId, onSubmitDecisionCard, liveRespondedUserIds, hoverCapable = true,
 }: {
   m: RenderMsg
+  bodyKey?: string
   compact?: boolean
   pinned?: boolean
   readOnly?: boolean
@@ -245,6 +247,7 @@ function MessageImpl({
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = m.content ?? ""
   const htmlPreviews = selectHtmlPreviews(m.approval || m.botCreation || m.decisionCard ? "" : visibleContent, m.attachments)
+  const reactionGroup = useMessageReactionMotion(m.reactions)
 
   const visibleAttachments = m.attachments?.map((attachment, index) => ({ attachment, index }))
     .filter(({ attachment }) => !attachment.id || !htmlPreviews.has(attachment.id)) ?? []
@@ -269,9 +272,15 @@ function MessageImpl({
   const dismissTap = useRef<{ editor: HTMLElement | null; menu: boolean } | null>(null)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
-  const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
+  const swipeGestureRef = useRef<{ pointerId: number; gesture: MobileReplyGesture } | null>(null)
   const pageSwipeStartRef = useRef<{ x: number; y: number } | null>(null)
   const [swipeVisual, setSwipeVisual] = useAtom(useCreateAtom({ offset: 0, active: false, crossed: false }))
+  const cancelReplySwipe = () => {
+    swipeGestureRef.current = null
+    pageSwipeStartRef.current = null
+    suppressLongPressClick.current = true
+    setSwipeVisual({ offset: 0, active: false, crossed: false })
+  }
   const avatarMention = useMobileAvatarMention({
     onMention: onMentionAuthor,
     onProfileClick: (event) => {
@@ -475,7 +484,7 @@ function MessageImpl({
             if (nested || selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
             const gesture = beginMobileReplyGesture(event.clientX, event.clientY)
             if (!gesture) return
-            swipeGestureRef.current = gesture
+            swipeGestureRef.current = { pointerId: event.pointerId, gesture }
             setSwipeVisual({ offset: 0, active: true, crossed: false })
           }
         : undefined}
@@ -488,17 +497,17 @@ function MessageImpl({
               suppressLongPressClick.current ||= movedBeyondLongPressTolerance(pageStart.x, pageStart.y, event.clientX, event.clientY)
               return
             }
-            const current = swipeGestureRef.current
-            if (!current) return
+            const swipe = swipeGestureRef.current
+            if (!swipe || swipe.pointerId !== event.pointerId) return
             if (selectionBelongsToRow(window.getSelection(), event.currentTarget)) {
               swipeGestureRef.current = null
               setSwipeVisual({ offset: 0, active: false, crossed: false })
               return
             }
-            const next = advanceMobileReplyGesture(current, event.clientX, event.clientY)
-            swipeGestureRef.current = next.gesture
+            const next = advanceMobileReplyGesture(swipe.gesture, event.clientX, event.clientY)
+            swipeGestureRef.current = { ...swipe, gesture: next.gesture }
             if (next.gesture.intent === "horizontal") {
-              if (current.intent !== "horizontal") {
+              if (swipe.gesture.intent !== "horizontal") {
                 event.currentTarget.setPointerCapture?.(event.pointerId)
               }
               event.preventDefault()
@@ -516,8 +525,9 @@ function MessageImpl({
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             if (event.pointerType !== "touch") return
             pageSwipeStartRef.current = null
-            const gesture = swipeGestureRef.current
-            if (!gesture) return
+            const swipe = swipeGestureRef.current
+            if (!swipe || swipe.pointerId !== event.pointerId) return
+            const { gesture } = swipe
             const commit = shouldCommitMobileReply(gesture)
             swipeGestureRef.current = null
             suppressLongPressClick.current = suppressLongPressClick.current
@@ -529,12 +539,16 @@ function MessageImpl({
       onPointerCancel={swipePointerEnabled
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
-            swipeGestureRef.current = null
-            pageSwipeStartRef.current = null
-            suppressLongPressClick.current = true
-            setSwipeVisual({ offset: 0, active: false, crossed: false })
+            const swipe = swipeGestureRef.current
+            if (swipe && swipe.pointerId !== event.pointerId) return
+            cancelReplySwipe()
           }
         : undefined}
+      onLostPointerCapture={(event) => {
+        const swipe = swipeGestureRef.current
+        if (event.target !== event.currentTarget || !swipe || swipe.pointerId !== event.pointerId) return
+        cancelReplySwipe()
+      }}
       onFocusCapture={hoverCapable
         ? (event) => {
             if (messageEventBelongsToRow(event.target, event.currentTarget)) activateOverlays?.(event)
@@ -781,7 +795,7 @@ function MessageImpl({
           ) : (
             visibleContent && (
               <MessageBody
-                key={m.id}
+                key={bodyKey ?? m.id}
                 text={visibleContent}
                 attachments={m.attachments}
                 onOpenProfile={onOpenProfile}
@@ -932,7 +946,7 @@ function MessageImpl({
           </>,
           footer: <>
             {m.reactions && (
-            <div className={m.reactions.length ? undefined : "sr-only"}>
+            <div ref={reactionGroup} className={m.reactions.length ? undefined : "sr-only"}>
               <MessageReactions
                 messageId={m.id}
                 authorName={authorName}

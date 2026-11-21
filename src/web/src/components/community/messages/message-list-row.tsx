@@ -74,6 +74,7 @@ export function renderMessageListRow(
         <div className="flow-root" data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
           <MessageRow
             m={item.m}
+            bodyKey={item.key}
             hoverCapable={props.hoverCapable}
             viewerUserId={props.viewerUserId}
             onSubmitDecisionCard={item.m.decisionCard ? props.onSubmitDecisionCard : undefined}
