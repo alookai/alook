@@ -41,15 +41,16 @@ async function expectCompactInboxAction(control: Locator) {
   })).toEqual([8, 8, 8, 8])
 }
 
-async function expectAdjacentInboxActions(disclosure: Locator, targetSize: number, artworkSize: number) {
+async function expectAdjacentInboxActions(disclosure: Locator, targetSize: number, artworkKind: "count" | "chevron") {
   const readInset = (targetSize - 16) / 2
+  const artworkSize = artworkKind === "count" ? 20 : 16
   const disclosureInset = (targetSize - artworkSize) / 2
   await expect(disclosure).toHaveCSS("width", `${targetSize}px`)
-  await expect.poll(() => disclosure.evaluate((element) => {
+  await expect.poll(() => disclosure.evaluate((element, kind) => {
     const read = element.previousElementSibling!
     const disclosureButton = element.getBoundingClientRect()
     const readButton = read.getBoundingClientRect()
-    const artwork = element.querySelector('[data-slot="inbox-action-visual"]')!.firstElementChild!.getBoundingClientRect()
+    const artwork = element.querySelector(`[data-slot="inbox-disclosure-${kind}"]`)!.getBoundingClientRect()
     const readIcon = read.querySelector("svg")!.getBoundingClientRect()
     return {
       buttonGap: disclosureButton.left - readButton.right,
@@ -57,7 +58,7 @@ async function expectAdjacentInboxActions(disclosure: Locator, targetSize: numbe
       disclosureInset: disclosureButton.right - artwork.right,
       readInset: readButton.right - readIcon.right,
     }
-  })).toEqual({ buttonGap: 0, artworkGap: readInset + disclosureInset, disclosureInset, readInset })
+  }, artworkKind)).toEqual({ buttonGap: 0, artworkGap: readInset + disclosureInset, disclosureInset, readInset })
 }
 
 async function expectInboxHeaderHover(page: Page, action: Locator) {
@@ -158,7 +159,10 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     await actors.seed.seedReaction("alice", messageId, "👍")
     await actors.seed.seedMark("bob", reactionChannel, messageId)
     await actors.seed.seedMessage("alice", mentionChannel, `@${bob.name}#${bob.discriminator} Supporting action ${colorScheme}`)
-    const { page, context } = await actors.asUser("bob", { colorScheme, viewport: { width: 1280, height: 900 } })
+    const narrow = colorScheme === "dark"
+    const { page, context } = await actors.asUser("bob", {
+      colorScheme, viewport: { width: 1280, height: 900 }, reducedMotion: narrow ? "reduce" : "no-preference",
+    })
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${reactionChannel}`)
     const reaction = page.getByTestId(tid.message(messageId)).locator('button[data-variant="secondary"][aria-label="Add reaction"]')
     await expect(reaction).toBeVisible()
@@ -175,7 +179,6 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     await expectIconTone(reaction, "--foreground")
     await page.keyboard.press("Escape")
     await expect(reaction).toHaveAttribute("aria-expanded", "false")
-    const narrow = colorScheme === "dark"
     if (narrow) {
       await page.setViewportSize({ width: 390, height: 844 })
       await gotoAfterUserWsAuth(page, "/c/me")
@@ -186,10 +189,16 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     const markRead = page.getByTestId(tid.inboxMarkChannelRead(mentionChannel))
     const disclosure = page.getByTestId(tid.inboxToggleChannel(mentionChannel))
     const badge = disclosure.getByLabel("1 unread message")
+    const badgeLayer = disclosure.locator('[data-slot="inbox-disclosure-count"]')
+    const chevronLayer = disclosure.locator('[data-slot="inbox-disclosure-chevron"]')
     await expect(markRead).toHaveAttribute("data-variant", "ghost")
     await expect(disclosure).toHaveAttribute("data-variant", "ghost")
     await expect(disclosure).toHaveAttribute("aria-expanded", "false")
     await expect(badge).toBeVisible()
+    await expect(badgeLayer).toHaveCSS("opacity", "1")
+    await expect(chevronLayer).toHaveCSS("opacity", "0")
+    await expect(chevronLayer).toHaveCSS("transform", narrow ? "none" : "matrix(1, 0, 0, 1, 0, 28)")
+    await expect(chevronLayer).toHaveCSS("transition-property", narrow ? "opacity" : "transform, opacity")
     if (narrow) {
       await expectCompactInboxAction(markRead)
       await expectCompactInboxAction(disclosure)
@@ -204,10 +213,11 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     await expectInboxHeaderHover(page, markRead)
     await expect(markPaint).toHaveCSS("background-color", readBackground)
     await disclosure.hover()
-    await expect(disclosurePaint).toHaveCSS("background-color", readBackground)
+    await expect(disclosurePaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expectIconTone(disclosure, "--muted-foreground")
     const targetSize = narrow ? 44 : 32
     await expect(markRead).toHaveCSS("width", `${targetSize}px`)
-    await expectAdjacentInboxActions(disclosure, targetSize, 20)
+    await expectAdjacentInboxActions(disclosure, targetSize, "count")
 
     const readPath = `/api/community/channels/${mentionChannel}/read`
     let readRequests = 0
@@ -218,19 +228,25 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     await page.keyboard.press("Tab")
     await expect(disclosure).toBeFocused()
     await expect.poll(() => disclosure.evaluate(element => element.matches(":focus-visible"))).toBe(true)
+    await expect(disclosure).not.toHaveCSS("box-shadow", "none")
     await disclosure.press("Enter")
     await expect(disclosure).toHaveAttribute("aria-expanded", "true")
     await expect(badge).toHaveCount(0)
-    await expect(disclosure.locator("svg.lucide-chevron-down")).toBeVisible()
-    await expectAdjacentInboxActions(disclosure, targetSize, 16)
+    await expect(chevronLayer).toHaveCSS("opacity", "1")
+    await expect(badgeLayer).toHaveCSS("opacity", "0")
+    await expect(badgeLayer).toHaveCSS("transform", narrow ? "none" : "matrix(1, 0, 0, 1, 0, -28)")
+    await expectAdjacentInboxActions(disclosure, targetSize, "chevron")
     await expect(page.getByTestId(tid.inboxUnreadMessages(mentionChannel))).toContainText(`Supporting action ${colorScheme}`)
     await page.mouse.move(0, 0)
     await expect(disclosurePaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
     await disclosure.hover()
-    await expect(disclosurePaint).toHaveCSS("background-color", readBackground)
+    await expect(disclosurePaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expectIconTone(disclosure, "--muted-foreground")
     await disclosure.press("Space")
     await expect(disclosure).toHaveAttribute("aria-expanded", "false")
     await expect(badge).toBeVisible()
+    await expect(badgeLayer).toHaveCSS("opacity", "1")
+    await expect(chevronLayer).toHaveCSS("opacity", "0")
     expect(readRequests).toBe(0)
     const dismissed = page.waitForResponse((response) =>
       response.request().method() === "PUT"

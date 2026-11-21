@@ -77,24 +77,29 @@ describe("Inbox channel cards", () => {
       renderUnreadMessages, onMarkChannelRead, onOpenThread }
     const view = render(React.createElement(InboxPopover, props))
     const disclosure = view.getByRole("button", { name: "Show unread messages in Reply-only thread" })
+    const artwork = disclosure.querySelector('[data-slot="inbox-action-visual"]')!
+    const chevron = disclosure.querySelector("svg")
     expect(disclosure).toHaveAccessibleDescription("2 unread messages")
-    expect(disclosure).toHaveTextContent("2")
-    expect(disclosure.querySelector("svg")).toBeNull()
+    expect(view.getByLabelText("2 unread messages")).toHaveTextContent("2")
+    expect(artwork).toHaveAttribute("data-unread", "true")
     expect(renderUnreadMessages).not.toHaveBeenCalled()
     fireEvent.click(disclosure)
     expect(view.getByRole("button", { name: "Hide unread messages in Reply-only thread" })).toBe(disclosure)
     expect(disclosure).toHaveAttribute("aria-expanded", "true")
-    expect(disclosure).not.toHaveTextContent("2")
-    expect(disclosure.querySelector("svg")).toHaveClass("rotate-180")
+    expect(disclosure).toHaveAccessibleDescription("")
+    expect(artwork).toHaveAttribute("data-unread", "false")
+    expect(disclosure.querySelector("svg")).toBe(chevron)
+    expect(chevron).toHaveClass("rotate-180")
+    expect(view.queryByLabelText("2 unread messages")).toBeNull()
     expect(view.getByText("unread t1")).toBeDefined()
     expect(view.queryByText("unread p1")).toBeNull()
     const updated = structuredClone(unreads)
     updated[0]!.channels[0]!.children[1]!.unreadCount = 4
     view.rerender(React.createElement(InboxPopover, { ...props, unreads: updated }))
-    expect(disclosure).not.toHaveTextContent("4")
+    expect(view.queryByLabelText("4 unread messages")).toBeNull()
     fireEvent.click(disclosure)
     expect(disclosure).toHaveAccessibleDescription("4 unread messages")
-    expect(disclosure).toHaveTextContent("4")
+    expect(view.getByLabelText("4 unread messages")).toHaveTextContent("4")
     expect(view.queryByText("unread t1")).toBeNull()
     expect(onMarkChannelRead).not.toHaveBeenCalled()
     expect(onOpenThread).not.toHaveBeenCalled()
@@ -216,7 +221,7 @@ describe("InboxPopover thread opener rows", () => {
     expect(check.querySelector("svg")).toHaveClass("size-4")
     expect(arrow.querySelector("svg")).toHaveClass("size-4")
     expect(check.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7", "max-sm:group-enabled/button:bg-accent")
-    expect(arrow.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7")
+    expect(arrow.querySelector('[data-slot="inbox-action-visual"]')).toHaveAttribute("aria-hidden", "true")
     expect(check.nextElementSibling).toBe(arrow)
     expect(icon.closest("header")).toBe(arrow.closest("header"))
     expect(icon.nextElementSibling?.matches("svg")).toBe(false)
@@ -242,7 +247,7 @@ describe("InboxPopover thread opener rows", () => {
     expect(onOpenChannel).not.toHaveBeenCalled()
   })
 
-  it("opens an exact unread forum opener from the parent card preview", () => {
+  it("opens the parent from forum title text and keeps independent preview controls", () => {
     const unreads = unreadFixture()
     const server = unreads[0]!
     const parent = server.channels[0]!
@@ -254,22 +259,44 @@ describe("InboxPopover thread opener rows", () => {
     }
     parent.children = []
     parent.forumOpeners = [firstOpener]
+    const openChannel = vi.fn()
     const openThread = vi.fn()
+    const openLink = vi.fn()
     const markChannelRead = vi.fn()
-    const view = render(React.createElement(InboxPopover, {
+    const view = render(React.createElement("div", { tabIndex: 0 }, React.createElement(InboxPopover, {
       unreads, unreadDms: [], mentions: [], marked: [],
       hasProjectedUnreads: true, hasProjectedMentions: false,
-      onOpenThread: openThread, onMarkChannelRead: markChannelRead,
+      onOpenChannel: openChannel, onOpenThread: openThread, onMarkChannelRead: markChannelRead,
       renderUnreadMessages: ({ openForumPosts }) => React.createElement(
-        "button", { onClick: openForumPosts?.get("opener-1") }, "First post",
+        "div", null,
+        React.createElement("span", null, "First post"),
+        React.createElement("button", { onClick: openForumPosts?.get("opener-1") }, "Open first thread"),
+        React.createElement("a", {
+          href: "/help",
+          onClick: (event: React.MouseEvent) => { event.preventDefault(); openLink() },
+        }, "Reference"),
       ),
-    }))
+    })))
     fireEvent.click(view.getByTestId(tid.inboxToggleChannel(parent.channelId)))
     expect(openThread).not.toHaveBeenCalled()
     expect(markChannelRead).not.toHaveBeenCalled()
     expect(view.queryByTestId(tid.inboxUnreadChild(firstOpener.channelId))).toBeNull()
-    fireEvent.click(view.getByRole("button", { name: "First post" }))
+    const title = view.getByText("First post", { exact: true })
+    fireEvent.click(title)
+    expect(openChannel).toHaveBeenCalledExactlyOnceWith(server, parent, true)
+    expect(openThread).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole("button", { name: "Open first thread" }))
     expect(openThread).toHaveBeenCalledExactlyOnceWith(server, parent, firstOpener)
+    fireEvent.click(view.getByRole("link", { name: "Reference" }))
+    expect(openLink).toHaveBeenCalledOnce()
+    fireEvent.click(title, { ctrlKey: true })
+    const selection = title.ownerDocument.getSelection()!
+    const range = title.ownerDocument.createRange()
+    range.selectNodeContents(title)
+    selection.addRange(range)
+    fireEvent.click(title)
+    selection.removeAllRanges()
+    expect(openChannel).toHaveBeenCalledTimes(1)
     expect(markChannelRead).not.toHaveBeenCalled()
   })
 
@@ -395,16 +422,16 @@ describe("InboxPopover thread opener rows", () => {
 })
 
 describe("InboxPopover channel mentions", () => {
-  it("keeps mentions in their channel card and preserves exact-message navigation", () => {
+  it("opens the channel header's destination from a mention preview", () => {
     mocks.profiles.set("author", { id: "author", name: "Alice", discriminator: "0042", avatar: "A" })
-    const onOpenMention = vi.fn()
+    const onOpenChannel = vi.fn()
     const onMarkChannelRead = vi.fn()
     const mention: Mention = { id: "mention-1", server: "Server", channel: "Forum", channelId: "f1", serverId: "s1", m: { id: "message-1", seq: 7, type: "chat", authorId: "author", content: "Hello there" } }
     const unreads = unreadFixture()
     unreads[0]!.channels[0]!.lastUnreadSeq = 7
     const renderer = renderInboxMessages(React.createElement(InboxPopover, {
       unreads, unreadDms: [], mentions: [mention], marked: [],
-      hasProjectedUnreads: true, hasProjectedMentions: true, onOpenMention, onMarkChannelRead,
+      hasProjectedUnreads: true, hasProjectedMentions: true, onOpenChannel, onMarkChannelRead,
     }))
     expect(renderer.queryByText("Hello there")).toBeNull()
     fireEvent.click(renderer.getByRole("button", { name: "Show unread messages in Forum" }))
@@ -414,8 +441,8 @@ describe("InboxPopover channel mentions", () => {
     const avatar = preview.querySelector<HTMLElement>('[data-slot="avatar"]')
     expect(avatar).toHaveStyle({ width: "40px", height: "40px" })
     expect(preview.querySelector("[data-message-renderer]")).not.toBeNull()
-    fireEvent.click(preview)
-    expect(onOpenMention).toHaveBeenCalledExactlyOnceWith(mention)
+    fireEvent.click(renderer.getByText("Hello there"))
+    expect(onOpenChannel).toHaveBeenCalledExactlyOnceWith(unreads[0], unreads[0]!.channels[0], true)
     expect(onMarkChannelRead).not.toHaveBeenCalled()
   })
 })
@@ -686,7 +713,7 @@ describe("InboxPopover DM rows", () => {
     }
   })
 
-  it("passes the complete DM summary to the open callback", () => {
+  it("opens the same DM from its header and preview text", () => {
     const dm: UnreadDm = {
       channelId: "dm-new",
       otherUserId: "user-new",
@@ -705,6 +732,7 @@ describe("InboxPopover DM rows", () => {
       hasProjectedMentions: false,
       onOpenThread: vi.fn(),
       onOpenDm,
+      renderUnreadMessages: () => React.createElement("span", null, "Current DM preview"),
     }))
 
     const row = renderer.getByTestId(tid.inboxUnreadDm(dm.channelId))
@@ -714,8 +742,9 @@ describe("InboxPopover DM rows", () => {
     expect(row).not.toHaveAttribute("data-prefetch")
     expect(onOpenDm).not.toHaveBeenCalled()
     fireEvent.click(row)
-
-    expect(onOpenDm).toHaveBeenCalledWith(dm)
+    fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel(dm.channelId)))
+    fireEvent.click(renderer.getByText("Current DM preview"))
+    expect(onOpenDm.mock.calls).toEqual([[dm], [dm]])
   })
 })
 
