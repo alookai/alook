@@ -1415,3 +1415,242 @@ it("passes the accepted message owner to delayed onboarding analytics", async ()
     expect(() => guard()).toThrow()
   } finally { capture.mockRestore() }
 })
+
+// ── useSubmitInboxDecisionCard & useDismissInboxTodo ─────────────────────
+
+describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
+  async function seedPendingQuestionTodo(messageId = "m_q1", channelId = "ch_1") {
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    const { buildDecisionCardEmbed, DecisionCardInputSchema } = await import("@alook/shared")
+    const embed = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Confirm rollout",
+        questions: [{
+          id: "q1",
+          question: "Ship tonight?",
+          options: [
+            { id: "yes", label: "Yes" },
+            { id: "no", label: "No" },
+          ],
+        }],
+      }),
+      [{ userId: "u_me", handle: "gus#1813" }],
+    )
+    const canonical = attentionScenarioFixture({
+      scopes: [{
+        scopeId: channelId, channelId, serverId: "s_1", parentChannelId: null,
+        ordinaryUnread: true, lastUnreadSeq: 4, lastAttentionSeq: null, attentionCount: 0,
+      }],
+      items: [{
+        id: `question:${messageId}`,
+        kind: "question" as const,
+        sourceId: messageId,
+        scopeId: channelId,
+        messageId,
+        actorUserId: "u_2",
+        createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      limit: 100,
+      truncated: false,
+      included: attentionIncluded({
+        profiles: [{
+          userId: "u_2", name: "Two", discriminator: "0002", avatar: "T", avatarVersion: 1,
+        }],
+        messages: [{
+          id: messageId, channelId, authorId: "u_2", content: "Confirm rollout",
+          createdAt: "2026-09-27T00:00:00.000Z", seq: 4, type: "question",
+        }],
+      }),
+    })
+    canonical.resources.messages = canonical.resources.messages.map((m) => (
+      m.id === messageId ? { ...m, type: "question" as const, embeds: [embed] } : m
+    ))
+    ingestAttentionSnapshot(canonicalRegistry!, canonical)
+    return canonical
+  }
+
+  it("submits an Inbox decision card answer, commits Todo removal, reconciles, and toasts", async () => {
+    const mod = await loadMod()
+    const canonical = await seedPendingQuestionTodo("m_q1", "ch_1")
+    const reply = postedMessage("m_reply_1", 5, "ch_1", {
+      replyToId: "m_q1",
+      content: "Ship tonight?: Yes",
+      clientNonce: "nonce-q1",
+    })
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/channels/ch_1/messages") {
+        return { message: reply, profiles: messageProfilesFixture([reply]) }
+      }
+      if (path === "/api/community/users/me/read-state") {
+        return { revision: 2, readStates: [] }
+      }
+      if (path === "/api/community/users/me/attention") {
+        return { ...canonical, items: [], included: { ...canonical.included, messages: [] } }
+      }
+      throw new Error("unexpected " + path)
+    })
+
+    mountHook(() => mod.useSubmitInboxDecisionCard())
+    const { data } = await runMutation({
+      channelId: "ch_1",
+      messageId: "m_q1",
+      content: "Ship tonight?: Yes",
+      nonce: "nonce-q1",
+    })
+
+    expect(data).toEqual({ replyToId: "m_q1" })
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/ch_1/messages",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "Ship tonight?: Yes",
+          replyToId: "m_q1",
+          nonce: "nonce-q1",
+          preserveReadState: true,
+        }),
+      }),
+    )
+    expect(canonicalRegistry.collections.messages.get("m_reply_1")?.content).toBe("Ship tonight?: Yes")
+    expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeUndefined()
+    expect(toastMock).toHaveBeenCalledWith("Answer sent")
+  })
+
+  it("keeps the Todo item and skips toast when server returns a non-matching replyToId", async () => {
+    const mod = await loadMod()
+    await seedPendingQuestionTodo("m_q1", "ch_1")
+    const reply = postedMessage("m_reply_2", 6, "ch_1", {
+      replyToId: null,
+      content: "Ship tonight?: Yes",
+      clientNonce: "nonce-q2",
+    })
+    apiFetchMock.mockResolvedValueOnce({
+      message: reply,
+      profiles: messageProfilesFixture([reply]),
+    })
+
+    mountHook(() => mod.useSubmitInboxDecisionCard())
+    const { data } = await runMutation({
+      channelId: "ch_1",
+      messageId: "m_q1",
+      content: "Ship tonight?: Yes",
+      nonce: "nonce-q2",
+    })
+
+    expect(data).toEqual({ replyToId: null })
+    expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeDefined()
+    expect(toastMock).not.toHaveBeenCalled()
+  })
+
+  it("supports mutate() wrapper on useSubmitInboxDecisionCard and ignores stale origin on success", async () => {
+    const mod = await loadMod()
+    await seedPendingQuestionTodo("m_q1", "ch_1")
+    let resolvePost!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolvePost = resolve }))
+    const hook = mountHook(() => mod.useSubmitInboxDecisionCard())
+    act(() => {
+      hook.mutate({
+        channelId: "ch_1",
+        messageId: "m_q1",
+        content: "Ship tonight?: No",
+        nonce: "nonce-q3",
+      })
+    })
+    await waitFor(() => expect(resolvePost).toBeTypeOf("function"))
+    const reply = postedMessage("m_reply_3", 7, "ch_1", {
+      replyToId: "m_q1",
+      content: "Ship tonight?: No",
+      clientNonce: "nonce-q3",
+    })
+    await act(async () => {
+      await canonicalRegistry.cleanup()
+      resolvePost({ message: reply, profiles: messageProfilesFixture([reply]) })
+      await Promise.resolve()
+    })
+    expect(toastMock).not.toHaveBeenCalled()
+  })
+
+  it("optimistically removes a dismissed Todo, commits on success, and reconciles attention", async () => {
+    const mod = await loadMod()
+    const canonical = await seedPendingQuestionTodo("m_q1", "ch_1")
+    let resolveDelete!: (value: unknown) => void
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/inbox/todos/m_q1") {
+        return new Promise((resolve) => { resolveDelete = resolve })
+      }
+      if (path === "/api/community/users/me/attention") {
+        return { ...canonical, items: [], included: { ...canonical.included, messages: [] } }
+      }
+      throw new Error("unexpected " + path)
+    })
+
+    mountHook(() => mod.useDismissInboxTodo())
+    const pending = startMutation({ messageId: "m_q1" })
+    await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeUndefined())
+    expect(resolveDelete).toBeTypeOf("function")
+
+    await act(async () => {
+      resolveDelete({ ok: true, changed: true, revision: 9 })
+      await pending
+    })
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/community/users/me/attention",
+        expect.objectContaining({ signal: expect.anything() }),
+      )
+    })
+    expect(toastMock).not.toHaveBeenCalled()
+  })
+
+  it("restores the dismissed Todo and shows error toast when DELETE fails", async () => {
+    const mod = await loadMod()
+    const canonical = await seedPendingQuestionTodo("m_q1", "ch_1")
+    let rejectDelete!: (error: Error) => void
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/inbox/todos/m_q1") {
+        return new Promise((_, reject) => { rejectDelete = reject })
+      }
+      if (path === "/api/community/users/me/attention") return canonical
+      throw new Error("unexpected " + path)
+    })
+
+    mountHook(() => mod.useDismissInboxTodo())
+    const pending = startMutation({ messageId: "m_q1" })
+    await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeUndefined())
+
+    await act(async () => {
+      rejectDelete(new Error("dismiss unavailable"))
+      await pending
+    })
+
+    await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeDefined())
+    expect(toastMock).toHaveBeenCalledWith("dismiss unavailable")
+  })
+
+  it("restores the dismissed Todo quietly on AbortError or retired origin and supports mutate()", async () => {
+    const mod = await loadMod()
+    await seedPendingQuestionTodo("m_q1", "ch_1")
+    apiFetchMock.mockRejectedValueOnce(new DOMException("aborted", "AbortError"))
+
+    const hook = mountHook(() => mod.useDismissInboxTodo())
+    await act(async () => {
+      hook.mutate({ messageId: "m_q1" })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeDefined())
+    expect(toastMock).not.toHaveBeenCalled()
+
+    // Retired origin error suppresses both reconcile and toast.
+    let rejectRetired!: (error: Error) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((_, reject) => { rejectRetired = reject }))
+    const pending = startMutation({ messageId: "m_q1" })
+    await waitFor(() => expect(rejectRetired).toBeTypeOf("function"))
+    await act(async () => {
+      await canonicalRegistry.cleanup()
+      rejectRetired(new Error("stale failure"))
+      await pending
+    })
+    expect(toastMock).not.toHaveBeenCalled()
+  })
+})
