@@ -485,7 +485,8 @@ test.describe("Inbox/read refresh ownership", () => {
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${forumId}/read`
     ))
-    await preview.getByTestId(tid.threadIndicator(first!.messageId!)).click()
+    await expect(preview.getByTestId(tid.forumThreadSeq(firstChildId))).toHaveText(`#${first!.openerSeq}`)
+    await preview.getByTestId(tid.forumThreadCard(firstChildId)).click()
     expect((await parentRead).status()).toBe(200)
     await expect(page).toHaveURL(`/c/channels/${serverId}/${firstChildId}`)
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split")

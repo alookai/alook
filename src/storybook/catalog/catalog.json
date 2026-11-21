@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 348,
+    "composition": 349,
     "environment": 12,
     "nonvisual": 32,
     "direct": 163
@@ -2441,6 +2441,23 @@
       "reason": "The navigation composition renders ForumPostCount through real sidebar rows with illustrative counts. The asynchronous provider requires separate authenticated runtime QA."
     },
     {
+      "source": "src/web/src/components/community/channels/forum-post-item.tsx",
+      "application": "Web",
+      "candidates": [
+        "ForumPostItem",
+        "ForumPostTitle",
+        "ForumTagSummary"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-product-compositions--channels-messages-and-composer",
+          "region": "Forum specimen post title, preview, author, tags and reply count"
+        }
+      ],
+      "reason": "The populated forum story renders the shared Forum post item with its production layout."
+    },
+    {
       "source": "src/web/src/components/community/channels/forum-post-list.tsx",
       "application": "Web",
       "candidates": [
@@ -2479,8 +2496,6 @@
       "candidates": [
         "ForumListSkeleton",
         "ForumPostSkeleton",
-        "ForumPostTitle",
-        "ForumTagSummary",
         "ForumView",
         "ForumViewSkeleton"
       ],

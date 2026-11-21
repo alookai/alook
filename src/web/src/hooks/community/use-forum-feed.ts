@@ -4,13 +4,12 @@ import { useConversationPresentation } from "@/contexts/view-activity"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
-import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, messagePreviewText, type CommunityThreadsRead } from "@alook/shared"
+import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityThreadsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { communityKeys } from "@/lib/query-keys"
-import { avatarInitial } from "@/lib/community/avatar"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityForumFeed } from "@/lib/community-db/sync"
@@ -23,7 +22,7 @@ import { currentPageObservation, navigationForHref } from "@/lib/observability/c
 import { useForumTags } from "./use-channel-panels"
 import { useStoredForumTag } from "./use-stored-forum-tag"
 import { useConversationResource } from "./use-conversation-entry"
-import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectThread, type ForumFeedPage } from "@/lib/community/forum-feed-window"
+import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectForumThread, type ForumFeedPage } from "@/lib/community/forum-feed-window"
 
 export { removeForumPostFromFeed } from "@/lib/community/forum-feed-window"
 export type { ForumFeedPage } from "@/lib/community/forum-feed-window"
@@ -95,12 +94,12 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
     if (byId.has(window.id)) continue
     const thread = channels.get(window.id), opener = window.openerMessageId ? messages.get(window.openerMessageId) : undefined
     if (!thread || !opener || thread.parentMessageId !== opener.id || !forumFeedMatchesTags(filter, thread.tags)) continue
-    byId.set(thread.id, {
-      ...projectThread(thread, opener, "forum", thread.firstMessageId ? messages.get(thread.firstMessageId) : undefined), authorId: opener.authorId ?? thread.creatorId ?? "",
-      authorAvatar: opener.authorAvatar ?? avatarInitial(opener.authorName ?? ""), authorAvatarVersion: opener.authorAvatarVersion ?? 0,
-      openerMessageId: opener.id, ...(opener.createdAt === undefined ? {} : { openerCreatedAt: opener.createdAt }), tags: thread.tags, preview: thread.firstMessageId && messages.get(thread.firstMessageId) ? messagePreviewText(messages.get(thread.firstMessageId)!) : "",
-      participants: window.participantIds.map((id) => { const profile = readCommunityProfile(profiles.get(id), id); return { id, name: profile.name, avatar: profile.avatar, avatarVersion: profile.avatarVersion } }), participantCount: thread.participantCount ?? 0,
+    const first = thread.firstMessageId ? messages.get(thread.firstMessageId) : undefined
+    const participants = window.participantIds.map((id) => {
+      const profile = readCommunityProfile(profiles.get(id), id)
+      return { id, name: profile.name, avatar: profile.avatar, avatarVersion: profile.avatarVersion }
     })
+    byId.set(thread.id, projectForumThread(thread, opener, first, participants))
   }
   return [...byId.values()].sort((a, b) => compareAsciiSqliteBinary(channels.get(b.id)?.createdAt ?? "", channels.get(a.id)?.createdAt ?? "") || compareAsciiSqliteBinary(b.id, a.id))
 }

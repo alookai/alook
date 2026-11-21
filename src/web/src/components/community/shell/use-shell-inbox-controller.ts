@@ -10,6 +10,7 @@ import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
 import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
 import { InboxUnreadMessages } from "./inbox-unread-messages"
 import { useMarkInboxChannelRead } from "@/hooks/community/use-inbox-channel-messages"
+import type { RequestNativeConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   inboxChannelRowTarget,
@@ -50,6 +51,7 @@ type Options = {
   navigationPending: boolean
   pendingHref: string | null
   viewerId: string
+  dismissNativeConversation?: RequestNativeConversationDismissal
 }
 
 export function useShellInboxController({
@@ -60,6 +62,7 @@ export function useShellInboxController({
   navigationPending,
   pendingHref,
   viewerId,
+  dismissNativeConversation,
 }: Options) {
   const pushInboxHref = useCallback((href: string, prepare?: (action?: Action) => void) => {
     if (router.pushImmediate) router.pushImmediate(href, prepare)
@@ -81,7 +84,7 @@ export function useShellInboxController({
   const inboxMarked = useInboxMarked(markedTabOpened)
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
-  const markChannelRead = useMarkInboxChannelRead()
+  const markChannelRead = useMarkInboxChannelRead(dismissNativeConversation)
   const submitInboxDecisionCard = useSubmitInboxDecisionCard()
   const dismissInboxTodo = useDismissInboxTodo()
   const acceptFriendRequest = useAcceptFriendRequest()
