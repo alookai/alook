@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useInfiniteQuery, useIsRestoring, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useChannelReadStateProjection, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
-import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { assertCommunitySnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { communityServerRetirementId, communityServerRetirementKey } from "@/lib/community-db/message-access-scope"
 import { communityScopeAllowsAccess } from "@/stores/community/ws-store"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { apiFetch } from "@/lib/api/client"
 import { withConversationReadDeadline } from "@/lib/community/conversation-read"
+import { isAbortError } from "@/lib/errors"
 import { messageWindowOptions, type MessageWindowData } from "@/lib/community/message-window"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { getReadCoordinator } from "./read-coordinator"
@@ -92,29 +94,57 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
 }
 
 type InboxChannelReadInput = { channelId: string; throughSeq: number }
+type InboxChannelReadIntent = InboxChannelReadInput & { original: ReturnType<typeof captureCommunityLiveSnapshotToken> }
+export type InboxChannelReadAction = { throughSeq: number; status: "pending" | "error" }
+const inboxChannelReadKey = ["community", "inbox-channel-read"] as const
 
 export function useMarkInboxChannelRead() {
   const client = useQueryClient()
   const origin = useCommunityMutationOrigin()
-  type Intent = InboxChannelReadInput & { original: ReturnType<typeof captureCommunityLiveSnapshotToken> }
   const command = useMutation({
+    mutationKey: inboxChannelReadKey,
     meta: { observabilityAction: "inbox.channel.read" },
-    mutationFn: async ({ channelId, throughSeq, original }: Intent) => {
+    mutationFn: async ({ channelId, throughSeq, original }: InboxChannelReadIntent) => {
       origin.assert(original)
       if (!Number.isSafeInteger(throughSeq) || throughSeq <= 0) throw new Error("Missing unread boundary")
-      const target = await withConversationReadDeadline(undefined, signal => origin.request<{ id: string }>(original,
-        `/api/community/channels/${encodeURIComponent(channelId)}/messages/seq/${throughSeq}`, { signal }))
-      origin.assert(original)
-      if (typeof target.id !== "string" || !target.id) throw new Error("Missing unread message")
       const accountId = original.registry?.accountId
       if (!accountId) throw new DOMException("Missing Inbox account", "AbortError")
-      return origin.runWith(original, request =>
-        getReadCoordinator(client, accountId).markChannelRead({ channelId, messageId: target.id, seq: throughSeq }, request))
+      return origin.runWith(original, request => getReadCoordinator(client, accountId).markChannelRead(
+        { channelId, seq: throughSeq },
+        request,
+        async () => {
+          const target = await withConversationReadDeadline(request.signal ?? undefined, signal => apiFetch<{ id: string }>(
+            `/api/community/channels/${encodeURIComponent(channelId)}/messages/seq/${throughSeq}`, { ...request, signal }))
+          if (typeof target.id !== "string" || !target.id) throw new Error("Missing unread message")
+          return target.id
+        },
+      ))
     },
   })
-  const capture = useCallback((input: InboxChannelReadInput): Intent => ({
+  const capture = useCallback((input: InboxChannelReadInput): InboxChannelReadIntent => ({
     ...input, original: captureCommunityLiveSnapshotToken(client, input.channelId),
   }), [client])
-  const assertCurrent = useCallback((input: Intent) => origin.assert(input.original), [origin])
-  return useNativeMutationFacade(command, capture, assertCurrent)
+  const assertCurrent = useCallback((input: InboxChannelReadIntent) => origin.assert(input.original), [origin])
+  const mutations = useMutationState({
+    filters: { mutationKey: inboxChannelReadKey, exact: true },
+    select: ({ state }) => ({
+      intent: state.variables as InboxChannelReadIntent | undefined,
+      status: state.status,
+      aborted: isAbortError(state.error),
+    }),
+  })
+  const actions = new Map<string, InboxChannelReadAction>()
+  for (const { intent, status, aborted } of mutations) {
+    if (!intent) continue
+    try {
+      assertCommunitySnapshotTokenCurrent(client, intent.original, undefined)
+    } catch {
+      continue
+    }
+    const { channelId, throughSeq } = intent
+    const confirmedSeq = intent.original.registry?.collections.readStates.get(channelId)?.lastReadSeq ?? 0
+    if (status === "pending" || status === "error" && !aborted && confirmedSeq < throughSeq) actions.set(channelId, { throughSeq, status })
+    else actions.delete(channelId)
+  }
+  return { ...useNativeMutationFacade(command, capture, assertCurrent), actions }
 }

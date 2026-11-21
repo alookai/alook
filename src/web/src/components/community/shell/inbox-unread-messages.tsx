@@ -20,16 +20,18 @@ export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForum
     {query.loading && !query.isError && messages.length === 0 && <div role="status" aria-label="Loading unread messages" className="flex flex-col gap-2">
       <Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-full" />
     </div>}
-    {flattenMessageItems(messages, undefined, false, false, false).map(item => {
-      if (item.kind !== "message") return null
-      const mention = mentionById.get(item.m.id)
-      const openForumPost = openForumPosts?.get(item.m.id)
-      return <InboxMessagePreview key={item.key} message={item.m}
-        testId={mention ? tid.inboxMention(mention.id) : undefined}
-        onOpen={mention && onOpenMention ? () => onOpenMention(mention) : openForumPost}
-        onOpenThread={openForumPost}
-        paddingTop={item.paddingTop} paddingBottom={item.paddingBottom} />
-    })}
+    {messages.length > 0 && <div data-slot="inbox-card-messages" className="flex min-w-0 flex-col gap-2">
+      {flattenMessageItems(messages, undefined, false, false, false).map(item => {
+        if (item.kind !== "message") return null
+        const mention = mentionById.get(item.m.id)
+        const openForumPost = openForumPosts?.get(item.m.id)
+        return <InboxMessagePreview key={item.key} message={item.m}
+          testId={mention ? tid.inboxMention(mention.id) : undefined}
+          onOpen={mention && onOpenMention ? () => onOpenMention(mention) : openForumPost}
+          onOpenThread={openForumPost}
+          paddingTop={item.paddingTop} paddingBottom={item.paddingBottom} />
+      })}
+    </div>}
     {query.isError && <div role="alert" className="flex items-center justify-between gap-2 text-sm">
       <span>Couldn&apos;t load unread messages</span>
       <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-8" disabled={query.isFetching} onClick={() => { void query.refetch() }}>Retry</Button>

@@ -285,26 +285,43 @@ class ReadCoordinator {
     }
   }
 
-  markChannelRead(target: ReadTarget, request: ApiRequestOptions) {
+  async markChannelRead(
+    target: Pick<ReadTarget, "channelId" | "seq">,
+    request: ApiRequestOptions,
+    resolveMessageId: () => Promise<string>,
+  ) {
     const assertActive = () => {
       request.assertActive?.()
       if (this.disposed || request.signal?.aborted) throw new DOMException("Retired read intent", "AbortError")
     }
-
-    return this.queryClient.getMutationCache().build<ReadMutationResponse, Error, void, unknown>(this.queryClient, {
-      ...this.readMutationOptions(target.channelId),
-      meta: { observabilityDelegate: true },
-      retry: false,
-      mutationFn: async () => {
-        assertActive()
-        const receipt = await this.sendRead(target, { ...request, assertActive })
-        assertActive()
-        if (receipt.targetSeq !== target.seq) throw new Error("Unread receipt mismatch")
-        await reconcileAccountReadState(this.queryClient, { targetRevision: receipt.revision })
-        assertActive()
-        return receipt
-      },
-    }).execute(undefined)
+    assertActive()
+    const registry = getCommunityDbRegistry(this.queryClient)
+    const snapshot = registry && clearAttentionScopeOptimistically(registry, target.channelId, target.seq)
+    let confirmed = false
+    try {
+      return await this.queryClient.getMutationCache().build<ReadMutationResponse, Error, void, unknown>(this.queryClient, {
+        ...this.readMutationOptions(target.channelId),
+        meta: { observabilityDelegate: true },
+        retry: false,
+        mutationFn: async () => {
+          assertActive()
+          const messageId = await resolveMessageId()
+          assertActive()
+          const receipt = await this.sendRead({ ...target, messageId }, { ...request, assertActive })
+          assertActive()
+          if (receipt.targetSeq !== target.seq) throw new Error("Unread receipt mismatch")
+          confirmed = true
+          await reconcileAccountReadState(this.queryClient, { targetRevision: receipt.revision })
+          assertActive()
+          return receipt
+        },
+      }).execute(undefined)
+    } finally {
+      if (registry && snapshot) {
+        if (confirmed) await commitAttentionOptimisticSnapshot(registry, snapshot)
+        else this.restoreAttention(registry, snapshot)
+      }
+    }
   }
 
   private readMutationOptions(channelId: string) {
@@ -530,9 +547,12 @@ class ReadCoordinator {
     const optimistic = this.scope(key)?.attentionOptimistic
     if (!optimistic) return
     this.update(key, (current) => ({ ...current, attentionOptimistic: null }))
-    if (!restoreAttentionOptimisticSnapshot(optimistic.registry, optimistic.snapshot)) {
-      const registry = getCommunityDbRegistry(this.queryClient)
-      if (registry === optimistic.registry) void reconcileAccountAttention(registry).catch(() => undefined)
+    this.restoreAttention(optimistic.registry, optimistic.snapshot)
+  }
+
+  private restoreAttention(registry: CommunityDbRegistry, snapshot: AttentionScopeOptimisticSnapshot) {
+    if (!restoreAttentionOptimisticSnapshot(registry, snapshot) && getCommunityDbRegistry(this.queryClient) === registry) {
+      void reconcileAccountAttention(registry).catch(() => undefined)
     }
   }
 

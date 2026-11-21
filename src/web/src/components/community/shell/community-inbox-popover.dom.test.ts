@@ -87,16 +87,23 @@ describe("Inbox channel cards", () => {
   it("retries the selected channel's captured watermark without reading a later arrival", async () => {
     const unreads = unreadFixture()
     unreads[0]!.channels[0]!.children[0]!.lastUnreadSeq = 23
-    const onMarkChannelRead = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(undefined)
+    const onMarkChannelRead = vi.fn().mockResolvedValue(undefined)
     const onOpenThread = vi.fn()
     const props = { unreads, unreadDms: [], mentions: [], marked: [], hasProjectedUnreads: true, hasProjectedMentions: false, onMarkChannelRead, onOpenThread }
     const view = render(React.createElement(InboxPopover, props))
     fireEvent.click(view.getByRole("button", { name: "Mark Full authoritative opener content read" }))
-    await waitFor(() => expect(onMarkChannelRead).toHaveBeenCalledExactlyOnceWith("p1", 23))
-    await waitFor(() => expect(view.getByRole("button", { name: "Retry marking Full authoritative opener content read" })).toBeDefined())
+    expect(onMarkChannelRead).toHaveBeenCalledExactlyOnceWith("p1", 23)
+    const pending = structuredClone(unreads)
+    pending[0]!.channels[0]!.children.shift()
+    view.rerender(React.createElement(InboxPopover, { ...props, unreads: pending }))
+    expect(view.queryByTestId(tid.inboxUnreadCard("p1"))).toBeNull()
     const newer = structuredClone(unreads)
     newer[0]!.channels[0]!.children[0]!.lastUnreadSeq = 24
-    view.rerender(React.createElement(InboxPopover, { ...props, unreads: newer }))
+    view.rerender(React.createElement(InboxPopover, {
+      ...props,
+      unreads: newer,
+      channelReadActions: new Map([["p1", { throughSeq: 23, status: "error" }]]),
+    }))
     await act(async () => fireEvent.click(view.getByRole("button", { name: "Retry marking Full authoritative opener content read" })))
     expect(onMarkChannelRead.mock.calls).toEqual([["p1", 23], ["p1", 23]])
     expect(onOpenThread).not.toHaveBeenCalled()
@@ -191,7 +198,6 @@ describe("InboxPopover thread opener rows", () => {
     expect(identity.querySelector("span.size-5 > svg.size-4")).not.toBeNull()
     for (const tab of ["unreads", "marked"] as const) {
       const scroller = renderer.getByTestId(tid.inboxTabScroll(tab))
-      expect(scroller).toHaveClass("scroll-fade-b", "scroll-fade-4")
       expect(scroller).not.toHaveClass("p-3")
       expect(scroller.firstElementChild).toHaveClass("p-3")
     }

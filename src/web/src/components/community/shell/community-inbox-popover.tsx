@@ -12,6 +12,7 @@ import { EmptyState } from "../empty-state"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import type { InboxFriendRequest, InboxUnreadMessagesInput, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import type { ActionableFriendRequest } from "@/hooks/community/use-friend-request-action-state"
+import type { InboxChannelReadAction } from "@/hooks/community/use-inbox-channel-messages"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
@@ -20,6 +21,7 @@ import type { EntityKind } from "@/lib/community/models/navigation"
 import { cn } from "@/lib/utils"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { avatarInitial } from "@/lib/community/avatar"
+import styles from "./community-inbox-popover.module.css"
 import {
   useId,
   useState,
@@ -97,7 +99,7 @@ function InboxScrollBody({
       ref={ref}
       data-testid={tid.inboxTabScroll(tab)}
       // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
-      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar scroll-fade-b scroll-fade-4"
+      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar"
       onScroll={onScroll}
       onWheel={() => { transientScrollRef.current = true }}
       onKeyDown={onKeyDown}
@@ -204,58 +206,75 @@ function InboxDmCardIdentity({ name, avatar, userId, discriminator }: {
   )
 }
 
-function InboxCard({ testId, identity, actions, hasBody, children }: {
+function InboxCard({ testId, identity, actions, feedback, children }: {
   testId: string
   identity: ReactNode
   actions: ReactNode
-  hasBody?: boolean
+  feedback?: ReactNode
   children: ReactNode
 }) {
+  const headerRef = useRef<HTMLElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
+  const hasPreview = Boolean(children)
+  const hasBody = hasPreview || Boolean(feedback)
+
+  useLayoutEffect(() => {
+    const header = headerRef.current
+    const preview = previewRef.current
+    if (!header || !preview) return
+    const updateHeight = () => preview.style.setProperty("--inbox-sticky-header-height", `${header.offsetHeight}px`)
+    updateHeight()
+    const ResizeObserverConstructor = header.ownerDocument.defaultView?.ResizeObserver
+    if (!ResizeObserverConstructor) return
+    const observer = new ResizeObserverConstructor(updateHeight)
+    observer.observe(header, { box: "border-box" })
+    return () => observer.disconnect()
+  }, [hasPreview])
+
   return (
-    <article data-testid={testId} className="mb-2 isolate min-w-0 overflow-clip rounded-lg border-x border-b border-border bg-card text-card-foreground">
-      <header data-slot="inbox-card-header" className={cn(
-        "sticky top-0 z-10 flex min-w-0 items-center gap-2 border-t border-border bg-card p-2 transition-colors duration-150 hover:text-accent-foreground motion-reduce:transition-none sm:px-4",
-        "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-accent before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-100 motion-reduce:before:transition-none",
-        hasBody && "border-b",
-      )}>
-        {identity}
-        {actions}
-      </header>
-      {hasBody && <div className="relative z-0">{children}</div>}
+    <article data-testid={testId} className="mb-2 isolate min-w-0 text-card-foreground">
+      <div className="sticky top-0 z-10 bg-popover">
+        <header ref={headerRef} data-slot="inbox-card-header" className={cn(
+          "relative isolate flex min-w-0 items-center gap-2 overflow-clip rounded-t-lg border border-border bg-card p-2 transition-colors duration-150 hover:text-accent-foreground motion-reduce:transition-none sm:px-4",
+          "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-accent before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-100 motion-reduce:before:transition-none",
+          !hasBody && "rounded-b-lg",
+        )}>
+          {identity}
+          {actions}
+        </header>
+      </div>
+      {hasBody && <div className="min-w-0 overflow-clip rounded-b-lg border-x border-b border-border bg-card">
+        {feedback}
+        {hasPreview && <div ref={previewRef} data-slot="inbox-card-preview" className={styles.preview}>{children}</div>}
+      </div>}
     </article>
   )
 }
 
-function UnreadChannelCard({ channelId, name, throughSeq = 0, mentions, renderUnreadMessages, onMarkChannelRead, children }: {
+function UnreadChannelCard({ channelId, name, throughSeq = 0, mentions, renderUnreadMessages, onMarkChannelRead, read, children }: {
   channelId: string
   name: string
   throughSeq?: number
   mentions: Mention[]
   renderUnreadMessages: (input: InboxUnreadMessagesInput) => ReactNode
   onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
+  read?: InboxChannelReadAction
   children: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [read, setRead] = useState<{ throughSeq: number; pending: boolean; failed: boolean } | null>(null)
   const bodyId = useId()
-  const mark = async (seq: number) => {
-    if (!onMarkChannelRead || read?.pending) return
-    setRead({ throughSeq: seq, pending: true, failed: false })
-    try {
-      await onMarkChannelRead(channelId, seq)
-      setRead(null)
-    } catch {
-      setRead({ throughSeq: seq, pending: false, failed: true })
-    }
+  const pending = read?.status === "pending"
+  const mark = (seq: number) => {
+    if (!pending) void onMarkChannelRead?.(channelId, seq).catch(() => undefined)
   }
   return (
-    <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={children} hasBody={expanded || read?.failed}
+    <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={children}
       actions={<div className="-me-2 flex shrink-0 items-center sm:-me-4">
         <InboxIconAction mobileRestingTint className={cn(unreadChannelActionClassName, "bg-accent")}
           data-testid={tid.inboxMarkChannelRead(channelId)}
-          aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || read?.pending}
-          onClick={() => { void mark(throughSeq) }}>
-          {read?.pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+          aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || pending}
+          onClick={() => mark(throughSeq)}>
+          {pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
         </InboxIconAction>
         <InboxIconAction
           className={cn(unreadChannelActionClassName, "aria-expanded:bg-transparent aria-expanded:text-muted-foreground hover:aria-expanded:bg-accent hover:aria-expanded:text-foreground")}
@@ -265,12 +284,12 @@ function UnreadChannelCard({ channelId, name, throughSeq = 0, mentions, renderUn
           <ChevronDown className={`size-4 transition-transform motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} />
         </InboxIconAction>
       </div>}
-    >
-      {read?.failed && <div role="alert" className="flex items-center justify-between gap-2 px-2 pb-2 text-xs">
+      feedback={read?.status === "error" && <div role="alert" className="flex items-center justify-between gap-2 px-2 pb-2 text-xs">
         <span>Couldn&apos;t update read status</span>
         <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-8" aria-label={`Retry marking ${name} read`}
-          onClick={() => { void mark(read.throughSeq) }}>Retry</Button>
+          onClick={() => mark(read.throughSeq)}>Retry</Button>
       </div>}
+    >
       {expanded && <section id={bodyId} aria-label={`Unread messages in ${name}`} className="min-w-0 px-2 sm:px-4">
         {renderUnreadMessages({ channelId, throughSeq, mentions })}
       </section>}
@@ -283,7 +302,7 @@ function AttentionLoadError({ onRetry, retrying = false }: { onRetry?: () => voi
   return <div role="alert" className="flex flex-1 flex-col"><EmptyState icon={AlertCircle} label="Couldn't load Inbox" /></div>
 }
 
-function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, onOpenMention, renderUnreadMessages, onMarkChannelRead, mentions, profilesByUserId, directory, getScrollOffset, onScrollOffsetChange }: {
+function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, onOpenMention, renderUnreadMessages, onMarkChannelRead, channelReadActions, mentions, profilesByUserId, directory, getScrollOffset, onScrollOffsetChange }: {
   friendRequests: Array<ActionableFriendRequest<InboxFriendRequest>>
   servers: UnreadServer[]
   dms: UnreadDm[]
@@ -305,17 +324,23 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
   onOpenMention?: (mention: Mention) => void
   renderUnreadMessages?: (input: InboxUnreadMessagesInput) => ReactNode
   onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
+  channelReadActions?: ReadonlyMap<string, InboxChannelReadAction>
   mentions: Mention[]
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
   directory: InboxCardDirectory
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
-  const renderMessages = renderUnreadMessages ?? ((input: InboxUnreadMessagesInput) => <div data-testid={tid.inboxUnreadMessages(input.channelId)} className="flex flex-col gap-2">
-    {input.mentions.length === 0 && <p className="p-2 text-sm text-muted-foreground">No unread messages</p>}
-    {input.mentions.map(mention => <InboxMessagePreview key={mention.id} message={{ ...mention.m, grouped: false }}
-      testId={tid.inboxMention(mention.id)} onOpen={onOpenMention ? () => onOpenMention(mention) : undefined} />)}
-  </div>)
+  const renderMessages = renderUnreadMessages ?? ((input: InboxUnreadMessagesInput) => (
+    <div data-testid={tid.inboxUnreadMessages(input.channelId)}>
+      {input.mentions.length === 0
+        ? <p className="p-2 text-sm text-muted-foreground">No unread messages</p>
+        : <div data-slot="inbox-card-messages" className="flex min-w-0 flex-col gap-2">
+            {input.mentions.map(mention => <InboxMessagePreview key={mention.id} message={{ ...mention.m, grouped: false }}
+              testId={tid.inboxMention(mention.id)} onOpen={onOpenMention ? () => onOpenMention(mention) : undefined} />)}
+          </div>}
+    </div>
+  ))
   const visibleDms = dms
   const visibleServers = servers.map((server) => ({
     server,
@@ -412,7 +437,8 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
       {visibleDms.map(dm => {
         const profile = readCommunityProfile(profilesByUserId.get(dm.otherUserId), dm.otherUserId)
         return <UnreadChannelCard key={dm.channelId} channelId={dm.channelId} name={profile.name} throughSeq={dm.lastUnreadSeq}
-          mentions={mentions.filter(mention => mention.channelId === dm.channelId)} renderUnreadMessages={renderMessages} onMarkChannelRead={onMarkChannelRead}>
+          mentions={mentions.filter(mention => mention.channelId === dm.channelId)} renderUnreadMessages={renderMessages}
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}>
           <CommunityNavigationLink data-testid={tid.inboxUnreadDm(dm.channelId)} href={`/c/me/${encodeURIComponent(dm.channelId)}`}
             onActivate={() => onOpenDm?.(dm)} className={identityActionClassName}>
             <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} />
@@ -429,7 +455,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
               opener.openerMessageId, () => onOpenThread(server, channel, opener),
             ])) : undefined,
           })}
-          onMarkChannelRead={onMarkChannelRead}>
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}>
           <button type="button" data-testid={tid.inboxUnreadChannel(channel.channelId)}
             onClick={() => onOpenChannel?.(server, channel, true)} className={identityActionClassName}>
             <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
@@ -438,7 +464,8 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           </button>
         </UnreadChannelCard>] : []),
         ...children.map(child => <UnreadChannelCard key={child.channelId} channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq}
-          mentions={mentions.filter(mention => mention.channelId === child.channelId)} renderUnreadMessages={renderMessages} onMarkChannelRead={onMarkChannelRead}>
+          mentions={mentions.filter(mention => mention.channelId === child.channelId)} renderUnreadMessages={renderMessages}
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}>
           <button type="button" data-testid={tid.inboxUnreadChild(child.channelId)}
             onClick={() => onOpenThread(server, channel, child)} className={identityActionClassName}>
             <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} />
@@ -475,7 +502,7 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
         const name = peer?.name ?? channel?.name ?? mk.channel
         const open = onOpenMarked ? () => onOpenMarked(mk) : undefined
         return (
-          <InboxCard key={mk.id} testId={tid.inboxMarkedCard(mk.id)} hasBody
+          <InboxCard key={mk.id} testId={tid.inboxMarkedCard(mk.id)}
             identity={<button type="button" className={identityActionClassName} onClick={open}>
               {mk.serverId
                 ? <InboxServerCardIdentity name={name} kind={channel?.type === "dm" ? undefined : channel?.type}
@@ -491,7 +518,7 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
               <Trash2 className="size-4" />
             </Button>}
           >
-            <div className="min-w-0 px-2 sm:px-4">
+            <div data-slot="inbox-card-messages" className="min-w-0 px-2 sm:px-4">
               <InboxMessagePreview message={{ ...mk.m, grouped: false }} onOpen={open} />
             </div>
           </InboxCard>
@@ -536,6 +563,7 @@ export function InboxPopover({
   onScrollOffsetChange,
   renderUnreadMessages,
   onMarkChannelRead,
+  channelReadActions,
   surface = "desktop",
 }: {
   friendRequests?: Array<ActionableFriendRequest<InboxFriendRequest>>
@@ -577,6 +605,7 @@ export function InboxPopover({
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
   renderUnreadMessages?: (input: InboxUnreadMessagesInput) => ReactNode
   onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
+  channelReadActions?: ReadonlyMap<string, InboxChannelReadAction>
   surface?: "desktop" | "mobile" | "extension"
 }) {
   const profilesByUserId = useCanonicalProfilesByUserId()
@@ -629,6 +658,7 @@ export function InboxPopover({
           onOpenMention={onOpenMention}
           renderUnreadMessages={renderUnreadMessages}
           onMarkChannelRead={onMarkChannelRead}
+          channelReadActions={channelReadActions}
           loading={loading}
           error={attentionError}
           retrying={attentionRetrying}

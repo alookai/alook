@@ -22,6 +22,19 @@ const shellPanel = (page: Page, id: "sidebar" | "main") => (
 
 async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator) {
   const header = card.locator('[data-slot="inbox-card-header"]')
+  const preview = card.locator('[data-slot="inbox-card-preview"]')
+  const messages = preview.locator('[data-slot="inbox-card-messages"]')
+  const expectOutline = async () => {
+    for (const side of ["top", "left", "right", "bottom"]) {
+      await expect(header).toHaveCSS(`border-${side}-width`, "1px")
+      await expect(header).toHaveCSS(`border-${side}-style`, "solid")
+    }
+    await expect(header).toHaveCSS("border-top-left-radius", /^[1-9]\d*(?:\.\d+)?px$/)
+    await expect(header).toHaveCSS("border-top-right-radius", /^[1-9]\d*(?:\.\d+)?px$/)
+  }
+  await expectOutline()
+  await expect(preview.locator("..")).toHaveCSS("border-top-width", "0px")
+  await expect(messages).toHaveCSS("--inbox-preview-fade-edge", "0%")
   const cardId = await card.getAttribute("data-testid")
   await list.evaluate((element, cardId) => {
     const cardElement = element.querySelector(`[data-testid="${cardId}"]`)!
@@ -33,12 +46,11 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
   }).toBeLessThanOrEqual(1)
   const box = await header.boundingBox()
   if (!box) throw new Error("Pinned Inbox card header is unavailable")
-  await page.mouse.move(box.x + 2, box.y + 2)
-  await expect(header).toHaveCSS("border-top-width", "1px")
-  await expect(header).toHaveCSS("border-top-style", "solid")
+  await page.mouse.move(box.x + box.width / 2, box.y + 2)
+  await expectOutline()
   await expect.poll(() => header.evaluate((element) => {
     const rect = element.getBoundingClientRect()
-    const bodyOverlaps = [...(element.parentElement?.querySelectorAll("[data-message-renderer]") ?? [])]
+    const bodyOverlaps = [...(element.closest("article")?.querySelectorAll("[data-message-renderer]") ?? [])]
       .some(row => {
         const body = row.getBoundingClientRect()
         return body.top < rect.bottom && body.bottom > rect.top
@@ -52,12 +64,16 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
       bodyOverlaps,
       hovered: element.matches(":hover"),
       coversCorners: [rect.left + 2, rect.right - 2].every(x => (
-        element.contains(document.elementFromPoint(x, rect.top + 2))
+        element.parentElement?.contains(document.elementFromPoint(x, rect.top + 2))
       )),
       alpha: context.getImageData(0, 0, 1, 1).data[3],
     }
   })).toEqual({ bodyOverlaps: true, hovered: true, coversCorners: true, alpha: 255 })
-  await expect(list).toHaveCSS("mask-image", /linear-gradient/)
+  await expect(list).toHaveCSS("mask-image", "none")
+  await expect(header).toHaveCSS("mask-image", "none")
+  await expect(preview).toHaveCSS("mask-image", "none")
+  await expect(messages).toHaveCSS("mask-image", /linear-gradient/)
+  await expect(messages).not.toHaveCSS("--inbox-preview-fade-edge", "0%")
 }
 
 type LayoutSample = {

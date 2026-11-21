@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { channelResourceFixture, fullResourceBundleFixture, messageReadPageFixture, messageResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
-import { captureCommunityLiveSnapshotToken, publishCommunityResourceBundle } from "@/lib/community-db/sync"
+import { channelResourceFixture, fullResourceBundleFixture, messageReadPageFixture, messageResourceFixture, resourceBundleFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
+import { captureCommunityLiveSnapshotToken, ingestAttentionSnapshot, publishCommunityResourceBundle } from "@/lib/community-db/sync"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { messageWindowOptions } from "@/lib/community/message-window"
 import { communityKeys } from "@/lib/query-keys"
@@ -180,6 +180,49 @@ describe("read-only Inbox channel messages", () => {
 })
 
 describe("exact Inbox channel check", () => {
+  it("clears before target lookup and rolls a failed write back over a newer snapshot", async () => {
+    const owner = await setup()
+    const scope = {
+      scopeId: "parent", channelId: "parent", serverId: "s1", parentChannelId: null,
+      ordinaryUnread: true, lastUnreadSeq: 23, unreadCount: 2, attentionCount: 0,
+    }
+    const sibling = { ...scope, scopeId: "sibling", channelId: "sibling" }
+    await writeCommunityCollectionRows(owner.registry, "attentionScopes", [scope, sibling], row => row.scopeId)
+    let resolveTarget!: (value: { id: string }) => void
+    const target = new Promise<{ id: string }>(resolve => { resolveTarget = resolve })
+    mocks.api.mockReturnValueOnce(target).mockRejectedValueOnce(new Error("Read unavailable"))
+    const view = renderHook(() => useMarkInboxChannelRead(), { wrapper: owner.wrapper })
+    let result!: Promise<unknown>
+    act(() => {
+      result = view.result.current.mutateAsync({ channelId: "parent", throughSeq: 23 }).catch(error => error)
+    })
+    try {
+      await waitFor(() => expect(mocks.api).toHaveBeenCalledOnce())
+      expect(owner.registry.collections.attentionScopes.get("parent")).toBeUndefined()
+      expect(owner.registry.collections.attentionScopes.get("sibling")).toMatchObject(sibling)
+      expect(view.result.current.actions.get("parent")).toEqual({ throughSeq: 23, status: "pending" })
+      const newer = { ...scope, lastUnreadSeq: 24, unreadCount: 3 }
+      await act(async () => {
+        ingestAttentionSnapshot(owner.registry, {
+          resources: resourceBundleFixture({ viewerId: owner.account }),
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          scopes: [newer, sibling], items: [], limit: 100, truncated: false,
+        })
+      })
+      expect(owner.registry.collections.attentionScopes.get("parent")?.lastUnreadSeq).toBe(24)
+      await act(async () => {
+        resolveTarget({ id: "captured-23" })
+        expect(await result).toMatchObject({ message: "Read unavailable" })
+      })
+      expect(owner.registry.collections.attentionScopes.get("parent")).toMatchObject(newer)
+      await waitFor(() => expect(view.result.current.actions.get("parent")).toEqual({ throughSeq: 23, status: "error" }))
+      expect(mocks.reconcile).not.toHaveBeenCalled()
+    } finally {
+      resolveTarget({ id: "captured-23" })
+      await result
+    }
+  })
+
   it.each(["parent", "child", "dm"])("reads only %s at the captured boundary", async channelId => {
     const owner = await setup()
     mocks.api.mockImplementation(async (path: string, options?: { method?: string }) => {
