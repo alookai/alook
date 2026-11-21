@@ -815,7 +815,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
     .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB, or 8 KiB JSON with --ask)")
-    .option("--ask", "send a structured decision card by reading UTF-8 JSON from --stdin (text channel, thread, or DM)")
+    .option("--ask", "send a structured decision card from UTF-8 JSON on --stdin with required summary and questions (text channel, thread, or DM)")
     .option(
       "-a, --attachment <id>",
       "attach an uploaded file by id (repeatable — order = message order)",

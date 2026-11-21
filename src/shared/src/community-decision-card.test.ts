@@ -4,6 +4,7 @@ import {
   DECISION_CARD_MAX_BYTES,
   DECISION_CARD_SUMMARY_MAX_BYTES,
   DecisionCardAnswerInputSchema,
+  DecisionCardEmbedSchema,
   DecisionCardInputSchema,
   appendDecisionCardResponder,
   attachDecisionCardResponders,
@@ -57,10 +58,27 @@ describe("community-decision-card", () => {
     expect("title" in embed).toBe(false);
   });
 
-  it("rejects out-of-bounds question/option counts, duplicate ids, and oversized payloads", () => {
-    expect(DecisionCardInputSchema.safeParse({ questions: [] }).success).toBe(false);
+  it("rejects missing/blank summary, out-of-bounds question/option counts, duplicate ids, and oversized payloads", () => {
+    const missingSummary = parseDecisionCardCliInput({
+      questions: [{ question: "Ship?", options: ["Yes", "No"] }],
+    });
+    expect(missingSummary.success).toBe(false);
+    if (!missingSummary.success) {
+      expect(missingSummary.error.issues[0]?.path).toEqual(["summary"]);
+    }
+    const blankSummary = DecisionCardInputSchema.safeParse({
+      summary: "   ",
+      questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }],
+    });
+    expect(blankSummary.success).toBe(false);
+    if (!blankSummary.success) {
+      expect(blankSummary.error.issues[0]?.path).toEqual(["summary"]);
+    }
+
+    expect(DecisionCardInputSchema.safeParse({ summary: "Pick one", questions: [] }).success).toBe(false);
     const badMention = DecisionCardInputSchema.safeParse({
       mentions: ["alice-no-tag"],
+      summary: "Pick one",
       questions: [{ question: "Q1", options: [{ label: "A" }, { label: "B" }] }],
     });
     expect(badMention.success).toBe(false);
@@ -69,6 +87,7 @@ describe("community-decision-card", () => {
     }
     expect(
       DecisionCardInputSchema.safeParse({
+        summary: "Pick one",
         questions: [
           { question: "Q1", options: [{ label: "Only one" }] },
         ],
@@ -76,6 +95,7 @@ describe("community-decision-card", () => {
     ).toBe(false);
     expect(
       DecisionCardInputSchema.safeParse({
+        summary: "Pick one",
         questions: [
           { id: "dup", question: "Q1", options: [{ label: "A" }, { label: "B" }] },
           { id: "dup", question: "Q2", options: [{ label: "A" }, { label: "B" }] },
@@ -84,6 +104,7 @@ describe("community-decision-card", () => {
     ).toBe(false);
     expect(
       DecisionCardInputSchema.safeParse({
+        summary: "Pick one",
         questions: [
           { question: "Q1", options: [{ id: "x", label: "A" }, { id: "x", label: "B" }] },
         ],
@@ -108,6 +129,7 @@ describe("community-decision-card", () => {
 
   it("extracts decision card embed without disturbing unrelated embeds", () => {
     const parsed = DecisionCardInputSchema.parse({
+      summary: "Confirm ship",
       questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }],
     });
     const card = buildDecisionCardEmbed(parsed, []);
@@ -155,36 +177,63 @@ describe("community-decision-card", () => {
       questions: card.questions,
     });
 
-    const singleQuestionCard = buildDecisionCardEmbed(
-      DecisionCardInputSchema.parse({
-        questions: [{ question: "哪天开会？", options: [{ label: "周四", recommended: true }, { label: "周五" }] }],
-      }),
-      [],
-    );
-    expect(formatDecisionCardSummary(singleQuestionCard)).toBe("哪天开会？");
-    expect(toDecisionCardAgentPayload(singleQuestionCard)).toEqual({
-      questions: singleQuestionCard.questions,
+    // Legacy stored cards created before summary became required still parse, format fallback summaries, and serialize cleanly.
+    const legacySingleCard = DecisionCardEmbedSchema.parse({
+      kind: DECISION_CARD_EMBED_KIND,
+      version: 1,
+      assignees: [],
+      questions: [
+        {
+          id: "q1",
+          question: "哪天开会？",
+          multiSelect: false,
+          allowOther: true,
+          options: [
+            { id: "o1", label: "周四", recommended: true },
+            { id: "o2", label: "周五" },
+          ],
+        },
+      ],
     });
+    expect(formatDecisionCardSummary(legacySingleCard)).toBe("哪天开会？");
+    expect(toDecisionCardAgentPayload(legacySingleCard)).toEqual({
+      questions: legacySingleCard.questions,
+    });
+    expect(validateDecisionCardAnswers(legacySingleCard, { answers: [{ questionId: "q1", selectedOptionIds: ["o1"] }] }).ok).toBe(true);
 
-    const multiNoSummaryCard = buildDecisionCardEmbed(
-      DecisionCardInputSchema.parse({
-        questions: [
-          { question: "哪天开会？", options: [{ label: "周四" }, { label: "周五" }] },
-          { question: "包含哪些模块？", options: [{ label: "Web" }, { label: "Daemon" }] },
-        ],
-      }),
-      [],
-    );
-    expect(formatDecisionCardSummary(multiNoSummaryCard)).toBe("1. 哪天开会？ 2. 包含哪些模块？");
+    const legacyMultiCard = DecisionCardEmbedSchema.parse({
+      kind: DECISION_CARD_EMBED_KIND,
+      version: 1,
+      assignees: [],
+      questions: [
+        {
+          id: "q1",
+          question: "哪天开会？",
+          multiSelect: false,
+          allowOther: true,
+          options: [{ id: "o1", label: "周四" }, { id: "o2", label: "周五" }],
+        },
+        {
+          id: "q2",
+          question: "包含哪些模块？",
+          multiSelect: false,
+          allowOther: true,
+          options: [{ id: "o1", label: "Web" }, { id: "o2", label: "Daemon" }],
+        },
+      ],
+    });
+    expect(formatDecisionCardSummary(legacyMultiCard)).toBe("1. 哪天开会？ 2. 包含哪些模块？");
 
     // Non-handle fallback assignees (e.g. raw internal userId in DM when peer profile was missing) must never leak as mentions.
     const rawIdFallbackCard = buildDecisionCardEmbed(
       DecisionCardInputSchema.parse({
+        summary: "Confirm ship",
         questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }],
       }),
       [{ userId: "usr_internal_1", handle: "usr_internal_1" }],
     );
     expect(toDecisionCardAgentPayload(rawIdFallbackCard)).toEqual({
+      summary: "Confirm ship",
       questions: rawIdFallbackCard.questions,
     });
     expect(toDecisionCardAgentPayload(rawIdFallbackCard)).not.toHaveProperty("mentions");
@@ -206,6 +255,7 @@ describe("community-decision-card", () => {
   it("validates single-select, allowOther=false, missing, duplicate, and unknown answers", () => {
     const card = buildDecisionCardEmbed(
       DecisionCardInputSchema.parse({
+        summary: "Pick one option",
         questions: [
           {
             id: "q1",
@@ -234,16 +284,37 @@ describe("community-decision-card", () => {
       channel: "/demo#1234/general",
       content: { text: "" },
       question: {
+        summary: "Confirm next step",
         questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "Wait" }] }],
       },
     });
     expect(ok.success).toBe(true);
+
+    const missingSummary = CommunityAgentSendRequestSchema.safeParse({
+      channel: "/demo#1234/general",
+      content: { text: "" },
+      question: {
+        questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "Wait" }] }],
+      },
+    });
+    expect(missingSummary.success).toBe(false);
+
+    const blankSummary = CommunityAgentSendRequestSchema.safeParse({
+      channel: "/demo#1234/general",
+      content: { text: "" },
+      question: {
+        summary: "   ",
+        questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "Wait" }] }],
+      },
+    });
+    expect(blankSummary.success).toBe(false);
 
     const withAttachment = CommunityAgentSendRequestSchema.safeParse({
       channel: "/demo#1234/general",
       content: { text: "" },
       attachments: ["att-1"],
       question: {
+        summary: "Confirm next step",
         questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "Wait" }] }],
       },
     });
@@ -253,6 +324,7 @@ describe("community-decision-card", () => {
       channel: "/demo#1234/general",
       content: { text: "extra" },
       question: {
+        summary: "Confirm next step",
         questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "Wait" }] }],
       },
     });

@@ -40,6 +40,12 @@ const optionalTrimmedText = (max: number) =>
     .transform((value) => (value.length > 0 ? value : undefined))
     .optional();
 
+const requiredSummarySchema = z
+  .string()
+  .trim()
+  .min(1, "summary is required")
+  .max(DECISION_CARD_SUMMARY_MAX_LENGTH);
+
 export const DecisionCardOptionInputSchema = z.strictObject({
   id: idFieldSchema.optional(),
   label: z.string().trim().min(1).max(DECISION_CARD_OPTION_LABEL_MAX_LENGTH),
@@ -81,7 +87,7 @@ export const DecisionCardInputSchema = z
       .array(mentionHandleSchema)
       .max(DECISION_CARD_MAX_MENTIONS)
       .optional(),
-    summary: optionalTrimmedText(DECISION_CARD_SUMMARY_MAX_LENGTH),
+    summary: requiredSummarySchema,
     questions: z
       .array(DecisionCardQuestionInputSchema)
       .min(DECISION_CARD_MIN_QUESTIONS)
@@ -126,7 +132,7 @@ const DecisionCardCliInputSchema = z.strictObject({
     .array(mentionHandleSchema)
     .max(DECISION_CARD_MAX_MENTIONS)
     .optional(),
-  summary: optionalTrimmedText(DECISION_CARD_SUMMARY_MAX_LENGTH),
+  summary: requiredSummarySchema,
   questions: z
     .array(
       z.strictObject({
@@ -253,7 +259,7 @@ export function buildDecisionCardEmbed(
   return DecisionCardEmbedSchema.parse({
     kind: DECISION_CARD_EMBED_KIND,
     version: DECISION_CARD_EMBED_VERSION,
-    ...(input.summary ? { summary: input.summary } : {}),
+    summary: input.summary,
     assignees: assignees.map((assignee) => ({
       userId: assignee.userId,
       handle: assignee.handle,

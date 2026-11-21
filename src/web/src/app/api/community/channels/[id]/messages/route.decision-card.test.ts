@@ -405,6 +405,7 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
           content: { text: "" },
           nonce: "dm-ask-1",
           question: {
+            summary: "Confirm deployment mode",
             questions: [
               {
                 id: "mode",
@@ -480,6 +481,7 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
           nonce: "priv-ask-1",
           question: {
             mentions: ["@gus#1813", "@bystander#0002"],
+            summary: "Approve secret release",
             questions: [
               {
                 id: "q1",
@@ -498,5 +500,85 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toContain("@bystander#0002")
+  })
+
+  it("rejects new decision cards with missing or blank summary, while still reading and answering legacy cards without summary", async () => {
+    currentActor = { kind: "bot", userId: "bot_evan" }
+    currentTarget = { kind: "thread", channelId: "thread_1", parentChannelId: "chan_1", serverId: "srv_1" }
+
+    for (const [nonce, question] of [
+      ["missing-summary", { questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }] }],
+      ["blank-summary", { summary: "   ", questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }] }],
+    ] as const) {
+      const res = await POST(
+        new NextRequest("http://localhost/api/community/channels/resolve/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            channel: "/Alook#5620/general/#1",
+            content: { text: "" },
+            nonce,
+            question,
+          }),
+        }),
+        { params: Promise.resolve({ id: "resolve" }) },
+      )
+      expect(res.status).toBe(400)
+    }
+
+    // Seed a legacy decision card stored before summary became required.
+    const legacyEmbed = {
+      kind: DECISION_CARD_EMBED_KIND,
+      version: 1,
+      assignees: [{ userId: "u_gus", handle: "gus#1813" }],
+      questions: [
+        {
+          id: "q1",
+          question: "Legacy ship?",
+          multiSelect: false,
+          allowOther: true,
+          options: [
+            { id: "yes", label: "Yes" },
+            { id: "no", label: "No" },
+          ],
+        },
+      ],
+    }
+    fixture.sqlite
+      .prepare(
+        "INSERT INTO community_message (id, author_id, content, type, embeds, created_at, channel_id, seq) VALUES (?, ?, ?, ?, ?, '2026-11-20T01:00:00.000Z', 'thread_1', 1)",
+      )
+      .run("m_legacy_card", "bot_evan", "@gus#1813 Legacy ship?\n   Yes / No", DECISION_CARD_MESSAGE_TYPE, JSON.stringify([legacyEmbed]))
+    fixture.sqlite
+      .prepare("INSERT OR REPLACE INTO community_message_seq (channel_id, next_seq) VALUES ('thread_1', 1)")
+      .run()
+
+    // Bot read path still returns structured content.question (omitting summary).
+    const legacyRow = await queries.communityMessage.getMessage(fixture.db as Database, "m_legacy_card")
+    const botMsg = await queries.communityAgentInbox.toAgentMessage(fixture.db as Database, legacyRow!, "bot_evan")
+    expect(botMsg.content).toEqual({
+      question: {
+        mentions: ["@gus#1813"],
+        questions: legacyEmbed.questions,
+      },
+    })
+    expect(botMsg.content.question).not.toHaveProperty("summary")
+
+    // Human can still answer the legacy card and Web enrichment hydrates responders.
+    currentActor = { kind: "human", userId: "u_gus" }
+    const replyRes = await POST(
+      new NextRequest("http://localhost/api/community/channels/thread_1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "Legacy ship?: Yes", replyToId: "m_legacy_card", nonce: "legacy-ans-1" }),
+      }),
+      { params: Promise.resolve({ id: "thread_1" }) },
+    )
+    expect(replyRes.status).toBe(201)
+
+    const enriched = await enrichMessages(fixture.db as Database, "u_gus", { channelId: "thread_1" }, [legacyRow!])
+    const hydrated = extractDecisionCardFromEmbeds(enriched.messages[0]!.embeds).card
+    expect(hydrated?.summary).toBeUndefined()
+    expect(hydrated?.respondedUserIds).toEqual(["u_gus"])
   })
 })

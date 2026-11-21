@@ -252,9 +252,21 @@ it("filters PII across all visible decision card fields and deduplicates trigger
     channel: "/test#1234/general",
     content: { text: "conflict" },
     question: {
+      summary: "Quick check",
       questions: [{ question: "Q?", options: [{ label: "A" }, { label: "B" }] }],
     },
   });
   expect(bad.status).toBe(422);
+  expect(seen).toHaveLength(1);
+
+  // Rejects question payloads missing required summary before upstream.
+  const missingSummary = await request("/api/community/channels/resolve/messages", {
+    channel: "/test#1234/general",
+    content: { text: "" },
+    question: {
+      questions: [{ question: "Q?", options: [{ label: "A" }, { label: "B" }] }],
+    },
+  });
+  expect(missingSummary.status).toBe(422);
   expect(seen).toHaveLength(1);
 });

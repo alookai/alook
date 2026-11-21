@@ -22,6 +22,7 @@ describe("decision-card.server", () => {
 
   it("rejects sending a decision card as a forum opener", async () => {
     const input = DecisionCardInputSchema.parse({
+      summary: "Confirm ship",
       questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }],
     })
     const result = await prepareBotDecisionCard(db, { kind: "forum", channelId: "f1", serverId: "s1" }, input)
@@ -70,6 +71,7 @@ describe("decision-card.server", () => {
 
     const okInput = DecisionCardInputSchema.parse({
       mentions: ["@gus#1813", "GUS#1813"],
+      summary: "Confirm mention lookup",
       questions: [{ question: "Ask @outsider#0001?", options: [{ label: "Yes" }, { label: "No" }] }],
     })
     const ok = await prepareBotDecisionCard(db, { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "s1" }, okInput)
@@ -84,6 +86,7 @@ describe("decision-card.server", () => {
 
     const deniedInput = DecisionCardInputSchema.parse({
       mentions: ["@outsider#0001"],
+      summary: "Confirm ship",
       questions: [{ question: "Ship?", options: [{ label: "Yes" }, { label: "No" }] }],
     })
     const denied = await prepareBotDecisionCard(db, { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "s1" }, deniedInput)

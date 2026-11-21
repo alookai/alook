@@ -135,6 +135,7 @@ describe("DecisionCard", () => {
 
   it("shows Next for multi-select and Other when another unanswered tab remains, and falls back to Q1/Q2 tab labels", () => {
     const input = DecisionCardInputSchema.parse({
+      summary: "Pick platforms and timing",
       questions: [
         {
           id: "first",
@@ -190,6 +191,7 @@ describe("DecisionCard", () => {
 
   it("renders single-question cards without tabs and gates Send answer until selected", () => {
     const input = DecisionCardInputSchema.parse({
+      summary: "Confirm release today",
       questions: [
         {
           id: "only",
