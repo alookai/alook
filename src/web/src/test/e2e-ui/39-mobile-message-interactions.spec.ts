@@ -616,6 +616,81 @@ test("same message row recovers its action menu from mouse to touch", async ({ c
   ))).toHaveLength(messageCreatesBefore)
 })
 
+test("Lobe recovers after a swipe loses pointer capture before finger-up", async ({ caseActors }) => {
+  const actors = await caseActors(["alice", "bob"])
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+  const serverId = await seedServer("alice", "Interrupted touch")
+  await seedJoinServer("alice", "bob", serverId)
+  const channelId = await seedChannel("alice", serverId, "interrupted-touch")
+  const body = "Check this draft."
+  const messageId = await seedMessage("bob", channelId, body)
+  const { context, page } = await actors.asUser("alice", { hasTouch: true, viewport: { width: 390, height: 844 } })
+  await installInputCapability(page, false)
+  await page.addInitScript(key => localStorage.setItem(key, "lobe"), "alook-message-renderer-v1:" + encodeURIComponent(actors.userId("alice")))
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+
+  const row = page.getByTestId(tid.message(messageId)).locator("[data-page-swipe-reply-row]")
+  const list = page.getByTestId(tid.messageScroller).locator("[data-message-list-content]")
+  await expect(list).toHaveAttribute("data-read-position-ready", "true")
+  await expect(row.locator('[data-message-renderer="lobe"]')).toBeVisible()
+  await expect(row.getByText(body)).toBeInViewport()
+  await expect(row).toHaveCSS("transform", "none")
+  const [box, text] = await Promise.all([row.boundingBox(), row.getByText(body).boundingBox()])
+  if (!box || !text) throw new Error("The swipe target has no layout box")
+  const start = { x: box.x + box.width * 0.75, y: text.y + text.height / 2, id: 1 }
+  expect(await row.evaluate((element, point) => element.contains(document.elementFromPoint(point.x, point.y)), start)).toBe(true)
+  const end = { ...start, x: start.x - 76 }
+  const captures = await row.evaluateHandle(element => {
+    // Let the capture-loss probe run without native scroll cancelling the touch.
+    element.addEventListener("touchmove", event => { event.preventDefault() }, { passive: false })
+    const events = { got: [] as number[], lost: [] as number[] }
+    element.addEventListener("gotpointercapture", (event) => {
+      if (event.target === element) events.got.push((event as PointerEvent).pointerId)
+    })
+    element.addEventListener("lostpointercapture", (event) => {
+      if (event.target === element) events.lost.push((event as PointerEvent).pointerId)
+    })
+    return events
+  })
+  const reply = page.locator('[data-slot="composer-reply-preview"]')
+  const input = await context.newCDPSession(page)
+  const beginSwipe = async () => {
+    await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] })
+    await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ ...start, x: start.x - 12 }] })
+    await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [end] })
+    await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ ...end, x: end.x - 2 }] })
+    await expect.poll(() => row.evaluate(element => (element as HTMLElement).style.transform)).toMatch(/^translate3d\(-/)
+  }
+  try {
+    await beginSwipe()
+    await expect.poll(() => captures.evaluate(events => events.got.length)).toBe(1)
+    const pointerId = await captures.evaluate(events => events.got[0])
+    await row.evaluate((element, id) => {
+      if (!element.hasPointerCapture(id)) throw new Error("The row did not capture the swipe pointer")
+      element.releasePointerCapture(id)
+    }, pointerId)
+    await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ ...end, x: end.x - 4 }] })
+    await expect.poll(() => captures.evaluate(events => events.lost)).toEqual([pointerId])
+    await expect(row).toHaveCSS("transform", "none")
+    await expect(reply).toHaveCount(0)
+    await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+    await expect(reply).toHaveCount(0)
+
+    await beginSwipe()
+    await expect.poll(() => captures.evaluate(events => events.got.length)).toBe(2)
+    await expect(reply).toHaveCount(0)
+    await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+    await expect.poll(() => captures.evaluate(events => events.lost.length)).toBe(2)
+    await expect(row).toHaveCSS("transform", "none")
+    await expect(reply).toHaveCount(1)
+    await expect(reply).toContainText(body)
+    await expect(composerEditable(page).locator(`[data-type="mention"][data-id="${actors.userId("bob")}"]`)).toHaveCount(1)
+  } finally {
+    await input.detach()
+    await captures.dispose()
+  }
+})
+
 test("mobile reply, avatar mention, and typing rail keep exact backend and WS identity", async ({ caseActors }, testInfo) => {
   test.setTimeout(240_000)
   const actors = await caseActors(["alice", "bob"])

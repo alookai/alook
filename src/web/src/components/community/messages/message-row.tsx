@@ -17,6 +17,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 // custom-comparator memo can actually bail out.
 export interface MessageRowProps {
   m: RenderMsg
+  bodyKey?: string
   viewerUserId?: string
   onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
   liveRespondedUserIds?: readonly string[]
@@ -54,7 +55,7 @@ export interface MessageRowProps {
 
 function MessageRowImpl(props: MessageRowProps) {
   const {
-    m, viewerUserId, onSubmitDecisionCard, liveRespondedUserIds, hoverCapable, pinned, highlighted, onOpenThread, onOpenProfile,
+    m, bodyKey, viewerUserId, onSubmitDecisionCard, liveRespondedUserIds, hoverCapable, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, mentionText, onInsertMentionText, onPinId, onMarkId, onCreateThreadId,
     onCopyId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment,
     resolveUserName, onImageLoad,
@@ -94,6 +95,7 @@ function MessageRowImpl(props: MessageRowProps) {
   return (
     <Message
       m={m}
+      bodyKey={bodyKey}
       viewerUserId={viewerUserId}
       onSubmitDecisionCard={onSubmitDecisionCard}
       liveRespondedUserIds={liveRespondedUserIds}

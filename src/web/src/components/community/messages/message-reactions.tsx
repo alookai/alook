@@ -101,6 +101,7 @@ function ReactionChip({
       ref={buttonRef}
       type="button"
       data-testid={tid.reactionChip(messageId, reaction.emoji)}
+      data-message-reaction={reaction.emoji}
       aria-label={`${reaction.emoji}, ${reaction.count} ${reaction.count === 1 ? "reaction" : "reactions"}, ${reaction.me ? "you reacted" : "you have not reacted"}. Press to toggle${hoverCapable ? "" : "; long press for details"}`}
       aria-pressed={reaction.me}
       aria-haspopup={hoverCapable ? undefined : "dialog"}

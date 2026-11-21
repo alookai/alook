@@ -7,6 +7,7 @@ import { MessageRendererSettings } from "../../../web/src/components/community/s
 import { CommunityPreviewNavigation } from "../../../web/src/components/community/shell/community-preview-navigation"
 import { Button } from "../../../web/src/components/ui/button"
 import type { MessageRequest } from "../../../web/src/lib/community/message-position"
+import { applyMessageReaction, type Msg } from "../../../web/src/lib/community/models/message"
 import { trialMessage, trialPage, TRIAL_EVENT_SEQUENCE } from "../../preview/message-renderer-trial/real-message-fixtures"
 
 const action = fn()
@@ -41,3 +42,66 @@ const meta = { title: "Web/Business/Message renderer trial", tags: ["ai-generate
 export default meta
 type Story = StoryObj<typeof meta>
 export const Comparison: Story = { render: () => <Trial /> }
+
+function updateMessage(index: number, content: string, authorId: string): Msg {
+  return { ...trialMessage(index * 10, authorId), seq: index + 1, content }
+}
+
+const previewText = "The preview is ready.\n\nThe caption is already reviewed."
+
+function initialUpdates() {
+  return [
+    updateMessage(0, "Can you check the new preview?", "demo-alli"),
+    { ...updateMessage(1, previewText, "demo-gus"), reactions: [{ emoji: "👀", count: 1, me: false, userIds: ["demo-alli"] }] },
+  ]
+}
+
+const receiptNonce = "renderer-trial-send"
+
+function UpdatesTrial() {
+  const [messages, setMessages] = useState(initialUpdates)
+  const [generation, setGeneration] = useState(0)
+  const canReceive = !messages.some(message => message.id === "renderer-trial-20")
+  const canSend = !messages.some(message => message.clientNonce === receiptNonce)
+  const canConfirm = messages.some(message => message.id === "renderer-trial-local")
+  const react = (id: string, emoji: string, toggle = false) => {
+    setMessages(current => current.map(message => {
+      if (message.id !== id) return message
+      const add = !toggle || !message.reactions?.some(reaction => reaction.emoji === emoji && reaction.me)
+      return { ...message, reactions: applyMessageReaction(message.reactions, emoji, "demo-gus", add, "demo-gus") }
+    }))
+  }
+  return <Fixtures accountId="demo-gus">
+    <div className="flex min-w-0 flex-col gap-4">
+      <MessageRendererSettings accountId="demo-gus" />
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => { setMessages(initialUpdates()); setGeneration(current => current + 1) }}>Reset conversation</Button>
+        <Button variant="outline" size="sm" disabled={!canReceive} onClick={() => {
+          setMessages(current => {
+            const pending = current.find(message => message.seq === undefined)
+            const confirmed = current.filter(message => message.seq !== undefined)
+            const peer = { ...updateMessage(2, "I’ll review the layout now.", "demo-alli"), seq: (confirmed.at(-1)?.seq ?? 0) + 1 }
+            return [...confirmed, peer, ...(pending ? [pending] : [])]
+          })
+        }}>Receive message</Button>
+        <Button variant="outline" size="sm" disabled={!canSend} onClick={() => {
+          setMessages(current => [...current, { ...updateMessage(3, "Thanks. I sent the sample.", "demo-gus"),
+            id: "renderer-trial-local", seq: undefined, clientNonce: receiptNonce }])
+        }}>Send local message</Button>
+        <Button variant="outline" size="sm" disabled={!canConfirm} onClick={() => {
+          setMessages(current => {
+            const sequence = (current.at(-2)?.seq ?? 0) + 1
+            return current.map(message => message.id === "renderer-trial-local"
+              ? { ...message, id: "renderer-trial-confirmed", seq: sequence }
+              : message)
+          })
+        }}>Confirm send</Button>
+      </div>
+      <div className="relative flex h-100 min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
+        <MessageList key={generation} channel="Message updates" messages={messages} viewerUserId="demo-gus" onOpenThread={action} onReact={react} onToggleReaction={(id, emoji) => react(id, emoji, true)} />
+      </div>
+    </div>
+  </Fixtures>
+}
+
+export const Updates: Story = { render: () => <UpdatesTrial /> }
