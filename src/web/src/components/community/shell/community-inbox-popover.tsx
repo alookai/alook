@@ -107,7 +107,7 @@ function InboxScrollBody({
       onPointerUp={() => { pointerScrollRef.current = false }}
       onPointerCancel={() => { pointerScrollRef.current = false }}
     >
-      <div ref={contentRef} className="flex flex-1 flex-col p-3">{children}</div>
+      <div ref={contentRef} className="flex flex-1 flex-col px-3 pb-3">{children}</div>
     </div>
   )
 }
@@ -213,35 +213,36 @@ function InboxCard({ testId, identity, actions, feedback, children }: {
   feedback?: ReactNode
   children: ReactNode
 }) {
-  const headerRef = useRef<HTMLElement>(null)
+  const stickyRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const hasPreview = Boolean(children)
   const hasBody = hasPreview || Boolean(feedback)
 
   useLayoutEffect(() => {
-    const header = headerRef.current
+    const sticky = stickyRef.current
     const preview = previewRef.current
-    if (!header || !preview) return
-    const updateHeight = () => preview.style.setProperty("--inbox-sticky-header-height", `${header.offsetHeight}px`)
+    if (!sticky || !preview) return
+    const updateHeight = () => preview.style.setProperty("--inbox-sticky-header-height", `${sticky.offsetHeight}px`)
     updateHeight()
-    const ResizeObserverConstructor = header.ownerDocument.defaultView?.ResizeObserver
+    const ResizeObserverConstructor = sticky.ownerDocument.defaultView?.ResizeObserver
     if (!ResizeObserverConstructor) return
     const observer = new ResizeObserverConstructor(updateHeight)
-    observer.observe(header, { box: "border-box" })
+    observer.observe(sticky, { box: "border-box" })
     return () => observer.disconnect()
   }, [hasPreview])
 
   return (
     <article data-testid={testId} className="mb-2 isolate min-w-0 text-card-foreground">
-      <div className="sticky top-0 z-10 bg-popover">
-        <header ref={headerRef} data-slot="inbox-card-header" className={cn(
+      <div ref={stickyRef} className="sticky top-0 z-10 bg-popover">
+        <header data-slot="inbox-card-header" className={cn(
           "relative isolate flex min-w-0 items-center gap-2 overflow-clip rounded-t-lg border border-border bg-card p-2 transition-colors duration-150 hover:text-accent-foreground motion-reduce:transition-none sm:px-4",
           "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-accent before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-100 motion-reduce:before:transition-none",
-          !hasBody && "rounded-b-lg",
+          hasBody ? "border-b-0" : "rounded-b-lg",
         )}>
           {identity}
           {actions}
         </header>
+        {hasBody && <div aria-hidden="true" data-slot="inbox-card-divider" className="h-px bg-border" />}
       </div>
       {hasBody && <div className="min-w-0 overflow-clip rounded-b-lg border-x border-b border-border bg-card">
         {feedback}
@@ -649,7 +650,7 @@ export function InboxPopover({
         </TabsTrigger>
         <TabsTrigger value="marked">Marked</TabsTrigger>
       </TabsList>
-      <TabsContent value="unreads" className="min-h-0 flex-1">
+      <TabsContent value="unreads" className="min-h-0 flex-1 pt-3">
         <UnreadsTab
           friendRequests={friendRequests}
           servers={unreads}
@@ -676,7 +677,7 @@ export function InboxPopover({
           onScrollOffsetChange={onScrollOffsetChange}
         />
       </TabsContent>
-      <TabsContent value="marked" className="min-h-0 flex-1">
+      <TabsContent value="marked" className="min-h-0 flex-1 pt-3">
         <MarkedTab marked={marked} loading={markedLoading} error={markedError} retrying={markedRetrying} onRetry={onRetryMarked} onOpenMarked={onOpenMarked} onUnmark={onUnmark} directory={directory} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
     </Tabs>

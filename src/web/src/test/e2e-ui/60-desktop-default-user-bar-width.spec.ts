@@ -1,5 +1,6 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
+import { expectPaintedInboxDivider } from "./_fixtures/inbox-divider"
 import type { Locator, Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
@@ -25,7 +26,7 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
   const preview = card.locator('[data-slot="inbox-card-preview"]')
   const messages = preview.locator('[data-slot="inbox-card-messages"]')
   const expectOutline = async () => {
-    for (const side of ["top", "left", "right", "bottom"]) {
+    for (const side of ["top", "left", "right"]) {
       await expect(header).toHaveCSS(`border-${side}-width`, "1px")
       await expect(header).toHaveCSS(`border-${side}-style`, "solid")
     }
@@ -33,8 +34,10 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
     await expect(header).toHaveCSS("border-top-right-radius", /^[1-9]\d*(?:\.\d+)?px$/)
   }
   await expectOutline()
+  await expect(header).toHaveCSS("border-bottom-width", "0px")
   await expect(preview.locator("..")).toHaveCSS("border-top-width", "0px")
   await expect(messages).toHaveCSS("--inbox-preview-fade-edge", "0%")
+  await expectPaintedInboxDivider(card)
   const cardId = await card.getAttribute("data-testid")
   await list.evaluate((element, cardId) => {
     const cardElement = element.querySelector(`[data-testid="${cardId}"]`)!
@@ -48,6 +51,7 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
   if (!box) throw new Error("Pinned Inbox card header is unavailable")
   await page.mouse.move(box.x + box.width / 2, box.y + 2)
   await expectOutline()
+  await expectPaintedInboxDivider(card)
   await expect.poll(() => header.evaluate((element) => {
     const rect = element.getBoundingClientRect()
     const bodyOverlaps = [...(element.closest("article")?.querySelectorAll("[data-message-renderer]") ?? [])]
@@ -1030,7 +1034,13 @@ test.describe("desktop default User Bar width", () => {
           await expect(row).toContainText(content)
           await expect(action).toHaveAccessibleName("Unmark")
           await expect(action).toBeVisible()
+          const header = row.locator('[data-slot="inbox-card-header"]')
+          const rest = await header.boundingBox()
+          expect(rest).not.toBeNull()
           await expectPinnedInboxHeader(bob.page, activeBody, row)
+          const pinned = await header.boundingBox()
+          expect(pinned).not.toBeNull()
+          expect(Math.abs(pinned!.y - rest!.y)).toBeLessThanOrEqual(1)
         }
 
         const sample = await extension.evaluate((element, ids) => {

@@ -196,11 +196,6 @@ describe("InboxPopover thread opener rows", () => {
     expect(icon.nextElementSibling?.matches("svg")).toBe(false)
     const identity = renderer.getByTestId(tid.inboxUnreadChannel("f1"))
     expect(identity.querySelector("span.size-5 > svg.size-4")).not.toBeNull()
-    for (const tab of ["unreads", "marked"] as const) {
-      const scroller = renderer.getByTestId(tid.inboxTabScroll(tab))
-      expect(scroller).not.toHaveClass("p-3")
-      expect(scroller.firstElementChild).toHaveClass("p-3")
-    }
   })
 
   it("renders the authoritative opener title and passes parent/opener targets", () => {
