@@ -249,6 +249,9 @@
     "key": "src/shared/src/db/queries/community/channel.ts:filterChannelReadableUserIds:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/channel.ts:filterChannelVisibleUserIds:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/channel.ts:getChannelsByIds:inArray:1"
   },
   {
@@ -309,6 +312,9 @@
     "key": "src/shared/src/db/queries/community/dm.ts:dmChannelQuery:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/dm.ts:listOtherDmAccessMembers:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/feedback.ts:submitFeedback:values:1"
   },
   {
@@ -360,6 +366,12 @@
     "key": "src/shared/src/db/queries/community/inbox.ts:listEligibleUnreadDms:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listPendingQuestionMessages:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listReadableDmSummariesByChannelIds:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/inbox.ts:listThreadOpenersByChildIds:inArray:1"
   },
   {
@@ -376,6 +388,9 @@
   },
   {
     "key": "src/shared/src/db/queries/community/mark.ts:listOtherBotMarks:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/member.ts:findServerMembersByHandles:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/member.ts:getCoMemberUserIds:inArray:1"
@@ -435,7 +450,13 @@
     "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:3"
   },
   {
+    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:4"
+  },
+  {
     "key": "src/shared/src/db/queries/community/message.ts:listMessagesReferencingFriendship:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:listReplierUserIdsByReplyTargets:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/message.ts:runChunk:inArray:1"
