@@ -744,7 +744,8 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     const markedScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
     await expect(markedScroll.getByText(`Marked ${stamp} 13`, { exact: true })).toBeAttached()
     await waitForElementMotion(markedScroll)
-    const firstCard = markedScroll.locator("article[data-testid^='community-inbox-marked-card-']").first()
+    const markedCards = markedScroll.getByRole("article")
+    const firstCard = markedCards.first()
     await expectPaintedInboxDivider(firstCard)
     await expect(firstCard.locator('[data-slot="inbox-card-messages"]')).toHaveCSS("--inbox-preview-fade-edge", "0%")
     await expect.poll(() => firstCard.evaluate((card, scrollId) => {
@@ -758,13 +759,14 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     }, tid.inboxTabScroll("marked"))).toEqual({ cardInset: 0, listInset: 12 })
     await bob.page.setViewportSize({ width: 639, height: 844 })
     await waitForElementMotion(markedScroll)
-    const { priorScroll, tailCardId } = await markedScroll.evaluate((element) => {
-      const cards = element.querySelectorAll("article[data-testid^='community-inbox-marked-card-']")
+    const tailCardId = await markedCards.last().getAttribute("data-testid")
+    expect(tailCardId).toBeTruthy()
+    const priorScroll = await markedScroll.evaluate((element) => {
       element.scrollTop = element.scrollHeight
-      return { priorScroll: element.scrollTop, tailCardId: cards[cards.length - 1]!.getAttribute("data-testid")! }
+      return element.scrollTop
     })
     expect(priorScroll).toBeGreaterThan(0)
-    await expect(markedScroll.getByTestId(tailCardId).locator("[data-message-renderer]")).toBeInViewport()
+    await expect(markedScroll.getByTestId(tailCardId!).locator("[data-message-renderer]")).toBeInViewport()
     await waitForElementMotion(markedScroll)
     await expect.poll(() => markedScroll.evaluate((element) => element.scrollTop)).toBe(priorScroll)
     const getsBeforeResize = inboxGets.length
@@ -780,7 +782,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       const maxOffset = element.scrollHeight - element.clientHeight
       return Math.abs(element.scrollTop - Math.min(savedOffset, maxOffset))
     }, priorScroll)).toBeLessThanOrEqual(1)
-    await expect(desktopScroll.getByTestId(tailCardId).locator("[data-message-renderer]")).toBeInViewport()
+    await expect(desktopScroll.getByTestId(tailCardId!).locator("[data-message-renderer]")).toBeInViewport()
 
     await bob.page.setViewportSize({ width: 639, height: 844 })
     await expect(bob.page.getByTestId(tid.userBarExtension)).toBeVisible()
@@ -795,7 +797,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       restoredMobileScroll.scrollTop
         - Math.min(priorScroll, restoredMobileScroll.maxScrollTop),
     )).toBeLessThanOrEqual(1)
-    await expect(mobileScroll.getByTestId(tailCardId).locator("[data-message-renderer]")).toBeInViewport()
+    await expect(mobileScroll.getByTestId(tailCardId!).locator("[data-message-renderer]")).toBeInViewport()
 
     await bob.page.setViewportSize({ width: 1280, height: 900 })
     const desktopContent = bob.page.getByTestId(tid.userBarExtension)
