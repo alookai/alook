@@ -4,6 +4,9 @@ const mocks = vi.hoisted(() => ({
   visible: vi.fn(),
   channels: vi.fn(),
   dms: vi.fn(),
+  questions: vi.fn(),
+  readableDmIds: vi.fn(),
+  readableDmSummaries: vi.fn(),
   mentions: vi.fn(),
   mentionScopes: vi.fn(),
   friends: vi.fn(),
@@ -20,6 +23,9 @@ vi.mock("../../src/db/queries/community/channel", () => ({
 vi.mock("../../src/db/queries/community/inbox", () => ({
   listEligibleUnreadChannels: (...args: unknown[]) => mocks.channels(...args),
   listEligibleUnreadDms: (...args: unknown[]) => mocks.dms(...args),
+  listPendingQuestionMessages: (...args: unknown[]) => mocks.questions(...args),
+  listReadableDmChannelIds: (...args: unknown[]) => mocks.readableDmIds(...args),
+  listReadableDmSummariesByChannelIds: (...args: unknown[]) => mocks.readableDmSummaries(...args),
   listUnreadForumOpeners: (...args: unknown[]) => mocks.forumOpeners(...args),
   listThreadOpenersByChildIds: (...args: unknown[]) => mocks.threadOpeners(...args),
 }))
@@ -69,6 +75,9 @@ describe("account attention snapshot", () => {
     }])
     mocks.forumOpeners.mockResolvedValue([])
     mocks.threadOpeners.mockResolvedValue([])
+    mocks.questions.mockResolvedValue([])
+    mocks.readableDmIds.mockResolvedValue([])
+    mocks.readableDmSummaries.mockResolvedValue([])
     mocks.mentionScopes.mockResolvedValue([{
       channelId: "c1",
       serverId: "s1",

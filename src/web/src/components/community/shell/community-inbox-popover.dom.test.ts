@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { InboxPopover } from "./community-inbox-popover"
-import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { InboxTodo, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import { buildDecisionCardEmbed, DecisionCardInputSchema } from "@alook/shared"
 import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
 
@@ -636,8 +637,9 @@ describe("InboxPopover attention errors", () => {
       hasProjectedMentions: false,
     }))
     expect(renderer.queryByText("Caught up")).toBeNull()
-    expect(renderer.getAllByRole("alert")).toHaveLength(1)
+    expect(renderer.getAllByRole("alert")).toHaveLength(2)
     expect(renderer.getAllByRole("alert")[0]).toHaveTextContent("Couldn\'t load Inbox")
+    expect(renderer.getAllByRole("alert")[1]).toHaveTextContent("Couldn\'t load Inbox")
     fireEvent.click(renderer.getAllByRole("button", { name: "Retry" })[0]!)
     expect(onRetryAttention).toHaveBeenCalledTimes(1)
   })
@@ -784,5 +786,154 @@ describe("InboxPopover responsive continuity", () => {
     expect(header).toHaveClass("flex", "items-center", "gap-2", "px-3", "pt-4")
     expect(header).not.toHaveClass("pr-15", "sm:pr-12")
     expect(renderer.getByRole("button", { name: "Mark all read" })).toBeInTheDocument()
+  })
+})
+
+describe("InboxPopover Todo tab", () => {
+  it("renders pending question cards and submits directly inside Inbox without navigating away", async () => {
+    const card = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Confirm release timing",
+        questions: [{
+          id: "timing",
+          question: "When should we publish?",
+          options: [
+            { id: "today", label: "Today", recommended: true },
+            { id: "next", label: "Next week" },
+          ],
+        }],
+      }),
+      [{ userId: "u_gus", handle: "gus#1813" }],
+    )
+    const todo: InboxTodo = {
+      id: "question:m_q1",
+      messageId: "m_q1",
+      channelId: "thread_1",
+      serverId: "srv_1",
+      server: "Alook",
+      channel: "gus-issues",
+      parentChannelId: null,
+      createdAt: "2026-11-21T07:00:00.000Z",
+      m: {
+        id: "m_q1",
+        type: "question",
+        seq: 12,
+        authorId: "bot_evan",
+        authorName: "Evan You",
+        createdAt: "2026-11-21T07:00:00.000Z",
+        content: "Confirm release timing",
+        decisionCard: card,
+      },
+    }
+    const onOpenTodo = vi.fn()
+    const onSubmitTodo = vi.fn(async () => ({ replyToId: "m_q1" }))
+    const onDismissTodo = vi.fn()
+
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      todos: [todo],
+      marked: [],
+      activeTab: "todo",
+      viewerUserId: "u_gus",
+      hasProjectedUnreads: true,
+      hasProjectedMentions: false,
+      onOpenTodo,
+      onSubmitTodo,
+      onDismissTodo,
+    }))
+
+    expect(renderer.getByTestId(tid.inboxTabScroll("todo"))).toBeInTheDocument()
+    expect(renderer.getByTestId(tid.inboxTodoCard("m_q1"))).toBeInTheDocument()
+    expect(renderer.getByLabelText("1 pending question")).toHaveTextContent("1")
+
+    fireEvent.click(renderer.getByText("Today"))
+    fireEvent.click(renderer.getByRole("button", { name: "Send answer" }))
+
+    await waitFor(() => {
+      expect(onSubmitTodo).toHaveBeenCalledTimes(1)
+    })
+    expect(onSubmitTodo).toHaveBeenCalledWith(
+      todo,
+      "When should we publish?: Today",
+      expect.any(String),
+    )
+    expect(onOpenTodo).not.toHaveBeenCalled()
+
+    fireEvent.click(renderer.getByTestId(tid.inboxTodoDismiss("m_q1")))
+    expect(onDismissTodo).toHaveBeenCalledExactlyOnceWith(todo)
+    expect(onOpenTodo).not.toHaveBeenCalled()
+
+    fireEvent.click(renderer.getByTestId(tid.inboxTodoOpen("m_q1")))
+    expect(onOpenTodo).toHaveBeenCalledExactlyOnceWith(todo)
+  })
+
+  it("renders an empty state when there are no pending questions", () => {
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      todos: [],
+      marked: [],
+      activeTab: "todo",
+      hasProjectedUnreads: false,
+      hasProjectedMentions: false,
+    }))
+
+    expect(renderer.getByText("No pending questions")).toBeInTheDocument()
+  })
+
+  it("renders a plus suffix on the Todo badge when pending questions are truncated", () => {
+    const todo = {
+      id: "question:m_q2",
+      messageId: "m_q2",
+      channelId: "c1",
+      serverId: "s1",
+      server: "Alook",
+      channel: "general",
+      parentChannelId: null,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      m: {
+        id: "m_q2",
+        authorId: "u_bot",
+        authorName: "Evan",
+        authorAvatar: null,
+        authorAvatarVersion: 0,
+        content: "Ship now?",
+        type: "question" as const,
+        createdAt: "2026-09-27T00:00:00.000Z",
+        seq: 5,
+        decisionCard: {
+          kind: "decision_card" as const,
+          version: 1 as const,
+          summary: "Ship now?",
+          assignees: [{ userId: "u_gus", handle: "gus#1813" }],
+          questions: [{
+            id: "q1",
+            question: "Ship now?",
+            multiSelect: false,
+            allowOther: false,
+            options: [
+              { id: "yes", label: "Yes" },
+              { id: "no", label: "No" },
+            ],
+          }],
+        },
+      },
+    }
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      todos: [todo],
+      todosTruncated: true,
+      marked: [],
+      activeTab: "todo",
+      hasProjectedUnreads: false,
+      hasProjectedMentions: false,
+    }))
+
+    expect(renderer.getByLabelText("1+ pending questions")).toHaveTextContent("1+")
   })
 })

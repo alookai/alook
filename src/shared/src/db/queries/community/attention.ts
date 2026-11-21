@@ -3,11 +3,18 @@ import type {
   AttentionItem,
   AttentionScope,
 } from "../../../community-attention"
+import {
+  DECISION_CARD_MESSAGE_TYPE,
+  isAssignedDecisionCardForUser,
+} from "../../../community-decision-card"
 import type { Database } from "../../index"
 import { getChannelsByIds, listVisibleChannelIdsForUser } from "./channel"
 import {
   listEligibleUnreadChannels,
   listEligibleUnreadDms,
+  listPendingQuestionMessages,
+  listReadableDmChannelIds,
+  listReadableDmSummariesByChannelIds,
   listThreadOpenersByChildIds,
   listUnreadForumOpeners,
 } from "./inbox"
@@ -17,14 +24,17 @@ import { getServersByIds } from "./server"
 
 export const DEFAULT_ATTENTION_ITEM_LIMIT = 100
 export const MAX_ATTENTION_ITEM_LIMIT = 200
+export const MAX_ATTENTION_TODO_LIMIT = 50
 
 type IncludedProfile = AccountAttentionProjection["included"]["profiles"][number]
 type IncludedMessage = AccountAttentionProjection["included"]["messages"][number]
 
 /**
  * Stateless account-attention projection over the existing inbox facts.
- * The item cap applies only to mention/reply rows; actionable friend requests
- * stay complete so every consumer can derive an exact badge from this result.
+ * Mention/reply rows follow `limit` and pending question Todo cards are
+ * bounded by `todoLimit = Math.min(limit, MAX_ATTENTION_TODO_LIMIT)` so both
+ * D1 scans and downstream channel/DM/message hydration stay bounded;
+ * actionable friend requests stay complete.
  */
 export async function getAccountAttentionProjection(
   db: Database,
@@ -32,8 +42,13 @@ export async function getAccountAttentionProjection(
   requestedLimit = DEFAULT_ATTENTION_ITEM_LIMIT,
 ): Promise<AccountAttentionProjection> {
   const limit = Math.max(1, Math.min(requestedLimit, MAX_ATTENTION_ITEM_LIMIT))
-  const visibleChannelIds = await listVisibleChannelIdsForUser(db, userId)
-  const [channelRows, dmRows, friendRows, mentionScopeRows, allMentionRows] = await Promise.all([
+  const todoLimit = Math.max(1, Math.min(limit, MAX_ATTENTION_TODO_LIMIT))
+  const [visibleChannelIds, readableDmChannelIds] = await Promise.all([
+    listVisibleChannelIdsForUser(db, userId),
+    listReadableDmChannelIds(db, userId),
+  ])
+  const readableDmIdSet = new Set(readableDmChannelIds)
+  const [channelRows, dmRows, friendRows, mentionScopeRows, allMentionRows, rawPendingQuestionRows] = await Promise.all([
     listEligibleUnreadChannels(db, userId, visibleChannelIds),
     listEligibleUnreadDms(db, userId),
     listActionableIncomingRequests(db, userId),
@@ -42,7 +57,15 @@ export async function getAccountAttentionProjection(
       limit: limit + 1,
       visibleChannelIds,
     }),
+    listPendingQuestionMessages(db, userId, visibleChannelIds, readableDmChannelIds, {
+      limit: todoLimit + 1,
+    }),
   ])
+  const allAssignedQuestionRows = rawPendingQuestionRows.filter((row) => (
+    isAssignedDecisionCardForUser(row.embeds, userId, readableDmIdSet.has(row.channelId))
+  ))
+  const hasMoreTodos = allAssignedQuestionRows.length > todoLimit
+  const assignedQuestionRows = allAssignedQuestionRows.slice(0, todoLimit)
 
   const attentionByScope = new Map(mentionScopeRows.map((row) => [row.channelId, row]))
   const scopesById = new Map<string, AttentionScope>()
@@ -94,9 +117,17 @@ export async function getAccountAttentionProjection(
   const unreadChildIds = [...new Set(preliminaryScopes.flatMap((scope) => (
     scope.serverId && scope.parentChannelId ? [scope.channelId] : []
   )))]
-  const [allForumOpeners, childThreadOpeners] = await Promise.all([
+  const unreadDmIdSet = new Set(dmRows.map((row) => row.channelId))
+  const missingQuestionDmIds = [...new Set(assignedQuestionRows.flatMap((row) => (
+    readableDmIdSet.has(row.channelId) && !unreadDmIdSet.has(row.channelId) ? [row.channelId] : []
+  )))]
+  const questionServerChannelIds = [...new Set(assignedQuestionRows.flatMap((row) => (
+    readableDmIdSet.has(row.channelId) ? [] : [row.channelId]
+  )))]
+  const [allForumOpeners, childThreadOpeners, extraQuestionDmRows] = await Promise.all([
     listUnreadForumOpeners(db, userId, forumParentIds),
     listThreadOpenersByChildIds(db, userId, unreadChildIds),
+    listReadableDmSummariesByChannelIds(db, userId, missingQuestionDmIds),
   ])
   const displayedForumOpeners = allForumOpeners
   const childThreadOpenerByChildId = new Map(
@@ -109,8 +140,19 @@ export async function getAccountAttentionProjection(
     ...preliminaryScopes.flatMap((scope) => scope.serverId ? [scope.channelId] : []),
     ...preliminaryScopes.flatMap((scope) => scope.parentChannelId ? [scope.parentChannelId] : []),
     ...displayedForumOpeners.map((opener) => opener.childChannelId),
+    ...questionServerChannelIds,
   ])]
-  const channelOwners = await getChannelsByIds(db, channelOwnerIds)
+  const initialChannelOwners = await getChannelsByIds(db, channelOwnerIds)
+  const initialChannelOwnerIds = new Set(initialChannelOwners.map((channel) => channel.id))
+  const missingQuestionParentIds = [...new Set(initialChannelOwners.flatMap((channel) => (
+    channel.parentChannelId && !initialChannelOwnerIds.has(channel.parentChannelId)
+      ? [channel.parentChannelId]
+      : []
+  )))]
+  const extraParentChannels = missingQuestionParentIds.length > 0
+    ? await getChannelsByIds(db, missingQuestionParentIds)
+    : []
+  const channelOwners = [...initialChannelOwners, ...extraParentChannels]
   const includedChannels = channelOwners.flatMap((channel) => {
     if (
       !channel.serverId
@@ -144,16 +186,28 @@ export async function getAccountAttentionProjection(
     discriminator: server.discriminator,
   }))
   const serverOwnerById = new Map(includedServers.map((server) => [server.id, server]))
-  const includedDms = dmRows.map((row) => ({
-    id: row.channelId,
-    userId: row.otherUserId,
-    name: row.otherUserName,
-    discriminator: row.otherUserDiscriminator,
-    avatar: row.otherUserImage,
-    avatarVersion: row.otherUserAvatarVersion,
-    lastMessageAt: row.lastMessageAt,
-    lastUnreadSeq: row.lastUnreadSeq,
-  }))
+  const includedDms = [
+    ...dmRows.map((row) => ({
+      id: row.channelId,
+      userId: row.otherUserId,
+      name: row.otherUserName,
+      discriminator: row.otherUserDiscriminator,
+      avatar: row.otherUserImage,
+      avatarVersion: row.otherUserAvatarVersion,
+      lastMessageAt: row.lastMessageAt,
+      lastUnreadSeq: row.lastUnreadSeq,
+    })),
+    ...extraQuestionDmRows.map((row) => ({
+      id: row.channelId,
+      userId: row.otherUserId,
+      name: row.otherUserName,
+      discriminator: row.otherUserDiscriminator,
+      avatar: row.otherUserImage,
+      avatarVersion: row.otherUserAvatarVersion,
+      lastMessageAt: row.lastMessageAt,
+      lastUnreadSeq: 0,
+    })),
+  ]
   const dmOwnerById = new Map(includedDms.map((dm) => [dm.id, dm]))
   const scopes = preliminaryScopes.filter((scope) => {
     if (!scope.serverId) return dmOwnerById.has(scope.channelId)
@@ -226,7 +280,21 @@ export async function getAccountAttentionProjection(
     actorUserId: row.userId,
     createdAt: row.createdAt,
   }))
-  const items = [...mentionItems, ...forumItems, ...friendItems]
+  const eligibleQuestionRows = assignedQuestionRows.filter((row) => {
+    const channel = channelOwnerById.get(row.channelId)
+    if (channel && serverOwnerById.has(channel.serverId)) return true
+    return dmOwnerById.has(row.channelId)
+  })
+  const questionItems: AttentionItem[] = eligibleQuestionRows.map((row) => ({
+    id: `question:${row.id}`,
+    kind: "question",
+    sourceId: row.id,
+    scopeId: row.channelId,
+    messageId: row.id,
+    actorUserId: row.authorId,
+    createdAt: row.createdAt,
+  }))
+  const items = [...mentionItems, ...forumItems, ...questionItems, ...friendItems]
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
 
   const includedProfiles = new Map<string, IncludedProfile>()
@@ -248,7 +316,16 @@ export async function getAccountAttentionProjection(
       avatarVersion: row.author.avatarVersion,
     })
   }
-  for (const row of dmRows) {
+  for (const row of eligibleQuestionRows) {
+    includedProfiles.set(row.authorId, {
+      userId: row.authorId,
+      name: row.authorName,
+      discriminator: row.authorDiscriminator,
+      avatar: row.authorImage,
+      avatarVersion: row.authorAvatarVersion,
+    })
+  }
+  for (const row of [...dmRows, ...extraQuestionDmRows]) {
     includedProfiles.set(row.otherUserId, {
       userId: row.otherUserId,
       name: row.otherUserName,
@@ -261,7 +338,11 @@ export async function getAccountAttentionProjection(
     displayedMentionRows.map((row): [string, IncludedMessage] => [row.message.id, {
       id: row.message.id,
       channelId: row.message.channelId!,
-      type: row.message.type === "system" ? "system" : "chat",
+      type: row.message.type === "system"
+        ? "system"
+        : row.message.type === DECISION_CARD_MESSAGE_TYPE
+          ? "question"
+          : "chat",
       authorId: row.author.id,
       authorName: row.author.name,
       seq: row.message.seq,
@@ -269,6 +350,19 @@ export async function getAccountAttentionProjection(
       content: row.message.content ?? "",
     }]),
   )
+  for (const row of eligibleQuestionRows) {
+    if (includedMessages.has(row.id)) continue
+    includedMessages.set(row.id, {
+      id: row.id,
+      channelId: row.channelId,
+      type: "question",
+      authorId: row.authorId,
+      authorName: row.authorName,
+      seq: row.seq,
+      createdAt: row.createdAt,
+      content: row.content ?? "",
+    })
+  }
   const openerByMessageId = new Map(
     [...childThreadOpeners, ...displayedForumOpeners.map((row) => ({
       parentChannelId: row.forumChannelId,
@@ -295,6 +389,7 @@ export async function getAccountAttentionProjection(
     items,
     limit,
     truncated: exactMentionCount > limit,
+    todosTruncated: hasMoreTodos,
     included: {
       servers: includedServers,
       channels: includedChannels,

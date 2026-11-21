@@ -1,5 +1,5 @@
 
-import { AlertCircle, Bookmark, Check, ChevronDown, Inbox, LoaderCircle, Trash2, X } from "@/components/icons/lucide";
+import { AlertCircle, ArrowUpRight, Bookmark, Check, ChevronDown, CircleCheck, Inbox, LoaderCircle, Trash2, X } from "@/components/icons/lucide";
 import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -7,10 +7,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { CommunityNavigationLink } from "./community-navigation-link"
 import { InboxMessagePreview } from "./inbox-message-preview"
+import { DecisionCard } from "../messages/decision-card"
+import type { OpenProfile } from "../social/profile-types"
 import { Avatar } from "../avatar"
 import { EmptyState } from "../empty-state"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
-import type { InboxFriendRequest, InboxUnreadMessagesInput, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { InboxFriendRequest, InboxTodo, InboxUnreadMessagesInput, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import { formatMessageTime } from "@/lib/community/format-time"
 import type { ActionableFriendRequest } from "@/hooks/community/use-friend-request-action-state"
 import type { InboxChannelReadAction } from "@/hooks/community/use-inbox-channel-messages"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
@@ -36,7 +39,7 @@ import {
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
-export type InboxTab = "unreads" | "marked"
+export type InboxTab = "unreads" | "todo" | "marked"
 
 function InboxScrollBody({
   tab,
@@ -486,6 +489,158 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
   )
 }
 
+function TodoTab({
+  todos,
+  viewerUserId,
+  loading,
+  error,
+  retrying,
+  onRetry,
+  onOpenTodo,
+  onSubmitTodo,
+  onDismissTodo,
+  onOpenProfile,
+  profilesByUserId,
+  directory,
+  getScrollOffset,
+  onScrollOffsetChange,
+}: {
+  todos: InboxTodo[]
+  viewerUserId?: string | null
+  loading?: boolean
+  error?: boolean
+  retrying?: boolean
+  onRetry?: () => void
+  onOpenTodo?: (todo: InboxTodo) => void
+  onSubmitTodo?: (todo: InboxTodo, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  onDismissTodo?: (todo: InboxTodo) => void
+  onOpenProfile?: OpenProfile
+  profilesByUserId: ReadonlyMap<string, CommunityProfile>
+  directory: InboxCardDirectory
+  getScrollOffset?: (tab: InboxTab) => number
+  onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
+}) {
+  const peersByChannel = new Map(directory.dms?.map(dm => [dm.id, dm]))
+  return (
+    <InboxScrollBody tab="todo" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
+      {loading && todos.length === 0 && <InboxRowsSkeleton />}
+      {error && todos.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
+      {!loading && !error && todos.length === 0 && <EmptyState icon={CircleCheck} label="No pending questions" />}
+      {todos.length > 0 && (
+        <div className="flex flex-col gap-4 px-1 pb-4">
+          {todos.map((todo) => {
+            const card = todo.m.decisionCard
+            if (!card) return null
+            const channel = directory.channels.get(todo.channelId)
+            const server = todo.serverId ? directory.servers.get(todo.serverId) : undefined
+            const peer = peersByChannel.get(todo.channelId)
+            const channelName = peer?.name ?? channel?.name ?? todo.channel
+            const serverName = server?.name ?? todo.server
+            const location = todo.serverId ? channelLocation(directory, todo.channelId, todo.parentChannelId) : undefined
+            const context = todo.serverId
+              ? (location ? `${serverName} › ${location}` : serverName)
+              : "Direct Messages"
+            const authorProfile = todo.m.authorId ? profilesByUserId.get(todo.m.authorId) : undefined
+            const authorName = authorProfile?.name ?? todo.m.authorName ?? ""
+            const timestamp = todo.m.createdAt ? formatMessageTime(todo.m.createdAt) : ""
+            const open = onOpenTodo ? () => onOpenTodo(todo) : undefined
+            const sourceHeader = (
+              <div className="-mx-2 -my-1 flex min-w-0 items-center gap-1">
+                <button
+                  type="button"
+                  data-testid={tid.inboxTodoOpen(todo.messageId)}
+                  onClick={open}
+                  disabled={!open}
+                  className="group/todo-source flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors duration-150 hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none sm:min-h-0"
+                >
+                  {todo.serverId ? (
+                    <ServerIcon
+                      id={todo.serverId}
+                      name={serverName}
+                      initial={avatarInitial(serverName)}
+                      icon={server?.icon}
+                      size={26}
+                      className="shrink-0 rounded-md"
+                    />
+                  ) : (
+                    <Avatar
+                      label={peer?.avatar ?? avatarInitial(channelName)}
+                      seed={peer?.userId ?? todo.channelId}
+                      size={26}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
+                      {todo.serverId && (
+                        <EntityIcon
+                          kind={channel?.type === "dm" ? undefined : channel?.type}
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                        />
+                      )}
+                      <span className="truncate" title={channelName}>{channelName}</span>
+                      {todo.serverId && authorName && (
+                        <>
+                          <span aria-hidden="true" className="shrink-0 text-muted-foreground">·</span>
+                          <span className="truncate font-normal text-muted-foreground" title={authorName}>{authorName}</span>
+                        </>
+                      )}
+                    </span>
+                    <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                      <span className="truncate" title={context}>{context}</span>
+                      {timestamp && (
+                        <>
+                          <span aria-hidden="true" className="shrink-0">·</span>
+                          <span className="shrink-0" suppressHydrationWarning>{timestamp}</span>
+                        </>
+                      )}
+                    </span>
+                  </span>
+                  {open && (
+                    <ArrowUpRight
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover/todo-source:text-foreground"
+                    />
+                  )}
+                </button>
+                {onDismissTodo && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    data-testid={tid.inboxTodoDismiss(todo.messageId)}
+                    aria-label="Dismiss question"
+                    title="Dismiss"
+                    onClick={() => onDismissTodo(todo)}
+                    className="size-9 shrink-0 rounded-lg text-muted-foreground hover:bg-accent/80 hover:text-foreground sm:size-7"
+                  >
+                    <X className="size-3.5" />
+                  </Button>
+                )}
+              </div>
+            )
+            return (
+              <article key={todo.id} data-testid={tid.inboxTodoCard(todo.messageId)} className="min-w-0">
+                <DecisionCard
+                  messageId={todo.messageId}
+                  card={card}
+                  authorId={todo.m.authorId}
+                  viewerUserId={viewerUserId ?? undefined}
+                  header={sourceHeader}
+                  className="my-0"
+                  onSubmit={onSubmitTodo
+                    ? (_messageId, content, nonce) => onSubmitTodo(todo, content, nonce)
+                    : undefined}
+                  onOpenProfile={onOpenProfile}
+                />
+              </article>
+            )
+          })}
+        </div>
+      )}
+    </InboxScrollBody>
+  )
+}
+
 function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, onUnmark, directory, getScrollOffset, onScrollOffsetChange }: {
   marked: Marked[]
   loading?: boolean
@@ -542,6 +697,8 @@ export function InboxPopover({
   unreads,
   unreadDms,
   mentions,
+  todos = [],
+  todosTruncated = false,
   marked,
   markedLoading,
   markedError,
@@ -554,6 +711,7 @@ export function InboxPopover({
   hasProjectedUnreads,
   hasProjectedMentions,
   hasOutstandingFriendRequest = friendRequests.length > 0,
+  viewerUserId,
   onOpenFriendRequests,
   onAcceptFriendRequest,
   onRejectFriendRequest,
@@ -562,6 +720,10 @@ export function InboxPopover({
   onOpenThread,
   onOpenDm,
   onOpenMention,
+  onOpenTodo,
+  onSubmitTodo,
+  onDismissTodo,
+  onOpenProfile,
   onOpenMarked,
   onUnmark,
   onMarkedTabSelected,
@@ -579,6 +741,8 @@ export function InboxPopover({
   unreads: UnreadServer[]
   unreadDms: UnreadDm[]
   mentions: Mention[]
+  todos?: InboxTodo[]
+  todosTruncated?: boolean
   marked: Marked[]
   markedLoading?: boolean
   markedError?: boolean
@@ -591,6 +755,7 @@ export function InboxPopover({
   hasProjectedUnreads: boolean
   hasProjectedMentions: boolean
   hasOutstandingFriendRequest?: boolean
+  viewerUserId?: string | null
   onOpenFriendRequests?: () => void
   onAcceptFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
   onRejectFriendRequest?: (request: ActionableFriendRequest<InboxFriendRequest>) => void
@@ -603,6 +768,10 @@ export function InboxPopover({
   onOpenThread?: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
   onOpenDm?: (dm: UnreadDm) => void
   onOpenMention?: (m: Mention) => void
+  onOpenTodo?: (todo: InboxTodo) => void
+  onSubmitTodo?: (todo: InboxTodo, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  onDismissTodo?: (todo: InboxTodo) => void
+  onOpenProfile?: OpenProfile
   onOpenMarked?: (m: Marked) => void
   onUnmark?: (messageId: string) => void
 
@@ -656,6 +825,19 @@ export function InboxPopover({
             {showUnreadDot && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
+        <TabsTrigger value="todo">
+          <span className="inline-flex items-center gap-1.5">
+            Todo
+            {todos.length > 0 && (
+              <span
+                aria-label={`${todos.length}${todosTruncated ? "+" : ""} pending ${todos.length === 1 && !todosTruncated ? "question" : "questions"}`}
+                className="grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[11px] font-semibold leading-none text-primary-foreground"
+              >
+                {todosTruncated ? `${todos.length}+` : todos.length}
+              </span>
+            )}
+          </span>
+        </TabsTrigger>
         <TabsTrigger value="marked">Marked</TabsTrigger>
       </TabsList>
       <TabsContent value="unreads" className="min-h-0 flex-1 pt-3">
@@ -679,6 +861,24 @@ export function InboxPopover({
           onOpenChannel={onOpenChannel}
           onOpenThread={onOpenThread ?? (() => {})}
           onOpenDm={onOpenDm}
+          profilesByUserId={profilesByUserId}
+          directory={directory}
+          getScrollOffset={getScrollOffset}
+          onScrollOffsetChange={onScrollOffsetChange}
+        />
+      </TabsContent>
+      <TabsContent value="todo" className="min-h-0 flex-1 pt-3">
+        <TodoTab
+          todos={todos}
+          viewerUserId={viewerUserId}
+          loading={loading}
+          error={attentionError}
+          retrying={attentionRetrying}
+          onRetry={onRetryAttention}
+          onOpenTodo={onOpenTodo}
+          onSubmitTodo={onSubmitTodo}
+          onDismissTodo={onDismissTodo}
+          onOpenProfile={onOpenProfile}
           profilesByUserId={profilesByUserId}
           directory={directory}
           getScrollOffset={getScrollOffset}

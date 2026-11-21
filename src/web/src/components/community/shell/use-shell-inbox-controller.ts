@@ -5,7 +5,7 @@ import type { Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { createElement, useCallback, useRef, type ComponentProps } from "react"
 import { channelHref } from "@/lib/community/community-route"
-import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import type { InboxTodo, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
 import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
 import { InboxUnreadMessages } from "./inbox-unread-messages"
@@ -23,6 +23,8 @@ import {
   useMarkAllInboxRead,
   useAcceptFriendRequest,
   useRejectFriendRequest,
+  useSubmitInboxDecisionCard,
+  useDismissInboxTodo,
   useUnmarkMessage,
 } from "@/hooks/community/mutations"
 import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
@@ -68,17 +70,21 @@ export function useShellInboxController({
   const unreadFeed = attention.servers
   const unreadDms = attention.dms
   const mentions = attention.mentions
+  const todos = attention.todos
   const loading = attention.isLoading
   const [markedTabOpened, setMarkedTabOpened] = useAtom(useCreateAtom(false))
   const [activeTab, setActiveTab] = useAtom(useCreateAtom<InboxTab>("unreads"))
   const scrollOffsetsRef = useRef<Record<InboxTab, number>>({
     unreads: 0,
+    todo: 0,
     marked: 0,
   })
   const inboxMarked = useInboxMarked(markedTabOpened)
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
   const markChannelRead = useMarkInboxChannelRead()
+  const submitInboxDecisionCard = useSubmitInboxDecisionCard()
+  const dismissInboxTodo = useDismissInboxTodo()
   const acceptFriendRequest = useAcceptFriendRequest()
   const rejectFriendRequest = useRejectFriendRequest()
   const inbox = useInboxAutoCollapse({
@@ -265,6 +271,47 @@ export function useShellInboxController({
     })
   }, [pushProjected])
 
+  const openTodo = useCallback((todo: InboxTodo) => {
+    const previousOpen = inbox.closeWithoutProjection()
+    cancelPendingNavigation()
+    clearThreadOpenerReadHandoff(queryClient)
+    const seq = todo.m.seq != null ? `seq=${todo.m.seq}` : ""
+    const seqQuery = todo.serverId ? `?${seq ? `${seq}&` : ""}msg=${encodeURIComponent(todo.messageId)}` : seq ? `?${seq}` : ""
+    const href = todo.serverId
+      ? `${channelHref(todo.serverId, todo.channelId)}${seqQuery}`
+      : `/c/me/${todo.channelId}${seqQuery}`
+    try {
+      pushInboxHref(href, action => {
+        void startConversationNavigationWarmup(queryClient, {
+          href,
+          viewerId,
+          channelId: todo.channelId,
+          ...(todo.serverId ? { serverId: todo.serverId } : {}),
+          scopeKind: todo.serverId ? "channel" : "dm",
+          ...(todo.serverId ? { anchorMessageId: todo.messageId } : {}),
+          ...(!todo.serverId ? { expectedSurfaceKind: "dm" as const } : {}),
+        }, action)
+      })
+    } catch (error) {
+      cancelPendingNavigation()
+      inbox.onOpenChange(previousOpen)
+      throw error
+    }
+  }, [cancelPendingNavigation, inbox, pushInboxHref, queryClient, viewerId])
+
+  const submitTodo = useCallback((todo: InboxTodo, content: string, nonce: string) => (
+    submitInboxDecisionCard.mutateAsync({
+      channelId: todo.channelId,
+      messageId: todo.messageId,
+      content,
+      nonce,
+    })
+  ), [submitInboxDecisionCard])
+
+  const dismissTodo = useCallback((todo: InboxTodo) => {
+    dismissInboxTodo.mutate({ messageId: todo.messageId })
+  }, [dismissInboxTodo])
+
   const openFriendRequests = useCallback(() => {
     const previousOpen = inbox.closeWithoutProjection()
     cancelPendingNavigation()
@@ -282,6 +329,8 @@ export function useShellInboxController({
     unreads: unreadFeed,
     unreadDms,
     mentions,
+    todos,
+    todosTruncated: attention.todosTruncated,
     marked: inboxMarked.marked,
     markedLoading: !inboxMarked.isDisplayReady && !inboxMarked.isInitialError,
     markedError: inboxMarked.isInitialError,
@@ -293,10 +342,14 @@ export function useShellInboxController({
     onRetryAttention: () => { void attention.refetch() },
     hasProjectedUnreads: attention.hasUnread,
     hasProjectedMentions: attention.hasMention,
+    viewerUserId: viewerId,
     onOpenChannel: openServerChannel,
     onOpenThread: openThread,
     onOpenDm: openDm,
     onOpenMention: openMention,
+    onOpenTodo: openTodo,
+    onSubmitTodo: submitTodo,
+    onDismissTodo: dismissTodo,
     onOpenMarked: openMarked,
     onOpenFriendRequests: openFriendRequests,
     onAcceptFriendRequest: (item) => { void friendRequestActions.act(item, "accept") },
@@ -318,7 +371,7 @@ export function useShellInboxController({
   return {
     popoverProps,
     unreadCount,
-    unreadCountPartial: false,
+    unreadCountPartial: attention.todosTruncated,
     hasUnread: unreadCount > 0,
     open: inbox.open,
     onOpenChange: inbox.onOpenChange,

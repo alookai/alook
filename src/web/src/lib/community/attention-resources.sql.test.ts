@@ -219,3 +219,51 @@ it("rejects a missing item after valid items and preserves request order without
   await expect(readCommunityResourceBundle(db, "viewer", { channelIds: ["channel-0", "missing"] })).rejects.toThrow("Attention access changed")
   expect((await readCommunityResourceBundle(db, "viewer", { channelIds: ["channel-1", "channel-0", "channel-1"] })).channels.map(row => row.id)).toEqual(["channel-1", "channel-0"])
 })
+
+it("hydrates unread actionable question cards as type=question resources in GET /attention", async () => {
+  const { buildDecisionCardEmbed, DecisionCardInputSchema, extractDecisionCardFromEmbeds } = await import("@alook/shared")
+  const store = await dmFixture("none")
+  const embed = buildDecisionCardEmbed(
+    DecisionCardInputSchema.parse({
+      summary: "Pick rollout timing",
+      questions: [{
+        id: "q1",
+        question: "Ship tonight?",
+        options: [
+          { id: "yes", label: "Yes" },
+          { id: "no", label: "No" },
+        ],
+      }],
+    }),
+    [{ userId: "viewer", handle: "viewer#0042" }],
+  )
+  store.sqlite.prepare(
+    "INSERT INTO community_message (id,author_id,content,type,embeds,channel_id,seq,created_at) VALUES (?,?,?,'question',?,?,2,?)",
+  ).run("allowed-dm:q1", "other", "Pick rollout timing", JSON.stringify([embed]), "allowed-dm", stamp)
+  store.sqlite.prepare(
+    "INSERT INTO community_question_todo (user_id,message_id,channel_id,created_at,dismissed_at) VALUES (?,?,?,?,NULL)",
+  ).run("viewer", "allowed-dm:q1", "allowed-dm", stamp)
+
+  const response = await GET(
+    new NextRequest("http://localhost/api/community/users/me/attention", {
+      headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+    }),
+    {} as never,
+  )
+  expect(response.status).toBe(200)
+  const snapshot = AccountAttentionSnapshotSchema.parse(await response.json())
+  const questionItem = snapshot.items.find(item => item.kind === "question")
+  expect(questionItem).toMatchObject({
+    id: "question:allowed-dm:q1",
+    kind: "question",
+    messageId: "allowed-dm:q1",
+    scopeId: "allowed-dm",
+    actorUserId: "other",
+  })
+  const questionResource = snapshot.resources.messages.find(message => message.id === "allowed-dm:q1")
+  expect(questionResource?.type).toBe("question")
+  expect(extractDecisionCardFromEmbeds(questionResource?.embeds).card).toMatchObject({
+    summary: "Pick rollout timing",
+    respondedUserIds: [],
+  })
+})

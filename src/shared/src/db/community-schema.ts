@@ -9,7 +9,7 @@ import {
   primaryKey,
   type SQLiteTableWithColumns,
 } from "drizzle-orm/sqlite-core";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { ServerRailEntry } from "../community-server-rail";
 import { user } from "./schema";
@@ -196,6 +196,31 @@ export const communityMessage = sqliteTable(
     index("idx_community_message_channel_reply_author")
       .on(t.channelId, t.replyToId, t.authorId)
       .where(sql`${t.replyToId} IS NOT NULL`),
+  ]
+);
+
+export const communityQuestionTodo = sqliteTable(
+  "community_question_todo",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => communityMessage.id, { onDelete: "cascade" }),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => communityChannel.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    dismissedAt: text("dismissed_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.messageId] }),
+    index("idx_community_question_todo_user_active")
+      .on(t.userId, desc(t.createdAt), desc(t.messageId))
+      .where(isNull(t.dismissedAt)),
+    index("idx_community_question_todo_message_id_lookup").on(t.messageId),
+    index("idx_community_question_todo_channel_id_lookup").on(t.channelId),
   ]
 );
 

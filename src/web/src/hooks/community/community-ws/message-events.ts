@@ -1,12 +1,15 @@
 import { invalidateBotSurfaces } from "@/hooks/community/use-bots"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
-import type {
-  CommunityMessageCreate,
-  CommunityMessageUpdated,
-  CommunityPinAdd,
-  CommunityPinRemove,
+import {
+  DECISION_CARD_MESSAGE_TYPE,
+  isAssignedDecisionCardForUser,
+  type CommunityMessageCreate,
+  type CommunityMessageUpdated,
+  type CommunityPinAdd,
+  type CommunityPinRemove,
 } from "@alook/shared"
+import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
 
 import {
   hasForumSidebarOwnershipEvidence,
@@ -101,6 +104,18 @@ export function handleMessageCreate(
   // Replayed messages must not clear current typing; only the first delivery does.
   if (hasSeenMessage) return
   wsStore.actions.markSeenMessage(event.message.id)
+
+  if (
+    viewerId
+    && event.message.authorId !== viewerId
+    && event.message.type === DECISION_CARD_MESSAGE_TYPE
+    && isAssignedDecisionCardForUser(event.message.embeds, viewerId, !event.serverId)
+  ) {
+    scheduleAccountAttentionReconcile(queryClient, {
+      channelId: event.channelId,
+      messageId: event.message.id,
+    })
+  }
 
   clearTypingIndicator(queryClient, typingScopeKey(event, sub), event.message.authorId)
 

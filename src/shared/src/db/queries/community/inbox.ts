@@ -1,10 +1,11 @@
-import { aliasedTable, and, count, eq, gt, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { aliasedTable, and, count, desc, eq, exists, gt, isNotNull, isNull, inArray, ne, notExists, or, sql } from "drizzle-orm";
+import { chunk } from "../_chunk";
 import { jsonTextSet } from "../_json-set";
 import {
   communityChannel,
   communityChannelMember,
   communityMessage,
+  communityQuestionTodo,
   communityReadState,
   communityServer,
   communityServerMember,
@@ -13,9 +14,14 @@ import { user } from "../../schema";
 import type { Database } from "../../index";
 import { listParticipatingThreadIds } from "./thread";
 
+import { DECISION_CARD_MESSAGE_TYPE } from "../../../community-decision-card";
 import { reachIsParticipantSet } from "../../../utils/community-roles";
 import { hasUnreadAttentionSql, notificationEligibleSql } from "./notification-eligibility";
 import { dmPeerReadableSql } from "./dm";
+import {
+  accountReadStateRevisionBuilder,
+  advanceReadStateRevisionWhenBuilder,
+} from "./read-state";
 
 const ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE = 80;
 
@@ -112,6 +118,7 @@ export async function listEligibleUnreadChannels(
             and(
               inArray(communityChannel.id, ids),
               eq(communityChannel.archived, 0),
+              ne(communityMessage.authorId, userId),
               or(
                 and(
                   isNotNull(communityReadState.id),
@@ -377,10 +384,10 @@ export interface EligibleUnreadDmRow extends UnreadDmRow {
   unreadCount: number;
 }
 
-export async function listEligibleUnreadDms(
+export async function listReadableDmChannelIds(
   db: Database,
   userId: string
-): Promise<EligibleUnreadDmRow[]> {
+): Promise<string[]> {
   const selfRows = await db
     .select({ channelId: communityChannelMember.channelId })
     .from(communityChannelMember)
@@ -393,12 +400,68 @@ export async function listEligibleUnreadDms(
         dmPeerReadableSql(db, userId, communityChannel.id)
       )
     );
-  const dmChannelIds = selfRows.map((row) => row.channelId);
+  return selfRows.map((row) => row.channelId);
+}
+
+export async function listReadableDmSummariesByChannelIds(
+  db: Database,
+  userId: string,
+  channelIds: string[],
+): Promise<UnreadDmRow[]> {
+  const uniqueIds = [...new Set(channelIds)];
+  if (uniqueIds.length === 0) return [];
+  const rows = (
+    await Promise.all(
+      chunk(uniqueIds, ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE).map((ids) =>
+        db
+          .select({
+            channelId: communityChannel.id,
+            otherUserId: user.id,
+            otherUserName: user.name,
+            otherUserDiscriminator: user.discriminator,
+            otherUserImage: user.image,
+            otherUserAvatarVersion: user.avatarVersion,
+            lastMessageAt: sql<string>`COALESCE(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`,
+          })
+          .from(communityChannel)
+          .innerJoin(
+            communityChannelMember,
+            and(
+              eq(communityChannelMember.channelId, communityChannel.id),
+              eq(communityChannelMember.relation, "access"),
+              ne(communityChannelMember.userId, userId),
+            ),
+          )
+          .innerJoin(user, eq(user.id, communityChannelMember.userId))
+          .where(
+            and(
+              inArray(communityChannel.id, ids),
+              eq(communityChannel.type, "dm"),
+              isNull(user.deletedAt),
+            ),
+          ),
+      ),
+    )
+  ).flat();
+
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row.channelId)) return false;
+    seen.add(row.channelId);
+    return true;
+  });
+}
+
+export async function listEligibleUnreadDms(
+  db: Database,
+  userId: string
+): Promise<EligibleUnreadDmRow[]> {
+  const dmChannelIds = await listReadableDmChannelIds(db, userId);
   if (dmChannelIds.length === 0) return [];
 
   const rows = (
     await Promise.all(
-      chunk(dmChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+      chunk(dmChannelIds, ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE).map((ids) =>
         db
           .select({
             channelId: communityChannel.id,
@@ -433,6 +496,7 @@ export async function listEligibleUnreadDms(
             and(
               inArray(communityChannel.id, ids),
               isNull(user.deletedAt),
+              ne(communityMessage.authorId, userId),
               gt(
                 communityMessage.seq,
                 sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`
@@ -461,4 +525,156 @@ export async function listEligibleUnreadDms(
     seen.add(row.channelId);
     return true;
   });
+}
+
+export interface PendingQuestionRow {
+  id: string;
+  channelId: string;
+  seq: number;
+  content: string;
+  embeds: string | null;
+  createdAt: string;
+  authorId: string;
+  authorName: string;
+  authorDiscriminator: string;
+  authorImage: string | null;
+  authorAvatarVersion: number;
+}
+
+/**
+ * Pending unanswered, undismissed `question` (Decision Card) todos assigned to
+ * the viewer inside their authorized server channels/threads and readable DMs.
+ * Reading a channel does NOT clear a pending question: it remains pending
+ * until the viewer replies (`idx_community_message_channel_reply_author`) or
+ * explicitly dismisses it (`community_question_todo.dismissed_at`).
+ *
+ * Driven from `idx_community_question_todo_user_active` so D1 only touches the
+ * viewer's own non-dismissed assignments in newest-first order and stops at
+ * `opts.limit`, never pulling other users' question cards into Worker memory.
+ */
+export async function listPendingQuestionMessages(
+  db: Database,
+  userId: string,
+  serverChannelIds: string[],
+  dmChannelIds: string[],
+  opts?: { limit?: number },
+): Promise<PendingQuestionRow[]> {
+  const allChannelIds = [...new Set([...serverChannelIds, ...dmChannelIds])];
+  if (allChannelIds.length === 0) return [];
+  const perChunkLimit = opts?.limit !== undefined ? Math.max(1, opts.limit) : undefined;
+
+  const replyMessage = aliasedTable(communityMessage, "question_viewer_reply");
+  const notAnsweredByViewer = notExists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(replyMessage)
+      .where(
+        and(
+          eq(replyMessage.channelId, communityQuestionTodo.channelId),
+          eq(replyMessage.replyToId, communityQuestionTodo.messageId),
+          eq(replyMessage.authorId, userId),
+        ),
+      ),
+  );
+
+  const selection = {
+    id: communityMessage.id,
+    channelId: communityMessage.channelId,
+    seq: communityMessage.seq,
+    content: communityMessage.content,
+    embeds: communityMessage.embeds,
+    createdAt: communityMessage.createdAt,
+    authorId: user.id,
+    authorName: user.name,
+    authorDiscriminator: user.discriminator,
+    authorImage: user.image,
+    authorAvatarVersion: user.avatarVersion,
+  };
+
+  const rows = (
+    await Promise.all(
+      chunk(allChannelIds, ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE).map((ids) => {
+        const query = db
+          .select(selection)
+          .from(communityQuestionTodo)
+          .innerJoin(
+            communityMessage,
+            eq(communityMessage.id, communityQuestionTodo.messageId),
+          )
+          .innerJoin(
+            communityChannel,
+            eq(communityChannel.id, communityQuestionTodo.channelId),
+          )
+          .innerJoin(user, eq(user.id, communityMessage.authorId))
+          .where(
+            and(
+              eq(communityQuestionTodo.userId, userId),
+              isNull(communityQuestionTodo.dismissedAt),
+              inArray(communityQuestionTodo.channelId, ids),
+              eq(communityMessage.type, DECISION_CARD_MESSAGE_TYPE),
+              ne(communityMessage.authorId, userId),
+              eq(communityChannel.archived, 0),
+              notAnsweredByViewer,
+            ),
+          )
+          .orderBy(
+            desc(communityQuestionTodo.createdAt),
+            desc(communityQuestionTodo.messageId),
+          );
+        return perChunkLimit !== undefined ? query.limit(perChunkLimit) : query;
+      }),
+    )
+  ).flat();
+
+  const seen = new Set<string>();
+  const unique = rows.filter((row) => {
+    if (seen.has(row.id)) return false;
+    seen.add(row.id);
+    return true;
+  });
+  unique.sort(
+    (a, b) =>
+      b.createdAt.localeCompare(a.createdAt) ||
+      b.id.localeCompare(a.id),
+  );
+  return perChunkLimit !== undefined ? unique.slice(0, perChunkLimit) : unique;
+}
+
+export async function dismissQuestionTodoWithRevision(
+  db: Database,
+  userId: string,
+  messageId: string,
+) {
+  const hasActiveTodo = exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityQuestionTodo)
+      .where(
+        and(
+          eq(communityQuestionTodo.userId, userId),
+          eq(communityQuestionTodo.messageId, messageId),
+          isNull(communityQuestionTodo.dismissedAt),
+        ),
+      ),
+  );
+  const now = new Date().toISOString();
+  const dismissTodo = db
+    .update(communityQuestionTodo)
+    .set({ dismissedAt: now })
+    .where(
+      and(
+        eq(communityQuestionTodo.userId, userId),
+        eq(communityQuestionTodo.messageId, messageId),
+        isNull(communityQuestionTodo.dismissedAt),
+      ),
+    );
+  const results = (await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, userId, hasActiveTodo),
+    dismissTodo,
+    accountReadStateRevisionBuilder(db, userId),
+  ] as any)) as unknown[];
+  return {
+    changed: (results[0] as Array<{ revision: number }>).length > 0,
+    revision: (results[2] as Array<{ revision: number }>)[0]?.revision ?? 0,
+  };
 }

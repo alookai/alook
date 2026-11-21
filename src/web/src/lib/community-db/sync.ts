@@ -1227,7 +1227,7 @@ function confirmedAttentionProjection(registry: CommunityDbRegistry, scopes: Att
   const removedByScope = new Map<string, number>()
   const survivingByScope = new Map<string, number>()
   const nextItems = items.filter((item) => {
-    if (item.kind === "friend_request") return true
+    if (item.kind === "friend_request" || item.kind === "question") return true
     const scope = item.scopeId ? scopeById.get(item.scopeId) : undefined
     const message = item.messageId ? messages.get(item.messageId) : undefined
     const channelId = item.readTarget?.channelId ?? scope?.channelId
@@ -1304,6 +1304,7 @@ function attentionProjection(
   const removedByScope = new Map<string, number>()
   const survivingByScope = new Map<string, number>()
   const nextItems = items.filter((item) => {
+    if (item.kind === "question") return !itemIds.has(item.id)
     const floor = item.scopeId ? floors.get(item.scopeId) : undefined
     const seq = seqOf(item)
     const read = floor && (seq !== undefined ? seq <= floor.mentions : floor.mentions >= 0 && itemIds.has(item.id))
@@ -1545,7 +1546,7 @@ export function clearAttentionOptimistically(registry: CommunityDbRegistry): Att
     clearedCount: scope.attentionCount, domain: scope.serverId == null ? "dms" as const : "channels" as const,
     ordinary: true, mentions: true,
   }]))
-  const items = collectionRows(registry, "attentionItems").filter((item) => item.kind !== "friend_request")
+  const items = collectionRows(registry, "attentionItems").filter((item) => item.kind !== "friend_request" && item.kind !== "question")
   return beginAttentionIntent(registry, { floors, itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })
 }
 
@@ -1564,7 +1565,7 @@ export function restoreAttentionOptimisticSnapshot(registry: CommunityDbRegistry
 export function clearAttentionScopeOptimistically(registry: CommunityDbRegistry, scopeId: string, targetSeq: number): AttentionScopeOptimisticSnapshot {
   const scope = collectionRows(registry, "attentionScopes").find((row) => row.scopeId === scopeId)
   const messages = new Map(collectionRows(registry, "messages").map((message) => [message.id, message]))
-  const items = collectionRows(registry, "attentionItems").filter((item) => item.scopeId === scopeId)
+  const items = collectionRows(registry, "attentionItems").filter((item) => item.scopeId === scopeId && item.kind !== "question")
   const seqOf = (item: AttentionItemRow) => item.readTarget?.seq ?? item.openerSeq ?? (item.messageId ? messages.get(item.messageId)?.seq : undefined)
   const removed = items.filter((item) => (seqOf(item) ?? scope?.lastUnreadSeq ?? 0) <= targetSeq)
   const surviving = items.filter((item) => (item.kind === "mention" || item.kind === "reply") && (seqOf(item) ?? -1) > targetSeq).length

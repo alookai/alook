@@ -581,4 +581,234 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
     expect(hydrated?.summary).toBeUndefined()
     expect(hydrated?.respondedUserIds).toEqual(["u_gus"])
   })
+
+  it("inbox Todo projection lists unread actionable questions and preserveReadState preserves sibling unread cards until the last one is answered", async () => {
+    // Ensure u_gus joined before the messages so unread baseline counts them.
+    fixture.sqlite.exec(`
+      ALTER TABLE community_friendship ADD COLUMN created_at TEXT NOT NULL DEFAULT '2026-11-19T00:00:00.000Z';
+      ALTER TABLE community_friendship ADD COLUMN needs_owner_approval INTEGER NOT NULL DEFAULT 0;
+      UPDATE community_server_member SET joined_at = '2026-11-19T00:00:00.000Z' WHERE user_id = 'u_gus';
+      INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_at)
+      VALUES ('tm_gus', 'thread_1', 'u_gus', 'notify', 'added', '2026-11-19T00:00:00.000Z');
+    `)
+
+    // Bot asks 2 questions for Gus and 1 for Alice-only in thread_1, plus 1 in DM.
+    currentActor = { kind: "bot", userId: "bot_evan" }
+    currentTarget = { kind: "thread", channelId: "thread_1", parentChannelId: "chan_1", serverId: "srv_1" }
+    const ask = (nonce: string, channel: string, summary: string, mentions?: string[], seenUpToSeq?: number) =>
+      POST(
+        new NextRequest("http://localhost/api/community/channels/resolve/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            channel,
+            content: { text: "" },
+            nonce,
+            ...(seenUpToSeq !== undefined ? { seenUpToSeq } : {}),
+            question: {
+              ...(mentions ? { mentions } : {}),
+              summary,
+              questions: [{
+                id: "q1",
+                question: summary,
+                options: [
+                  { id: "yes", label: "Yes" },
+                  { id: "no", label: "No" },
+                ],
+              }],
+            },
+          }),
+        }),
+        { params: Promise.resolve({ id: "resolve" }) },
+      )
+
+    expect((await ask("todo-q1", "/Alook#5620/general/#1", "First decision", ["@gus#1813"])).status).toBe(200)
+    expect((await ask("todo-q2", "/Alook#5620/general/#1", "Second decision", ["@gus#1813"])).status).toBe(200)
+    expect((await ask("todo-alice", "/Alook#5620/general/#1", "Alice only", ["@alice#0001"])).status).toBe(200)
+
+    currentTarget = { kind: "dm", channelId: "dm_1", otherUserId: "u_gus" }
+    expect((await ask("todo-dm", "/.dm/gus#1813", "DM decision")).status).toBe(200)
+
+    const [q1, q2] = fixture.sqlite
+      .prepare("SELECT id, seq FROM community_message WHERE channel_id = 'thread_1' AND type = 'question' ORDER BY seq ASC")
+      .all() as Array<{ id: string; seq: number }>
+    const dmQ = fixture.sqlite
+      .prepare("SELECT id FROM community_message WHERE channel_id = 'dm_1' AND type = 'question'")
+      .get() as { id: string }
+
+    const before = await queries.communityAttention.getAccountAttentionProjection(fixture.db as Database, "u_gus")
+    const beforeQuestionIds = before.items.filter((item) => item.kind === "question").map((item) => item.messageId).sort()
+    expect(beforeQuestionIds).toEqual([dmQ.id, q1!.id, q2!.id].sort())
+
+    // Answer q1 from Inbox with preserveReadState: true — q2 and Alice-only remain unread, so lastReadSeq is preserved!
+    currentActor = { kind: "human", userId: "u_gus" }
+    currentTarget = { kind: "thread", channelId: "thread_1", parentChannelId: "chan_1", serverId: "srv_1" }
+    const ans1 = await POST(
+      new NextRequest("http://localhost/api/community/channels/thread_1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: "First decision: Yes",
+          replyToId: q1!.id,
+          nonce: "inbox-ans-1",
+          preserveReadState: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: "thread_1" }) },
+    )
+    expect(ans1.status).toBe(201)
+
+    // q1 mention is marked read; thread_1 read_state was NOT bumped past q2.
+    const q1Mention = fixture.sqlite
+      .prepare("SELECT read FROM community_mention WHERE message_id = ? AND user_id = 'u_gus'")
+      .get(q1!.id) as { read: number }
+    expect(q1Mention.read).toBe(1)
+    const midReadState = fixture.sqlite
+      .prepare("SELECT last_read_seq FROM community_read_state WHERE channel_id = 'thread_1' AND user_id = 'u_gus'")
+      .get() as { last_read_seq: number } | undefined
+    expect(midReadState).toBeUndefined()
+
+    const afterFirst = await queries.communityAttention.getAccountAttentionProjection(fixture.db as Database, "u_gus")
+    const afterFirstQuestionIds = afterFirst.items.filter((item) => item.kind === "question").map((item) => item.messageId).sort()
+    expect(afterFirstQuestionIds).toEqual([dmQ.id, q2!.id].sort())
+
+    // Answering the DM question (the ONLY unread message in dm_1) advances dm_1's read watermark and clears dm_1 from Unreads too!
+    currentTarget = { kind: "dm", channelId: "dm_1", otherUserId: "u_gus" }
+    const ansDm = await POST(
+      new NextRequest("http://localhost/api/community/channels/dm_1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: "DM decision: Yes",
+          replyToId: dmQ.id,
+          nonce: "inbox-ans-dm",
+          preserveReadState: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: "dm_1" }) },
+    )
+    expect(ansDm.status).toBe(201)
+
+    const dmReadState = fixture.sqlite
+      .prepare("SELECT last_read_seq FROM community_read_state WHERE channel_id = 'dm_1' AND user_id = 'u_gus'")
+      .get() as { last_read_seq: number } | undefined
+    expect(dmReadState?.last_read_seq).toBe(2)
+
+    const afterDm = await queries.communityAttention.getAccountAttentionProjection(fixture.db as Database, "u_gus")
+    expect(afterDm.items.filter((item) => item.kind === "question").map((item) => item.messageId)).toEqual([q2!.id])
+    expect(afterDm.scopes.some((scope) => scope.channelId === "dm_1")).toBe(false)
+
+    // With an existing community_read_state row on dm_1 (last_read_seq = 2), answering a new DM question
+    // exercises the read-state cursor branch in hasOtherUnreadMessages and advances last_read_seq to 4.
+    currentActor = { kind: "bot", userId: "bot_evan" }
+    currentTarget = { kind: "dm", channelId: "dm_1", otherUserId: "u_gus" }
+    const askDm2 = await ask("todo-dm-2", "/.dm/gus#1813", "Second DM decision", undefined, 2)
+    expect(askDm2.status).toBe(200)
+    expect((await askDm2.json()).state).toBe("sent")
+    const dmQ2 = fixture.sqlite
+      .prepare("SELECT id FROM community_message WHERE channel_id = 'dm_1' AND type = 'question' ORDER BY seq DESC LIMIT 1")
+      .get() as { id: string }
+
+    currentActor = { kind: "human", userId: "u_gus" }
+    const ansDm2 = await POST(
+      new NextRequest("http://localhost/api/community/channels/dm_1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: "Second DM decision: No",
+          replyToId: dmQ2.id,
+          nonce: "inbox-ans-dm-2",
+          preserveReadState: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: "dm_1" }) },
+    )
+    expect(ansDm2.status).toBe(201)
+    const dmReadState2 = fixture.sqlite
+      .prepare("SELECT last_read_seq FROM community_read_state WHERE channel_id = 'dm_1' AND user_id = 'u_gus'")
+      .get() as { last_read_seq: number } | undefined
+    expect(dmReadState2?.last_read_seq).toBe(4)
+
+    // Channel with ONLY two unread questions (chan_2): answering the 1st preserves lastReadSeq;
+    // answering the 2nd sees the 1st is already answered and atomically advances lastReadSeq so chan_2 clears from Unreads too.
+    currentActor = { kind: "bot", userId: "bot_evan" }
+    currentTarget = { kind: "channel", channelId: "chan_2", serverId: "srv_1" }
+    expect((await ask("chan2-q1", "/Alook#5620/other", "Chan2 Q1", ["@gus#1813"])).status).toBe(200)
+    expect((await ask("chan2-q2", "/Alook#5620/other", "Chan2 Q2", ["@gus#1813"])).status).toBe(200)
+    const [c2q1, c2q2] = fixture.sqlite
+      .prepare("SELECT id FROM community_message WHERE channel_id = 'chan_2' AND type = 'question' ORDER BY seq ASC")
+      .all() as Array<{ id: string }>
+
+    currentActor = { kind: "human", userId: "u_gus" }
+    expect((await POST(
+      new NextRequest("http://localhost/api/community/channels/chan_2/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "Chan2 Q1: Yes", replyToId: c2q1!.id, nonce: "c2-a1", preserveReadState: true }),
+      }),
+      { params: Promise.resolve({ id: "chan_2" }) },
+    )).status).toBe(201)
+    expect(
+      fixture.sqlite.prepare("SELECT last_read_seq FROM community_read_state WHERE channel_id = 'chan_2' AND user_id = 'u_gus'").get(),
+    ).toBeUndefined()
+
+    expect((await POST(
+      new NextRequest("http://localhost/api/community/channels/chan_2/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "Chan2 Q2: No", replyToId: c2q2!.id, nonce: "c2-a2", preserveReadState: true }),
+      }),
+      { params: Promise.resolve({ id: "chan_2" }) },
+    )).status).toBe(201)
+    const chan2Read = fixture.sqlite
+      .prepare("SELECT last_read_seq FROM community_read_state WHERE channel_id = 'chan_2' AND user_id = 'u_gus'")
+      .get() as { last_read_seq: number } | undefined
+    expect(chan2Read?.last_read_seq).toBe(4)
+
+    const afterChan2 = await queries.communityAttention.getAccountAttentionProjection(fixture.db as Database, "u_gus")
+    expect(afterChan2.scopes.some((scope) => scope.channelId === "chan_2")).toBe(false)
+
+    // Option 2: reading thread_1 clears Unreads for thread_1, but unassigned/unanswered q2 (assigned to u_gus)
+    // stays in Todo until answered or dismissed! Unassigned channel questions stay excluded.
+    fixture.sqlite.prepare(
+      "INSERT OR REPLACE INTO community_read_state (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq) VALUES ('rs_t1', 'u_gus', 'thread_1', '2026-11-21T00:00:00.000Z', ?, 99)",
+    ).run(q2!.id)
+    fixture.sqlite.prepare(
+      "UPDATE community_mention SET read = 1 WHERE user_id = 'u_gus' AND message_id = ?",
+    ).run(q2!.id)
+    const afterReadThread = await queries.communityAttention.getAccountAttentionProjection(fixture.db as Database, "u_gus")
+    expect(afterReadThread.scopes.some((scope) => scope.channelId === "thread_1")).toBe(false)
+    expect(afterReadThread.items.filter((item) => item.kind === "question").map((item) => item.messageId)).toEqual([q2!.id])
+
+    // Dismissing q2 removes it from Todo immediately and idempotently.
+    const dismissed = await queries.communityInbox.dismissQuestionTodoWithRevision(fixture.db as Database, "u_gus", q2!.id)
+    expect(dismissed.changed).toBe(true)
+    const dismissedAgain = await queries.communityInbox.dismissQuestionTodoWithRevision(fixture.db as Database, "u_gus", q2!.id)
+    expect(dismissedAgain.changed).toBe(false)
+    const afterDismiss = await queries.communityAttention.getAccountAttentionProjection(fixture.db as Database, "u_gus")
+    expect(afterDismiss.items.filter((item) => item.kind === "question")).toEqual([])
+
+    // Cecilia #275: Todo submit (preserveReadState: true) targeting a missing/deleted or non-question message returns 404 and writes nothing.
+    currentActor = { kind: "human", userId: "u_gus" }
+    currentTarget = { kind: "channel", channelId: "chan_1", serverId: "srv_1" }
+    const countBefore = (fixture.sqlite.prepare("SELECT COUNT(*) as c FROM community_message WHERE channel_id = 'chan_1'").get() as { c: number }).c
+    for (const replyToId of ["missing_msg_id", "m_root", undefined]) {
+      const badRes = await POST(
+        new NextRequest("http://localhost/api/community/channels/chan_1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            content: "Orphan answer",
+            ...(replyToId ? { replyToId } : {}),
+            nonce: `bad-${replyToId ?? "none"}`,
+            preserveReadState: true,
+          }),
+        }),
+        { params: Promise.resolve({ id: "chan_1" }) },
+      )
+      expect(badRes.status).toBe(404)
+    }
+    const countAfter = (fixture.sqlite.prepare("SELECT COUNT(*) as c FROM community_message WHERE channel_id = 'chan_1'").get() as { c: number }).c
+    expect(countAfter).toBe(countBefore)
+  })
 })

@@ -379,6 +379,49 @@ describe("account attention wire schemas", () => {
       included: forumIncluded,
     }) }).success).toBe(false)
   })
+
+  it("accepts a question attention item with a question message and rejects forum refs on it", () => {
+    const questionItem = {
+      id: "question:m7",
+      kind: "question" as const,
+      sourceId: "m7",
+      scopeId: "c1",
+      messageId: "m7",
+      actorUserId: "u2",
+      createdAt: "2026-09-27T00:00:00.000Z",
+    }
+    const questionIncluded = {
+      ...included,
+      messages: [{ ...included.messages[0]!, type: "question" as const }],
+    }
+    const questionResources = {
+      ...currentResources,
+      messages: [
+        { ...currentResources.messages[0]!, type: "question" as const },
+        currentResources.messages[1]!,
+      ],
+    }
+
+    expect(AccountAttentionSnapshotSchema.safeParse({
+      resources: questionResources,
+      scopes: [scope],
+      items: [questionItem],
+      limit: 100,
+      truncated: false,
+      included: questionIncluded,
+    }).success).toBe(true)
+    // A pending question in an already-read channel does not need an unread scope.
+    expect(AccountAttentionSnapshotSchema.safeParse({
+      resources: questionResources,
+      scopes: [],
+      items: [questionItem],
+      limit: 100,
+      truncated: false,
+      included: questionIncluded,
+    }).success).toBe(true)
+    expect(AttentionItemSchema.safeParse({ ...questionItem, childChannelId: "post" }).success).toBe(false)
+    expect(AttentionItemSchema.safeParse({ ...questionItem, actorUserId: null }).success).toBe(false)
+  })
 })
 
 it("requires a resource bundle on the HTTP snapshot even for an empty projection", () => {

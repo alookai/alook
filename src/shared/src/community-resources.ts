@@ -92,7 +92,7 @@ export const CommunityMessageResourceSchema = z.strictObject({
   seq: z.number().int().nonnegative(),
   authorId: id,
   createdAt: z.string(),
-  type: z.enum(["chat", "system"]),
+  type: z.enum(["chat", "system", "question"]),
   content: z.string(),
   replyToId: nullableId,
   clientNonce: z.string().nullable(),

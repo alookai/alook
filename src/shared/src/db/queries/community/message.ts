@@ -1,5 +1,5 @@
 import { advanceReadStateRevisionsForUsersBuilder, humanUserExistsCondition } from "./read-state-revision";
-import { eq, ne, and, asc, desc, exists, gt, lt, lte, or, notExists, notInArray, sql, inArray, count, min, type GetColumnData } from "drizzle-orm";
+import { aliasedTable, eq, ne, and, asc, desc, exists, gt, isNotNull, isNull, lt, lte, or, notExists, notInArray, sql, inArray, count, min, type GetColumnData } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -8,15 +8,18 @@ import {
   communityMessageSeq,
   communityChannelMember,
   communityMention,
+  communityQuestionTodo,
   communityMessageTag,
   communityAttachment,
   communityMessageAttachment,
+  communityServerMember,
 } from "../../community-schema";
 import { user } from "../../schema";
 import { nanoid } from "nanoid";
 import type { Database } from "../../index";
 import { jsonTextSet } from "../_json-set";
 import type { CommunityMessagePosition } from "../../../community-resources";
+import { DECISION_CARD_MESSAGE_TYPE } from "../../../community-decision-card";
 import { attachmentReadableSql } from "./attachment";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../../constants/community";
 import { createLogger } from "../../../logger";
@@ -126,6 +129,24 @@ export type CreateMessageData = {
     serverId: string;
     name: string;
   };
+  /**
+   * When `type === "question"`, assignees to index in `community_question_todo`
+   * in the same atomic batch so Inbox Todo queries scan only the viewer's own
+   * assigned questions.
+   */
+  questionAssigneeUserIds?: string[];
+  /**
+   * When set alongside `replyToId`, atomically gate the author's
+   * `community_read_state` watermark bump inside the same batch so it advances
+   * only when no other unread peer message (excluding already-answered
+   * `question` cards) remains in the channel.
+   */
+  preserveReadStateWhenOtherUnread?: { serverId?: string };
+  /**
+   * When true alongside `replyToId`, mark the author's unread mention/reply
+   * row on `replyToId` as read in the same atomic batch.
+   */
+  markReplyMentionRead?: boolean;
 };
 
 export async function createMessage(
@@ -221,20 +242,158 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
     .where(eq(communityChannel.id, data.channelId));
 
   type InsertedMessage = Awaited<typeof insertMsg>[number];
-  const authorWatermark = db
-    .insert(communityReadState)
-    .values({
-      userId: data.authorId,
-      channelId: data.channelId,
-      lastReadAt: now,
-      lastReadMessageId: messageId,
-      lastReadSeq: seq,
-    })
-    .onConflictDoUpdate({
-      target: [communityReadState.userId, communityReadState.channelId],
-      set: { lastReadAt: now, lastReadMessageId: messageId, lastReadSeq: seq },
-      setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
-    });
+  const buildAuthorWatermark = () => {
+    const preserve = data.preserveReadStateWhenOtherUnread;
+    if (!preserve || !data.replyToId) {
+      return db
+        .insert(communityReadState)
+        .values({
+          userId: data.authorId,
+          channelId: data.channelId,
+          lastReadAt: now,
+          lastReadMessageId: messageId,
+          lastReadSeq: seq,
+        })
+        .onConflictDoUpdate({
+          target: [communityReadState.userId, communityReadState.channelId],
+          set: { lastReadAt: now, lastReadMessageId: messageId, lastReadSeq: seq },
+          setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
+        });
+    }
+
+    const existingReadState = aliasedTable(communityReadState, "preserve_existing_read_state");
+    const otherMsg = aliasedTable(communityMessage, "preserve_other_unread");
+    const answeredReply = aliasedTable(communityMessage, "preserve_answered_reply");
+    const notAnsweredByAuthor = or(
+      ne(otherMsg.type, DECISION_CARD_MESSAGE_TYPE),
+      notExists(
+        db
+          .select({ one: sql<number>`1` })
+          .from(answeredReply)
+          .where(
+            and(
+              eq(answeredReply.channelId, otherMsg.channelId),
+              eq(answeredReply.replyToId, otherMsg.id),
+              eq(answeredReply.authorId, data.authorId),
+            ),
+          ),
+      ),
+    )!;
+    const baseSelectFields = {
+      id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+      userId: sql<string>`${data.authorId}`.as("user_id"),
+      channelId: communityMessage.channelId,
+      lastReadAt: communityMessage.createdAt,
+      lastReadMessageId: communityMessage.id,
+      lastReadSeq: communityMessage.seq,
+    };
+    const selected = preserve.serverId
+      ? db
+          .select(baseSelectFields)
+          .from(communityMessage)
+          .leftJoin(
+            existingReadState,
+            and(
+              eq(existingReadState.userId, data.authorId),
+              eq(existingReadState.channelId, data.channelId),
+            ),
+          )
+          .leftJoin(
+            communityServerMember,
+            and(
+              eq(communityServerMember.serverId, preserve.serverId),
+              eq(communityServerMember.userId, data.authorId),
+            ),
+          )
+          .where(
+            and(
+              eq(communityMessage.id, messageId),
+              notExists(
+                db
+                  .select({ one: sql<number>`1` })
+                  .from(otherMsg)
+                  .where(
+                    and(
+                      eq(otherMsg.channelId, data.channelId),
+                      ne(otherMsg.authorId, data.authorId),
+                      ne(otherMsg.id, messageId),
+                      ne(otherMsg.id, data.replyToId),
+                      or(
+                        and(
+                          isNotNull(existingReadState.id),
+                          gt(otherMsg.seq, sql<number>`COALESCE(${existingReadState.lastReadSeq}, 0)`),
+                        ),
+                        and(
+                          isNull(existingReadState.id),
+                          isNotNull(communityServerMember.id),
+                          gt(otherMsg.createdAt, communityServerMember.joinedAt),
+                        ),
+                      ),
+                      notAnsweredByAuthor,
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .limit(1)
+      : db
+          .select(baseSelectFields)
+          .from(communityMessage)
+          .leftJoin(
+            existingReadState,
+            and(
+              eq(existingReadState.userId, data.authorId),
+              eq(existingReadState.channelId, data.channelId),
+            ),
+          )
+          .where(
+            and(
+              eq(communityMessage.id, messageId),
+              notExists(
+                db
+                  .select({ one: sql<number>`1` })
+                  .from(otherMsg)
+                  .where(
+                    and(
+                      eq(otherMsg.channelId, data.channelId),
+                      ne(otherMsg.authorId, data.authorId),
+                      ne(otherMsg.id, messageId),
+                      ne(otherMsg.id, data.replyToId),
+                      gt(otherMsg.seq, sql<number>`COALESCE(${existingReadState.lastReadSeq}, 0)`),
+                      notAnsweredByAuthor,
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .limit(1);
+
+    return db
+      .insert(communityReadState)
+      .select(selected)
+      .onConflictDoUpdate({
+        target: [communityReadState.userId, communityReadState.channelId],
+        set: {
+          lastReadAt: sql`excluded.last_read_at`,
+          lastReadMessageId: sql`excluded.last_read_message_id`,
+          lastReadSeq: sql`excluded.last_read_seq`,
+        },
+        setWhere: sql`${communityReadState.lastReadSeq} < excluded.last_read_seq`,
+      });
+  };
+  const authorWatermarkStatements = [buildAuthorWatermark()];
+  const markReplyMentionStatements = data.markReplyMentionRead && data.replyToId ? [
+    db
+      .update(communityMention)
+      .set({ read: 1 })
+      .where(
+        and(
+          eq(communityMention.userId, data.authorId),
+          eq(communityMention.messageId, data.replyToId),
+          eq(communityMention.read, 0),
+        ),
+      ),
+  ] : [];
   const attachmentStatements = attachmentIds.length === 0 ? [] : [
     db.insert(communityMessageAttachment).values(attachmentIds.map((attachmentId, position) => ({ messageId, attachmentId, position }))),
   ];
@@ -260,6 +419,22 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
   const mentionStatements = chunk(data.mentions ?? [], maxRowsPerInsert(5)).map((mentions) =>
     db.insert(communityMention).values(mentions.map((mention) => ({ messageId, ...mention })))
   );
+  const questionAssigneeIds = data.type === DECISION_CARD_MESSAGE_TYPE
+    ? [...new Set((data.questionAssigneeUserIds ?? []).filter((userId) => userId !== data.authorId))]
+    : [];
+  const questionTodoStatements = chunk(questionAssigneeIds, maxRowsPerInsert(5)).map((assigneeUserIds) =>
+    db.insert(communityQuestionTodo).values(
+      assigneeUserIds.map((userId) => ({
+        userId,
+        messageId,
+        channelId: data.channelId,
+        createdAt: now,
+        dismissedAt: null,
+      })),
+    ).onConflictDoNothing({
+      target: [communityQuestionTodo.userId, communityQuestionTodo.messageId],
+    })
+  );
   const participantStatements = chunk(data.participants ?? [], maxRowsPerInsert(6)).map((participants) =>
     db.insert(communityChannelMember).values(participants.map((participant) => ({
       channelId: data.channelId,
@@ -274,10 +449,12 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
     insertMsg,
     scopeUpdate,
     ...(data.extraStatements ?? []),
-    authorWatermark,
+    ...authorWatermarkStatements,
+    ...markReplyMentionStatements,
     ...attachmentStatements,
     ...threadStatements,
     ...mentionStatements,
+    ...questionTodoStatements,
     ...participantStatements,
   ];
   const participantStart = baseStatements.length - participantStatements.length;

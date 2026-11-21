@@ -1401,3 +1401,119 @@ describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () =
     expect(markReadMutate).not.toHaveBeenCalled()
   })
 })
+
+describe("assigned question card realtime attention sync (Inbox closed)", () => {
+  const buildCardEmbeds = async (assignees: Array<{ userId: string; handle: string }>) => {
+    const { buildDecisionCardEmbed, DecisionCardInputSchema } = await import("@alook/shared")
+    return [
+      buildDecisionCardEmbed(
+        DecisionCardInputSchema.parse({
+          summary: "Confirm deploy timing",
+          questions: [{
+            id: "q1",
+            question: "Deploy tonight?",
+            options: [
+              { id: "yes", label: "Yes" },
+              { id: "no", label: "No" },
+            ],
+          }],
+        }),
+        assignees,
+      ),
+    ]
+  }
+
+  it("reconciles account attention on message.create for an assigned question in a muted channel even when Inbox is closed and no unread/mention event arrives", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    getCapturedRuntime().ui.actions.setCurrentServerId("s1")
+    getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_other" })
+    getCommunityApiFetchMock().mockClear()
+
+    const embeds = await buildCardEmbeds([{ userId: "u_me", handle: "gus#1813" }])
+    const message = messageResourceFixture({
+      id: "q_muted_1",
+      channelId: "ch_muted",
+      authorId: "u_bot",
+      authorName: "Evan",
+      authorAvatarVersion: 0,
+      content: "Confirm deploy timing",
+      type: "question",
+      embeds,
+      seq: 5,
+      createdAt: "2026-07-03T00:00:00.000Z",
+    })
+    capturedOnMessage!(currentCommunityEventFixture({
+      type: "community:message.create",
+      serverId: "s1",
+      channelId: "ch_muted",
+      profiles: messageProfilesFixture([message]),
+      message,
+    }))
+
+    await vi.waitFor(() => {
+      expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/attention")).toHaveLength(1)
+    })
+  })
+
+  it("does NOT reconcile account attention for an unassigned or other-assignee server question without unread/mention events", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    getCommunityApiFetchMock().mockClear()
+
+    for (const [id, assignees] of [
+      ["q_other_user", [{ userId: "u_someone_else", handle: "bob#0002" }]],
+      ["q_open_poll", []],
+    ] as const) {
+      const embeds = await buildCardEmbeds([...assignees])
+      const message = messageResourceFixture({
+        id,
+        channelId: "ch_muted",
+        authorId: "u_bot",
+        authorName: "Evan",
+        authorAvatarVersion: 0,
+        content: "Not mine",
+        type: "question",
+        embeds,
+        seq: 6,
+        createdAt: "2026-07-03T00:01:00.000Z",
+      })
+      capturedOnMessage!(currentCommunityEventFixture({
+        type: "community:message.create",
+        serverId: "s1",
+        channelId: "ch_muted",
+        profiles: messageProfilesFixture([message]),
+        message,
+      }))
+    }
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/attention")).toHaveLength(0)
+  })
+
+  it("reconciles account attention on DM question message.create even when no unread.bump arrives", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    getCommunityApiFetchMock().mockClear()
+
+    const embeds = await buildCardEmbeds([{ userId: "u_me", handle: "gus#1813" }])
+    const message = messageResourceFixture({
+      id: "q_dm_1",
+      channelId: "dm_muted",
+      authorId: "u_bot",
+      authorName: "Evan",
+      authorAvatarVersion: 0,
+      content: "Confirm deploy timing",
+      type: "question",
+      embeds,
+      seq: 3,
+      createdAt: "2026-07-03T00:02:00.000Z",
+    })
+    capturedOnMessage!(currentCommunityEventFixture({
+      type: "community:message.create",
+      channelId: "dm_muted",
+      profiles: messageProfilesFixture([message]),
+      message,
+    }))
+
+    await vi.waitFor(() => {
+      expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/attention")).toHaveLength(1)
+    })
+  })
+})
