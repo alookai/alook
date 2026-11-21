@@ -478,6 +478,56 @@ describe("useUserWs", () => {
 
   })
 
+  it("reconnects after an older service rejects the handshake without updating the page", async () => {
+    mockSdkSession.set(sdkSession())
+    setupTokenFetch()
+    const upgrade = vi.spyOn(schemaLifecycle, "requestBusinessSchemaUpdate")
+    const authenticated = vi.fn(), received = vi.fn()
+    try {
+      await mountHook(received, { viewerUserId: "user-1", onAuthenticated: authenticated })
+      const stale = MockWebSocket.instances[0]!
+      const close = vi.spyOn(stale, "close")
+      stale.simulateOpen()
+      stale.simulateMessage({ type: "auth.error", error: "Unsupported community contract", communityContract: BUSINESS_SCHEMA_VERSION - 1 })
+      expect(upgrade).not.toHaveBeenCalled()
+      expect(close).toHaveBeenCalledExactlyOnceWith()
+      expect(authenticated).not.toHaveBeenCalled()
+      expect(received).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(MockWebSocket.instances).toHaveLength(2)
+      expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token", "/api/ws/token"])
+      expect(mockSdkSession.refetch).not.toHaveBeenCalled()
+      const current = MockWebSocket.instances[1]!
+      current.simulateOpen()
+      current.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+      const event = encodeCommunityBrowserEvent(explicitMembership)
+      if (!event.ok) throw new Error("Invalid current membership fixture")
+      current.simulateMessage(event.envelope)
+      expect(authenticated).toHaveBeenCalledOnce()
+      expect(received).toHaveBeenCalledExactlyOnceWith(event.envelope, undefined, BUSINESS_SCHEMA_VERSION)
+    } finally {
+      upgrade.mockRestore()
+    }
+  })
+
+  it("requests a page update when the service rejects the handshake with a newer schema", async () => {
+    setupTokenFetch()
+    const upgrade = vi.spyOn(schemaLifecycle, "requestBusinessSchemaUpdate")
+    try {
+      await mountHook(vi.fn())
+      const ws = MockWebSocket.instances[0]!
+      ws.simulateOpen()
+      ws.simulateMessage({ type: "auth.error", error: "Unsupported community contract", communityContract: BUSINESS_SCHEMA_VERSION + 1 })
+      expect(upgrade).toHaveBeenCalledExactlyOnceWith(BUSINESS_SCHEMA_VERSION + 1)
+      expect(ws.closed).toBe(true)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(MockWebSocket.instances).toHaveLength(1)
+    } finally {
+      upgrade.mockRestore()
+    }
+  })
+
   it("requires protocol confirmation before a v2 batch reaches the callback", async () => {
     setupTokenFetch()
     const callback = vi.fn()
@@ -529,8 +579,8 @@ describe("useUserWs", () => {
     expect(ws.closed).toBe(true)
     expect(authenticated).not.toHaveBeenCalled()
     expect(callback).not.toHaveBeenCalled()
-    if (contract === undefined) expect(upgrade).not.toHaveBeenCalled()
-    else expect(upgrade).toHaveBeenCalledExactlyOnceWith(contract)
+    if (contract !== undefined && contract > BUSINESS_SCHEMA_VERSION) expect(upgrade).toHaveBeenCalledExactlyOnceWith(contract)
+    else expect(upgrade).not.toHaveBeenCalled()
     upgrade.mockRestore()
   })
 

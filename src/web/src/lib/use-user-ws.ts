@@ -579,7 +579,7 @@ export function useUserWs(
       : websocketUrl("user", { local: false, origin: location.origin })
     const url = `${wsBaseUrl}?userId=${userId}`
 
-    let protocolRejected = false
+    let protocolRejection: "reconnect" | "stop" | undefined
 
     let communityContract: CommunityContract = COMMUNITY_CONTRACT_VERSION
     const requestedCommunityContract = requestedCommunityContractRef.current
@@ -609,6 +609,13 @@ export function useUserWs(
       if (!ownsConnection(ws, generation)) return
       recoverTimedOutConnection(ws, generation)
     }, WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+
+    const rejectCommunityContract = (version: unknown) => {
+      const peerVersion = typeof version === "number" && Number.isSafeInteger(version) && version > 0 ? version : undefined
+      protocolRejection = peerVersion !== undefined && peerVersion < COMMUNITY_CONTRACT_VERSION ? "reconnect" : "stop"
+      if (peerVersion !== undefined && peerVersion > COMMUNITY_CONTRACT_VERSION) requestBusinessSchemaUpdate(peerVersion)
+      ws.close()
+    }
 
     ws.onopen = () => {
       if (!ownsConnection(ws, generation)) return
@@ -646,9 +653,7 @@ export function useUserWs(
       }
       const msg = parsed as Record<string, unknown>
       if (msg.type === "auth.error") {
-        protocolRejected = true
-        if (Number.isSafeInteger(msg.communityContract) && Number(msg.communityContract) > 0 && msg.communityContract !== requestedCommunityContract) requestBusinessSchemaUpdate(Number(msg.communityContract))
-        ws.close(1008, "Community contract mismatch")
+        rejectCommunityContract(msg.communityContract)
         return
       }
       if (typeof msg.type !== "string" || msg.type.length === 0) {
@@ -690,10 +695,8 @@ export function useUserWs(
         }
         const confirmed = msg.communityContract
         if (confirmed !== COMMUNITY_CONTRACT_VERSION || confirmed !== requestedCommunityContract) {
-          protocolRejected = true
-          if (Number.isSafeInteger(confirmed) && Number(confirmed) > 0) requestBusinessSchemaUpdate(Number(confirmed))
           reportDroppedFrame("invalid-payload", msg)
-          ws.close(1008, "Community contract confirmation mismatch")
+          rejectCommunityContract(confirmed)
           return
         }
         communityContract = confirmed
@@ -741,10 +744,8 @@ export function useUserWs(
       }
       if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(communityContract))
         || (isCommunityEventCandidate(msg) && !isCommunityBatch && msg.schemaVersion !== communityContract)) {
-        protocolRejected = true
-        if (Number.isSafeInteger(msg.schemaVersion) && Number(msg.schemaVersion) > 0 && msg.schemaVersion !== communityContract) requestBusinessSchemaUpdate(Number(msg.schemaVersion))
         reportDroppedFrame("invalid-payload", msg)
-        ws.close(1008, "Community contract mismatch")
+        rejectCommunityContract(msg.schemaVersion)
         return
       }
 
@@ -794,7 +795,7 @@ export function useUserWs(
       }
       stopHeartbeat()
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
-      if (!wasAuthenticated && viewerUserId !== undefined && !protocolRejected && isWsCredentialRejection(event)) {
+      if (!wasAuthenticated && viewerUserId !== undefined && !protocolRejection && isWsCredentialRejection(event)) {
         if (sdkSession) credentialRetryRef.current.rejectedSessionId = sdkSession.session.id
         else stopCredentialRetry()
       }
@@ -802,7 +803,7 @@ export function useUserWs(
         isBackground() || frozenRef.current ? "suspended" : "reconnecting",
       )
       if (generation !== connectionGenerationRef.current) return
-      if (protocolRejected) { credentialRetryRef.current.stopped = true; return }
+      if (protocolRejection === "stop") { credentialRetryRef.current.stopped = true; return }
       if (failedValidation && !isBackground() && !isOffline() && !frozenRef.current) {
         void connectRef.current?.()
       } else {
