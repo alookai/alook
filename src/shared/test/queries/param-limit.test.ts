@@ -253,7 +253,28 @@ describe("listEligibleUnreadChannels bound parameters", () => {
     expect(statements.map(({ params }) => params.filter(
       (value) => typeof value === "string" && value.startsWith("channel_"),
     ).length)).toEqual([80, 15]);
-    expect(statements.map(({ params }) => params.length)).toEqual([92, 27]);
+    expect(statements.map(({ params }) => params.length)).toEqual([93, 28]);
+    for (const { params } of statements) {
+      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    }
+  });
+
+  it("listPendingQuestionMessages keeps statements within D1's limit", async () => {
+    const { db, statements } = makeD1SelectCapture();
+    const serverChannelIds = Array.from({ length: 95 }, (_, index) => `channel_${index}`);
+    const dmChannelIds = Array.from({ length: 95 }, (_, index) => `dm_${index}`);
+
+    await expect(
+      inboxQueries.listPendingQuestionMessages(
+        db as never,
+        "user_1",
+        serverChannelIds,
+        dmChannelIds,
+        { limit: 51 },
+      ),
+    ).resolves.toEqual([]);
+
+    expect(statements).toHaveLength(3);
     for (const { params } of statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
     }

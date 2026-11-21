@@ -1,7 +1,7 @@
-export const COMMUNITY_CONTRACT_VERSION = 10
+export const COMMUNITY_CONTRACT_VERSION = 11
 
 export function assertCommunityContractVersion(version) {
-  if (version !== COMMUNITY_CONTRACT_VERSION) throw new Error('communityContractVersion must explicitly be 10')
+  if (version !== COMMUNITY_CONTRACT_VERSION) throw new Error('communityContractVersion must explicitly be 11')
 }
 
 export function readChannelEnvelope(value, channelId, version) {

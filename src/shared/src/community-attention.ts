@@ -17,7 +17,7 @@ export const AttentionScopeSchema = z.strictObject({
 
 export const AttentionItemSchema = z.strictObject({
   id,
-  kind: z.enum(["mention", "reply", "friend_request", "forum_post"]),
+  kind: z.enum(["mention", "reply", "friend_request", "forum_post", "question"]),
   sourceId: id,
   scopeId: id.nullable().optional(),
   messageId: id.nullable().optional(),
@@ -59,7 +59,7 @@ export const AttentionItemSchema = z.strictObject({
     ctx.addIssue({ code: "custom", message: "message attention requires an actor" })
   }
   if (item.childChannelId || item.openerSeq !== undefined || item.readTarget) {
-    ctx.addIssue({ code: "custom", message: "mention or reply cannot carry forum presentation refs" })
+    ctx.addIssue({ code: "custom", message: "message attention cannot carry forum presentation refs" })
   }
 })
 
@@ -108,6 +108,7 @@ export const AccountAttentionProjectionSchema = z.strictObject({
   items: z.array(AttentionItemSchema),
   limit: z.number().int().positive(),
   truncated: z.boolean(),
+  todosTruncated: z.boolean().optional(),
   included: AttentionIncludedSchema,
 })
 
@@ -184,12 +185,32 @@ export const AccountAttentionSnapshotSchema = AccountAttentionProjectionSchema.e
       ctx.addIssue({ code: "custom", message: `duplicate attention item: ${item.id}` })
     }
     itemIds.add(item.id)
-    if (item.scopeId && !scopeIds.has(item.scopeId)) {
+    if (item.kind !== "question" && item.scopeId && !scopeIds.has(item.scopeId)) {
       ctx.addIssue({ code: "custom", message: `attention item references missing scope: ${item.scopeId}` })
     }
     if (item.kind === "friend_request") {
       if (!item.actorUserId || !profileById.has(item.actorUserId)) {
         ctx.addIssue({ code: "custom", message: `friend request references missing profile: ${item.id}` })
+      }
+      continue
+    }
+    if (item.kind === "question") {
+      const message = item.messageId ? messageById.get(item.messageId) : undefined
+      const channel = item.scopeId ? channelById.get(item.scopeId) : undefined
+      const dm = item.scopeId ? dmById.get(item.scopeId) : undefined
+      const ownerValid = Boolean(
+        (channel && serverById.has(channel.serverId))
+        || (dm && profileById.has(dm.userId)),
+      )
+      if (
+        !item.scopeId
+        || !message
+        || message.channelId !== item.scopeId
+        || !item.actorUserId
+        || !profileById.has(item.actorUserId)
+        || !ownerValid
+      ) {
+        ctx.addIssue({ code: "custom", message: `question attention references incomplete owners: ${item.id}` })
       }
       continue
     }

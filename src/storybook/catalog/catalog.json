@@ -4435,6 +4435,7 @@
         "InboxUnreadsSkeleton",
         "MarkedTab",
         "ResizeObserverConstructor",
+        "TodoTab",
         "UnreadChannelCard",
         "UnreadsTab"
       ],
@@ -9451,6 +9452,18 @@
       "id": "web-business-shell-details--user-bar-inbox-extension",
       "title": "Web/Business/Shell details",
       "name": "User Bar Inbox Extension",
+      "source": "src/storybook/stories/business/shell-details.stories.tsx"
+    },
+    {
+      "id": "web-business-shell-details--inbox-todo-desktop",
+      "title": "Web/Business/Shell details",
+      "name": "Inbox Todo Desktop",
+      "source": "src/storybook/stories/business/shell-details.stories.tsx"
+    },
+    {
+      "id": "web-business-shell-details--inbox-todo-mobile",
+      "title": "Web/Business/Shell details",
+      "name": "Inbox Todo Mobile",
       "source": "src/storybook/stories/business/shell-details.stories.tsx"
     },
     {

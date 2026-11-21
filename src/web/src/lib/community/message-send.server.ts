@@ -35,8 +35,9 @@ export async function handleHumanSend(
   const resolved = await resolveMessageTarget(db, userId, descriptor, "human", "communicate")
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status })
 
-  const body = raw as { nonce?: unknown; attachments?: unknown }
+  const body = raw as { nonce?: unknown; attachments?: unknown; preserveReadState?: unknown }
   const clientNonce = typeof body?.nonce === "string" ? body.nonce : undefined
+  const preserveReadState = body?.preserveReadState === true
   const target = resolved.value.target
 
   const attachmentIds = Array.isArray(body.attachments)
@@ -87,6 +88,7 @@ export async function handleHumanSend(
     source: "web",
     clientNonce,
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+    ...(preserveReadState ? { preserveReadState: true } : {}),
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   const response = humanMessageConfirmation(db, contract, target.channelId, { ...await mapPostedMessageForApi(db, target.channelId, { ...result.row, clientNonce }, contract), deduped: result.deduped }, 201)

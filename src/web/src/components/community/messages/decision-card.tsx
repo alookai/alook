@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import {
   DECISION_CARD_OTHER_TEXT_MAX_LENGTH,
   formatDecisionCardAnswerMessage,
@@ -21,6 +21,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { isAbortError } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 import { tid } from "@/lib/community/testids"
 import type { OpenProfile } from "../social/profile-types"
 import { MentionPill } from "./inline-marks"
@@ -128,6 +129,8 @@ export function DecisionCard({
   liveRespondedUserIds,
   onOpenProfile,
   compact,
+  header,
+  className,
 }: {
   card: DecisionCardEmbed
   messageId: string
@@ -137,6 +140,8 @@ export function DecisionCard({
   liveRespondedUserIds?: readonly string[]
   onOpenProfile?: OpenProfile
   compact?: boolean
+  header?: ReactNode
+  className?: string
 }) {
   const [draft, setDraft] = useState<DraftMap>(() => createInitialDraft(card))
   const [activeQuestionId, setActiveQuestionId] = useState<string>(() => card.questions[0]?.id ?? "")
@@ -540,9 +545,14 @@ export function DecisionCard({
       aria-label={card.summary ?? "Decision card"}
       data-testid={tid.decisionCard}
       data-swipe-ignore=""
-      className="my-2 w-full max-w-lg min-w-0"
+      className={cn("my-2 w-full max-w-lg min-w-0", className)}
     >
       <CardContent className="flex flex-col gap-4">
+        {header && (
+          <div className="border-b border-border/60 pb-3">
+            {header}
+          </div>
+        )}
         {(card.summary || hasAssignees || respondedUserIds.size > 0) && (
           <div className="flex flex-col gap-1.5">
             {card.summary && (

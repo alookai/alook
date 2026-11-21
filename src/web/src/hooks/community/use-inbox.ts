@@ -16,6 +16,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { COMMUNITY_INBOX_CONTEXT_HEADER, type CommunityResourceBundle } from "@alook/shared"
 import type {
 InboxFriendRequest,
+InboxTodo,
 Marked,
 Mention,
 UnreadDm,
@@ -63,6 +64,8 @@ type ProjectedUnreadChannel = UnreadServer["channels"][number]
  */
 export function useInboxAttention() {
   const query = useAccountAttentionProjection()
+  const registry = useOptionalCommunityDbRegistry()
+  const viewerId = registry?.accountId ?? null
   const channelsById = useCanonicalChannelsById()
   const messageIds = useMemo(() => [...new Set(query.items.flatMap((item) => item.messageId ? [item.messageId] : []))], [query.items])
   const messagesById = useCanonicalMessagesById(messageIds)
@@ -227,6 +230,29 @@ export function useInboxAttention() {
       }]
     })
 
+    const todos: InboxTodo[] = query.items.flatMap((item) => {
+      if (item.kind !== "question" || !item.scopeId || !item.messageId) return []
+      const channel = channelsById.get(item.scopeId)
+      const message = messagesById?.get(item.messageId)
+      if (!channel || !message?.decisionCard) return []
+      if (viewerId && message.decisionCard.respondedUserIds?.includes(viewerId)) return []
+      const serverId = channel.serverId ?? null
+      const dm = !serverId ? dmById.get(channel.id) : undefined
+      return [{
+        id: item.id,
+        messageId: item.messageId,
+        channelId: channel.id,
+        serverId,
+        server: serverId
+          ? serversById.get(serverId)?.name ?? ""
+          : dm?.name ?? "",
+        channel: channel.name ?? dm?.name ?? "",
+        parentChannelId: channel.parentChannelId ?? null,
+        createdAt: item.createdAt,
+        m: message,
+      }]
+    })
+
     const conversations = new Set<string>()
     for (const server of servers) {
       for (const channel of server.channels) {
@@ -236,9 +262,10 @@ export function useInboxAttention() {
     }
     for (const dm of dms) conversations.add(dm.channelId)
     for (const mention of mentions) conversations.add(mention.channelId ?? mention.id)
+    for (const todo of todos) conversations.add(todo.channelId)
     const exactAttentionCount = conversations.size + friendRequests.length
 
-    return { servers, dms, mentions, friendRequests, exactAttentionCount }
+    return { servers, dms, mentions, todos, friendRequests, exactAttentionCount }
   }, [
     channelsById,
     dmProjection,
@@ -247,6 +274,7 @@ export function useInboxAttention() {
     query.items,
     query.scopes,
     serversById,
+    viewerId,
   ])
 
   return {
@@ -254,6 +282,8 @@ export function useInboxAttention() {
     ...projected,
     hasUnread: projected.servers.length > 0 || projected.dms.length > 0,
     hasMention: projected.mentions.length > 0,
+    hasTodo: projected.todos.length > 0,
+    todosTruncated: Boolean(query.data?.todosTruncated),
     hasProjectedUnread: projected.servers.length > 0 || projected.dms.length > 0,
     hasProjectedMention: projected.mentions.length > 0,
     hasOutstandingFriendRequest: projected.friendRequests.length > 0,

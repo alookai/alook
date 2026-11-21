@@ -36,6 +36,17 @@ export function communityWriteDb() {
     );
     CREATE UNIQUE INDEX uq_community_message_channel_seq ON community_message(channel_id, seq) WHERE seq > 0;
     CREATE UNIQUE INDEX uq_message_author_client_nonce ON community_message(author_id, client_nonce) WHERE client_nonce IS NOT NULL;
+    CREATE TABLE community_question_todo (
+      user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      message_id TEXT NOT NULL REFERENCES community_message(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL REFERENCES community_channel(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      dismissed_at TEXT,
+      PRIMARY KEY (user_id, message_id)
+    );
+    CREATE INDEX idx_community_question_todo_user_active ON community_question_todo(user_id, created_at DESC, message_id DESC) WHERE dismissed_at IS NULL;
+    CREATE INDEX idx_community_question_todo_message_id_lookup ON community_question_todo(message_id);
+    CREATE INDEX idx_community_question_todo_channel_id_lookup ON community_question_todo(channel_id);
     CREATE TABLE community_message_seq (channel_id TEXT PRIMARY KEY REFERENCES community_channel(id), next_seq INTEGER NOT NULL);
     CREATE TABLE community_read_state (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, channel_id TEXT NOT NULL, last_read_at TEXT, last_read_message_id TEXT, last_read_seq INTEGER NOT NULL,

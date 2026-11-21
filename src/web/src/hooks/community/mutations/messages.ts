@@ -162,6 +162,151 @@ export function useSendDmMessage() {
   return useSendScopedMessage<SendDmMessageArgs>("dm")
 }
 
+export type SubmitInboxDecisionCardArgs = {
+  channelId: string
+  messageId: string
+  content: string
+  nonce: string
+}
+
+export function useSubmitInboxDecisionCard() {
+  const origin = useCommunityMutationOrigin()
+  const queryClient = useQueryClient()
+  type Original = ReturnType<typeof origin.begin>["token"]
+  type Context = { attentionSnapshot?: AttentionIntent }
+  const mutation = useMutation<
+    { replyToId: string | null },
+    Error,
+    { input: SubmitInboxDecisionCardArgs; original: Original },
+    Context
+  >({
+    meta: { observabilityAction: "inbox.decision_card.submit" },
+    mutationFn: async ({ input: { channelId, messageId, content, nonce }, original }) => {
+      origin.assert(original)
+      const result = await origin.request<SendMessageResult>(
+        original,
+        `/api/community/channels/${channelId}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content,
+            replyToId: messageId,
+            nonce,
+            preserveReadState: true,
+          }),
+        },
+      )
+      await origin.registry!.collections.messages.preload()
+      origin.assert(original)
+      const message = postedMessageForIntent(result.message, nonce, channelId)
+      await publishCommunityMessages(queryClient, {
+        channelId,
+        profiles: result.profiles,
+        messages: [message],
+        relatedMessages: result.relatedMessages,
+        proof: { token: original },
+      })
+      return { replyToId: result.message.replyToId ?? null }
+    },
+    onSuccess: async (data, { input: { messageId }, original }) => {
+      try { origin.assert(original) } catch { return }
+      if (data.replyToId !== messageId) return
+      const registry = origin.registry
+      if (registry) {
+        const snapshot = removeAttentionItemsOptimistically(
+          registry,
+          (item) => item.kind === "question" && item.messageId === messageId,
+        )
+        await commitAttentionOptimisticSnapshot(registry, snapshot)
+        void reconcileAccountReadState(queryClient).catch(() => undefined)
+        void reconcileAccountAttention(registry).catch(() => undefined)
+      }
+      toast("Answer sent")
+    },
+  })
+  return {
+    ...mutation,
+    mutate: (
+      input: SubmitInboxDecisionCardArgs,
+      options?: Parameters<typeof mutation.mutate>[1],
+    ) => mutation.mutate({ input, original: origin.begin().token }, options),
+    mutateAsync: (
+      input: SubmitInboxDecisionCardArgs,
+      options?: Parameters<typeof mutation.mutateAsync>[1],
+    ) => mutation.mutateAsync({ input, original: origin.begin().token }, options),
+  }
+}
+
+export type DismissInboxTodoArgs = { messageId: string }
+
+export function useDismissInboxTodo() {
+  const origin = useCommunityMutationOrigin()
+  type Original = ReturnType<typeof origin.begin>["token"]
+  const mutation = useMutation<
+    { revision: number },
+    Error,
+    { input: DismissInboxTodoArgs; original: Original },
+    { attentionSnapshot?: AttentionIntent }
+  >({
+    meta: { observabilityAction: "inbox.todo.dismiss" },
+    scope: { id: "community-todo-dismiss" },
+    mutationFn: async ({ input: { messageId }, original }) => {
+      return origin.request<{ revision: number }>(
+        original,
+        `/api/community/users/me/inbox/todos/${encodeURIComponent(messageId)}`,
+        { method: "DELETE" },
+      )
+    },
+    onMutate: async ({ input: { messageId }, original }) => {
+      const registry = origin.registry
+      await registry?.ready
+      origin.assert(original)
+      await Promise.all([
+        registry!.collections.attentionScopes.preload(),
+        registry!.collections.attentionItems.preload(),
+      ])
+      origin.assert(original)
+      const attentionSnapshot = registry
+        ? removeAttentionItemsOptimistically(
+            registry,
+            (item) => item.kind === "question" && item.messageId === messageId,
+          )
+        : undefined
+      return { attentionSnapshot }
+    },
+    onSuccess: async (_result, { original }, context) => {
+      origin.assert(original)
+      const registry = origin.registry
+      if (registry && context.attentionSnapshot) {
+        await commitAttentionOptimisticSnapshot(registry, context.attentionSnapshot)
+        origin.assert(original)
+        void reconcileAccountAttention(registry).catch(() => undefined)
+      }
+    },
+    onError: (err, { original }, ctx) => {
+      const registry = origin.registry
+      if (registry && ctx?.attentionSnapshot) {
+        restoreAttentionOptimisticSnapshot(registry, ctx.attentionSnapshot)
+      }
+      try { origin.assert(original) } catch { return }
+      if (isAbortError(err)) return
+      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
+      toastApiError(err, "Failed to dismiss question")
+    },
+  })
+  return {
+    ...mutation,
+    mutate: (
+      input: DismissInboxTodoArgs,
+      options?: Parameters<typeof mutation.mutate>[1],
+    ) => mutation.mutate({ input, original: origin.begin().token }, options),
+    mutateAsync: (
+      input: DismissInboxTodoArgs,
+      options?: Parameters<typeof mutation.mutateAsync>[1],
+    ) => mutation.mutateAsync({ input, original: origin.begin().token }, options),
+  }
+}
+
 export type { ReactionArgs } from "./message-command-inputs"
 
 export { useToggleReactionApi, useAddReactionApi } from "./message-reactions"

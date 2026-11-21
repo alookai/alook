@@ -1,6 +1,7 @@
 import {
   queries,
   isMentionType,
+  DECISION_CARD_MESSAGE_TYPE,
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   PARTICIPANT_SOURCE,
@@ -107,7 +108,7 @@ type FullMessageRow = NonNullable<
 
 type CreateMessageError = {
   ok: false
-  status: 400 | 409
+  status: 400 | 404 | 409
   error: string
 }
 
@@ -182,6 +183,12 @@ export async function createCommunityMessage(params: {
    * strings inside question/option prose cannot notify unintended users.
    */
   explicitMentionedUserIds?: readonly string[]
+  /**
+   * When true and replying to a `question` (Decision Card) message from Inbox,
+   * mark the author's unread mention on that card as read and only advance the
+   * channel's `lastReadSeq` if no other unread peer messages remain.
+   */
+  preserveReadState?: boolean
 }): Promise<CreateMessageResult> {
   const {
     db,
@@ -198,6 +205,7 @@ export async function createCommunityMessage(params: {
     type,
     embeds,
     explicitMentionedUserIds,
+    preserveReadState,
   } = params
 
   const content = typeof body.content === "string" ? body.content : ""
@@ -262,6 +270,9 @@ export async function createCommunityMessage(params: {
       { route: "message-handler:reply-scope" },
     )
     if (!resolvedReplyMsg) {
+      if (preserveReadState && authorKind === "human") {
+        return { ok: false, status: 404, error: "question message not found" }
+      }
       log.warn("reply_to_out_of_scope_dropped", {
         authorId,
         channelId: target.channelId,
@@ -270,6 +281,13 @@ export async function createCommunityMessage(params: {
       })
       replyToId = undefined
     }
+  }
+  if (
+    preserveReadState
+    && authorKind === "human"
+    && (!resolvedReplyMsg || resolvedReplyMsg.type !== DECISION_CARD_MESSAGE_TYPE)
+  ) {
+    return { ok: false, status: 404, error: "question message not found" }
   }
   const mentionType: MentionType | undefined =
     explicitMentionedUserIds === undefined && !isDmTarget(target) && isMentionType(body.mentionType)
@@ -442,6 +460,18 @@ export async function createCommunityMessage(params: {
         conversationType,
       })]
     : []
+  const isPreservedQuestionReply = Boolean(
+    preserveReadState
+    && authorKind === "human"
+    && replyToId
+    && resolvedReplyMsg?.type === DECISION_CARD_MESSAGE_TYPE,
+  )
+  const questionAssigneeUserIds = type === DECISION_CARD_MESSAGE_TYPE
+    ? (isDmTarget(target)
+      ? (target.otherUserId !== authorId ? [target.otherUserId] : [])
+      : [...mentionTargets].filter((userId) => userId !== authorId))
+    : undefined
+
   const baseMessageData: Omit<Parameters<typeof queries.communityMessage.createMessage>[1], "expectedSeq"> = {
     ...(messageId ? { id: messageId } : {}),
     authorId,
@@ -450,6 +480,7 @@ export async function createCommunityMessage(params: {
     channelId: target.channelId,
     ...(type ? { type } : {}),
     ...(embeds !== undefined ? { embeds } : {}),
+    ...(questionAssigneeUserIds?.length ? { questionAssigneeUserIds } : {}),
     replyToId,
     mentionType,
     clientNonce,
@@ -463,6 +494,12 @@ export async function createCommunityMessage(params: {
       ...[...replyTargets].map((userId) => ({ userId, kind: MENTION_KIND.REPLY })),
     ],
     forumThread: params.forumThread,
+    ...(isPreservedQuestionReply
+      ? {
+          preserveReadStateWhenOtherUnread: isDmTarget(target) ? {} : { serverId: target.serverId },
+          markReplyMentionRead: true,
+        }
+      : {}),
   }
 
   let created: Awaited<ReturnType<typeof queries.communityMessage.createMessage>>

@@ -1,5 +1,5 @@
 export type MessageWireType = {
-  type: "chat" | "system"
+  type: "chat" | "system" | "question"
   systemKind?: "thread"
 }
 
@@ -10,5 +10,6 @@ export function projectMessageWireType(
     return { type: "system", systemKind: "thread" }
   }
   if (type === "system") return { type: "system" }
+  if (type === "question") return { type: "question" }
   return { type: "chat" }
 }

@@ -309,6 +309,38 @@ export function extractDecisionCardFromEmbeds(embeds: readonly unknown[] | undef
   };
 }
 
+/**
+ * Shared Todo eligibility predicate used by both server attention projection
+ * and live WS `message.create` reconciliation: server-channel/thread questions
+ * must explicitly assign `userId`, while DM questions include either explicit
+ * assignments to `userId` or unlabelled direct asks.
+ */
+export function isAssignedDecisionCardForUser(
+  embeds: readonly unknown[] | string | null | undefined,
+  userId: string,
+  isDm: boolean,
+): boolean {
+  if (!embeds || !userId) return false;
+  let parsed: readonly unknown[];
+  if (typeof embeds === "string") {
+    try {
+      const value: unknown = JSON.parse(embeds);
+      if (!Array.isArray(value)) return false;
+      parsed = value;
+    } catch {
+      return false;
+    }
+  } else {
+    parsed = embeds;
+  }
+  const { card } = extractDecisionCardFromEmbeds(parsed);
+  if (!card) return false;
+  if (isDm) {
+    return card.assignees.length === 0 || card.assignees.some((assignee) => assignee.userId === userId);
+  }
+  return card.assignees.some((assignee) => assignee.userId === userId);
+}
+
 function truncateUtf8Bytes(value: string, maxBytes: number): string {
   const encoder = new TextEncoder();
   if (encoder.encode(value).byteLength <= maxBytes) return value;

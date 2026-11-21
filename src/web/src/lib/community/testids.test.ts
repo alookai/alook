@@ -43,7 +43,11 @@ describe("community QA selectors", () => {
     expect(tid.inboxMobileSurface).toBe("community-inbox-mobile-surface")
     expect(tid.inboxMobileCard).toBe("community-inbox-mobile-card")
     expect(tid.inboxTabList).toBe("community-inbox-tab-list")
+    expect(tid.inboxTabScroll("todo")).toBe("community-inbox-todo-scroll")
     expect(tid.inboxTabScroll("marked")).toBe("community-inbox-marked-scroll")
+    expect(tid.inboxTodoCard("m_1")).toBe("community-inbox-todo-card-m_1")
+    expect(tid.inboxTodoOpen("m_1")).toBe("community-inbox-todo-open-m_1")
+    expect(tid.inboxTodoDismiss("m_1")).toBe("community-inbox-todo-dismiss-m_1")
   })
 
   it("keys forum-title read models by their stable child identity", () => {

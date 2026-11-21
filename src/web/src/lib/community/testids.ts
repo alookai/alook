@@ -311,6 +311,9 @@ export const tid = {
   inboxUnreadChild: (id: string) => `community-inbox-unread-child-${id}`,
   inboxUnreadDm: (id: string) => `community-inbox-unread-dm-${id}`,
   inboxUnreadCard: (id: string) => `community-inbox-unread-card-${id}`,
+  inboxTodoCard: (id: string) => `community-inbox-todo-card-${id}`,
+  inboxTodoOpen: (id: string) => `community-inbox-todo-open-${id}`,
+  inboxTodoDismiss: (id: string) => `community-inbox-todo-dismiss-${id}`,
   inboxMarkedCard: (id: string) => `community-inbox-marked-card-${id}`,
   inboxUnmark: (id: string) => `community-inbox-unmark-${id}`,
   inboxMention: (id: string) => `community-inbox-mention-${id}`,
@@ -331,7 +334,7 @@ export const tid = {
   inboxMobileSurface: "community-inbox-mobile-surface",
   inboxMobileCard: "community-inbox-mobile-card",
   inboxTabList: "community-inbox-tab-list",
-  inboxTabScroll: (tab: "unreads" | "marked") =>
+  inboxTabScroll: (tab: "unreads" | "todo" | "marked") =>
     `community-inbox-${tab}-scroll`,
   channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,
   signInStepTrack: "sign-in-step-track",

@@ -884,4 +884,107 @@ describe("useInboxAttention", () => {
       harness.dispose()
     }
   })
+
+  it("projects unread question attention items into todos and drops them immediately when viewer responds", async () => {
+    const { buildDecisionCardEmbed, DecisionCardInputSchema, appendDecisionCardResponder } = await import("@alook/shared")
+    const embed = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Confirm rollout",
+        questions: [{
+          id: "q1",
+          question: "Ship tonight?",
+          options: [
+            { id: "yes", label: "Yes" },
+            { id: "no", label: "No" },
+          ],
+        }],
+      }),
+      [{ userId: "viewer", handle: "viewer#0001" }],
+    )
+    const dm = dmSnapshot()
+    const questionMessage = {
+      ...dm.resources.messages[0],
+      id: "dm-q1",
+      channelId: "dm",
+      seq: 9,
+      authorId: "peer",
+      authorName: "Peer",
+      authorAvatar: "P",
+      authorAvatarVersion: 0,
+      type: "question" as const,
+      content: "Confirm rollout",
+      createdAt: "2026-09-27T00:00:00.000Z",
+      replyToId: null,
+      clientNonce: null,
+      attachments: [],
+      embeds: [embed],
+    }
+    const snapshot = {
+      ...dm,
+      items: [{
+        id: "question:dm-q1",
+        kind: "question" as const,
+        sourceId: "dm-q1",
+        scopeId: "dm",
+        messageId: "dm-q1",
+        actorUserId: "peer",
+        createdAt: "2026-09-27T00:00:00.000Z",
+      }],
+      included: {
+        ...dm.included,
+        messages: [{
+          id: "dm-q1",
+          channelId: "dm",
+          type: "question" as const,
+          authorId: "peer",
+          authorName: "Peer",
+          seq: 9,
+          createdAt: "2026-09-27T00:00:00.000Z",
+          content: "Confirm rollout",
+        }],
+      },
+      resources: {
+        ...dm.resources,
+        messages: [questionMessage],
+      },
+    }
+
+    const harness = await createHarness()
+    try {
+      act(() => ingestAttentionSnapshot(harness.registry, snapshot))
+      await waitFor(() => expect(harness.latest.todos).toHaveLength(1))
+      expect(harness.latest.todos[0]).toMatchObject({
+        id: "question:dm-q1",
+        messageId: "dm-q1",
+        channelId: "dm",
+        serverId: null,
+      })
+      expect(harness.latest.todos[0]?.m.type).toBe("question")
+      expect(harness.latest.todos[0]?.m.decisionCard?.summary).toBe("Confirm rollout")
+
+      // Reading the DM or running Mark all read clears Unreads, NOT pending Todo questions.
+      act(() => { clearAttentionScopeOptimistically(harness.registry, "dm", 9) })
+      await waitFor(() => expect(harness.latest.dms).toEqual([]))
+      expect(harness.latest.todos).toHaveLength(1)
+      expect(harness.latest.exactAttentionCount).toBe(1)
+
+      // Once canonical message embeds include viewer in respondedUserIds, Todo clears immediately.
+      const existing = harness.registry.collections.messages.get("dm-q1")!
+      await act(async () => {
+        await writeCommunityCollectionRows(
+          harness.registry,
+          "messages",
+          [{
+            ...existing,
+            embeds: appendDecisionCardResponder(existing.embeds, "viewer"),
+          }],
+          (row) => row.id,
+        )
+      })
+      await waitFor(() => expect(harness.latest.todos).toEqual([]))
+      expect(harness.latest.hasTodo).toBe(false)
+    } finally {
+      harness.dispose()
+    }
+  })
 })

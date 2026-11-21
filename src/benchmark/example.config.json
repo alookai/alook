@@ -1,6 +1,6 @@
 {
   "case": "channel-message-send",
-  "communityContractVersion": 10,
+  "communityContractVersion": 11,
   "baseUrl": "http://localhost:3000",
   "targetKind": "local",
   "targetVersion": "REPLACE_WITH_TARGET_GIT_SHA",

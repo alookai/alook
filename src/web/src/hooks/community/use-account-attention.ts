@@ -55,7 +55,7 @@ function currentReadRevision(registry: CommunityDbRegistry | null) {
 }
 
 export function accountAttentionMatchesReadState(registry: CommunityDbRegistry) {
-  const query = registry.queryClient.getQueryCache().find<{ loaded: boolean; readRevision: number }>({ queryKey: communityKeys.accountAttention(), exact: true })
+  const query = registry.queryClient.getQueryCache().find<{ loaded: boolean; readRevision: number; todosTruncated?: boolean }>({ queryKey: communityKeys.accountAttention(), exact: true })
   return query?.state.status === "success" && query.state.fetchStatus === "idle"
     && query.state.data?.readRevision === currentReadRevision(registry)
 }
@@ -74,7 +74,7 @@ const accountAttentionQueryFn = (queryClient: QueryClient) => {
     if (!query || queryClient.getQueryCache().get(query.queryHash) !== query) throw new DOMException("Attention query retired", "AbortError")
     if (currentReadRevision(token.registry) !== readRevision) throw new StaleAttentionReadError()
     await publishAccountAttentionSnapshot(queryClient, { snapshot, proof: { token: requestToken, signal } })
-    return { loaded: true, readRevision }
+    return { loaded: true, readRevision, todosTruncated: Boolean(snapshot.todosTruncated) }
   }
 }
 
@@ -124,7 +124,7 @@ export async function reconcileAccountAttention(
   if (query?.state.fetchStatus === "fetching" && query.meta?.attentionReadRevision !== currentReadRevision(registry)) {
     await client.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true })
     assertCommunityLiveSnapshotTokenCurrent(client, token, undefined)
-    const completed = client.getQueryState<{ loaded: boolean; readRevision: number }>(communityKeys.accountAttention())
+    const completed = client.getQueryState<{ loaded: boolean; readRevision: number; todosTruncated?: boolean }>(communityKeys.accountAttention())
     if (completed && !completed.isInvalidated && accountAttentionMatchesReadState(registry)) return completed.data!
   }
   const snapshot = await registry.queryClient.query({

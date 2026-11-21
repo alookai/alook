@@ -123,3 +123,15 @@ export type InboxFriendRequest = {
   createdAt: string
   pendingIdentity?: boolean
 }
+
+export type InboxTodo = {
+  id: string
+  messageId: string
+  channelId: string
+  serverId: string | null
+  server: string
+  channel: string
+  parentChannelId?: string | null
+  createdAt: string
+  m: Msg
+}

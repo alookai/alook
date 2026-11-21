@@ -285,6 +285,7 @@ const communityInboxChangedSchema = z.strictObject({
     "read_all",
     "mention_read_all",
     "mention_dismiss",
+    "todo_dismiss",
     "notification_policy",
   ]),
 })
