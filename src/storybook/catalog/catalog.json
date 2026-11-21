@@ -9640,6 +9640,12 @@
       "source": "src/storybook/stories/foundations/card.stories.tsx"
     },
     {
+      "id": "web-foundations-card--sticker",
+      "title": "Web/Foundations/Card",
+      "name": "Sticker",
+      "source": "src/storybook/stories/foundations/card.stories.tsx"
+    },
+    {
       "id": "web-foundations-checkbox--default",
       "title": "Web/Foundations/Checkbox",
       "name": "Default",

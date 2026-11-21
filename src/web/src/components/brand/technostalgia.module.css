@@ -2362,40 +2362,44 @@
   background-color: rgb(0 0 0 / 55%) !important;
 }
 
-/* ═════════ Onboarding card (#2303): refined die-cut sticker shell matching dialogs ═════════ */
+/* ═════════ Onboarding card (#2303) & floating sticker cards: refined die-cut sticker shell matching dialogs ═════════ */
 /* The popup itself is the one card: header (mode switch, close) and steps
  * share it, so nothing floats on the backdrop (QA #4). */
-.theme [data-testid="onboarding-surface"] {
+.theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"]) {
+  position: relative;
   isolation: isolate;
+  overflow: visible;
   border-width: 0 !important;
+  border-color: transparent !important;
   border-radius: 22px !important;
   background-color: var(--tn-sticker-probe-bg) !important;
   box-shadow: none !important;
+  --tw-ring-shadow: 0 0 #0000;
   filter: var(--tn-sticker-shadow) !important;
 }
-.theme [data-testid="onboarding-surface"]::after,
-.theme [data-testid="onboarding-surface"]::before {
+.theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"])::after,
+.theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"])::before {
   position: absolute;
   content: "";
   pointer-events: none;
 }
-.theme [data-testid="onboarding-surface"]::after {
+.theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"])::after {
   inset: 0;
   z-index: -2;
   border-radius: 22px;
   background: var(--tn-sticker-rim);
 }
-.theme [data-testid="onboarding-surface"]::before {
+.theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"])::before {
   inset: 5px;
   z-index: -1;
   border-radius: 17px;
   background: var(--tn-sticker-face);
 }
 @supports (-webkit-mask-box-image-source: none) or (mask-border-source: none) {
-  .theme [data-testid="onboarding-surface"] {
+  .theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"]) {
     border-radius: 0 !important;
   }
-  .theme [data-testid="onboarding-surface"]::after {
+  .theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"])::after {
     border-radius: 0;
     -webkit-mask-box-image-source: var(--tn-sticker-mask);
     -webkit-mask-box-image-slice: 36 fill;
@@ -2406,7 +2410,7 @@
     mask-border-width: 36px;
     mask-border-repeat: stretch;
   }
-  .theme [data-testid="onboarding-surface"]::before {
+  .theme :is([data-testid="onboarding-surface"], [data-slot="card"][data-surface="sticker"])::before {
     inset: 0;
     border-radius: 0;
     -webkit-mask-box-image-source: var(--tn-sticker-face-mask);
