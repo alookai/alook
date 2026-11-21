@@ -42,7 +42,7 @@ async function mountOwner(value: AccountAttentionSnapshot) {
   const hook = renderHook(() => useAccountAttention(), { wrapper: Wrapper })
   await waitFor(() => {
     if (hook.result.current.error) throw hook.result.current.error
-    expect(hook.result.current.data).toEqual({ loaded: true, readRevision: -1 })
+    expect(hook.result.current.data).toEqual({ loaded: true, readRevision: -1, todosTruncated: false })
   })
   return { ...owner, hook }
 }
@@ -62,7 +62,7 @@ describe("closed-Inbox account attention message hydration", () => {
       expect(owner.registry.collections.attentionScopes.size).toBe(0)
       await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
       expect(apiFetchMock).toHaveBeenCalledTimes(2)
-      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: -1 })
+      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: -1, todosTruncated: false })
       expect(owner.registry.collections.attentionScopes.get("channel")?.lastUnreadSeq).toBe(4)
     } finally {
       hook.unmount()
@@ -84,7 +84,7 @@ describe("closed-Inbox account attention message hydration", () => {
       await waitFor(() => expect(hook.result.current.error?.message).toBe("offline"))
       expect(apiFetchMock).toHaveBeenCalledOnce()
       await act(async () => { await hook.result.current.refetch() })
-      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: -1 })
+      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: -1, todosTruncated: false })
       expect(apiFetchMock).toHaveBeenCalledTimes(2)
     } finally {
       hook.unmount()
@@ -129,7 +129,7 @@ describe("closed-Inbox account attention message hydration", () => {
       expect(signals[0].aborted).toBe(true)
       expect(owner.client.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })).toBe(original)
       await act(async () => { releaseAttention!(snapshot(5)); await Promise.resolve() })
-      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: 1 })
+      expect(owner.client.getQueryData(communityKeys.accountAttention())).toEqual({ loaded: true, readRevision: 1, todosTruncated: false })
       expect(owner.registry.collections.attentionScopes.get("channel")).toMatchObject({ lastUnreadSeq: 3, unreadCount: 3 })
       expect(accountAttentionMatchesReadState(owner.registry)).toBe(true)
     } finally {
