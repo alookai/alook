@@ -201,16 +201,17 @@ describe("community foreground message reconciliation", () => {
     expect(entries[1]!.path).toBe(entries[0]!.path)
   })
 
-  it("shares the held entry authority with foreground and reconnect without changing its cutoff or cancelling it", async () => {
+  it("shares held entry recovery across foreground, initial authentication and reconnect", async () => {
     let release!: (value: ReturnType<typeof conversationEntryFixture>) => void
     const held = new Promise<ReturnType<typeof conversationEntryFixture>>(resolve => { release = resolve })
     const { feed, fresh, entries, entryQuery } = await mountWarmEntryRecovery(() => held)
     const snapshot = feed.result.current.readSnapshot
-    let foreground!: void | Promise<void>, duplicate!: void | Promise<void>, reconnect!: Promise<unknown>
+    let foreground!: void | Promise<void>, initialAuthentication!: void | Promise<void>, duplicate!: void | Promise<void>, reconnect!: Promise<unknown>
     act(() => { foreground = capturedUseUserWsOptions!.onForeground!() })
     await vi.waitFor(() => expect(entries).toHaveLength(2))
     act(() => {
       duplicate = capturedUseUserWsOptions!.onForeground!()
+      initialAuthentication = capturedUseUserWsOptions!.onInitialAuthenticated!()
       reconnect = reconcileCommunityWsReconnect(capturedQueryClient, 0, {
         excludePolicies: communityWsReconnectPolicies.filter(policy => policy !== "focused-messages"),
       })
@@ -221,7 +222,7 @@ describe("community foreground message reconciliation", () => {
     expect(capturedQueryClient.getQueryCache().get(entryQuery.queryHash)).toBe(entryQuery)
     expect(feed.result.current.messages.some(row => row.id === "m1")).toBe(true)
     expect(feed.result.current.readSnapshot).toEqual(snapshot)
-    await act(async () => { release(fresh); await Promise.all([foreground, duplicate, reconnect]) })
+    await act(async () => { release(fresh); await Promise.all([foreground, initialAuthentication, duplicate, reconnect]) })
     await vi.waitFor(() => expect(feed.result.current.targetLoadError).toBeNull())
     expect(feed.result.current.newBoundary).toEqual(fresh.newBoundary)
     expect(feed.result.current.readSnapshot).toEqual(snapshot)

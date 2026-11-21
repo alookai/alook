@@ -107,12 +107,13 @@ export type UseUserWsOptions = {
   onReconnect?: (info: { reconnectDurationMs: number }) => void | Promise<void>
   onDisconnect?: () => void | Promise<void>
   onAuthenticated?: () => void | Promise<void>
+  onInitialAuthenticated?: () => void | Promise<void>
   onForeground?: () => void | Promise<void>
   onConnectionStateChange?: (phase: UserWsConnectionPhase) => void | Promise<void>
 }
 
 function runLifecycleCallback(
-  name: "authenticated" | "connection-state" | "disconnect" | "foreground" | "reconnect",
+  name: "authenticated" | "initial-authenticated" | "connection-state" | "disconnect" | "foreground" | "reconnect",
   callback: (() => void | Promise<void>) | undefined,
 ) {
   if (!callback) return
@@ -162,6 +163,7 @@ export function useUserWs(
   const onReconnectRef = useRef(options?.onReconnect)
   const onDisconnectRef = useRef(options?.onDisconnect)
   const onAuthenticatedRef = useRef(options?.onAuthenticated)
+  const onInitialAuthenticatedRef = useRef(options?.onInitialAuthenticated)
   const onForegroundRef = useRef(options?.onForeground)
   const onConnectionStateChangeRef = useRef(options?.onConnectionStateChange)
   const lastConnectionPhaseRef = useRef<UserWsConnectionPhase | null>(null)
@@ -207,10 +209,12 @@ export function useUserWs(
   useEffect(() => {
     onDisconnectRef.current = options?.onDisconnect
     onAuthenticatedRef.current = options?.onAuthenticated
+    onInitialAuthenticatedRef.current = options?.onInitialAuthenticated
     onForegroundRef.current = options?.onForeground
     onConnectionStateChangeRef.current = options?.onConnectionStateChange
   }, [
     options?.onAuthenticated,
+    options?.onInitialAuthenticated,
     options?.onForeground,
     options?.onConnectionStateChange,
     options?.onDisconnect,
@@ -479,7 +483,9 @@ export function useUserWs(
     }
     const observationGeneration = telemetryGeneration(), observationPage = currentPageObservation()
     const currentSession = currentSdkWsSession(viewerUserId)
-    const sdkSession = hasAuthenticatedBeforeRef.current
+    const canReuseSession = hasAuthenticatedBeforeRef.current || !useLocalServices
+      || Number(window.location.port) === WS_DO_PORT_DEFAULT
+    const sdkSession = canReuseSession
       && currentSession?.session.id !== credentialRetryRef.current.rejectedSessionId
       ? currentSession : undefined
     let userId: string
@@ -719,11 +725,12 @@ export function useUserWs(
         if (isReconnect) {
           runLifecycleCallback("reconnect", () =>
             onReconnectRef.current?.({ reconnectDurationMs }))
-          if (!ownsAuthenticatedConnection(ws, generation) || isOffline()) return
+        } else {
+          runLifecycleCallback("initial-authenticated", onInitialAuthenticatedRef.current)
         }
+        if (!ownsAuthenticatedConnection(ws, generation) || isOffline()) return
         reconnectDelay.current = WS_RECONNECT_INIT
         reconnectAttemptRef.current = 0
-        if (!ownsAuthenticatedConnection(ws, generation) || isOffline()) return
         startHeartbeat(ws, generation)
         return
       }

@@ -270,6 +270,7 @@ function resetMockState() {
   mockNavigator.onLine = true
   mockDocument.reset()
   mockWindow.reset()
+  Reflect.deleteProperty(mockWindow.location, "port")
   Reflect.deleteProperty(mockWindow, "__TAURI__")
 }
 
@@ -312,6 +313,76 @@ describe("useUserWs", () => {
     expect(replacement.sent).toEqual([JSON.stringify({ type: "auth", token: "current-sdk-token", communityContract: BUSINESS_SCHEMA_VERSION })])
     replacement.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     expect(mockFetch).toHaveBeenCalledOnce()
+  })
+
+  it("uses the confirmed SDK session for the first known socket route and recovers a server rejection", async () => {
+    Object.assign(mockWindow.location, { port: "8789" })
+    mockSdkSession.set(sdkSession())
+    setupTokenFetch()
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    expect(first.sent).toEqual([JSON.stringify({ type: "auth", token: "current-sdk-token", communityContract: BUSINESS_SCHEMA_VERSION })])
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    first.simulateClose(1008, "Unauthorized", false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token?refresh=1"])
+    const fallback = MockWebSocket.instances[1]!
+    fallback.simulateOpen()
+    expect(fallback.sent).toEqual([JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION })])
+  })
+
+  it.each(["expired", "session-owner", "pending"] as const)("uses the token endpoint for a %s SDK session on first connect", async state => {
+    Object.assign(mockWindow.location, { port: "8789" })
+    const value = sdkSession()
+    if (state === "expired") value.data!.session!.expiresAt = new Date(Date.now() - 1)
+    if (state === "session-owner") value.data!.session!.userId = "user-2"
+    if (state === "pending") value.isPending = true
+    mockSdkSession.set(value)
+    setupTokenFetch()
+    await mountHook(vi.fn(), { viewerUserId: "user-1" })
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token"])
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    expect(first.sent).toEqual([JSON.stringify({ type: "auth", token: "tok-123", communityContract: BUSINESS_SCHEMA_VERSION })])
+  })
+
+  it("retires the unconfirmed first SDK socket when the active account changes", async () => {
+    Object.assign(mockWindow.location, { port: "8789" })
+    mockSdkSession.set(sdkSession())
+    const authenticated = vi.fn()
+    await mountHook(vi.fn(), { viewerUserId: "user-1", onAuthenticated: authenticated })
+    const oldOwnerSocket = MockWebSocket.instances[0]!
+    oldOwnerSocket.simulateOpen()
+    mockSdkSession.set(sdkSession("user-2", "sdk-session-2", "other-sdk-token"))
+    expect(oldOwnerSocket.closed).toBe(true)
+    oldOwnerSocket.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(authenticated).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it("runs initial reconciliation only on the first accepted handshake", async () => {
+    setupTokenFetch()
+    const initial = vi.fn(), reconnect = vi.fn()
+    await mountHook(vi.fn(), { onInitialAuthenticated: initial, onReconnect: reconnect })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    expect(initial).not.toHaveBeenCalled()
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    first.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    expect(initial).toHaveBeenCalledOnce()
+    expect(reconnect).not.toHaveBeenCalled()
+
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    const next = MockWebSocket.instances[1]!
+    next.simulateOpen()
+    next.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
+    expect(initial).toHaveBeenCalledOnce()
+    expect(reconnect).toHaveBeenCalledOnce()
   })
 
   it.each(["pending", "error", "missing", "missing-session", "empty-id", "session-owner", "expired", "invalid-expiry"])("falls back without admitting %s SDK credentials", async (state) => {
