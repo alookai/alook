@@ -307,19 +307,20 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
     await reconcileAccountReadState(queryClient)
   }, [queryClient, runtime.ws.actions, runtime.lifecycle, viewToken])
-  const reconcileActiveMessages = useCallback(() => {
+  const reconcileActiveMessages = useCallback((initialMode?: "newest") => {
     if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active
       || viewerUserIdRef.current !== viewerUserId
       || (viewerUserId !== null && runtime.ws.get().profileViewerId !== viewerUserId)) return
-    return reconcileFocusedCommunityMessages(queryClient)
+    return reconcileFocusedCommunityMessages(queryClient, undefined, initialMode)
   }, [queryClient, runtime.ws, runtime.lifecycle, viewerUserId, viewToken])
+  const reconcileInitialMessages = useCallback(() => reconcileActiveMessages("newest"), [reconcileActiveMessages])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     viewerUserId: onlineAccount ? viewerUserId : null,
     communityContract: options?.communityContract,
     onReconnect: handleReconnect,
     onDisconnect: runtime.ws.actions.markAccessDisconnected,
     onAuthenticated: handleAuthenticated,
-    onInitialAuthenticated: reconcileActiveMessages,
+    onInitialAuthenticated: reconcileInitialMessages,
     onForeground: reconcileActiveMessages,
     onConnectionStateChange: handleConnectionStateChange,
   })

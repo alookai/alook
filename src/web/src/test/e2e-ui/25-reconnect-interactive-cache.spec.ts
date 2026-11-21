@@ -6,12 +6,13 @@ import { tid } from "./_fixtures/testids"
 test("a real WebSocket outage keeps cached content interactive and Retry reconnects", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(120_000)
 
-  const actors = await caseActors(["alice"])
+  const actors = await caseActors(["alice", "bob"])
   const { asUser } = actors
-  const { seedChannel, seedServer } = actors.seed
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
 
   const serverId = await seedServer("alice", `Reconnect status ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "reconnect-status")
+  await seedJoinServer("alice", "bob", serverId)
   const alice = await asUser("alice")
   let authenticatedConnections = 0
   let firstTarget: string | null = null
@@ -87,7 +88,8 @@ test("a real WebSocket outage keeps cached content interactive and Retry reconne
   const composer = composerEditable(alice.page)
   await expect(composer).toBeVisible()
   const bootstrapTokenCount = tokenTimings.length
-  expect(bootstrapTokenCount).toBeGreaterThan(0)
+  expect(bootstrapTokenCount).toBe(0)
+  await expect.poll(() => authenticatedConnections).toBe(1)
   let holdReconnectTokens = true
   let releaseReconnectTokens!: () => void
   const reconnectTokenGate = new Promise<void>(resolve => { releaseReconnectTokens = resolve })
@@ -140,6 +142,9 @@ test("a real WebSocket outage keeps cached content interactive and Retry reconne
       .toBeGreaterThanOrEqual(2)
     expect(tokenTimings).toHaveLength(bootstrapTokenCount)
     expect(recoveryAuthenticatedAt).not.toBeNull()
+    const body = "Delivered after Retry"
+    await seedMessage("bob", channelId, body)
+    await expect(alice.page.getByText(body, { exact: true })).toBeVisible()
   } finally {
     releaseReconnectAuth()
     holdReconnectTokens = false

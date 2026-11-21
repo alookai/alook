@@ -16,7 +16,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
-import { messageWindowOptions } from "@/lib/community/message-window"
+import { messageWindowOptions, type InitialMessageWindow } from "@/lib/community/message-window"
 import {
   cancelMessageRepairs,
   isFailedMessageRepair,
@@ -51,6 +51,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => {
 function seedActiveQuery(
   queryClient: QueryClient,
   queryKey: readonly unknown[],
+  initialWindow: InitialMessageWindow = { mode: "newest" },
 ) {
   const data = {
     pages: [
@@ -77,7 +78,7 @@ function seedActiveQuery(
       },
     ],
     pageParams: [
-      { mode: "newest" },
+      initialWindow,
       { mode: "older", cursor: "older-2" },
     ],
   }
@@ -318,6 +319,31 @@ describe("focused message reconnect catch-up", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
     unsubscribe()
     client.clear()
+  })
+
+  it("keeps an active history anchor outside the first authentication read", async () => {
+    const { client } = await createCommunityQueryOwner("a")
+    const scopeId = "initial-focus"
+    const newestKey = communityKeys.channelMessages(scopeId)
+    const anchor = { mode: "anchor", anchor: "m_2" } as const
+    const historyKey = communityKeys.channelMessagesWindow(scopeId, anchor)
+    const newest = seedActiveQuery(client, newestKey)
+    const history = seedActiveQuery(client, historyKey, anchor)
+    const originalHistory = client.getQueryData(historyKey)
+    apiFetchMock.mockResolvedValue(messageReadPageFixture({ messages: [], latestSeq: 2, hasMore: false }))
+
+    try {
+      await reconcileFocusedMessageQueries(client, "channel", scopeId, undefined, "newest")
+      expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/${scopeId}/messages`])
+      expect(client.getQueryData(historyKey)).toBe(originalHistory)
+
+      await reconcileFocusedMessageQueries(client, "channel", scopeId)
+      expect(apiFetchMock.mock.calls.map(([url]) => url)).toContain(`/api/community/channels/${scopeId}/messages?anchor=m_2`)
+    } finally {
+      newest.unsubscribe()
+      history.unsubscribe()
+      client.clear()
+    }
   })
 
   it("propagates one shared non-cancellation failure to both callers and retains a usable retry", async () => {

@@ -22,7 +22,10 @@ type GapRepairScope = { kind: "channel" | "dm"; scopeId: string; serverId?: stri
 function isMessageCache(value: unknown): value is MessageCache { return !!value && typeof value === "object" && Array.isArray((value as MessageCache).pages) && Array.isArray((value as MessageCache).pageParams) }
 function messagesKey(scope: GapRepairScope) { return scope.kind === "channel" ? communityKeys.channelMessages(scope.scopeId) : communityKeys.dmMessages(scope.scopeId) }
 function targetKey(key: QueryKey) { return [...key, "reconcile-target"] }
-function isWindowKey(key: QueryKey) { return messageWindowIdentity(key) !== undefined }
+function isWindowKey(key: QueryKey, initialMode?: "newest") {
+  const identity = messageWindowIdentity(key)
+  return identity !== undefined && (initialMode === undefined || identity.initial.mode === initialMode)
+}
 function latest(cache: MessageCache, includeWatermark = true) { return Math.max(0, ...cache.pages.flatMap((page) => [...page.messages.map((message) => message.seq ?? 0), ...(includeWatermark ? [page.latestSeq ?? 0] : [])])) }
 function cursor(cache: MessageCache) { return cache.pages.flatMap((page) => page.newestCursor ? [page.newestCursor] : []).sort().at(-1) ?? null }
 function url(scopeId: string, param: MessagesPageParam, tag: string | null) {
@@ -327,8 +330,8 @@ export function reconcileConversationLanding(queryClient: QueryClient, scope: Ga
   return reconcileWindow(queryClient, scope, key, highWater, { page, param }, owner)
 }
 
-function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0) {
-  const queries = queryClient.getQueryCache().findAll({ queryKey: messagesKey(scope), type: "active" }).filter((query) => isWindowKey(query.queryKey))
+function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0, initialMode?: "newest") {
+  const queries = queryClient.getQueryCache().findAll({ queryKey: messagesKey(scope), type: "active" }).filter((query) => isWindowKey(query.queryKey, initialMode))
   return Promise.all(queries.map(query => reconcileWindow(queryClient, scope, query.queryKey, target))).then(() => undefined)
 }
 
@@ -341,4 +344,6 @@ export function scheduleFocusedMessageGapRepair(queryClient: QueryClient, scope:
   return incomingSeq > known + 1 ? reconcile(queryClient, scope, incomingSeq).catch(() => undefined) : null
 }
 
-export function reconcileFocusedMessageQueries(queryClient: QueryClient, kind: "channel" | "dm", scopeId: string, serverId?: string): Promise<void> { return reconcile(queryClient, { kind, scopeId, serverId }) }
+export function reconcileFocusedMessageQueries(queryClient: QueryClient, kind: "channel" | "dm", scopeId: string, serverId?: string, initialMode?: "newest"): Promise<void> {
+  return reconcile(queryClient, { kind, scopeId, serverId }, 0, initialMode)
+}

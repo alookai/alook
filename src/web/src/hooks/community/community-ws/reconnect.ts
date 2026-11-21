@@ -142,6 +142,7 @@ async function reconcileCachedServer(queryClient: QueryClient, serverId: string)
 export async function reconcileFocusedCommunityMessages(
   queryClient: QueryClient,
   sub = getCommunityRuntime(queryClient).ui.get().subscription,
+  initialMode?: "newest",
 ) {
   const operations: Promise<unknown>[] = []
   if (sub.channelId) {
@@ -150,6 +151,8 @@ export async function reconcileFocusedCommunityMessages(
       queryClient,
       "channel",
       sub.channelId,
+      undefined,
+      initialMode,
     ))
   }
   if (sub.secondaryChannelId) {
@@ -158,6 +161,8 @@ export async function reconcileFocusedCommunityMessages(
       queryClient,
       "channel",
       sub.secondaryChannelId,
+      undefined,
+      initialMode,
     ))
   }
   if (sub.dmConversationId) {
@@ -166,6 +171,8 @@ export async function reconcileFocusedCommunityMessages(
       queryClient,
       "dm",
       sub.dmConversationId,
+      undefined,
+      initialMode,
     ))
   }
   const settled = await Promise.allSettled(operations)
