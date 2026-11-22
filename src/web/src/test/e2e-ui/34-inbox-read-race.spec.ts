@@ -180,11 +180,20 @@ test.describe("Inbox/read refresh ownership", () => {
       await expect(loading).toBeVisible()
       await expect.poll(() => loading.evaluate(element => {
         const bounds = element.getBoundingClientRect()
-        const rows = element.querySelectorAll('[data-slot="skeleton"]')
-        const first = rows[0]!.getBoundingClientRect()
-        const last = rows[1]!.getBoundingClientRect()
-        return [first.top - bounds.top, last.top - first.bottom, bounds.bottom - last.bottom]
-      })).toEqual([8, 8, 8])
+        const skeletons = [...element.querySelectorAll('[data-slot="skeleton"]')]
+        const avatar = skeletons[0]!.getBoundingClientRect()
+        const lines = skeletons.slice(1).map(node => node.getBoundingClientRect())
+        return {
+          avatarSize: [Math.round(avatar.width), Math.round(avatar.height)],
+          avatarGap: Math.round(lines[0]!.left - avatar.right),
+          vertical: [
+            Math.round(lines[0]!.top - bounds.top),
+            Math.round(lines[1]!.top - lines[0]!.bottom),
+            Math.round(lines[2]!.top - lines[1]!.bottom),
+            Math.round(bounds.bottom - lines[2]!.bottom),
+          ],
+        }
+      })).toEqual({ avatarSize: [32, 32], avatarGap: 8, vertical: [8, 8, 8, 8] })
       previewGate.resolve()
       await expect(preview.getByText(later, { exact: true })).toBeVisible()
       await expect(preview.getByText(`Original ${stamp}`, { exact: true })).toHaveCount(0)

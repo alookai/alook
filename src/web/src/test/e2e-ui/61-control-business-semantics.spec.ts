@@ -79,7 +79,7 @@ async function expectInboxHeaderHover(page: Page, action: Locator) {
   if (expanded) {
     await page.mouse.move(0, 0)
     await expect.poll(() => header.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(colors.idle)
-    await header.hover({ position: { x: 3, y: 4 } })
+    await header.hover({ position: { x: 6, y: 20 } })
     await expect.poll(() => header.evaluate((element) => getComputedStyle(element, "::before").backgroundColor)).toBe("rgba(0, 0, 0, 0)")
     return
   }
@@ -93,7 +93,7 @@ async function expectInboxHeaderHover(page: Page, action: Locator) {
   })).toEqual({ base: colors.idle, tint: colors.hovered, opacity })
   await page.mouse.move(0, 0)
   await expectTint("0")
-  await header.hover({ position: { x: 3, y: 4 } })
+  await header.hover({ position: { x: 6, y: 20 } })
   await expectTint("1")
   await header.locator("button").first().hover()
   await expectTint("1")

@@ -29,11 +29,11 @@ export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForum
   const lastMessageId = messages.at(-1)?.id
   if (!query.accessAllowed) return <p className="py-1.5 text-sm text-muted-foreground">This conversation is unavailable</p>
   return <div className="flex flex-col gap-1" data-testid={tid.inboxUnreadMessages(channelId)}>
-    {query.loading && messages.length === 0 && <div role="status" aria-label="Loading unread messages" className="flex items-start gap-2 py-1.5">
+    {query.loading && messages.length === 0 && <div role="status" aria-label="Loading unread messages" className="flex items-start gap-2 py-2">
       {continuation
         ? <div className="w-8 shrink-0" />
         : <Skeleton className="size-8 shrink-0 rounded-full" />}
-      <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
         {!continuation && <Skeleton className="h-3 w-24 rounded" />}
         <Skeleton className="h-3.5 w-3/4 rounded" />
         <Skeleton className="h-3.5 w-full rounded" />
