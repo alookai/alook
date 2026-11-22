@@ -34,7 +34,7 @@ async function persisted(page: Page, viewerId: string, queryKey: readonly unknow
 async function delayedFailure(page: Page, path: string, resources: CaseResources) {
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
-  let fail = true, held = 0, failedAt = 0
+  let fail = true, held = 0, failedAt = 0, completedFailures = 0
   const pending: Promise<void>[] = []
   const matches = (url: URL) => url.pathname === path
   const handler = (route: Route) => {
@@ -42,15 +42,18 @@ async function delayedFailure(page: Page, path: string, resources: CaseResources
       held += 1
       await gate
       if (page.isClosed()) return
-      if (fail) { failedAt = Date.now(); await route.fulfill(currentCommunityFixtureError("Auxiliary refresh unavailable", 503)) }
-      else await route.continue()
+      if (fail) {
+        failedAt = Date.now()
+        await route.fulfill(currentCommunityFixtureError("Auxiliary refresh unavailable", 503))
+        completedFailures += 1
+      } else await route.continue()
     })()
     pending.push(completion)
     return completion
   }
   await page.route(matches, handler)
   resources.own(release, async done => { done(); await Promise.all(pending); if (!page.isClosed()) await page.unroute(matches, handler) })
-  return { held: () => held, failedAt: () => failedAt, release, recover: () => { fail = false } }
+  return { held: () => held, failedAt: () => failedAt, completedFailures: () => completedFailures, release, recover: () => { fail = false } }
 }
 
 async function prepare(actors: CaseActors, surface: Surface, empty: boolean) {
@@ -135,22 +138,35 @@ for (const surface of surfaces) for (const empty of [false, true]) {
     await open()
     await expect.poll(failure.held).toBeGreaterThan(0)
     await assertKnown()
+    const waitForResave = () => expect.poll(async () => (await persistedSnapshot(page, actors.userId("alice"), key))?.timestamp ?? 0).toBeGreaterThanOrEqual(failure.failedAt())
+    const assertCachedFailure = async (previousFailures: number) => {
+      if (surface === "tags") {
+        await expect.poll(failure.completedFailures).toBeGreaterThanOrEqual(previousFailures + 2)
+        await waitForResave()
+        await expect(retry).toHaveCount(0)
+      } else {
+        await expect(retry).toBeVisible()
+      }
+      await assertKnown()
+    }
+
     failure.release()
-    await expect(retry).toBeVisible()
-    await assertKnown()
-    await expect.poll(async () => (await persistedSnapshot(page, actors.userId("alice"), key))?.timestamp ?? 0).toBeGreaterThanOrEqual(failure.failedAt())
+    await assertCachedFailure(0)
+    if (surface !== "tags") await waitForResave()
     await expect.poll(() => persisted(page, actors.userId("alice"), key)).toEqual(saved)
+    const previousFailures = failure.completedFailures()
     await gotoAfterUserWsAuth(page, href)
     await open()
-    await expect(retry).toBeVisible()
-    await assertKnown()
-    failure.recover()
-    const recovered = page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === path && response.ok())
-    await retry.click()
-    expect((await confirmCommunityFixtureApiResponse(recovered)).status()).toBe(200)
-    await expect(retry).toHaveCount(0)
-    await assertKnown()
-    await testInfo.attach("auxiliary-cold-boundaries", { contentType: "application/json", body: JSON.stringify({ surface, empty, key, committed: saved, newDocuments: 2, heldRequests: failure.held(), targetId: scene.targetId, retryStatus: 200 }) })
+    await assertCachedFailure(previousFailures)
+    if (surface !== "tags") {
+      failure.recover()
+      const recovered = page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === path && response.ok())
+      await retry.click()
+      expect((await confirmCommunityFixtureApiResponse(recovered)).status()).toBe(200)
+      await expect(retry).toHaveCount(0)
+      await assertKnown()
+    }
+    await testInfo.attach("auxiliary-cold-boundaries", { contentType: "application/json", body: JSON.stringify({ surface, empty, key, committed: saved, newDocuments: 2, heldRequests: failure.held(), targetId: scene.targetId, retryStatus: surface === "tags" ? undefined : 200 }) })
   })
 }
 
@@ -162,6 +178,7 @@ for (const surface of surfaces) {
     await gotoAfterUserWsAuth(page, href)
     await open()
     await expect.poll(failure.held).toBeGreaterThan(0)
+    if (surface === "tags") await expect(retry).toHaveCount(0)
     failure.release()
     await expect(retry).toBeVisible()
     expect(await persisted(page, actors.userId("alice"), key)).toBeUndefined()

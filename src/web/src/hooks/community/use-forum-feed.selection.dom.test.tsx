@@ -34,7 +34,9 @@ describe("Forum initial selection authority", () => {
   it("keeps a selection while a restored observation is stale or fails, then accepts a current catalog", async () => {
     const owner = await createCommunityQueryOwner()
     localStorage.setItem("alook:forum-tag:forum", "bug")
-    owner.client.setQueryData(communityKeys.forumTags("forum"), { tags: ["cached-only"], observed: false })
+    const key = communityKeys.forumTags("forum")
+    owner.client.setQueryData(key, { tags: ["cached-only"], observed: false })
+    const refreshError = new Error("offline")
     let reject!: (error: Error) => void
     api.mockImplementation((path: string) => path.endsWith("/messages/tags")
       ? new Promise((_resolve, fail) => { reject = fail })
@@ -44,14 +46,53 @@ describe("Forum initial selection authority", () => {
     await waitFor(() => expect(view.result.current.posts.map(post => post.id)).toEqual(["post-bug"]))
     expect(view.result.current.availableTags).toEqual(["cached-only"])
     expect(view.result.current.tag).toBe("bug")
-    await act(async () => { reject(new Error("offline")) })
-    await waitFor(() => expect(view.result.current.tagsError).toBe(true))
-    expect(view.result.current.tag).toBe("bug")
+    await act(async () => { reject(refreshError) })
+    await waitFor(() => expect(owner.client.getQueryState(key)?.error).toBe(refreshError))
+    expect(view.result.current).toMatchObject({ tag: "bug", tagsKnown: true, tagsError: false, availableTags: ["cached-only"] })
     expect(localStorage.getItem("alook:forum-tag:forum")).toBe("bug")
     api.mockImplementation(async (path: string) => path.endsWith("/messages/tags") ? { tags: ["other"] } : entryFor(new URL(path, "https://local").searchParams.get("tag")))
-    await act(async () => { await view.result.current.retryTags() })
+    await act(async () => { await owner.client.invalidateQueries({ queryKey: key, exact: true }) })
     await waitFor(() => expect(view.result.current.tag).toBe("All"))
     expect(localStorage.getItem("alook:forum-tag:forum")).toBeNull()
+    view.unmount()
+  })
+
+  it("waits for the current account before the first tag read and retries a confirmed failure", async () => {
+    const owner = await createCommunityQueryOwner()
+    await seedConversationEntry(owner.client, entryFor(null))
+    owner.registry.bindAuthentication(() => undefined, async () => {})
+    const path = "/api/community/channels/forum/messages/tags"
+    const key = communityKeys.forumTags("forum")
+    const tagRequests = () => api.mock.calls.filter(([url]) => url === path)
+    let fail!: (error: Error) => void
+    const firstRead = new Promise<never>((_resolve, reject) => { fail = reject })
+    api.mockImplementation((url: string) => url === path
+      ? firstRead
+      : Promise.resolve(entryFor(new URL(url, "https://local").searchParams.get("tag"))))
+    const wrapper = ({ children }: PropsWithChildren) => <CommunityTestProvider {...owner}>{children}</CommunityTestProvider>
+    const view = renderHook(() => useForumFeed("server", "forum"), { wrapper })
+
+    await waitFor(() => expect(view.result.current.posts.map(post => post.id)).toEqual(["post-all"]))
+    expect(owner.client.getQueryState(key)).toMatchObject({ status: "pending", fetchStatus: "idle", fetchFailureCount: 0 })
+    expect(tagRequests()).toHaveLength(0)
+    expect(view.result.current).toMatchObject({ tagsKnown: false, tagsError: false })
+
+    act(() => {
+      owner.registry.bindAuthentication(() => "viewer", async () => {})
+      owner.registry.confirmAuthentication()
+    })
+    await waitFor(() => expect(tagRequests()).toHaveLength(1))
+    expect(view.result.current).toMatchObject({ tagsKnown: false, tagsError: false })
+    await act(async () => { fail(new Error("tag directory unavailable")) })
+    await waitFor(() => expect(view.result.current).toMatchObject({ tagsKnown: false, tagsError: true }))
+
+    api.mockImplementation(async (url: string) => url === path
+      ? { tags: [] }
+      : entryFor(new URL(url, "https://local").searchParams.get("tag")))
+    await act(async () => { await view.result.current.retryTags() })
+    await waitFor(() => expect(view.result.current).toMatchObject({ tagsKnown: true, tagsError: false, availableTags: [] }))
+    expect(tagRequests()).toHaveLength(2)
+    expect(view.result.current.posts.map(post => post.id)).toEqual(["post-all"])
     view.unmount()
   })
 
