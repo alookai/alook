@@ -5,11 +5,12 @@ function colorDistance(pixel: Buffer, color: ArrayLike<number>) {
   return Math.abs(pixel[0]! - color[0]!) + Math.abs(pixel[1]! - color[1]!) + Math.abs(pixel[2]! - color[2]!)
 }
 
-export async function expectPaintedInboxDivider(card: Locator) {
-  const divider = card.locator('[data-slot="inbox-card-divider"]')
-  await expect(divider).toHaveCSS("height", "1px")
+export async function expectSeamlessInboxCard(card: Locator) {
+  await expect(card.locator('[data-slot="inbox-card-divider"]')).toHaveCount(0)
+  const header = card.locator('[data-slot="inbox-card-header"]')
+  await expect(header).toHaveAttribute("data-expanded", "true")
   await expect.poll(async () => {
-    const sample = await divider.evaluate(element => {
+    const sample = await header.evaluate(element => {
       const rect = element.getBoundingClientRect()
       const width = 24
       const canvas = document.createElement("canvas")
@@ -25,19 +26,20 @@ export async function expectPaintedInboxDivider(card: Locator) {
       }
       const sticky = element.parentElement!
       const surface = getComputedStyle(sticky).backgroundColor
-      const line = paint(surface, getComputedStyle(element).backgroundColor)
-      const body = paint(surface, getComputedStyle(sticky.nextElementSibling!).backgroundColor)
+      const headerColor = paint(surface, getComputedStyle(element).backgroundColor)
+      const bodyColor = paint(surface, getComputedStyle(sticky.nextElementSibling!).backgroundColor)
       return {
-        line, body,
+        headerColor,
+        bodyColor,
         clip: {
           x: Math.floor(rect.left + rect.width / 2 - width / 2 + window.scrollX),
-          y: Math.floor(rect.top + window.scrollY) - 1,
+          y: Math.floor(rect.bottom + window.scrollY) - 1,
           width,
           height: 3,
         },
       }
     })
-    expect(sample.line).not.toEqual(sample.body)
+    expect(sample.headerColor).toEqual(sample.bodyColor)
     const png = await card.page().screenshot({ clip: sample.clip, scale: "css" })
     const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true })
     for (let row = 0; row < info.height; row += 1) {
@@ -45,11 +47,11 @@ export async function expectPaintedInboxDivider(card: Locator) {
       for (let column = 0; column < info.width; column += 1) {
         const offset = (row * info.width + column) * info.channels
         const pixel = data.subarray(offset, offset + info.channels)
-        if (colorDistance(pixel, sample.line) <= colorDistance(pixel, sample.body)) matched += 1
+        if (colorDistance(pixel, sample.headerColor) <= 4) matched += 1
       }
-      if (matched >= info.width * 0.9) return true
+      if (matched < info.width * 0.9) return false
     }
-    return false
+    return true
   }).toBe(true)
 }
 
@@ -87,8 +89,8 @@ export async function expectPaintedInboxCardSurface(card: Locator) {
 
 export async function expectPaintedInboxMessageFade(messages: Locator) {
   const { clip, previousPosition } = await messages.evaluate(element => {
-    const divider = element.closest("article")?.querySelector('[data-slot="inbox-card-divider"]')
-    if (!divider) throw new Error("Missing Inbox divider for the message fade sample")
+    const header = element.closest("article")?.querySelector('[data-slot="inbox-card-header"]')
+    if (!header) throw new Error("Missing Inbox header for the message fade sample")
     const previousPosition = element.style.position
     element.style.position = "relative"
     const sample = document.createElement("div")
@@ -100,7 +102,7 @@ export async function expectPaintedInboxMessageFade(messages: Locator) {
       previousPosition,
       clip: {
         x: Math.floor(rect.left + rect.width / 2 + window.scrollX),
-        y: Math.ceil(divider.getBoundingClientRect().bottom + window.scrollY),
+        y: Math.ceil(header.getBoundingClientRect().bottom + window.scrollY),
         width: 1,
         height: 24,
       },

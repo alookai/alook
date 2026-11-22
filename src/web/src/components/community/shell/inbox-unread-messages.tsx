@@ -27,12 +27,19 @@ export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForum
   }), [channels, messages, openForumPosts])
   const previewMessages = useCanonicalMessagesById(previewIds)
   const lastMessageId = messages.at(-1)?.id
-  if (!query.accessAllowed) return <p className="p-2 text-sm text-muted-foreground">This conversation is unavailable</p>
-  return <div className="flex flex-col gap-2" data-testid={tid.inboxUnreadMessages(channelId)}>
-    {query.loading && messages.length === 0 && <div role="status" aria-label="Loading unread messages" className="flex flex-col gap-2 py-2">
-      <Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-full" />
+  if (!query.accessAllowed) return <p className="py-1.5 text-sm text-muted-foreground">This conversation is unavailable</p>
+  return <div className="flex flex-col gap-1" data-testid={tid.inboxUnreadMessages(channelId)}>
+    {query.loading && messages.length === 0 && <div role="status" aria-label="Loading unread messages" className="flex items-start gap-2 py-1.5">
+      {continuation
+        ? <div className="w-8 shrink-0" />
+        : <Skeleton className="size-8 shrink-0 rounded-full" />}
+      <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+        {!continuation && <Skeleton className="h-3 w-24 rounded" />}
+        <Skeleton className="h-3.5 w-3/4 rounded" />
+        <Skeleton className="h-3.5 w-full rounded" />
+      </div>
     </div>}
-    {messages.length > 0 && <div data-slot="inbox-card-messages" className={cn("flex min-w-0 flex-col", !continuation && "gap-2")}>
+    {messages.length > 0 && <div data-slot="inbox-card-messages" className={cn("flex min-w-0 flex-col", !continuation && "gap-1")}>
       {flattenMessageItems(messages, undefined, false, false, false).map((item, index) => {
         if (item.kind !== "message") return null
         const mention = mentionById.get(item.m.id)
@@ -41,7 +48,7 @@ export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForum
         if (openForumPost && postChannel?.parentChannelId === channelId && postChannel.parentMessageId === item.m.id) {
           const first = postChannel.firstMessageId ? previewMessages?.get(postChannel.firstMessageId) : undefined
           const post = projectForumThread(postChannel, item.m, first, item.m.thread?.participants)
-          return <div key={item.key} className={cn(item.m.id === lastMessageId && "pb-2")}
+          return <div key={item.key} className={cn("-mx-1", item.m.id === lastMessageId && "pb-1")}
             data-testid={mention ? tid.inboxMention(mention.id) : undefined}
             onClick={event => event.stopPropagation()}>
             <ForumPostListItem first={index === 0} onActivate={openForumPost}>
@@ -50,12 +57,13 @@ export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForum
           </div>
         }
         return <InboxMessagePreview key={item.key} message={item.m} continuation={continuation}
+          first={index === 0}
           testId={mention ? tid.inboxMention(mention.id) : undefined}
           onOpenThread={openForumPost}
           paddingTop={item.paddingTop}
           paddingBottom={continuation && item.m.id !== lastMessageId ? MESSAGE_GROUPED_ROW_PADDING_PX : item.paddingBottom} />
       })}
     </div>}
-    {query.empty && messages.length === 0 && <p className="p-2 text-sm text-muted-foreground">No unread messages</p>}
+    {query.empty && messages.length === 0 && <p className="py-1.5 text-sm text-muted-foreground">No unread messages</p>}
   </div>
 }

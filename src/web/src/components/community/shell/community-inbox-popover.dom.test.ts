@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   profiles: new Map<string, CommunityProfile>(),
   categories: new Map<string, { name: string }>(),
   channels: new Map<string, { name: string; type: "forum"; categoryId: string }>(),
+  dms: [] as Array<{ id: string; userId: string; name: string; discriminator?: string; avatar: string }>,
 }))
 
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
@@ -23,12 +24,14 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
   useCanonicalCommunityProfile: (id: string | undefined) => id ? mocks.profiles.get(id) : undefined,
   useCanonicalCategoriesById: () => mocks.categories,
   useCanonicalChannelsById: () => mocks.channels,
+  useDmProjection: () => mocks.dms,
 }))
 
 beforeEach(() => {
   mocks.profiles.clear()
   mocks.categories.clear()
   mocks.channels.clear()
+  mocks.dms.length = 0
 })
 
 function renderInboxMessages(element: React.ReactElement) {
@@ -206,8 +209,8 @@ describe("InboxPopover thread opener rows", () => {
   it("shows server identity and an independent disclosure on every channel card", () => {
     const renderer = render(popover(vi.fn(), vi.fn()))
     const icon = renderer.getAllByRole("img", { name: "Server" })[0]!
-    expect(icon.style.width).toBe("40px")
-    expect(icon.style.height).toBe("40px")
+    expect(icon.style.width).toBe("32px")
+    expect(icon.style.height).toBe("32px")
     const unreads = renderer.getByTestId(tid.inboxTabScroll("unreads"))
     expect(unreads.querySelectorAll("button[aria-expanded=\"false\"]")).toHaveLength(3)
     const check = renderer.getByTestId(tid.inboxMarkChannelRead("f1"))
@@ -216,17 +219,17 @@ describe("InboxPopover thread opener rows", () => {
     expect(arrow).toHaveAttribute("data-variant", "ghost")
     expect(check).toHaveAttribute("data-size", "icon")
     expect(arrow).toHaveAttribute("data-size", "icon")
-    expect(check).toHaveClass("bg-accent")
+    expect(check).not.toHaveClass("bg-accent")
     expect(arrow).not.toHaveClass("bg-accent")
     expect(check.querySelector("svg")).toHaveClass("size-4")
     expect(arrow.querySelector("svg")).toHaveClass("size-4")
-    expect(check.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7", "max-sm:group-enabled/button:bg-accent")
+    expect(check.querySelector('[data-slot="inbox-action-visual"]')).toHaveClass("max-sm:size-7")
     expect(arrow.querySelector('[data-slot="inbox-action-visual"]')).toHaveAttribute("aria-hidden", "true")
     expect(check.nextElementSibling).toBe(arrow)
     expect(icon.closest("header")).toBe(arrow.closest("header"))
     expect(icon.nextElementSibling?.matches("svg")).toBe(false)
     const identity = renderer.getByTestId(tid.inboxUnreadChannel("f1"))
-    expect(identity.querySelector("span.size-5 > svg.size-4")).not.toBeNull()
+    expect(identity.querySelector("span.size-4 > svg.size-3\\.5")).not.toBeNull()
   })
 
   it("renders the authoritative opener title and passes parent/opener targets", () => {
@@ -439,7 +442,7 @@ describe("InboxPopover channel mentions", () => {
     expect(renderer.getByTestId(tid.inboxUnreadMessages("f1"))).toBeDefined()
     const preview = renderer.getByTestId(tid.inboxMention(mention.id))
     const avatar = preview.querySelector<HTMLElement>('[data-slot="avatar"]')
-    expect(avatar).toHaveStyle({ width: "40px", height: "40px" })
+    expect(avatar).toHaveStyle({ width: "32px", height: "32px" })
     expect(preview.querySelector("[data-message-renderer]")).not.toBeNull()
     fireEvent.click(renderer.getByText("Hello there"))
     expect(onOpenChannel).toHaveBeenCalledExactlyOnceWith(unreads[0], unreads[0]!.channels[0], true)
@@ -697,20 +700,44 @@ describe("InboxPopover DM rows", () => {
     const marked = view.getByTestId(tid.inboxMarkedCard(saved.id))
     for (const card of [unread, marked]) {
       const avatar = card.querySelector<HTMLElement>('header [data-slot="avatar"]')
-      expect(avatar).toHaveStyle({ width: "40px", height: "40px" })
+      expect(avatar).toHaveStyle({ width: "32px", height: "32px" })
+      expect(card.querySelector('[data-slot="inbox-card-divider"]')).toBeNull()
     }
     for (const { row, content, padding } of [
-      { row: view.getByTestId(tid.inboxMention(mention.id)), content: "First DM body", padding: "4px 4px" },
+      { row: view.getByTestId(tid.inboxMention(mention.id)), content: "First DM body", padding: "0px 4px" },
       { row: view.getByTestId(tid.inboxMention(next.id)), content: "Second DM body", padding: "4px 8px" },
-      { row: marked.querySelector<HTMLElement>('[data-slot="inbox-card-messages"] > div')!, content: "Saved DM body", padding: "4px 8px" },
+      { row: marked.querySelector<HTMLElement>('[data-slot="inbox-card-messages"] > div')!, content: "Saved DM body", padding: "0px 8px" },
     ]) {
       const rendered = row.querySelector("[data-message-renderer]")!
       expect(rendered).toHaveTextContent(content)
       expect(rendered).not.toHaveTextContent(/Mika|Sender/)
       expect(rendered.querySelector('[data-slot="avatar"], time')).toBeNull()
-      expect(rendered.querySelector(".w-10")).not.toBeNull()
+      expect(rendered.querySelector(".w-8")).not.toBeNull()
       expect(row.style.paddingBlock).toBe(padding)
     }
+  })
+
+  it("keeps author attribution when a marked DM message was sent by someone other than the peer", () => {
+    mocks.profiles.set("peer", { id: "peer", name: "Mika", discriminator: "0042", avatar: "M" })
+    mocks.profiles.set("viewer", { id: "viewer", name: "Gus", discriminator: "1813", avatar: "G" })
+    mocks.dms.push({ id: "dm1", userId: "peer", name: "Mika", discriminator: "0042", avatar: "M" })
+    const selfSaved: Marked = {
+      id: "mark-self-dm",
+      channelId: "dm1",
+      serverId: null,
+      server: "",
+      channel: "Mika",
+      m: { id: "m10", seq: 10, type: "chat", authorId: "viewer", authorName: "Gus", content: "My own saved DM" },
+    }
+    const view = renderInboxMessages(React.createElement(InboxPopover, {
+      unreads: [], unreadDms: [], mentions: [], marked: [selfSaved],
+      hasProjectedUnreads: false, hasProjectedMentions: false,
+    }))
+    const card = view.getByTestId(tid.inboxMarkedCard(selfSaved.id))
+    const rendered = card.querySelector("[data-message-renderer]")!
+    expect(rendered).toHaveTextContent("Gus")
+    expect(rendered).toHaveTextContent("My own saved DM")
+    expect(rendered.querySelector('[data-slot="avatar"]')).toHaveStyle({ width: "32px", height: "32px" })
   })
 
   it("opens the same DM from its header and preview text", () => {

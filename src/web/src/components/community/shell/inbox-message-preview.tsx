@@ -19,6 +19,7 @@ export function InboxMessagePreview({
   message,
   testId,
   continuation,
+  first,
   onOpen,
   onOpenThread,
   paddingTop = MESSAGE_ROW_VERTICAL_PADDING_PX,
@@ -27,6 +28,7 @@ export function InboxMessagePreview({
   message: RenderMsg
   testId?: string
   continuation?: boolean
+  first?: boolean
   onOpen?: () => void
   onOpenThread?: () => void
   paddingTop?: number
@@ -37,7 +39,7 @@ export function InboxMessagePreview({
   })
 
   const row = continuation ? { ...message, grouped: true } : message
-  const top = continuation ? MESSAGE_GROUPED_ROW_PADDING_PX : paddingTop
+  const top = continuation ? (first ? 0 : MESSAGE_GROUPED_ROW_PADDING_PX) : (first ? 8 : paddingTop)
   return (
     <div
       data-testid={testId}
@@ -46,7 +48,7 @@ export function InboxMessagePreview({
       onClick={openMessage}
     >
       {onOpen && <button type="button" className="sr-only focus:not-sr-only focus:underline" onClick={onOpen}>Open message</button>}
-      <Message m={row} onOpenThread={onOpenThread} readOnly />
+      <Message m={row} onOpenThread={onOpenThread} readOnly avatarSize={32} />
     </div>
   )
 }

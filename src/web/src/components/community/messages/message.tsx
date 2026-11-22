@@ -179,7 +179,7 @@ export function messageLinkClickUsesMenu({
 }
 
 function MessageImpl({
-  m, bodyKey, compact, pinned, readOnly, onOpenThread, onOpenProfile, onJumpReply,
+  m, bodyKey, compact, pinned, readOnly, avatarSize = 40, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
@@ -190,6 +190,7 @@ function MessageImpl({
   compact?: boolean
   pinned?: boolean
   readOnly?: boolean
+  avatarSize?: number
   onOpenThread?: (id: string) => void
   onOpenProfile?: OpenProfile
   onJumpReply?: () => void
@@ -721,9 +722,9 @@ function MessageImpl({
           reply: <MessageReplyPreview reply={m.replyTo} authorName={replyAuthorName} onJump={onJumpReply} />,
           avatar: <>
             {m.grouped ? (
-          <div className="w-10 shrink-0" />
+          <div className={avatarSize === 32 ? "w-8 shrink-0" : "w-10 shrink-0"} style={avatarSize !== 40 && avatarSize !== 32 ? { width: avatarSize } : undefined} />
         ) : readOnly ? (
-          <div className="shrink-0 self-start"><Avatar label={authorAvatar} seed={m.authorId} size={40} /></div>
+          <div className="shrink-0 self-start"><Avatar label={authorAvatar} seed={m.authorId} size={avatarSize} /></div>
         ) : (
           <button
             {...avatarMention}
@@ -732,7 +733,7 @@ function MessageImpl({
               ? `Open ${authorName} profile; long press to mention`
               : `Open ${authorName} profile`}
           >
-            <Avatar label={authorAvatar} seed={m.authorId} size={40} />
+            <Avatar label={authorAvatar} seed={m.authorId} size={avatarSize} />
           </button>
         )}
           </>,
@@ -757,6 +758,7 @@ function MessageImpl({
                 authorName={authorName}
                 onAuthorClick={readOnly ? undefined : (e) => onOpenProfile?.(authorName, e, undefined, m.authorId)}
                 color={m.color ?? "var(--foreground)"}
+                variant={avatarSize < 40 ? "compact" : "message"}
                 timestamp={formatMessageTime(m.createdAt)}
                 timestampProps={{ dateTime: m.createdAt }}
               />

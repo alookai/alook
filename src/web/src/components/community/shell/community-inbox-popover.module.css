@@ -10,12 +10,53 @@
 
 .cardSurface {
   background-color: var(--popover);
-  background-color: color-mix(in oklab, var(--popover), var(--popover-foreground) 4%);
+  background-color: color-mix(in oklab, var(--popover), var(--popover-foreground) 3.8%);
 }
 
-.cardSurface[data-slot="inbox-card-header"]::before {
+.cardSurface[data-slot="inbox-card-header"][data-expanded="false"]::before {
   background-color: var(--accent);
   background-color: color-mix(in oklab, var(--popover), var(--popover-foreground) 7%);
+}
+
+.readActionButton {
+  background-color: color-mix(in oklab, var(--popover-foreground) 7%, transparent);
+}
+
+@media (hover: hover) {
+  .readActionButton:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--popover-foreground) 13%, transparent);
+  }
+}
+
+@media (max-width: 639.98px) {
+  .readActionButton {
+    background-color: transparent;
+  }
+
+  .readActionButton:enabled [data-slot="inbox-action-visual"] {
+    background-color: color-mix(in oklab, var(--popover-foreground) 7%, transparent);
+  }
+}
+
+@keyframes revealInboxPreview {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.previewEnter {
+  animation: revealInboxPreview 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .previewEnter {
+    animation: none;
+  }
 }
 
 @property --inbox-preview-fade-edge {
@@ -35,7 +76,7 @@
 
 @supports (animation-timeline: view(block 0px 0px)) and (animation-range: exit-crossing) {
   .preview [data-slot="inbox-card-messages"] {
-    --inbox-preview-fade-depth: calc(var(--spacing) * 4);
+    --inbox-preview-fade-depth: calc(var(--spacing) * 5);
     mask-image: linear-gradient(
       to bottom,
       transparent var(--inbox-preview-fade-edge),

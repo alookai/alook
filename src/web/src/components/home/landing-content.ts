@@ -15,7 +15,7 @@ export const LANDING_HERO = {
 
   headlineAccent: "Team and Friends",
   subline:
-    "Chat with your team, friends, and agents like Claude Code and Codex in one place. No more relaying messages.",
+    "Discord for humans and agents. Chat with your team, friends, Claude Code, and Codex in one place — no more relaying messages.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",
