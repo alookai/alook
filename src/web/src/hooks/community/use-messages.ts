@@ -4,7 +4,7 @@ import { useConversationPresentation } from "@/contexts/view-activity"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { hashKey, useInfiniteQuery, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
+import { CancelledError, hashKey, useInfiniteQuery, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { channelHref } from "@/lib/community/community-route"
@@ -14,13 +14,14 @@ import { useMessageWindowProjection } from "@/lib/community-db/projections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useMessageOverlayIds } from "@/stores/community/message-stream"
 import { materializeMessageStream, type MessageScope } from "@/lib/community/message-stream"
-import { messagePageForReading, messagePageNeighbors, messageWindowOptions, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
+import { messagePageForReading, messagePageNeighbors, messageWindowOptions, viewportFillFetchMeta, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
 import { conversationEntryOptions, knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
 import type { Msg } from "@/lib/community/models/message"
 import type { MessageNeighborhood, MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { isFailedMessageRepair, messageReconcileOptions, reconcileWindow } from "@/lib/community/message-reconcile"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
+import { useCommunityOnlineAccount } from "./community-origin"
 
 export { channelMessagesQueryFn } from "@/lib/community/message-window"
 export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
@@ -87,6 +88,7 @@ export function useDmMessages(dmId: string | null, opts?: MessagesOpts) {
 function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefined, serverId: string | null) {
   const client = useQueryClient()
   const presented = useConversationPresentation()
+  const onlineAccount = useCommunityOnlineAccount()
   const tag = opts?.tag ?? null
   const anchorMessageId = opts?.anchorMessageId ?? null
   const entry = useConversationEntry(channelId && opts?.enabled !== false ? { channelId, serverId, anchorMessageId, tag } : null)
@@ -125,10 +127,11 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   }, queryKey)),
     queryKey: repairKey, enabled: false, subscribed: enabled, notifyOnChangeProps: "all" })
   const repairQuery = client.getQueryCache().find({ queryKey: repairKey, exact: true })
-  const originalQuery = client.getQueryCache().find({ queryKey, exact: true })
+  const originalQuery = client.getQueryCache().find<MessageWindowData>({ queryKey, exact: true })
   const owner = useMemo(() => ({ present, retries, query: originalQuery, enabled: enabled && presented }), [present, retries, originalQuery, enabled, presented])
   const committed = useRef<typeof owner | null>(null)
   const committedWindowReady = useRef(false)
+  const committedUnderfillReady = useRef(false)
   const committedNewReady = useRef(false)
   useLayoutEffect(() => {
     committed.current = owner
@@ -181,6 +184,13 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const hasMoreOlder = (oldest?.hasMoreOlder ?? oldest?.hasMore) ?? false
   const historyStartKnown = !!selectedWindow && (oldest?.hasMoreOlder ?? oldest?.hasMore) === false
   const hasMoreNewer = newest?.hasMoreNewer ?? false
+  const olderCursor = oldest?.olderCursor ?? oldest?.cursor
+  const firstReference = oldest?.messages[0]
+  const firstRow = firstReference && canonicalById.get(firstReference.id)
+  const underfillReady = serverId === null && initial.mode === "newest" && onlineAccount && presented && entry.displayWindowReady
+    && !missingCanonical && !projectionFailed && query.hasNextPage && !query.isFetching && !repair.isFetching
+    && !!firstRow?.createdAt && olderCursor === `${firstRow.createdAt}|${firstRow.id}`
+  useLayoutEffect(() => { committedUnderfillReady.current = underfillReady }, [underfillReady])
   const reading = selection.reading?.query === originalQuery ? selection.reading : null
   const messageNeighborhood = useMemo<MessageNeighborhood | undefined>(() => reading && query.data
     ? { page: reading, ...messagePageNeighbors(query.data, reading.key) } : undefined, [query.data, reading])
@@ -194,14 +204,21 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     if (!key || current?.query === original.query && current.key === key) return
     present.setState(state => ({ ...state, reading: { query: original.query!, key } }))
   }, [owner, present])
-  const fetchPage = useCallback((direction: "older" | "newer"): MessageRequest => {
+  const fetchPage = useCallback((direction: "older" | "newer", underfill = false): MessageRequest => {
     const original = committed.current
-    if (!channelId || !original?.enabled || !original.query || original !== owner || !committedWindowReady.current) return { accepted: false }
+    if (!channelId || !original?.enabled || !original.query || original !== owner
+      || (underfill ? !committedUnderfillReady.current || original.query.state.data !== query.data
+        || original.query.state.fetchStatus !== "idle" || repairQuery?.state.fetchStatus === "fetching"
+        : !committedWindowReady.current)) return { accepted: false }
     if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage : !query.hasPreviousPage || query.isFetchingPreviousPage) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
     const isCurrent = () => committed.current === original && isChannelMetadataTokenCurrent(token)
       && client.getQueryCache().get(original.query!.queryHash) === original.query
     const fetch = async (): Promise<MessageRequestResult> => {
+      if (underfill) {
+        const window = await original.query!.fetch(undefined, { cancelRefetch: false, meta: viewportFillFetchMeta })
+        return isCurrent() ? { status: "success", window } : { status: "retired" }
+      }
       while (isCurrent() && original.query!.state.fetchStatus !== "idle") await query.refetch({ cancelRefetch: false })
       if (!isCurrent()) return { status: "retired" }
       const result = direction === "older" ? await query.fetchNextPage({ cancelRefetch: false })
@@ -209,9 +226,10 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
       if (!isCurrent()) return { status: "retired" }
       return result.isError || !result.data ? { status: "error" } : { status: "success", window: result.data }
     }
-    return { accepted: true, completed: fetch().catch(() => ({ status: "error" })) }
-  }, [channelId, client, owner, query])
+    return { accepted: true, completed: fetch().catch(error => ({ status: error instanceof CancelledError ? "retired" : "error" })) }
+  }, [channelId, client, owner, query, repairQuery])
   const fetchOlder = useCallback(() => fetchPage("older"), [fetchPage])
+  const fillHistory = useCallback(() => fetchPage("older", true), [fetchPage])
   const fetchNewer = useCallback(() => fetchPage("newer"), [fetchPage])
   const jumpToPresent = useCallback((): MessageRequest => {
     const original = committed.current
@@ -332,7 +350,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     presentPending: selection.pending, presentError: selection.error,
     isFetchingOlder: query.isFetchingNextPage,
     isFetchingNewer: query.isFetchingPreviousPage || selection.pending,
-    fetchOlder, fetchNewer, messageNeighborhood, onReadingMessage, jumpToPresent, loadNewTarget, readNewBoundary, newBoundary: entry.newBoundary, retiredNewTargetId: entry.retiredNewTargetId, presentVersion: selection.version, presentRequest: selection.request,
+    fetchOlder, fillHistory: underfillReady ? fillHistory : undefined, fetchNewer, messageNeighborhood, onReadingMessage, jumpToPresent, loadNewTarget, readNewBoundary, newBoundary: entry.newBoundary, retiredNewTargetId: entry.retiredNewTargetId, presentVersion: selection.version, presentRequest: selection.request,
     anchorReconciled: entry.targetCovered || !!selection.window,
     navigationBlocked: !selectedWindowReady,
     readSnapshot: entry.snapshot, readSnapshotFetching,

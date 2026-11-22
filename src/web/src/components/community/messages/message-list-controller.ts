@@ -51,6 +51,7 @@ export function useMessageListController({
   isFetchingOlder,
   isFetchingNewer,
   onLoadOlder,
+  onFillHistory,
   onLoadNewer,
   onJumpToPresent,
   presentVersion,
@@ -137,6 +138,7 @@ export function useMessageListController({
     jumpTo: jumpToIndex,
     readPositionReady,
     paginationEnabled,
+    underfillEnabled,
     paginationRequestPending,
     captureOlderPageAnchor,
     captureNewerPageAnchor,
@@ -295,6 +297,8 @@ export function useMessageListController({
     onLoad: onLoadOlder,
     edge: "start",
     requestKey: messageNeighborhood?.page,
+    fillViewport: underfillEnabled && !paginationRequestPending && !initialLoadError && messageWindow && onFillHistory
+      ? { window: messageWindow, load: onFillHistory } : undefined,
     loadWhenReady: true,
   })
   const retryNewer = useVirtualCursorPagination({

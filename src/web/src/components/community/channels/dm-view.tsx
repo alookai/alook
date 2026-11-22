@@ -127,6 +127,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     isFetchingOlder: isFetchingOlderMessages,
     isFetchingNewer: isFetchingNewerMessages,
     fetchOlder: fetchOlderMessages,
+    fillHistory,
     fetchNewer: fetchNewerMessages,
     messageNeighborhood, onReadingMessage,
     jumpToPresent,
@@ -475,6 +476,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             isFetching={messagesFetching}
             isFetchingOlder={isFetchingOlderMessages}
             onLoadOlder={fetchOlderMessages}
+            onFillHistory={fillHistory}
             hasMoreNewer={hasMoreNewerMessages}
             isFetchingNewer={isFetchingNewerMessages}
             onLoadNewer={fetchNewerMessages}

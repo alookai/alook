@@ -70,6 +70,7 @@ export type MessageListProps = {
   isFetching?: boolean
   isFetchingOlder?: boolean
   onLoadOlder?: () => MessageRequest | void
+  onFillHistory?: () => MessageRequest
   hasMoreNewer?: boolean
   isFetchingNewer?: boolean
   onLoadNewer?: () => MessageRequest | void

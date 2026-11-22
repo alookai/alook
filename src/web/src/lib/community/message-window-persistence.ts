@@ -2,6 +2,7 @@ import { z } from "zod"
 import { communityMessageProfileIds, type CommunityCollectionRows } from "@alook/shared"
 import type { QueryKey } from "@tanstack/react-query"
 import { messageWindowIdentity, type MessageWindowData } from "./message-window-contract"
+import { messageWindowPage } from "./models/message"
 
 export { messageWindowIdentity } from "./message-window-contract"
 
@@ -67,13 +68,31 @@ export function persistedMessageWindowComplete(value: PersistedMessageWindow, ro
   return communityMessageProfileIds(dependencies as CommunityCollectionRows["messages"][]).every(id => profiles.has(id))
 }
 
-export function boundPersistedMessageWindow(value: PersistedMessageWindow, messages: readonly CommunityCollectionRows["messages"][], limit: number): PersistedMessageWindow | undefined {
-  if (messageWindowMessageIds(value).length <= limit && value.data.pages.length <= limit) return value
-  const first = value.data.pages[0], refs = first.messages.slice(-limit)
-  if (!refs.length) return
-  const oldest = messages.find(row => row.id === refs[0].id)
-  if (!oldest) return
-  return { ...value, data: { pages: [{ ...first, messages: refs, hasMoreOlder: true,
-    olderCursor: `${oldest.createdAt}|${oldest.id}`, ...(first.hasMore === undefined ? {} : { hasMore: true, cursor: `${oldest.createdAt}|${oldest.id}` }) }],
-    pageParams: [value.data.pageParams[0]] } }
+export function boundPersistedMessageWindow(value: PersistedMessageWindow, messages: ReadonlyMap<string, CommunityCollectionRows["messages"]>, limit: number): PersistedMessageWindow | undefined {
+  const { pages, pageParams } = value.data
+  const references = pages.flatMap(page => page.messages)
+  const ids = new Set(references.map(row => row.id))
+  if (references.length === ids.size && ids.size <= limit && pages.length <= limit) return value
+
+  const rows = new Map<string, CommunityCollectionRows["messages"]>()
+  for (const reference of references) {
+    const row = messages.get(reference.id)
+    if (!row || row.channelId !== value.channelId || reference.seq !== undefined && reference.seq !== row.seq) return
+    rows.set(row.id, row)
+  }
+  const retained = [...rows.values()].sort((a, b) => {
+    const left = `${a.createdAt}|${a.id}`
+    const right = `${b.createdAt}|${b.id}`
+    return left < right ? -1 : left > right ? 1 : 0
+  }).slice(-limit)
+  const oldestPage = pages[pages.length - 1]
+  const hasMoreOlder = ids.size > limit ? true : oldestPage.hasMoreOlder ?? oldestPage.hasMore
+  const hasMoreNewer = pages[0].hasMoreNewer
+  const oldest = retained[0], newest = retained.at(-1)
+  const page = messageWindowPage({ messages: retained, hasMoreOlder, hasMoreNewer,
+    olderCursor: hasMoreOlder && oldest ? `${oldest.createdAt}|${oldest.id}` : undefined,
+    newerCursor: hasMoreNewer && newest ? `${newest.createdAt}|${newest.id}` : undefined,
+    latestSeq: Math.max(0, ...pages.map(part => part.latestSeq ?? 0)),
+  })
+  return { ...value, data: { pages: [page], pageParams: [pageParams[0]] } }
 }

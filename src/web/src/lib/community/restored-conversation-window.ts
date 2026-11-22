@@ -18,10 +18,13 @@ export function restoreConversationDisplayWindows(registry: CommunityDbRegistry,
     client.setQueryData<MessageWindowData>(window.key, {
       pages: window.data.pages.map(page => {
         const messages = page.messages.map(ref => registry.collections.messages.get(ref.id)!)
-        const oldest = messages[0], newest = messages.at(-1)
-        return { ...page, ...messageWindowPage({ messages }), hasMoreOlder: true, hasMoreNewer: true,
-          ...(oldest ? { olderCursor: page.olderCursor ?? `${oldest.createdAt}|${oldest.id}` } : {}),
+        const newest = messages.at(-1)
+        const restored = { ...page, ...messageWindowPage({ messages }), hasMoreNewer: true,
           ...(newest ? { newerCursor: page.newerCursor ?? `${newest.createdAt}|${newest.id}` } : {}) }
+        if (channel.type === "dm") return restored
+        const oldest = messages[0]
+        return { ...restored, hasMoreOlder: true,
+          ...(oldest ? { olderCursor: page.olderCursor ?? `${oldest.createdAt}|${oldest.id}` } : {}) }
       }),
       pageParams: window.data.pageParams,
     }, { updatedAt: window.updatedAt })

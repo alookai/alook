@@ -100,6 +100,8 @@ export const channelMessagesQueryFn =
 
 export { messageWindowIdentity, type InitialMessageWindow, type MessageWindowData } from "./message-window-contract"
 
+export const viewportFillFetchMeta = { fetchMore: { direction: "forward" } } as const
+
 export function messagePageForReading(data: MessageWindowData, messageId: string, preferred?: string): string | undefined {
   const existing = data.pageParams.findIndex(param => hashKey([param]) === preferred)
   const index = existing >= 0 && data.pages[existing]?.messages.some(message => message.id === messageId)

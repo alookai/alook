@@ -8,6 +8,7 @@ import { messageWindowPage, type MessagesPage } from "@/lib/community/models/mes
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  CancelledError,
   InfiniteQueryObserver,
   QueryClient,
   QueryObserver,
@@ -16,7 +17,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
-import { messageWindowOptions, type InitialMessageWindow } from "@/lib/community/message-window"
+import { messageWindowOptions, viewportFillFetchMeta, type InitialMessageWindow } from "@/lib/community/message-window"
 import {
   cancelMessageRepairs,
   isFailedMessageRepair,
@@ -715,7 +716,10 @@ describe("focused message reconnect catch-up", () => {
     unsubscribe()
   })
 
-  it("cancels and replays an in-flight older-page fetch so neither side overwrites the other", async () => {
+  it.each([
+    { request: "reader", calls: 2, ids: ["m_2", "m_3", "m_1"] },
+    { request: "viewport fill", calls: 1, ids: ["m_2", "m_3"] },
+  ])("reconciles a newer window while an in-flight $request request is held", async ({ request, calls, ids }) => {
     const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_race")
     let resolveStaleOlder!: (page: {
@@ -778,7 +782,10 @@ describe("focused message reconnect catch-up", () => {
     await vi.waitFor(() => {
       expect(observer.getCurrentResult().isSuccess).toBe(true)
     })
-    const pendingOlder = observer.fetchNextPage()
+    const pendingOlder = request === "viewport fill"
+      ? queryClient.getQueryCache().find({ queryKey, exact: true })!.fetch(undefined, { meta: viewportFillFetchMeta })
+        .catch((error: unknown) => error)
+      : observer.fetchNextPage()
     await vi.waitFor(() => {
       expect(olderCallCount).toBe(1)
     })
@@ -821,17 +828,14 @@ describe("focused message reconnect catch-up", () => {
       hasMore: false,
       latestSeq: 2,
     }))
-    await pendingOlder
+    const outcome = await pendingOlder
+    if (request === "viewport fill") expect(outcome).toBeInstanceOf(CancelledError)
 
     expect(olderSignals[0]?.aborted).toBe(true)
-    expect(olderCallCount).toBe(2)
+    expect(olderCallCount).toBe(calls)
     expect(queryClient.getQueryData<{
       pages: Array<{ messages: Array<{ id: string }> }>
-    }>(queryKey)?.pages.flatMap((page) => page.messages.map((message) => message.id))).toEqual([
-      "m_2",
-      "m_3",
-      "m_1",
-    ])
+    }>(queryKey)?.pages.flatMap((page) => page.messages.map((message) => message.id))).toEqual(ids)
     unsubscribe()
   })
 

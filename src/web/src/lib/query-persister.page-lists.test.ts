@@ -290,6 +290,47 @@ async function seedBodyWindow(owner: Awaited<ReturnType<typeof seed>>, count = 3
 }
 
 describe("actual body membership through IDB and new canonical owners", () => {
+  it.each([false, true])("saves the newest 50 across connected DM pages with overlap=%s", async overlap => {
+    const owner = await seed()
+    const channel = CommunityChannelResourceSchema.strip().parse(owner.registry.collections.channels.get("dm"))
+    const packet = conversationEntryFromChannel(channel, owner.account)
+    const rows = Array.from({ length: 53 }, (_, index) => messageResourceFixture({
+      id: `dm-history-${index + 1}`, channelId: "dm", authorId: "peer", seq: index + 1,
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, index)).toISOString(),
+    }))
+    rows[51] = { ...rows[51], id: "dm-history-Z", createdAt: rows[52].createdAt }
+    rows[52] = { ...rows[52], id: "dm-history-a" }
+    const cursor = (index: number) => `${rows[index].createdAt}|${rows[index].id}`
+    packet.messages = rows.slice(-3)
+    packet.profiles = [...owner.registry.collections.profiles.values()].map(row => CommunityResourceProfileSchema.strip().parse(row))
+    packet.page = { olderCursor: cursor(50), newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 53 }
+    const { resource } = await seedConversationEntry(owner.client, packet)
+    const key = resource.windowKey
+    load.mockResolvedValueOnce(messageReadPageFixture({
+      messages: rows.slice(0, overlap ? 52 : 50), hasMoreOlder: false, hasMoreNewer: true, latestSeq: 53,
+      newerCursor: cursor(overlap ? 51 : 49),
+    }))
+    const observer = new InfiniteQueryObserver(owner.client, {
+      ...messageWindowOptions(owner.client, "dm", { mode: "newest" }), enabled: false,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    try { await observer.fetchNextPage() } finally { unsubscribe() }
+    expect(load.mock.calls[0][0]).toBe(`/api/community/channels/dm/messages?cursor=${encodeURIComponent(cursor(50))}`)
+    expect(owner.client.getQueryData<MessageWindowData>(key)?.pages.map(page => page.messages.length)).toEqual([3, overlap ? 52 : 50])
+
+    const restored = await saveAndRestore(owner)
+    const disk = JSON.parse((await get<string>(blobKeyFor(owner.account), cacheStore))!).clientState.queries
+    const saved = disk.find((query: { queryKey: unknown[] }) => JSON.stringify(query.queryKey) === JSON.stringify(key))
+    const expected = rows.slice(-50).map(({ id, seq }) => ({ id, seq }))
+    expect(saved.state.data).toMatchObject({
+      pages: [{ messages: expected, hasMoreOlder: true, olderCursor: cursor(3), hasMoreNewer: false, newestCursor: cursor(52), latestSeq: 53 }],
+      pageParams: [{ mode: "newest" }],
+    })
+    expect(restored.client.getQueryData<MessageWindowData>(key)?.pages).toEqual([
+      expect.objectContaining({ messages: expected, olderCursor: cursor(3), newestCursor: cursor(52), hasMoreOlder: true }),
+    ])
+  })
+
   it("restores an explicit target after real newer pagination and bounded IDB replace its initial anchor page", async () => {
     const owner = await seed(), { key, packet } = await seedBodyWindow(owner, 126)
     const rows = packet.messages

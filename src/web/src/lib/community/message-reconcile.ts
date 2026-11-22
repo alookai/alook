@@ -15,7 +15,7 @@ import { actionAttributes, currentPageObservation } from "@/lib/observability/co
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { channelHref } from "@/lib/community/community-route"
 import { messageWindowPage, type MessageInput, type MessagesPage, type MessagesReadPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
-import { buildMessagesUrl, messageWindowIdentity } from "@/lib/community/message-window"
+import { buildMessagesUrl, messageWindowIdentity, viewportFillFetchMeta } from "@/lib/community/message-window"
 
 type MessageCache = InfiniteData<MessagesWindowPage, MessagesPageParam>
 type GapRepairScope = { kind: "channel" | "dm"; scopeId: string; serverId?: string }
@@ -34,7 +34,11 @@ function url(scopeId: string, param: MessagesPageParam, tag: string | null) {
 
 function mergeHistoryBoundary(cache: MessageCache, refreshed: MessagesPage): MessageCache {
   const boundary = cache.pages.at(-1)
-  if (!boundary || (boundary.hasMoreOlder ?? boundary.hasMore) === false || (refreshed.hasMoreOlder ?? refreshed.hasMore) !== false) return cache
+  const cachedHasMoreOlder = boundary?.hasMoreOlder ?? boundary?.hasMore
+  const hasMoreOlder = refreshed.hasMoreOlder ?? refreshed.hasMore
+  const olderCursor = hasMoreOlder ? refreshed.olderCursor ?? refreshed.cursor : undefined
+  if (!boundary || cachedHasMoreOlder === false || hasMoreOlder === undefined || hasMoreOlder && !olderCursor
+    || cachedHasMoreOlder === hasMoreOlder && (boundary.olderCursor ?? boundary.cursor) === olderCursor) return cache
   const references = cache.pages.flatMap(page => page.messages)
   if (!references.length) {
     if (refreshed.hasMoreNewer !== false || !Number.isSafeInteger(refreshed.latestSeq)
@@ -44,9 +48,8 @@ function mergeHistoryBoundary(cache: MessageCache, refreshed: MessagesPage): Mes
     const oldest = references.reduce((first, message) => message.seq! < first.seq! ? message : first)
     if (!refreshed.messages.some(message => message.id === oldest.id && message.seq === oldest.seq)) return cache
   }
-  const olderCursor = refreshed.olderCursor ?? refreshed.cursor
   return { ...cache, pages: cache.pages.map((page, index) => index === cache.pages.length - 1
-    ? { ...page, hasMoreOlder: false, olderCursor, cursor: undefined } : page) }
+    ? { ...page, hasMoreOlder, olderCursor, cursor: undefined } : page) }
 }
 
 function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: MessagesPage[]): MessageCache {
@@ -162,7 +165,8 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   const serverId = scope.kind === "dm" ? null : channel ? channel.serverId : scope.serverId
   const originalQuery = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   const receipt: MessageRepairReceipt = { token, window: originalQuery, scope, key, owner }
-  const pendingDirection = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta?.fetchMore?.direction : undefined
+  const fetchMeta = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta : null
+  const pendingDirection = fetchMeta === viewportFillFetchMeta ? undefined : fetchMeta?.fetchMore?.direction
   let paginationReplayed = false
   let landingPage = landing
   let prefetched: { param: MessagesPageParam; page: MessagesReadPage } | undefined
