@@ -1,6 +1,6 @@
 import { communityFixtureFetch } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
-import { expectPaintedInboxCardSurface, expectPaintedInboxDivider } from "./_fixtures/inbox-divider"
+import { expectPaintedInboxCardSurface, expectSeamlessInboxCard } from "./_fixtures/inbox-divider"
 import type { Page, Request } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
@@ -746,7 +746,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await waitForElementMotion(markedScroll)
     const markedCards = markedScroll.getByRole("article")
     const firstCard = markedCards.first()
-    await expectPaintedInboxDivider(firstCard)
+    await expectSeamlessInboxCard(firstCard)
     await expect(firstCard.locator('[data-slot="inbox-card-messages"]')).toHaveCSS("--inbox-preview-fade-edge", "0%")
     await expect.poll(() => firstCard.evaluate((card, scrollId) => {
       const header = card.querySelector('[data-slot="inbox-card-header"]')!

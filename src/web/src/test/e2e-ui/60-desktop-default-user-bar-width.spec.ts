@@ -1,6 +1,6 @@
 import { CURRENT_COMMUNITY_FIXTURE_HEADERS } from "./_fixtures/business-contract"
 import { expectInertBackground } from "./_fixtures/inert-background"
-import { expectPaintedInboxDivider, expectPaintedInboxMessageFade } from "./_fixtures/inbox-divider"
+import { expectSeamlessInboxCard, expectPaintedInboxMessageFade } from "./_fixtures/inbox-divider"
 import type { Locator, Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
@@ -33,7 +33,7 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
   await expectHeaderShape()
   await expect(preview.locator("..")).toHaveCSS("border-width", "0px")
   await expect(messages).toHaveCSS("--inbox-preview-fade-edge", "0%")
-  await expectPaintedInboxDivider(card)
+  await expectSeamlessInboxCard(card)
   const cardId = await card.getAttribute("data-testid")
   await list.evaluate((element, cardId) => {
     const cardElement = element.querySelector(`[data-testid="${cardId}"]`)!
@@ -47,7 +47,7 @@ async function expectPinnedInboxHeader(page: Page, list: Locator, card: Locator)
   if (!box) throw new Error("Pinned Inbox card header is unavailable")
   await page.mouse.move(box.x + box.width / 2, box.y + 2)
   await expectHeaderShape()
-  await expectPaintedInboxDivider(card)
+  await expectSeamlessInboxCard(card)
   await expect.poll(() => header.evaluate((element) => {
     const rect = element.getBoundingClientRect()
     const bodyOverlaps = [...(element.closest("article")?.querySelectorAll("[data-message-renderer]") ?? [])]

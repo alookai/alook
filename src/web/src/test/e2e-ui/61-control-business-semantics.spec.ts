@@ -45,6 +45,7 @@ async function expectAdjacentInboxActions(disclosure: Locator, targetSize: numbe
   const readInset = (targetSize - 16) / 2
   const artworkSize = artworkKind === "count" ? 20 : 16
   const disclosureInset = (targetSize - artworkSize) / 2
+  const expectedGap = 2
   await expect(disclosure).toHaveCSS("width", `${targetSize}px`)
   await expect.poll(() => disclosure.evaluate((element, kind) => {
     const read = element.previousElementSibling!
@@ -53,20 +54,21 @@ async function expectAdjacentInboxActions(disclosure: Locator, targetSize: numbe
     const artwork = element.querySelector(`[data-slot="inbox-disclosure-${kind}"]`)!.getBoundingClientRect()
     const readIcon = read.querySelector("svg")!.getBoundingClientRect()
     return {
-      buttonGap: disclosureButton.left - readButton.right,
-      artworkGap: artwork.left - readIcon.right,
-      disclosureInset: disclosureButton.right - artwork.right,
-      readInset: readButton.right - readIcon.right,
+      buttonGap: Math.round(disclosureButton.left - readButton.right),
+      artworkGap: Math.round(artwork.left - readIcon.right),
+      disclosureInset: Math.round(disclosureButton.right - artwork.right),
+      readInset: Math.round(readButton.right - readIcon.right),
     }
-  }, artworkKind)).toEqual({ buttonGap: 0, artworkGap: readInset + disclosureInset, disclosureInset, readInset })
+  }, artworkKind)).toEqual({ buttonGap: expectedGap, artworkGap: readInset + disclosureInset + expectedGap, disclosureInset, readInset })
 }
 
 async function expectInboxHeaderHover(page: Page, action: Locator) {
   const header = page.locator('[data-slot="inbox-card-header"]').filter({ has: action })
+  const expanded = (await header.getAttribute("data-expanded")) === "true"
   const colors = await header.evaluate((element) => {
     const probe = document.createElement("span")
     element.appendChild(probe)
-    probe.style.backgroundColor = "color-mix(in oklab, var(--popover), var(--popover-foreground) 4%)"
+    probe.style.backgroundColor = "color-mix(in oklab, var(--popover), var(--popover-foreground) 3.8%)"
     const idle = getComputedStyle(probe).backgroundColor
     probe.style.backgroundColor = "color-mix(in oklab, var(--popover), var(--popover-foreground) 7%)"
     const hovered = getComputedStyle(probe).backgroundColor
@@ -74,6 +76,13 @@ async function expectInboxHeaderHover(page: Page, action: Locator) {
     return { idle, hovered }
   })
   expect(colors.hovered).not.toBe(colors.idle)
+  if (expanded) {
+    await page.mouse.move(0, 0)
+    await expect.poll(() => header.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(colors.idle)
+    await header.hover({ position: { x: 6, y: 20 } })
+    await expect.poll(() => header.evaluate((element) => getComputedStyle(element, "::before").backgroundColor)).toBe("rgba(0, 0, 0, 0)")
+    return
+  }
   const expectTint = (opacity: string) => expect.poll(() => header.evaluate((element) => {
     const tint = getComputedStyle(element, "::before")
     return {
@@ -84,7 +93,7 @@ async function expectInboxHeaderHover(page: Page, action: Locator) {
   })).toEqual({ base: colors.idle, tint: colors.hovered, opacity })
   await page.mouse.move(0, 0)
   await expectTint("0")
-  await header.hover({ position: { x: 3, y: 4 } })
+  await header.hover({ position: { x: 6, y: 20 } })
   await expectTint("1")
   await header.locator("button").first().hover()
   await expectTint("1")
@@ -211,6 +220,7 @@ test("App reaction and matching Inbox header controls retain their colors and ac
     expect(readBackground).not.toBe("rgba(0, 0, 0, 0)")
     await expect(disclosurePaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
     await expectInboxHeaderHover(page, markRead)
+    await page.mouse.move(0, 0)
     await expect(markPaint).toHaveCSS("background-color", readBackground)
     await disclosure.hover()
     await expect(disclosurePaint).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")

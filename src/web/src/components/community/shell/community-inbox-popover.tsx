@@ -1,5 +1,5 @@
 
-import { AlertCircle, ArrowUpRight, Bookmark, Check, ChevronDown, CircleCheck, Inbox, LoaderCircle, Trash2, X } from "@/components/icons/lucide";
+import { AlertCircle, ArrowUpRight, Bookmark, Check, ChevronDown, CircleCheck, Inbox, LoaderCircle, X } from "@/components/icons/lucide";
 import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -129,23 +129,25 @@ function InboxCountBadge({ count, shown, descriptionId }: { count: number; shown
   )
 }
 
-const identityActionClassName = "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm transition-transform duration-150 active:scale-[0.99] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
+const identityActionClassName = "group/inbox-identity flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left text-sm transition-[color,background-color,transform] duration-150 active:scale-[0.99] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
+const expandedIdentityActionClassName = "-mx-1.5 px-1.5 py-0.5 hover:bg-foreground/5"
 const cardActionClassName = "size-11 shrink-0 sm:size-8"
-const unreadChannelActionClassName = "text-muted-foreground hover:bg-accent hover:text-foreground dark:hover:bg-accent"
+const unreadChannelActionClassName = "text-muted-foreground hover:text-foreground"
 
-function InboxIconAction({ children, className, compact, mobileRestingTint, ...props }:
-  Omit<ComponentProps<typeof Button>, "className" | "size" | "variant"> & { className?: string; compact?: boolean; mobileRestingTint?: boolean }
+function InboxIconAction({ children, className, compact, restingTint, ...props }:
+  Omit<ComponentProps<typeof Button>, "className" | "size" | "variant"> & { className?: string; compact?: boolean; restingTint?: boolean }
 ) {
   return (
     <Button {...props} variant="ghost" size="icon" className={cn(
-      compact ? "size-11 shrink-0 bg-transparent!" : `${cardActionClassName} max-sm:bg-transparent!`,
+      compact ? "size-11 shrink-0 bg-transparent!" : `${cardActionClassName} rounded-full max-sm:bg-transparent!`,
+      restingTint && !compact && styles.readActionButton,
+      !restingTint && !compact && "hover:bg-foreground/7 dark:hover:bg-foreground/9",
       "focus-visible:ring-inset",
       className,
     )}>
       <span aria-hidden="true" data-slot="inbox-action-visual" className={cn(
-        "pointer-events-none grid place-items-center rounded-lg transition-colors duration-150 motion-reduce:transition-none",
-        compact ? "size-7 group-hover/button:bg-accent" : "max-sm:size-7 max-sm:group-hover/button:bg-accent",
-        mobileRestingTint && "max-sm:group-enabled/button:bg-accent",
+        "pointer-events-none grid place-items-center rounded-full transition-colors duration-150 motion-reduce:transition-none",
+        compact ? "size-7 group-hover/button:bg-accent" : "max-sm:size-7 max-sm:group-hover/button:bg-foreground/10",
       )}>
         {children}
       </span>
@@ -170,51 +172,62 @@ function channelLocation(directory: InboxCardDirectory, channelId: string, paren
   return channel?.categoryId ? directory.categories.get(channel.categoryId)?.name : undefined
 }
 
-function InboxServerCardIdentity({ server, name, kind, location }: {
+function InboxServerCardIdentity({ server, name, kind, location, showJumpCue }: {
   server: Pick<UnreadServer, "serverId" | "serverName" | "serverIcon">
   name: string
   kind?: EntityKind
   location?: string | null
+  showJumpCue?: boolean
 }) {
   const context = location ? `${server.serverName} › ${location}` : server.serverName
   return (
     <>
       <ServerIcon id={server.serverId} name={server.serverName} initial={avatarInitial(server.serverName)}
-        icon={server.serverIcon} className="shrink-0 rounded-lg" />
+        icon={server.serverIcon} size={32} className="shrink-0 rounded-lg" />
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-1 font-medium">
-          <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
-            <EntityIcon kind={kind} className="size-4" />
+        <span className="flex min-w-0 items-center gap-1 text-sm font-medium leading-snug text-foreground">
+          <span className="grid size-4 shrink-0 place-items-center text-muted-foreground">
+            <EntityIcon kind={kind} className="size-3.5" />
           </span>
           <span className="truncate" title={name}>{name}</span>
+          {showJumpCue && (
+            <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/inbox-identity:opacity-100 group-focus-visible/inbox-identity:opacity-100 motion-reduce:transition-none" />
+          )}
         </span>
-        <span className="block truncate text-xs text-muted-foreground" title={context}>{context}</span>
+        <span className="block truncate text-xs leading-snug text-muted-foreground" title={context}>{context}</span>
       </span>
     </>
   )
 }
 
-function InboxDmCardIdentity({ name, avatar, userId, discriminator }: {
+function InboxDmCardIdentity({ name, avatar, userId, discriminator, showJumpCue }: {
   name: string
   avatar: string
   userId: string
   discriminator?: string
+  showJumpCue?: boolean
 }) {
   return (
     <>
-      <Avatar label={avatar} seed={userId} />
-      <span className="min-w-0 flex-1 truncate font-medium" title={name}>
-        {name}{discriminator && <span className="ml-1 text-xs text-muted-foreground">#{discriminator}</span>}
+      <Avatar label={avatar} seed={userId} size={32} />
+      <span className="flex min-w-0 flex-1 items-baseline gap-1">
+        <span className="min-w-0 truncate text-sm font-medium leading-snug text-foreground" title={name}>
+          {name}{discriminator && <span className="ml-1 text-xs font-normal text-muted-foreground">#{discriminator}</span>}
+        </span>
+        {showJumpCue && (
+          <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0 self-center text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/inbox-identity:opacity-100 group-focus-visible/inbox-identity:opacity-100 motion-reduce:transition-none" />
+        )}
       </span>
     </>
   )
 }
 
-function InboxCard({ testId, identity, actions, feedback, children }: {
+function InboxCard({ testId, identity, actions, feedback, animatePreview, children }: {
   testId: string
   identity: ReactNode
   actions: ReactNode
   feedback?: ReactNode
+  animatePreview?: boolean
   children: ReactNode
 }) {
   const stickyRef = useRef<HTMLDivElement>(null)
@@ -236,22 +249,21 @@ function InboxCard({ testId, identity, actions, feedback, children }: {
   }, [hasPreview])
 
   return (
-    <article data-testid={testId} className="mb-2 isolate min-w-0 text-card-foreground">
+    <article data-testid={testId} className="mb-2.5 isolate min-w-0 rounded-xl text-card-foreground">
       <div ref={stickyRef} className={hasBody ? "sticky top-0 z-10 bg-popover" : undefined}>
-        <header data-slot="inbox-card-header" className={cn(
-          "relative isolate flex min-w-0 items-center gap-2 overflow-clip p-2 transition-colors duration-150 hover:text-accent-foreground motion-reduce:transition-none sm:px-4",
-          "before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-100 motion-reduce:before:transition-none",
+        <header data-slot="inbox-card-header" data-expanded={hasBody ? "true" : "false"} className={cn(
+          "relative isolate flex min-w-0 items-center gap-2 overflow-clip px-3 transition-colors duration-150 motion-reduce:transition-none sm:px-3.5",
+          !hasBody && "hover:text-accent-foreground before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-100 motion-reduce:before:transition-none",
           styles.cardSurface,
-          hasBody ? "rounded-t-lg" : "rounded-lg",
+          hasBody ? "rounded-t-xl pt-1.5 pb-0 sm:pt-2.5 sm:pb-1" : "rounded-xl py-1.5 sm:py-2.5",
         )}>
           {identity}
           {actions}
         </header>
-        {hasBody && <div aria-hidden="true" data-slot="inbox-card-divider" className="h-px bg-border" />}
       </div>
-      {hasBody && <div className={cn("min-w-0 overflow-clip rounded-b-lg", styles.cardSurface)}>
+      {hasBody && <div className={cn("min-w-0 overflow-clip rounded-b-xl pb-2", styles.cardSurface)}>
         {feedback}
-        {hasPreview && <div ref={previewRef} data-slot="inbox-card-preview" className={styles.preview}>{children}</div>}
+        {hasPreview && <div ref={previewRef} data-slot="inbox-card-preview" className={cn(styles.preview, animatePreview && styles.previewEnter)}>{children}</div>}
       </div>}
     </article>
   )
@@ -277,10 +289,11 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
   const showCount = !expanded && unreadCount > 0
   const displayCount = useRetainedInboxCount(unreadCount)
   const identityElement = useRef<HTMLElement>(null)
+  const hasBody = expanded || read?.status === "error"
   const identityProps = {
     ref: (element: HTMLElement | null) => { identityElement.current = element },
     "data-testid": identityTestId,
-    className: identityActionClassName,
+    className: cn(identityActionClassName, hasBody && expandedIdentityActionClassName),
   }
   const identity = identityHref
     ? <CommunityNavigationLink {...identityProps} href={identityHref} onActivate={onOpen}>{children}</CommunityNavigationLink>
@@ -290,16 +303,16 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
     if (!pending) void onMarkChannelRead?.(channelId, seq).catch(() => undefined)
   }
   return (
-    <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={identity}
-      actions={<div className="-me-2 flex shrink-0 items-center sm:-me-4">
-        <InboxIconAction mobileRestingTint className={cn(unreadChannelActionClassName, "bg-accent")}
+    <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={identity} animatePreview
+      actions={<div className="-me-1.5 flex shrink-0 items-center gap-0.5 sm:-me-1">
+        <InboxIconAction restingTint className={unreadChannelActionClassName}
           data-testid={tid.inboxMarkChannelRead(channelId)}
           aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || pending}
           onClick={() => mark(throughSeq)}>
           {pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
         </InboxIconAction>
         <Button variant="ghost" size="icon"
-          className={cn(cardActionClassName, "w-auto min-w-11 bg-transparent! px-1 text-muted-foreground! focus-visible:ring-inset sm:w-auto sm:min-w-8")}
+          className={cn(cardActionClassName, "w-auto min-w-11 rounded-full bg-transparent! px-1 text-muted-foreground! focus-visible:ring-inset sm:w-auto sm:min-w-8")}
           data-testid={tid.inboxToggleChannel(channelId)}
           aria-label={`${expanded ? "Hide" : "Show"} unread messages in ${name}`} aria-expanded={expanded} aria-controls={bodyId}
           aria-describedby={showCount ? countId : undefined}
@@ -313,13 +326,13 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
           </span>
         </Button>
       </div>}
-      feedback={read?.status === "error" && <div role="alert" className="flex items-center justify-between gap-2 px-2 pb-2 text-xs">
+      feedback={read?.status === "error" && <div role="alert" className="flex items-center justify-between gap-2 px-3 pb-1 text-xs sm:px-3.5">
         <span>Couldn&apos;t update read status</span>
         <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-8" aria-label={`Retry marking ${name} read`}
           onClick={() => mark(read.throughSeq)}>Retry</Button>
       </div>}
     >
-      {expanded && <section id={bodyId} aria-label={`Unread messages in ${name}`} className="min-w-0 px-2 sm:px-4"
+      {expanded && <section id={bodyId} aria-label={`Unread messages in ${name}`} className="min-w-0 px-3 sm:px-3.5"
         onClick={event => {
           if (isInboxPreviewContentClick(event)) identityElement.current?.click()
         }}>
@@ -365,10 +378,11 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
   const renderMessages = renderUnreadMessages ?? ((input: InboxUnreadMessagesInput) => (
     <div data-testid={tid.inboxUnreadMessages(input.channelId)}>
       {input.mentions.length === 0
-        ? <p className="p-2 text-sm text-muted-foreground">No unread messages</p>
-        : <div data-slot="inbox-card-messages" className={cn("flex min-w-0 flex-col", !input.continuation && "gap-2")}>
+        ? <p className="py-1.5 text-sm text-muted-foreground">No unread messages</p>
+        : <div data-slot="inbox-card-messages" className={cn("flex min-w-0 flex-col", !input.continuation && "gap-1")}>
             {input.mentions.map((mention, index) => <InboxMessagePreview key={mention.id} message={{ ...mention.m, grouped: false }}
               continuation={input.continuation}
+              first={index === 0}
               paddingBottom={input.continuation && index < input.mentions.length - 1 ? MESSAGE_GROUPED_ROW_PADDING_PX : undefined}
               testId={tid.inboxMention(mention.id)} />)}
           </div>}
@@ -392,16 +406,16 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
       {error && nothingUnread && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
       {friendRequests.length > 0 && (
-        <div className="mb-3">
-          <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">
+        <div className="mb-3 flex flex-col gap-2">
+          <div className="px-1 text-xs font-medium text-muted-foreground">
             Friend requests — {friendRequests.length}
           </div>
           {friendRequests.map((item) => {
             const request = item.row
             if (request.pendingIdentity) {
               return (
-                <div key={request.id} data-testid={tid.inboxFriendRequest(request.id)} className="flex items-center gap-2 rounded-md px-2 py-2">
-                  <Skeleton className="size-7 shrink-0 rounded-full" />
+                <div key={request.id} data-testid={tid.inboxFriendRequest(request.id)} className={cn("flex items-center gap-2 rounded-xl px-3 py-2.5 sm:px-3.5", styles.cardSurface)}>
+                  <Skeleton className="size-8 shrink-0 rounded-full" />
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <Skeleton className="h-3.5 w-28 rounded" />
                   </div>
@@ -418,20 +432,20 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
                 key={request.id}
                 data-testid={tid.inboxFriendRequest(request.id)}
                 aria-busy={pending || undefined}
-                className="rounded-md px-2 py-2 hover:bg-accent"
+                className={cn("rounded-xl px-3 py-1.5 transition-colors duration-150 motion-reduce:transition-none sm:px-3.5 sm:py-2", styles.cardSurface)}
               >
                 <div className="flex items-center gap-2">
                   <button
                     data-testid={tid.inboxFriendRequestOpen(request.id)}
                     onClick={onOpenFriendRequests}
-                    className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
+                    className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
                   >
-                    <Avatar label={profile.avatar} seed={request.userId} size={28} />
+                    <Avatar label={profile.avatar} seed={request.userId} size={32} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{profile.name}{profile.discriminator && <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">#{profile.discriminator}</span>}</span>
                     </span>
                   </button>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="-me-1.5 flex shrink-0 gap-0.5 sm:-me-1">
                     <InboxIconAction compact
                       data-testid={tid.inboxFriendRequestAccept(request.id)}
                       disabled={pending}
@@ -474,7 +488,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           mentions={mentions.filter(mention => mention.channelId === dm.channelId)}
           renderUnreadMessages={input => renderMessages({ ...input, continuation: true })}
           onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}>
-          <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} />
+          <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} showJumpCue />
         </UnreadChannelCard>
       })}
       {visibleServers.flatMap(({ server, channels }) => channels.flatMap(({ channel, directVisible, children }) => [
@@ -489,13 +503,13 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           })}
           onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}>
           <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
-            location={channelLocation(directory, channel.channelId)} />
+            location={channelLocation(directory, channel.channelId)} showJumpCue />
         </UnreadChannelCard>] : []),
         ...children.map(child => <UnreadChannelCard key={child.channelId} channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq} unreadCount={child.unreadCount}
           identityTestId={tid.inboxUnreadChild(child.channelId)} onOpen={() => onOpenThread(server, channel, child)}
           mentions={mentions.filter(mention => mention.channelId === child.channelId)} renderUnreadMessages={renderMessages}
           onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}>
-          <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} />
+          <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} showJumpCue />
         </UnreadChannelCard>),
       ]))}
     </InboxScrollBody>
@@ -678,25 +692,29 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
         const peer = peersByChannel.get(mk.channelId)
         const name = peer?.name ?? channel?.name ?? mk.channel
         const open = onOpenMarked ? () => onOpenMarked(mk) : undefined
+        const isOtherAuthorInDm = !mk.serverId && Boolean(peer?.userId && mk.m.authorId && mk.m.authorId !== peer.userId)
+        const continuation = !mk.serverId && !isOtherAuthorInDm
         return (
           <InboxCard key={mk.id} testId={tid.inboxMarkedCard(mk.id)}
-            identity={<button type="button" className={identityActionClassName} onClick={open}>
+            identity={<button type="button" className={cn(identityActionClassName, expandedIdentityActionClassName)} onClick={open}>
               {mk.serverId
                 ? <InboxServerCardIdentity name={name} kind={channel?.type === "dm" ? undefined : channel?.type}
                     location={channelLocation(directory, mk.channelId, mk.parentChannelId)}
-                    server={{ serverId: mk.serverId, serverName: server?.name ?? mk.server, serverIcon: server?.icon }} />
+                    server={{ serverId: mk.serverId, serverName: server?.name ?? mk.server, serverIcon: server?.icon }}
+                    showJumpCue={Boolean(open)} />
                 : <InboxDmCardIdentity name={name} avatar={peer?.avatar ?? avatarInitial(name)}
-                    userId={peer?.userId ?? mk.channelId} discriminator={peer?.discriminator} />}
+                    userId={peer?.userId ?? mk.channelId} discriminator={peer?.discriminator}
+                    showJumpCue={Boolean(open)} />}
             </button>}
-            actions={onUnmark && <Button variant="ghost" size="icon" aria-label="Unmark" title="Unmark"
+            actions={onUnmark && <InboxIconAction aria-label="Unmark" title="Unmark"
               data-testid={tid.inboxUnmark(mk.m.id)}
-              className={cn(cardActionClassName, "text-muted-foreground hover:text-foreground")}
+              className="-me-1.5 text-muted-foreground hover:text-foreground sm:-me-1"
               onClick={() => onUnmark(mk.m.id)}>
-              <Trash2 className="size-4" />
-            </Button>}
+              <X className="size-4" />
+            </InboxIconAction>}
           >
-            <div data-slot="inbox-card-messages" className="min-w-0 px-2 sm:px-4">
-              <InboxMessagePreview message={{ ...mk.m, grouped: false }} continuation={!mk.serverId} onOpen={open} />
+            <div data-slot="inbox-card-messages" className="min-w-0 px-3 sm:px-3.5">
+              <InboxMessagePreview message={{ ...mk.m, grouped: false }} continuation={continuation} first onOpen={open} />
             </div>
           </InboxCard>
         )
@@ -904,14 +922,22 @@ export function InboxPopover({
 
 function InboxRowsSkeleton() {
   return (
-    <div className="flex flex-col gap-1">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="flex items-start gap-3 rounded-md p-2">
-          <Skeleton className="size-9 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-3.5 w-2/5 rounded" />
-            <Skeleton className="h-3 w-3/4 rounded" />
-            <Skeleton className="h-3 w-1/4 rounded" />
+    <div className="flex flex-col gap-2.5">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className={cn("rounded-xl px-3 py-2.5 sm:px-3.5", styles.cardSurface)}>
+          <div className="flex items-center gap-2">
+            <Skeleton className={cn("size-8 shrink-0", i % 2 === 0 ? "rounded-full" : "rounded-lg")} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Skeleton className="h-3.5 w-2/5 rounded" />
+              {i % 2 !== 0 && <Skeleton className="h-2.5 w-1/4 rounded" />}
+            </div>
+          </div>
+          <div className="mt-2 flex items-start gap-2">
+            <div className="w-8 shrink-0" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Skeleton className="h-3 w-11/12 rounded" />
+              <Skeleton className="h-3 w-3/5 rounded" />
+            </div>
           </div>
         </div>
       ))}
@@ -921,18 +947,18 @@ function InboxRowsSkeleton() {
 
 function InboxUnreadsSkeleton() {
   return (
-    <div className="flex flex-col gap-3">
-      {Array.from({ length: 2 }).map((_, gi) => (
-        <div key={gi}>
-          <div className="px-2 pb-1">
-            <Skeleton className="h-3 w-24 rounded" />
+    <div className="flex flex-col gap-2.5">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className={cn("flex items-center gap-2 rounded-xl px-3 py-2.5 sm:px-3.5", styles.cardSurface)}>
+          <Skeleton className={cn("size-8 shrink-0", i < 2 ? "rounded-full" : "rounded-lg")} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3.5 rounded" style={{ width: `${42 + ((i * 17) % 28)}%` }} />
+            {i >= 2 && <Skeleton className="h-2.5 w-1/4 rounded" />}
           </div>
-          {Array.from({ length: 3 }).map((_, ri) => (
-            <div key={ri} className="flex items-center gap-2 rounded-md px-2 py-2">
-              <Skeleton className="size-4 shrink-0 rounded" />
-              <Skeleton className="h-3.5 flex-1 rounded" style={{ maxWidth: 140 + ((ri * 23) % 60) }} />
-            </div>
-          ))}
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Skeleton className="size-7 rounded-full" />
+            <Skeleton className="size-5 rounded-full" />
+          </div>
         </div>
       ))}
     </div>

@@ -167,7 +167,7 @@ describe("landing content contract", () => {
     expect(BRAND_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(BRAND_DESCRIPTION).toContain("agents you already use")
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
-    expect(LANDING_HERO.subline).toBe("Chat with your team, friends, and agents like Claude Code and Codex in one place. No more relaying messages.")
+    expect(LANDING_HERO.subline).toBe("Discord for humans and agents. Chat with your team, friends, Claude Code, and Codex in one place — no more relaying messages.")
     expect(LANDING_META_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(LANDING_META_DESCRIPTION).toBe("Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.")
     expect(rootRoute).toContain("LANDING_META_TITLE")
