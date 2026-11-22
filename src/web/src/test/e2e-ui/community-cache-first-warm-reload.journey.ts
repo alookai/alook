@@ -9,10 +9,11 @@ import type { APIResponse, Page, Request, Route, TestInfo } from "@playwright/te
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { expectPublicCommunityDocument, expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
 import { PERSIST_ACCOUNT_PREFIX, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
-import { expect, test } from "./_fixtures/case-fixture"
+import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { holdRoute } from "./_fixtures/held-route"
-import { waitForStableTail } from "./_fixtures/message-scroll-characterization"
+import { waitForCommittedGeometry, waitForStableTail } from "./_fixtures/message-scroll-characterization"
+import type { MessageWindowData } from "@/lib/community/message-window"
 
 import { tid } from "./_fixtures/testids"
 import type { CaseResources } from "./_fixtures/case-fixture"
@@ -47,7 +48,9 @@ const structuralLoadingSelectors = [
 async function persistedSnapshot(page: Page, viewerId: string): Promise<PersistedSnapshot | undefined> {
   return page.evaluate((key) => new Promise<PersistedSnapshot | undefined>((resolve, reject) => {
     const open = indexedDB.open("keyval-store")
-    open.onerror = () => reject(open.error ?? new Error("failed to open query persister"))
+    open.onupgradeneeded = () => open.transaction?.abort()
+    open.onerror = () => open.error?.name === "AbortError"
+      ? resolve(undefined) : reject(open.error ?? new Error("failed to open query persister"))
     open.onsuccess = () => {
       const db = open.result
       if (!db.objectStoreNames.contains("keyval")) {
@@ -726,6 +729,155 @@ test("a warm DM reload shows entry-qualified identity and history before browser
     await expect(frame.getByTestId(tid.message(messageId))).toBeVisible()
     await expect(frame.getByTestId(tid.composerInput)).toBeVisible()
   }, caseResources, undefined, { channelId: dmId, messageId })
+})
+
+async function openMobileDmHistory(actors: CaseActors, count: number) {
+  const dmId = await actors.seed.seedDm("alice", actors.userId("bob"))
+  const ids = await actors.seedHistory(dmId, Array.from({ length: count }, (_, index) => ({
+    author: "bob" as const, content: `DM history ${index + 1}\n\nA second paragraph for the mobile viewport.`,
+  })))
+  const { page } = await actors.asUser("alice", { viewport: { width: 390, height: 844 }, serviceWorkers: "block" })
+  const path = `/api/community/channels/${dmId}/messages`
+  const isEntry = (url: URL) => url.pathname === path && url.searchParams.get("entry") === "1"
+  const isOlder = (url: URL) => url.pathname === path && url.searchParams.has("cursor")
+  const saved = async () => {
+    const queries = await persistedQueries(page, actors.userId("alice"))
+    return (queries.find(query => JSON.stringify(query.queryKey) === JSON.stringify(["community", "channel", dmId, "messages"]))?.data as MessageWindowData | undefined)?.pages
+  }
+  const limitFirstEntry = async () => {
+    const handler = async (route: Route) => {
+      const url = new URL(route.request().url())
+      url.searchParams.set("limit", "3")
+      await route.fulfill({ response: await route.fetch({ url: url.href }) })
+    }
+    await page.route(isEntry, handler)
+    return () => page.unroute(isEntry, handler)
+  }
+  return { page, ids, path, isEntry, isOlder, saved, limitFirstEntry, href: `/c/me/${dmId}`, scroller: page.getByTestId(tid.messageScroller) }
+}
+
+test.describe("mobile DM cold history", () => {
+  for (const count of [3, 53]) {
+    test(`restores ${count === 3 ? "the confirmed beginning" : "the newest 50 after joined 3 + 50 pages"} before entry`, async ({ caseActors, caseResources }) => {
+      test.setTimeout(90_000)
+      const { page, ids, isEntry, isOlder, saved, limitFirstEntry, href, scroller } = await openMobileDmHistory(await caseActors(["alice", "bob"]), count)
+      const restoreEntry = count === 53 ? await limitFirstEntry() : undefined
+      const cursors: string[] = []
+      page.on("request", request => {
+        const url = new URL(request.url())
+        if (isOlder(url)) cursors.push(url.searchParams.get("cursor")!)
+      })
+      await page.goto(href)
+      await expect(scroller.getByTestId(tid.message(ids.at(-1)!))).toBeInViewport()
+      const expected = ids.slice(-50)
+      await expect.poll(async () => (await saved())?.flatMap(part => part.messages.map(message => message.id)), { timeout: 20_000 }).toEqual(expected)
+      const stored = (await saved())![0]
+      expect(stored.hasMoreOlder).toBe(count === 53)
+      expect(stored.olderCursor?.split("|")[1]).toBe(count === 53 ? ids[3] : undefined)
+      if (count === 53) expect(cursors.map(cursor => cursor.split("|")[1])).toEqual([ids[50]])
+      await restoreEntry?.()
+
+      const entry = await holdRoute(page, isEntry, caseResources)
+      cursors.length = 0
+      await page.reload({ waitUntil: "commit" })
+      await expect.poll(entry.held).toBe(1)
+      const cached = ids.at(count === 53 ? -5 : -3)!
+      await expect(scroller.getByTestId(tid.message(cached))).toBeInViewport()
+      const content = scroller.locator("[data-read-position-ready]")
+      await expect(content).toHaveAttribute("data-read-position-ready", "false")
+      expect(cursors).toEqual([])
+      const entryResponse = page.waitForResponse(response => isEntry(new URL(response.url())))
+      await entry.release()
+      expect((await entryResponse).status()).toBe(200)
+      await expect(content).toHaveAttribute("data-read-position-ready", "true")
+      await waitForStableTail(scroller, "confirmed cold DM")
+      if (count === 3) expect(cursors).toEqual([])
+      else expect(cursors.every(cursor => cursor.split("|")[1] === ids[3])).toBe(true)
+    })
+  }
+
+  for (const entryFirst of [false, true]) {
+    test(`uses the first available history when ${entryFirst ? "entry" : "the older page"} completes first`, async ({ caseActors, caseResources }) => {
+      test.setTimeout(90_000)
+      const { page, ids, path, isEntry, isOlder, saved, limitFirstEntry, href, scroller } = await openMobileDmHistory(await caseActors(["alice", "bob"]), entryFirst ? 20 : 53)
+      const restoreEntry = await limitFirstEntry()
+      const older = await holdRoute(page, isOlder, caseResources)
+      const readPath = path.replace(/messages$/, "read")
+      let allowRead = false
+      await page.route(url => url.pathname === readPath, route => !allowRead && route.request().method() === "PUT"
+        ? route.abort() : route.continue())
+      await page.goto(href)
+      await expect.poll(older.held).toBe(1)
+      await expect.poll(async () => (await saved())?.[0].messages.map(message => message.id), { timeout: 20_000 }).toEqual(ids.slice(-3))
+      const cursor = (await saved())![0].olderCursor
+      await restoreEntry()
+
+      const entry = await holdRoute(page, isEntry, caseResources)
+      const cursors: Array<string | null> = []
+      const readWrites: Request[] = []
+      page.on("request", request => {
+        const url = new URL(request.url())
+        if (isOlder(url)) cursors.push(url.searchParams.get("cursor"))
+        if (request.method() === "PUT" && url.pathname === readPath) readWrites.push(request)
+      })
+      await page.reload({ waitUntil: "commit" })
+      await expect.poll(entry.held).toBe(1)
+      await expect.poll(older.held).toBe(2)
+      expect(cursors).toEqual([cursor])
+      const content = scroller.locator("[data-read-position-ready]")
+      await expect(content).toHaveAttribute("data-read-position-ready", "false")
+      expect(readWrites).toHaveLength(0)
+      const short = await waitForCommittedGeometry(scroller)
+      expect(short.scrollHeight).toBe(short.clientHeight)
+
+      const readAfterEntry = page.waitForResponse(response => response.ok() && response.request().method() === "PUT"
+        && new URL(response.url()).pathname === readPath)
+      if (entryFirst) {
+        const response = page.waitForResponse(value => isEntry(new URL(value.url())))
+        allowRead = true
+        await entry.release()
+        expect((await response).status()).toBe(200)
+        await expect(content).toHaveAttribute("data-read-position-ready", "true")
+        expect(cursors).toEqual([cursor])
+      } else {
+        const response = page.waitForResponse(value => isOlder(new URL(value.url())))
+        await older.release()
+        expect((await response).status()).toBe(200)
+        await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight)).toBeGreaterThan(0)
+        await waitForStableTail(scroller, "underfill before entry")
+        await expect(content).toHaveAttribute("data-read-position-ready", "false")
+        expect(readWrites).toHaveLength(0)
+        allowRead = true
+        await entry.release()
+        await expect(content).toHaveAttribute("data-read-position-ready", "true")
+      }
+      await waitForStableTail(scroller, "underfill settled")
+      await expect(scroller.getByTestId(tid.message(ids.at(-1)!))).toBeInViewport()
+      expect((await readAfterEntry).request().postDataJSON()).toMatchObject({ lastReadMessageId: ids.at(-1) })
+    })
+  }
+
+  test("keeps the first visible body when the reader scrolls up during an older request", async ({ caseActors, caseResources }) => {
+    test.setTimeout(90_000)
+    const { page, ids, isOlder, href, scroller } = await openMobileDmHistory(await caseActors(["alice", "bob"]), 53)
+    const older = await holdRoute(page, isOlder, caseResources)
+    await page.goto(href)
+    await expect.poll(older.held).toBe(1)
+    await waitForStableTail(scroller, "before reading upward")
+    await scroller.hover()
+    await page.mouse.wheel(0, -420)
+    await expect.poll(() => scroller.evaluate(root => root.scrollHeight - root.clientHeight - root.scrollTop)).toBeGreaterThan(300)
+    const reading = await waitForCommittedGeometry(scroller)
+    expect(reading.firstVisibleId).toBeTruthy()
+    expect(reading.firstVisibleId).not.toBe(ids.at(-1))
+    const response = page.waitForResponse(value => isOlder(new URL(value.url())))
+    await older.release()
+    expect((await response).status()).toBe(200)
+    await expect.poll(() => scroller.evaluate(root => root.scrollHeight)).toBeGreaterThan(reading.scrollHeight)
+    const restored = await waitForCommittedGeometry(scroller)
+    expect(restored.firstVisibleId).toBe(reading.firstVisibleId)
+    expect(Math.abs(restored.firstVisibleOffset! - reading.firstVisibleOffset!)).toBeLessThanOrEqual(1)
+  })
 })
 
 test("a warm desktop thread reload qualifies its child and independently reconciles its parent entry", async ({ caseActors, caseResources }) => {

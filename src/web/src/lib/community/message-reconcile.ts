@@ -34,7 +34,11 @@ function url(scopeId: string, param: MessagesPageParam, tag: string | null) {
 
 function mergeHistoryBoundary(cache: MessageCache, refreshed: MessagesPage): MessageCache {
   const boundary = cache.pages.at(-1)
-  if (!boundary || (boundary.hasMoreOlder ?? boundary.hasMore) === false || (refreshed.hasMoreOlder ?? refreshed.hasMore) !== false) return cache
+  const cachedHasMoreOlder = boundary?.hasMoreOlder ?? boundary?.hasMore
+  const hasMoreOlder = refreshed.hasMoreOlder ?? refreshed.hasMore
+  const olderCursor = hasMoreOlder ? refreshed.olderCursor ?? refreshed.cursor : undefined
+  if (!boundary || cachedHasMoreOlder === false || hasMoreOlder === undefined || hasMoreOlder && !olderCursor
+    || cachedHasMoreOlder === hasMoreOlder && (boundary.olderCursor ?? boundary.cursor) === olderCursor) return cache
   const references = cache.pages.flatMap(page => page.messages)
   if (!references.length) {
     if (refreshed.hasMoreNewer !== false || !Number.isSafeInteger(refreshed.latestSeq)
@@ -44,9 +48,8 @@ function mergeHistoryBoundary(cache: MessageCache, refreshed: MessagesPage): Mes
     const oldest = references.reduce((first, message) => message.seq! < first.seq! ? message : first)
     if (!refreshed.messages.some(message => message.id === oldest.id && message.seq === oldest.seq)) return cache
   }
-  const olderCursor = refreshed.olderCursor ?? refreshed.cursor
   return { ...cache, pages: cache.pages.map((page, index) => index === cache.pages.length - 1
-    ? { ...page, hasMoreOlder: false, olderCursor, cursor: undefined } : page) }
+    ? { ...page, hasMoreOlder, olderCursor, cursor: undefined } : page) }
 }
 
 function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: MessagesPage[]): MessageCache {

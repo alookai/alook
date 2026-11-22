@@ -280,6 +280,8 @@ export function useScrollAnchor({
     direction: "older" | "newer"
     phase: "pending" | "fetching" | "settling"
     beforeRows: object
+    fillingViewport?: boolean
+    pinTail?: boolean
     receipt?: { result?: MessageRequestResult; before?: object; beforeItems: FlatItem[] }
     restoringBody?: boolean
     bodyItems?: FlatItem[]
@@ -467,6 +469,7 @@ export function useScrollAnchor({
       && measurement?.epoch === positionOwnerRef.current.epoch && row && root
       && row.end > root.scrollTop && row.start < root.scrollTop + root.clientHeight)
     const preservePage = userHandover && positionKind.get() === "idle" && page !== null && (page.phase !== "settling" || keepMeasurement)
+    if (preservePage) page.pinTail = false
     if (preservePage && page.anchor && !keepMeasurement && currentItemsRef.current.find(item => item.kind === "message")?.key !== page.anchor.firstKey) page.anchor = undefined
     if (keepMeasurement && page) page.restoringBody = false
     const epoch = claimPosition("idle", preservePage)
@@ -1243,15 +1246,16 @@ export function useScrollAnchor({
     }
     const context = contextRef.current
     if (context.dataState === "empty" || context.dataState === "error") return finish()
+    const waitingForRows = context.dataState === "pending" && !(page.fillingViewport && context.initialScrollReady)
     if (page.receipt) {
       const result = page.receipt.result
       if (!result) {
-        if (context.messageWindow !== page.receipt.before || context.dataState === "pending"
+        if (context.messageWindow !== page.receipt.before || waitingForRows
           || currentMessageRowsRef.current === page.beforeRows) return false
       } else {
         if (result.status !== "success" || result.window === page.receipt.before
           || context.messageWindow !== result.window && context.messageWindow !== page.receipt.before) return finish()
-        if (context.messageWindow !== result.window || context.dataState === "pending"
+        if (context.messageWindow !== result.window || waitingForRows
           || currentMessageRowsRef.current === page.beforeRows) return false
       }
     } else if (page.phase !== "settling") {
@@ -1260,6 +1264,13 @@ export function useScrollAnchor({
       if (page.phase !== "fetching") return false
     }
     if (!hasCommittedRows()) return false
+    if (page.pinTail && !followSuspension.get()) {
+      if (!readGeometry() || native.isScrolling || page.receipt && !page.receipt.result) return false
+      if (native.isAtEnd(1)) return finish()
+      claimPosition("initial")
+      startIntent("end", null, "auto")
+      return true
+    }
     if (page.phase !== "settling" || page.restoringBody && page.bodyItems !== currentItemsRef.current) {
       if (!readGeometry()) return false
       page.phase = "settling"
@@ -1297,7 +1308,7 @@ export function useScrollAnchor({
     }
     if (native.isScrolling || page.receipt && !page.receipt.result) return false
     return finish()
-  }, [clearMeasurementAnchor, hasCommittedRows, holdNativeOrigin, observePageBody, ownsReadingAnchor, readGeometry, readPageMessageGeometry, setPaginationDirection])
+  }, [claimPosition, clearMeasurementAnchor, followSuspension, hasCommittedRows, holdNativeOrigin, observePageBody, ownsReadingAnchor, readGeometry, readPageMessageGeometry, setPaginationDirection, startIntent])
 
   const reconcileGeometry = useCallback((viewportOnly = false) => {
     const root = scrollRef.current
@@ -1767,17 +1778,15 @@ export function useScrollAnchor({
     }
   }, [allowPresentationRead, followSuspension, hasCommittedRows, holdNativeOrigin, nativeOrigin, observeGeometry, observePageBody, positionKind, readGeometry, readReady, readReadingMessage, reconcileGeometry, releasePosition, reconcileManualReading, scheduleGeometry, scheduleInitialPositionSettled, setFollowSuspended])
 
-  const capturePageAnchor = useCallback((direction: "older" | "newer") => {
-    let anchor: NonNullable<typeof paginationRef.current>["anchor"]
+  const capturePageAnchor = useCallback((direction: "older" | "newer", fillingViewport?: boolean) => {
     if (paginationRef.current || positionKind.get() !== "idle") return false
     projectionAnchorRef.current = null
     clearMeasurementAnchor()
-    if (positionKind.get() === "idle") {
-      const geometry = readGeometry()
-      if (geometry) acceptedGeometryRef.current = geometry
-      anchor = readFirstPageAnchor(direction === "older")
-    }
-    paginationRef.current = { direction, phase: "pending", anchor, beforeRows: currentMessageRowsRef.current }
+    const geometry = readGeometry()
+    if (geometry) acceptedGeometryRef.current = geometry
+    const pinTail = fillingViewport && geometry?.readingTail
+    const anchor = readFirstPageAnchor(direction === "older")
+    paginationRef.current = { direction, phase: "pending", anchor, beforeRows: currentMessageRowsRef.current, fillingViewport, pinTail }
     if (direction === "newer" && readReady.get() && !suspendedTailRef.current) setFollowSuspended(true)
     observePageBody()
     const page = paginationRef.current
@@ -1800,7 +1809,7 @@ export function useScrollAnchor({
       void request.completed.then(complete, () => complete({ status: "error" }))
     }
   }, [clearMeasurementAnchor, observePageBody, positionKind, readFirstPageAnchor, readGeometry, readReady, setFollowSuspended, setPaginationDirection])
-  const captureOlderPageAnchor = useCallback(() => capturePageAnchor("older"), [capturePageAnchor])
+  const captureOlderPageAnchor = useCallback((fillingViewport?: boolean) => capturePageAnchor("older", fillingViewport), [capturePageAnchor])
   const captureNewerPageAnchor = useCallback(() => capturePageAnchor("newer"), [capturePageAnchor])
   useLayoutEffect(() => { scheduleGeometry() }, [dataState, isFetchingNewer, isFetchingOlder, messageWindow, requestRevision, scheduleGeometry])
 
@@ -1992,6 +2001,8 @@ export function useScrollAnchor({
   const paginationRequestPending = paginationDirection !== null
   return {
     scrollRef, virtualizer, onRowsLayoutCommit, readPositionReady: readEligible && active && visible && dataState !== "pending" && dataState !== "error" && resumeValidated && !entryChanged && readPositionReady, paginationEnabled: readEligible && active && visible && dataState !== "pending" && dataState !== "error" && !entryChanged && ownerKind === "idle" && !awaitingTarget, belowCount,
+    underfillEnabled: readEligible && active && visible && initialScrollReady && readPositionReady && !entryChanged
+      && ownerKind === "idle" && !awaitingTarget && dataState !== "error",
     paginationRequestPending,
     positionOutcome,
     jumpToPresentVisible: !!hasMoreNewer && (dataState === "ready" || followSuspended || !!scrollToMessageId || !!initialPositionMessageId),

@@ -135,9 +135,14 @@ export type MessagesReadPage = MessagesPage & Pick<CommunityMessagesRead, "profi
 export type MessagesWindowPage = Omit<MessagesPage, "messages"> & { messages: Array<Pick<CommunityMessageResource, "id"> & Partial<Pick<CommunityMessageResource, "seq">>>; newestCursor?: string }
 
 export function messageWindowPage(page: MessagesPage | MessagesReadPage): MessagesWindowPage {
-  const newest = [...page.messages].filter((message) => message.createdAt).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id)).at(-1)
+  let newestCursor: string | undefined
+  for (const message of page.messages) {
+    if (!message.createdAt) continue
+    const cursor = `${message.createdAt}|${message.id}`
+    if (newestCursor === undefined || cursor > newestCursor) newestCursor = cursor
+  }
   const { profiles: _profiles, relatedMessages: _relatedMessages, ...window } = page as MessagesReadPage
-  return { ...window, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newest?.createdAt ? { newestCursor: `${newest.createdAt}|${newest.id}` } : {}) }
+  return { ...window, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newestCursor ? { newestCursor } : {}) }
 }
 
 // Discriminated pageParam. The queryFn dispatches on `mode` — the URL param

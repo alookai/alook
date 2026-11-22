@@ -28,7 +28,7 @@ async function setup() {
   return { ...owner, input, key, networkWindow }
 }
 
-it("restores actual saved membership including sequence gaps without claiming either live boundary", async () => {
+it("restores saved membership and the older cursor while the latest edge awaits entry", async () => {
   const { registry, client, input, key } = await setup()
   restoreConversationDisplayWindows(registry, input)
   const data = client.getQueryData<MessageWindowData>(key)!
@@ -38,6 +38,18 @@ it("restores actual saved membership including sequence gaps without claiming ei
   const target = { channelId: "c1", serverId: null }
   expect(findConversationEntryWindow(client, target, assessConversationScope(client, target).scope!, currentConversationReadState(client, "c1"))).toBeUndefined()
   expect(() => registry.assertOnlineAccount()).toThrow(expect.objectContaining({ name: "AbortError" }))
+})
+
+it("restores a genuine three-message DM with a confirmed start and no older cursor", async () => {
+  const { registry, client, input, key } = await setup()
+  const saved = input.messageWindows![0].data.pages[0]
+  saved.hasMoreOlder = false
+  saved.olderCursor = undefined
+  restoreConversationDisplayWindows(registry, input)
+  const restored = client.getQueryData<MessageWindowData>(key)!.pages[0]
+  expect(restored.messages).toHaveLength(3)
+  expect(restored.hasMoreOlder).toBe(false)
+  expect(restored.olderCursor).toBeUndefined()
 })
 
 it("preserves a network window that settled before restoration", async () => {
@@ -65,6 +77,31 @@ it.each(["unchanged tail", "new message"] as const)("confirms an %s through the 
   if (condition === "new message") expect(registry.collections.messages.get("fresh")?.content).toBe("Fresh")
   expect(findConversationEntryWindow(client, { channelId: "c1", serverId: null }, assessConversationScope(client, { channelId: "c1", serverId: null }).scope!, currentConversationReadState(client, "c1"))).toBeDefined()
   expect(load).toHaveBeenCalled()
+})
+
+it("moves a legacy short window's older cursor when the original entry extends it", async () => {
+  const { registry, client, input, key } = await setup()
+  const saved = input.messageWindows![0].data.pages[0]
+  saved.messages = saved.messages.slice(1)
+  saved.olderCursor = "2026-10-01T00:00:03.000Z|m3"
+  restoreConversationDisplayWindows(registry, input)
+  registry.bindAuthentication(() => "viewer", async () => {})
+  registry.confirmAuthentication()
+
+  const entry = dmConversationEntryFixture()
+  entry.messages = [2, 3, 4].map(seq => ({ ...entry.messages[0], id: `m${seq}`, seq, createdAt: `2026-10-01T00:00:0${seq}.000Z` }))
+  const olderCursor = "2026-10-01T00:00:02.000Z|m2"
+  entry.page = { ...entry.page, latestSeq: 4, hasMoreOlder: true, olderCursor }
+  const load = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(entry, {
+    headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) },
+  }))
+  await client.query(conversationEntryOptions(client, { channelId: "c1", serverId: null }))
+  await client.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })?.promise
+  expect(client.getQueryData<MessageWindowData>(key)?.pages[0]).toMatchObject({
+    messages: entry.messages.map(({ id, seq }) => ({ id, seq })), hasMoreOlder: true, olderCursor, hasMoreNewer: false,
+  })
+  expect(load).toHaveBeenCalledOnce()
+  expect(new URL(String(load.mock.calls[0][0]), "https://fixture.test").searchParams.get("entry")).toBe("1")
 })
 
 it.each(["other account", "missing access", "revoked", "retired", "missing profile", "missing body"] as const)("cannot create a display window with %s", async condition => {

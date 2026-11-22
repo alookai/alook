@@ -287,12 +287,13 @@ function scrubDehydratedClient(
     row.messageId ? [row.messageId] : []
   )))
   const windowRows = { channels: retainedChannels, servers: rows("servers"), channelMemberships: rows("channelMemberships"), messages: allMessages, profiles: rows("profiles") }
+  const messageById = new Map(allMessages.map(row => [row.id, row]))
   const messageWindows: Array<{ query: typeof client.clientState.queries[number]; window: PersistedMessageWindow }> = []
   const windowScopes = new Set<string>()
   if (userId) for (const query of client.clientState.queries.slice().sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)) {
     if (query.state.status !== "success" && !query.state.dataUpdatedAt) continue
     const candidate = readPersistedMessageWindow(query.queryKey, query.state.data, query.state.dataUpdatedAt)
-    const window = candidate && boundPersistedMessageWindow(candidate, allMessages, MAX_PERSISTED_MESSAGES_PER_SCOPE)
+    const window = candidate && boundPersistedMessageWindow(candidate, messageById, MAX_PERSISTED_MESSAGES_PER_SCOPE)
     if (!window || windowScopes.has(window.channelId) || windowScopes.size >= MAX_PERSISTED_MESSAGE_SCOPES
       || !persistedMessageWindowComplete(window, windowRows, userId, retiredIds)) continue
     windowScopes.add(window.channelId)
@@ -300,7 +301,6 @@ function scrubDehydratedClient(
   }
   const ordinaryScopes = [...messagesByScope.values()].map(rows => rows.slice().sort(compareMessagesNewest))
     .sort((a, b) => compareMessagesNewest(a[0]!, b[0]!))
-  const messageById = new Map(allMessages.map(row => [row.id, row]))
   const retainedMessages = messageWindows.flatMap(({ window }) => messageWindowMessageIds(window).map(id => messageById.get(id)!))
   const ordinaryScopeIds = new Set(windowScopes)
   for (const scope of ordinaryScopes) {
