@@ -26,6 +26,7 @@ import { normalizeThreadResources, projectThread } from "@/lib/community/forum-f
 import { type CommunityThreadsRead, type CommunityChannelResource, type CommunityMessageResource } from "@alook/shared"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import { forumTagsReadSchema, type ForumTagsSnapshot } from "@/lib/community/page-list-persistence"
+import { useCommunityOnlineAccount } from "./community-origin"
 
 export type ThreadsResponse = {
   threads: Array<Pick<CommunityChannelResource, "id"> & { openerMessageId?: CommunityMessageResource["id"] }>
@@ -100,11 +101,12 @@ export const forumTagsQueryFn = (channelId: string, queryClient: QueryClient) =>
 
 export function useForumTags(channelId: string | null, enabled: boolean) {
   const presented = useConversationPresentation()
+  const online = useCommunityOnlineAccount()
   const queryClient = useQueryClient()
   return useQuery({
     queryKey: communityKeys.forumTags(channelId ?? "__none__"),
     queryFn: channelId ? forumTagsQueryFn(channelId, queryClient) : () => Promise.reject(new Error("disabled")),
-    enabled: !!channelId && enabled && presented,
+    enabled: !!channelId && enabled && presented && online,
   })
 }
 

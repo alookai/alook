@@ -10,6 +10,7 @@ import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle
 import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { communityKeys } from "@/lib/query-keys"
+import { isAbortError } from "@/lib/errors"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityForumFeed } from "@/lib/community-db/sync"
@@ -122,6 +123,7 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
     onSelectTag?.(next)
   }, [channelId, onSelectTag, setFallbackSelection])
   const tagsQuery = useForumTags(channelId, presented)
+  const tagsError = tagsQuery.isEnabled && tagsQuery.isLoadingError && tagsQuery.fetchStatus === "idle" && !isAbortError(tagsQuery.error)
   const pendingTagCommands = useIsMutating({ mutationKey: ["community", "forum-tag-command"], exact: true, predicate: (mutation) => {
     const args = mutation.state.variables as { serverId?: string; forumChannelId?: string } | undefined
     return args?.serverId === serverId && args.forumChannelId === channelId
@@ -162,5 +164,5 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
   const fetchNextPage = query.fetchNextPage
   const fetchOlder = useCallback(() => { if (presented && displayReady && entry.windowReady) void fetchNextPage({ cancelRefetch: false }) }, [fetchNextPage, presented, displayReady, entry.windowReady])
   return { ...query, refetch, isPending: pending, isLoading: pending, displayReady, initialLoadError,
-    observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: displayReady ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : displayReady ? "none" as const : "window" as const }, posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError: tagsQuery.isError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: displayReady && entry.windowReady && query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
+    observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: displayReady ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : displayReady ? "none" as const : "window" as const }, posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: displayReady && entry.windowReady && query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
 }
