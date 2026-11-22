@@ -74,9 +74,11 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
     )
 }
 
+const MESSAGE_CONTROL_SELECTOR = "button, a, input, textarea, select, [role=button], [data-message-controls]"
+
 export function shouldActivateMessageOverlays(target: EventTarget | null): boolean {
   const element = target as { closest?: (selector: string) => unknown } | null
-  return !element?.closest?.("button, a, input, textarea, select, [role=button]")
+  return !element?.closest?.(MESSAGE_CONTROL_SELECTOR)
 }
 
 export function messageEventBelongsToRow(
@@ -479,10 +481,8 @@ function MessageImpl({
               return
             }
             if (!swipeReplyEnabled) return
-            const nested = (event.target as Element).closest?.(
-              "button, a, input, textarea, select, [role=button]",
-            )
-            if (nested || selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
+            if (!shouldActivateMessageOverlays(event.target)
+              || selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
             const gesture = beginMobileReplyGesture(event.clientX, event.clientY)
             if (!gesture) return
             swipeGestureRef.current = { pointerId: event.pointerId, gesture }
@@ -589,11 +589,10 @@ function MessageImpl({
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const selection = window.getSelection()
             const selectionInsideRow = selectionBelongsToRow(selection, event.currentTarget)
-            const controlSelector = "button, a, input, textarea, select, [role=button]"
-            const nearestControl = (event.target as Element).closest(controlSelector)
+            const nearestControl = (event.target as Element).closest(MESSAGE_CONTROL_SELECTOR)
             const composedControl = event.nativeEvent?.composedPath?.().find(
               (target) => target !== event.currentTarget
-                && !!(target as Element).matches?.(controlSelector),
+                && !!(target as Element).matches?.(MESSAGE_CONTROL_SELECTOR),
             )
             const nestedControl = !!composedControl
               || (!!nearestControl && nearestControl !== event.currentTarget)

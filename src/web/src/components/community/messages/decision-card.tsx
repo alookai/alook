@@ -544,6 +544,7 @@ export function DecisionCard({
       role="region"
       aria-label={card.summary ?? "Decision card"}
       data-testid={tid.decisionCard}
+      data-message-controls=""
       data-swipe-ignore=""
       className={cn("my-2 w-full max-w-lg min-w-0", className)}
     >

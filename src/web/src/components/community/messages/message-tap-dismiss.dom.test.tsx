@@ -1,3 +1,4 @@
+import { buildDecisionCardEmbed, DecisionCardInputSchema } from "@alook/shared"
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity } from "@/test/community-owner-harness"
@@ -61,6 +62,46 @@ describe("mobile message tap dismissal", () => {
     start(image); end(image)
     expect(onPreviewImage).toHaveBeenCalledOnce()
     expect(ui.queryByRole("menu")).toBeNull()
+  })
+
+  it("lets option text select a Decision Card answer even with a focused draft", async () => {
+    const decisionCard = buildDecisionCardEmbed(DecisionCardInputSchema.parse({
+      summary: "Ship date",
+      questions: [{
+        question: "When should we ship?",
+        options: [{ label: "Today" }, { label: "Tomorrow" }],
+      }],
+    }), [{ userId: "viewer", handle: "viewer#0001" }])
+    const ui = renderCommunity(<>
+      <textarea aria-label="Draft" defaultValue="keep my draft" />
+      <Message
+        m={{ id: "question", type: "chat", grouped: false, decisionCard }}
+        viewerUserId="viewer"
+        hoverCapable={false}
+        onReply={() => {}}
+        onSubmitDecisionCard={async () => ({ replyToId: "question" })}
+      />
+      <Message
+        m={{ id: "chat", type: "chat", grouped: false, content: "Regular message" }}
+        hoverCapable={false}
+        onReply={() => {}}
+      />
+    </>)
+
+    const editor = ui.getByRole("textbox")
+    act(() => editor.focus())
+    const option = ui.getByText("Today")
+    start(option); end(option)
+
+    expect(ui.getByRole("radio", { name: "Today" })).toHaveAttribute("aria-checked", "true")
+    expect(ui.getByRole("button", { name: "Send answer" })).toBeEnabled()
+    expect(ui.queryByRole("menu")).toBeNull()
+    expect(editor).toHaveValue("keep my draft")
+
+    act(() => editor.blur())
+    const message = ui.getByText("Regular message")
+    start(message); end(message)
+    await waitFor(() => expect(ui.getByRole("menu")).toBeVisible())
   })
 
   it("closes the first menu without opening the next message menu on the same touch", async () => {
