@@ -276,6 +276,7 @@ export function useScrollAnchor({
   const presentation = useCreateAtom<PositionOutcome>("pending")
   const [positionOutcome, setPositionOutcome] = useAtom(presentation)
   const [paginationDirection, setPaginationDirection] = useAtom(useCreateAtom<"older" | "newer" | null>(null))
+  const olderFillRetired = useRef(false)
   const paginationRef = useRef<{
     direction: "older" | "newer"
     phase: "pending" | "fetching" | "settling"
@@ -813,6 +814,7 @@ export function useScrollAnchor({
       items: currentItemsRef.current, offset: reading.pending ? root.scrollTop : reading.offset, height: root.clientHeight, width: root.clientWidth,
       scrollHeight: root.scrollHeight, total: committed.layout.totalSize, paddingEnd: native.options.paddingEnd ?? 0 }
     if (reading.pending && id !== reading.reportedMessageId) {
+      olderFillRetired.current = false
       reportedReadingRef.current.latest = { epoch: reading.epoch, root, entry: positionEntryRef.current, scope: positionScopeRef.current, messageId: id }
       readingMessageRef.current(id)
     }
@@ -1138,6 +1140,7 @@ export function useScrollAnchor({
   useLayoutEffect(() => {
     if (committedEntry === positionEntry) return
     setCommittedEntry(() => positionEntry)
+    olderFillRetired.current = false
     finishPosition("entry_changed")
     const preserve = preserveInitialPresentation && presentation.get() !== "pending"
     claimPosition(preserve ? "idle" : "initial")
@@ -1253,6 +1256,7 @@ export function useScrollAnchor({
         if (context.messageWindow !== page.receipt.before || waitingForRows
           || currentMessageRowsRef.current === page.beforeRows) return false
       } else {
+        if (page.fillingViewport && result.status === "retired") olderFillRetired.current = true
         if (result.status !== "success" || result.window === page.receipt.before
           || context.messageWindow !== result.window && context.messageWindow !== page.receipt.before) return finish()
         if (context.messageWindow !== result.window || waitingForRows
@@ -1779,7 +1783,8 @@ export function useScrollAnchor({
   }, [allowPresentationRead, followSuspension, hasCommittedRows, holdNativeOrigin, nativeOrigin, observeGeometry, observePageBody, positionKind, readGeometry, readReady, readReadingMessage, reconcileGeometry, releasePosition, reconcileManualReading, scheduleGeometry, scheduleInitialPositionSettled, setFollowSuspended])
 
   const capturePageAnchor = useCallback((direction: "older" | "newer", fillingViewport?: boolean) => {
-    if (paginationRef.current || positionKind.get() !== "idle") return false
+    if (paginationRef.current || positionKind.get() !== "idle"
+      || direction === "older" && !fillingViewport && olderFillRetired.current) return false
     projectionAnchorRef.current = null
     clearMeasurementAnchor()
     const geometry = readGeometry()

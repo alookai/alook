@@ -796,10 +796,14 @@ test.describe("mobile DM cold history", () => {
     })
   }
 
-  for (const entryFirst of [false, true]) {
-    test(`uses the first available history when ${entryFirst ? "entry" : "the older page"} completes first`, async ({ caseActors, caseResources }) => {
+  for (const { count, entryFirst, label } of [
+    { count: 53, entryFirst: false, label: "uses the older page when it completes first" },
+    { count: 20, entryFirst: true, label: "uses entry when it reaches the history start first" },
+    { count: 53, entryFirst: true, label: "uses entry when it fills the screen and older history remains" },
+  ]) {
+    test(label, async ({ caseActors, caseResources }) => {
       test.setTimeout(90_000)
-      const { page, ids, path, isEntry, isOlder, saved, limitFirstEntry, href, scroller } = await openMobileDmHistory(await caseActors(["alice", "bob"]), entryFirst ? 20 : 53)
+      const { page, ids, path, isEntry, isOlder, saved, limitFirstEntry, href, scroller } = await openMobileDmHistory(await caseActors(["alice", "bob"]), count)
       const restoreEntry = await limitFirstEntry()
       const older = await holdRoute(page, isOlder, caseResources)
       const readPath = path.replace(/messages$/, "read")
@@ -811,6 +815,9 @@ test.describe("mobile DM cold history", () => {
       await expect.poll(async () => (await saved())?.[0].messages.map(message => message.id), { timeout: 20_000 }).toEqual(ids.slice(-3))
       const cursor = (await saved())![0].olderCursor
       await restoreEntry()
+      await page.routeWebSocket(url => url.pathname.endsWith("/user"), socket => {
+        void socket.close({ code: 1012, reason: "DM HTTP response order control" })
+      })
 
       const entry = await holdRoute(page, isEntry, caseResources)
       const cursors: Array<string | null> = []
@@ -854,6 +861,22 @@ test.describe("mobile DM cold history", () => {
       await waitForStableTail(scroller, "underfill settled")
       await expect(scroller.getByTestId(tid.message(ids.at(-1)!))).toBeInViewport()
       expect((await readAfterEntry).request().postDataJSON()).toMatchObject({ lastReadMessageId: ids.at(-1) })
+      if (entryFirst && count === 53) {
+        await expect.poll(async () => (await saved())?.[0].olderCursor?.split("|")[1]).toBe(ids[3])
+        const filled = await waitForCommittedGeometry(scroller)
+        expect(filled.scrollHeight).toBeGreaterThan(filled.clientHeight)
+        expect(cursors).toEqual([cursor])
+
+        await older.release()
+        const afterScroll = page.waitForResponse(response => {
+          const url = new URL(response.url())
+          return isOlder(url) && url.searchParams.get("cursor")?.split("|")[1] === ids[3]
+        })
+        await scroller.hover()
+        await page.mouse.wheel(0, -filled.scrollHeight)
+        expect((await afterScroll).status()).toBe(200)
+        expect(cursors.map(value => value?.split("|")[1])).toEqual([ids[50], ids[3]])
+      }
     })
   }
 

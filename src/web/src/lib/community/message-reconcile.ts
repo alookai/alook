@@ -15,7 +15,7 @@ import { actionAttributes, currentPageObservation } from "@/lib/observability/co
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { channelHref } from "@/lib/community/community-route"
 import { messageWindowPage, type MessageInput, type MessagesPage, type MessagesReadPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
-import { buildMessagesUrl, messageWindowIdentity } from "@/lib/community/message-window"
+import { buildMessagesUrl, messageWindowIdentity, viewportFillFetchMeta } from "@/lib/community/message-window"
 
 type MessageCache = InfiniteData<MessagesWindowPage, MessagesPageParam>
 type GapRepairScope = { kind: "channel" | "dm"; scopeId: string; serverId?: string }
@@ -165,7 +165,8 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   const serverId = scope.kind === "dm" ? null : channel ? channel.serverId : scope.serverId
   const originalQuery = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   const receipt: MessageRepairReceipt = { token, window: originalQuery, scope, key, owner }
-  const pendingDirection = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta?.fetchMore?.direction : undefined
+  const fetchMeta = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta : null
+  const pendingDirection = fetchMeta === viewportFillFetchMeta ? undefined : fetchMeta?.fetchMore?.direction
   let paginationReplayed = false
   let landingPage = landing
   let prefetched: { param: MessagesPageParam; page: MessagesReadPage } | undefined
