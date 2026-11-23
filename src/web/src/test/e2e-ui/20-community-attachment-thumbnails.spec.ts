@@ -1352,11 +1352,17 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
     }
     const tsv = menu.getByTitle("Copy table as TSV", { exact: true })
     const target = await boundingRect(tsv), frame = await boundingRect(iframe)
-    const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 }
-    expect(point.x).toBeGreaterThanOrEqual(frame.x)
-    expect(point.x).toBeLessThan(frame.x + frame.width)
-    expect(point.y).toBeGreaterThanOrEqual(frame.y)
-    expect(point.y).toBeLessThan(frame.y + frame.height)
+    const overlap = {
+      left: Math.max(target.x, frame.x),
+      right: Math.min(target.x + target.width, frame.x + frame.width),
+      top: Math.max(target.y, frame.y),
+      bottom: Math.min(target.y + target.height, frame.y + frame.height),
+    }
+    expect(overlap.right).toBeGreaterThan(overlap.left)
+    expect(overlap.bottom).toBeGreaterThan(overlap.top)
+    const point = { x: (overlap.left + overlap.right) / 2, y: (overlap.top + overlap.bottom) / 2 }
+    await page.mouse.move(point.x, point.y)
+    await expect.poll(() => tsv.evaluate((element, { x, y }) => element.contains(document.elementFromPoint(x, y)), point)).toBe(true)
     await testInfo.attach(`renderer-menu-${viewport.width}-open-pointer.png`, { body: await page.screenshot(), contentType: "image/png" })
     const open = await rowState()
     await page.mouse.move(0, 0)
@@ -1381,7 +1387,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 834, height: 1112 
     await testInfo.attach(`renderer-menu-${viewport.width}-hit-and-row.json`, { body: JSON.stringify({ viewport,
       input: "native mouse hover/click and keyboard Tab/Shift+Tab/Enter; not a pure-touch journey",
       media: await page.evaluate(() => ({ coarse: matchMedia("(pointer: coarse)").matches, hover: matchMedia("(hover: hover)").matches })),
-      serverId, channelId, tableId, htmlMessageId, attachmentId, point, frame, target, hits, before, open, closed: await rowState(), messageWrites }), contentType: "application/json" })
+      serverId, channelId, tableId, htmlMessageId, attachmentId, point, frame, target, overlap, hits, before, open, closed: await rowState(), messageWrites }), contentType: "application/json" })
   })
 }
 
