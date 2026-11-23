@@ -96,7 +96,6 @@ export class ClaudeDriver implements BackendAdapter {
     const spec = resolveSpawnSpec("claude", args, claudeCommand);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
-      macosIdentity: true,
       env: spawnEnv,
       shell: spec.shell,
     });
