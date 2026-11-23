@@ -14,7 +14,7 @@ import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/c
 import { notifyManager,type QueryClient } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"
-import { appendDecisionCardResponder, mergeDecisionCardEmbeds, FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
+import { appendDecisionCardResponder, attachDecisionCardViewerDismissed, extractDecisionCardFromEmbeds, markDecisionCardViewerDismissed, mergeDecisionCardEmbeds, FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
 import type { CommunityDmsRead as DmsResponse } from "@alook/shared"
 import type { FoldersResponse, ServersResponse } from "@/lib/community/models/navigation"
 import type { queries } from "@alook/shared"
@@ -1589,6 +1589,35 @@ export function commitConfirmedAttentionScopeRead(
 export function removeAttentionItemsOptimistically(registry: CommunityDbRegistry, remove: (item: AttentionItemRow) => boolean): AttentionIntent {
   const items = collectionRows(registry, "attentionItems").filter(remove)
   return beginAttentionIntent(registry, { floors: new Map(), itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })
+}
+
+export type DecisionCardDismissOptimisticSnapshot = {
+  messageId: string
+  previousViewerDismissed: boolean | undefined
+}
+
+export function markDecisionCardDismissedOptimistically(
+  registry: CommunityDbRegistry,
+  messageId: string,
+): DecisionCardDismissOptimisticSnapshot | undefined {
+  const existing = registry.collections.messages.get(messageId)
+  if (!existing) return undefined
+  const previousCard = extractDecisionCardFromEmbeds(existing.embeds).card
+  const updatedEmbeds = markDecisionCardViewerDismissed(existing.embeds)
+  if (!updatedEmbeds) return undefined
+  upsertRows(registry, "messages", [{ ...existing, embeds: updatedEmbeds }])
+  return { messageId, previousViewerDismissed: previousCard?.viewerDismissed }
+}
+
+export function restoreDecisionCardDismissedOptimistically(
+  registry: CommunityDbRegistry,
+  snapshot: DecisionCardDismissOptimisticSnapshot,
+) {
+  const current = registry.collections.messages.get(snapshot.messageId)
+  if (!current) return
+  const restored = attachDecisionCardViewerDismissed(current.embeds, snapshot.previousViewerDismissed ?? false)
+  if (!restored) return
+  upsertRows(registry, "messages", [{ ...current, embeds: restored }])
 }
 
 function ingestNotificationSettings(

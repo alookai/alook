@@ -11,7 +11,7 @@ import {
   type DecisionCardEmbed,
   type DecisionCardNormalizedQuestion,
 } from "@alook/shared"
-import { Check } from "@/components/icons/lucide"
+import { Check, ChevronDown } from "@/components/icons/lucide"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -151,6 +151,7 @@ export function DecisionCard({
   const [submitting, setSubmitting] = useState(false)
   const [submittedNotice, setSubmittedNotice] = useState(false)
   const [pendingNonce, setPendingNonce] = useState<string | null>(null)
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
 
   const respondedUserIds = useMemo(() => {
     const set = new Set<string>()
@@ -166,6 +167,11 @@ export function DecisionCard({
   const hasAssignees = card.assignees.length > 0
   const viewerIsAssignee = !hasAssignees
     || (viewerUserId !== undefined && card.assignees.some((assignee) => assignee.userId === viewerUserId))
+  const viewerHasResponded = Boolean(viewerUserId && respondedUserIds.has(viewerUserId))
+  const viewerDismissed = card.viewerDismissed === true
+  const viewerNotMentioned = hasAssignees && !viewerIsAssignee
+  const defaultCollapsed = viewerHasResponded || viewerNotMentioned || viewerDismissed
+  const collapsed = expandedOverride !== null ? !expandedOverride : defaultCollapsed
   const interactive = !compact && Boolean(onSubmit) && viewerIsAssignee
   const disabled = !interactive || submitting
 
@@ -539,6 +545,100 @@ export function DecisionCard({
     )
   }
 
+  const collapsedTitle = card.summary ?? card.questions[0]?.question ?? "Decision card"
+  const statusBadge = viewerHasResponded ? (
+    <Badge variant="secondary" className="shrink-0 gap-1 text-[11px] font-medium">
+      <Check isAnimated={false} className="size-3 text-primary" aria-hidden />
+      <span>Answered</span>
+    </Badge>
+  ) : viewerDismissed ? (
+    <Badge variant="secondary" className="shrink-0 text-[11px] font-medium text-muted-foreground">
+      Dismissed
+    </Badge>
+  ) : viewerNotMentioned ? (
+    hasAssignees && respondedAssigneeCount === card.assignees.length ? (
+      <Badge variant="secondary" className="shrink-0 gap-1 text-[11px] font-medium">
+        <Check isAnimated={false} className="size-3 text-primary" aria-hidden />
+        <span>Answered</span>
+      </Badge>
+    ) : (
+      <Badge variant="secondary" className="shrink-0 text-[11px] font-medium text-muted-foreground">
+        {card.questions.length === 1 ? "Question" : `${card.questions.length} questions`}
+      </Badge>
+    )
+  ) : null
+
+  const respondersRow = hasAssignees ? (
+    <div
+      data-testid={tid.decisionCardResponders}
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+    >
+      {card.assignees.map((assignee) => (
+        <AssigneeMention
+          key={assignee.userId}
+          assignee={assignee}
+          answered={respondedUserIds.has(assignee.userId)}
+          onOpenProfile={onOpenProfile}
+        />
+      ))}
+      <span>
+        {respondedAssigneeCount}/{card.assignees.length} responded
+      </span>
+    </div>
+  ) : (
+    respondedUserIds.size > 0 && (
+      <p data-testid={tid.decisionCardResponders} className="text-xs text-muted-foreground">
+        {respondedUserIds.size === 1
+          ? "1 person responded"
+          : `${respondedUserIds.size} people responded`}
+      </p>
+    )
+  )
+
+  if (collapsed) {
+    return (
+      <Card
+        size="sm"
+        surface="sticker"
+        role="region"
+        aria-label={card.summary ?? "Decision card"}
+        data-testid={tid.decisionCard}
+        data-collapsed="true"
+        data-message-controls=""
+        data-swipe-ignore=""
+        className={cn("my-2 w-full max-w-lg min-w-0", className)}
+      >
+        <CardContent className="flex flex-col gap-1.5">
+          {header && (
+            <div className="border-b border-border/60 pb-3">
+              {header}
+            </div>
+          )}
+          <button
+            type="button"
+            data-testid={tid.decisionCardToggle}
+            aria-expanded={false}
+            aria-label={`Expand ${collapsedTitle}`}
+            onClick={() => setExpandedOverride(true)}
+            className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-md text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7"
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="min-w-0 truncate text-sm font-semibold leading-snug tracking-[-0.015em] text-foreground">
+                {collapsedTitle}
+              </span>
+              {statusBadge}
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+              <span>Show</span>
+              <ChevronDown isAnimated={false} className="size-4" aria-hidden />
+            </span>
+          </button>
+          {respondersRow}
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card
       size="sm"
@@ -556,39 +656,34 @@ export function DecisionCard({
             {header}
           </div>
         )}
-        {(card.summary || hasAssignees || respondedUserIds.size > 0) && (
+        {(card.summary || hasAssignees || respondedUserIds.size > 0 || defaultCollapsed) && (
           <div className="flex flex-col gap-1.5">
-            {card.summary && (
-              <p className="wrap-anywhere text-sm font-semibold leading-snug tracking-[-0.015em] text-foreground">
-                {card.summary}
-              </p>
-            )}
-            {hasAssignees ? (
-              <div
-                data-testid={tid.decisionCardResponders}
-                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
-              >
-                {card.assignees.map((assignee) => (
-                  <AssigneeMention
-                    key={assignee.userId}
-                    assignee={assignee}
-                    answered={respondedUserIds.has(assignee.userId)}
-                    onOpenProfile={onOpenProfile}
-                  />
-                ))}
-                <span>
-                  {respondedAssigneeCount}/{card.assignees.length} responded
-                </span>
+            {(card.summary || defaultCollapsed) && (
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  {card.summary && (
+                    <p className="wrap-anywhere text-sm font-semibold leading-snug tracking-[-0.015em] text-foreground">
+                      {card.summary}
+                    </p>
+                  )}
+                  {statusBadge}
+                </div>
+                {defaultCollapsed && (
+                  <button
+                    type="button"
+                    data-testid={tid.decisionCardToggle}
+                    aria-expanded={true}
+                    aria-label={`Collapse ${collapsedTitle}`}
+                    onClick={() => setExpandedOverride(false)}
+                    className="-mr-1.5 inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7"
+                  >
+                    <span>Hide</span>
+                    <ChevronDown isAnimated={false} className="size-4 rotate-180" aria-hidden />
+                  </button>
+                )}
               </div>
-            ) : (
-              respondedUserIds.size > 0 && (
-                <p data-testid={tid.decisionCardResponders} className="text-xs text-muted-foreground">
-                  {respondedUserIds.size === 1
-                    ? "1 person responded"
-                    : `${respondedUserIds.size} people responded`}
-                </p>
-              )
             )}
+            {respondersRow}
           </div>
         )}
 

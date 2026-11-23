@@ -788,6 +788,24 @@ describe("decision card end-to-end route + bot inbox + responder hydration", () 
     const afterDismiss = await queries.communityAttention.getAccountAttentionProjection(fixture.db as Database, "u_gus")
     expect(afterDismiss.items.filter((item) => item.kind === "question")).toEqual([])
 
+    // Message enrichment hydrates viewerDismissed: true for the dismissing viewer only, and false for other viewers.
+    const q2Row = await queries.communityMessage.getMessage(fixture.db as Database, q2!.id)
+    const gusEnriched = await enrichMessages(
+      fixture.db as Database,
+      "u_gus",
+      { channelId: "thread_1" },
+      [q2Row!],
+    )
+    expect(extractDecisionCardFromEmbeds(gusEnriched.messages[0]?.embeds).card?.viewerDismissed).toBe(true)
+
+    const aliceEnriched = await enrichMessages(
+      fixture.db as Database,
+      "u_alice",
+      { channelId: "thread_1" },
+      [q2Row!],
+    )
+    expect(extractDecisionCardFromEmbeds(aliceEnriched.messages[0]?.embeds).card?.viewerDismissed).toBe(false)
+
     // Cecilia #275: Todo submit (preserveReadState: true) targeting a missing/deleted or non-question message returns 404 and writes nothing.
     currentActor = { kind: "human", userId: "u_gus" }
     currentTarget = { kind: "channel", channelId: "chan_1", serverId: "srv_1" }

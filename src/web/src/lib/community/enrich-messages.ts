@@ -25,7 +25,7 @@ export async function enrichMessages(
   const questionMessageIds = items.filter((message) => message.type === DECISION_CARD_MESSAGE_TYPE).map((message) => message.id)
   const replyToIds = items.flatMap((row) => row.replyToId ? [row.replyToId] : [])
 
-  const [contextForChannel, childChannels, latestSeq, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId] = await Promise.all([
+  const [contextForChannel, childChannels, latestSeq, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId, dismissedQuestionMessageIds] = await Promise.all([
     loadApiMessageContext(db, userId, messageIds, () => replyToIds.length > 0
       ? withD1Retry(
         () => queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId }),
@@ -54,6 +54,9 @@ export async function enrichMessages(
         return complete
       })
       : Promise.resolve(new Map<string, string[]>()),
+    questionMessageIds.length > 0
+      ? queries.communityInbox.listDismissedQuestionMessageIdsForUser(db, userId, questionMessageIds)
+      : Promise.resolve(undefined),
   ])
 
   const context = contextForChannel(scope.channelId)
@@ -115,6 +118,7 @@ export async function enrichMessages(
       threadByMessageId,
       botCreationByMessageId,
       respondedUserIdsByMessageId,
+      dismissedQuestionMessageIds,
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }, scope.contract, scope.channelId),
   )

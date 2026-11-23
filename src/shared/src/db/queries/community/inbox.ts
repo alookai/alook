@@ -678,3 +678,29 @@ export async function dismissQuestionTodoWithRevision(
     revision: (results[2] as Array<{ revision: number }>)[0]?.revision ?? 0,
   };
 }
+
+export async function listDismissedQuestionMessageIdsForUser(
+  db: Database,
+  userId: string,
+  messageIds: readonly string[],
+): Promise<Set<string>> {
+  const uniqueIds = [...new Set(messageIds.filter((id) => id.length > 0))];
+  if (!userId || uniqueIds.length === 0) return new Set();
+  const rows = (
+    await Promise.all(
+      chunk(uniqueIds, ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE).map((ids) =>
+        db
+          .select({ messageId: communityQuestionTodo.messageId })
+          .from(communityQuestionTodo)
+          .where(
+            and(
+              eq(communityQuestionTodo.userId, userId),
+              inArray(communityQuestionTodo.messageId, ids),
+              isNotNull(communityQuestionTodo.dismissedAt),
+            ),
+          ),
+      ),
+    )
+  ).flat();
+  return new Set(rows.map((row) => row.messageId));
+}

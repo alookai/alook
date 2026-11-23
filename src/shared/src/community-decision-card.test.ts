@@ -8,11 +8,13 @@ import {
   DecisionCardInputSchema,
   appendDecisionCardResponder,
   attachDecisionCardResponders,
+  attachDecisionCardViewerDismissed,
   buildDecisionCardEmbed,
   extractDecisionCardFromEmbeds,
   formatDecisionCardAnswerMessage,
   formatDecisionCardSummary,
   isAssignedDecisionCardForUser,
+  markDecisionCardViewerDismissed,
   mergeDecisionCardEmbeds,
   parseDecisionCardCliInput,
   toDecisionCardAgentPayload,
@@ -391,5 +393,23 @@ describe("community-decision-card", () => {
     const appended = appendDecisionCardResponder(hydrated, "u_b");
     expect(extractDecisionCardFromEmbeds(appended).card?.respondedUserIds).toEqual(["u_a", "u_b"]);
     expect(appendDecisionCardResponder(appended, "u_b")).toBeUndefined();
+
+    // Viewer dismissal hydration, optimistic marking, snapshot merge preservation, and agent-payload exclusion.
+    const dismissed = attachDecisionCardViewerDismissed(hydrated, true);
+    expect(extractDecisionCardFromEmbeds(dismissed).card?.viewerDismissed).toBe(true);
+    expect(attachDecisionCardViewerDismissed(hydrated, undefined)).toEqual(hydrated);
+    const mergedDismissedWithUnchecked = mergeDecisionCardEmbeds(dismissed, [cjkCard]);
+    expect(extractDecisionCardFromEmbeds(mergedDismissedWithUnchecked).card?.viewerDismissed).toBe(true);
+    expect(extractDecisionCardFromEmbeds(mergedDismissedWithUnchecked).card?.respondedUserIds).toEqual(["u_a"]);
+    const mergedWithFreshUndismissed = mergeDecisionCardEmbeds(dismissed, attachDecisionCardViewerDismissed([cjkCard], false));
+    expect(extractDecisionCardFromEmbeds(mergedWithFreshUndismissed).card?.viewerDismissed).toBe(false);
+    const markedDismissed = markDecisionCardViewerDismissed([cjkCard]);
+    expect(extractDecisionCardFromEmbeds(markedDismissed).card?.viewerDismissed).toBe(true);
+    expect(markDecisionCardViewerDismissed(markedDismissed)).toBeUndefined();
+    expect(markDecisionCardViewerDismissed(undefined)).toBeUndefined();
+    expect(markDecisionCardViewerDismissed([{ title: "plain" }])).toBeUndefined();
+    expect(attachDecisionCardViewerDismissed(undefined, true)).toBeUndefined();
+    expect(attachDecisionCardViewerDismissed([], true)).toEqual([]);
+    expect("viewerDismissed" in toDecisionCardAgentPayload(extractDecisionCardFromEmbeds(dismissed).card!)).toBe(false);
   });
 });

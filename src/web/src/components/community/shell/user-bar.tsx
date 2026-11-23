@@ -181,7 +181,7 @@ export function UserBarSkeleton() {
       <div className={cn(styles.base, "flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2")}>
         <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
           <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-full")} /></div>
-          <div className={cn(styles.name, "flex min-w-0 flex-1 items-center sm:@max-[224px]/user-bar:hidden")}>
+          <div className={cn(styles.name, "flex min-w-0 flex-1 items-center sm:@max-[156px]/user-bar:hidden")}>
             <Skeleton className="h-3.5 w-full rounded" />
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -269,7 +269,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
+      }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[156px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
         <div data-testid={tid.userBarName} className="truncate text-sm font-medium leading-tight">{user.name}</div>
       </button>
       <div className="flex shrink-0 items-center gap-1">

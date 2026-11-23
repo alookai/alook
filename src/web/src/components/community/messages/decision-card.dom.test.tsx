@@ -245,7 +245,7 @@ describe("DecisionCard", () => {
     view.unmount()
   })
 
-  it("renders read-only notice without submit button for unassigned viewers", () => {
+  it("collapses by default for unassigned viewers and reveals read-only notice when expanded", () => {
     const view = render(
       <DecisionCard
         card={sampleCard()}
@@ -255,10 +255,85 @@ describe("DecisionCard", () => {
         onSubmit={vi.fn(async () => ({ replyToId: "m_q1" }))}
       />,
     )
+    expect(view.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    expect(view.queryByTestId(tid.decisionCardOption("timing", "today"))).toBeNull()
+    expect(view.queryByTestId(tid.decisionCardSubmit)).toBeNull()
+    expect(view.getByTestId(tid.decisionCardToggle)).toHaveAttribute("aria-expanded", "false")
+    expect(view.getByTestId(tid.decisionCardResponders)).toHaveTextContent("0/1 responded")
+
+    fireEvent.click(view.getByTestId(tid.decisionCardToggle))
+    expect(view.getByTestId(tid.decisionCard)).not.toHaveAttribute("data-collapsed")
+    expect(view.getByTestId(tid.decisionCardToggle)).toHaveAttribute("aria-expanded", "true")
     expect(view.queryByTestId(tid.decisionCardSubmit)).toBeNull()
     expect(view.getByTestId(tid.decisionCardReadonlyNotice)).toHaveTextContent("Waiting for @gus to answer")
     const optionControl = view.getByTestId(tid.decisionCardOption("timing", "today")).querySelector('[role="radio"]')
     expect(optionControl).toHaveAttribute("aria-disabled", "true")
+
+    fireEvent.click(view.getByTestId(tid.decisionCardToggle))
+    expect(view.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    view.unmount()
+  })
+
+  it("collapses by default when viewer already answered or dismissed, and stays expandable", () => {
+    const answered = render(
+      <DecisionCard
+        card={sampleCard({ respondedUserIds: ["u_gus"] })}
+        messageId="m_q_ans"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        onSubmit={vi.fn(async () => ({ replyToId: "m_q_ans" }))}
+      />,
+    )
+    expect(answered.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    expect(answered.getByTestId(tid.decisionCardToggle)).toHaveTextContent("Answered")
+    expect(answered.queryByTestId(tid.decisionCardOption("timing", "today"))).toBeNull()
+    fireEvent.click(answered.getByTestId(tid.decisionCardToggle))
+    expect(answered.getByTestId(tid.decisionCardOption("timing", "today"))).toBeVisible()
+    answered.unmount()
+
+    const dismissed = render(
+      <DecisionCard
+        card={sampleCard({ viewerDismissed: true })}
+        messageId="m_q_dis"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        onSubmit={vi.fn(async () => ({ replyToId: "m_q_dis" }))}
+      />,
+    )
+    expect(dismissed.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    expect(dismissed.getByTestId(tid.decisionCardToggle)).toHaveTextContent("Dismissed")
+    expect(dismissed.queryByTestId(tid.decisionCardOption("timing", "today"))).toBeNull()
+    fireEvent.click(dismissed.getByTestId(tid.decisionCardToggle))
+    expect(dismissed.getByTestId(tid.decisionCardOption("timing", "today"))).toBeVisible()
+    dismissed.unmount()
+  })
+
+  it("auto-collapses an active card when live responder or dismissal arrives", () => {
+    const onSubmit = vi.fn(async () => ({ replyToId: "m_q_live" }))
+    const view = render(
+      <DecisionCard
+        card={sampleCard()}
+        messageId="m_q_live"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        onSubmit={onSubmit}
+      />,
+    )
+    expect(view.getByTestId(tid.decisionCard)).not.toHaveAttribute("data-collapsed")
+    expect(view.queryByTestId(tid.decisionCardToggle)).toBeNull()
+
+    view.rerender(
+      <DecisionCard
+        card={sampleCard()}
+        messageId="m_q_live"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        liveRespondedUserIds={["u_gus"]}
+        onSubmit={onSubmit}
+      />,
+    )
+    expect(view.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    expect(view.getByTestId(tid.decisionCardToggle)).toHaveTextContent("Answered")
     view.unmount()
   })
 
