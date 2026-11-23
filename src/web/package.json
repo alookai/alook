@@ -146,7 +146,7 @@
   },
   "devDependencies": {
     "@alook/test-utils": "workspace:*",
-    "@cloudflare/vitest-plugin": "1.8.2",
+    "@cloudflare/vitest-plugin": "1.8.5",
     "@lhci/cli": "^0.16.1",
     "@playwright/test": "^1.65.1",
     "@serwist/turbopack": "9.5.13",
@@ -177,8 +177,8 @@
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "8.72.2",
-    "vitest": "5.1.0",
-    "wrangler": "4.162.0",
+    "vitest": "5.1.1",
+    "wrangler": "4.165.0",
     "@mdx-js/rollup": "3.1.1"
   },
   "imports": {

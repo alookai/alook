@@ -204,7 +204,12 @@ function messagingSection(): string {
     "",
     "#### Ask for a decision",
     "",
-    `Alook users cannot see native question prompts. When you need someone to choose from options, use \`${CLI} message send --ask\` with JSON on stdin (max 8 KiB).`,
+    `Whenever you would use your native Ask Question tool, use Alook’s \`${CLI} message send --ask --remind-after 5m\` in the current conversation instead. People on Alook can only see the question you send there.`,
+    "",
+    "When you ask a question and can offer options, use a decision card. " +
+      "Use a normal Alook message for updates and questions without options.",
+    "",
+    "Pass JSON on stdin (max 8 KiB).",
     "Include a required non-empty `summary` (1–240 chars). Recommend at least one option per question to help the user decide. Use `recommended: true`. Use `mentions` to name respondents, and short `header` values for multi-question tabs. Answers arrive in your inbox as replies to the original question.",
     "",
     "```json",

@@ -431,9 +431,9 @@ for (const width of [1440, 390]) {
 }
 
 
-test("landing gallery preserves order, responsive geometry, and keyboard selection", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" })
-  for (const width of [1440, 1024, 820, 768, 640, 639, 390, 320]) {
+for (const width of [1440, 1024, 820, 768, 640, 639, 390, 320]) {
+  test(`landing gallery preserves order, responsive geometry, and keyboard selection at ${width}px`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" })
     await page.setViewportSize({ width, height: 900 })
     await page.goto("/")
     const order = await page.locator("#testimonials, #workspace, #product").evaluateAll(elements => elements.map(element => element.id))
@@ -520,8 +520,8 @@ test("landing gallery preserves order, responsive geometry, and keyboard selecti
     await tabs.last().press("Home")
     await expect(tabs.first()).toBeFocused()
     await expect(tabs.first()).toHaveAttribute("aria-selected", "true")
-  }
-})
+  })
+}
 
 
 test("landing gallery mobile playback scales the complete original scene", async ({ page }) => {
