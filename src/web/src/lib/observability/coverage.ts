@@ -245,6 +245,7 @@ export const actionNames = [
   "forum.thread.create",
   "forum.thread.delete",
   "inbox.channel.read",
+  "inbox.channel.reply",
   "inbox.decision_card.submit",
   "inbox.read_all",
   "inbox.todo.dismiss",

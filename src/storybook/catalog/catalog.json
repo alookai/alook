@@ -9,7 +9,7 @@
   "summary": {
     "server-output": 11,
     "composition": 350,
-    "environment": 12,
+    "environment": 13,
     "nonvisual": 32,
     "direct": 163
   },
@@ -4658,6 +4658,16 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/shell/inbox-inline-reply.tsx",
+      "application": "Web",
+      "candidates": [
+        "InboxInlineReply"
+      ],
+      "kind": "environment",
+      "examples": [],
+      "reason": "Inline reply composer mounted inside expanded Unreads cards and Todo Question cards in the connected Inbox shell. Submitting mutates account-scoped channel messages and read/attention state and requires account-backed Web QA."
     },
     {
       "source": "src/web/src/components/community/shell/inbox-message-preview.tsx",

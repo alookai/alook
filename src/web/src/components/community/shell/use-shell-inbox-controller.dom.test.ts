@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   markAll: vi.fn(),
   deleteMention: vi.fn(),
   markChannel: vi.fn().mockResolvedValue(undefined),
+  replyChannel: vi.fn().mockResolvedValue({ id: "m_r1", seq: 10 }),
   submitTodo: vi.fn().mockResolvedValue({ replyToId: "q1" }),
   dismissTodo: vi.fn(),
   unmark: vi.fn(),
@@ -137,6 +138,7 @@ vi.mock("@/hooks/community/mutations", async () => {
   return {
   useMarkAllInboxRead: () => ({ mutate: mocks.markAll }),
   useDeleteMention: () => ({ mutate: mocks.deleteMention }),
+  useReplyInboxChannel: () => ({ mutateAsync: mocks.replyChannel }),
   useSubmitInboxDecisionCard: () => ({ mutateAsync: mocks.submitTodo }),
   useDismissInboxTodo: () => ({ mutate: mocks.dismissTodo }),
   useUnmarkMessage: () => ({ mutate: mocks.unmark }),
@@ -682,6 +684,36 @@ describe("useShellInboxController", () => {
       hook.current.popoverProps.onDismissTodo?.(todo)
     })
     expect(mocks.dismissTodo).toHaveBeenCalledWith({ messageId: "q1" })
+
+    await act(async () => {
+      await hook.current.popoverProps.onReplyTodo?.(todo, "Hold off", "nonce-reply-todo")
+    })
+    expect(mocks.submitTodo).toHaveBeenCalledWith({
+      channelId: "c1",
+      messageId: "q1",
+      content: "Hold off",
+      nonce: "nonce-reply-todo",
+      toastMessage: "Reply sent",
+    })
+
+    await act(async () => {
+      await hook.current.popoverProps.onSubmitDecisionCard?.("c1", "q1", "Ship: Yes", "nonce-unread-dc")
+    })
+    expect(mocks.submitTodo).toHaveBeenCalledWith({
+      channelId: "c1",
+      messageId: "q1",
+      content: "Ship: Yes",
+      nonce: "nonce-unread-dc",
+    })
+
+    await act(async () => {
+      await hook.current.popoverProps.onReplyChannel?.("c1", "On it", "nonce-reply-ch")
+    })
+    expect(mocks.replyChannel).toHaveBeenCalledWith({
+      channelId: "c1",
+      content: "On it",
+      nonce: "nonce-reply-ch",
+    })
     expect(hook.pushed).toEqual([])
   })
 })

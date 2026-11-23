@@ -6,6 +6,7 @@ import { InboxPopover } from "./community-inbox-popover"
 import type { InboxTodo, Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { buildDecisionCardEmbed, DecisionCardInputSchema } from "@alook/shared"
 import { tid } from "@/lib/community/testids"
+import { ApiError } from "@/lib/errors"
 import type { CommunityProfile } from "@/lib/community/models/people"
 
 vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))
@@ -991,5 +992,367 @@ describe("InboxPopover Todo tab", () => {
     }))
 
     expect(renderer.getByLabelText("1+ pending questions")).toHaveTextContent("1+")
+  })
+
+  it("submits free-text Todo reply via persistent inline bar, validates replyToId, and preserves ChannelIcon aspect ratio", async () => {
+    const card = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Confirm release timing",
+        questions: [{
+          id: "timing",
+          question: "When should we publish?",
+          options: [
+            { id: "today", label: "Today", recommended: true },
+            { id: "next", label: "Next week" },
+          ],
+        }],
+      }),
+      [{ userId: "u_gus", handle: "gus#1813" }],
+    )
+    const todo: InboxTodo = {
+      id: "question:m_q3",
+      messageId: "m_q3",
+      channelId: "ch_uiux",
+      serverId: "srv_1",
+      server: "Alook",
+      channel: "gus-uiux",
+      parentChannelId: null,
+      createdAt: "2026-11-23T03:50:00.000Z",
+      m: {
+        id: "m_q3",
+        type: "question",
+        seq: 20,
+        authorId: "bot_evan",
+        authorName: "Evan You",
+        createdAt: "2026-11-23T03:50:00.000Z",
+        content: "Confirm release timing",
+        decisionCard: card,
+      },
+    }
+    const onOpenTodo = vi.fn()
+    const onReplyTodo = vi.fn()
+      .mockResolvedValueOnce({ replyToId: null })
+      .mockResolvedValueOnce({ replyToId: "m_q3" })
+
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [],
+      unreadDms: [],
+      mentions: [],
+      todos: [todo],
+      marked: [],
+      activeTab: "todo",
+      viewerUserId: "u_gus",
+      hasProjectedUnreads: true,
+      hasProjectedMentions: false,
+      onOpenTodo,
+      onReplyTodo,
+    }))
+
+    const headerButton = renderer.getByTestId(tid.inboxTodoOpen("m_q3"))
+    const channelIcon = headerButton.querySelector("svg[viewBox='7 0 14 24']")
+    expect(channelIcon).not.toBeNull()
+    expect(channelIcon?.getAttribute("class")).toContain("w-auto")
+    expect(channelIcon?.getAttribute("class")).not.toContain("size-3.5")
+
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(hover: hover) and (pointer: fine)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+    try {
+      renderer.rerender(React.createElement(InboxPopover, {
+        unreads: [],
+        unreadDms: [],
+        mentions: [],
+        todos: [todo],
+        marked: [],
+        activeTab: "todo",
+        viewerUserId: "u_gus",
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
+        onOpenTodo,
+        onReplyTodo,
+      }))
+      const input = renderer.getByTestId(tid.inboxTodoReplyInput("m_q3")) as HTMLTextAreaElement
+      const send = renderer.getByTestId(tid.inboxTodoReplySend("m_q3")) as HTMLButtonElement
+      expect(send).toBeDisabled()
+
+      fireEvent.change(input, { target: { value: "Hold until afternoon" } })
+      expect(send).toBeEnabled()
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: true })
+      expect(onReplyTodo).not.toHaveBeenCalled()
+
+      fireEvent.click(send)
+      await waitFor(() => {
+        expect(renderer.getByRole("alert")).toHaveTextContent("Could not link your reply")
+      })
+      expect(input.value).toBe("Hold until afternoon")
+      expect(onOpenTodo).not.toHaveBeenCalled()
+
+      fireEvent.click(send)
+      await waitFor(() => {
+        expect(onReplyTodo).toHaveBeenCalledTimes(2)
+        expect(input.value).toBe("")
+      })
+      expect(onReplyTodo).toHaveBeenLastCalledWith(todo, "Hold until afternoon", expect.any(String))
+      expect(onOpenTodo).not.toHaveBeenCalled()
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
+  })
+})
+
+describe("InboxPopover inline reply in Unreads", () => {
+  it("renders inline reply in expanded DM, text channel, and thread cards, omits it on forum containers, and preserves draft + nonce on failure", async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(hover: hover) and (pointer: fine)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+    try {
+      const onOpenChannel = vi.fn()
+      const onOpenDm = vi.fn()
+      const onReplyChannel = vi.fn()
+        .mockRejectedValueOnce(new Error("Temporary outage"))
+        .mockResolvedValueOnce({ id: "m_sent", seq: 9 })
+
+      const renderer = render(React.createElement(InboxPopover, {
+        unreads: [{
+          serverId: "s1",
+          serverName: "Alook",
+          channels: [
+            {
+              channelId: "ch_text",
+              channelName: "general",
+              type: "text",
+              lastMessageAt: "2026-11-23T03:00:00.000Z",
+              lastUnreadSeq: 8,
+              unreadCount: 1,
+              mentionCount: 0,
+              hasDirectUnread: true,
+              children: [{
+                channelId: "ch_thread",
+                channelName: "release-notes",
+                type: "thread",
+                lastMessageAt: "2026-11-23T03:01:00.000Z",
+                lastUnreadSeq: 3,
+                unreadCount: 1,
+                mentionCount: 0,
+              }],
+            },
+            {
+              channelId: "ch_forum",
+              channelName: "gus-issues",
+              type: "forum",
+              lastMessageAt: "2026-11-23T03:02:00.000Z",
+              lastUnreadSeq: 5,
+              unreadCount: 1,
+              mentionCount: 0,
+              hasDirectUnread: true,
+              children: [],
+            },
+          ],
+        }],
+        unreadDms: [{
+          channelId: "dm_1",
+          otherUserId: "u_alli",
+          otherUserName: "Alli",
+          otherUserDiscriminator: "6011",
+          otherUserAvatar: "A",
+          otherUserAvatarVersion: 0,
+          lastMessageAt: "2026-11-23T03:03:00.000Z",
+          lastUnreadSeq: 4,
+          unreadCount: 1,
+        }],
+        mentions: [],
+        marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
+        onOpenChannel,
+        onOpenDm,
+        onReplyChannel,
+      }))
+
+      fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("ch_forum")))
+      expect(renderer.queryByTestId(tid.inboxReplyInput("ch_forum"))).toBeNull()
+
+      fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("ch_thread")))
+      expect(renderer.getByTestId(tid.inboxReplyInput("ch_thread"))).toBeInTheDocument()
+
+      fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("dm_1")))
+      expect(renderer.getByTestId(tid.inboxReplyInput("dm_1"))).toBeInTheDocument()
+
+      fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("ch_text")))
+      const input = renderer.getByTestId(tid.inboxReplyInput("ch_text")) as HTMLTextAreaElement
+      fireEvent.click(input)
+      expect(onOpenChannel).not.toHaveBeenCalled()
+      expect(onOpenDm).not.toHaveBeenCalled()
+
+      fireEvent.change(input, { target: { value: "Looks good" } })
+      fireEvent.keyDown(input, { key: "Enter" })
+      await waitFor(() => {
+        expect(renderer.getByRole("alert")).toHaveTextContent("Temporary outage")
+      })
+      expect(input.value).toBe("Looks good")
+      const firstNonce = onReplyChannel.mock.calls[0]?.[2]
+      expect(firstNonce).toEqual(expect.any(String))
+
+      fireEvent.click(renderer.getByTestId(tid.inboxReplySend("ch_text")))
+      await waitFor(() => {
+        expect(onReplyChannel).toHaveBeenCalledTimes(2)
+        expect(input.value).toBe("")
+      })
+      expect(onReplyChannel.mock.calls[1]).toEqual(["ch_text", "Looks good", firstNonce])
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
+  })
+
+  it("allows submitting unread Decision Cards directly inside Unreads without navigating away", async () => {
+    const card = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Merge PR #1405?",
+        questions: [{
+          id: "merge",
+          question: "Merge now?",
+          options: [
+            { id: "yes", label: "Merge", recommended: true },
+            { id: "wait", label: "Wait" },
+          ],
+        }],
+      }),
+      [{ userId: "u_gus", handle: "gus#1813" }],
+    )
+    const onOpenChannel = vi.fn()
+    const onSubmitDecisionCard = vi.fn(async () => ({ replyToId: "m_dc_1" }))
+
+    const renderer = renderInboxMessages(React.createElement(InboxPopover, {
+      unreads: [{
+        serverId: "s1",
+        serverName: "Alook",
+        channels: [{
+          channelId: "ch_1",
+          channelName: "gus-uiux",
+          type: "text",
+          lastMessageAt: "2026-11-23T03:00:00.000Z",
+          lastUnreadSeq: 2,
+          unreadCount: 1,
+          mentionCount: 1,
+          hasDirectUnread: true,
+          children: [],
+        }],
+      }],
+      unreadDms: [],
+      mentions: [{
+        id: "mention_dc",
+        server: "Alook",
+        serverId: "s1",
+        channel: "gus-uiux",
+        channelId: "ch_1",
+        m: {
+          id: "m_dc_1",
+          type: "question",
+          seq: 2,
+          authorId: "bot_evan",
+          authorName: "Evan You",
+          createdAt: "2026-11-23T03:00:00.000Z",
+          content: "Merge PR #1405?",
+          decisionCard: card,
+        },
+      }],
+      marked: [],
+      viewerUserId: "u_gus",
+      hasProjectedUnreads: true,
+      hasProjectedMentions: true,
+      onOpenChannel,
+      onSubmitDecisionCard,
+    }))
+
+    fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("ch_1")))
+    fireEvent.click(renderer.getByText("Merge"))
+    fireEvent.click(renderer.getByRole("button", { name: "Send answer" }))
+
+    await waitFor(() => {
+      expect(onSubmitDecisionCard).toHaveBeenCalledTimes(1)
+    })
+    expect(onSubmitDecisionCard).toHaveBeenCalledWith("ch_1", "m_dc_1", "Merge now?: Merge", expect.any(String))
+    expect(onOpenChannel).not.toHaveBeenCalled()
+  })
+
+  it("formats ApiError (429, 403 blocked, generic) and non-Error failures and resets nonce after editing", async () => {
+    const onReplyChannel = vi.fn()
+      .mockRejectedValueOnce(new ApiError("Too many requests", 429))
+      .mockRejectedValueOnce(new ApiError("User is blocked", 403))
+      .mockRejectedValueOnce(new ApiError("Server overloaded", 500))
+      .mockRejectedValueOnce("unexpected")
+      .mockResolvedValueOnce({ id: "m_ok", seq: 5 })
+
+    const renderer = render(React.createElement(InboxPopover, {
+      unreads: [],
+      unreadDms: [{
+        channelId: "dm_err",
+        otherUserId: "u_peer",
+        otherUserName: "Peer",
+        otherUserDiscriminator: "0001",
+        otherUserAvatar: "P",
+        otherUserAvatarVersion: 0,
+        lastMessageAt: "2026-11-23T03:00:00.000Z",
+        lastUnreadSeq: 2,
+        unreadCount: 1,
+      }],
+      mentions: [],
+      marked: [],
+      hasProjectedUnreads: true,
+      hasProjectedMentions: false,
+      onReplyChannel,
+    }))
+
+    fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("dm_err")))
+    const input = renderer.getByTestId(tid.inboxReplyInput("dm_err")) as HTMLTextAreaElement
+    const send = renderer.getByTestId(tid.inboxReplySend("dm_err")) as HTMLButtonElement
+
+    fireEvent.change(input, { target: { value: "First draft" } })
+    fireEvent.click(send)
+    await waitFor(() => {
+      expect(renderer.getByRole("alert")).toHaveTextContent("Rate limited — wait a moment and try again.")
+    })
+    const firstNonce = onReplyChannel.mock.calls[0]?.[2]
+
+    fireEvent.click(send)
+    await waitFor(() => {
+      expect(renderer.getByRole("alert")).toHaveTextContent("User is blocked")
+    })
+    expect(onReplyChannel.mock.calls[1]?.[2]).toBe(firstNonce)
+
+    fireEvent.change(input, { target: { value: "Edited draft" } })
+    expect(renderer.queryByRole("alert")).toBeNull()
+    fireEvent.click(send)
+    await waitFor(() => {
+      expect(renderer.getByRole("alert")).toHaveTextContent("Server overloaded")
+    })
+    const secondNonce = onReplyChannel.mock.calls[2]?.[2]
+    expect(secondNonce).not.toBe(firstNonce)
+
+    fireEvent.click(send)
+    await waitFor(() => {
+      expect(renderer.getByRole("alert")).toHaveTextContent("Could not send reply — try again.")
+    })
+
+    fireEvent.click(send)
+    await waitFor(() => {
+      expect(input.value).toBe("")
+    })
   })
 })

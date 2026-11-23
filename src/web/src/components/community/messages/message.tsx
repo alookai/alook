@@ -185,7 +185,7 @@ function MessageImpl({
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
-  viewerUserId, onSubmitDecisionCard, liveRespondedUserIds, hoverCapable = true,
+  viewerUserId, onSubmitDecisionCard, allowDecisionCardSubmit, liveRespondedUserIds, hoverCapable = true,
 }: {
   m: RenderMsg
   bodyKey?: string
@@ -230,6 +230,7 @@ function MessageImpl({
   onShareSingle?: () => void
   viewerUserId?: string
   onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  allowDecisionCardSubmit?: boolean
   liveRespondedUserIds?: readonly string[]
   // Resolved once by MessageList and threaded into virtualized rows. Keeping
   // the media-query subscription at the list level avoids one listener per
@@ -788,7 +789,7 @@ function MessageImpl({
               messageId={m.id}
               authorId={m.authorId}
               viewerUserId={viewerUserId}
-              onSubmit={readOnly ? undefined : onSubmitDecisionCard}
+              onSubmit={readOnly && !allowDecisionCardSubmit ? undefined : onSubmitDecisionCard}
               liveRespondedUserIds={liveRespondedUserIds}
               onOpenProfile={readOnly ? undefined : onOpenProfile}
               compact={compact}

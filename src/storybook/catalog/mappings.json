@@ -3156,6 +3156,11 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/community/shell/inbox-inline-reply.tsx": {
+    "kind": "environment",
+    "examples": [],
+    "reason": "Inline reply composer mounted inside expanded Unreads cards and Todo Question cards in the connected Inbox shell. Submitting mutates account-scoped channel messages and read/attention state and requires account-backed Web QA."
+  },
   "src/web/src/components/community/shell/inbox-message-preview.tsx": {
     "kind": "environment",
     "examples": [],

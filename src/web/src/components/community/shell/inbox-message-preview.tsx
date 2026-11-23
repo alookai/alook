@@ -5,7 +5,7 @@ import { Message } from "../messages/message"
 import { MESSAGE_GROUPED_ROW_PADDING_PX, MESSAGE_ROW_VERTICAL_PADDING_PX } from "@/lib/community/message-list-items"
 import type { RenderMsg } from "@/lib/community/models/message"
 
-const interactivePreviewContent = "a,button,input,textarea,select,label,summary,audio[controls],video[controls],[contenteditable=true],[role=button],[role=link],[tabindex]:not([tabindex='-1'])"
+const interactivePreviewContent = "a,button,input,textarea,select,label,summary,audio[controls],video[controls],[contenteditable=true],[data-message-controls],[role=button],[role=link],[tabindex]:not([tabindex='-1'])"
 
 export function isInboxPreviewContentClick(event: MouseEvent<HTMLElement>) {
   const { currentTarget, target } = event
@@ -22,6 +22,8 @@ export function InboxMessagePreview({
   first,
   onOpen,
   onOpenThread,
+  viewerUserId,
+  onSubmitDecisionCard,
   paddingTop = MESSAGE_ROW_VERTICAL_PADDING_PX,
   paddingBottom = MESSAGE_ROW_VERTICAL_PADDING_PX,
 }: {
@@ -31,6 +33,12 @@ export function InboxMessagePreview({
   first?: boolean
   onOpen?: () => void
   onOpenThread?: () => void
+  viewerUserId?: string | null
+  onSubmitDecisionCard?: (
+    messageId: string,
+    content: string,
+    nonce: string,
+  ) => Promise<{ replyToId: string | null }>
   paddingTop?: number
   paddingBottom?: number
 }) {
@@ -48,7 +56,15 @@ export function InboxMessagePreview({
       onClick={openMessage}
     >
       {onOpen && <button type="button" className="sr-only focus:not-sr-only focus:underline" onClick={onOpen}>Open message</button>}
-      <Message m={row} onOpenThread={onOpenThread} readOnly avatarSize={32} />
+      <Message
+        m={row}
+        onOpenThread={onOpenThread}
+        viewerUserId={viewerUserId ?? undefined}
+        onSubmitDecisionCard={onSubmitDecisionCard}
+        allowDecisionCardSubmit={Boolean(onSubmitDecisionCard)}
+        readOnly
+        avatarSize={32}
+      />
     </div>
   )
 }

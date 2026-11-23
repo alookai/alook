@@ -1653,4 +1653,169 @@ describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
     })
     expect(toastMock).not.toHaveBeenCalled()
   })
+
+  it("supports custom toastMessage on useSubmitInboxDecisionCard for free-text Todo replies", async () => {
+    const mod = await loadMod()
+    await seedPendingQuestionTodo("m_q1", "ch_1")
+    const reply = postedMessage("m_reply_ft", 6, "ch_1", {
+      replyToId: "m_q1",
+      content: "Wait until tomorrow",
+      clientNonce: "nonce-ft",
+    })
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/channels/ch_1/messages") {
+        return { message: reply, profiles: messageProfilesFixture([reply]) }
+      }
+      if (path === "/api/community/users/me/read-state") {
+        return { revision: 8, readStates: [] }
+      }
+      if (path === "/api/community/users/me/attention") {
+        return { revision: 8, scopes: [], items: [], truncated: { scopes: false, items: false, todos: false }, included: { servers: [], channels: [], dms: [], messages: [], profiles: [] } }
+      }
+      throw new Error("unexpected " + path)
+    })
+
+    mountHook(() => mod.useSubmitInboxDecisionCard())
+    await runMutation({
+      channelId: "ch_1",
+      messageId: "m_q1",
+      content: "Wait until tomorrow",
+      nonce: "nonce-ft",
+      toastMessage: "Reply sent",
+    })
+
+    expect(toastMock).toHaveBeenCalledWith("Reply sent")
+  })
+})
+
+describe("useReplyInboxChannel", () => {
+  it("posts a plain reply, clears channel unread scope while keeping pending Todos, dismisses notifications, and reconciles", async () => {
+    const mod = await loadMod()
+    await installCanonicalRegistry()
+    const { ingestAttentionSnapshot } = await import("@/lib/community-db/sync")
+    const canonical = attentionScenarioFixture({
+      scopes: [{
+        scopeId: "ch_1",
+        channelId: "ch_1",
+        serverId: "s_1",
+        parentChannelId: null,
+        ordinaryUnread: true,
+        lastUnreadSeq: 5,
+        attentionCount: 1,
+        lastAttentionSeq: 5,
+      }],
+      items: [
+        {
+          id: "mention:m_5",
+          sourceId: "m_5",
+          kind: "mention" as const,
+          scopeId: "ch_1",
+          messageId: "m_5",
+          actorUserId: "u_2",
+          createdAt: "2026-11-23T01:00:00.000Z",
+        },
+        {
+          id: "question:m_q1",
+          sourceId: "m_q1",
+          kind: "question" as const,
+          scopeId: "ch_1",
+          messageId: "m_q1",
+          actorUserId: "u_2",
+          createdAt: "2026-11-23T01:00:00.000Z",
+        },
+      ],
+      limit: 100,
+      truncated: false,
+      included: attentionIncluded({
+        profiles: [{
+          userId: "u_2", name: "Two", discriminator: "0002", avatar: "T", avatarVersion: 1,
+        }],
+        messages: [
+          {
+            id: "m_5", channelId: "ch_1", authorId: "u_2", content: "Ping",
+            createdAt: "2026-11-23T01:00:00.000Z", seq: 5,
+          },
+          {
+            id: "m_q1", channelId: "ch_1", authorId: "u_2", content: "Confirm rollout",
+            createdAt: "2026-11-23T01:00:00.000Z", seq: 4, type: "question",
+          },
+        ],
+      }),
+    })
+    ingestAttentionSnapshot(canonicalRegistry!, canonical)
+
+    const reply = postedMessage("m_reply_10", 6, "ch_1", {
+      content: "On it",
+      clientNonce: "nonce-r1",
+    })
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/channels/ch_1/messages") {
+        return { message: reply, profiles: messageProfilesFixture([reply]) }
+      }
+      if (path === "/api/community/users/me/read-state") {
+        return {
+          revision: 9,
+          readStates: [{
+            channelId: "ch_1",
+            lastReadMessageId: "m_reply_10",
+            lastReadAt: reply.createdAt,
+            lastReadSeq: 6,
+          }],
+        }
+      }
+      if (path === "/api/community/users/me/attention") {
+        return {
+          ...canonical,
+          revision: 9,
+          scopes: [],
+          items: canonical.items.filter((item) => item.kind === "question"),
+        }
+      }
+      throw new Error("unexpected " + path)
+    })
+
+    const dismissConversation = vi.fn()
+    mountHook(() => mod.useReplyInboxChannel(dismissConversation))
+    const { data } = await runMutation({
+      channelId: "ch_1",
+      content: "On it",
+      nonce: "nonce-r1",
+    })
+
+    expect(data).toEqual({ id: "m_reply_10", seq: 6 })
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/ch_1/messages",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ content: "On it", nonce: "nonce-r1" }),
+      }),
+    )
+    expect(canonicalRegistry.collections.messages.get("m_reply_10")?.content).toBe("On it")
+    expect(canonicalRegistry.collections.attentionScopes.get("ch_1")).toBeUndefined()
+    expect(canonicalRegistry.collections.attentionItems.get("mention:m_5")).toBeUndefined()
+    expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeDefined()
+    expect(dismissConversation).toHaveBeenCalledWith("u_me", { kind: "server", serverId: "s_1", channelId: "ch_1" })
+    expect(toastMock).toHaveBeenCalledWith("Reply sent")
+  })
+
+  it("supports mutate() and ignores stale account origin on success", async () => {
+    const mod = await loadMod()
+    let resolvePost!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolvePost = resolve }))
+    const hook = mountHook(() => mod.useReplyInboxChannel())
+    act(() => {
+      hook.mutate({ channelId: "ch_1", content: "Late reply", nonce: "nonce-stale" })
+    })
+    await waitFor(() => expect(resolvePost).toBeTypeOf("function"))
+    const reply = postedMessage("m_reply_stale", 7, "ch_1", {
+      content: "Late reply",
+      clientNonce: "nonce-stale",
+    })
+    await act(async () => {
+      await canonicalRegistry.cleanup()
+      resolvePost({ message: reply, profiles: messageProfilesFixture([reply]) })
+      await Promise.resolve()
+    })
+    expect(toastMock).not.toHaveBeenCalled()
+  })
 })

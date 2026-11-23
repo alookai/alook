@@ -36,10 +36,12 @@ import {
 import { isBlocked } from "@alook/shared"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
+import type { RequestNativeConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
 import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
+  commitConfirmedAttentionScopeRead,
   removeAttentionItemsOptimistically,
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
@@ -167,6 +169,7 @@ export type SubmitInboxDecisionCardArgs = {
   messageId: string
   content: string
   nonce: string
+  toastMessage?: string
 }
 
 export function useSubmitInboxDecisionCard() {
@@ -208,7 +211,7 @@ export function useSubmitInboxDecisionCard() {
       })
       return { replyToId: result.message.replyToId ?? null }
     },
-    onSuccess: async (data, { input: { messageId }, original }) => {
+    onSuccess: async (data, { input: { messageId, toastMessage }, original }) => {
       try { origin.assert(original) } catch { return }
       if (data.replyToId !== messageId) return
       const registry = origin.registry
@@ -221,7 +224,7 @@ export function useSubmitInboxDecisionCard() {
         void reconcileAccountReadState(queryClient).catch(() => undefined)
         void reconcileAccountAttention(registry).catch(() => undefined)
       }
-      toast("Answer sent")
+      toast(toastMessage ?? "Answer sent")
     },
   })
   return {
@@ -232,6 +235,78 @@ export function useSubmitInboxDecisionCard() {
     ) => mutation.mutate({ input, original: origin.begin().token }, options),
     mutateAsync: (
       input: SubmitInboxDecisionCardArgs,
+      options?: Parameters<typeof mutation.mutateAsync>[1],
+    ) => mutation.mutateAsync({ input, original: origin.begin().token }, options),
+  }
+}
+
+export type ReplyInboxChannelArgs = {
+  channelId: string
+  content: string
+  nonce: string
+}
+
+export function useReplyInboxChannel(dismissConversation?: RequestNativeConversationDismissal) {
+  const origin = useCommunityMutationOrigin()
+  const queryClient = useQueryClient()
+  type Original = ReturnType<typeof origin.begin>["token"]
+  const mutation = useMutation<
+    { id: string; seq: number },
+    Error,
+    { input: ReplyInboxChannelArgs; original: Original }
+  >({
+    meta: { observabilityAction: "inbox.channel.reply" },
+    mutationFn: async ({ input: { channelId, content, nonce }, original }) => {
+      origin.assert(original)
+      const result = await origin.request<SendMessageResult>(
+        original,
+        `/api/community/channels/${encodeURIComponent(channelId)}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({ content, nonce }),
+        },
+      )
+      await origin.registry!.collections.messages.preload()
+      origin.assert(original)
+      const message = postedMessageForIntent(result.message, nonce, channelId)
+      await publishCommunityMessages(queryClient, {
+        channelId,
+        profiles: result.profiles,
+        messages: [message],
+        relatedMessages: result.relatedMessages,
+        proof: { token: original },
+      })
+      return { id: result.message.id, seq: result.message.seq ?? 0 }
+    },
+    onSuccess: async (data, { input: { channelId }, original }) => {
+      try { origin.assert(original) } catch { return }
+      const registry = origin.registry
+      if (registry) {
+        if (data.seq > 0) {
+          await commitConfirmedAttentionScopeRead(registry, channelId, data.seq)
+          if (dismissConversation && registry.accountId) {
+            const channel = registry.collections.channels.get(channelId)
+            const remaining = registry.collections.attentionScopes.get(channelId)
+            if (channel && Math.max(remaining?.lastUnreadSeq ?? 0, remaining?.lastAttentionSeq ?? 0) <= data.seq) {
+              if (channel.type === "dm") dismissConversation(registry.accountId, { kind: "dm", channelId })
+              else if (channel.serverId) dismissConversation(registry.accountId, { kind: "server", serverId: channel.serverId, channelId })
+            }
+          }
+        }
+        void reconcileAccountReadState(queryClient).catch(() => undefined)
+        void reconcileAccountAttention(registry).catch(() => undefined)
+      }
+      toast("Reply sent")
+    },
+  })
+  return {
+    ...mutation,
+    mutate: (
+      input: ReplyInboxChannelArgs,
+      options?: Parameters<typeof mutation.mutate>[1],
+    ) => mutation.mutate({ input, original: origin.begin().token }, options),
+    mutateAsync: (
+      input: ReplyInboxChannelArgs,
       options?: Parameters<typeof mutation.mutateAsync>[1],
     ) => mutation.mutateAsync({ input, original: origin.begin().token }, options),
   }

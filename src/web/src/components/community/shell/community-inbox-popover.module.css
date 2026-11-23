@@ -87,3 +87,45 @@
     animation-range: exit-crossing 1px;
   }
 }
+
+.replySendButton {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 44px;
+  height: 44px;
+  border: 4px solid transparent !important;
+  border-radius: 999px;
+  background-clip: padding-box;
+  color: var(--muted-foreground);
+  transition:
+    width 150ms var(--ease-out),
+    background-color 150ms var(--ease-out),
+    color 150ms var(--ease-out);
+}
+
+.replySendButton:enabled {
+  width: 56px;
+  background-color: var(--composer-send-active) !important;
+  color: var(--composer-send-active-foreground) !important;
+  box-shadow: none !important;
+}
+
+.replySendButton:enabled:hover {
+  background-color: color-mix(in srgb, var(--composer-send-active) 90%, black) !important;
+}
+
+.replySendButton:enabled:active {
+  background-color: color-mix(in srgb, var(--composer-send-active) 82%, black) !important;
+}
+
+.replySendButton > svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .replySendButton {
+    transition: none;
+  }
+}

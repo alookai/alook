@@ -24,6 +24,13 @@ export type InboxUnreadMessagesInput = {
   mentions: Mention[]
   openForumPosts?: ReadonlyMap<string, () => void>
   continuation?: boolean
+  viewerUserId?: string | null
+  onSubmitDecisionCard?: (
+    channelId: string,
+    messageId: string,
+    content: string,
+    nonce: string,
+  ) => Promise<{ replyToId: string | null }>
 }
 
 // A single per-user saved ("marked") message, as returned by

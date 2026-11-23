@@ -188,6 +188,11 @@ const mutationCoverage = [
   },
   {
     "file": "src/web/src/hooks/community/mutations/messages.ts",
+    "owner": "useReplyInboxChannel",
+    "action": "inbox.channel.reply"
+  },
+  {
+    "file": "src/web/src/hooks/community/mutations/messages.ts",
     "owner": "useMarkAllInboxRead",
     "action": "inbox.read_all"
   },
