@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import Link from "next/link";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { TypewriterWorkspaceArt } from "./typewriter-workspace-art";
@@ -87,6 +88,7 @@ interface TypewriterVisualProps {
   interaction?: "pointer" | "hover";
   frontFacing?: boolean;
   paper?: React.ReactNode;
+  paperHref?: string;
   blobScale?: number;
   blobBottom?: string;
   onPaperSettled?: () => void;
@@ -99,6 +101,7 @@ export function TypewriterVisual({
   interaction = "pointer",
   frontFacing = false,
   paper,
+  paperHref,
   blobScale = 1,
   blobBottom,
   onPaperSettled,
@@ -187,10 +190,21 @@ export function TypewriterVisual({
     );
   }, { scope: containerRef });
 
+  const workspaceArt = <TypewriterWorkspaceArt onSettled={onPaperSettled} />;
   const paperTrack = (
     <div className="tw-paper-track">
       <div className={`tw-paper${paper == null ? " tw-paper-workspace" : ""}`} style={animateEntrance ? undefined : { opacity: 1 }}>
-        {paper ?? <TypewriterWorkspaceArt onSettled={onPaperSettled} />}
+        {paper ?? (paperHref ? (
+          <Link
+            href={paperHref}
+            prefetch={false}
+            aria-label="Explore the Alook workspace"
+            className="block rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            draggable={false}
+          >
+            {workspaceArt}
+          </Link>
+        ) : workspaceArt)}
       </div>
     </div>
   );

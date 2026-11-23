@@ -19,6 +19,7 @@ import { LandingInteractiveDemo } from "./landing-interactive-demo"
 import { LandingValueSections } from "./landing-value-sections"
 import { LandingFooter } from "./landing-footer"
 import { LANDING_HERO } from "./landing-content"
+import { LandingHeroBackendBadge } from "./landing-hero-backend-badge"
 import { HandAccent } from "@/components/brand/hand-accent"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { LandingClosingCollage } from "./landing-closing-collage"
@@ -67,7 +68,9 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
             </span>
           </>
         )}
-        subline={LANDING_HERO.subline}
+        subline={<>
+          {LANDING_HERO.subline.before}{" "}<LandingHeroBackendBadge />{LANDING_HERO.subline.after}
+        </>}
         headlineClassName={styles.landingHeroHeadline}
         headlineStyle={{
           lineHeight: 0.98,
@@ -75,6 +78,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         }}
         typewriterClassName={styles.landingHeroTypewriter}
         typewriterInteraction="hover"
+        typewriterPaperHref="#workspace-heading"
         largeCtas
         showCommunityLinks={false}
         showMobileDesktopHint={false}

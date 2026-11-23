@@ -7,21 +7,33 @@ vi.mock("@gsap/react", () => ({ useGSAP: vi.fn() }));
 
 import { TypewriterVisual } from "./typewriter-visual";
 
+const initialDarkMode = document.documentElement.classList.contains("dark");
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  document.documentElement.classList.toggle("dark", initialDarkMode);
 });
 
 describe("typewriter paper", () => {
-  it("releases the hero after the printed workspace image decodes", async () => {
+  it.each([
+    ["light", "/landing/typewriter-workspace.webp"],
+    ["dark", "/landing/typewriter-workspace-dark.webp"],
+  ])("releases the hero after the %s workspace image decodes", async (theme, expectedImage) => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
     let finishDecode!: () => void;
     const decoded = new Promise<void>((resolve) => {
       finishDecode = resolve;
     });
-    vi.stubGlobal("Image", class { decode() { return decoded; } });
+    const setSource = vi.fn();
+    vi.stubGlobal("Image", class {
+      set src(value: string) { setSource(value); }
+      decode() { return decoded; }
+    });
     const settled = vi.fn();
     render(<TypewriterVisual animateEntrance={false} onPaperSettled={settled} />);
     expect(screen.getByRole("img", { name: /Alook workspace/ })).toBeInTheDocument();
+    expect(setSource).toHaveBeenCalledExactlyOnceWith(expectedImage);
     expect(settled).not.toHaveBeenCalled();
     await act(async () => { finishDecode(); await decoded; });
     expect(settled).toHaveBeenCalledTimes(1);
@@ -35,12 +47,13 @@ describe("typewriter paper", () => {
     expect(settled).toHaveBeenCalledTimes(1);
   });
 
-  it("references the workspace image from the initial SVG markup", () => {
+  it("references both themed workspace images from the initial SVG markup", () => {
     const settled = vi.fn();
     const html = renderToString(<TypewriterVisual animateEntrance={false} onPaperSettled={settled} />);
     expect(html).toContain("<svg");
     expect(html).toContain("Alook workspace with two people and two bots");
     expect(html).toContain('href="/landing/typewriter-workspace.webp"');
+    expect(html).toContain('href="/landing/typewriter-workspace-dark.webp"');
     expect(html).not.toContain("<canvas");
     expect(settled).not.toHaveBeenCalled();
   });
@@ -63,10 +76,18 @@ describe("typewriter paper", () => {
     render(<TypewriterVisual />);
     const illustration = screen.getByRole("img", { name: /Alook workspace/ });
     expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
     const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     document.dispatchEvent(enter);
     expect(enter.defaultPrevented).toBe(false);
     expect(illustration).toBeInTheDocument();
+  });
+
+  it("links the illustration when its caller supplies a workspace destination", () => {
+    render(<TypewriterVisual paperHref="#workspace" />);
+    const link = screen.getByRole("link", { name: "Explore the Alook workspace" });
+    expect(link).toHaveAttribute("href", "#workspace");
+    expect(link.querySelector("svg")).toBeInTheDocument();
   });
 
   it("keeps custom error-page paper", () => {

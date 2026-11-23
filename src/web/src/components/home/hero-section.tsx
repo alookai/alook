@@ -31,6 +31,7 @@ export function HeroSection({
   headlineStyle,
   typewriterClassName,
   typewriterInteraction,
+  typewriterPaperHref,
   staticPaper = false,
   largeCtas = false,
   highlightPrimaryCta = false,
@@ -53,6 +54,7 @@ export function HeroSection({
   headlineStyle?: CSSProperties;
   typewriterClassName?: string;
   typewriterInteraction?: "pointer" | "hover";
+  typewriterPaperHref?: string;
   staticPaper?: boolean;
   largeCtas?: boolean;
   highlightPrimaryCta?: boolean;
@@ -179,6 +181,7 @@ export function HeroSection({
           <div data-static-paper={staticPaper || undefined} className={`hero-artwork absolute inset-0 ${typewriterClassName ?? ""}`}>
             <TypewriterVisual
               interaction={typewriterInteraction}
+              paperHref={typewriterPaperHref}
               frontFacing={primaryCtaHovered}
               onPaperSettled={onReady ? handlePaperSettled : undefined}
               animateEntrance={!staticPaper}
