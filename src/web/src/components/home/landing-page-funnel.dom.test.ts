@@ -43,6 +43,6 @@ describe("landing closing funnel entrance", () => {
     fireEvent(anchor, event)
     expect(event.defaultPrevented).toBe(true)
     expect(mocks.capture).toHaveBeenCalledTimes(1)
-    expect(mocks.capture).toHaveBeenCalledWith({ cta_name: isLoggedIn ? "closing_open_app" : "closing_get_started" })
+    expect(mocks.capture).toHaveBeenCalledWith({ cta_name: isLoggedIn ? "closing_open_app" : "closing_get_started" }, expect.objectContaining({ type: "click", button: 0 }))
   })
 })

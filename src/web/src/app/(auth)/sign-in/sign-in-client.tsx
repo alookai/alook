@@ -1,6 +1,7 @@
 "use client"
 
 import { captureProductAnalytics } from "@/lib/product-analytics"
+import { takeLandingSignInCta } from "@/lib/landing-sign-in-cta"
 import { startAction, finishAction } from "@/lib/observability/context"
 import { ObservedStaticContent } from "@/lib/observability/regions"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
@@ -87,6 +88,8 @@ function SignInForm({
   const hydrated = useHydratedClient()
 
   useEffect(() => {
+    const cta = takeLandingSignInCta()
+    if (cta) void captureProductAnalytics({ event: "landing_cta_clicked", ...cta })
     void captureProductAnalytics({ event: "login_page_view" })
   }, [])
 

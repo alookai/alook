@@ -116,6 +116,17 @@ it("rejects arbitrary CTA text in the actual document", () => {
   expect(document.dataLayer).toEqual([])
 })
 
+it.each([
+  ["/", "https://alook.ai/"],
+  ["/blog/introducing-alook", "https://alook.ai/blog/introducing-alook"],
+  ["/blog/post?token=private", "https://alook.ai/analytics/product"],
+  ["/c/private", "https://alook.ai/analytics/product"],
+])("uses only a public source path for a handed-off landing CTA %s", (source_path, page_location) => {
+  const document = documentSender()
+  document.sendProductEvent({ event: "landing_cta_clicked", params: { cta_name: "get_started", source_path } })
+  expect(Array.from(document.dataLayer[0])[2]).toEqual({ cta_name: "get_started", page_location, page_referrer: "", page_title: "Alook", send_to: "G-STBCL8F4ZY" })
+})
+
 it.each(LANDING_CTA_NAMES)("accepts the existing finite CTA %s", cta_name => {
   const document = documentSender()
   document.sendProductEvent({ event: "landing_cta_clicked", params: { cta_name } })

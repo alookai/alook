@@ -253,7 +253,7 @@ export function HeroSection({
               href="/sign-in"
               onMouseEnter={typewriterInteraction === "hover" ? () => setPrimaryCtaHovered(true) : undefined}
               onMouseLeave={typewriterInteraction === "hover" ? () => setPrimaryCtaHovered(false) : undefined}
-              onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
+              onClick={event => trackLandingCtaClicked({ cta_name: "get_started" }, event)}
               data-variant={highlightPrimaryCta ? "default" : "secondary"}
               className={cn(buttonVariants({ variant: highlightPrimaryCta ? "default" : "secondary", size: "lg" }), ctaSizingClassName)}
             >

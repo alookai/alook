@@ -127,7 +127,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
               data-variant="default"
               className={cn(buttonVariants({ size: "lg" }), "relative z-2 h-12 min-w-56 px-8 text-base")}
               data-testid="landing-closing-open"
-              onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "closing_open_app" : "closing_get_started" })}
+              onClick={event => trackLandingCtaClicked({ cta_name: isLoggedIn ? "closing_open_app" : "closing_get_started" }, event)}
             >
               {isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}{" "}
               <span aria-hidden>↗</span>

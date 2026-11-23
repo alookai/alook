@@ -96,7 +96,7 @@ export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
                 <div className={styles.actions}>
                   <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default"
                     className={cn(buttonVariants({ size: "lg" }), styles.action)}
-                    onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "use_cases_open_app" : "use_cases_get_started" })}>
+                    onClick={event => trackLandingCtaClicked({ cta_name: isLoggedIn ? "use_cases_open_app" : "use_cases_get_started" }, event)}>
                     {isLoggedIn ? "Open Alook" : story.cta}
                   </DocumentNavigationLink>
                   <DocumentNavigationLink href={`/usecases/${story.slug}`} data-variant="secondary"

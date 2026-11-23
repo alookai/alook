@@ -82,9 +82,10 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
       })
     }
     if (!signedIn) {
-      trackLandingCtaClicked({ cta_name: "pricing_get_started" })
       const destination = plan === "free" ? "/c/me/bots" : `/pricing?${new URLSearchParams({ plan })}`
-      window.location.assign(`/sign-in?${new URLSearchParams({ redirect: destination })}`)
+      const signIn = `/sign-in?${new URLSearchParams({ redirect: destination })}`
+      trackLandingCtaClicked({ cta_name: "pricing_get_started" }, signIn)
+      window.location.assign(signIn)
       return
     }
     if (plan === "free") {
