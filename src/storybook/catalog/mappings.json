@@ -784,7 +784,7 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
-  "src/web/src/components/typewriter-city-art.tsx": {
+  "src/web/src/components/typewriter-visual.tsx": {
     "kind": "composition",
     "examples": [
       {
@@ -794,12 +794,12 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
-  "src/web/src/components/typewriter-visual.tsx": {
+  "src/web/src/components/typewriter-workspace-art.tsx": {
     "kind": "composition",
     "examples": [
       {
-        "story": "web-pages-public-pages--error",
-        "region": "Actual typewriter artwork and failure-page paper"
+        "story": "web-pages-public-pages--home",
+        "region": "Alook workspace illustration on the home typewriter paper"
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -2731,6 +2731,16 @@
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/home/landing-hero-backend-badge.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-public-pages--home",
+        "region": "Rotating backend badge in the homepage hero description"
+      }
+    ],
+    "reason": "The homepage story mounts the original badge inside the hero description, where its text alignment and motion can be reviewed."
   },
   "src/web/src/components/home/landing-interactive-demo.tsx": {
     "kind": "composition",

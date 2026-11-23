@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 349,
+    "composition": 350,
     "environment": 12,
     "nonvisual": 32,
     "direct": 163
@@ -5733,6 +5733,21 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/home/landing-hero-backend-badge.tsx",
+      "application": "Web",
+      "candidates": [
+        "LandingHeroBackendBadge"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-public-pages--home",
+          "region": "Rotating backend badge in the homepage hero description"
+        }
+      ],
+      "reason": "The homepage story mounts the original badge inside the hero description, where its text alignment and motion can be reviewed."
+    },
+    {
       "source": "src/web/src/components/home/landing-interactive-demo.tsx",
       "application": "Web",
       "candidates": [
@@ -8133,10 +8148,10 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
-      "source": "src/web/src/components/typewriter-city-art.tsx",
+      "source": "src/web/src/components/typewriter-visual.tsx",
       "application": "Web",
       "candidates": [
-        "TypewriterCityArt"
+        "TypewriterVisual"
       ],
       "kind": "composition",
       "examples": [
@@ -8148,16 +8163,16 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
-      "source": "src/web/src/components/typewriter-visual.tsx",
+      "source": "src/web/src/components/typewriter-workspace-art.tsx",
       "application": "Web",
       "candidates": [
-        "TypewriterVisual"
+        "TypewriterWorkspaceArt"
       ],
       "kind": "composition",
       "examples": [
         {
-          "story": "web-pages-public-pages--error",
-          "region": "Actual typewriter artwork and failure-page paper"
+          "story": "web-pages-public-pages--home",
+          "region": "Alook workspace illustration on the home typewriter paper"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."

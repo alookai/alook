@@ -8,6 +8,7 @@ describe("background workspace loading", () => {
   it("starts after the hero while the rest of the homepage is still loading, then validates frame readiness", () => {
     vi.spyOn(document, "readyState", "get").mockReturnValue("loading")
     const view = render(<LandingInteractiveDemo heroReady={false} />)
+    expect(screen.getByRole("heading", { name: /Imagine your team and friends here/ })).toHaveAttribute("id", "workspace-heading")
     expect(screen.queryByTitle("Alook workspace")).toBeNull()
     expect(screen.getByRole("status")).toHaveAttribute("aria-label", "Loading Alook workspace")
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(10)

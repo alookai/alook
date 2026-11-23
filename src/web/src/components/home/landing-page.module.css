@@ -54,6 +54,66 @@
   white-space: nowrap;
 }
 
+.heroBackendSlot {
+  display: inline-block;
+  inline-size: 8.25rem;
+  vertical-align: 0.04em;
+}
+
+.heroBackendBadge {
+  display: inline-flex;
+  inline-size: 100%;
+  block-size: 1.5rem;
+  padding-inline: 0.5rem;
+  border-color: var(--landing-border);
+  background: var(--secondary);
+  color: var(--landing-text);
+}
+
+.heroBackendTrack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  inline-size: 100%;
+}
+
+.heroBackendName {
+  display: grid;
+  grid-area: 1 / 1;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.375rem;
+  text-align: center;
+}
+
+.heroBackendIcon {
+  display: flex;
+}
+
+.heroBackendIncoming {
+  animation: hero-backend-in 420ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
+  animation-timing-function: linear(0, 0.2 10%, 0.66 25%, 1.1 42%, 1.16 52%, 0.98 75%, 1);
+}
+
+.heroBackendOutgoing {
+  animation: hero-backend-out 150ms cubic-bezier(0.45, 0, 0.65, 1) both;
+}
+
+@keyframes hero-backend-in {
+  from { opacity: 0; transform: translateY(0.65rem); }
+  14% { opacity: 0; }
+  45% { opacity: 1; }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hero-backend-out {
+  to { opacity: 0; transform: translateY(-0.5rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroBackendIncoming { animation: none; }
+  .heroBackendOutgoing { display: none; }
+}
+
 .landingHeroTypewriter {
   transform: none;
 }
