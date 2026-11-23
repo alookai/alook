@@ -204,7 +204,7 @@ function messagingSection(): string {
     "",
     "#### Ask for a decision",
     "",
-    `Whenever you would use your native Ask Question tool, use Alook’s \`${CLI} message send --ask\` in the current conversation instead. People on Alook can only see the question you send there.`,
+    `Whenever you would use your native Ask Question tool, use Alook’s \`${CLI} message send --ask --remind-after 5m\` in the current conversation instead. People on Alook can only see the question you send there.`,
     "",
     "When you ask a question and can offer options, use a decision card. " +
       "Use a normal Alook message for updates and questions without options.",

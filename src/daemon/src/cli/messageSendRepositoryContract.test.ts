@@ -44,10 +44,6 @@ const nonRunnableInvocationAllowlist = new Map<string, RegExp[]>([
     [new RegExp(String.raw`Implicit typing\.stop on \`alook ${commandWordsPattern}\``)],
   ],
   [
-    "src/daemon/src/drivers/systemPrompt.ts",
-    [new RegExp(String.raw`use \\\`\$\{CLI\} ${commandWordsPattern} --ask\\\` with JSON on stdin \(max 8 KiB\)\.`)],
-  ],
-  [
     "src/storybook/stories/business/decision-card.stories.tsx",
     [new RegExp(String.raw`structured questions via \`alook ${commandWordsPattern} --ask\`\.`)],
   ],
