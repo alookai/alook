@@ -136,6 +136,7 @@
         "disableInputAccessoryView": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "acceptFirstMouse": true,
         "trafficLightPosition": {
           "x": 16,
           "y": 21

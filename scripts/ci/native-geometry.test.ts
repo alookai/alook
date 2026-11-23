@@ -24,14 +24,15 @@ function documentOwner(query: () => unknown = () => packet(), options: { android
   } }
   const document = { ...target(), documentElement: options.noRoot ? null : root }
   const calls: string[] = []
-  const timers = new Map<number, () => void>()
+  const timers = new Map<number, { callback: () => void; delay: number }>()
+  const scheduledDelays: number[] = []
   let nextTimer = 0
   const postMessage = vi.fn(() => { calls.push('query'); return query() })
   const window = { ...target(), top: null as unknown, __TAURI__: { webview: { getCurrentWebview: () => ({ label: options.otherLabel ? 'splash' : 'main' }) }, core: { invoke: vi.fn((command: string) => { calls.push(command); return query() }) } },
     webkit: options.noBridge ? undefined : { messageHandlers: { alookGeometry: { postMessage } } },
     AlookNative: options.android ? { getGeometrySnapshot: () => JSON.stringify(query()) } : undefined,
     __alookNativeGeometry: undefined as undefined | { getSnapshot: () => { status: string; insets: ReturnType<typeof packet> | null }; subscribe: (callback: () => void) => () => void },
-    setTimeout: (callback: () => void) => { const id = ++nextTimer; timers.set(id, callback); return id },
+    setTimeout: (callback: () => void, delay = 0) => { const id = ++nextTimer; timers.set(id, { callback, delay }); scheduledDelays.push(delay); return id },
     clearTimeout: (id: number) => { timers.delete(id) },
   }
   const publicApi = window.__TAURI__
@@ -41,9 +42,11 @@ function documentOwner(query: () => unknown = () => packet(), options: { android
   window.addEventListener = (type, callback) => { calls.push(type); originalAdd(type, callback) }
   let observer: (() => void) | undefined
   runInNewContext(`(${script})(${options.desktop === true})`, { window, document, Event: class { constructor(readonly type: string) {} }, MutationObserver: class { constructor(callback: () => void) { observer = callback } observe() {} disconnect() {} } })
-  return { window, document, root, values, calls, postMessage, attachRoot: () => { document.documentElement = root; observer?.() },
+  return { window, document, root, values, calls, postMessage, scheduledDelays,
+    pendingTimers: () => timers.size,
+    attachRoot: () => { document.documentElement = root; observer?.() },
     attachPublicApi: () => { window.__TAURI__ = publicApi },
-    flushTimers: () => { for (const [id, callback] of [...timers]) { if (timers.delete(id)) callback() } },
+    flushTimers: () => { for (const [id, entry] of [...timers]) { if (timers.delete(id)) entry.callback() } },
   }
 }
 const settle = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() }
@@ -290,4 +293,127 @@ it('keeps geometry read-only and caption actions exclusive to macOS trusted main
   expect(release).toContain('native-caption')
   expect(release).not.toContain('native-geometry-dev')
   expect(release).not.toContain('native-caption-dev')
+  for (const configFile of ['tauri.conf.json', 'tauri.dev.conf.json', 'tauri.ios.release.conf.json']) {
+    const windows = readJson(configFile).app.windows as Array<Record<string, unknown>>
+    const main = windows.find(window => window.label === 'main')
+    expect(main, configFile).toMatchObject({ label: 'main', acceptFirstMouse: true })
+  }
+})
+
+describe('desktop transient snapshot failure recovery', () => {
+  it('reports error on transient desktop rejection and invalid snapshot, then recovers caption geometry on retry', async () => {
+    let attempt = 0
+    const owner = documentOwner(() => {
+      attempt += 1
+      if (attempt === 1) return Promise.reject(new Error('geometry_caption_unavailable'))
+      if (attempt === 2) return packet({ viewportWidth: 0, caption: true })
+      return packet({ top: 32, right: 0, bottom: 0, left: 0, viewportWidth: 1200, caption: true })
+    }, { desktop: true, noBridge: true })
+
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot()).toEqual({ status: 'error', insets: null })
+    expect(owner.root.dataset.alookNativeCaption).toBe('false')
+    expect(owner.values.has('--app-safe-area-top')).toBe(false)
+    expect(owner.pendingTimers()).toBe(1)
+
+    owner.flushTimers()
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot()).toEqual({ status: 'error', insets: null })
+    expect(owner.root.dataset.alookNativeCaption).toBe('false')
+    expect(owner.pendingTimers()).toBe(1)
+
+    owner.flushTimers()
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().status).toBe('ready')
+    expect(owner.root.dataset.alookNativeCaption).toBe('true')
+    expect(owner.values.get('--app-safe-area-top')).toBe(`${32 / 1200 * 100}vw`)
+    expect(owner.pendingTimers()).toBe(0)
+    expect(owner.scheduledDelays).toEqual([50, 150])
+  })
+
+  it('bounds persistent desktop retries and resets recovery budget on a new geometry event', async () => {
+    let shouldFail = true
+    const owner = documentOwner(() => (
+      shouldFail
+        ? Promise.reject(new Error('geometry_view_unavailable'))
+        : packet({ top: 32, right: 0, bottom: 0, left: 0, viewportWidth: 1200, caption: true })
+    ), { desktop: true, noBridge: true })
+
+    await settle()
+    for (let step = 0; step < 5; step += 1) {
+      expect(owner.pendingTimers()).toBe(1)
+      owner.flushTimers()
+      await settle()
+    }
+    expect(owner.window.__alookNativeGeometry!.getSnapshot()).toEqual({ status: 'error', insets: null })
+    expect(owner.pendingTimers()).toBe(0)
+    expect(owner.window.__TAURI__.core.invoke).toHaveBeenCalledTimes(6)
+    expect(owner.scheduledDelays).toEqual([50, 150, 300, 600, 1000])
+
+    owner.window.fire('alook:geometry-change')
+    await settle()
+    expect(owner.pendingTimers()).toBe(1)
+
+    shouldFail = false
+    owner.flushTimers()
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().status).toBe('ready')
+    expect(owner.root.dataset.alookNativeCaption).toBe('true')
+    expect(owner.pendingTimers()).toBe(0)
+  })
+
+  it('cancels pending retry on newer change or pagehide and ignores stale desktop rejections', async () => {
+    const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
+    const owner = documentOwner(() => new Promise((resolve, reject) => pending.push({ resolve, reject })), {
+      desktop: true,
+      noBridge: true,
+    })
+
+    owner.window.fire('alook:geometry-change')
+    pending[1].resolve(packet({ top: 32, right: 0, bottom: 0, left: 0, viewportWidth: 1200, caption: true }))
+    await settle()
+    pending[0].reject(new Error('stale_failure'))
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().status).toBe('ready')
+    expect(owner.root.dataset.alookNativeCaption).toBe('true')
+    expect(owner.pendingTimers()).toBe(0)
+
+    owner.window.fire('alook:geometry-change')
+    pending[2].reject(new Error('transient_failure'))
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot()).toEqual({ status: 'error', insets: null })
+    expect(owner.pendingTimers()).toBe(1)
+
+    owner.window.fire('resize')
+    expect(owner.pendingTimers()).toBe(0)
+    pending[3].reject(new Error('transient_before_hide'))
+    await settle()
+    expect(owner.pendingTimers()).toBe(1)
+
+    owner.window.fire('pagehide')
+    expect(owner.pendingTimers()).toBe(0)
+    expect(owner.window.__alookNativeGeometry!.getSnapshot()).toEqual({ status: 'pending', insets: null })
+    owner.flushTimers()
+    expect(pending).toHaveLength(4)
+
+    owner.window.fire('pageshow', { persisted: true })
+    pending[4].resolve(packet({ top: 32, right: 0, bottom: 0, left: 0, viewportWidth: 1200, caption: true }))
+    await settle()
+    expect(owner.window.__alookNativeGeometry!.getSnapshot().status).toBe('ready')
+    expect(owner.root.dataset.alookNativeCaption).toBe('true')
+  })
+
+  it('keeps mobile failure behavior free of desktop retry timers', async () => {
+    const rejected = documentOwner(() => Promise.reject(new Error('unavailable')))
+    await settle()
+    expect(rejected.window.__alookNativeGeometry!.getSnapshot()).toEqual({ status: 'error', insets: null })
+    expect(rejected.pendingTimers()).toBe(0)
+    expect(rejected.scheduledDelays).toEqual([])
+
+    const invalid = documentOwner(() => packet({ viewportWidth: 0 }))
+    await settle()
+    expect(invalid.window.__alookNativeGeometry!.getSnapshot()).toEqual({ status: 'error', insets: null })
+    expect(invalid.pendingTimers()).toBe(0)
+    expect(invalid.scheduledDelays).toEqual([])
+  })
 })

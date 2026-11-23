@@ -50,6 +50,7 @@ objc2-foundation = { version = "=0.3.2", features = ["NSArray", "NSBundle", "NSD
 [target."cfg(target_os = \"macos\")".dependencies]
 block2 = "=0.6.2"
 objc2-app-kit = { version = "=0.3.2", features = ["NSView", "NSWindow", "NSColor"] }
+objc2-foundation = { version = "=0.3.2", features = ["NSNotification", "NSOperation", "block2"] }
 objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter", "block2"] }
 objc2-web-kit = { version = "=0.3.2", features = ["WKWebView", "block2"], default-features = false }
 
