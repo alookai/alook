@@ -24,6 +24,7 @@ import { createServer, type Socket } from "node:net";
 import { PassThrough } from "node:stream";
 import { win32 } from "node:path";
 import { quoteWindowsShimCommand } from "./probe.js";
+import { spawnMacosAgent, stopMacosAgent } from "./macos-agent-launch.js";
 
 const POLL_MS = 100;
 const FORCE_EXIT_WAIT_MS = 2_000;
@@ -508,6 +509,7 @@ interface AgentSpawnOptions {
    */
   stdin?: "pipe" | "ignore";
   traceDirectory?: string;
+  macosIdentity?: boolean | "managed-launcher";
 }
 
 /**
@@ -519,6 +521,10 @@ interface AgentSpawnOptions {
  * entry point rather than each driver calling `child_process.spawn` itself.
  */
 export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
+  if (opts.macosIdentity) {
+    const isolated = spawnMacosAgent(command, args, opts);
+    if (isolated) return isolated;
+  }
   if (!isPosix) {
     const encodedTargetEnv = Buffer.from(JSON.stringify(copyWindowsEnvironment(opts.env ?? process.env))).toString("base64");
     const environment = copyWindowsEnvironment(process.env);
@@ -779,6 +785,8 @@ export async function killProcessTree(
   opts?: { graceMs?: number },
 ): Promise<void> {
   if (!pid || pid < 1) return;
+  const isolated = stopMacosAgent(pid, opts?.graceMs ?? DEFAULT_GRACE_MS);
+  if (isolated) return isolated;
   if (!isPosix) {
     await killWindowsProcessTree(pid);
     return;

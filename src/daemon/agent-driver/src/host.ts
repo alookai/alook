@@ -4,6 +4,7 @@ export { createAgentDriverSdk as createBuiltinAgentDriverSdk } from "./sdk.js";
 export { createDefaultAgentDriverHost } from "./host/default-host.js";
 export { readBuiltinProviderQuota, supportsBuiltinQuotaPolling } from "./provider-quota.js";
 export { scrubDriverErrorMessage as scrubAgentDriverDiagnosticText } from "./internal/errors.js";
+export { killProcessTree as stopOwnedProcessTree } from "./internal/killTree.js";
 export type {
   AgentDriverHost,
   CreateAgentDriverSdkOptions,

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { probeCliRuntime } from "../../internal/probe.js";
-import { resolveCodexCommand } from "./command.js";
+import { resolveCodexCommand, resolveCodexNpmBinary } from "./command.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -142,4 +142,25 @@ describe("nested CodexCLI.app layout", () => {
     const flat = f.install("Codex");
     expect(resolveCodexCommand(undefined, f.deps, "darwin", "codex-app")).toBe(flat);
   });
+});
+
+it.skipIf(process.platform === "win32")("recognizes matching native executables from a global Codex npm install", () => {
+  const { deps } = fixture();
+  const packageRoot = join(deps.homeDir, "lib", "node_modules", "@openai", "codex");
+  const wrapper = join(packageRoot, "bin", "codex.js");
+  const nativePackage = join(packageRoot, "node_modules", "@openai", "codex-darwin-arm64");
+  const native = join(nativePackage, "vendor", "aarch64-apple-darwin", "bin", "codex");
+  mkdirSync(dirname(wrapper), { recursive: true });
+  mkdirSync(dirname(native), { recursive: true });
+  writeFileSync(wrapper, "#!/usr/bin/env node\n");
+  writeFileSync(native, "executable", { mode: 0o755 });
+  writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name: "@openai/codex", version: "1.2.3", bin: { codex: "bin/codex.js" } }));
+  const nativeManifest = join(nativePackage, "package.json");
+  writeFileSync(nativeManifest, JSON.stringify({ name: "@openai/codex", version: "1.2.3-darwin-arm64" }));
+  const onPath = join(deps.homeDir, "codex");
+  symlinkSync(wrapper, onPath);
+  expect(resolveCodexNpmBinary(onPath, "arm64")).toEqual({ command: realpathSync(native), packageRoot: realpathSync(packageRoot) });
+  expect(resolveCodexNpmBinary(onPath, "x64")).toBeUndefined();
+  writeFileSync(nativeManifest, JSON.stringify({ name: "@openai/codex", version: "1.2.2-darwin-arm64" }));
+  expect(resolveCodexNpmBinary(onPath, "arm64")).toBeUndefined();
 });
