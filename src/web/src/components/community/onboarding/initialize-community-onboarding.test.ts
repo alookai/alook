@@ -64,7 +64,7 @@ describe("initializeCommunityOnboarding", () => {
       .mockReturnValueOnce("avatar:beam:avatar-c")
   })
 
-  it.each(["codex", "opencode"])("creates the three-bot development pack with %s and distinct wake prompts", async (runtime) => {
+  it.each(["codex", "opencode", "antigravity", "agy"])("creates the three-bot development pack with %s and distinct wake prompts", async (runtime) => {
     const model = runtime === "opencode" ? "custom/absent-from-catalog" : undefined
     const pack = resolveStarterPack("developer")
     apiFetch
