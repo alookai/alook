@@ -33,8 +33,6 @@ import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { discardCommunityRestoreReplacements, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
-import { observeHydration, discardHydration } from "@/lib/observability/restore"
-import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
 
 function createRestoreGate() {
   let release!: () => void
@@ -136,8 +134,6 @@ function ScopedQueryProvider({
     retireCommunityAccount(communityDb)
     if (invalidatePersisted) await communityDb.retireDisk()
   }), [communityDb, persister, restoreGate])
-  const retireTelemetryIdentity = useRef<() => void>(() => undefined)
-  useLayoutEffect(() => { setTelemetryUser(userId); retireTelemetryIdentity.current = captureTelemetryIdentityRetirement() }, [userId])
   const identityRetired = useRef(false)
   const identityChanged = isRejectedSession(session.error) || !session.isPending && !session.error && session.data?.user.id !== userId
   useEffect(() => {
@@ -163,7 +159,6 @@ function ScopedQueryProvider({
   }, [communityDb, restoreGate])
   useLayoutEffect(() => {
     if (!identityChanged) return
-    if (!session.data?.user.id && sessionViewer?.() === null) retireTelemetryIdentity.current()
     if (identityRetired.current) return
     identityRetired.current = true
     restoreGate.release()
@@ -204,11 +199,8 @@ function ScopedQueryProvider({
       onSuccess={async () => {
         const input = restore.takeCollections()
         await settleRestoredAccount(await persister.isCurrent() ? input : {})
-        if (communityDb.runtime.lifecycle.get().active) observeHydration(persister)
-        else discardHydration(persister)
-
       }}
-      onError={async () => { restore.takeCollections(); discardHydration(persister); await settleRestoredAccount({}) }}
+      onError={async () => { restore.takeCollections(); await settleRestoredAccount({}) }}
       persistOptions={{
         persister: restore.persister,
         maxAge: PERSIST_MAX_AGE_MS,

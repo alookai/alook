@@ -1,4 +1,3 @@
-import { ObservedRouteCommit } from "@/lib/observability/regions";
 import type { Metadata, Viewport } from "next";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
@@ -35,7 +34,6 @@ export default function BlogRootLayout({
 				<ThemeProvider attribute={["class", "data-tn-mode"]} defaultTheme="system" enableSystem>
 					<ThemeColorSync />
 					{children}
-					<ObservedRouteCommit />
         <AnalyticsConsent />
 				</ThemeProvider>
 				<ServiceWorkerRegistration />

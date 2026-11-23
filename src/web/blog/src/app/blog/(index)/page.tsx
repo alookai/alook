@@ -1,4 +1,3 @@
-import { ObservedStaticContent } from "@/lib/observability/regions";
 import { HandAccent } from "@/components/brand/hand-accent";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import Image from "next/image";
@@ -37,7 +36,6 @@ export default async function BlogPage() {
 
   return (
     <>
-      <ObservedStaticContent key="/blog" pathname="/blog" />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionJsonLd) }}

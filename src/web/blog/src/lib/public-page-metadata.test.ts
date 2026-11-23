@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SITE_OG_IMAGE, SITE_OG_IMAGE_URL } from "@/lib/seo/site-metadata";
 
-vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }));
 vi.mock("@blog/lib/blog/posts", () => ({ getAllPosts: vi.fn() }));
 vi.mock("@blog/app/blog/(index)/recent-posts", () => ({ RecentPosts: () => null }));
 

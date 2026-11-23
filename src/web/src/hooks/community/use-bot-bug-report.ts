@@ -250,7 +250,7 @@ export function useBotBugReport({ agentId, open }: { agentId: string; open: bool
   const attempt = useCreateStore({ nonce: null as string | null, expiredReportId: null as string | null })
   const intent = useSelector(attempt, (state) => state)
   const createKey = ["community", "bug-report-create", agentId] as const
-  const creation = useMutation({ meta: { observabilityAction: "bot.bug_report.submit" },
+  const creation = useMutation({
     mutationKey: createKey,
     mutationFn: async ({ nonce, token, assert }: { nonce: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       assert()

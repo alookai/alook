@@ -2,8 +2,6 @@
 
 /* eslint-disable @next/next/no-location-assign-relative-destination -- Product entrances require a new document to unload public tracking. */
 
-import { useObservedRegion } from "@/lib/observability/regions"
-
 import { Suspense, useEffect, useRef, type ReactNode, type RefObject } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
@@ -47,7 +45,6 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
   const paymentOffer = (plan: string) => summary?.offers.find((item) => item.plan.id === plan)
   const offer = (plan: string) => paymentOffer(plan) ?? catalog.data?.offers.find((item) => item.plan.id === plan)
   const busy = sessionPending || billing.isBusy || catalog.isPending || (signedIn && billing.isPending)
-  useObservedRegion("billing", !busy && !catalog.isError && !sessionError, 1)
   const unavailable = sessionError || catalog.isError || (signedIn && billing.isError)
   const disabled = (plan: string) => busy || unavailable || catalog.data?.observed !== true || signedIn && !billing.isCurrentRead() || (plan !== "free" && (
     !offer(plan) || (signedIn && !paymentOffer(plan)) || (!summary?.isFounder && summary?.plan.id === plan) || summary?.subscription?.scheduledChange?.plan.id === plan

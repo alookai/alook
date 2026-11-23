@@ -1,5 +1,4 @@
 "use client"
-import { resolveActionName } from "@/lib/observability/actions"
 import { useQuery,useMutation,useQueryClient,type UseQueryResult,type Query,type QueryKey,type MutateOptions } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import {
@@ -54,7 +53,7 @@ const noBotKeys = () => []
 function useBotCommand<TInput extends BotViewInput, TResult>(kind: string, execute: (input: TInput, context: BotCommandContext) => Promise<TResult>, keys: (input: TInput) => QueryKey[]) {
   const client = useQueryClient(), origin = useBotMutationOrigin()
   type Intent = { input: TInput; original: ReturnType<typeof origin.begin>["token"]; resources: Query[] }
-  const native = useMutation<TResult, Error, Intent>({ meta: { observabilityAction: resolveActionName("bot.command", { kind }) },
+  const native = useMutation<TResult, Error, Intent>({
     mutationKey: [...communityKeys.bots(), kind],
     scope: { id: "community-bot-command" },
     gcTime: 0,

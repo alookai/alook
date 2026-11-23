@@ -1120,41 +1120,6 @@ describe("useUserWs", () => {
     expect(manual.closed).toBe(false)
   })
 
-  it.each(["local", "remote", "authenticated-closing"] as const)("preserves real Faro completion and close dedup for %s sockets", async (mode) => {
-    const telemetry = await import("@/lib/observability/telemetry")
-    const context = await import("@/lib/observability/context")
-    telemetry.retireTelemetry()
-    telemetry.configureTelemetry({}, true)
-    const page: import("@/lib/observability/context").Action = { id: "ws-page", name: "navigation", route: "/c/me", start: performance.now(), origin: performance.timeOrigin, generation: telemetry.telemetryGeneration(), done: false }
-    const pageSpy = vi.spyOn(context, "currentPageObservation").mockReturnValue(page)
-    const operations = vi.spyOn(context, "startPageOperation")
-    const events: string[] = []
-    telemetry.installTelemetrySink(event => { events.push(event.name) })
-    try {
-      setupTokenFetch()
-      await mountHook(vi.fn())
-      const ws = MockWebSocket.instances[0]!
-      const operation = operations.mock.results.flatMap((result, index) => result.type === "return" && operations.mock.calls[index][1].phase === "transport" ? [result.value] : [])[0]
-      expect(operation).toBeDefined()
-      if (mode === "authenticated-closing") {
-        ws.simulateOpen()
-        ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
-        expect(operation).toMatchObject({ done: true, outcome: "success" })
-        ws.readyState = MockWebSocket.CLOSING
-      }
-      if (mode !== "remote") { latestHookResult!.reconnectNow(); await flushPromises() }
-      ws.simulateClose(1006, "private-close-detail", false)
-      ws.simulateClose(1006, "duplicate-private-detail", false)
-      expect(operation).toMatchObject({ done: true, outcome: mode === "local" ? "cancelled" : mode === "remote" ? "error" : "success" })
-      expect(events.filter(name => name === "ws.close")).toHaveLength(1)
-    } finally {
-      context.clearActions()
-      telemetry.retireTelemetry()
-      pageSpy.mockRestore()
-      operations.mockRestore()
-    }
-  })
-
   it("manual reconnect invalidates an older pending token before it can create a socket", async () => {
     const firstTokenResponse = deferred<{
       ok: boolean

@@ -2,7 +2,6 @@
 
 import { searchCommunityUsers } from "@/lib/community/user-search"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
-import { useObservedRegion } from "@/lib/observability/regions"
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
@@ -72,7 +71,6 @@ export function FriendsPage({
   onBlock?: (id: string) => void
   onDm?: (userId: string) => void
 }) {
-  useObservedRegion("friends", !loading, friends.length + pending.length + blocked.length)
   const previewProfiles = useCommunityPreviewProfiles()
   const profileQueryClient = useQueryClient()
   const [filter, setFilter] = useAtom(useCreateAtom(""))

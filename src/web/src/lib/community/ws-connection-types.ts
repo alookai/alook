@@ -35,9 +35,3 @@ export type CommunityWsLifecycleRecoveryTrigger =
   | "resume"
   | "sentinel"
   | "visibility"
-
-export type CommunityWsLifecycleStageResult =
-  | "aborted"
-  | "failure"
-  | "success"
-  | "timeout"

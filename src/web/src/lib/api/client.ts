@@ -4,7 +4,6 @@ import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, CommunityReadErr
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
 import { createStore } from "@tanstack/store";
 import { ApiError, CommunityApiError, CommunityResourceError, type CommunityApiErrorPayload, UnauthorizedError, isAbortError } from "@/lib/errors";
-import { startRequest, requestHeaders, requestRejected, finishRequest, readObservedResponse, runObservedFetch, type RequestObservation } from "@/lib/observability/requests";
 
 const API_BASE = "";
 export const ACCOUNT_DELETED_SIGN_IN_PATH = "/sign-in?account_deleted=1";
@@ -73,7 +72,7 @@ export function redirectToSignIn(accountId?: string | null) {
   window.location.assign(new URL("/sign-in", window.location.origin));
 }
 
-export type ApiRequestOptions = RequestInit & { assertActive?: () => void; onUnauthorized?: () => Promise<boolean>; authenticationAccount?: string; observation?: Parameters<typeof startRequest>[1] extends infer O ? O extends { observation?: infer P } ? P : never : never };
+export type ApiRequestOptions = RequestInit & { assertActive?: () => void; onUnauthorized?: () => Promise<boolean>; authenticationAccount?: string };
 
 async function readEligibleResponseText(response: Response, qualify: () => void): Promise<string> {
   qualify();
@@ -87,25 +86,15 @@ async function readEligibleResponseText(response: Response, qualify: () => void)
   }
 }
 
-export async function apiFetchResponse(path: string, options?: ApiRequestOptions, bodyExpected = false): Promise<Response> {
-  const observation = startRequest(path, options);
-  try {
-    const response = await fetchQualifiedResponse(path, options, observation);
-    if (!bodyExpected) finishRequest(observation, "success", "headers", "eligible");
-    return response;
-  } catch (error) {
-    finishRequest(observation, isAbortError(error) ? "cancelled" : "error", "headers");
-    throw error;
-  }
+async function apiFetchResponse(path: string, options?: ApiRequestOptions): Promise<Response> {
+  return fetchQualifiedResponse(path, options);
 }
 
-async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions, observation?: RequestObservation): Promise<Response> {
-  const { assertActive, onUnauthorized, authenticationAccount, observation: _observation, ...request } = options ?? {};
+async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions): Promise<Response> {
+  const { assertActive, onUnauthorized, authenticationAccount, ...request } = options ?? {};
   const assertEligible = () => {
-    try {
     assertActive?.();
     if (request.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
-    } catch (error) { requestRejected(observation); throw error }
   };
   assertEligible();
   if (MOCK_NETWORK_ENABLED) {
@@ -125,12 +114,12 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
       if (authenticationAccount) headers.set(SESSION_ACCOUNT_HEADER, authenticationAccount);
     }
     if (!headers.has("Content-Type") && !(typeof FormData !== "undefined" && request.body instanceof FormData)) headers.set("Content-Type", "application/json");
-    res = await runObservedFetch(observation, () => fetch(API_BASE + path, {
+    res = await fetch(API_BASE + path, {
       ...request,
       ...(path.startsWith("/api/community/") ? { cache: "no-store" as const } : {}),
       credentials: "include",
       headers,
-    }));
+    });
   } catch (err) {
     assertEligible();
     if (err instanceof TypeError) {
@@ -139,7 +128,6 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
     throw err;
   }
 
-  requestHeaders(observation, res);
   assertEligible();
 
   if (res.status === 409 && res.headers.get(SESSION_ACCOUNT_MISMATCH_HEADER) === "1") {
@@ -228,24 +216,25 @@ export async function apiFetch<T>(path: string, options?: ApiRequestOptions): Pr
     options?.assertActive?.();
     if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
   };
-  const res = await apiFetchResponse(path, options, true);
-  if (res.status === 204) return readObservedResponse(res, async () => undefined as T, qualify);
-  return readObservedResponse(res, async () => {
-    const text = await readEligibleResponseText(res, qualify);
-    try {
-      const body: unknown = JSON.parse(text);
-      qualify();
-      return decodeCommunityReadResponse(path, options?.method, res, body, COMMUNITY_CONTRACT_VERSION) as T;
-    } catch (error) {
-      qualify();
-      if (isAbortError(error)) throw error;
-      if (path.startsWith("/api/community/")) {
-        if (error instanceof BusinessSchemaMismatch) throw requestBusinessSchemaUpdate(error.expectedVersion);
-        throw new CommunityResourceError(error, res.status);
-      }
-      throw error;
+  const res = await apiFetchResponse(path, options);
+  if (res.status === 204) {
+    qualify();
+    return undefined as T;
+  }
+  const text = await readEligibleResponseText(res, qualify);
+  try {
+    const body: unknown = JSON.parse(text);
+    qualify();
+    return decodeCommunityReadResponse(path, options?.method, res, body, COMMUNITY_CONTRACT_VERSION) as T;
+  } catch (error) {
+    qualify();
+    if (isAbortError(error)) throw error;
+    if (path.startsWith("/api/community/")) {
+      if (error instanceof BusinessSchemaMismatch) throw requestBusinessSchemaUpdate(error.expectedVersion);
+      throw new CommunityResourceError(error, res.status);
     }
-  }, qualify);
+    throw error;
+  }
 }
 
 export function getErrorMessage(err: unknown, fallback: string): string {

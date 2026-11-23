@@ -5,9 +5,6 @@ import { useConversationPresentation } from "@/contexts/view-activity"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CancelledError, hashKey, useInfiniteQuery, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
-import type { ApiRequestOptions } from "@/lib/api/client"
-import { currentPageObservation, navigationForHref } from "@/lib/observability/context"
-import { channelHref } from "@/lib/community/community-route"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import { useConversationEntry } from "./use-conversation-entry"
 import { useMessageWindowProjection } from "@/lib/community-db/projections"
@@ -110,14 +107,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const selectedWindow = entry.canRead ? selection.window ?? entry.window : null
   const enabled = !!channelId && !!selectedWindow && entry.canRead
   const initial: InitialMessageWindow = selectedWindow?.initial ?? { mode: "newest" }
-  const observation = useCallback((): ApiRequestOptions["observation"] => {
-    if (!channelId || typeof window === "undefined") return
-    const expected = serverId === null ? `/c/me/${channelId}` : channelHref(serverId, channelId)
-    if (window.location.pathname !== expected) return { page: undefined, reason: "unknown" }
-    const action = navigationForHref(window.location.pathname + window.location.search)
-    return action ? { action, reason: "foreground" } : { page: currentPageObservation(), reason: "background" }
-  }, [channelId, serverId])
-  const options = messageWindowOptions(client, enabled ? channelId : "__none__", initial, tag, { observation })
+  const options = messageWindowOptions(client, enabled ? channelId : "__none__", initial, tag)
   const queryKey = selectedWindow?.key ?? options.queryKey
   const query = useInfiniteQuery({ ...options, queryKey, staleTime: Infinity, enabled: enabled && presented, subscribed: enabled })
   const repairKey: QueryKey = [...queryKey, "reconcile"]
@@ -235,7 +225,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     const original = committed.current
     if (!channelId || !original?.enabled || original !== owner || !committedWindowReady.current || present.get().pending) return { accepted: false }
     const token = captureChannelMetadataToken(client, channelId)
-    const tail = messageWindowOptions(client, channelId, { mode: "newest" }, tag, { observation })
+    const tail = messageWindowOptions(client, channelId, { mode: "newest" }, tag)
     const captured = client.getQueryCache().build<unknown, Error, unknown>(client, { queryKey: tail.queryKey })
     present.setState((state) => ({ ...state, attempt: state.attempt + 1, pending: true, error: null }))
     const attempt = present.get().attempt
@@ -261,14 +251,14 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     const request: MessageRequest = { accepted: true, completed }
     present.setState(state => ({ ...state, request }))
     return request
-  }, [channelId, client, observation, owner, present, tag])
+  }, [channelId, client, owner, present, tag])
   const loadNewTarget = useCallback((id: string): MessageRequest => {
     const original = committed.current
     if (!channelId || !original?.enabled || original !== owner || !committedNewReady.current || present.get().pending) return { accepted: false }
     if (references.some(message => message.id === id) && query.data) return { accepted: true, completed: Promise.resolve({ status: "success", window: query.data }) }
     const token = captureChannelMetadataToken(client, channelId)
     const initial = { mode: "anchor" as const, anchor: id }
-    const anchored = messageWindowOptions(client, channelId, initial, tag, { observation })
+    const anchored = messageWindowOptions(client, channelId, initial, tag)
     const captured = client.getQueryCache().build<unknown, Error, unknown>(client, { queryKey: anchored.queryKey })
     present.setState(state => ({ ...state, attempt: state.attempt + 1, pending: true, error: null }))
     const attempt = present.get().attempt
@@ -292,15 +282,15 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
       cancelled = true
       if (committed.current === original && present.get().attempt === attempt) present.setState(state => ({ ...state, pending: false }))
     } }
-  }, [channelId, client, observation, owner, present, query.data, references, tag])
+  }, [channelId, client, owner, present, query.data, references, tag])
   const readNewBoundary = useCallback(async (afterSeq: number) => {
     const original = committed.current
     if (!channelId || !original?.enabled || original !== owner || !committedNewReady.current) return
     const token = captureChannelMetadataToken(client, channelId)
-    const resource = await client.query({ ...conversationEntryOptions(client, { channelId, serverId, tag, preferTail: true, newAfterSeq: afterSeq }, observation()), staleTime: 0 })
+    const resource = await client.query({ ...conversationEntryOptions(client, { channelId, serverId, tag, preferTail: true, newAfterSeq: afterSeq }), staleTime: 0 })
     if (committed.current !== original || !isChannelMetadataTokenCurrent(token)) return
     return { boundary: resource.newBoundaryAtEntry, latestSeq: resource.latestSeqAtEntry }
-  }, [channelId, client, observation, owner, serverId, tag])
+  }, [channelId, client, owner, serverId, tag])
   const error = query.error ?? entry.error
   const windowAvailable = !!selectedWindow && query.data !== undefined
   const projectionError = projectionFailed || missingCanonical && !!projectionFailure && projectionFailure.window === query.data
@@ -339,8 +329,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     && !initialLoadError && !targetLoadError && positionDataState === "ready" },
   [entry.canRead, windowAvailable, loading, missingCanonical, initialLoadError, targetLoadError, positionDataState])
   return {
-    ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: entry.targetCovered || selection.window ? "covered" as const : "uncovered" as const,
-      wait_reason: !entry.canRead ? "entry" as const : !windowAvailable ? "window" as const : loading ? "projection" as const : "none" as const },
+    ...query,
     messages, canonicalMessages: canonicalBase, canonicalById,
     latestSeq, hasMoreOlder, hasMoreNewer, historyStartKnown, hasMore: hasMoreOlder,
     isLoading: loading, isPending: loading, isError: !!initialLoadError && !query.data,

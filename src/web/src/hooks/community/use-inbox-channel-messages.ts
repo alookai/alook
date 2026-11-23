@@ -123,7 +123,6 @@ export function useMarkInboxChannelRead(dismissConversation?: RequestNativeConve
   const origin = useCommunityMutationOrigin()
   const command = useMutation({
     mutationKey: inboxChannelReadKey,
-    meta: { observabilityAction: "inbox.channel.read" },
     mutationFn: async ({ channelId, throughSeq, original }: InboxChannelReadIntent) => {
       origin.assert(original)
       if (!Number.isSafeInteger(throughSeq) || throughSeq <= 0) throw new Error("Missing unread boundary")

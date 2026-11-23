@@ -77,7 +77,7 @@ export function PairMachineSheet({
   const openKey = mode.kind === "reconnect" ? `reconnect:${mode.machineId}` : "pair"
   const source = useCommunityViewSource(`machine-pair:${openKey}`, open)
   const desktopNative = isTauri() && isDesktop()
-  const generation = useMutation({ meta: { observabilityAction: "machine.pair.generate" },
+  const generation = useMutation({
     gcTime: 0,
     mutationKey: ["community", "machine-pair", openKey],
     mutationFn: async ({ token, assert }: { token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
@@ -138,7 +138,7 @@ export function PairMachineSheet({
     available: false, reason: nativeErrorMessage(capability.error, "Alook couldn't check Node.js and npm on this computer."), nodeVersion: null,
   } : null)
   const checkingRuntime = open && desktopNative && capability.isPending
-  const launch = useMutation({ meta: { observabilityAction: "machine.pair.launch" },
+  const launch = useMutation({
     gcTime: 0,
     mutationKey: ["community", "machine-pair", openKey, "launch"],
     mutationFn: async ({ key, machineId, assert }: { key: string; machineId: string | null; assert: ReturnType<typeof source.capture> }) => {

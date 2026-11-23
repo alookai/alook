@@ -1,7 +1,6 @@
 "use client"
 
 import { captureProductAnalytics } from "@/lib/product-analytics"
-import { startAction, finishAction, type Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useEffect, useRef } from "react"
 import { safeRedirectPath } from "@/lib/safe-redirect"
@@ -37,7 +36,6 @@ export function SocialSignIn({
   appleEnabled?: boolean
   lastUsedMethod?: LoginMethod | null
 }) {
-  const observed = useRef<Action | undefined>(undefined)
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
   const [native, setNative] = useAtom(useCreateAtom<NativeOauthView | null>(null))
   const browserState = useCreateAtom<{ provider: NativeOauthProvider | null; failed: boolean }>({ provider: null, failed: false })
@@ -48,14 +46,11 @@ export function SocialSignIn({
     if (isTauri()) return
     const restore = (event: PageTransitionEvent) => {
       if (!event.persisted) return
-      finishAction(observed.current, "cancelled")
-      observed.current = undefined
       setBrowser({ provider: null, failed: false })
     }
     window.addEventListener("pageshow", restore)
     return () => {
       window.removeEventListener("pageshow", restore)
-      observed.current = undefined
       setBrowser({ provider: null, failed: false })
     }
   }, [setBrowser])
@@ -64,12 +59,6 @@ export function SocialSignIn({
     if (!isTauri()) return
     const instance = createNativeOauthController(nativeOauthBrowserDeps, (view) => {
       setNative(view)
-      if (["waiting", "error", "unsupported", "idle"].includes(view.phase)) {
-        finishAction(
-          observed.current,
-          view.phase === "error" ? "error" : view.phase === "idle" ? "cancelled" : "observed",
-        )
-      }
     })
     controller.current = instance
     void instance.connect()
@@ -81,10 +70,7 @@ export function SocialSignIn({
 
   const start = (provider: NativeOauthProvider) => {
     if (!isTauri() && browserState.get().provider) return
-    finishAction(observed.current, "superseded")
-    observed.current = startAction("auth_social", { capability: "limited", phase: "auth" })
     setLastProvider(provider)
-    const action = observed.current
     if (!isTauri()) {
       const pending = { provider, failed: false }
       setBrowser(pending)
@@ -99,11 +85,9 @@ export function SocialSignIn({
       }
       void signIn.social({ provider, callbackURL: postLoginUrl }).then(
         (result) => {
-          finishAction(action, result.error ? "error" : "observed")
           if (result.error) failed(result.error)
         },
         (error) => {
-          finishAction(action, "error")
           failed(error)
         },
       )

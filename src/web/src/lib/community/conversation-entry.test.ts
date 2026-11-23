@@ -10,7 +10,6 @@ import { retireCommunityAccount } from "./account-cache-lifecycle"
 import { assessConversationScope, conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationScope, publishConversationEntry } from "./conversation-entry"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import type { MessageWindowData } from "./message-window"
-import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async (original) => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
@@ -32,22 +31,6 @@ describe("conversation entry canonical publication", () => {
     expect(findConversationDisplayWindow(client, target, scope)).toBe(first)
     await writeCommunityCollectionRows(registry, "profiles", [], row => row.id)
     expect(findConversationDisplayWindow(client, target, scope)).toBeUndefined()
-  })
-
-  it("does not backfill entry phases when observation becomes eligible after that request began", async () => {
-    const { client } = await createCommunityQueryOwner()
-    const events: Array<{ name: string }> = []
-    let resolve!: (value: CommunityConversationEntryRead) => void
-    configureTelemetry({}, false)
-    load.mockReturnValue(new Promise<CommunityConversationEntryRead>(done => { resolve = done }))
-    try {
-      const pending = client.query(conversationEntryOptions(client, target))
-      configureTelemetry({ session_id: "current" }, true)
-      installTelemetrySink(event => events.push(event))
-      resolve(entry())
-      await pending
-      expect(events.filter(event => event.name === "conversation.entry")).toEqual([])
-    } finally { retireTelemetry() }
   })
 
   it("preserves a qualified window after actual native Query garbage collection removes its entry", async () => {

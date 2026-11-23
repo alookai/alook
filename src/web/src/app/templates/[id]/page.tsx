@@ -1,4 +1,3 @@
-import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { TEMPLATES, getTemplateById } from "@/lib/templates";
@@ -74,7 +73,7 @@ export default async function TemplateDetailPage({
   ];
 
   return (
-    <><ObservedStaticContent /><>
+    <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -82,6 +81,6 @@ export default async function TemplateDetailPage({
       <TemplateDetailClient
         template={template}
       />
-    </></>
+    </>
   );
 }

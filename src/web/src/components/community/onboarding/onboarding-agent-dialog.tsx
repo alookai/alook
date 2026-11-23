@@ -45,7 +45,6 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
   const lock = useCreateAtom<AbortSignal | null>(null)
   const mutation = useMutation({
     mutationKey: ["community", "onboarding-agent", harness], gcTime: 0, retry: false,
-    meta: { observabilityAction: "automation.access_code.create" },
     mutationFn: async ({ assert, token }: { assert: ReturnType<typeof source.capture>; token: ReturnType<typeof origin.begin>["token"] }) => {
       assert()
       if (!machine && (!setup.pair || Date.parse(setup.pair.expiresAt) <= Date.now())) {

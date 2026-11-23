@@ -4,7 +4,6 @@ import { conversationEntryOptions } from "./conversation-entry"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { channelMembershipKey } from "@/lib/community-db/schema"
 import { resolveCommunityModulePlan } from "./community-route"
-import { prefetchForHref, navigationForHref } from "@/lib/observability/context"
 import { systemNotificationHref } from "./system-notification-route"
 
 function cachedNavigationTarget(queryClient: QueryClient, href: string) {
@@ -35,11 +34,10 @@ export function cachedConversationNavigationHref(queryClient: QueryClient, viewe
   return href && cachedNavigationTarget(queryClient, href) ? href : undefined
 }
 
-export function prepareNavigationMetadata(queryClient: QueryClient, href: string, intent: "prefetch" | "foreground") {
+export function prepareNavigationMetadata(queryClient: QueryClient, href: string) {
   const target = cachedNavigationTarget(queryClient, href)
   if (!target) return
   const { channelId, serverId } = target
-  const action = intent === "prefetch" ? prefetchForHref(href) : navigationForHref(href)
   const search = new URL(href, "https://alook.test").searchParams
   const anchorMessageId = search.get("msg")
   const channel = getCommunityDbRegistry(queryClient)?.collections.channels.get(channelId)
@@ -50,7 +48,7 @@ export function prepareNavigationMetadata(queryClient: QueryClient, href: string
     const selected = forumTagFromUrl(search.get("tag")) ?? stored
     tag = selected === "All" ? null : selected
   }
-  const options = conversationEntryOptions(queryClient, { serverId, channelId, anchorMessageId, tag }, { action, reason: intent })
+  const options = conversationEntryOptions(queryClient, { serverId, channelId, anchorMessageId, tag })
   const observer = new QueryObserver(queryClient, { ...options, enabled: false })
   const unsubscribe = observer.subscribe(noop)
   return queryClient.query({ ...options, select: undefined }).catch(noop).finally(unsubscribe)

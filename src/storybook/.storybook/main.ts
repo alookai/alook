@@ -1,10 +1,8 @@
 import type { StorybookConfig } from "@storybook/nextjs-vite"
 import { dirname, resolve } from "node:path"
-import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
 
 const here = dirname(fileURLToPath(import.meta.url))
-const webRequire = createRequire(resolve(here, "../../web/package.json"))
 const packagePath = (name: string) => dirname(fileURLToPath(import.meta.resolve(`${name}/package.json`)))
 
 const config: StorybookConfig = {
@@ -29,13 +27,11 @@ const config: StorybookConfig = {
       include: [...(config.optimizeDeps?.include ?? []), "@alook/web > @tanstack/react-store > use-sync-external-store/shim/with-selector.js"],
     }
     config.plugins = [...(config.plugins ?? []), {
-      name: "vite-plugin-alook-storybook-telemetry",
+      name: "vite-plugin-alook-storybook-env",
       enforce: "post",
       config: () => ({
-        resolve: { alias: [{ find: /^@opentelemetry\/api$/, replacement: webRequire.resolve("@opentelemetry/api") }] },
         define: { "process.env.NEXT_PUBLIC_APP_URL": JSON.stringify("") },
       }),
-
     }]
     return config
   },

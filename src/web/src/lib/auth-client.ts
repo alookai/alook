@@ -2,7 +2,6 @@
 import { beginSessionSignOut } from "./session-transport"
 import { authClient } from "./auth-session"
 export { authClient, signIn, signUp, useSession, currentSessionViewer } from "./auth-session"
-import { captureTelemetryIdentityRetirement } from "@/lib/observability/client"
 import {
   resumeMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
@@ -14,7 +13,6 @@ async function signOutOriginal(assertOriginal: () => void, args: Parameters<type
   const assertActive = () => { if (options?.signal?.aborted) throw new DOMException("Retired sign-out", "AbortError"); assertOriginal() }
   assertActive()
   const lease = beginSessionSignOut(assertActive)
-  const finishTelemetrySignOut = captureTelemetryIdentityRetirement()
   suspendMobileSystemNotificationRegistration()
   try {
     await lease.drain(options?.signal ?? undefined)
@@ -22,7 +20,7 @@ async function signOutOriginal(assertOriginal: () => void, args: Parameters<type
     assertActive()
     const result = await authClient.signOut({ ...args[0], fetchOptions: { ...options, customFetchImpl: lease.fetch } })
     if ("error" in result && result.error) { assertActive(); resumeMobileSystemNotificationRegistration() }
-    else { assertActive(); finishTelemetrySignOut() }
+    else { assertActive() }
     return result
   } catch (error) {
     try { assertActive(); resumeMobileSystemNotificationRegistration() } catch {}

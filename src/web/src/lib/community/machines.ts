@@ -68,7 +68,6 @@ export function publishMachines(
     networkMode: "always",
     gcTime: 0,
     retry: false,
-    meta: { observabilityDelegate: true },
     mutationFn: async () => {
       await cancellation
       if (original.query.state.fetchStatus !== "idle") await original.query.cancel({ revert: false })

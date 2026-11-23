@@ -1,8 +1,6 @@
 import { createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/observability/regions", () => ({ ObservedRouteCommit: "observed-route-commit" }));
-
 vi.mock("@/components/analytics-consent", () => ({
   AnalyticsConsent: "analytics-consent",
 }));
@@ -65,7 +63,6 @@ describe("BlogRootLayout", () => {
     expect(provider.props.children).toEqual([
       expect.objectContaining({ type: "theme-color-sync" }),
       child,
-      expect.objectContaining({ type: "observed-route-commit" }),
       expect.objectContaining({ type: "analytics-consent" }),
     ]);
   });

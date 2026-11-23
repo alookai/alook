@@ -89,7 +89,6 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
     positionScope={positionScope}
     {...props}
     posts={feed.posts}
-    observation={feed.observation}
     loading={!feed.selectionReady || feed.isPending}
     tag={feed.selectionReady ? feed.tag : ""}
     availableTags={feed.availableTags}

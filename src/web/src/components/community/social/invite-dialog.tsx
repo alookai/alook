@@ -153,7 +153,7 @@ export function InviteDialog({
 
   type SendIntent = { userId: string; token: string; author: { id: string; name: string; avatar: string }; assert: ReturnType<typeof view.capture> }
   const sendKey = ["community", "invite-send", serverId]
-  const sender = useMutation({ meta: { observabilityAction: "invitation.send" },
+  const sender = useMutation({
     mutationKey: sendKey,
     gcTime: 0,
     mutationFn: async ({ userId, token, author, assert }: SendIntent) => {
@@ -173,7 +173,7 @@ export function InviteDialog({
   })
   const pending = useMutationState({ filters: { mutationKey: sendKey, status: "pending" }, select: (mutation) => mutation.state.variables as SendIntent | undefined })
   const invitingUserIds = new Set(pending.filter((intent) => intent?.assert.signal === view.signal).map((intent) => intent!.userId))
-  const copier = useMutation({ meta: { observabilityAction: "invitation.copy" },
+  const copier = useMutation({
     gcTime: 0,
     mutationFn: async ({ token, assert }: { token: string; assert: ReturnType<typeof view.capture> }) => {
       assert()

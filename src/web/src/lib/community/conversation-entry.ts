@@ -1,9 +1,6 @@
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { reconcileConversationLanding } from "@/lib/community/message-reconcile"
-import { channelHref } from "./community-route"
-import { actionAttributes, currentPageObservation, navigationForHref } from "@/lib/observability/context"
-import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { hashKey, notifyManager, queryOptions, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { COMMUNITY_CONTRACT_HEADER, CommunityConversationEntryReadSchema, type CommunityConversationEntryRead, type CommunityReadStateResource, type CommunityMessageResources } from "@alook/shared"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
@@ -273,7 +270,7 @@ export function recoverActiveConversationEntries(client: QueryClient, channelId:
   } }, { cancelRefetch: false, throwOnError: true })
 }
 
-export function conversationEntryOptions(client: QueryClient, target: ConversationEntryTarget, observation?: ApiRequestOptions["observation"]) {
+export function conversationEntryOptions(client: QueryClient, target: ConversationEntryTarget) {
   const qualification = captureCommunityLiveSnapshotToken(client, target.channelId)
   const queryKey = communityKeys.conversationEntry(target.channelId, target, {
     accountEpoch: qualification.accountEpoch, accessEpoch: qualification.accessEpoch,
@@ -309,43 +306,23 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
       else if (target.preferTail !== false) search.set("window", "tail")
       if (target.newAfterSeq != null) search.set("newAfterSeq", String(target.newAfterSeq))
       if (target.tag) search.set("tag", target.tag)
-      const expectedPath = target.serverId === null ? `/c/me/${encodeURIComponent(target.channelId)}` : channelHref(target.serverId, target.channelId)
-      const action = typeof window !== "undefined" && window.location.pathname === expectedPath ? navigationForHref(window.location.pathname + window.location.search) : undefined
-      const captured = observation ?? (typeof window === "undefined" || window.location.pathname !== expectedPath ? { page: undefined, reason: "unknown" as const }
-        : action && !action.done ? { action, reason: "foreground" as const } : { page: currentPageObservation(), reason: "background" as const })
-      const generation = telemetryGeneration()
-      const observed = isTelemetryEligible()
-      const record = (entry_stage: "start" | "validated" | "published" | "delivered" | "error" | "cancelled") => {
-        if (observed && generation === telemetryGeneration()) emitTelemetry("conversation.entry", {
-          ...actionAttributes(captured?.action ?? captured?.page), entry_stage, request_role: "entry",
-          window_mode: target.anchorMessageId ? "anchor" : "newest",
-        })
-      }
-      record("start")
       try {
         const entry = await withConversationReadDeadline(signal, (readSignal) => apiFetch<CommunityConversationEntryRead>(
           `/api/community/channels/${encodeURIComponent(target.channelId)}/messages?${search}`,
-          { ...communityRequestOptions(client, token, readSignal, assert), headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) },
-            observation: { ...captured, role: "entry", windowMode: target.anchorMessageId ? "anchor" : "newest" } },
+          { ...communityRequestOptions(client, token, readSignal, assert), headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } },
         ))
         assert()
         const publication = await publishConversationEntryResult(client, target, entry, { token, signal })
         const resource = publication.resource
-        record("validated")
-        record("published")
         if (publication.retainedWindow && !entry.forumFeed) {
           void reconcileConversationLanding(client, {
             kind: target.serverId === null ? "dm" : "channel", scopeId: target.channelId,
             serverId: target.serverId ?? undefined,
           }, resource.windowKey, { ...entry.page, olderCursor: entry.page.olderCursor ?? undefined, newerCursor: entry.page.newerCursor ?? undefined, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.channelId), profiles: entry.profiles }, resource.initialWindow,
-          { query: original!, signal, lifetime: "query", observation: captured }).catch(() => undefined)
+          { query: original!, signal, lifetime: "query" }).catch(() => undefined)
         }
-        record("delivered")
         return resource
       } catch (error) {
-        const current = !signal.aborted && isChannelMetadataTokenCurrent(token)
-          && !!original && client.getQueryCache().get(original.queryHash) === original
-        record(!current || error instanceof Error && error.name === "AbortError" ? "cancelled" : "error")
         assert()
         if (error instanceof ApiError && (error.status === 403 || error.status === 404) && !isConversationAnchorMissingError(error)) await completeCommunityPublication(token.registry!, () => retireCommunityChannelReading(token.registry!, target.channelId, { reason: "read-denied", serverId: target.serverId, preserveQuery: original,
           ...(error instanceof CommunityApiError ? { denialCode: error.code } : {}) }))

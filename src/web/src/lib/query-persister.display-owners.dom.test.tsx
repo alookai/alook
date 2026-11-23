@@ -24,7 +24,7 @@ import { cacheStore } from "./query-cache-store"
 import { communityKeys } from "./query-keys"
 import { ApiError } from "./errors"
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), telemetry: vi.fn(), session: { data: null as { user: { id: string } } | null, isPending: false, error: null },
+const mocks = vi.hoisted(() => ({ api: vi.fn(), session: { data: null as { user: { id: string } } | null, isPending: false, error: null },
   beforeApplicationWrite: undefined as ((value: string) => Promise<void> | undefined) | undefined,
   releaseApplicationWrite: undefined as (() => void) | undefined }))
 vi.mock("@tanstack/query-async-storage-persister", async original => {
@@ -42,7 +42,6 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api, toastApiError: vi.fn()
 vi.mock("@/lib/auth-client", () => ({ useSession: () => mocks.session, currentSessionViewer: () => mocks.session.isPending ? undefined : mocks.session.data?.user.id ?? null }))
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }))
 vi.mock("@/app/pricing/pricing.module.css", () => ({ default: new Proxy({}, { get: (_target, key) => String(key) }) }))
-vi.mock("@/lib/observability/telemetry", async original => ({ ...await original<typeof import("@/lib/observability/telemetry")>(), emitTelemetry: mocks.telemetry }))
 
 const code: AutomationAccessCode = { id: "code", name: "Saved access code", createdAt: "2026-11-01T00:00:00.000Z", expiresAt: null,
   permissions: [{ permission: "machine.read", limit: 1, period: "hour" }] }
@@ -58,7 +57,6 @@ beforeEach(async () => {
   await clearAllPersistedCaches()
   mocks.session = { data: null, isPending: false, error: null }
   mocks.api.mockReset()
-  mocks.telemetry.mockClear()
 })
 afterEach(async () => {
   mocks.releaseApplicationWrite?.()
@@ -400,15 +398,13 @@ it("requires an actual post-return billing read even when the restored success h
   let release!: (value: unknown) => void
   state.heldBilling = new Promise(resolve => { release = resolve })
   const view = mount(owner, "checkout")
-  const successes = () => mocks.telemetry.mock.calls.filter(([, fields]) => fields?.action_name === "billing_return" && fields?.outcome === "success")
   await waitFor(() => expect(view.result.current.billing.data?.plan.id).toBe("studio"))
   expect(view.result.current.billing.isCurrentRead()).toBe(false)
-  expect(successes()).toHaveLength(0)
+  expect(view.result.current.billing.polling).toBe(true)
   expect(state.commands).toEqual([])
   await act(async () => { release(state.billing) })
   await waitFor(() => expect(view.result.current.billing.isCurrentRead()).toBe(true))
-  await waitFor(() => expect(successes()).toHaveLength(1))
-  expect(view.result.current.billing.polling).toBe(false)
+  await waitFor(() => expect(view.result.current.billing.polling).toBe(false))
 })
 
 it("uses the actual public Pricing provider writer and cold restore without overwriting community or enabling payment", async () => {

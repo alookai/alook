@@ -90,7 +90,7 @@ describe("native navigation warming and DM consumer mounting", () => {
     }
     const pending = deferred<typeof entry>()
     load.mockReturnValue(pending.promise)
-    const warming = prepareNavigationMetadata(owner.client, "/c/me/c1", "foreground")
+    const warming = prepareNavigationMetadata(owner.client, "/c/me/c1")
     await waitFor(() => expect(load).toHaveBeenCalledOnce())
     if (mode !== "held") await act(async () => { pending.resolve(entry); await warming })
     const navigation = { entryIntent: { href: "/c/me/c1" } }
@@ -116,7 +116,7 @@ describe("native navigation warming and DM consumer mounting", () => {
     await publishCommunityLiveSnapshot(owner.client, { snapshot: { kind: "dms", data: { conversations: [dmListRowFixture({ id: "c1", userId: "peer", name: "Peer", discriminator: "0042", avatarVersion: 0, avatar: "P", status: "offline", preview: "" })] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
     const pending = deferred<typeof entry>()
     load.mockReturnValue(pending.promise)
-    const warming = prepareNavigationMetadata(owner.client, "/c/me/c1", "foreground")
+    const warming = prepareNavigationMetadata(owner.client, "/c/me/c1")
     await waitFor(() => expect(load).toHaveBeenCalledOnce())
     const signal = (load.mock.calls[0][1] as ApiRequestOptions).signal!
     const originals = owner.client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries("c1") })
@@ -142,8 +142,8 @@ describe("native navigation warming and DM consumer mounting", () => {
     load.mockResolvedValue(value)
     try {
       const href = source === "route" ? "/c/channels/s1/c1?tag=explicit" : "/c/channels/s1/c1"
-      await prepareNavigationMetadata(owner.client, href, "prefetch")
-      await prepareNavigationMetadata(owner.client, href, "foreground")
+      await prepareNavigationMetadata(owner.client, href)
+      await prepareNavigationMetadata(owner.client, href)
       expect(load.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/c1/messages?entry=1&window=tail&tag=${source === "route" ? "explicit" : "saved"}`])
     } finally { localStorage.clear() }
   })

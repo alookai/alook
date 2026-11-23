@@ -1,4 +1,3 @@
-import { beginMessageObservation, messageMilestone, disposeMessageObservations } from "@/lib/observability/messages"
 import { createStore } from "@tanstack/store"
 import {
   getOutboxRetryPayload,
@@ -34,7 +33,7 @@ function executeEffects(effects: ReturnType<typeof reduceMessageOverlay>["effect
   for (const effect of effects) URL.revokeObjectURL(effect.url)
 }
 
-export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<string, CanonicalMessage>, "get"> = () => new Map(), diagnosticOwner?: object) {
+export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<string, CanonicalMessage>, "get"> = () => new Map()) {
   return createStore({ entries: new Map<string, ScopeEntry>() as ReadonlyMap<string, ScopeEntry>, nextOrdinal: 1 }, ({ setState, get }): Omit<MessageStreamStoreState, "entries" | "nextOrdinal"> => ({
 
   accept: (scope, intent) => {
@@ -46,12 +45,10 @@ export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<st
       type: "submit",
       intent: { ...intent, localOrdinal: current.nextOrdinal },
     })
-    beginMessageObservation(diagnosticOwner, intent.nonce, scope.kind)
     const entries = new Map(current.entries)
     entries.set(key, { scope, state: transition.state })
     setState((state) => ({ ...state, ...{ entries, nextOrdinal: current.nextOrdinal + 1 } }))
     executeEffects(transition.effects)
-    messageMilestone(diagnosticOwner, intent.nonce, "optimistic", "success")
     return true
   },
 
@@ -59,7 +56,6 @@ export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<st
     const key = messageScopeKey(scope)
     const current = get()
     const overlay = current.entries.get(key)?.state ?? EMPTY_STORED
-    if (event.type === "retry" && overlay.outboxByNonce.has(event.nonce)) beginMessageObservation(diagnosticOwner, event.nonce, scope.kind)
     const applied = event.type === "postAck" ? { type: "wsMessage" as const, message: { ...event.message, clientNonce: event.nonce } } : event
     const transition = reduceMessageOverlay(overlay, applied, readMessages())
     if (transition.state !== overlay) {
@@ -68,13 +64,6 @@ export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<st
       setState((state) => ({ ...state, ...{ entries } }))
     }
     executeEffects(transition.effects)
-    if (transition.state !== overlay && "nonce" in event) {
-      const phase = event.type.startsWith("upload") ? "upload" : event.type === "retry" ? "optimistic" : "ack"
-      const failed = ["uploadFailed", "postFail", "terminalReject"].includes(event.type)
-      messageMilestone(diagnosticOwner, event.nonce, phase, failed ? "error" : "success", failed || event.type === "postAck")
-    } else if (transition.state !== overlay && event.type === "wsMessage" && event.message.clientNonce) {
-      messageMilestone(diagnosticOwner, event.message.clientNonce, "ack", "success", true)
-    }
   },
 
   getRetryPayload: (scope, nonce) => {
@@ -115,7 +104,6 @@ export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<st
       reduceMessageOverlay(entry.state, { type: "clear" }).effects)
     setState((state) => ({ ...state, ...{ entries: new Map(), nextOrdinal: 1 } }))
     executeEffects(effects)
-    if (diagnosticOwner) disposeMessageObservations(diagnosticOwner)
   },
   }))
 }

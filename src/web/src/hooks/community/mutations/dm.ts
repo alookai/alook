@@ -16,7 +16,7 @@ export function useCreateOrGetDm() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Intent = CreateOrGetDmArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<CreateOrGetDmResult, Error, Intent>({ meta: { observabilityAction: "dm.open" },
+  const native = useMutation<CreateOrGetDmResult, Error, Intent>({
     mutationFn: async ({ userId, original, assertActive }) => {
 
       origin.assert(original); assertActive?.()

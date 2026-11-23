@@ -30,7 +30,6 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace }
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@/hooks/community/use-friends", () => ({ useFriends: () => ({ blocked: [] }), useFriendsPresence: () => undefined }))
 vi.mock("@/hooks/community/use-inbox", () => ({ useInboxUnreads: () => ({ friendRequests: [] }) }))
-vi.mock("@/lib/observability/regions", () => ({ useObservedRegion: () => undefined }))
 vi.mock("@/lib/community/navigation-metadata", () => ({ prepareNavigationMetadata: () => Promise.resolve() }))
 vi.mock("./community-route-context", () => ({ useCommunityRouteFrame: () => ({ frame: { href: "/c/me/friends" } }) }))
 

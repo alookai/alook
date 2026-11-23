@@ -2,8 +2,6 @@ import { handleBotPii } from "./pii-events"
 import { handleServerRailChanged } from "./server-rail-reconciliation"
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
-import { telemetryId, currentPageObservation, startPageOperation, finishPageOperation, pageOperationAttributes, type PageOperation } from "@/lib/observability/context"
-import { emitTelemetry } from "@/lib/observability/telemetry"
 
 import type { CommunityWsEvent } from "@alook/shared"
 import type { CommunityWsReconcilePolicy } from "@/lib/community/ws-connection-types"
@@ -163,7 +161,6 @@ export function dispatchCommunityWsEvents(
       messageEvent: creates[0]!,
     })
   }
-  const receipts: Array<{ id: string; start: number; type: CommunityEventType; operation?: PageOperation }> = []
   const publications: Promise<void>[] = []
   try {
     const registry = getCommunityDbRegistry(context.queryClient)
@@ -186,8 +183,6 @@ export function dispatchCommunityWsEvents(
         && getCommunityRuntime(context.queryClient).ws.actions.isChannelAccessRevoked(channelId, serverId, parentChannelId ?? undefined)) continue
       if (channelId && serverId) getCommunityRuntime(context.queryClient).ws.actions.observeChannelScope(serverId, channelId, parentChannelId)
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
-      const receipt = { id: telemetryId(), start: performance.now(), type: event.type, operation: startPageOperation("ws.event_applied", { phase: "commit", source: "ws", event_type: event.type }, currentPageObservation()) }
-      receipts.push(receipt)
       const publication = entry.handler?.(event, handlerContext)
       if (publication) publications.push(publication)
       if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event, context.contract)
@@ -204,20 +199,9 @@ export function dispatchCommunityWsEvents(
     if (publication instanceof Promise) publications.push(publication.then(() => undefined))
   } catch (error) {
     void Promise.allSettled(publications)
-    for (const receipt of receipts) {
-      finishPageOperation(receipt.operation, "partial")
-      emitTelemetry("ws.event_applied", { ...pageOperationAttributes(receipt.operation), ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome: "partial", eligibility: "unknown" })
-    }
     throw error
   }
-  const finish = (outcome: "success" | "partial") => {
-    for (const receipt of receipts) {
-      finishPageOperation(receipt.operation, outcome)
-      emitTelemetry("ws.event_applied", { ...pageOperationAttributes(receipt.operation), ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome, eligibility: outcome === "success" ? "eligible" : "unknown" })
-    }
-  }
-  if (publications.length) return Promise.all(publications).then(() => { finish("success") }, (error: unknown) => { finish("partial"); throw error })
-  finish("success")
+  if (publications.length) return Promise.all(publications).then(() => undefined)
 }
 
 export const communityWsReconnectPolicies = Array.from(new Set(

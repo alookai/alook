@@ -38,7 +38,6 @@ import { MachineCard, MachineCardFrame } from "./machine-card"
 import { MachineRefreshDialog } from "./machine-refresh-dialog"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
-import { useObservedRegion } from "@/lib/observability/regions"
 import { replaceMachines } from "@/lib/community/machines"
 import { useMachines, machinesQueryFn } from "@/hooks/community/use-machines"
 import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
@@ -206,7 +205,6 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const source = useCommunityViewSource("machine-list")
   const { machines, capacityPending, data: machinesData, isPending: queryLoading, isError: queryError, isFetching: retryingMachines, refetch: retryMachines } = useMachines()
   const machinesLoading = queryLoading || machinesData?.complete === false && machines.length === 0
-  useObservedRegion("machines", machinesData !== undefined && machinesData.complete !== false, machines.length, { snapshot_source: machinesData?.source ?? "unknown", target_coverage: machinesData ? "covered" : "uncovered", wait_reason: machinesLoading ? "entry" : "none" })
   const capacity = machinesData?.machineCapacity ?? null
   const [limitOpen, setLimitOpen] = useAtom(useCreateAtom(false))
   const viewPlan = useCallback(() => {
@@ -242,7 +240,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     staleTime: 300_000, queryFn: ({ signal }) => origin.run((options) => fetchLatestDaemonVersion({ ...options, signal })),
   })
   const latestVersion = versionQuery.data?.version ?? null
-  const machineCommand = useMutation({ meta: { observabilityAction: "machine.command" }, mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
+  const machineCommand = useMutation({ mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
     mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update" | "stop" | "refresh"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       origin.assert(token)
       const key = communityKeys.machines()

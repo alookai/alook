@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { metadata } from "@/app/privacy/page"
 
-vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }))
 import {
   PRIVACY_POLICY,
   PrivacyPolicyContent,

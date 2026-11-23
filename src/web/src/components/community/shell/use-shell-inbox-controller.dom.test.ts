@@ -457,7 +457,7 @@ describe("useShellInboxController", () => {
     expect(mocks.warmup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       href: "/c/channels/s1/c1?seq=7&msg=message-7",
       anchorMessageId: "message-7",
-    }), undefined)
+    }))
     expect(mocks.begin).not.toHaveBeenCalled()
   })
 
@@ -592,7 +592,7 @@ describe("useShellInboxController", () => {
       channelId: "c1",
       scopeKind: "channel",
       anchorMessageId: "q_srv",
-    }), undefined)
+    }))
 
     await act(async () => hook.current.popoverProps.onOpenTodo?.({
       id: "question:q_noseq",
@@ -624,7 +624,7 @@ describe("useShellInboxController", () => {
       channelId: "dm1",
       scopeKind: "dm",
       expectedSurfaceKind: "dm",
-    }), undefined)
+    }))
 
     await act(async () => hook.current.popoverProps.onOpenTodo?.({
       id: "question:q_dm_noseq",

@@ -1,8 +1,6 @@
 "use client"
 import { observeVisibilitySentinel } from "@/lib/observe-visibility-sentinel"
 
-import { useObservedRegion } from "@/lib/observability/regions"
-
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useRef } from "react"
 import { toast } from "sonner"
@@ -103,8 +101,6 @@ export function ServerSettings({
   const { invites, loading: invitesLoading, isFetching: invitesFetching, refetch: retryInvites } = invitesQuery
   const invitesKnown = invitesQuery.data !== undefined
   const invitesFailed = invitesQuery.failed
-
-  useObservedRegion("settings", visibleSection === "members" ? !membersLoading : visibleSection === "invites" ? !invitesLoading && !invitesFailed : visibleSection !== "channels", visibleSection === "members" ? members.length : visibleSection === "invites" ? invites.length : 1)
 
   const nav: SettingsShellTab<SettingsSection>[] = [
     { value: "overview", label: "Overview", icon: Settings },

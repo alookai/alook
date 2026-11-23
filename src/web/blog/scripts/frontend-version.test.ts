@@ -1,25 +1,14 @@
 import { readFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
-import { afterEach, beforeAll, expect, it, vi } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 
 vi.mock("@next/mdx", () => ({ default: () => (config: unknown) => config }))
 vi.mock("@opennextjs/cloudflare", () => ({ initOpenNextCloudflareForDev: vi.fn() }))
-vi.mock("node:module", async importOriginal => {
-  const original = await importOriginal<typeof import("node:module")>()
-  const build = await import("../../src/lib/observability/build")
-  return {
-    ...original,
-    createRequire: (filename: Parameters<typeof original.createRequire>[0]) => {
-      const require = original.createRequire(filename)
-      return Object.assign((id: string) => id === "../src/lib/observability/build.ts" ? build : require(id), require)
-    },
-  }
-})
 
 afterEach(() => { vi.unstubAllEnvs(); vi.resetModules() })
 
-function loadBuildConfigs(mode: string, source: string) {
+function loadBuildConfigs(mode: string) {
   const output = execFileSync(process.execPath, ["-e", `
     const path = require("node:path");
     const { transpileConfig } = require("next/dist/build/next-config-ts/transpile-config");
@@ -31,57 +20,34 @@ function loadBuildConfigs(mode: string, source: string) {
         const config = typeof loaded.default === "function" ? await loaded.default() : loaded.default;
         configs.push({ env: config.env, assetPrefix: config.assetPrefix });
       }
-      console.log("FARO_BUILD_CONFIG=" + JSON.stringify(configs));
+      console.log("FRONTEND_BUILD_CONFIG=" + JSON.stringify(configs));
       process.exit(0);
     })().catch(error => { console.error(error); process.exit(1); });
   `], {
     cwd: fileURLToPath(new URL("../../", import.meta.url)),
     encoding: "utf8",
-    env: { ...process.env, NODE_ENV: mode, WORKERS_CI_COMMIT_SHA: source, CF_PAGES_COMMIT_SHA: "", GITHUB_SHA: "",
-      NEXT_PUBLIC_FARO_RELEASE: "c".repeat(40), NEXT_PUBLIC_FARO_ENVIRONMENT: "qa" },
+    env: { ...process.env, NODE_ENV: mode },
   })
-  const encoded = output.split("\n").find(line => line.startsWith("FARO_BUILD_CONFIG="))!
-  return JSON.parse(encoded.slice("FARO_BUILD_CONFIG=".length)) as Array<{ env: Record<string, string>; assetPrefix?: string }>
+  const encoded = output.split("\n").find(line => line.startsWith("FRONTEND_BUILD_CONFIG="))!
+  return JSON.parse(encoded.slice("FRONTEND_BUILD_CONFIG=".length)) as Array<{ env: Record<string, string>; assetPrefix?: string }>
 }
-
-let productionWithoutSource: ReturnType<typeof loadBuildConfigs>
-
-beforeAll(() => {
-  productionWithoutSource = loadBuildConfigs("production", "")
-})
 
 it("injects the same shared frontend package version into the Blog build", () => {
   const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"))
-  const config = structuredClone(productionWithoutSource)[1]
-  expect(config.env?.NEXT_PUBLIC_APP_VERSION).toBe(pkg.version)
-  expect(config.assetPrefix).toBe("/blog-static")
+  const [webConfig, blogConfig] = loadBuildConfigs("production")
+  expect(webConfig.env?.NEXT_PUBLIC_APP_VERSION).toBe(pkg.version)
+  expect(blogConfig.env?.NEXT_PUBLIC_APP_VERSION).toBe(pkg.version)
+  expect(blogConfig.assetPrefix).toBe("/blog-static")
+  expect(webConfig.env).not.toHaveProperty("NEXT_PUBLIC_FARO_RELEASE")
+  expect(blogConfig.env).not.toHaveProperty("NEXT_PUBLIC_FARO_RELEASE")
 })
 
-it.each([
-  { mode: "production", source: "a".repeat(40), release: "a".repeat(40), environment: "production" },
-  { mode: "development", source: "b".repeat(40), release: "b".repeat(40), environment: "development" },
-  { mode: "production", source: "", release: "", environment: "production" },
-  { mode: "test", source: "", release: "", environment: "" },
-])("embeds native provenance in both apps for $mode with source '$source'", ({ mode, source, release, environment }) => {
-  const configs = mode === "production" && source === "" ? structuredClone(productionWithoutSource) : loadBuildConfigs(mode, source)
-  for (const config of configs) {
-    expect(config.env).toMatchObject({ NEXT_PUBLIC_FARO_RELEASE: release, NEXT_PUBLIC_FARO_ENVIRONMENT: environment })
-  }
-})
-
-it.each([
-  { mode: "production", source: "a".repeat(40), release: "a".repeat(40), environment: "production" },
-  { mode: "test", source: "", release: "", environment: "" },
-])("executes the real Blog configuration with the shared resolver for $mode", async ({ mode, source, release, environment }) => {
-  vi.stubEnv("NODE_ENV", mode)
-  vi.stubEnv("WORKERS_CI_COMMIT_SHA", source)
-  vi.stubEnv("CF_PAGES_COMMIT_SHA", "")
-  vi.stubEnv("GITHUB_SHA", "")
-  vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", "c".repeat(40))
-  vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", "qa")
+it("executes the real Blog configuration with the shared package version", async () => {
+  vi.stubEnv("NODE_ENV", "production")
   const { default: loadConfig } = await import("../next.config")
   const config = await loadConfig()
   const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"))
-  expect(config.env).toMatchObject({ NEXT_PUBLIC_APP_VERSION: pkg.version, NEXT_PUBLIC_FARO_RELEASE: release, NEXT_PUBLIC_FARO_ENVIRONMENT: environment })
+  expect(config.env).toMatchObject({ NEXT_PUBLIC_APP_VERSION: pkg.version })
+  expect(config.env).not.toHaveProperty("NEXT_PUBLIC_FARO_RELEASE")
   expect(config.assetPrefix).toBe("/blog-static")
 })

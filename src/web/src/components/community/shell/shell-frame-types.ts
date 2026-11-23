@@ -1,5 +1,4 @@
 import type { OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
-import type { Action } from "@/lib/observability/context"
 import type { ReactNode } from "react"
 
 import type { View } from "./shell-types"
@@ -22,6 +21,6 @@ export type ShellFrameProps = {
 export type ShellRouter = {
   captureIntent?: () => () => boolean
   push: (href: string) => void
-  pushImmediate?: (href: string, prepare?: (action?: Action) => void) => void
+  pushImmediate?: (href: string, prepare?: () => void) => void
   replace: (href: string) => void
 }

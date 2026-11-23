@@ -6,10 +6,9 @@ import { CommunityNavigationLink } from "./community-navigation-link"
 
 const owner = vi.hoisted(() => ({ registry: null as CommunityDbRegistry | null, warm: vi.fn() }))
 vi.mock("@/lib/community-db/projections", () => ({ useOptionalCommunityDbRegistry: () => owner.registry }))
-vi.mock("@/lib/observability/context", () => ({ beginNavigationPrefetch: owner.warm }))
-vi.mock("@/lib/community/navigation-metadata", () => ({ prepareNavigationMetadata: vi.fn() }))
+vi.mock("@/lib/community/navigation-metadata", () => ({ prepareNavigationMetadata: (_client: unknown, href: string) => owner.warm(href) }))
 
-beforeEach(() => { owner.registry = null; owner.warm.mockClear() })
+beforeEach(() => { owner.registry = { queryClient: {}, runtime: { lifecycle: createStore({ active: true, generation: 0 }) } } as unknown as CommunityDbRegistry; owner.warm.mockClear() })
 
 describe("community public Link bridge", () => {
   it.each(["", "saved.html", true])("preserves native download activation for download=%s", download => {

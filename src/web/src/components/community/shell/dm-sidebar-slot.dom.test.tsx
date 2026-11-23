@@ -46,7 +46,6 @@ vi.mock("@/hooks/community/use-friends", () => ({
 vi.mock("@/hooks/community/use-inbox", () => ({
   useInboxUnreads: () => ({ friendRequests: [] }),
 }))
-vi.mock("@/lib/observability/regions", () => ({ useObservedRegion: vi.fn() }))
 vi.mock("@/components/community/channels/dm-sidebar", () => ({
   DmSidebar: ({ dms, activeDm }: { dms: Array<{ userId: string; avatar: string }>; activeDm?: string | null }) => <aside data-active-dm={activeDm ?? ""}>
     <input aria-label="Sidebar state" defaultValue="retained" />

@@ -7,7 +7,6 @@ import type { EntityKind } from "@/lib/community/models/navigation"
 import type { CommunityConversationEntryRead } from "@alook/shared"
 
 export type MessageListProps = {
-  observation?: import("@/lib/observability/regions").ResourceObservation
   channel: string
   messages: Msg[]
   loading?: boolean

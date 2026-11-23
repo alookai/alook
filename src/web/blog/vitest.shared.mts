@@ -25,7 +25,6 @@ export async function blogTestConfig() {
         "@": path.resolve(import.meta.dirname, "../src"),
         "@blog": path.resolve(import.meta.dirname, "src"),
         "#blog-open-next-worker": path.resolve(import.meta.dirname, "../src/test-runtime/open-next-node-stub.ts"),
-        "./.open-next/server-functions/default/src/web/.next/required-server-files.json": path.resolve(import.meta.dirname, "../test-runtime/next-config-stub.json"),
       },
     },
     plugins: [{

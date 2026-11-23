@@ -62,7 +62,7 @@ function CommunityOnboardingSteps() {
   useEffect(() => { setModel(null) }, [state?.machineId, state?.harness, setModel])
   const commandKey = ["community", "onboarding-initialization", journeyIdentity] as const
   const pending = useMutationState({ filters: { mutationKey: commandKey, status: "pending" }, select: (mutation) => mutation.mutationId })
-  const initialization = useMutation({ meta: { observabilityAction: "community.onboarding.initialize" },
+  const initialization = useMutation({
     mutationKey: commandKey,
     scope: { id: JSON.stringify(commandKey) },
     mutationFn: async ({ token, profileSnapshot, assert, input }: ReturnType<typeof origin.begin> & {

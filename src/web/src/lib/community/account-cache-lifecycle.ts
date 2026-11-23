@@ -1,7 +1,6 @@
 import { writeCommunityProfilePatches } from "./profile-seed"
 import type { CommunityProfilePatch } from "./models/people"
 import { withCommunityCollectionWrites } from "@/lib/community-db/write"
-import { commandObservation, currentPageObservation } from "@/lib/observability/context"
 import { clearComposerAttachmentSessionsForAccount } from "./composer-attachment-session"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -18,7 +17,7 @@ export function retireCommunityAccount(registry: CommunityDbRegistry) {
 export function communityRequestOptions(queryClient: QueryClient, token: CommunityLiveSnapshotToken, signal?: AbortSignal, assertActive = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)): ApiRequestOptions & { assertActive: () => void } {
   const registry = getCommunityDbRegistry(queryClient)
   const assertEligible = () => { assertCommunityLiveSnapshotOwnerCurrent(queryClient, token, signal); assertActive() }
-  return { observation: commandObservation(token), authenticationAccount: registry?.accountId ?? undefined, signal, assertActive: assertEligible, onUnauthorized: async () => {
+  return { authenticationAccount: registry?.accountId ?? undefined, signal, assertActive: assertEligible, onUnauthorized: async () => {
     assertEligible()
     if (!registry || getCommunityDbRegistry(queryClient) !== registry || !registry.authenticationView.get().active) return false
     const generation = registry.authenticationView.get().generation
@@ -58,9 +57,8 @@ export function apiFetchCommunity<T>(
   token: CommunityLiveSnapshotToken,
   assertCurrent?: () => void,
 ): Promise<T> {
-  const observation = options?.observation ?? commandObservation(token) ?? { page: currentPageObservation(), reason: "unknown" }
   return loadCommunityRequest((origin) => apiFetch<T>(path, {
-    ...options, ...origin, observation, signal: options?.signal,
+    ...options, ...origin, signal: options?.signal,
     assertActive: () => { origin.assertActive?.(); options?.assertActive?.() },
   }), token, options?.signal ?? undefined, assertCurrent)
 }

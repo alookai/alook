@@ -12,8 +12,6 @@ import { canonicalMessageResource } from "@/lib/community-db/resources"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { conversationListScopeKey, isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
-import { actionAttributes, currentPageObservation, navigationForHref } from "@/lib/observability/context"
-import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetry"
 import {
   assessConversationScope, conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationEntry, getQualifiedConversationScope,
   type ConversationEntryResource, type ConversationEntryTarget,
@@ -187,18 +185,6 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   const displayWindowReady = qualified && cachedWindow !== undefined
   const windowReady = displayWindowReady && currentPointer !== undefined
   const cacheWindow = !cachedWindow ? rawWindowExists ? "incomplete" : "missing" : cachedData?.pages.some(page => (page.messages ?? page.threads ?? []).length > 0) ? "ready" : "empty"
-  const targetCoverage = scope && findConversationEntryWindow(client, baseInput, resource ?? scope, currentPointer) ? "covered" : "uncovered"
-  const entryStatus = resource ? "current" : client.getQueryCache().findAll({ queryKey: communityKeys.conversationEntries(channelId) }).some(candidate => candidate.state.data !== undefined) ? "stale" : "missing"
-  const telemetryOwner = telemetryGeneration()
-  useEffect(() => {
-    if (!enabled || !active || telemetryOwner !== telemetryGeneration() || typeof window === "undefined") return
-    const href = intent?.href ?? window.location.pathname + window.location.search
-    const expected = serverId === null ? `/c/me/${encodeURIComponent(channelId)}` : channelHref(serverId, channelId)
-    if (normalizeCommunityHref(href).pathname !== expected) return
-    const action = navigationForHref(href) ?? (window.location.pathname === expected ? currentPageObservation() : undefined)
-    emitTelemetry("conversation.cache", { ...actionAttributes(action), cache_consumer: consumer, cache_reason: assessment.reason,
-      cache_window: cacheWindow, entry_status: entryStatus, target_coverage: targetCoverage, eligibility: scopeAvailable ? "eligible" : "rejected" })
-  }, [active, assessment.reason, cacheWindow, channelId, consumer, enabled, entryStatus, intent, scopeAvailable, serverId, targetCoverage, telemetryOwner])
   return { client, cachedResource, scope: readableScope, currentPointer, displayWindowReady, windowReady, displayWindow: cachedWindow, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
     denied: serverRevoked || revoked && (!verification.needed || generation !== verification.generation) || isConversationAccessError(query.error) && Number((query.error as { status?: unknown } | null)?.status) !== 401, anchorMissing,
     verificationError: (!qualified && anchorMissing ? fallback.error : query.error)?.name === "AbortError" ? null : !qualified && anchorMissing ? fallback.error : query.error,

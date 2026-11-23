@@ -1,4 +1,3 @@
-import { ObservedStaticContent } from "@/lib/observability/regions";
 import {
   LANDING_META_DESCRIPTION,
   LANDING_META_TITLE,
@@ -13,5 +12,5 @@ export const metadata = buildPublicPageMetadata({
 });
 
 export default function Page() {
-  return <><ObservedStaticContent /><SessionLandingPage /></>;
+  return <SessionLandingPage />;
 }

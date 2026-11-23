@@ -3,7 +3,6 @@ import { buildPublicPageMetadata } from "./public-page-metadata";
 import { SITE_OG_IMAGE, SITE_OG_IMAGE_URL } from "./site-metadata";
 
 vi.mock("@/components/home/landing-page", () => ({ LandingPage: () => null }));
-vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }));
 vi.mock("@/app/pricing/pricing-client", () => ({ default: () => null }));
 
 import { metadata as home } from "@/app/(home)/page";

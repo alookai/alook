@@ -70,6 +70,6 @@ The local attachment fixtures cover supported display branches. They do not vali
 - [Optional MCP](https://storybook.js.org/docs/ai/mcp/overview)
 - [pnpm package extensions](https://pnpm.io/10.x/settings#packageextensions)
 
-The configuration uses the installed stable Storybook 10.6.6 API. It loads a lightweight Next config, the real Web PostCSS config and the real nested CommonJS selector dependency through Vite's optimizer. A post configuration hook selects Web's actual OpenTelemetry API package after the adapter's server-oriented alias. It does not define a fake `__dirname` or replace product observability.
+The configuration uses the installed stable Storybook 10.6.6 API. It loads a lightweight Next config, the real Web PostCSS config and the real nested CommonJS selector dependency through Vite's optimizer. It does not define a fake `__dirname`.
 
 The workspace declares the missing `next` peer for `@next/mdx@16.4.2`. Its configuration types then resolve through the consuming Web package, instead of an unrelated hoisted Next instance. This uses pnpm package metadata rather than a type cast or a manual dependency link.

@@ -36,7 +36,7 @@ export function ForumView({
   forumChannelId,
   members,
   mentionCandidates,
-  posts, loading, observation, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
+  posts, loading, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
   tagsKnown = true, tagsError = false, onRetryTags,
   hasMore, loadingMore, isFetching, isError, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
@@ -46,7 +46,6 @@ export function ForumView({
   positionScope?: ConversationListScope
   members: Member[]
   mentionCandidates?: ComposerProps["mentionCandidates"]
-  observation?: import("@/lib/observability/regions").ResourceObservation
   posts: ForumThread[]
   loading?: boolean
   tag: string
@@ -197,7 +196,7 @@ export function ForumView({
 
       <ForumPostList
         key={JSON.stringify([forumChannelId, tag])}
-        posts={posts} loading={loading} observation={observation} positionScope={positionScope}
+        posts={posts} loading={loading} positionScope={positionScope}
         hasMore={hasMore} loadingMore={loadingMore} isFetching={isFetching} isError={isError}
         onLoadMore={onLoadMore} onScrollRoot={onScrollRoot} onOpenPost={onOpenPost} loadingContent={<ForumListSkeleton />}
         renderPost={(p) => {

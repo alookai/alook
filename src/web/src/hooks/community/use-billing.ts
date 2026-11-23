@@ -1,7 +1,5 @@
 "use client"
 
-import { useObservedRegion } from "@/lib/observability/regions"
-import { emitTelemetry } from "@/lib/observability/telemetry"
 import { useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { BillingSummarySchema, BillingRedirectResponseSchema } from "@alook/shared"
@@ -92,7 +90,6 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     const current = qc.getQueryState<typeof query.data>(key)
     return enabled && admitted && current?.status === "success" && !current.isInvalidated && current.data === query.data && current.data?.observed === true
   }, [enabled, admitted, key, qc, query.data])
-  useObservedRegion("billing", (enabled) && !query.isPending && query.data !== undefined, undefined)
   const invalidateDependents = useCallback(() => {
     if (!registry) return
     void qc.invalidateQueries({ queryKey: communityKeys.bots() })
@@ -118,7 +115,6 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       return
     }
     if (!tryCapture()) return
-    emitTelemetry("business.result", { action_name: "billing_return", phase: "auth", outcome: returnFrom === "cancel" ? "cancelled" : "observed", capability: "limited" })
     ui.setState((state) => ({ ...state, handledReturn: returnFrom, returnComplete: false, returnStartedAt: Date.now(), polling: returnFrom !== "cancel" }))
     void qc.invalidateQueries({ queryKey: key, exact: true })
     invalidateDependents()
@@ -141,11 +137,10 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     if (previous !== null && previous !== projection) invalidateDependents()
     const settled = returnFrom === "checkout" && !query.data.isFounder && query.dataUpdatedAt >= ui.get().returnStartedAt
       && query.data.subscription?.status === "active" && query.data.subscription.plan.id === query.data.plan.id
-    if (settled && !ui.get().returnComplete) emitTelemetry("business.result", { action_name: "billing_return", outcome: "success", phase: "primary" })
     ui.setState((state) => ({ ...state, observedPlan: projection, ...(settled ? { returnComplete: true, polling: false } : {}) }))
   }, [enabled, returnFrom, query.data, query.dataUpdatedAt, qc, ui, tryCapture, registry, invalidateDependents, isCurrentRead])
   type Original = ReturnType<typeof captureView>
-  const redirect = useMutation({ meta: { observabilityAction: "billing.redirect" },
+  const redirect = useMutation({
     mutationKey: [...key, "redirect"], retry: false,
     mutationFn: async ({ action, original }: { action: BillingAction; original: Original }) => {
       original.assertView()
@@ -183,7 +178,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       void query.refetch({ cancelRefetch: false })
     }
   }
-  const cancelMutation = useMutation({ meta: { observabilityAction: "billing.change.cancel" },
+  const cancelMutation = useMutation({
     mutationKey: [...key, "cancel-change"], retry: false,
     mutationFn: async (original: Original) => {
       original.assertView()

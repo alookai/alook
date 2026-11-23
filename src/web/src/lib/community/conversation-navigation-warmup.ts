@@ -1,7 +1,6 @@
 "use client"
 
 import { noop, type QueryClient } from "@tanstack/react-query"
-import type { Action } from "@/lib/observability/context"
 import { conversationEntryOptions } from "./conversation-entry"
 
 export type ConversationNavigationTarget = {
@@ -14,9 +13,9 @@ export type ConversationNavigationTarget = {
   anchorMessageId?: string
 }
 
-export function startConversationNavigationWarmup(client: QueryClient, target: ConversationNavigationTarget, action?: Action) {
+export function startConversationNavigationWarmup(client: QueryClient, target: ConversationNavigationTarget) {
   const options = conversationEntryOptions(client, {
     channelId: target.channelId, serverId: target.serverId ?? null, anchorMessageId: target.anchorMessageId,
-  }, { action, reason: "foreground" })
+  })
   return client.query({ ...options, select: undefined }).catch(noop)
 }

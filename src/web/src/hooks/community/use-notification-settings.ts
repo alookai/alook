@@ -142,7 +142,7 @@ export function useSetBotNotificationSetting() {
   const origin = useCommunityMutationOrigin(), source = useCommunityViewSource("bot-notification-setting")
   type Input = { botId: string; scope: BotNotificationScope; level: string | null; assertActive?: (() => void) & { signal: AbortSignal } }
   type Intent = Input & { original: ReturnType<typeof origin.begin>["token"]; view: ReturnType<typeof source.capture>; resources: Query[]; confirmation: Query }
-  const native = useMutation({ meta: { observabilityAction: "bot.notification.update" },
+  const native = useMutation({
     mutationKey: ["community", "bot-notification-setting-command"], scope: { id: "community-bot-notification-setting-commands" }, gcTime: 0,
     mutationFn: async ({ botId, scope, level, original, view, resources, assertActive, confirmation }: Intent) => {
       const assert = () => { origin.assert(original); view(); assertActive?.(); assertBotDirectoryCommandCurrent(queryClient, confirmation) }

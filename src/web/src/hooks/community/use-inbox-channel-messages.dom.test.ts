@@ -392,7 +392,7 @@ describe("exact Inbox channel check", () => {
       let inbox!: Promise<unknown>
       act(() => { inbox = view.result.current.mutateAsync({ channelId: "parent", throughSeq: 23 }) })
       await waitFor(() => expect(owner.client.getMutationCache().getAll().some(mutation =>
-        mutation.options.meta?.observabilityDelegate && mutation.state.isPaused)).toBe(true))
+        Array.isArray(mutation.options.mutationKey) && mutation.options.mutationKey[0] === "community" && mutation.options.mutationKey[1] === "read-command" && mutation.state.isPaused)).toBe(true))
       expect(sentIds).toEqual(["timeline-24"])
       await act(async () => {
         finishTimeline(timelineReceipt)

@@ -11,7 +11,6 @@ let owner: ApplicationOwner
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }), useSearchParams: () => new URLSearchParams(mocks.autojoin ? "autojoin=1" : "") }))
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: vi.fn(async () => undefined) }))
-vi.mock("@/lib/observability/regions", () => ({ useObservedRegion: vi.fn() }))
 vi.mock("@/lib/business-schema-lifecycle", async importOriginal => {
   const actual = await importOriginal<typeof import("@/lib/business-schema-lifecycle")>()
   mocks.update.mockImplementation((expected = BUSINESS_SCHEMA_VERSION) => new actual.BusinessSchemaMismatch(expected))

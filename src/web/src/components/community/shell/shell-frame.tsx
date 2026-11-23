@@ -3,7 +3,6 @@
 import { requestNativeBack } from "@/components/ui/native-back-layer"
 import type { MobileEntryMotion } from "@/contexts/community/mobile-page-motion"
 import { MobilePageBackContext, type MobilePageBack } from "@/contexts/community/mobile-page-back"
-import { commitNavigation } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
@@ -81,7 +80,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [setCommittedFrame])
   useLayoutEffect(() => {
     commitFrame(frameHref)
-    commitNavigation(frameHref)
     if (ownerDeleteRouteScope) {
       registerOwnerServerDeleteRoute(queryClient,
         ownerDeleteRouteScope.serverId,

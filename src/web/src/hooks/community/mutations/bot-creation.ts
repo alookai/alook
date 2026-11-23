@@ -19,7 +19,6 @@ export function useBotCreationDecision() {
   const client = useQueryClient()
   return useCommunityCommandMutation<{ botCreation: BotCreationPayload }, Error, DecisionInput>(origin, {
     mutationKey: ["community", "bot-creation", "decision"],
-    meta: { observabilityAction: "bot.creation.decision" },
     retry: false,
     mutationFn: async ({ requestId, messageId, decision, original }) => {
       const data = await origin.request<{ botCreation: BotCreationPayload }>(original,

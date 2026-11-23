@@ -1,7 +1,5 @@
 "use client"
 import { requestBusinessSchemaUpdate } from "@/lib/business-schema-lifecycle"
-import { currentPageObservation, startPageOperation, finishPageOperation, pageOperationAttributes, runPageOperation, type PageOperation } from "@/lib/observability/context"
-import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { useEffect, useRef, useCallback } from "react"
 import {
   COMMUNITY_CONTRACT_VERSION,
@@ -17,7 +15,6 @@ import {
 } from "@alook/shared"
 import {
   type CommunityWsFrameDropReason,
-  type CommunityWsLifecycleStageResult,
   type CommunityWsLifecycleRecoveryTrigger,
 } from "@/lib/community/ws-connection-types"
 import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
@@ -43,10 +40,6 @@ type PendingConnectionValidation = {
 type PendingTokenAttempt = {
   controller: AbortController
   generation: number
-  startedAt: number
-  reported: boolean
-  observationGeneration: number
-  operation?: PageOperation
 }
 
 type CredentialRetry = {
@@ -86,15 +79,6 @@ function isPageHidden(): boolean {
 
 function isBrowserOffline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine === false
-}
-
-function boundedDurationMs(startedAt: number): number {
-  return Math.min(Math.max(0, Date.now() - startedAt), 600_000)
-}
-
-function normalizedCloseCode(code: number | undefined): number {
-  if (code === undefined || !Number.isInteger(code) || code < 0 || code > 4999) return 0
-  return code
 }
 
 export type WsMessageIncoming = CommunityWsEvent & { [key: string]: unknown }
@@ -188,8 +172,6 @@ export function useUserWs(
   const lastSentinelTickAtRef = useRef(0)
   const offlineRef = useRef(isBrowserOffline())
   const offlineCleanupAppliedRef = useRef(false)
-  const localCloseSocketsRef = useRef(new WeakSet<WebSocket>())
-  const reportedCloseSocketsRef = useRef(new WeakSet<WebSocket>())
   const isOffline = useCallback(() => {
     if (offlineRef.current) return true
     if (!isBrowserOffline()) return false
@@ -220,17 +202,11 @@ export function useUserWs(
     options?.onDisconnect,
   ])
 
-  const observedSockets = useRef(new WeakMap<WebSocket, { generation: number; start: number; operation?: PageOperation }>())
   const connectRef = useRef<(() => Promise<void>) | null>(null)
 
   const publishConnectionPhase = useCallback((phase: UserWsConnectionPhase) => {
     if (lastConnectionPhaseRef.current === phase) return
     lastConnectionPhaseRef.current = phase
-    const observed = wsRef.current ? observedSockets.current.get(wsRef.current) : undefined
-    if (phase === "authenticated" && observed?.generation === telemetryGeneration()) {
-      finishPageOperation(observed.operation, "success")
-      emitTelemetry("ws.ready", { ...pageOperationAttributes(observed.operation), phase: "auth", outcome: "success", duration_ms: performance.now() - observed.start })
-    }
     runLifecycleCallback("connection-state", () =>
       onConnectionStateChangeRef.current?.(phase))
   }, [])
@@ -253,55 +229,20 @@ export function useUserWs(
 
   }, [])
 
-  const reportTokenAttempt = useCallback((
-    attempt: PendingTokenAttempt,
-    result: CommunityWsLifecycleStageResult,
-  ) => {
-    if (attempt.reported) return
-    attempt.reported = true
-    finishPageOperation(attempt.operation, result === "success" ? "success" : result === "aborted" ? "cancelled" : result === "timeout" ? "timeout" : "error")
-    if (attempt.observationGeneration === telemetryGeneration()) emitTelemetry("ws.connect", { ...pageOperationAttributes(attempt.operation), phase: "token", outcome: result === "success" ? "success" : result === "aborted" ? "cancelled" : result === "timeout" ? "timeout" : "error", duration_ms: attempt.operation ? performance.now() - attempt.operation.start : boundedDurationMs(attempt.startedAt) })
-
-  }, [])
-
   const abortPendingToken = useCallback(() => {
     const attempt = pendingTokenRef.current
     pendingTokenRef.current = null
     if (attempt) {
-      reportTokenAttempt(attempt, "aborted")
       attempt.controller.abort()
     }
     if (tokenTimeoutRef.current !== null) {
       clearTimeout(tokenTimeoutRef.current)
       tokenTimeoutRef.current = null
     }
-  }, [reportTokenAttempt])
-
-  const closeSocket = useCallback((ws: WebSocket) => {
-    if (
-      !localCloseSocketsRef.current.has(ws)
-      && ws.readyState !== WebSocket.CLOSING
-      && ws.readyState !== WebSocket.CLOSED
-    ) {
-      localCloseSocketsRef.current.add(ws)
-    }
-    ws.close()
   }, [])
 
-  const reportSocketClose = useCallback((
-    ws: WebSocket,
-    event?: Pick<CloseEvent, "code" | "wasClean">,
-  ) => {
-    const localInitiator = localCloseSocketsRef.current.has(ws)
-    localCloseSocketsRef.current.delete(ws)
-    const code = normalizedCloseCode(event?.code)
-    if (!reportedCloseSocketsRef.current.has(ws)) {
-      reportedCloseSocketsRef.current.add(ws)
-      const observed = observedSockets.current.get(ws)
-      finishPageOperation(observed?.operation, localInitiator ? "cancelled" : "error")
-      if (observed?.generation === telemetryGeneration()) emitTelemetry("ws.close", { ...pageOperationAttributes(observed.operation), phase: "transport", outcome: "observed", duration_ms: performance.now() - observed.start, status: code })
-
-    }
+  const closeSocket = useCallback((ws: WebSocket) => {
+    ws.close()
   }, [])
 
   const stopHeartbeat = useCallback(() => {
@@ -322,7 +263,7 @@ export function useUserWs(
     }
     stopHeartbeat()
     if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
-    if (ws) { finishPageOperation(observedSockets.current.get(ws)?.operation, "cancelled"); closeSocket(ws) }
+    if (ws) closeSocket(ws)
     if (disconnected) runLifecycleCallback("disconnect", onDisconnectRef.current)
   }, [clearConnectionValidation, closeSocket, stopHeartbeat])
 
@@ -346,7 +287,6 @@ export function useUserWs(
     const attempt = reconnectAttemptRef.current + 1
     reconnectAttemptRef.current = attempt
     reconnectDelay.current = Math.min(windowMs * 2, WS_RECONNECT_MAX)
-    emitTelemetry("ws.reconnect", { phase: "transport", attempt, duration_ms: delayMs, outcome: "observed" })
 
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null
@@ -481,7 +421,6 @@ export function useUserWs(
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
-    const observationGeneration = telemetryGeneration(), observationPage = currentPageObservation()
     const currentSession = currentSdkWsSession(viewerUserId)
     const canReuseSession = hasAuthenticatedBeforeRef.current || !useLocalServices
       || Number(window.location.port) === WS_DO_PORT_DEFAULT
@@ -499,12 +438,7 @@ export function useUserWs(
       const tokenAttempt: PendingTokenAttempt = {
         controller: tokenController,
         generation,
-        startedAt: Date.now(),
-        reported: false,
-        observationGeneration,
-        operation: startPageOperation("ws.connect", { phase: "token" }, observationPage),
       }
-      if (isTelemetryEligible()) emitTelemetry("ws.connect", { ...pageOperationAttributes(tokenAttempt.operation), phase: "token", start_ms: performance.now(), outcome: "observed" })
       pendingTokenRef.current = tokenAttempt
       let tokenTimedOut = false
       tokenTimeoutRef.current = setTimeout(() => {
@@ -512,8 +446,6 @@ export function useUserWs(
         tokenTimedOut = true
         pendingTokenRef.current = null
         tokenTimeoutRef.current = null
-        reportTokenAttempt(tokenAttempt, "timeout")
-
         tokenController.abort()
         scheduleReconnect(generation)
       }, WS_TOKEN_TIMEOUT_MS)
@@ -521,7 +453,7 @@ export function useUserWs(
       const refresh = Boolean(retry.rejectedSessionId) && !retry.refreshUsed
       if (refresh) retry.refreshUsed = true
       try {
-        const res = await runPageOperation(tokenAttempt.operation, () => fetch(refresh ? "/api/ws/token?refresh=1" : "/api/ws/token", { signal: tokenController.signal }))
+        const res = await fetch(refresh ? "/api/ws/token?refresh=1" : "/api/ws/token", { signal: tokenController.signal })
         if (
           pendingTokenRef.current !== tokenAttempt
           || generation !== connectionGenerationRef.current
@@ -529,8 +461,6 @@ export function useUserWs(
           || !isCurrentWsAccount(viewerUserId)
         ) return
         if (!res.ok) {
-          reportTokenAttempt(tokenAttempt, "failure")
-
           console.warn("[ws] token fetch failed:", res.status)
           if (viewerUserId !== undefined && (res.status === 401 || res.status === 403)) stopCredentialRetry()
           else scheduleReconnect(generation)
@@ -544,12 +474,9 @@ export function useUserWs(
           || !isCurrentWsAccount(viewerUserId)
         ) return
         if (viewerUserId !== undefined && body.userId !== viewerUserId) {
-          reportTokenAttempt(tokenAttempt, "failure")
-
           stopCredentialRetry()
           return
         }
-        reportTokenAttempt(tokenAttempt, "success")
         userId = body.userId
         authToken = body.token
         if (body.wsPort) wsPort = body.wsPort
@@ -562,8 +489,6 @@ export function useUserWs(
           || !isCurrentWsAccount(viewerUserId)
         ) return
         if (tokenController.signal.aborted || tokenTimedOut) return
-        reportTokenAttempt(tokenAttempt, "failure")
-
         console.warn("[ws] token fetch error:", err)
         scheduleReconnect(generation)
         return
@@ -592,23 +517,18 @@ export function useUserWs(
     let communityAdmission = Promise.resolve()
     let pendingAdmissions = 0
     let ws: WebSocket
-    let socketObservation: PageOperation | undefined
     try {
       if (generation !== connectionGenerationRef.current || isOffline() || !isCurrentWsAccount(viewerUserId)) return
       retireSocket(true)
       if (generation !== connectionGenerationRef.current || isOffline() || !isCurrentWsAccount(viewerUserId)) return
-      socketObservation = startPageOperation("ws.connect", { phase: "transport" }, observationPage)
       ws = new WebSocket(url)
     } catch (err) {
-      finishPageOperation(socketObservation, "error")
       if (generation !== connectionGenerationRef.current) return
 
       console.warn("[ws] WebSocket creation failed:", err)
       scheduleReconnect(generation)
       return
     }
-    observedSockets.current.set(ws, { generation: observationGeneration, start: performance.now(), operation: socketObservation })
-    if (observationGeneration === telemetryGeneration()) emitTelemetry("ws.connect", { ...pageOperationAttributes(socketObservation), phase: "transport", outcome: "observed" })
     wsRef.current = ws
     connectStartedAtRef.current = Date.now()
     connectTimeoutRef.current = setTimeout(() => {
@@ -782,7 +702,6 @@ export function useUserWs(
     ws.onerror = () => {}
 
     ws.onclose = (event) => {
-      reportSocketClose(ws, event)
       if (!ownsConnection(ws, generation)) return
       const validation = connectionValidationRef.current
       const failedValidation = Boolean(
@@ -825,8 +744,6 @@ export function useUserWs(
     ownsAuthenticatedConnection,
     ownsConnection,
     publishConnectionPhase,
-    reportSocketClose,
-    reportTokenAttempt,
     retireSocket,
     recoverTimedOutConnection,
     scheduleReconnect,
