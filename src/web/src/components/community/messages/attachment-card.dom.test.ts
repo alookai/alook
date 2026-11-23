@@ -1,7 +1,7 @@
 import React, { type ReactElement } from "react"
 import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { AttachmentCard } from "./attachment-card"
 import type { FileAttachment } from "@/lib/community/models/message"
 
@@ -23,8 +23,8 @@ function attachment(overrides: Partial<FileAttachment> = {}): FileAttachment {
 }
 
 describe("AttachmentCard", () => {
-  beforeEach(() => {})
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -46,12 +46,8 @@ describe("AttachmentCard", () => {
 
   it("downloads unsupported files through the shared owner and preserves the original filename", async () => {
     const onPreview = vi.fn()
-    const anchor = { href: "", download: "", hidden: false, click: vi.fn(), remove: vi.fn() }
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined)
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("bytes")))
-    vi.stubGlobal("document", {
-      createElement: vi.fn(() => anchor),
-      body: { appendChild: vi.fn() },
-    })
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:file"), revokeObjectURL: vi.fn() })
     const archive = attachment({ name: "report-€.zip", contentType: "application/zip" })
     let renderer: ReturnType<typeof render>
@@ -70,8 +66,8 @@ describe("AttachmentCard", () => {
     })
     await waitFor(() => expect(renderer!.getByRole("status")).toHaveTextContent("Download started"), { container: rtlContainer })
     expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
-    expect(anchor).toEqual(expect.objectContaining({ href: "blob:file", download: "report-€.zip" }))
-    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(anchorClick).toHaveBeenCalledOnce()
+    expect(anchorClick.mock.contexts[0]).toMatchObject({ href: "blob:file", download: "report-€.zip" })
     expect(onPreview).not.toHaveBeenCalled()
     expect(renderer!.getByRole("status")).toHaveTextContent("Download started")
   })
@@ -149,12 +145,8 @@ describe("AttachmentCard", () => {
     let streamController!: ReadableStreamDefaultController<Uint8Array>
     const stream = new ReadableStream<Uint8Array>({ start(controller) { streamController = controller } })
     const fetchMock = vi.fn().mockResolvedValue(new Response(stream))
-    const anchor = { href: "", download: "", hidden: false, click: vi.fn(), remove: vi.fn() }
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined)
     vi.stubGlobal("fetch", fetchMock)
-    vi.stubGlobal("document", {
-      createElement: vi.fn(() => anchor),
-      body: { appendChild: vi.fn() },
-    })
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:file"), revokeObjectURL: vi.fn() })
     const pdf = attachment({ name: "report.pdf", contentType: "application/pdf" })
     let renderer: ReturnType<typeof render>
@@ -185,7 +177,7 @@ describe("AttachmentCard", () => {
     })
     await waitFor(() => expect(renderer!.getAllByRole("status").map((node) => node.textContent))
       .toEqual(["Download started", "Download started"]), { container: rtlContainer })
-    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(anchorClick).toHaveBeenCalledOnce()
     expect(renderer!.getAllByRole("status").map((node) => node.textContent))
       .toEqual(["Download started", "Download started"])
   })

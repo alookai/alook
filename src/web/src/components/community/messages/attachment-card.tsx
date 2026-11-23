@@ -6,6 +6,7 @@ import { Archive, CircleCheck, Download, Eye, File, FileImage, FileSpreadsheet, 
 import type { FileAttachment } from "@/lib/community/models/message"
 import { MediaAttachmentBlock } from "./media-attachment-block"
 import { VideoAttachmentBlock } from "./video-attachment-block"
+import { AttachmentContextMenu } from "./attachment-context-menu"
 import { tid } from "@/lib/community/testids"
 import {
   resolveAttachmentPresentation,
@@ -33,29 +34,36 @@ const CATEGORY_ICONS: Record<AttachmentCategory, LucideIcon> = {
 export function AttachmentCard({
   attachment,
   onPreview,
+  contextMenuDisabled,
 }: {
   attachment: FileAttachment
   onPreview?: (attachment: FileAttachment) => void
+  contextMenuDisabled?: boolean
 }) {
   const presentation = resolveAttachmentPresentation(attachment.name, attachment.contentType)
-  if (presentation.category === "video") return <VideoAttachmentBlock attachment={attachment} />
+  if (presentation.category === "video") {
+    return <VideoAttachmentBlock attachment={attachment} contextMenuDisabled={contextMenuDisabled} />
+  }
   if (presentation.category === "audio") {
     return (
       <MediaAttachmentBlock
         attachment={attachment}
         mediaKind={presentation.category}
+        contextMenuDisabled={contextMenuDisabled}
       />
     )
   }
-  return <FileAttachmentCard attachment={attachment} onPreview={onPreview} />
+  return <FileAttachmentCard attachment={attachment} onPreview={onPreview} contextMenuDisabled={contextMenuDisabled} />
 }
 
 function FileAttachmentCard({
   attachment,
   onPreview,
+  contextMenuDisabled,
 }: {
   attachment: FileAttachment
   onPreview?: (attachment: FileAttachment) => void
+  contextMenuDisabled?: boolean
 }) {
   const presentation = resolveAttachmentPresentation(attachment.name, attachment.contentType)
   const download = useFileDownload(attachment)
@@ -79,7 +87,7 @@ function FileAttachmentCard({
         ? "Retry download"
         : "Download"
 
-  return (
+  const card = (
     <button
       type="button"
       data-testid={tid.attachmentCard(attachment.name)}
@@ -110,4 +118,12 @@ function FileAttachmentCard({
       />
     </button>
   )
+  return <AttachmentContextMenu
+    attachmentName={attachment.name}
+    trigger={card}
+    disabled={contextMenuDisabled}
+    onOpen={onPreview ? () => onPreview(attachment) : undefined}
+    onDownload={() => { void download.start() }}
+    downloading={download.state.status === "downloading"}
+  />
 }

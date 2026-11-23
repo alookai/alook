@@ -37,14 +37,10 @@ class FakeElement {
     ) {
       return this
     }
-    if (
-      selector === '[data-native-context-menu="true"]'
-      && this.attributes.get("data-native-context-menu") === "true"
-    ) {
-      return this
+    for (const part of selector.split(", ")) {
+      const attribute = /^\[(data-[\w-]+)="true"\]$/.exec(part)?.[1]
+      if (attribute && this.attributes.get(attribute) === "true") return this
     }
-    if (selector === '[data-message-context-menu="true"]'
-      && this.attributes.get("data-message-context-menu") === "true") return this
     return this.parentElement?.closest(selector) ?? null
   }
 }
@@ -118,9 +114,9 @@ describe("authenticated context-menu policy", () => {
     vi.unstubAllGlobals()
   })
 
-  it("uses the message menu for selected message text but preserves editable and native escapes", () => {
+  it.each(["message", "attachment"])("uses the %s menu over selected content and respects native escapes", (surface) => {
     const row = element()
-    row.setAttribute("data-message-context-menu", "true")
+    row.setAttribute(`data-${surface}-context-menu`, "true")
     const ownerDocument = { caretPositionFromPoint: () => ({ offsetNode: {}, offset: 0 }) } as unknown as Document
     expect(contextMenuDisposition({ event: eventAt(row), selection: selectionWith(), ownerDocument })).toBe("product")
     const input = element("input")

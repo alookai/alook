@@ -10,8 +10,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { memo, useRef } from "react"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
-import { SmilePlus, ImageOff, MessagesSquare, UserPlus, Reply, MoreHorizontal, X, Share, Check } from "@/components/icons/lucide";
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isSecondaryContextPointer } from "@/components/ui/context-menu"
+import { SmilePlus, MessagesSquare, UserPlus, Reply, MoreHorizontal, X, Share, Check } from "@/components/icons/lucide";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isKeyboardContextMenu, isSecondaryContextPointer } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
@@ -38,8 +38,9 @@ import { usePageSwipeStart } from "@/components/ui/swipe-container"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
-import { attachmentImageFrameStyle } from "./attachment-layout"
 import { AttachmentCard } from "./attachment-card"
+import { isAttachmentContextMenuTarget } from "./attachment-context-menu"
+import { MessageImageAttachment } from "./message-image-attachment"
 import {
   advanceMobileReplyGesture,
   beginMobileReplyGesture,
@@ -377,6 +378,7 @@ function MessageImpl({
   const activateFromKeyboard = interactive && !selectMode
     ? (event: React.KeyboardEvent<HTMLElement>) => {
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+        if (isKeyboardContextMenu(event.nativeEvent) && isAttachmentContextMenuTarget(event.target)) return
         dismissTap.current = null
         if (
           (event.key === "Enter" || event.key === " ")
@@ -657,6 +659,7 @@ function MessageImpl({
       onContextMenuCapture={interactive
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            if (isAttachmentContextMenuTarget(event.target)) return
             const selection = window.getSelection?.() ?? null
             setContextSelectedText(selectionBelongsToRow(selection, event.currentTarget)
               ? selection?.toString() || null
@@ -814,33 +817,25 @@ function MessageImpl({
             <div className="flex flex-col gap-2">
               {visibleAttachments.map(({ attachment: a, index: i }) => {
                 if (a.kind === "image") {
-                  const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
-                    <RemoteContentImage
+                    <MessageImageAttachment
                       key={`${m.id}:${i}`}
-                      data-testid={tid.messageImage(m.id, i)}
-                      src={a.thumbnailUrl ?? a.url}
-                      alt={a.name}
-                      width={a.width}
-                      height={a.height}
-                      loading="lazy"
-                      onActivate={() => onPreviewImage?.(withImageGallery({
+                      testId={tid.messageImage(m.id, i)}
+                      attachment={a}
+                      contextMenuDisabled={selectMode}
+                      onOpen={onPreviewImage && (() => onPreviewImage(withImageGallery({
                         key: `${m.id}:${i}`,
                         originalUrl: a.url,
                         thumbnailUrl: a.thumbnailUrl,
                         name: a.name,
                         width: a.width,
                         height: a.height,
-                      }, [m]))}
-                      frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
-                      frameStyle={frameStyle}
-                      imageClassName="block rounded-lg object-contain"
-                      errorLabel={<ImageOff role="img" aria-label="Image unavailable" className="size-7" />}
-                      onReady={onImageLoad ? () => onImageLoad() : undefined}
+                      }, [m])))}
+                      onReady={onImageLoad}
                     />
                   )
                 }
-                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} />
+                return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} contextMenuDisabled={selectMode} />
               })}
             </div>
           )}
