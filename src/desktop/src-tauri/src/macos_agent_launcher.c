@@ -182,15 +182,25 @@ static int process_identity(pid_t pid, struct proc_bsdinfo *identity) {
     return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, identity, sizeof(*identity)) == sizeof(*identity);
 }
 
-static int cleanup_backend(const char *node, const char *entrypoint, pid_t pid, const struct proc_bsdinfo *identity, uint32_t grace) {
+static int cleanup_backend(const char *node, const char *entrypoint, size_t node_argc,
+                           const char *const *node_args, pid_t pid, const struct proc_bsdinfo *identity, uint32_t grace) {
     struct proc_bsdinfo current;
     if (!process_identity(pid, &current) || current.pbi_start_tvsec != identity->pbi_start_tvsec
         || current.pbi_start_tvusec != identity->pbi_start_tvusec) return 0;
     char process_id[16], grace_ms[16];
     snprintf(process_id, sizeof(process_id), "%d", pid);
     snprintf(grace_ms, sizeof(grace_ms), "%u", grace);
-    char *const argv[] = {(char *)node, (char *)entrypoint, "--alook-macos-agent-cleanup", process_id, grace_ms, NULL};
-    return system_tool(argv, grace + 3000);
+    char **argv = calloc(node_argc + 6, sizeof(*argv));
+    if (!argv) return -1;
+    argv[0] = (char *)node;
+    for (size_t i = 0; i < node_argc; i++) argv[i + 1] = (char *)node_args[i];
+    argv[node_argc + 1] = (char *)entrypoint;
+    argv[node_argc + 2] = "--alook-macos-agent-cleanup";
+    argv[node_argc + 3] = process_id;
+    argv[node_argc + 4] = grace_ms;
+    int result = system_tool(argv, grace + 3000);
+    free(argv);
+    return result;
 }
 
 static pid_t verified_peer(int connection, const char *launcher) {
@@ -206,7 +216,8 @@ static pid_t verified_peer(int connection, const char *launcher) {
     return peer;
 }
 
-static int supervise(const char *launcher, const char *node, const char *entrypoint) {
+static int supervise(const char *launcher, const char *node, const char *entrypoint,
+                     size_t node_argc, const char *const *node_args) {
     if (node[0] != '/' || entrypoint[0] != '/') return LAUNCH_ERROR;
     if (fcntl(CONTROL, F_SETFD, FD_CLOEXEC) || set_socket_timeout(CONTROL)) return LAUNCH_ERROR;
     uint32_t size;
@@ -269,7 +280,7 @@ static int supervise(const char *launcher, const char *node, const char *entrypo
     } else {
         uint32_t grace;
         if (transfer(CONTROL, &grace, sizeof(grace), 0) || grace > 99999) grace = 2000;
-        cleaned = cleanup_backend(node, entrypoint, peer, &identity, grace) == 0;
+        cleaned = cleanup_backend(node, entrypoint, node_argc, node_args, peer, &identity, grace) == 0;
         if (cleaned) status = 0;
     }
 
@@ -308,7 +319,7 @@ cleanup:
 int alook_macos_agent_main(int argc, const char *const *argv) {
     if (argc < 2) return -1;
     if (!strcmp(argv[1], "--alook-agent-exec")) return argc == 3 ? run_backend(argv[2]) : LAUNCH_ERROR;
-    if (!strcmp(argv[1], "--alook-agent-supervise")) return argc == 4 ? supervise(argv[0], argv[2], argv[3]) : LAUNCH_ERROR;
+    if (!strcmp(argv[1], "--alook-agent-supervise")) return argc >= 4 ? supervise(argv[0], argv[2], argv[3], (size_t)(argc - 4), argv + 4) : LAUNCH_ERROR;
     return -1;
 }
 

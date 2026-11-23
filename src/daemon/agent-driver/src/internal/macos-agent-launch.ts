@@ -83,7 +83,7 @@ export function spawnMacosAgent(command: string, args: string[], options: Launch
 
   const payload = launchPayload(executable, args, options);
   if (payload.byteLength > 4 * 1024 * 1024) throw new Error("macOS agent launch environment is too large");
-  const processHandle = spawn(launcher, ["--alook-agent-supervise", process.execPath, entrypoint], {
+  const processHandle = spawn(launcher, ["--alook-agent-supervise", process.execPath, entrypoint, ...process.execArgv], {
     env: { PATH: "/usr/bin:/bin" },
     stdio: [options.stdin ?? "pipe", "pipe", "pipe", "pipe"],
     detached: true,

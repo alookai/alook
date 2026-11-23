@@ -13,6 +13,7 @@ const guiSession = process.platform === "darwin"
 describe.runIf(guiSession)("macOS backend launch", () => {
   let directory: string;
   let originalEntrypoint: string;
+  let originalNodeArgs: string[];
 
   beforeAll(() => {
     directory = mkdtempSync("/private/tmp/alook-launch-test.");
@@ -21,11 +22,15 @@ describe.runIf(guiSession)("macOS backend launch", () => {
       "clang", "-Wall", "-Wextra", "-Werror", "-DALOOK_AGENT_LAUNCHER_STANDALONE", "-framework", "CoreFoundation",
       fileURLToPath(new URL("../../../../desktop/src-tauri/src/macos_agent_launcher.c", import.meta.url)), "-o", launcher,
     ]);
+    const preload = join(directory, "preload.cjs");
+    writeFileSync(preload, "globalThis.alookCleanupPreloaded = true;");
+    originalNodeArgs = process.execArgv;
+    process.execArgv = ["--require", preload];
     const entrypoint = join(directory, "cleanup.mjs");
     writeFileSync(entrypoint, `
       import { writeFileSync } from "node:fs";
       import { setTimeout } from "node:timers/promises";
-      if (process.argv[2] !== "--alook-macos-agent-cleanup") process.exit(1);
+      if (!globalThis.alookCleanupPreloaded || process.argv[2] !== "--alook-macos-agent-cleanup") process.exit(1);
       const pid = Number(process.argv[3]);
       process.kill(pid, "SIGTERM");
       for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -44,6 +49,7 @@ describe.runIf(guiSession)("macOS backend launch", () => {
 
   afterAll(() => {
     if (originalEntrypoint) process.argv[1] = originalEntrypoint;
+    if (originalNodeArgs) process.execArgv = originalNodeArgs;
     vi.unstubAllEnvs();
     if (directory) rmSync(directory, { recursive: true, force: true });
   });
