@@ -1,3 +1,5 @@
+import { tid } from "../_fixtures/testids"
+
 export type StabilitySurfaceKind = "text" | "dm" | "thread" | "forum-post" | "forum-list"
 
 export type StabilityShiftSample = Readonly<{
@@ -71,7 +73,7 @@ export const STABILITY_PROBE_INIT_SCRIPT = `(() => {
     const scopeRoot = state.scopeSelector ? document.querySelector(state.scopeSelector) : document
     if (!scopeRoot) return { container: null, scroller: null, content: null }
     if (state.surface === "forum-list") {
-      const scroller = scopeRoot.querySelector('[data-testid="community-forum-post-list"]')
+      const scroller = scopeRoot.querySelector('[data-testid="${tid.forumPostList}"]')
       const container = scroller ? scroller.parentElement : scopeRoot
       const content = scroller ? scroller.querySelector("[data-message-list-content]") : null
       return { container, scroller, content }
@@ -79,7 +81,7 @@ export const STABILITY_PROBE_INIT_SCRIPT = `(() => {
     const surface = scopeRoot.querySelector(
       '[data-slot="community-conversation-surface"][data-channel-id="' + state.channelId + '"]',
     )
-    const scroller = surface ? surface.querySelector('[data-testid="community-message-scroller"]') : null
+    const scroller = surface ? surface.querySelector('[data-testid="${tid.messageScroller}"]') : null
     const content = scroller ? scroller.querySelector("[data-message-list-content]") : null
     return { container: surface, scroller, content }
   }
@@ -122,7 +124,7 @@ export const STABILITY_PROBE_INIT_SCRIPT = `(() => {
     const visibleNow = new Map()
     const scrollerRect = scroller.getBoundingClientRect()
     if (state.surface === "forum-list") {
-      const cards = scroller.querySelectorAll('[data-page-swipe-navigation-row][data-testid^="community-forum-post-"]')
+      const cards = scroller.querySelectorAll('[data-page-swipe-navigation-row][data-testid^="${tid.forumThreadCard("")}"]')
       for (const card of cards) {
         if (!isRowVisible(content, card, scrollerRect)) continue
         const id = card.getAttribute("data-testid")
