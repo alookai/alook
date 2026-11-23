@@ -14,6 +14,7 @@ import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/communit
 import { renderCommunityThumbnail } from "@/lib/community-image-thumbnail"
 import { captureVideoPreviewOwner, readVideoPreview, saveVideoPreview, type VideoPreviewOwner } from "@/lib/community/video-preview-cache"
 import { attachmentImageFrameStyle } from "./attachment-layout"
+import { AttachmentContextMenu } from "./attachment-context-menu"
 import "@videojs/react/video/neutral-skin.css"
 import "./video-attachment.css"
 
@@ -125,7 +126,11 @@ function VideoControls({ attachment, download, expanded, onExpand }: {
   </>
 }
 
-function VideoAttachmentSession({ attachment, registry }: { attachment: FileAttachment; registry: CommunityDbRegistry | null }) {
+function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
+  attachment: FileAttachment
+  registry: CommunityDbRegistry | null
+  contextMenuDisabled?: boolean
+}) {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null)
   const [maskSlot, setMaskSlot] = useState<HTMLDivElement | null>(null)
@@ -296,14 +301,23 @@ function VideoAttachmentSession({ attachment, registry }: { attachment: FileAtta
     </Container>
   </VideoPlayer>
 
-  return <>
-    <article data-testid={tid.mediaBlock(attachment.name)} data-media-kind="video"
+  const card = <article data-testid={tid.mediaBlock(attachment.name)} data-media-kind="video"
       className="alook-video-attachment block max-w-full overflow-hidden rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
       style={attachmentImageFrameStyle(dimensions?.width, dimensions?.height)}>
       <div ref={setInlineSlot} className="alook-video-slot" />
+      {host && createPortal(player, host)}
     </article>
+
+  return <>
+    <AttachmentContextMenu
+      attachmentName={attachment.name}
+      trigger={card}
+      disabled={contextMenuDisabled}
+      onOpen={() => setExpanded(true)}
+      onDownload={() => { void download.start() }}
+      downloading={download.state.status === "downloading"}
+    />
     {!expanded && downloadError}
-    {host && createPortal(player, host)}
     <Dialog open={expanded} onOpenChange={(next, details) => {
       if (!next && details.reason === "escape-key" && (details.event.defaultPrevented
         || host?.querySelector('.media-menu-popup[data-open], .media-menu-popup[data-ending-style]'))) {
@@ -327,7 +341,11 @@ function VideoAttachmentSession({ attachment, registry }: { attachment: FileAtta
   </>
 }
 
-export function VideoAttachmentBlock({ attachment }: { attachment: FileAttachment }) {
+export function VideoAttachmentBlock({ attachment, contextMenuDisabled }: {
+  attachment: FileAttachment
+  contextMenuDisabled?: boolean
+}) {
   const registry = getCommunityDbRegistry(useQueryClient())
-  return <VideoAttachmentSession key={`${registry?.accountId ?? ""}\u0000${attachment.url}\u0000${attachment.name}`} attachment={attachment} registry={registry} />
+  return <VideoAttachmentSession key={`${registry?.accountId ?? ""}\u0000${attachment.url}\u0000${attachment.name}`}
+    attachment={attachment} registry={registry} contextMenuDisabled={contextMenuDisabled} />
 }

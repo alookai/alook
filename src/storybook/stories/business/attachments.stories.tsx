@@ -1,23 +1,41 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite"
 import { useState } from "react"
 import { fn } from "storybook/test"
-import { BusinessFixtures } from "../../preview/business-fixtures"
+import { AccountFixtures } from "../../preview/business-fixtures"
 import { AttachmentCard } from "@/components/community/messages/attachment-card"
 import { AttachmentPreviewSheet } from "@/components/community/messages/attachment-preview-sheet"
 import { HtmlAttachmentPreview } from "@/components/community/messages/html-attachment-preview"
 import { ImageLightbox } from "@/components/community/messages/image-lightbox"
+import { Message } from "@/components/community/messages/message"
+import { MessageImageAttachment } from "@/components/community/messages/message-image-attachment"
 import { CodePreview } from "@/components/community/messages/code-preview"
 import { FileDownloadButton } from "@/components/file-download-button"
-import { Button } from "@/components/ui/button"
 import { Spoiler, MentionPill, ChannelPill, ServerPill } from "@/components/community/messages/inline-marks"
 import { RedactedText } from "@/components/community/messages/redacted-text"
 import type { FileAttachment } from "@/lib/community/models/message"
 
 const pdf: FileAttachment = { id: "storybook-pdf", kind: "file", name: "example.pdf", url: "/preview/example.pdf", size: "1 KB", contentType: "application/pdf" }
 const html = { id: "storybook-html", kind: "file" as const, name: "attachment.html", url: "/preview/attachment.html", size: "1 KB", contentType: "text/html" }
-function PdfExample() { const [open, setOpen] = useState(false); return <><AttachmentCard attachment={pdf} onPreview={() => setOpen(true)} /><AttachmentPreviewSheet open={open} attachment={open ? pdf : null} onOpenChange={(next) => setOpen(next)} /></> }
-function ImageExample() { const [open, setOpen] = useState(false); return <><Button onClick={() => setOpen(true)}>Open image</Button><ImageLightbox image={open ? { originalUrl: "/landing/people/lin.webp", name: "Profile artwork" } : null} onClose={() => setOpen(false)} /></> }
-const meta = { title: "Web/Business/Attachments and rich content", tags: ["ai-generated"], decorators: [(Story) => <BusinessFixtures><Story /></BusinessFixtures>], parameters: { docs: { description: { component: "Actual attachment renderers with local PDF/HTML/code/audio files. Media playback, clipboard and OS download outcomes require their own actual checks." } } } } satisfies Meta
+function PdfExample() {
+  const [open, setOpen] = useState(false)
+  return <>
+    <Message
+      m={{ id: "storybook-agenda", type: "chat", authorName: "Alli", content: "Here is the agenda for tomorrow.", grouped: false, attachments: [pdf] }}
+      onCopy={fn()}
+      onPreviewAttachment={() => setOpen(true)}
+    />
+    <AttachmentPreviewSheet open={open} attachment={open ? pdf : null} onOpenChange={setOpen} />
+  </>
+}
+function ImageExample() {
+  const [open, setOpen] = useState(false)
+  const image = { kind: "image" as const, name: "Profile artwork", url: "/landing/people/lin.webp", width: 320, height: 320 }
+  return <>
+    <MessageImageAttachment attachment={image} onOpen={() => setOpen(true)} testId="storybook-image-attachment" />
+    <ImageLightbox image={open ? { originalUrl: image.url, name: image.name } : null} onClose={() => setOpen(false)} />
+  </>
+}
+const meta = { title: "Web/Business/Attachments and rich content", tags: ["ai-generated"], decorators: [(Story) => <AccountFixtures><Story /></AccountFixtures>], parameters: { docs: { description: { component: "Actual attachment renderers with local PDF/HTML/code/audio files. Media playback, clipboard and OS download outcomes require their own actual checks." } } } } satisfies Meta
 export default meta
 type Story = StoryObj<typeof meta>
 export const Pdf: Story = { render: () => <PdfExample /> }

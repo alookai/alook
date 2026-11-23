@@ -1080,16 +1080,61 @@ describe("Message image attachment layout", () => {
 })
 
 describe("Message file attachment", () => {
+  const file = { kind: "file" as const, name: "notes.md", url: "/notes", contentType: "text/markdown", sizeBytes: 128, size: "128 B" }
 
   it("opens previewable files through the shared attachment card", () => {
     const onPreviewAttachment = vi.fn()
-    const file = { kind: "file" as const, name: "notes.md", url: "/notes", contentType: "text/markdown", sizeBytes: 128, size: "128 B" }
     const view = mount({ m: baseMsg({ attachments: [file] }), onPreviewAttachment })
     fireEvent.click(view.getByTestId("community-attachment-card-notes.md"))
     expect(onPreviewAttachment).toHaveBeenCalledOnce()
     expect(onPreviewAttachment).toHaveBeenCalledWith(file)
   })
 
+  it("opens separate context menus for an attachment and its message", async () => {
+    const onPreviewAttachment = vi.fn()
+    const view = mount({
+      m: baseMsg({ attachments: [file] }),
+      onPreviewAttachment,
+      onCopy: vi.fn(),
+      hoverCapable: true,
+    })
+    const card = view.getByRole("button", { name: "Preview notes.md" })
+    const attachmentMenu = await contextMenu(view, card)
+    expect(attachmentMenu).toHaveAccessibleName("Attachment actions for notes.md")
+    expect(within(attachmentMenu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Open", "Download"])
+    fireEvent.click(within(attachmentMenu).getByRole("menuitem", { name: "Open", exact: true }))
+    expect(onPreviewAttachment).toHaveBeenCalledExactlyOnceWith(file)
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+
+    const messageMenu = await contextMenu(view)
+    expect(within(messageMenu).getByRole("menuitem", { name: "Copy Text" })).toBeVisible()
+    expect(within(messageMenu).queryByRole("menuitem", { name: "Download" })).toBeNull()
+  })
+
+  it("opens the attachment menu by keyboard and leaves touch taps on the card", async () => {
+    const onPreviewAttachment = vi.fn()
+    const view = mount({
+      m: baseMsg({ attachments: [file] }),
+      onPreviewAttachment,
+      onCopy: vi.fn(),
+      hoverCapable: false,
+    })
+    const card = view.getByRole("button", { name: "Preview notes.md" })
+    fireEvent.keyDown(card, { key: "F10", shiftKey: true })
+    await waitFor(() => expect(screen.getByRole("menu", { name: "Attachment actions for notes.md" })).toBeVisible())
+    await closeMenu()
+    fireEvent.pointerDown(card, { pointerType: "touch", pointerId: 10, button: 0 })
+    fireEvent.touchStart(card, { touches: [{ clientX: 20, clientY: 20 }] })
+    expect(fireEvent.contextMenu(card, { button: 0 })).toBe(true)
+    fireEvent.touchEnd(card)
+    fireEvent.click(card)
+    expect(onPreviewAttachment).toHaveBeenCalledExactlyOnceWith(file)
+    expect(screen.queryByRole("menu")).toBeNull()
+
+    fireEvent.pointerDown(card, { pointerType: "mouse", pointerId: 11, button: 2 })
+    fireEvent.contextMenu(card, { button: 2 })
+    await waitFor(() => expect(screen.getByRole("menu", { name: "Attachment actions for notes.md" })).toBeVisible())
+  })
 
   it("renders media through the shared progressive-disclosure block", async () => {
     const media = {

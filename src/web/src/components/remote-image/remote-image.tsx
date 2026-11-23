@@ -6,6 +6,7 @@ import {
   useEffect,
   useEffectEvent,
   type CSSProperties,
+  type ReactElement,
   type ReactNode,
   type ImgHTMLAttributes,
   type MouseEvent,
@@ -89,6 +90,7 @@ type ContentImageProps = Omit<
   alt: string
   frameClassName?: string
   frameStyle?: CSSProperties
+  renderFrame?: (frame: ReactElement) => ReactNode
   imageClassName?: string
   imageStyle?: CSSProperties
   loadingLabel?: string
@@ -106,6 +108,7 @@ function ContentImageAttempt({
   alt,
   frameClassName,
   frameStyle,
+  renderFrame,
   imageClassName,
   imageStyle,
   loading = "lazy",
@@ -164,7 +167,7 @@ function ContentImageAttempt({
     </Fragment>
   )
 
-  return (
+  const frame = (
     <div
       data-remote-image-frame
       data-remote-image-state={status}
@@ -198,6 +201,7 @@ function ContentImageAttempt({
       )}
     </div>
   )
+  return renderFrame ? renderFrame(frame) : frame
 }
 
 export function RemoteContentImage(props: ContentImageProps) {

@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 356,
+    "composition": 358,
     "environment": 13,
     "nonvisual": 32,
     "direct": 163
@@ -3124,6 +3124,21 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/community/messages/attachment-context-menu.tsx",
+      "application": "Web",
+      "candidates": [
+        "AttachmentContextMenu"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-attachments-and-rich-content--pdf",
+          "region": "Right-click the PDF card to show Open and Download beside the message's independent menu."
+        }
+      ],
+      "reason": "The story mounts the product component with local fixture data."
+    },
+    {
       "source": "src/web/src/components/community/messages/attachment-preview-sheet.tsx",
       "application": "Web",
       "candidates": [
@@ -3515,6 +3530,21 @@
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/messages/message-image-attachment.tsx",
+      "application": "Web",
+      "candidates": [
+        "MessageImageAttachment"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-attachments-and-rich-content--image",
+          "region": "The image attachment opens the original gallery and provides its own Open and Download menu."
+        }
+      ],
+      "reason": "The story mounts the product component with local fixture data."
     },
     {
       "source": "src/web/src/components/community/messages/message-list-row.tsx",

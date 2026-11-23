@@ -8,6 +8,7 @@ import { CircleCheck, Download, LoaderCircle, Pause, Play, RefreshCw, Square } f
 import { Button } from "@/components/ui/button"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment } from "@/lib/community/models/message"
+import { AttachmentContextMenu } from "./attachment-context-menu"
 import {
   fileDownloadStatusText,
   useFileDownload,
@@ -19,9 +20,11 @@ type MediaStatus = "idle" | "loading" | "ready" | "blocked" | "error"
 export function MediaAttachmentBlock({
   attachment,
   mediaKind,
+  contextMenuDisabled,
 }: {
   attachment: FileAttachment
   mediaKind: MediaKind
+  contextMenuDisabled?: boolean
 }) {
   const [mounted, setMounted] = useAtom(useCreateAtom(false))
   const [status, setStatus] = useAtom(useCreateAtom<MediaStatus>("idle"))
@@ -64,7 +67,7 @@ export function MediaAttachmentBlock({
     })
   }
 
-  function togglePlayback(): void {
+  function startPlayback(): void {
     const player = playerRef.current
     if (!player) {
       playOnMountRef.current = true
@@ -74,12 +77,16 @@ export function MediaAttachmentBlock({
       })
       return
     }
+    if (!isPlaying) playPlayer(player)
+  }
+
+  function togglePlayback(): void {
     if (isPlaying) {
-      player.pause()
+      playerRef.current?.pause()
       setIsPlaying(false)
-      return
+    } else {
+      startPlayback()
     }
-    playPlayer(player)
   }
 
   function stopPlayer(): void {
@@ -146,7 +153,7 @@ export function MediaAttachmentBlock({
   const playbackLabel = `${isPlaying ? "Pause" : status === "blocked" ? "Try playing" : "Play"} ${attachment.name}`
   const audioLoading = mediaKind === "audio" && status === "loading"
 
-  return (
+  const card = (
     <article
       data-testid={tid.mediaBlock(attachment.name)}
       data-media-kind={mediaKind}
@@ -276,4 +283,12 @@ export function MediaAttachmentBlock({
       )}
     </article>
   )
+  return <AttachmentContextMenu
+    attachmentName={attachment.name}
+    trigger={card}
+    disabled={contextMenuDisabled}
+    onOpen={status === "error" ? retryPlayer : startPlayback}
+    onDownload={() => { void attachmentDownload.start() }}
+    downloading={attachmentDownload.state.status === "downloading"}
+  />
 }

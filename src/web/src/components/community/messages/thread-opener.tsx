@@ -2,12 +2,11 @@
 
 import { withImageGallery } from "./image-preview-gallery"
 
-import { ImageOff, Hash, ArrowUpRight } from "@/components/icons/lucide";
+import { Hash, ArrowUpRight } from "@/components/icons/lucide";
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
 import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
 import { MessageAuthorLine } from "./message-author-line"
-import { attachmentImageFrameStyle } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -16,11 +15,11 @@ import { tid } from "@/lib/community/testids"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
+import { MessageImageAttachment } from "./message-image-attachment"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { MessageReactions } from "./message-reactions"
-import { RemoteContentImage } from "@/components/remote-image/remote-image"
 import { Button } from "@/components/ui/button"
 
 // Thread opener — the parent message the thread was created from, pinned at
@@ -162,28 +161,19 @@ export function ThreadOpener({
               {msg.attachments.map((a, i) => {
                 if (a.id && htmlPreviews.has(a.id)) return null
                 if (a.kind === "image") {
-                  const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
-                    <RemoteContentImage
+                    <MessageImageAttachment
                       key={`${msg.id}:${i}`}
-                      data-testid={tid.threadOpenerImage(i)}
-                      src={a.thumbnailUrl ?? a.url}
-                      alt={a.name}
-                      width={a.width}
-                      height={a.height}
-                      loading="lazy"
-                      onActivate={() => onPreviewImage?.(withImageGallery({
+                      testId={tid.threadOpenerImage(i)}
+                      attachment={a}
+                      onOpen={onPreviewImage && (() => onPreviewImage(withImageGallery({
                         key: `${msg.id}:${i}`,
                         originalUrl: a.url,
                         thumbnailUrl: a.thumbnailUrl,
                         name: a.name,
                         width: a.width,
                         height: a.height,
-                      }, [msg]))}
-                      frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
-                      frameStyle={frameStyle}
-                      imageClassName="block rounded-lg object-contain"
-                      errorLabel={<ImageOff role="img" aria-label="Image unavailable" className="size-7" />}
+                      }, [msg])))}
                     />
                   )
                 }
