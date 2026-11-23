@@ -1345,5 +1345,5 @@ try {
 }
 
 if (isMainModule) {
-  main().then((code) => { process.stdout.write("", () => process.exit(code)); });
+  void main().then((code) => { process.stdout.write("", () => process.exit(code)); });
 }

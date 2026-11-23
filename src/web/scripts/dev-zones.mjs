@@ -81,13 +81,13 @@ function spawnBackend(label, command, args) {
 
   child.once("error", (error) => {
     console.error(`${label} failed to start`, error)
-    shutdown(1)
+    void shutdown(1)
   })
   child.once("exit", (code, signal) => {
     if (!shuttingDown && !expectedExits.has(child)) {
       console.error(`${label} exited (${signal ?? code ?? "unknown"})`)
       failPhase(new Error(`${label} exited unexpectedly (${signal ?? code ?? "unknown"})`))
-      shutdown(1)
+      void shutdown(1)
     }
   })
 
@@ -333,7 +333,7 @@ async function shutdown(exitCode = 0) {
 }
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, () => shutdown(0))
+  process.once(signal, () => { void shutdown(0) })
 }
 
 try {

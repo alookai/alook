@@ -57,7 +57,8 @@ export function createZoneIngress({
   const upgrades = createUpgradeSocketOwner()
   let closing = false
   let pendingListen
-  const server = http.createServer(async (request, response) => {
+  const server = http.createServer((request, response) => {
+    void (async () => {
     if (phaseGate) {
       try { await phaseGate.ready() } catch {
         response.writeHead(503, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" })
@@ -90,6 +91,7 @@ export function createZoneIngress({
       response.end(`Development backend unavailable: ${error.message}`)
     })
     request.pipe(proxy)
+    })()
   })
 
   server.on("upgrade", (request, socket, head) => {

@@ -19,5 +19,5 @@ try {
 }
 
 if (isMainModule) {
-  runPackageDaemon().then((code) => process.exit(code));
+  void runPackageDaemon().then((code) => process.exit(code));
 }

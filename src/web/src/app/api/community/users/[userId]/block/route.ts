@@ -23,16 +23,16 @@ export const POST = withAuth(humanAuthPolicy, async (_req, ctx) => {
     targetId,
   })
 
-  broadcastToUserSafe(targetId, {
+  void broadcastToUserSafe(targetId, {
     type: WS_EVENTS.FRIEND_BLOCK,
     userId: ctx.userId,
   })
-  broadcastToUserSafe(ctx.userId, { type: WS_EVENTS.FRIEND_BLOCK, userId: targetId, blockedByViewer: true })
+  void broadcastToUserSafe(ctx.userId, { type: WS_EVENTS.FRIEND_BLOCK, userId: targetId, blockedByViewer: true })
 
   // If blocking tore down an existing accepted friendship, tell the other
   // side so their friend list reflects it.
   if (result.removedFriendshipId) {
-    broadcastToUserSafe(targetId, {
+    void broadcastToUserSafe(targetId, {
       type: WS_EVENTS.FRIEND_REMOVE,
       friendshipId: result.removedFriendshipId,
     })
@@ -41,7 +41,7 @@ export const POST = withAuth(humanAuthPolicy, async (_req, ctx) => {
   // Rehydrate any approval card referencing a pending row this block
   // soft-cancelled — an owner's Approve/Deny card or a J2 "waiting on
   // <addressee>" chip → a non-actionable "cancelled" chip.
-  for (const b of result.broadcasts) broadcastToUserSafe(b.userId, b.event)
+  for (const b of result.broadcasts) void broadcastToUserSafe(b.userId, b.event)
 
   return writeJSON(result.row)
 })

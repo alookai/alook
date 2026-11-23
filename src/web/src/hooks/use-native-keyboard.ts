@@ -93,9 +93,10 @@ function createKeyboardOwner() {
     }
     const hide = () => { active = false; animating = false; resizesViewport = false; revision++; clearProjection(); settle(null) }
     const show = (event: PageTransitionEvent) => { if (event.persisted) { active = true; void sync() } }
+    const handleSync = () => { void sync() }
     window.addEventListener("alook:keyboard-change", change)
-    window.addEventListener("alook:geometry-change", sync)
-    window.addEventListener("resize", sync)
+    window.addEventListener("alook:geometry-change", handleSync)
+    window.addEventListener("resize", handleSync)
     window.addEventListener("pagehide", hide)
     window.addEventListener("pageshow", show)
     void sync()
@@ -103,8 +104,8 @@ function createKeyboardOwner() {
       active = false
       revision++
       window.removeEventListener("alook:keyboard-change", change)
-      window.removeEventListener("alook:geometry-change", sync)
-      window.removeEventListener("resize", sync)
+      window.removeEventListener("alook:geometry-change", handleSync)
+      window.removeEventListener("resize", handleSync)
       window.removeEventListener("pagehide", hide)
       window.removeEventListener("pageshow", show)
       clearProjection()

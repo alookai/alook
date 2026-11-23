@@ -66,9 +66,11 @@ const eslintConfig = defineConfig([
       "**/*.test.*",
       "**/*.spec.*",
       "src/test/**",
-      "test-runtime/**",
+      "**/test-runtime/**",
     ],
     rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: { attributes: false } }],
       "no-restricted-syntax": [
         "error",
         {

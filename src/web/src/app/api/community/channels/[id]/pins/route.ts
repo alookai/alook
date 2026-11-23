@@ -68,7 +68,7 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
     throw e
   }
 
-  fanOutToChannel(channelId, {
+  void fanOutToChannel(channelId, {
     type: WS_EVENTS.PIN_ADD,
     channelId,
     messageId: body.messageId,

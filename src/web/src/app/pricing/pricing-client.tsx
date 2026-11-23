@@ -70,7 +70,7 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
       const action: PricingCtaAction = planId !== "free" ? "choose_plan"
         : !signedIn ? "start_free"
         : summary?.subscription && !summary.isFounder ? "manage_cancellation" : "open_app"
-      trackPricingCtaClick({
+      void trackPricingCtaClick({
         plan_id: planId,
         cta_action: action,
         auth_state: signedIn ? "signed_in" : "guest",

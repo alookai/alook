@@ -35,13 +35,13 @@ export const POST = withAuth(humanAuthPolicy, async (_req, ctx) => {
   const otherUserId = friendship.requesterId === ctx.userId
     ? friendship.addresseeId
     : friendship.requesterId
-  broadcastToUserSafe(otherUserId, {
+  void broadcastToUserSafe(otherUserId, {
     type: WS_EVENTS.FRIEND_REJECT,
     friendshipId: id,
   })
   // Rehydrate any owner-approval card referencing this row (J2: the owner
   // approved, then the human addressee rejected → card flips to "Denied").
-  for (const b of broadcasts) broadcastToUserSafe(b.userId, b.event)
+  for (const b of broadcasts) void broadcastToUserSafe(b.userId, b.event)
 
   return writeJSON({ ok: true })
 })

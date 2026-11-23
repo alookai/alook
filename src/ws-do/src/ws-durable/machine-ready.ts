@@ -69,7 +69,7 @@ export async function handleReadyFrame(
 ): Promise<boolean> {
   const readyParse = HostReadyMessageSchema
     .omit({ providerQuotas: true })
-    .passthrough()
+    .loose()
     .safeParse(parsed)
   if (!readyParse.success) return false
   const ready = readyParse.data

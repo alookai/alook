@@ -49,8 +49,8 @@ export function BillingContent({ billing }: { billing: BillingController }) {
         current_plan: toAnalyticsCurrentPlan(summary.plan.id, summary.isFounder),
         entry_point: "billing_sheet",
       } as const
-      if (registry) trackPricingCtaClick(params, captureAnalyticsOwner(registry.runtime.lifecycle))
-      else trackPricingCtaClick(params)
+      if (registry) void trackPricingCtaClick(params, captureAnalyticsOwner(registry.runtime.lifecycle))
+      else void trackPricingCtaClick(params)
     }
     if (summary.isFounder) setFounderOffer(offer)
     else void (subscription ? billing.portal(offer.priceId) : billing.checkout(offer.priceId, false, "billing_sheet"))

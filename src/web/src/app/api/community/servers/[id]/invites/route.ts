@@ -104,7 +104,7 @@ export const POST = withAuth(humanAuthPolicy, async (req, ctx) => {
     },
   }
 
-  fanOutToServerMembers(serverId, event)
+  void fanOutToServerMembers(serverId, event)
 
   return writeJSON({ invite }, 201)
 })

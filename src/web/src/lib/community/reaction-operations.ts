@@ -33,8 +33,8 @@ function fanOutReaction(
     channelId: string
   },
 ): void {
-  if (access.isDm) fanOutToDM(access.channelId, event)
-  else fanOutToChannel(access.channelId, event)
+  if (access.isDm) void fanOutToDM(access.channelId, event)
+  else void fanOutToChannel(access.channelId, event)
 }
 
 export async function setReactionForActor(

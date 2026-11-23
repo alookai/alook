@@ -302,7 +302,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     onCopy: (id: string, selectedText?: string) => {
       const m = messages.find((x) => x.id === id)
       const content = m ? (selectedText ?? m.content ?? "") : ""
-      if (content) { navigator.clipboard?.writeText(content); toast("Copied to clipboard") }
+      if (content) { void navigator.clipboard?.writeText(content); toast("Copied to clipboard") }
     },
     // A DM is a channel (type='dm'), so its id IS the mark route's channelId.
     onMark: (id: string) => toggleMark(dmId, id),

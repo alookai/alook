@@ -82,7 +82,7 @@ export const POST = withAuth(communityActorPolicy(), async (_req, ctx) => {
     },
   }
 
-  fanOutToServerMembers(result.invite.serverId, memberEvent)
+  void fanOutToServerMembers(result.invite.serverId, memberEvent)
 
   // A bot's OWNER isn't necessarily a member of the joined server, so the
   // member-scoped fan-out above never reaches them; send the same event
@@ -90,7 +90,7 @@ export const POST = withAuth(communityActorPolicy(), async (_req, ctx) => {
   // member window join deduplication dedupes by userId, so double-delivery (owner also a member)
   // is a no-op.
   if (actor.kind === "bot") {
-    broadcastToUserSafe(actor.ownerUserId, memberEvent)
+    void broadcastToUserSafe(actor.ownerUserId, memberEvent)
   }
 
   // Superset response: the human web client reads member/serverId; the bot's

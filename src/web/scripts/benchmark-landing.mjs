@@ -30,7 +30,7 @@ try {
     window.__landingBench = { lcp: 0, fonts: 0, heroReady: 0 };
     new PerformanceObserver(list => { for (const e of list.getEntries()) window.__landingBench.lcp = e.startTime; }).observe({ type: 'largest-contentful-paint', buffered: true });
     document.addEventListener('DOMContentLoaded', () => {
-     document.fonts.ready.then(() => { window.__landingBench.fonts = performance.now(); });
+     void document.fonts.ready.then(() => { window.__landingBench.fonts = performance.now(); });
      const check = () => {
       const hero = document.querySelector('.hero-section');
       const paper = hero?.querySelector('.tw-paper');

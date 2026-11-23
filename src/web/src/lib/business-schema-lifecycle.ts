@@ -170,9 +170,9 @@ async function currentWorker(registration: ServiceWorkerRegistration): Promise<{
     const cleanup = () => {
       finished = true
       clearTimeout(timer)
-      navigator.serviceWorker.removeEventListener("controllerchange", check)
+      navigator.serviceWorker.removeEventListener("controllerchange", handleCheck)
       registration.removeEventListener("updatefound", watchInstalling)
-      installing?.removeEventListener("statechange", check)
+      installing?.removeEventListener("statechange", handleCheck)
     }
     const check = async () => {
       if (finished) return
@@ -194,14 +194,15 @@ async function currentWorker(registration: ServiceWorkerRegistration): Promise<{
       } while (pending)
       checking = false
     }
+    const handleCheck = () => { void check() }
     const watchInstalling = () => {
-      installing?.removeEventListener("statechange", check)
+      installing?.removeEventListener("statechange", handleCheck)
       installing = registration.installing
-      installing?.addEventListener("statechange", check)
+      installing?.addEventListener("statechange", handleCheck)
       void check()
     }
     const timer = setTimeout(() => { cleanup(); reject(new Error("Update unavailable")) }, 10_000)
-    navigator.serviceWorker.addEventListener("controllerchange", check)
+    navigator.serviceWorker.addEventListener("controllerchange", handleCheck)
     registration.addEventListener("updatefound", watchInstalling)
     watchInstalling()
   })

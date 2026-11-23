@@ -29,7 +29,7 @@ export async function inviteAutomationFriend(req: NextRequest, ctx: { env: Env; 
   if (!invite) {
     const created = await queries.communityInvite.createInvite(db, { serverId: server.id, createdBy: ctx.userId, maxActive: MAX_ACTIVE_INVITES_PER_SERVER })
     if (created) {
-      fanOutToServerMembers(server.id, { type: WS_EVENTS.INVITE_CREATE, serverId: server.id,
+      void fanOutToServerMembers(server.id, { type: WS_EVENTS.INVITE_CREATE, serverId: server.id,
         invite: { id: created.id, token: created.token, maxUses: created.maxUses, uses: created.uses, expiresAt: created.expiresAt, createdAt: created.createdAt } })
       invite = { ...created, creatorId: ctx.userId, creatorName: null, creatorEmail: null, creatorImage: null, creatorAvatarVersion: null }
     }

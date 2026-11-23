@@ -170,7 +170,7 @@ class ReadCoordinator {
       if (previous.timer !== null) clearTimeout(previous.timer)
       if (previous.releaseTimer !== null) clearTimeout(previous.releaseTimer)
       previous.inFlight?.controller.abort()
-      if (previous.attentionOptimistic) commitAttentionOptimisticSnapshot(previous.attentionOptimistic.registry, previous.attentionOptimistic.snapshot)
+      if (previous.attentionOptimistic) void commitAttentionOptimisticSnapshot(previous.attentionOptimistic.registry, previous.attentionOptimistic.snapshot)
     }
     if (current?.releaseTimer !== null && current?.releaseTimer !== undefined) clearTimeout(current.releaseTimer)
     const proof = current?.proof ?? captureCommunityLiveSnapshotToken(this.queryClient, surface.channelId)
@@ -281,7 +281,7 @@ class ReadCoordinator {
       if (scope.timer !== null) clearTimeout(scope.timer)
       if (scope.releaseTimer !== null) clearTimeout(scope.releaseTimer)
       scope.inFlight?.controller.abort()
-      if (scope.attentionOptimistic) commitAttentionOptimisticSnapshot(scope.attentionOptimistic.registry, scope.attentionOptimistic.snapshot)
+      if (scope.attentionOptimistic) void commitAttentionOptimisticSnapshot(scope.attentionOptimistic.registry, scope.attentionOptimistic.snapshot)
     }
   }
 
@@ -517,7 +517,7 @@ class ReadCoordinator {
     const latest = this.scope(key)!
     if (accepted && !latest.inFlight) this.schedule(key, Math.max(0, accepted.dueAt - Date.now()))
     if (!accepted && !dirty && !latest.inFlight && scope.attentionOptimistic) {
-      this.commitAttentionOptimisticRead(key)
+      void this.commitAttentionOptimisticRead(key)
       const registry = getCommunityDbRegistry(this.queryClient)
       if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
     }

@@ -168,7 +168,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
       const planId = offer ? toAnalyticsPlanId(offer.plan.id) : null
       if (offer && planId && planId !== "free" && action.kind === "checkout") {
         const value = stripeAmountToMajorUnit(offer.unitAmount, offer.currency)
-        if (value !== null) trackBeginCheckout({ plan_id: planId, currency: offer.currency, value, entry_point: action.entryPoint }, original.assertView)
+        if (value !== null) void trackBeginCheckout({ plan_id: planId, currency: offer.currency, value, entry_point: action.entryPoint }, original.assertView)
       }
       ui.setState((state) => ({ ...state, redirecting: true }))
       window.location.assign(url)

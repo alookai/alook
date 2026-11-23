@@ -13,6 +13,14 @@ const eslintConfig = defineConfig([
     },
     rules: { "@typescript-eslint/no-deprecated": "error" },
   },
+  {
+    files: ["**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}"],
+    ignores: ["**/*.test.*", "**/*.spec.*", "test/**"],
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: { attributes: false } }],
+    },
+  },
   globalIgnores(["dist/**"]),
   {
     files: ["**/*.test.ts"],

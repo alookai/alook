@@ -53,7 +53,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   if (friendship.status === "pending" && friendship.needsOwnerApproval != null) {
     const { row, broadcasts } = await queries.communityFriendship.cancelPendingRequest(db, id)
     if (row) {
-      for (const b of broadcasts) broadcastToUserSafe(b.userId, b.event)
+      for (const b of broadcasts) void broadcastToUserSafe(b.userId, b.event)
     }
     return new NextResponse(null, { status: 204 })
   }
@@ -64,7 +64,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
     ? friendship.addresseeId
     : friendship.requesterId
 
-  broadcastToUserSafe(otherUserId, {
+  void broadcastToUserSafe(otherUserId, {
     type: WS_EVENTS.FRIEND_REMOVE,
     friendshipId: id,
   })

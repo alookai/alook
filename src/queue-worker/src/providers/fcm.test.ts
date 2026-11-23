@@ -33,9 +33,7 @@ describe("FCM HTTP v1 adapter", () => {
   })
 
   it("signs a real service-account JWT and uses the default fetch dependency", async () => {
-    let fetchReceiver: unknown = Symbol("unset")
     const fetchMock = vi.fn(function (this: unknown, _input: RequestInfo | URL, _init?: RequestInit) {
-      fetchReceiver = this
       return Promise.resolve(Response.json({ access_token: "access-token" }))
     })
     vi.stubGlobal("fetch", fetchMock)
@@ -68,7 +66,7 @@ describe("FCM HTTP v1 adapter", () => {
     expect(claims.iat).toBeGreaterThanOrEqual(before)
     expect(claims.exp).toBe(claims.iat + 3600)
     expect(signaturePart).not.toBe("")
-    expect(fetchReceiver).toBeUndefined()
+    expect(fetchMock.mock.contexts[0]).toBeUndefined()
   })
 
   it("exchanges a service-account assertion for a short-lived access token", async () => {

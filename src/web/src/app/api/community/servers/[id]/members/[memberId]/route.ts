@@ -53,7 +53,7 @@ export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => 
   const updated = await queries.communityMember.updateRole(db, memberId, body.role)
   if (!updated) return writeError("member not found", 404)
 
-  fanOutToServerMembers(serverId, {
+  void fanOutToServerMembers(serverId, {
     type: WS_EVENTS.MEMBER_UPDATE,
     serverId,
     memberId,

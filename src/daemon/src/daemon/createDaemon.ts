@@ -362,7 +362,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     [...providerQuotaByBackend.keys()].flatMap((backend) => { const snapshot = providerQuotaSnapshot(backend); return snapshot ? [snapshot] : []; });
   const refreshMachineQuota = (backend: string | undefined): void => {
     if (stopping || !supportsBuiltinQuotaPolling(backend)) return;
-    trackTelemetry(providerQuotaReader(backend).then((observed) => {
+    void trackTelemetry(providerQuotaReader(backend).then((observed) => {
       if (stopping || !observed) return;
       recordProviderQuota(backend, observed);
       const snapshot = providerQuotaSnapshot(backend);
@@ -941,7 +941,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onTokenUsageStatus: ({ agentId, backendId, status }) => { tokenUsageAvailability.set(agentId, { backendId, status }); reportTelemetryForIdleAgent(agentId); },
     onTokenUsage: ({ agentId, usage, identity }) => {
       if (usageSealed) return;
-      trackTelemetry(dailyTokenUsage.record(agentId, usage, identity)
+      void trackTelemetry(dailyTokenUsage.record(agentId, usage, identity)
         .then(() => reportTelemetryForIdleAgent(agentId))
         .catch(() => {
           log.warn("daily token usage persistence failed", { agentId });
