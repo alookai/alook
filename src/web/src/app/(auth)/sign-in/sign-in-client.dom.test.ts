@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, setupUser } from "@/test/react-dom-harness"
+import { handoffLandingSignInCta } from "@/lib/landing-sign-in-cta"
 import type { LoginMethod } from "@/lib/last-login-method"
 
 const mocks = vi.hoisted(() => ({
@@ -242,6 +243,26 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       "github",
     )
 
+  })
+
+  it("reports a pending landing CTA before the sign-in page view and consumes it once", () => {
+    const dom = Reflect.get(globalThis, "jsdom")
+    const originalUrl = window.location.href
+    dom.reconfigure({ url: "https://alook.ai/" })
+    try {
+      expect(handoffLandingSignInCta("get_started", "/sign-in")).toBe(true)
+      window.history.replaceState(null, "", "/sign-in")
+      const screen = createElement(SignInPageClient, { isProd: true, appleEnabled: false })
+      render(screen).unmount()
+      render(screen)
+      expect(mocks.capture.mock.calls.map(([event]) => event)).toEqual([
+        { event: "landing_cta_clicked", ctaName: "get_started", sourcePath: "/" },
+        { event: "login_page_view" },
+        { event: "login_page_view" },
+      ])
+    } finally {
+      dom.reconfigure({ url: originalUrl })
+    }
   })
 
   it("counts login entry once and records only bounded OTP failure dimensions", async () => {

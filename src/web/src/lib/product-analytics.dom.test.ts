@@ -11,7 +11,8 @@ vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@
 vi.mock("@/lib/analytics-consent", async original => ({ ...await original<typeof import("@/lib/analytics-consent")>(), readAnalyticsConsent: () => mocks.consent }))
 import { ONBOARDING_ANALYTICS_STAGES } from "./product-analytics-contract"
 import { beginOnboardingAnalytics, captureOnboardingFirstMessage, captureProductAnalytics, type ProductAnalyticsInput } from "./product-analytics"
-import { trackCommunityRuntimeConnected, trackFirstAgentReplyPersisted, trackPricingCtaClick, trackBeginCheckout } from "./analytics"
+import { trackCommunityRuntimeConnected, trackFirstAgentReplyPersisted, trackLandingCtaClicked, trackPricingCtaClick, trackBeginCheckout } from "./analytics"
+import { takeLandingSignInCta } from "./landing-sign-in-cta"
 
 function setOrigin(origin: string) {
   Reflect.get(globalThis, "jsdom").reconfigure({ url: origin })
@@ -97,6 +98,72 @@ describe("frontend product analytics", () => {
     expect(document.getElementById("alook-product-events")).toBeNull()
     expect(fetch).not.toHaveBeenCalled()
   })
+  it("carries a cold signup click through document navigation to the finite sender once", () => {
+    window.history.replaceState(null, "", "/blog/introducing-alook?utm_campaign=source-query")
+    trackLandingCtaClicked({ cta_name: "get_started" }, "/sign-in?redirect=private-value")
+    expect(window.dataLayer).toEqual([])
+    expect(sessionStorage.length).toBe(1)
+    expect(sessionStorage.getItem(sessionStorage.key(0)!)).not.toMatch(/source-query|private-value/)
+    expect(takeLandingSignInCta()).toBeNull()
+    window.history.replaceState(null, "", "/sign-in")
+    const cta = takeLandingSignInCta()!
+    void captureProductAnalytics({ event: "landing_cta_clicked", ...cta })
+    const { send } = loadFrame()
+    expect(send).toHaveBeenCalledExactlyOnceWith({ event: "landing_cta_clicked", params: { cta_name: "get_started", source_path: "/blog/introducing-alook" } })
+    expect(takeLandingSignInCta()).toBeNull()
+    expect(sessionStorage.length).toBe(0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each(["before", "after"])("discards a signup click when consent is denied %s navigation", phase => {
+    window.history.replaceState(null, "", "/")
+    if (phase === "before") mocks.consent = "denied"
+    trackLandingCtaClicked({ cta_name: "get_started" }, "/sign-in")
+    expect(sessionStorage.length).toBe(phase === "before" ? 0 : 1)
+    mocks.consent = "denied"
+    window.history.replaceState(null, "", "/sign-in")
+    expect(takeLandingSignInCta()).toBeNull()
+    expect(sessionStorage.length).toBe(0)
+    expect(window.dataLayer).toEqual([])
+  })
+
+  it("keeps modified clicks and other origins on the public sender", () => {
+    window.history.replaceState(null, "", "/")
+    const anchor = document.createElement("a")
+    anchor.href = "/sign-in"
+    trackLandingCtaClicked({ cta_name: "get_started" }, {
+      currentTarget: anchor, button: 0, ctrlKey: true,
+    } as import("react").MouseEvent<HTMLAnchorElement>)
+    trackLandingCtaClicked({ cta_name: "get_started" }, "https://example.com/sign-in")
+    expect(sessionStorage.length).toBe(0)
+    expect(window.dataLayer?.map(command => Array.from(command))).toEqual([
+      ["event", "landing_cta_clicked", { cta_name: "get_started", send_to: "G-STBCL8F4ZY" }],
+      ["event", "landing_cta_clicked", { cta_name: "get_started", send_to: "G-STBCL8F4ZY" }],
+    ])
+  })
+
+  it("drops expired handoffs and uses the original sender if tab storage is unavailable", () => {
+    window.history.replaceState(null, "", "/")
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+    const storage = vi.spyOn(Storage.prototype, "setItem")
+    try {
+      trackLandingCtaClicked({ cta_name: "get_started" }, "/sign-in")
+      clock.mockReturnValue(now + 60_001)
+      window.history.replaceState(null, "", "/sign-in")
+      expect(takeLandingSignInCta()).toBeNull()
+      expect(sessionStorage.length).toBe(0)
+
+      window.history.replaceState(null, "", "/")
+      storage.mockImplementationOnce(() => { throw new Error("Storage unavailable") })
+      trackLandingCtaClicked({ cta_name: "get_started" }, "/sign-in")
+      expect(Array.from(window.dataLayer![0])).toEqual(["event", "landing_cta_clicked", { cta_name: "get_started", send_to: "G-STBCL8F4ZY" }])
+    } finally {
+      storage.mockRestore()
+      clock.mockRestore()
+    }
+  })
+
   it("does not wait for the document or network before finishing the event call", async () => {
     await expect(captureProductAnalytics({ event: "onboarding_enter_clicked", serverId: "private-server" })).resolves.toBeUndefined()
     expect(document.getElementById("alook-product-events")?.getAttribute("data-ready")).toBeNull()
