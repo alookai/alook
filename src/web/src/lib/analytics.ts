@@ -1,10 +1,12 @@
 "use client";
 
+import type { MouseEvent } from "react"
 import { sendGTMEvent } from "@next/third-parties/google";
 import { isTauri } from "@alook/shared"
 import { hasAnalyticsConsent, isPublicAnalyticsPath, readAnalyticsConsent } from "@/lib/analytics-consent"
 
 import { captureProductAnalytics } from "@/lib/product-analytics"
+import { handoffLandingSignInCta } from "@/lib/landing-sign-in-cta"
 import { LANDING_CTA_NAMES, ANALYTICS_ORIGIN, analyticsPlanIds, pricingCtaParams, checkoutParams, type ONBOARDING_ANALYTICS_STAGES, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
 import { TEMPLATE_CATEGORIES } from "@/lib/templates/types"
 export type { AnalyticsAuthState, AnalyticsPlanId, AnalyticsCurrentPlan, BillingEntryPoint, PricingCtaAction } from "@/lib/product-analytics-contract"
@@ -100,9 +102,10 @@ export function trackCommunityOnboardingSkipped(
   void captureProductAnalytics({ event: "community_onboarding_skipped", stage }, assertCurrent);
 }
 
-export function trackLandingCtaClicked(params: { cta_name: string }) {
+export function trackLandingCtaClicked(params: { cta_name: string }, navigation?: string | MouseEvent<HTMLAnchorElement>) {
   if (typeof window === "undefined" || !isPublicAnalyticsPath(window.location.pathname)
     || !LANDING_CTA_NAMES.includes(params.cta_name)) return
+  if (navigation && handoffLandingSignInCta(params.cta_name, navigation)) return
   void captureProductAnalytics({ event: "landing_cta_clicked", ctaName: params.cta_name })
 }
 

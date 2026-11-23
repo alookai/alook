@@ -55,7 +55,7 @@ it("sends guests to sign-in with a valid selected plan preserved", async () => {
   await setupUser().click(await view.findByRole("button", { name: "Choose Studio" }))
   const url = new URL(state.assign.mock.calls[0][0], "https://alook.ai")
   expect(url.pathname).toBe("/sign-in")
-  expect(state.landing).toHaveBeenCalledWith({ cta_name: "pricing_get_started" })
+  expect(state.landing).toHaveBeenCalledWith({ cta_name: "pricing_get_started" }, url.pathname + url.search)
   expect(url.searchParams.get("redirect")).toBe("/pricing?plan=studio")
   expect(state.checkout).not.toHaveBeenCalled()
   expect(state.pricingCta).toHaveBeenCalledWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "guest", current_plan: "none", entry_point: "pricing_page" })

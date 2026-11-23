@@ -235,7 +235,7 @@ export function MarketingNav({
           ) : (
             <DocumentNavigationLink
               href="/sign-in"
-              onClick={() => trackLandingCtaClicked({ cta_name: "public_nav_get_started" })}
+              onClick={event => trackLandingCtaClicked({ cta_name: "public_nav_get_started" }, event)}
               data-variant={highlightActions ? "default" : "secondary"}
               className={cn(buttonVariants({ variant: highlightActions ? "default" : "secondary", size: "sm" }), "gap-2")}
             >

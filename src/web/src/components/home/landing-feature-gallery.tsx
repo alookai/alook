@@ -159,7 +159,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
           <p>{current.description}</p>
           <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default" className={cn(buttonVariants({ size: "lg" }), "mt-6")}
             data-testid={tid.landingSectionCta(current.id)}
-            onClick={() => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` })}>{current.cta}</DocumentNavigationLink>
+            onClick={event => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` }, event)}>{current.cta}</DocumentNavigationLink>
         </div>
         <div ref={section} className={styles.stage}>
           {loadedFeature === current.id ? <MediaFallback key={current.id} fallback={<FeaturePoster scene={current.scene} />}><Suspense fallback={<FeaturePoster scene={current.scene} />}>

@@ -32,7 +32,7 @@ export function LandingValueSections({ isLoggedIn }: { isLoggedIn: boolean }) {
             </ul>
             <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default" className={cn(buttonVariants({ size: "lg" }), "mt-8")}
               data-testid={tid.landingSectionCta(value.id)}
-              onClick={() => trackLandingCtaClicked({ cta_name: `value_${value.id}_${isLoggedIn ? "open_app" : "get_started"}` })}>{value.cta}</DocumentNavigationLink>
+              onClick={event => trackLandingCtaClicked({ cta_name: `value_${value.id}_${isLoggedIn ? "open_app" : "get_started"}` }, event)}>{value.cta}</DocumentNavigationLink>
           </div>
           <PaperSticker className={styles.art} tilt={STICKER_TILTS[index % STICKER_TILTS.length]} tint={STICKER_TINTS[index % STICKER_TINTS.length]}>
             <img src={value.image.src} alt={value.image.alt} width={1120} height={800} loading="lazy" decoding="async" />

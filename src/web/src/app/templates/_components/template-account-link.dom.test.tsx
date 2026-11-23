@@ -14,7 +14,7 @@ it.each([false, true])("keeps the public entry available while pending=%s", asyn
   const link = view.getByRole("link", { name: "Get Started" })
   expect(link).toHaveAttribute("href", "/sign-in")
   await setupUser().click(link)
-  expect(state.track).toHaveBeenCalledWith({ cta_name: "templates_get_started" })
+  expect(state.track).toHaveBeenCalledWith({ cta_name: "templates_get_started" }, expect.objectContaining({ type: "click" }))
 })
 
 it("updates to the account entry after the session resolves", async () => {
@@ -24,5 +24,5 @@ it("updates to the account entry after the session resolves", async () => {
   const link = view.getByRole("link", { name: "App" })
   expect(link).toHaveAttribute("href", "/c/me")
   await setupUser().click(link)
-  expect(state.track).toHaveBeenCalledWith({ cta_name: "templates_open_app" })
+  expect(state.track).toHaveBeenCalledWith({ cta_name: "templates_open_app" }, expect.objectContaining({ type: "click" }))
 })

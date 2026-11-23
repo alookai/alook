@@ -9,7 +9,7 @@ export function TemplateAccountLink() {
   const signedIn = Boolean(session.data?.user)
   return <a
     href={signedIn ? "/c/me" : "/sign-in"}
-    onClick={() => trackLandingCtaClicked({ cta_name: signedIn ? "templates_open_app" : "templates_get_started" })}
+    onClick={event => trackLandingCtaClicked({ cta_name: signedIn ? "templates_open_app" : "templates_get_started" }, event)}
     data-variant={signedIn ? "outline" : "default"}
     data-size="sm"
     className={buttonVariants({ variant: signedIn ? "outline" : "default", size: "sm", className: "h-auto gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono" })}
