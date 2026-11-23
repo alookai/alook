@@ -48,6 +48,8 @@ describe("UserBarExtensionSlot", () => {
 
     const slot = renderer.getByTestId(tid.userBarExtension)
     const scroller = renderer.getByTestId("profile-content").parentElement?.parentElement
+    expect(slot.style.maxHeight).toContain("28rem")
+    expect(slot.style.height).toBe("")
     expect(slot.className).not.toMatch(/bg-|shadow-|border|rounded|overflow-|clip-path|text-popover-foreground/)
     expect(scroller?.className).toContain("min-h-0")
     expect(scroller?.className).not.toContain("overflow-y-auto")
@@ -98,6 +100,8 @@ describe("UserBarExtensionSlot", () => {
     expect(slot).toHaveAttribute("role", "dialog")
     expect(slot).toHaveAttribute("aria-modal", "false")
     expect(slot).toHaveAttribute("data-extension", "inbox")
+    expect(slot.style.height).toContain("40rem")
+    expect(slot.style.maxHeight).toContain("40rem")
     const classes = slot.className.split(" ")
     expect(classes).toEqual(expect.arrayContaining([
       "rounded-t-xl",

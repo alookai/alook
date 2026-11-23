@@ -23,6 +23,7 @@ import {
   useMarkAllInboxRead,
   useAcceptFriendRequest,
   useRejectFriendRequest,
+  useReplyInboxChannel,
   useSubmitInboxDecisionCard,
   useDismissInboxTodo,
   useUnmarkMessage,
@@ -85,6 +86,7 @@ export function useShellInboxController({
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
   const markChannelRead = useMarkInboxChannelRead(dismissNativeConversation)
+  const replyInboxChannel = useReplyInboxChannel(dismissNativeConversation)
   const submitInboxDecisionCard = useSubmitInboxDecisionCard()
   const dismissInboxTodo = useDismissInboxTodo()
   const acceptFriendRequest = useAcceptFriendRequest()
@@ -298,6 +300,33 @@ export function useShellInboxController({
     })
   ), [submitInboxDecisionCard])
 
+  const replyTodo = useCallback((todo: InboxTodo, content: string, nonce: string) => (
+    submitInboxDecisionCard.mutateAsync({
+      channelId: todo.channelId,
+      messageId: todo.messageId,
+      content,
+      nonce,
+      toastMessage: "Reply sent",
+    })
+  ), [submitInboxDecisionCard])
+
+  const submitUnreadDecisionCard = useCallback((channelId: string, messageId: string, content: string, nonce: string) => (
+    submitInboxDecisionCard.mutateAsync({
+      channelId,
+      messageId,
+      content,
+      nonce,
+    })
+  ), [submitInboxDecisionCard])
+
+  const replyChannel = useCallback((channelId: string, content: string, nonce: string) => (
+    replyInboxChannel.mutateAsync({
+      channelId,
+      content,
+      nonce,
+    })
+  ), [replyInboxChannel])
+
   const dismissTodo = useCallback((todo: InboxTodo) => {
     dismissInboxTodo.mutate({ messageId: todo.messageId })
   }, [dismissInboxTodo])
@@ -338,6 +367,7 @@ export function useShellInboxController({
     onOpenDm: openDm,
     onOpenTodo: openTodo,
     onSubmitTodo: submitTodo,
+    onReplyTodo: replyTodo,
     onDismissTodo: dismissTodo,
     onOpenMarked: openMarked,
     onOpenFriendRequests: openFriendRequests,
@@ -351,6 +381,8 @@ export function useShellInboxController({
     onScrollOffsetChange: setScrollOffset,
     onMarkAllRead: () => { markAllInboxRead.mutate() },
     onMarkChannelRead: (channelId, throughSeq) => markChannelRead.mutateAsync({ channelId, throughSeq }),
+    onReplyChannel: replyChannel,
+    onSubmitDecisionCard: submitUnreadDecisionCard,
     channelReadActions: markChannelRead.actions,
     renderUnreadMessages: (input) => createElement(InboxUnreadMessages, input),
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),

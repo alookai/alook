@@ -1577,6 +1577,15 @@ export function clearAttentionScopeOptimistically(registry: CommunityDbRegistry,
   }) as AttentionScopeOptimisticSnapshot
 }
 
+export function commitConfirmedAttentionScopeRead(
+  registry: CommunityDbRegistry,
+  scopeId: string,
+  targetSeq: number,
+) {
+  const snapshot = clearAttentionScopeOptimistically(registry, scopeId, targetSeq)
+  return commitAttentionOptimisticSnapshot(registry, snapshot)
+}
+
 export function removeAttentionItemsOptimistically(registry: CommunityDbRegistry, remove: (item: AttentionItemRow) => boolean): AttentionIntent {
   const items = collectionRows(registry, "attentionItems").filter(remove)
   return beginAttentionIntent(registry, { floors: new Map(), itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })

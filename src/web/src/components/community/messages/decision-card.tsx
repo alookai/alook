@@ -130,6 +130,7 @@ export function DecisionCard({
   onOpenProfile,
   compact,
   header,
+  footer,
   className,
 }: {
   card: DecisionCardEmbed
@@ -141,6 +142,7 @@ export function DecisionCard({
   onOpenProfile?: OpenProfile
   compact?: boolean
   header?: ReactNode
+  footer?: ReactNode
   className?: string
 }) {
   const [draft, setDraft] = useState<DraftMap>(() => createInitialDraft(card))
@@ -548,9 +550,9 @@ export function DecisionCard({
       data-swipe-ignore=""
       className={cn("my-2 w-full max-w-lg min-w-0", className)}
     >
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className={cn("flex flex-col", header || footer ? "gap-3" : "gap-4")}>
         {header && (
-          <div className="border-b border-border/60 pb-3">
+          <div className="border-b border-border/60 pb-2.5">
             {header}
           </div>
         )}
@@ -685,6 +687,12 @@ export function DecisionCard({
               {" to answer"}
             </p>
           )
+        )}
+
+        {footer && (
+          <div className="border-t border-border/60 pt-3">
+            {footer}
+          </div>
         )}
       </CardContent>
     </Card>

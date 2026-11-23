@@ -13,7 +13,15 @@ import { ForumPostItem } from "../channels/forum-post-item"
 import { ForumPostListItem } from "../channels/forum-post-list"
 import { InboxMessagePreview } from "./inbox-message-preview"
 
-export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForumPosts, continuation }: InboxUnreadMessagesInput) {
+export function InboxUnreadMessages({
+  channelId,
+  throughSeq,
+  mentions,
+  openForumPosts,
+  continuation,
+  viewerUserId,
+  onSubmitDecisionCard,
+}: InboxUnreadMessagesInput) {
   const query = useInboxChannelMessages(channelId, throughSeq)
   const channels = useCanonicalChannelsById()
   const profiles = useCanonicalProfilesByUserId()
@@ -60,6 +68,10 @@ export function InboxUnreadMessages({ channelId, throughSeq, mentions, openForum
           first={index === 0}
           testId={mention ? tid.inboxMention(mention.id) : undefined}
           onOpenThread={openForumPost}
+          viewerUserId={viewerUserId}
+          onSubmitDecisionCard={onSubmitDecisionCard
+            ? (messageId, content, nonce) => onSubmitDecisionCard(channelId, messageId, content, nonce)
+            : undefined}
           paddingTop={item.paddingTop}
           paddingBottom={continuation && item.m.id !== lastMessageId ? MESSAGE_GROUPED_ROW_PADDING_PX : item.paddingBottom} />
       })}

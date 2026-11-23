@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { CommunityNavigationLink } from "./community-navigation-link"
+import { InboxInlineReply } from "./inbox-inline-reply"
 import { InboxMessagePreview, isInboxPreviewContentClick } from "./inbox-message-preview"
 import { useRetainedInboxCount } from "./inbox-unread-indicator"
 import { DecisionCard } from "../messages/decision-card"
@@ -172,6 +173,10 @@ function channelLocation(directory: InboxCardDirectory, channelId: string, paren
   return channel?.categoryId ? directory.categories.get(channel.categoryId)?.name : undefined
 }
 
+function entityIconClassName(kind?: EntityKind) {
+  return kind === "forum" || kind === "thread" ? "size-3.5 shrink-0" : "h-3.5 w-auto shrink-0"
+}
+
 function InboxServerCardIdentity({ server, name, kind, location, showJumpCue }: {
   server: Pick<UnreadServer, "serverId" | "serverName" | "serverIcon">
   name: string
@@ -186,9 +191,13 @@ function InboxServerCardIdentity({ server, name, kind, location, showJumpCue }: 
         icon={server.serverIcon} size={32} className="shrink-0 rounded-lg" />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1 text-sm font-medium leading-snug text-foreground">
-          <span className="grid size-4 shrink-0 place-items-center text-muted-foreground">
-            <EntityIcon kind={kind} className="size-3.5" />
-          </span>
+          {kind === "forum" || kind === "thread" ? (
+            <span className="grid size-4 shrink-0 place-items-center text-muted-foreground">
+              <EntityIcon kind={kind} className="size-3.5" />
+            </span>
+          ) : (
+            <EntityIcon kind={kind} className="h-3.5 w-auto shrink-0 text-muted-foreground" />
+          )}
           <span className="truncate" title={name}>{name}</span>
           {showJumpCue && (
             <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/inbox-identity:opacity-100 group-focus-visible/inbox-identity:opacity-100 motion-reduce:transition-none" />
@@ -222,18 +231,19 @@ function InboxDmCardIdentity({ name, avatar, userId, discriminator, showJumpCue 
   )
 }
 
-function InboxCard({ testId, identity, actions, feedback, animatePreview, children }: {
+function InboxCard({ testId, identity, actions, feedback, footer, animatePreview, children }: {
   testId: string
   identity: ReactNode
   actions: ReactNode
   feedback?: ReactNode
+  footer?: ReactNode
   animatePreview?: boolean
   children: ReactNode
 }) {
   const stickyRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const hasPreview = Boolean(children)
-  const hasBody = hasPreview || Boolean(feedback)
+  const hasBody = hasPreview || Boolean(feedback) || Boolean(footer)
 
   useLayoutEffect(() => {
     const sticky = stickyRef.current
@@ -264,12 +274,13 @@ function InboxCard({ testId, identity, actions, feedback, animatePreview, childr
       {hasBody && <div className={cn("min-w-0 overflow-clip rounded-b-xl pb-2", styles.cardSurface)}>
         {feedback}
         {hasPreview && <div ref={previewRef} data-slot="inbox-card-preview" className={cn(styles.preview, animatePreview && styles.previewEnter)}>{children}</div>}
+        {footer && <div data-slot="inbox-card-footer" className="min-w-0 px-3 pt-2 pb-1 sm:px-3.5">{footer}</div>}
       </div>}
     </article>
   )
 }
 
-function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOpen, throughSeq = 0, unreadCount = 0, mentions, renderUnreadMessages, onMarkChannelRead, read, children }: {
+function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOpen, throughSeq = 0, unreadCount = 0, mentions, renderUnreadMessages, onMarkChannelRead, read, replyPlaceholder, replyLabel, onReply, children }: {
   channelId: string
   name: string
   identityTestId: string
@@ -281,6 +292,9 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
   renderUnreadMessages: (input: InboxUnreadMessagesInput) => ReactNode
   onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
   read?: InboxChannelReadAction
+  replyPlaceholder?: string
+  replyLabel?: string
+  onReply?: (content: string, nonce: string) => Promise<unknown>
   children: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -331,6 +345,15 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
         <Button variant="ghost" size="sm" className="min-h-11 sm:min-h-8" aria-label={`Retry marking ${name} read`}
           onClick={() => mark(read.throughSeq)}>Retry</Button>
       </div>}
+      footer={expanded && onReply && (
+        <InboxInlineReply
+          placeholder={replyPlaceholder ?? `Reply in #${name}…`}
+          inputLabel={replyLabel ?? `Reply in #${name}`}
+          inputTestId={tid.inboxReplyInput(channelId)}
+          sendTestId={tid.inboxReplySend(channelId)}
+          onSend={async (content, nonce) => { await onReply(content, nonce) }}
+        />
+      )}
     >
       {expanded && <section id={bodyId} aria-label={`Unread messages in ${name}`} className="min-w-0 px-3 sm:px-3.5"
         onClick={event => {
@@ -347,7 +370,7 @@ function AttentionLoadError({ onRetry, retrying = false }: { onRetry?: () => voi
   return <div role="alert" className="flex flex-1 flex-col"><EmptyState icon={AlertCircle} label="Couldn't load Inbox" /></div>
 }
 
-function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, renderUnreadMessages, onMarkChannelRead, channelReadActions, mentions, profilesByUserId, directory, getScrollOffset, onScrollOffsetChange }: {
+function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, onRetry, onOpenFriendRequests, onAcceptFriendRequest, onRejectFriendRequest, onRetryFriendRequest, onOpenChannel, onOpenThread, onOpenDm, renderUnreadMessages, onMarkChannelRead, onReplyChannel, onSubmitDecisionCard, viewerUserId, channelReadActions, mentions, profilesByUserId, directory, getScrollOffset, onScrollOffsetChange }: {
   friendRequests: Array<ActionableFriendRequest<InboxFriendRequest>>
   servers: UnreadServer[]
   dms: UnreadDm[]
@@ -368,6 +391,9 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
   onOpenDm?: (dm: UnreadDm) => void
   renderUnreadMessages?: (input: InboxUnreadMessagesInput) => ReactNode
   onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
+  onReplyChannel?: (channelId: string, content: string, nonce: string) => Promise<unknown>
+  onSubmitDecisionCard?: (channelId: string, messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  viewerUserId?: string | null
   channelReadActions?: ReadonlyMap<string, InboxChannelReadAction>
   mentions: Mention[]
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
@@ -383,6 +409,10 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
             {input.mentions.map((mention, index) => <InboxMessagePreview key={mention.id} message={{ ...mention.m, grouped: false }}
               continuation={input.continuation}
               first={index === 0}
+              viewerUserId={input.viewerUserId}
+              onSubmitDecisionCard={input.onSubmitDecisionCard
+                ? (messageId, content, nonce) => input.onSubmitDecisionCard!(input.channelId, messageId, content, nonce)
+                : undefined}
               paddingBottom={input.continuation && index < input.mentions.length - 1 ? MESSAGE_GROUPED_ROW_PADDING_PX : undefined}
               testId={tid.inboxMention(mention.id)} />)}
           </div>}
@@ -486,8 +516,11 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
         return <UnreadChannelCard key={dm.channelId} channelId={dm.channelId} name={profile.name} throughSeq={dm.lastUnreadSeq} unreadCount={dm.unreadCount}
           identityTestId={tid.inboxUnreadDm(dm.channelId)} identityHref={`/c/me/${encodeURIComponent(dm.channelId)}`} onOpen={() => onOpenDm?.(dm)}
           mentions={mentions.filter(mention => mention.channelId === dm.channelId)}
-          renderUnreadMessages={input => renderMessages({ ...input, continuation: true })}
-          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}>
+          renderUnreadMessages={input => renderMessages({ ...input, continuation: true, viewerUserId, onSubmitDecisionCard })}
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}
+          replyPlaceholder={`Reply to ${profile.name}…`}
+          replyLabel={`Reply to ${profile.name}`}
+          onReply={onReplyChannel ? (content, nonce) => onReplyChannel(dm.channelId, content, nonce) : undefined}>
           <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} showJumpCue />
         </UnreadChannelCard>
       })}
@@ -497,18 +530,27 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           mentions={mentions.filter(mention => mention.channelId === channel.channelId)}
           renderUnreadMessages={input => renderMessages({
             ...input,
+            viewerUserId,
+            onSubmitDecisionCard,
             openForumPosts: channel.forumOpeners?.length ? new Map(channel.forumOpeners.map(opener => [
               opener.openerMessageId, () => onOpenThread(server, channel, opener),
             ])) : undefined,
           })}
-          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}>
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}
+          replyPlaceholder={`Reply in #${channel.channelName}…`}
+          replyLabel={`Reply in #${channel.channelName}`}
+          onReply={onReplyChannel && channel.type !== "forum" ? (content, nonce) => onReplyChannel(channel.channelId, content, nonce) : undefined}>
           <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
             location={channelLocation(directory, channel.channelId)} showJumpCue />
         </UnreadChannelCard>] : []),
         ...children.map(child => <UnreadChannelCard key={child.channelId} channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq} unreadCount={child.unreadCount}
           identityTestId={tid.inboxUnreadChild(child.channelId)} onOpen={() => onOpenThread(server, channel, child)}
-          mentions={mentions.filter(mention => mention.channelId === child.channelId)} renderUnreadMessages={renderMessages}
-          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}>
+          mentions={mentions.filter(mention => mention.channelId === child.channelId)}
+          renderUnreadMessages={input => renderMessages({ ...input, viewerUserId, onSubmitDecisionCard })}
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}
+          replyPlaceholder={`Reply in #${child.channelName}…`}
+          replyLabel={`Reply in #${child.channelName}`}
+          onReply={onReplyChannel ? (content, nonce) => onReplyChannel(child.channelId, content, nonce) : undefined}>
           <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} showJumpCue />
         </UnreadChannelCard>),
       ]))}
@@ -525,6 +567,7 @@ function TodoTab({
   onRetry,
   onOpenTodo,
   onSubmitTodo,
+  onReplyTodo,
   onDismissTodo,
   onOpenProfile,
   profilesByUserId,
@@ -540,6 +583,7 @@ function TodoTab({
   onRetry?: () => void
   onOpenTodo?: (todo: InboxTodo) => void
   onSubmitTodo?: (todo: InboxTodo, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  onReplyTodo?: (todo: InboxTodo, content: string, nonce: string) => Promise<{ replyToId: string | null }>
   onDismissTodo?: (todo: InboxTodo) => void
   onOpenProfile?: OpenProfile
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
@@ -548,13 +592,14 @@ function TodoTab({
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
   const peersByChannel = new Map(directory.dms?.map(dm => [dm.id, dm]))
+  const replyTodoHandler = onReplyTodo ?? onSubmitTodo
   return (
     <InboxScrollBody tab="todo" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && todos.length === 0 && <InboxRowsSkeleton />}
       {error && todos.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && todos.length === 0 && <EmptyState icon={CircleCheck} label="No pending questions" />}
       {todos.length > 0 && (
-        <div className="flex flex-col gap-4 px-1 pb-4">
+        <div className="flex flex-col gap-3 pb-3">
           {todos.map((todo) => {
             const card = todo.m.decisionCard
             if (!card) return null
@@ -571,6 +616,7 @@ function TodoTab({
             const authorName = authorProfile?.name ?? todo.m.authorName ?? ""
             const timestamp = todo.m.createdAt ? formatMessageTime(todo.m.createdAt) : ""
             const open = onOpenTodo ? () => onOpenTodo(todo) : undefined
+            const channelKind = channel?.type === "dm" ? undefined : channel?.type
             const sourceHeader = (
               <div className="-mx-2 -my-1 flex min-w-0 items-center gap-1">
                 <button
@@ -586,33 +632,33 @@ function TodoTab({
                       name={serverName}
                       initial={avatarInitial(serverName)}
                       icon={server?.icon}
-                      size={26}
-                      className="shrink-0 rounded-md"
+                      size={32}
+                      className="shrink-0 rounded-lg"
                     />
                   ) : (
                     <Avatar
                       label={peer?.avatar ?? avatarInitial(channelName)}
                       seed={peer?.userId ?? todo.channelId}
-                      size={26}
+                      size={32}
                     />
                   )}
                   <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
+                    <span className="flex min-w-0 items-center gap-1 text-sm font-medium leading-snug text-foreground">
                       {todo.serverId && (
                         <EntityIcon
-                          kind={channel?.type === "dm" ? undefined : channel?.type}
-                          className="size-3.5 shrink-0 text-muted-foreground"
+                          kind={channelKind}
+                          className={cn(entityIconClassName(channelKind), "text-muted-foreground")}
                         />
                       )}
                       <span className="truncate" title={channelName}>{channelName}</span>
                       {todo.serverId && authorName && (
                         <>
-                          <span aria-hidden="true" className="shrink-0 text-muted-foreground">·</span>
-                          <span className="truncate font-normal text-muted-foreground" title={authorName}>{authorName}</span>
+                          <span aria-hidden="true" className="shrink-0 text-xs font-normal text-muted-foreground">·</span>
+                          <span className="truncate text-xs font-normal text-muted-foreground" title={authorName}>{authorName}</span>
                         </>
                       )}
                     </span>
-                    <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                    <span className="flex min-w-0 items-center gap-1 text-xs leading-snug text-muted-foreground">
                       <span className="truncate" title={context}>{context}</span>
                       {timestamp && (
                         <>
@@ -645,6 +691,23 @@ function TodoTab({
                 )}
               </div>
             )
+            const replyFooter = replyTodoHandler ? (
+              <InboxInlineReply
+                placeholder="Or reply directly…"
+                inputLabel="Reply directly to question"
+                inputTestId={tid.inboxTodoReplyInput(todo.messageId)}
+                sendTestId={tid.inboxTodoReplySend(todo.messageId)}
+                onSend={async (content, nonce) => {
+                  const receipt = await replyTodoHandler(todo, content, nonce)
+                  if (receipt.replyToId !== todo.messageId) {
+                    return {
+                      accepted: false,
+                      error: "Could not link your reply to this question — reload and try again.",
+                    }
+                  }
+                }}
+              />
+            ) : undefined
             return (
               <article key={todo.id} data-testid={tid.inboxTodoCard(todo.messageId)} className="min-w-0">
                 <DecisionCard
@@ -653,6 +716,7 @@ function TodoTab({
                   authorId={todo.m.authorId}
                   viewerUserId={viewerUserId ?? undefined}
                   header={sourceHeader}
+                  footer={replyFooter}
                   className="my-0"
                   onSubmit={onSubmitTodo
                     ? (_messageId, content, nonce) => onSubmitTodo(todo, content, nonce)
@@ -752,6 +816,7 @@ export function InboxPopover({
   onOpenDm,
   onOpenTodo,
   onSubmitTodo,
+  onReplyTodo,
   onDismissTodo,
   onOpenProfile,
   onOpenMarked,
@@ -764,6 +829,8 @@ export function InboxPopover({
   onScrollOffsetChange,
   renderUnreadMessages,
   onMarkChannelRead,
+  onReplyChannel,
+  onSubmitDecisionCard,
   channelReadActions,
   surface = "desktop",
 }: {
@@ -799,6 +866,7 @@ export function InboxPopover({
   onOpenDm?: (dm: UnreadDm) => void
   onOpenTodo?: (todo: InboxTodo) => void
   onSubmitTodo?: (todo: InboxTodo, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  onReplyTodo?: (todo: InboxTodo, content: string, nonce: string) => Promise<{ replyToId: string | null }>
   onDismissTodo?: (todo: InboxTodo) => void
   onOpenProfile?: OpenProfile
   onOpenMarked?: (m: Marked) => void
@@ -812,6 +880,8 @@ export function InboxPopover({
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
   renderUnreadMessages?: (input: InboxUnreadMessagesInput) => ReactNode
   onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
+  onReplyChannel?: (channelId: string, content: string, nonce: string) => Promise<unknown>
+  onSubmitDecisionCard?: (channelId: string, messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
   channelReadActions?: ReadonlyMap<string, InboxChannelReadAction>
   surface?: "desktop" | "mobile" | "extension"
 }) {
@@ -832,7 +902,7 @@ export function InboxPopover({
         onActiveTabChange?.(tab)
         if (tab === "marked") onMarkedTabSelected?.()
       }}
-      className={surface === "desktop" ? "flex h-112 flex-col" : "flex h-full min-h-0 flex-col"}
+      className={surface === "desktop" ? "flex h-160 flex-col" : "flex h-full min-h-0 flex-col"}
     >
       <div className="flex items-center gap-2 px-3 pt-4">
         <Inbox className="size-5" />
@@ -877,6 +947,9 @@ export function InboxPopover({
           mentions={mentions}
           renderUnreadMessages={renderUnreadMessages}
           onMarkChannelRead={onMarkChannelRead}
+          onReplyChannel={onReplyChannel}
+          onSubmitDecisionCard={onSubmitDecisionCard}
+          viewerUserId={viewerUserId}
           channelReadActions={channelReadActions}
           loading={loading}
           error={attentionError}
@@ -905,6 +978,7 @@ export function InboxPopover({
           onRetry={onRetryAttention}
           onOpenTodo={onOpenTodo}
           onSubmitTodo={onSubmitTodo}
+          onReplyTodo={onReplyTodo}
           onDismissTodo={onDismissTodo}
           onOpenProfile={onOpenProfile}
           profilesByUserId={profilesByUserId}

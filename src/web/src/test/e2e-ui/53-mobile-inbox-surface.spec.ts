@@ -462,7 +462,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     expect(geometry.userBar.bottom).toBe(844 - 34)
     expect(geometry.userBar.surfaceBottom).toBe(844 - 34 - 12)
     expect(geometry.userBarOwnsCenter).toBe(true)
-    expect(geometry.card.height).toBeLessThanOrEqual(448 + GEOMETRY_EPSILON)
+    expect(geometry.card.height).toBeLessThanOrEqual(640 + GEOMETRY_EPSILON)
     expect(geometry.card.top).toBeGreaterThanOrEqual(20)
     expect(geometry.seam.cardTopLeft).not.toBe("0px")
     expect(geometry.seam.cardTopRight).not.toBe("0px")
