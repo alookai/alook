@@ -17,7 +17,7 @@ import { discoverGrokRecentContext } from "./recent-context.js";
 type GrokSpawn = (
   command: string,
   args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; shell: boolean },
+  options: { cwd: string; env: NodeJS.ProcessEnv; shell: boolean; macosIdentity?: boolean },
 ) => SpawnedProcessHandle;
 
 export class GrokDriver implements BackendAdapter, GrokAcpProcessFactory {
@@ -68,6 +68,7 @@ export class GrokDriver implements BackendAdapter, GrokAcpProcessFactory {
     return {
       process: this.spawnProcess(spec.command, spec.args, {
         cwd: ctx.workingDirectory,
+        macosIdentity: true,
         env: { ...spawnEnv, GROK_DISABLE_AUTOUPDATER: "1" },
         shell: spec.shell,
       }),

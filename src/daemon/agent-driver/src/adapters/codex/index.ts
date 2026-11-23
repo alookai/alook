@@ -260,6 +260,7 @@ export class CodexDriver<Id extends CodexBackendId = "codex"> implements Backend
     const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"], override);
     const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
+      macosIdentity: true,
       env: spawnEnv,
       shell: spec.shell,
     });

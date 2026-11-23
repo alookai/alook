@@ -422,6 +422,10 @@ async fn run_daemon(extra_args: &[String]) -> Result<DaemonOutput, String> {
 
     let mut command = Command::new(executable(cfg.command));
     command.env_clear().envs(resolve_environment().await?);
+    #[cfg(target_os = "macos")]
+    if let Ok(executable) = std::env::current_exe().and_then(|path| path.canonicalize()) {
+        command.env("ALOOK_MACOS_AGENT_LAUNCHER", executable);
+    }
     if let Some(cwd) = &cfg.cwd {
         command.current_dir(cwd);
     }

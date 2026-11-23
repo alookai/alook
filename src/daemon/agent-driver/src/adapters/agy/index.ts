@@ -28,6 +28,6 @@ export class AgyDriver implements BackendAdapter<"agy"> {
     const args = ["acp", "--dangerously-skip-permissions", "--process-per-session",
       "--gemini-dir", stateHome,
     ];
-    return { stateHome, process: spawnAgentProcess(spec.command, args, { cwd: ctx.workingDirectory, env: spawnEnv, shell: spec.shell }) };
+    return { stateHome, process: spawnAgentProcess(spec.command, args, { cwd: ctx.workingDirectory, env: spawnEnv, shell: spec.shell, macosIdentity: true }) };
   }
 }

@@ -32,6 +32,7 @@ export class AntigravityDriver implements BackendAdapter {
     const spec = antigravitySpawnSpec(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command);
     return { usageHome: nativeUsageHome(spawnEnv, ctx.workingDirectory), process: spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory, env: spawnEnv, shell: spec.shell,
+      macosIdentity: true,
     }) };
   }
 }

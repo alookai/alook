@@ -119,6 +119,7 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
     return {
       process: spawnAgentProcess(spec.command, spec.args, {
         cwd: ctx.workingDirectory,
+        macosIdentity: true,
         env: spawnEnv,
         shell: spec.shell,
       }),
