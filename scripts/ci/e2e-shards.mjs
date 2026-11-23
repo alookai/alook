@@ -1,16 +1,19 @@
-import { appendFileSync, readFileSync } from "node:fs"
+import { appendFileSync, readFileSync, statSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { createRequire } from "node:module"
-import { resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 export const E2E_SPEC_ROOT = "src/web/src/test/e2e-ui"
-export const E2E_NATIVE_SHARDS = 27
+export const E2E_TARGET_SHARDS = 20
 export const E2E_TARGET_SECONDS = 240
+export const E2E_DEFAULT_CASE_TIMEOUT_MS = 60_000
+export const E2E_TIMEOUT_WEIGHT_FACTOR = 0.75
 export const PLAYWRIGHT_IMAGE_REPOSITORY = "mcr.microsoft.com/playwright"
 const sorted = values => [...new Set(values)].sort()
 const normalize = value => value.replaceAll("\\", "/").replace(/^.*src\/test\/e2e-ui\//, "")
+const roundWeight = value => Math.round(value * 100) / 100
 
 export function resolvePlaywrightVersion(lockfile = readFileSync(resolve(ROOT, "pnpm-lock.yaml"), "utf8")) {
   const text = lockfile.replaceAll("\r\n", "\n")
@@ -54,12 +57,11 @@ export function collectPlaywrightCases(report) {
   return cases.sort((left, right) => left.key.localeCompare(right.key))
 }
 
-export function listPlaywrightTests({ root = ROOT, specs = ["all"], shard, execute = execFileSync } = {}) {
+export function listPlaywrightTests({ root = ROOT, specs = ["all"], execute = execFileSync } = {}) {
   const web = resolve(root, "src/web")
   const require = createRequire(resolve(web, "package.json"))
   const cli = require.resolve("@playwright/test/cli")
   const args = [cli, "test", "--config", resolve(web, "playwright.config.ts"), "--list", "--reporter=json"]
-  if (shard) args.push("--shard=" + shard.current + "/" + shard.total, "--pass-with-no-tests")
   if (!(specs.length === 1 && specs[0] === "all")) args.push(...specs.map(spec => "src/test/e2e-ui/" + normalize(spec)))
   const text = execute(process.execPath, args, {
     cwd: web, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
@@ -76,9 +78,114 @@ export function discoverE2eSpecs(root = ROOT, execute) {
   return listPlaywrightTests({ root, execute }).files
 }
 
+function collectSpecSource(specFile, root) {
+  const specRoot = resolve(root, E2E_SPEC_ROOT)
+  const entry = resolve(specRoot, normalize(specFile))
+  if (!statSync(entry, { throwIfNoEntry: false })?.isFile()) return ""
+  const seen = new Set([entry])
+  const queue = [entry]
+  const chunks = []
+  while (queue.length) {
+    const file = queue.pop()
+    const source = readFileSync(file, "utf8")
+    chunks.push(source)
+    const dir = dirname(file)
+    for (const match of source.matchAll(/(?:from|import)\s+["'](\.[^"']+)["']/g)) {
+      const specifier = match[1]
+      for (const candidate of [specifier, `${specifier}.ts`, `${specifier}.tsx`, `${specifier}.mjs`]) {
+        const target = resolve(dir, candidate)
+        const rel = relative(specRoot, target).replaceAll("\\", "/")
+        if (!rel || rel.startsWith("..") || rel.startsWith("_setup/") || rel.startsWith("_fixtures/")
+          || rel.includes("/_setup/") || rel.includes("/_fixtures/")) continue
+        if (!seen.has(target) && statSync(target, { throwIfNoEntry: false })?.isFile()) {
+          seen.add(target)
+          queue.push(target)
+          break
+        }
+      }
+    }
+  }
+  return chunks.join("\n")
+}
+
+export function computeSpecWeights(files, cases, root = ROOT) {
+  const counts = new Map()
+  for (const test of cases) counts.set(test.file, (counts.get(test.file) || 0) + 1)
+  const weights = {}
+  for (const file of sorted(files.map(normalize))) {
+    const count = counts.get(file) || 0
+    if (count < 1) throw new Error(`spec ${file} has no discovered cases`)
+    const source = collectSpecSource(file, root)
+    let extraTimeoutUnits = 0
+    for (const match of source.matchAll(/\btest\.setTimeout\(\s*([\d_]+)\s*\)/g)) {
+      const ms = Number(match[1].replaceAll("_", ""))
+      if (Number.isFinite(ms) && ms > E2E_DEFAULT_CASE_TIMEOUT_MS) {
+        extraTimeoutUnits += ms / E2E_DEFAULT_CASE_TIMEOUT_MS - 1
+      }
+    }
+    for (const _ of source.matchAll(/\btest\.slow\(\s*\)/g)) {
+      extraTimeoutUnits += 2
+    }
+    weights[file] = roundWeight(count + E2E_TIMEOUT_WEIGHT_FACTOR * extraTimeoutUnits)
+  }
+  return weights
+}
+
+export function partitionSpecsLpt(files, cases, weights, shardCount = E2E_TARGET_SHARDS) {
+  const uniqueFiles = sorted(files.map(normalize))
+  if (!uniqueFiles.length) throw new Error("cannot partition an empty spec set")
+  const requested = Number(shardCount)
+  if (!Number.isInteger(requested) || requested < 1) throw new Error("UI shard count must be positive")
+  const count = Math.min(requested, uniqueFiles.length)
+  const casesByFile = new Map()
+  for (const test of cases) {
+    const list = casesByFile.get(test.file) || []
+    list.push(test.key)
+    casesByFile.set(test.file, list)
+  }
+  const ranked = [...uniqueFiles].sort((left, right) => (
+    (weights[right] - weights[left]) || left.localeCompare(right)
+  ))
+  const bins = Array.from({ length: count }, () => ({ files: [], cases: [], weight: 0 }))
+  for (const file of ranked) {
+    const fileWeight = weights[file]
+    if (typeof fileWeight !== "number" || !Number.isFinite(fileWeight) || fileWeight <= 0) {
+      throw new Error(`invalid weight for spec ${file}`)
+    }
+    let bestIndex = 0
+    for (let index = 1; index < bins.length; index++) {
+      const best = bins[bestIndex]
+      const candidate = bins[index]
+      if (candidate.weight < best.weight
+        || (candidate.weight === best.weight && candidate.files.length < best.files.length)) {
+        bestIndex = index
+      }
+    }
+    const target = bins[bestIndex]
+    target.files.push(file)
+    target.cases.push(...(casesByFile.get(file) || []))
+    target.weight = roundWeight(target.weight + fileWeight)
+  }
+  for (const bin of bins) {
+    bin.files.sort()
+    bin.cases.sort()
+  }
+  bins.sort((left, right) => (
+    (right.weight - left.weight) || left.files[0].localeCompare(right.files[0])
+  ))
+  return bins.map((bin, index) => ({
+    current: index + 1,
+    total: bins.length,
+    weight: bin.weight,
+    files: bin.files,
+    cases: bin.cases,
+  }))
+}
+
 export function validateNativeUiFacts(facts, requested) {
-  if (!facts || facts.version !== 1 || !Array.isArray(facts.files) || !facts.files.length
-    || !Array.isArray(facts.cases) || !facts.cases.length || !Array.isArray(facts.shards) || !facts.shards.length) {
+  if (!facts || facts.version !== 2 || !Array.isArray(facts.files) || !facts.files.length
+    || !Array.isArray(facts.cases) || !facts.cases.length || !Array.isArray(facts.shards) || !facts.shards.length
+    || !facts.weights || typeof facts.weights !== "object") {
     throw new Error("native UI discovery is incomplete")
   }
   const selection = sorted(requested.map(normalize))
@@ -86,13 +193,21 @@ export function validateNativeUiFacts(facts, requested) {
   if (!selection.includes("all") && JSON.stringify(selection) !== JSON.stringify(facts.files)) throw new Error("selected UI files lack native registrations")
   const keys = sorted(facts.cases.map(test => test.key))
   if (keys.length !== facts.cases.length || JSON.stringify(sorted(facts.cases.map(test => test.file))) !== JSON.stringify(facts.files)) throw new Error("native UI inventory is inconsistent")
+  if (JSON.stringify(Object.keys(facts.weights).sort()) !== JSON.stringify(facts.files)) throw new Error("native UI weight keys mismatch")
+  for (const file of facts.files) {
+    const value = facts.weights[file]
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`invalid weight for ${file}`)
+  }
   const owned = [], files = []
   for (let index = 0; index < facts.shards.length; index++) {
     const shard = facts.shards[index]
     if (shard.current !== index + 1 || shard.total !== facts.shards.length
-      || !Array.isArray(shard.cases) || !Array.isArray(shard.files)) throw new Error("native UI shard identity mismatch")
+      || !Array.isArray(shard.cases) || !shard.cases.length
+      || !Array.isArray(shard.files) || !shard.files.length) throw new Error("native UI shard identity mismatch")
     const identities = facts.cases.filter(test => shard.cases.includes(test.key))
     if (identities.length !== shard.cases.length || JSON.stringify(sorted(identities.map(test => test.file))) !== JSON.stringify(shard.files)) throw new Error("native UI shard case/file mismatch")
+    const expectedWeight = roundWeight(shard.files.reduce((sum, file) => sum + facts.weights[file], 0))
+    if (shard.weight !== expectedWeight) throw new Error("native UI shard weight mismatch")
     owned.push(...shard.cases); files.push(...shard.files)
   }
   if (owned.length !== keys.length || JSON.stringify(sorted(owned)) !== JSON.stringify(keys)
@@ -101,27 +216,33 @@ export function validateNativeUiFacts(facts, requested) {
   return facts
 }
 
-export function queryNativeUiFacts(specs, { root = ROOT, shardCount = E2E_NATIVE_SHARDS, execute } = {}) {
+export function queryNativeUiFacts(specs, { root = ROOT, shardCount = E2E_TARGET_SHARDS, execute } = {}) {
   if (!Array.isArray(specs) || !specs.length || specs.some(spec => typeof spec !== "string")
     || new Set(specs).size !== specs.length || (specs.includes("all") && specs.length !== 1)) throw new Error("invalid UI selection")
   const all = listPlaywrightTests({ root, specs, execute })
   if (!all.files.length) throw new Error("selected UI files have no native registrations")
-  const count = Math.min(Number(shardCount), all.files.length)
-  if (!Number.isInteger(count) || count < 1) throw new Error("native UI shard count must be positive")
-  const shards = []
-  for (let current = 1; current <= count; current++) {
-    const part = listPlaywrightTests({ root, specs, shard: { current, total: count }, execute })
-    shards.push({ current, total: count, files: part.files, cases: part.cases.map(test => test.key) })
-  }
-  return validateNativeUiFacts({ version: 1, playwright_version: resolvePlaywrightVersion(), selection: sorted(specs.map(normalize)), files: all.files, cases: all.cases, shards }, specs)
+  const weights = computeSpecWeights(all.files, all.cases, root)
+  const shards = partitionSpecsLpt(all.files, all.cases, weights, shardCount)
+  return validateNativeUiFacts({
+    version: 2,
+    playwright_version: resolvePlaywrightVersion(),
+    selection: sorted(specs.map(normalize)),
+    files: all.files,
+    cases: all.cases,
+    weights,
+    shards,
+  }, specs)
 }
 
 export function createE2eMatrix(facts, image = resolvePlaywrightImage()) {
   validateNativeUiFacts(facts, facts.selection)
-  const active = facts.shards.filter(shard => shard.cases.length)
-  return { include: active.map((part, index) => ({
-    shard: index + 1, total: active.length, native_shard: part.current, native_total: part.total, image,
-    specs: part.files.map(file => "src/test/e2e-ui/" + file), case_keys: part.cases,
+  return { include: facts.shards.map(part => ({
+    shard: part.current,
+    total: part.total,
+    weight: part.weight,
+    image,
+    specs: part.files.map(file => "src/test/e2e-ui/" + file),
+    case_keys: part.cases,
   })) }
 }
 
@@ -129,11 +250,13 @@ export function runCli(argv, { root = ROOT, execute } = {}) {
   const args = {}
   for (let index = 0; index < argv.length; index += 2) args[argv[index].replace(/^--/, "")] = argv[index + 1]
   const specs = args["specs-json"] ? JSON.parse(args["specs-json"]) : ["all"]
-  const facts = queryNativeUiFacts(specs, { root, shardCount: args.shards || E2E_NATIVE_SHARDS, execute })
+  const facts = queryNativeUiFacts(specs, { root, shardCount: args.shards || E2E_TARGET_SHARDS, execute })
   const matrix = createE2eMatrix(facts)
+  const minWeight = Math.min(...matrix.include.map(part => part.weight))
+  const maxWeight = Math.max(...matrix.include.map(part => part.weight))
   if (args.output) appendFileSync(args.output, "e2e_matrix=" + JSON.stringify(matrix) + "\n")
   else process.stdout.write(JSON.stringify({ facts, matrix }, null, 2) + "\n")
-  if (args.summary) appendFileSync(args.summary, `## Native UI shards\n\n${facts.cases.length} registered cases in ${facts.files.length} files; ${matrix.include.length} nonempty native partitions. ${E2E_TARGET_SECONDS}s is a measurement target, not a predicted cutoff.\n`)
+  if (args.summary) appendFileSync(args.summary, `## Balanced UI shards\n\n${facts.cases.length} registered cases in ${facts.files.length} files; ${matrix.include.length} balanced partitions (weight ${minWeight}–${maxWeight}). ${E2E_TARGET_SECONDS}s is a measurement target, not a predicted cutoff.\n`)
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) runCli(process.argv.slice(2))

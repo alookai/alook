@@ -107,12 +107,15 @@ function buildExecutionPlan(changes, options = {}) {
   const selection = [...draft.ui.specs].sort()
   const files = selection[0] === "all" ? browserFacts.files : selection
   const cases = browserFacts.cases.filter(test => files.includes(test.file))
+  const weights = Object.fromEntries(files.map(file => [file, browserFacts.weights[file]!]))
+  const weight = Math.round(files.reduce((sum, file) => sum + weights[file]!, 0) * 100) / 100
   const nativeUi = validateNativeUiFacts({
     ...browserFacts,
     selection,
     files,
     cases,
-    shards: [{ current: 1, total: 1, files, cases: cases.map(test => test.key) }],
+    weights,
+    shards: [{ current: 1, total: 1, weight, files, cases: cases.map(test => test.key) }],
   }, draft.ui.specs)
   return createExecutionPlan(changes, { ...settings, nativeUi })
 }

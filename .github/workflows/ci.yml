@@ -892,9 +892,7 @@ jobs:
             --attempt "${{ github.run_attempt }}" \
             --sha "${{ github.sha }}" \
             --shard "${{ matrix.shard }}" \
-            --total "${{ matrix.total }}" \
-            --native-shard "${{ matrix.native_shard }}" \
-            --native-total "${{ matrix.native_total }}"
+            --total "${{ matrix.total }}"
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -914,16 +912,16 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}" \
             --head-sha "${{ github.sha }}" --zones "$zones"
-      - name: Run native Playwright partition
+      - name: Run balanced Playwright partition
         id: playwright
-        timeout-minutes: ${{ contains(matrix.specs, 'src/test/e2e-ui/55-history-reading-continuity.spec.ts') && 16 || 14 }}
+        timeout-minutes: 14
         env:
           ALOOK_E2E_PREBUILT: "1"
           ALOOK_E2E_ZONES: ${{ toJSON(matrix.zones) }}
-          E2E_SPECS: ${{ needs.scope.outputs.ui_specs }}
+          E2E_SHARD_SPECS: ${{ toJSON(matrix.specs) }}
         run: |
-          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) if (spec !== "all") console.log("src/test/e2e-ui/" + spec)')
-          pnpm --filter @alook/web exec playwright test "${specs[@]}" --shard=${{ matrix.native_shard }}/${{ matrix.native_total }}
+          mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SHARD_SPECS)) console.log(spec)')
+          pnpm --filter @alook/web exec playwright test "${specs[@]}"
       - name: Restore browser services
         if: ${{ always() && contains(fromJSON('["success","failure","cancelled"]'), steps.playwright.outcome) }}
         run: pnpm --filter @alook/web exec tsx -e 'import teardown from "./src/test/e2e-ui/_setup/global-teardown.ts"; teardown().catch(error => { console.error(error); process.exitCode = 1 })'

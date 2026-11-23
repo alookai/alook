@@ -9,7 +9,7 @@ const root = resolve(import.meta.dirname, "../..")
 const extractor = join(root, "scripts/ci/extract-report-artifacts.py")
 const temporary: string[] = []
 const caseKey = (file: string) => JSON.stringify([file, "chromium", "case"])
-const row = (file: string, shard: number, total: number) => ({ shard, total, specs: [file], native_shard: shard, native_total: total, case_keys: [caseKey(file)] })
+const row = (file: string, shard: number, total: number) => ({ shard, total, specs: [file], case_keys: [caseKey(file)] })
 const matrix = { include: [row("a.spec.ts", 1, 1)] }
 const singleReport = { errors: [], suites: [{ file: "a.spec.ts", specs: [{ title: "case", tests: [{ projectName: "chromium" }] }] }] }
 
@@ -81,7 +81,7 @@ print(json.dumps({"blob": base64.b64encode(blob).decode(), "early": early, "boun
 function archive(directory: string, options: Record<string, unknown> = {}, shard = 1, total = 1, attempt = 1) {
   mkdirSync(directory, { recursive: true })
   const file = `${shard === 1 ? "a" : "b"}.spec.ts`
-  const manifest = createShardManifest({ runId: "run-1", attempt, sha: "source-sha", shard, total, specs: [file], nativeShard: shard, nativeTotal: total, caseKeys: [caseKey(file)] })
+  const manifest = createShardManifest({ runId: "run-1", attempt, sha: "source-sha", shard, total, specs: [file], caseKeys: [caseKey(file)] })
   const result = execFileSync("python3", ["-c", fixtureBuilder, join(directory, "opaque-download"), JSON.stringify(manifest), JSON.stringify(options)], { encoding: "utf8" })
   return { manifest, ...JSON.parse(result) as { blob: string; early: number | null; boundary: number | null } }
 }
