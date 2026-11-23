@@ -1,8 +1,8 @@
 import { DiscoveryProcessError, runBoundedDiscoveryProcess, type DiscoveryProcessControl } from "../../internal/discovery-process.js";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { parseAntigravityCatalog, antigravityReasoningCatalog } from "./catalog.js";
 import type { ProbeResult, SpawnedProcessHandle } from "../../internal/adapter.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
@@ -11,32 +11,6 @@ import { resolveSpawnSpec } from "../../internal/probe.js";
 
 export function antigravitySpawnSpec(command?: string, platform = process.platform): { command: string; args: string[]; shell: boolean } {
   return resolveSpawnSpec(platform === "win32" ? "agy_acp_server.exe" : "agy_acp_server.par", platform === "linux" ? ["--uid="] : [], command);
-}
-
-/** Unwrap only the pure exec script from our documented managed installation. */
-export function managedAntigravityExecutable(command: string, home: string): string | undefined {
-  if (command !== join(homedir(), ".local", "bin", "agy_acp_server.par")) return undefined;
-  let fd: number | undefined;
-  try {
-    fd = openSync(command, constants.O_RDONLY | constants.O_NONBLOCK);
-    if (!fstatSync(fd).isFile()) return undefined;
-    const script = Buffer.alloc(1024);
-    const length = readSync(fd, script, 0, script.length, 0);
-    if (length === script.length) return undefined;
-    const target = /^#!\/bin\/sh\nexec "([^"\n]+)" "\$@"\n?$/.exec(script.toString("utf8", 0, length))?.[1];
-    if (!target) return undefined;
-    const relativeToHome = target.startsWith("$HOME/");
-    const literal = relativeToHome ? target.slice(6) : target;
-    if (/[$`\\]/.test(literal)) return undefined;
-    const path = relativeToHome ? resolve(home, literal) : literal;
-    if (basename(path) !== "agy_acp_server.par"
-      || dirname(dirname(path)) !== join(home, ".local", "share", "alook", "runtimes", "antigravity-acp")) return undefined;
-    return path;
-  } catch {
-    return undefined;
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-  }
 }
 
 type ProbeOptions = {

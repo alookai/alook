@@ -1,12 +1,10 @@
-import { homedir } from "node:os";
 import type { AdapterLaunchContext, BackendAdapter, RuntimeLaneOpenOptions, SpawnedProcess } from "../../internal/adapter.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
-import { canLaunchMacosAgents } from "../../internal/macos-agent-launch.js";
 import { nativeUsageHome } from "./usage.js";
 import { AntigravityAcpLane } from "./acp-lane.js";
-import { antigravitySpawnSpec, managedAntigravityExecutable, probeAntigravity } from "./probe.js";
+import { antigravitySpawnSpec, probeAntigravity } from "./probe.js";
 
 export class AntigravityDriver implements BackendAdapter {
   readonly id = "antigravity";
@@ -31,13 +29,9 @@ export class AntigravityDriver implements BackendAdapter {
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess & { usageHome: string }> {
     const { spawnEnv } = await prepareCliTransport(ctx);
-    const command = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
-    const spec = antigravitySpawnSpec(command);
-    const managed = !command && canLaunchMacosAgents() ? managedAntigravityExecutable(spec.command, spawnEnv.HOME || homedir()) : undefined;
-    return { usageHome: nativeUsageHome(spawnEnv, ctx.workingDirectory), process: spawnAgentProcess(managed ?? spec.command, spec.args, {
-      cwd: ctx.workingDirectory,
-      env: spawnEnv,
-      shell: spec.shell,
+    const spec = antigravitySpawnSpec(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command);
+    return { usageHome: nativeUsageHome(spawnEnv, ctx.workingDirectory), process: spawnAgentProcess(spec.command, spec.args, {
+      cwd: ctx.workingDirectory, env: spawnEnv, shell: spec.shell,
       macosIdentity: true,
     }) };
   }

@@ -17,14 +17,13 @@ import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
 import { resolveCodexHomeRootFromEnv } from "./home.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
-import { canLaunchMacosAgents } from "../../internal/macos-agent-launch.js";
 import { jsonRpcRequest, tryParseJsonLine } from "../../internal/utils.js";
 import { scrubDriverErrorMessage } from "../../internal/errors.js";
 import {
   normalizeRuntimeModelId,
   RUNTIME_MODEL_CATALOG_MAX,
 } from "../../internal/modelCatalog.js";
-import { resolveCodexCommand, resolveCodexNpmBinary, type CodexBackendId } from "./command.js";
+import { resolveCodexCommand, type CodexBackendId } from "./command.js";
 import { discoverCodexRecentContext } from "./recent-context.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
@@ -253,23 +252,13 @@ export class CodexDriver<Id extends CodexBackendId = "codex"> implements Backend
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {
-    const command = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
-    const override = resolveCodexCommand(command, {}, process.platform, this.id);
+    const override = resolveCodexCommand(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command, {}, process.platform, this.id);
     if (!override && this.id !== "codex") throw Object.assign(new Error(`${this.id} is not installed`), { code: "not_installed" });
     const { spawnEnv } = await prepareCliTransport(ctx);
 
     this.codexHomeRoot = resolveCodexHomeRootFromEnv(spawnEnv, { cwd: ctx.workingDirectory });
     const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"], override);
-    const npmBinary = !command && canLaunchMacosAgents() && !/\bbun\//.test(spawnEnv.npm_config_user_agent ?? "")
-      && !spawnEnv.npm_execpath?.includes("bun") ? resolveCodexNpmBinary(spec.command) : undefined;
-    if (npmBinary) {
-      delete spawnEnv.CODEX_MANAGED_BY_BUN;
-      delete spawnEnv.CODEX_MANAGED_BY_PNPM;
-      delete spawnEnv.CODEX_MANAGED_BY_VITE_PLUS;
-      spawnEnv.CODEX_MANAGED_BY_NPM = "1";
-      spawnEnv.CODEX_MANAGED_PACKAGE_ROOT = npmBinary.packageRoot;
-    }
-    const proc = spawnAgentProcess(npmBinary?.command ?? spec.command, spec.args, {
+    const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       macosIdentity: true,
       env: spawnEnv,

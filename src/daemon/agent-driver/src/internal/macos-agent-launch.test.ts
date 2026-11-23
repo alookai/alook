@@ -104,9 +104,12 @@ describe.runIf(process.platform === "darwin")("macOS backend launch", () => {
     }
   });
 
-  it("keeps shell scripts on their normal launch path", async () => {
-    const script = join(directory, "script");
-    writeFileSync(script, "#!/bin/sh\nexit 21\n", { mode: 0o700 });
+  it.each([
+    { name: "shell", content: "#!/bin/sh\nexit 21\n" },
+    { name: "Node", content: "#!/usr/bin/env node\nprocess.exit(21)\n" },
+  ])("starts $name wrappers directly", async ({ name, content }) => {
+    const script = join(directory, name);
+    writeFileSync(script, content, { mode: 0o700 });
     expect(macosAgentSpawnSpec(script, [], { cwd: directory })).toBeUndefined();
     const worker = spawnAgentProcess(script, [], { cwd: directory, macosIdentity: true });
     await expect(once(worker, "close")).resolves.toEqual([21, null]);

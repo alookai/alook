@@ -19,24 +19,18 @@ function isMachO(command: string): boolean {
   }
 }
 
-export function canLaunchMacosAgents(): boolean {
-  const launcher = process.env[macosAgentLauncher];
-  if (process.platform !== "darwin" || !launcher || !isAbsolute(launcher)) return false;
-  try {
-    accessSync(launcher, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function macosAgentSpawnSpec(command: string, args: string[], options: {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   shell?: boolean;
 }): { command: string; args: string[]; env: NodeJS.ProcessEnv } | undefined {
   const launcher = process.env[macosAgentLauncher];
-  if (!launcher || !canLaunchMacosAgents() || options.shell || !command.includes("/")) return undefined;
+  if (process.platform !== "darwin" || !launcher || !isAbsolute(launcher) || options.shell || !command.includes("/")) return undefined;
+  try {
+    accessSync(launcher, constants.X_OK);
+  } catch {
+    return undefined;
+  }
   const executable = resolve(options.cwd, command);
   if (!isMachO(executable)) return undefined;
 
