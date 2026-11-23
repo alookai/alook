@@ -925,8 +925,7 @@
 }
 
 /* ── Paper — slides up inside the track ── */
-.tw-paper.tw-paper-city {
-  /* A slightly deeper bottom margin lifts the city clear of the platen. */
+.tw-paper.tw-paper-workspace {
   padding: 8px 8px 36px;
 }
 

@@ -6,45 +6,49 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@gsap/react", () => ({ useGSAP: vi.fn() }));
 
 import { TypewriterVisual } from "./typewriter-visual";
-import { TYPEWRITER_CITY_ART } from "./typewriter-city-art-data";
 
-const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  if (originalFonts) Object.defineProperty(document, "fonts", originalFonts);
-  else Reflect.deleteProperty(document, "fonts");
 });
 
 describe("typewriter paper", () => {
-  it("waits for the paper font and committed canvas before releasing the hero", async () => {
-    let resolveFont!: () => void;
-    const font = new Promise<void>((resolve) => { resolveFont = resolve; });
-    Object.defineProperty(document, "fonts", { configurable: true, value: { load: () => font } });
-    const drawImage = vi.fn();
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage, fillText: vi.fn() } as unknown as CanvasRenderingContext2D);
-    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  it("releases the hero after the printed workspace image decodes", async () => {
+    let finishDecode!: () => void;
+    const decoded = new Promise<void>((resolve) => {
+      finishDecode = resolve;
+    });
+    vi.stubGlobal("Image", class { decode() { return decoded; } });
     const settled = vi.fn();
-    const { container } = render(<TypewriterVisual animateEntrance={false} onPaperSettled={settled} />);
+    render(<TypewriterVisual animateEntrance={false} onPaperSettled={settled} />);
+    expect(screen.getByRole("img", { name: /Alook workspace/ })).toBeInTheDocument();
     expect(settled).not.toHaveBeenCalled();
-    await act(async () => { resolveFont(); await font; });
-    expect(drawImage).toHaveBeenCalled();
-    expect(container.querySelector("pre")?.className).toContain("rendered");
+    await act(async () => { finishDecode(); await decoded; });
     expect(settled).toHaveBeenCalledTimes(1);
   });
 
-  it("announces the paper font in server HTML before hydration", () => {
-    const html = renderToString(<TypewriterVisual animateEntrance={false} />);
-    expect(html).toContain('rel="preload"');
-    expect(html).toContain('href="/fonts/jgs5/jgs5.ttf"');
-    expect(html).toContain('as="font"');
-    expect(html).toContain('crossorigin="anonymous"');
+  it("releases the hero when the printed image cannot be decoded", async () => {
+    vi.stubGlobal("Image", class { async decode() { throw new Error("Image unavailable"); } });
+    const settled = vi.fn();
+    render(<TypewriterVisual animateEntrance={false} onPaperSettled={settled} />);
+    await act(async () => {});
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it("references the workspace image from the initial SVG markup", () => {
+    const settled = vi.fn();
+    const html = renderToString(<TypewriterVisual animateEntrance={false} onPaperSettled={settled} />);
+    expect(html).toContain("<svg");
+    expect(html).toContain("Alook workspace with two people and two bots");
+    expect(html).toContain('href="/landing/typewriter-workspace.webp"');
+    expect(html).not.toContain("<canvas");
+    expect(settled).not.toHaveBeenCalled();
   });
 
   it("renders static hero paper visible before effects", () => {
     const { container } = render(<TypewriterVisual animateEntrance={false} />);
     expect((container.querySelector(".tw-paper") as HTMLElement).style.opacity).toBe("1");
-    expect(container.querySelector("pre")?.textContent).toBe(TYPEWRITER_CITY_ART);
+    expect(screen.getByRole("img", { name: /Alook workspace/ })).toBeInTheDocument();
   });
 
   it.each([false, true])("keeps keyboard on the front and seats the paper in the top deck with animated paper=%s", (animateEntrance) => {
@@ -55,21 +59,20 @@ describe("typewriter paper", () => {
     expect(track.parentElement).toBe(container.querySelector(".tw-body"));
   });
 
-  it("shows the city without a switch control or consuming Enter", () => {
-    const { container } = render(<TypewriterVisual />);
-    expect(screen.getByRole("img", { name: /Alook sculpture/ })).toBeTruthy();
-    expect(container.querySelector("pre")?.textContent).toBe(TYPEWRITER_CITY_ART);
+  it("shows the illustration without capturing keyboard input", () => {
+    render(<TypewriterVisual />);
+    const illustration = screen.getByRole("img", { name: /Alook workspace/ });
     expect(screen.queryByRole("button")).toBeNull();
     const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     document.dispatchEvent(enter);
     expect(enter.defaultPrevented).toBe(false);
-    expect(container.querySelector("pre")?.textContent).toBe(TYPEWRITER_CITY_ART);
+    expect(illustration).toBeInTheDocument();
   });
 
   it("keeps custom error-page paper", () => {
-    const { container } = render(<TypewriterVisual paper={<p>Undeliverable — page not found</p>} />);
+    render(<TypewriterVisual paper={<p>Undeliverable — page not found</p>} />);
     expect(screen.getByText("Undeliverable — page not found")).toBeTruthy();
-    expect(container.querySelector("pre")).toBeNull();
+    expect(screen.queryByRole("img", { name: /Alook workspace/ })).toBeNull();
   });
 });
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { TypewriterCityArt } from "./typewriter-city-art";
+import { TypewriterWorkspaceArt } from "./typewriter-workspace-art";
 
 const KEY_ROWS = [9, 7, 9];
 // rest angle of .typewriter-scene in globals.css
@@ -189,8 +189,8 @@ export function TypewriterVisual({
 
   const paperTrack = (
     <div className="tw-paper-track">
-      <div className={`tw-paper${paper == null ? " tw-paper-city" : ""}`} style={animateEntrance ? undefined : { opacity: 1 }}>
-        {paper ?? <TypewriterCityArt onSettled={onPaperSettled} />}
+      <div className={`tw-paper${paper == null ? " tw-paper-workspace" : ""}`} style={animateEntrance ? undefined : { opacity: 1 }}>
+        {paper ?? <TypewriterWorkspaceArt onSettled={onPaperSettled} />}
       </div>
     </div>
   );
