@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url"
 import { collectPlaywrightCases } from "./e2e-shards.mjs"
 
 export const SHARD_ARTIFACT_PREFIX = "blob-report"
-export const SHARD_MANIFEST_VERSION = 2
+export const SHARD_MANIFEST_VERSION = 3
 
 function parsePositiveInteger(value, label) {
   const parsed = Number(value)
@@ -37,8 +37,6 @@ export function expectedMatrix(matrixInput) {
   const shards = new Map()
   const owners = new Map()
   const caseOwners = new Set()
-  const nativeOwners = new Set()
-  let nativeTotal = null
   let total = null
   for (const entry of matrix.include) {
     const shard = parsePositiveInteger(entry.shard, "matrix shard")
@@ -56,11 +54,6 @@ export function expectedMatrix(matrixInput) {
       if (owner) throw new Error(`spec ${spec} is assigned to shards ${owner} and ${shard}`)
       owners.set(spec, shard)
     }
-    const nativeShard = parsePositiveInteger(entry.native_shard, "native shard")
-    const nativeCount = parsePositiveInteger(entry.native_total, "native total")
-    if (nativeTotal === null) nativeTotal = nativeCount
-    if (nativeTotal !== nativeCount || nativeShard > nativeCount || nativeOwners.has(nativeShard)) throw new Error("native partition identity mismatch")
-    nativeOwners.add(nativeShard)
     if (!Array.isArray(entry.case_keys) || !entry.case_keys.length) throw new Error("matrix must contain native cases")
     const caseKeys = [...entry.case_keys].sort()
     const caseFiles = new Set()
@@ -71,7 +64,7 @@ export function expectedMatrix(matrixInput) {
       caseFiles.add(identity[0]); caseOwners.add(key)
     }
     assertEqualArray([...caseFiles].sort(), specs, "matrix case/file closure mismatch")
-    shards.set(shard, { shard, total: entryTotal, specs, nativeShard, nativeTotal: nativeCount, caseKeys })
+    shards.set(shard, { shard, total: entryTotal, specs, caseKeys })
   }
   if (shards.size !== total) throw new Error(`matrix declares ${total} shards but contains ${shards.size}`)
   for (let shard = 1; shard <= total; shard += 1) {
@@ -80,7 +73,7 @@ export function expectedMatrix(matrixInput) {
   return { total, shards, specs: [...owners.keys()].sort(), caseKeys: [...caseOwners].sort() }
 }
 
-export function createShardManifest({ runId, attempt, sha, shard, total, specs, nativeShard, nativeTotal, caseKeys }) {
+export function createShardManifest({ runId, attempt, sha, shard, total, specs, caseKeys }) {
   const manifest = {
     version: SHARD_MANIFEST_VERSION,
     runId: String(runId),
@@ -89,8 +82,6 @@ export function createShardManifest({ runId, attempt, sha, shard, total, specs, 
     shard: parsePositiveInteger(shard, "manifest shard"),
     total: parsePositiveInteger(total, "manifest total"),
     specs: specs.map(normalizeSpecPath).sort(),
-    nativeShard: parsePositiveInteger(nativeShard, "manifest native shard"),
-    nativeTotal: parsePositiveInteger(nativeTotal, "manifest native total"),
     caseKeys: [...caseKeys].sort(),
   }
   if (!manifest.runId) throw new Error("manifest runId is required")
@@ -232,7 +223,6 @@ export function verifyArtifactClosure({
       expected.specs,
       `shard ${shard} specs mismatch`,
     )
-    if (manifest.nativeShard !== expected.nativeShard || manifest.nativeTotal !== expected.nativeTotal) throw new Error(`shard ${shard} native identity mismatch`)
     assertEqualArray(manifest.caseKeys || [], expected.caseKeys, `shard ${shard} cases mismatch`)
     const manifestAttempt = parsePositiveInteger(manifest.attempt, `shard ${shard} manifest attempt`)
     if (manifestAttempt > currentAttempt) throw new Error(`shard ${shard} manifest is from a future attempt`)
@@ -276,8 +266,6 @@ export async function runCli(argv, env = process.env) {
       shard: args.shard,
       total: args.total,
       specs: JSON.parse(env.E2E_SPECS ?? "[]"),
-      nativeShard: args.nativeShard,
-      nativeTotal: args.nativeTotal,
       caseKeys: JSON.parse(env.E2E_CASE_KEYS ?? "[]"),
     })
     mkdirSync(resolve(args.output, ".."), { recursive: true })

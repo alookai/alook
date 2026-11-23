@@ -392,6 +392,16 @@ describe("E2E UI workflow", () => {
     expect(shard).toContain('--attempt "${{ needs.ui-e2e-build.outputs.artifact_attempt }}"')
     expect(shard).not.toContain("name: ui-e2e-build-${{ github.run_id }}-${{ github.run_attempt }}")
   })
+
+  it("executes each balanced shard's exact file list with uniform timeout and no --shard slicing", () => {
+    const shard = ciJob("e2e-ui")
+    expect(shard).toContain("timeout-minutes: 14")
+    expect(shard).toContain("E2E_SHARD_SPECS: ${{ toJSON(matrix.specs) }}")
+    expect(shard).toContain('pnpm --filter @alook/web exec playwright test "${specs[@]}"')
+    expect(shard).not.toContain("--shard=")
+    expect(shard).not.toContain("--native-shard")
+    expect(shard).not.toContain("55-history-reading-continuity.spec.ts")
+  })
 })
 
 describe("Bun workflow setup", () => {

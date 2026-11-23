@@ -14,7 +14,7 @@ import {
 } from "./e2e-shard-artifacts.mjs"
 
 const key = (file: string) => JSON.stringify([file, "chromium", "case"])
-const row = (file: string, shard: number, total: number) => ({ shard, total, specs: ["src/test/e2e-ui/" + file], native_shard: shard, native_total: total, case_keys: [key(file)] })
+const row = (file: string, shard: number, total: number) => ({ shard, total, specs: ["src/test/e2e-ui/" + file], case_keys: [key(file)] })
 const reportSuite = (file: string, title = "case") => ({ file, specs: [{ title, tests: [{ projectName: "chromium" }] }] })
 const reportFor = (...files: string[]) => ({ errors: [], suites: files.map(file => reportSuite(file)) })
 
@@ -53,7 +53,7 @@ function artifactRoot(attempts = [1, 2]) {
         shard,
         total: 2,
         specs: matrix.include[shard - 1]!.specs,
-        nativeShard: shard, nativeTotal: 2, caseKeys: matrix.include[shard - 1]!.case_keys,
+        caseKeys: matrix.include[shard - 1]!.case_keys,
       }),
     ))
   }
@@ -74,7 +74,7 @@ function flatArtifactRoot() {
       shard: 1,
       total: 1,
       specs: singleShardMatrix.include[0]!.specs,
-      nativeShard: 1, nativeTotal: 1, caseKeys: singleShardMatrix.include[0]!.case_keys,
+      caseKeys: singleShardMatrix.include[0]!.case_keys,
     }),
   ))
   return root
@@ -292,7 +292,6 @@ describe("verifyArtifactClosure", () => {
   it.each([
     ["wrong run ID", (manifest: any) => { manifest.runId = "wrong" }, "run ID mismatch"],
     ["wrong SHA", (manifest: any) => { manifest.sha = "wrong" }, "SHA mismatch"],
-    ["wrong native identity", (manifest: any) => { manifest.nativeShard = 99 }, "native identity mismatch"],
     ["wrong cases", (manifest: any) => { manifest.caseKeys = [] }, "cases mismatch"],
     ["wrong identity", (manifest: any) => { manifest.shard = 99 }, "manifest identity mismatch"],
     ["wrong specs", (manifest: any) => { manifest.specs = ["unexpected.spec.ts"] }, "specs mismatch"],
@@ -379,7 +378,6 @@ describe("runCli", () => {
       "--sha", "def456",
       "--shard", "1",
       "--total", "2",
-      "--native-shard", "1", "--native-total", "2",
       "--output", output,
     ], {
       E2E_SPECS: JSON.stringify(["src/test/e2e-ui/a.spec.ts"]),
@@ -389,14 +387,14 @@ describe("runCli", () => {
     const contents = readFileSync(output, "utf8")
     expect(contents.endsWith("\n")).toBe(true)
     expect(JSON.parse(contents)).toEqual({
-      version: 2,
+      version: 3,
       runId: "run-2",
       attempt: 2,
       sha: "def456",
       shard: 1,
       total: 2,
       specs: ["a.spec.ts"],
-      nativeShard: 1, nativeTotal: 2, caseKeys: [key("a.spec.ts")],
+      caseKeys: [key("a.spec.ts")],
     })
   })
 
