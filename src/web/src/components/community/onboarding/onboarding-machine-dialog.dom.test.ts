@@ -144,12 +144,16 @@ describe("OnboardingMachineDialog", () => {
     expect(mocks.apiFetch).not.toHaveBeenCalled()
   })
 
-  it("uses a matching machine even if the first online machine has no usable runtime", () => {
+  it.each([
+    { harness: "codex", otherRuntime: "claude" },
+    { harness: "antigravity", otherRuntime: "agy" },
+    { harness: "agy", otherRuntime: "antigravity" },
+  ])("matches $harness on the machine advertising that exact runtime", ({ harness, otherRuntime }) => {
     mocks.machines = [
-      { id: "other", hostname: "other", status: "online", availableRuntimes: [] },
-      { id: "matching", hostname: "ready", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] },
+      { id: "other", hostname: "other", status: "online", availableRuntimes: [{ id: otherRuntime, status: "healthy" }] },
+      { id: "matching", hostname: "ready", status: "online", availableRuntimes: [{ id: harness, status: "healthy" }] },
     ]
-    const input = props()
+    const input = { ...props(), harness }
     const view = render(React.createElement(OnboardingMachineDialog, input))
     expect(input.onConnected).toHaveBeenCalledExactlyOnceWith("matching")
     expect(view.queryByTestId(tid.onboardingRuntimeUnavailable)).not.toBeInTheDocument()

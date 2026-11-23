@@ -57,13 +57,17 @@ describe("Agent Setup", () => {
       "Access code (1h): fixture-code",
     ].join("\n"))
   })
-  it("waits for copy before ending setup with an already-online machine", async () => {
-    mocks.machines = [{ id: "machine-1", hostname: "Work Mac", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] } as CommunityMachineSummary]
-    const input = props()
+  it.each([
+    ["codex", "Codex"],
+    ["antigravity", "Antigravity"],
+    ["agy", "Antigravity CLI"],
+  ])("waits for copy before ending %s setup with an already-online machine", async (harness, harnessLabel) => {
+    mocks.machines = [{ id: "machine-1", hostname: "Work Mac", status: "online", availableRuntimes: [{ id: harness, status: "healthy" }] } as CommunityMachineSummary]
+    const input = { ...props(), harness, harnessLabel }
     render(<OnboardingAgentDialog {...input} />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
     expect(mocks.request).toHaveBeenCalledTimes(1)
-    expect(screen.getByLabelText("Prompt for Codex")).toHaveTextContent("Machine: machine-1")
+    expect(screen.getByLabelText(`Prompt for ${harnessLabel}`)).toHaveTextContent("Machine: machine-1")
     expect(input.onConnected).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }))
     await waitFor(() => expect(input.onConnected).toHaveBeenCalledOnce())

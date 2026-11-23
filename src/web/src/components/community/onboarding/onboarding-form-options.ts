@@ -20,6 +20,8 @@ export const ONBOARDING_HARNESSES = [
     label: "Grok Build",
     provider: "grok",
   },
+  { value: "antigravity", label: "Antigravity", provider: "antigravity" },
+  { value: "agy", label: "Antigravity CLI", provider: "agy" },
   {
     value: "cursor",
     label: "Cursor",

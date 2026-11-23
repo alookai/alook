@@ -16,6 +16,8 @@ describe("onboarding form options", () => {
       { value: "codex-app", label: "Codex App", provider: "codex-app" },
       { value: "codex-cli", label: "Codex CLI", provider: "codex-cli" },
       { value: "grok", label: "Grok Build", provider: "grok" },
+      { value: "antigravity", label: "Antigravity", provider: "antigravity" },
+      { value: "agy", label: "Antigravity CLI", provider: "agy" },
       { value: "cursor", label: "Cursor", provider: "cursor" },
       { value: "opencode", label: "OpenCode", provider: "opencode" },
       { value: "pi", label: "Pi", provider: "pi" },

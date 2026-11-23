@@ -261,7 +261,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     await waitFor(() => expect(mocks.initialize).toHaveBeenCalledWith(expect.objectContaining({ runtime: harness, model: "custom/model" })))
   })
 
-  it.each(["codex", "opencode", "qoder", "copilot", "cursor-sdk", "pi-durable"])("routes a connected %s machine through only its required steps", (harness) => {
+  it.each(["codex", "opencode", "antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"])("routes a connected %s machine through only its required steps", (harness) => {
     mocks.state = { status: "active", stage: "machine", harness }
     render(createElement(CommunityOnboardingForm))
     fireEvent.click(screen.getByRole("button", { name: "Machine connected" }))
@@ -269,7 +269,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(screen.queryByRole("textbox", { name: "Model" }) !== null).toBe(["opencode", "pi-durable", "cursor-sdk"].includes(harness))
   })
 
-  it.each(["qoder", "copilot", "cursor-sdk", "pi-durable"])("starts %s with a usable setup method", (harness) => {
+  it.each(["antigravity", "agy", "qoder", "copilot", "cursor-sdk", "pi-durable"])("starts %s with a usable setup method", (harness) => {
     mocks.state = { status: "active", stage: "harness" }
     mocks.selectedHarness = harness
     render(createElement(CommunityOnboardingForm))

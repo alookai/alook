@@ -50,6 +50,12 @@ test("first-signup desktop opens onboarding before the empty Machines guide", as
   await expect(onboarding.getByLabel("Step 1 of 2")).toBeVisible()
   await expect(page.getByTestId(tid.machineFirstSignupGuide)).toHaveCount(0)
 
+  for (const [runtime, label] of [["antigravity", "Antigravity"], ["agy", "Antigravity CLI"]]) {
+    const option = onboarding.getByTestId(tid.onboardingHarnessOption(runtime))
+    await expect(option.getByText(label, { exact: true })).toBeVisible()
+    await expect(option.locator('[data-provider-logo="antigravity"]')).toBeVisible()
+  }
+
   const grok = page.getByTestId(tid.onboardingHarnessOption("grok"))
   await expect(grok).toBeVisible()
   await expect(grok).toContainText("Grok Build")
