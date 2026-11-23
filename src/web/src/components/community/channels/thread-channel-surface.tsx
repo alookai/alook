@@ -247,6 +247,7 @@ export function ThreadChannelSurface({
                 <MessageList
                   onOpenContextId={controller.openContextId}
                   key={channelId}
+                  channelId={channelId}
                   channel={displayName}
                   kind="thread"
                   messages={controller.feed.messages}

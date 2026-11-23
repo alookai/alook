@@ -39,8 +39,9 @@ describe("Forum native list identity and ordinary reconstruction", () => {
     resize()
     if (mode === "hidden") {
       expect(second.getByTestId("community-forum-post-list").querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
-      expect(second.getByTestId("community-forum-post-list")).toHaveAttribute("aria-busy", "true")
-      expect(second.getByTestId("community-forum-post-list").querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "true")
+      expect(second.getByTestId("community-forum-post-list")).not.toHaveAttribute("aria-busy")
+      expect(second.getByTestId("community-forum-post-list").querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "false")
+      expect(second.container.querySelector("[data-forum-positioning-skeleton]")).toBeNull()
       scrollFixture.width = 320
       scrollFixture.height = 500
       resize()
@@ -70,8 +71,10 @@ describe("Forum native list identity and ordinary reconstruction", () => {
     expect(root.scrollTop).toBe(700)
     view.rerender(<ForumPostList {...props} positionScope={{ ...positionScope, tag: "bug" }} posts={posts} />)
     resize()
-    expect(root.isConnected).toBe(false)
-    expect(view.getByTestId("community-forum-post-list").scrollTop).toBe(0)
+    expect(view.getByTestId("community-forum-post-list")).toBe(root)
+    expect(root.isConnected).toBe(true)
+    expect(root.scrollTop).toBe(0)
+    expect(view.container.querySelector("[data-forum-positioning-skeleton]")).toBeNull()
   })
 })
 

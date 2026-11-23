@@ -4,8 +4,6 @@ import type { ImagePreview } from "@/lib/community/models/message"
 import { withImageGallery } from "./image-preview-gallery"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { hashKey } from "@tanstack/react-query"
-import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { useMessageListController } from "./message-list-controller"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
@@ -21,14 +19,35 @@ import { MessageRendererContext, MessageRendererError } from "./renderers/messag
 import { failMessageRenderer, selectMessageRenderer, useMessageRendererSettings, type MessageRendererSettings } from "./renderers/message-renderer-settings"
 
 export function MessageList(props: MessageListProps) {
-  const accountId = props.viewerUserId ?? props.positionScope?.proof.viewerId
-  const renderer = useMessageRendererSettings(accountId)
+  const accountId = props.viewerUserId ?? props.positionScope?.proof.viewerId ?? null
+  const resolvedChannelId = props.channelId ?? props.positionScope?.proof.channelId ?? null
+  const [mountSlot, setMountSlot] = useState(() => ({
+    accountId,
+    channelId: resolvedChannelId,
+    generation: 0,
+  }))
+  let nextMountSlot = mountSlot
+  if (
+    mountSlot.accountId !== accountId
+    || (resolvedChannelId !== null && mountSlot.channelId !== null && resolvedChannelId !== mountSlot.channelId)
+  ) {
+    nextMountSlot = {
+      accountId,
+      channelId: resolvedChannelId,
+      generation: mountSlot.generation + 1,
+    }
+    setMountSlot(nextMountSlot)
+  } else if (mountSlot.channelId === null && resolvedChannelId !== null) {
+    nextMountSlot = { ...mountSlot, channelId: resolvedChannelId }
+    setMountSlot(nextMountSlot)
+  }
+  const renderer = useMessageRendererSettings(accountId ?? undefined)
   const presentation = useMemo(() => ({ id: renderer.id, component: renderer.component, revision: renderer.revision,
     onError: () => { if (accountId) failMessageRenderer(accountId, renderer.id) },
     onReturnCurrent: () => { if (accountId) void selectMessageRenderer(accountId, "current") },
   }), [accountId, renderer.id, renderer.component, renderer.revision])
   return <MessageRendererContext.Provider value={presentation}>
-    <MessageListEntry key={props.positionScope ? hashKey(conversationListScopeKey(props.positionScope)) : accountId} {...props} renderer={renderer} onReturnCurrent={presentation.onReturnCurrent} />
+    <MessageListEntry key={nextMountSlot.generation} {...props} renderer={renderer} onReturnCurrent={presentation.onReturnCurrent} />
   </MessageRendererContext.Provider>
 }
 
@@ -41,15 +60,8 @@ function MessageListEntry({
 }: MessageListProps & { renderer: MessageRendererSettings; onReturnCurrent: () => void }) {
   const [presentationAdmitted, setPresentationAdmitted] = useState(false)
   if (renderer.ready && renderer.component && !presentationAdmitted) setPresentationAdmitted(true)
-  const [admitted, setAdmitted] = useState(false)
-  // Local cache readiness mounts the owner; its first geometry settlement controls the skeleton.
-  const ready = props.messages.length > 0 && !!(props.initialLoadError || props.targetLoadError)
-    || initialScrollReady && (props.messages.length > 0 || !props.loading && !props.initialLoadError)
-    || !!props.scrollToMessageId && (props.targetPositionDataState ?? props.positionDataState) === "ready" && props.messages.length > 0
-  if (ready && !admitted) setAdmitted(true)
   if (!renderer.ready) return <PendingMessageListSkeleton variant={variant} />
   if (!presentationAdmitted && !renderer.component) return <MessageRendererError onReturnCurrent={onReturnCurrent} />
-  if (props.positionScope && !admitted && !ready && !props.initialLoadError) return <PendingMessageListSkeleton variant={variant} />
   return <MessageListOwner {...props} variant={variant} initialScrollReady={initialScrollReady} renderer={renderer} />
 }
 

@@ -7,10 +7,11 @@ import { createStore, useSelector } from "@tanstack/react-store"
 import { CancelledError, hashKey, useInfiniteQuery, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import { useConversationEntry } from "./use-conversation-entry"
+import { useConversationTimeline } from "./use-conversation-timeline"
 import { useMessageWindowProjection } from "@/lib/community-db/projections"
-import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useMessageOverlayIds } from "@/stores/community/message-stream"
-import { materializeMessageStream, type MessageScope } from "@/lib/community/message-stream"
+import type { MessageScope } from "@/lib/community/message-stream"
+import { mergeTimelinePages, type TimelineCanonicalPage } from "@/lib/community/conversation-timeline"
 import { messagePageForReading, messagePageNeighbors, messageWindowOptions, viewportFillFetchMeta, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
 import { conversationEntryOptions, knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
 import type { Msg } from "@/lib/community/models/message"
@@ -38,27 +39,7 @@ export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
  * O(n log n) is fine here.
  */
 export function mergeMessagesPages<T extends { id: string; seq?: number; createdAt?: string }>(pages: Array<{ messages: T[] }>): T[] {
-  const all: T[] = []
-  for (const p of pages) {
-    for (const m of p.messages) all.push(m)
-  }
-  all.sort((a, b) => {
-    if (a.seq !== undefined && b.seq !== undefined && a.seq !== b.seq) return a.seq - b.seq
-    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
-    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
-    if (ta !== tb) return ta - tb
-    if (a.id < b.id) return -1
-    if (a.id > b.id) return 1
-    return 0
-  })
-  const seen = new Set<string>()
-  const out: T[] = []
-  for (const m of all) {
-    if (seen.has(m.id)) continue
-    seen.add(m.id)
-    out.push(m)
-  }
-  return out
+  return mergeTimelinePages(pages)
 }
 
 const INITIAL_ENTRY_ERROR = new Error("Could not load this conversation")
@@ -154,11 +135,50 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     const message = canonicalById.get(id)
     return message ? [message] : []
   }).sort((left, right) => left.seq - right.seq), [projection.windowIds, canonicalById])
-  useEffect(() => {
-    if (channelId) getCommunityRuntime(client).messageStream.actions.dispatch(scope, { type: "baseChanged", messages: canonicalBase })
-  }, [canonicalBase, channelId, client, scope])
-  const messages = useMemo(() => entry.canRead ? materializeMessageStream(canonicalBase, overlay, presentationResources).filter((message) => messageMatchesTag(message, tag)) : [],
-    [canonicalBase, presentationResources, overlay, entry.canRead, tag])
+  const timelinePages = useMemo<TimelineCanonicalPage[]>(() => (
+    (query.data?.pages ?? []).map((page) => ({
+      messages: page.messages.flatMap((reference) => {
+        const canonical = canonicalById.get(reference.id)
+        return canonical ? [canonical] : []
+      }),
+      hasMoreOlder: page.hasMoreOlder,
+      hasMore: page.hasMore,
+      hasMoreNewer: page.hasMoreNewer,
+      olderCursor: page.olderCursor,
+      cursor: page.cursor,
+      newerCursor: page.newerCursor,
+      latestSeq: page.latestSeq,
+    }))
+  ), [canonicalById, query.data?.pages])
+  const error = query.error ?? entry.error
+  const windowAvailable = !!selectedWindow && query.data !== undefined
+  const projectionError = projectionFailed || missingCanonical && !!projectionFailure && projectionFailure.window === query.data
+    && projectionFailure.attempt === retrySelection.attempt && projectionFailure.viewKey === viewKey ? INITIAL_ENTRY_ERROR : null
+  const initialLoadError = windowAvailable ? projectionError : retrySelection.error ?? error ?? (entry.failed ? INITIAL_ENTRY_ERROR : null)
+  const repairError = repairQuery && isFailedMessageRepair(client, repairQuery) ? repair.error : null
+  const targetLoadError = windowAvailable && !selection.window && !entry.isFetching && entry.error?.name !== "AbortError"
+    ? (!entry.targetCovered || entry.newBoundary === undefined ? entry.error : null) ?? repairError : null
+  const timeline = useConversationTimeline({
+    client,
+    channelId,
+    scope,
+    viewerUserId: opts?.viewerUserId ?? proof?.viewerId,
+    tag,
+    canRead: entry.canRead,
+    revoked: entry.revoked,
+    denied: entry.denied,
+    canonicalBase,
+    presentationResources,
+    overlay,
+    pages: timelinePages,
+    readSnapshot: entry.snapshot,
+    newBoundary: entry.newBoundary,
+    targetCovered: entry.targetCovered || !!selection.window,
+    reconciling: entry.isFetching || query.isFetching || repair.isFetching,
+    initialLoadError,
+    targetLoadError,
+  })
+  const messages = timeline.messages
   const latestSeq = Math.max(0, ...(query.data?.pages.map((page) => page.latestSeq ?? 0) ?? []))
   const landingWindow = entry.resource ? client.getQueryData<MessageWindowData>(entry.resource.windowKey) : undefined
   const landingLatestSeq = Math.max(0, ...(landingWindow?.pages.map(page => page.latestSeq ?? 0) ?? []))
@@ -291,14 +311,6 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     if (committed.current !== original || !isChannelMetadataTokenCurrent(token)) return
     return { boundary: resource.newBoundaryAtEntry, latestSeq: resource.latestSeqAtEntry }
   }, [channelId, client, owner, serverId, tag])
-  const error = query.error ?? entry.error
-  const windowAvailable = !!selectedWindow && query.data !== undefined
-  const projectionError = projectionFailed || missingCanonical && !!projectionFailure && projectionFailure.window === query.data
-    && projectionFailure.attempt === retrySelection.attempt && projectionFailure.viewKey === viewKey ? INITIAL_ENTRY_ERROR : null
-  const initialLoadError = windowAvailable ? projectionError : retrySelection.error ?? error ?? (entry.failed ? INITIAL_ENTRY_ERROR : null)
-  const repairError = repairQuery && isFailedMessageRepair(client, repairQuery) ? repair.error : null
-  const targetLoadError = windowAvailable && !selection.window && !entry.isFetching && entry.error?.name !== "AbortError"
-    ? (!entry.targetCovered || entry.newBoundary === undefined ? entry.error : null) ?? repairError : null
   const loading = !!channelId && (windowAvailable ? projection.canonicalMessages === undefined : !initialLoadError && !entry.denied && !entry.anchorMissing)
   const entryWindow = entry.window, retryEntry = entry.retry, refetchWindow = query.refetch
   const retryInitialLoad = useCallback(() => {

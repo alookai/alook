@@ -545,8 +545,10 @@ describe("useMessageListController", () => {
     view.unmount()
   })
 
-  it("requires a new positioning settlement for a fresh entry on the retained list", () => {
-    const value = props({ positionEntry: {} })
+  it("keeps qualified rows revealed without a positioning mask when a fresh entry arrives on the retained list", () => {
+    const firstEntry = {}
+    const nextEntry = {}
+    const value = props({ positionEntry: firstEntry })
     const view = rtlRender(React.createElement(Probe, { value }))
     const settled = () => mocks.finishPosition("success")
     act(settled)
@@ -555,9 +557,11 @@ describe("useMessageListController", () => {
     expect(latest.initialPosition.phase).toBe("revealed")
     act(() => {
       mocks.finishPosition("pending")
-      view.rerender(React.createElement(Probe, { value: { ...value, positionEntry: {} } }))
+      view.rerender(React.createElement(Probe, { value: { ...value, positionEntry: nextEntry } }))
     })
-    expect(latest.initialPosition.phase).toBe("positioning")
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ positionEntry: nextEntry })
+    expect(latest.initialPosition).toMatchObject({ phase: "revealed", showSkeleton: false, contentVisible: true, contentInteractive: true })
+    expect(latest.readPositionReady).toBe(false)
     act(settled)
     expect(latest.initialPosition.phase).toBe("revealed")
   })
@@ -715,17 +719,18 @@ describe("useMessageListController", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("uses the scroll owner outcome for reveal while retaining separate read qualification", () => {
+  it("reveals qualified rows immediately while retaining separate read qualification", () => {
     let view: ReturnType<typeof rtlRender>
     act(() => {
       view = rtlRender(React.createElement(Probe, { value: props() }))
     })
     expect(latest.initialPosition).toMatchObject({
-      phase: "positioning",
-      showSkeleton: true,
-      contentVisible: false,
-      contentInteractive: false,
+      phase: "revealed",
+      showSkeleton: false,
+      contentVisible: true,
+      contentInteractive: true,
     })
+    expect(latest.readPositionReady).toBe(false)
     const settle = () => mocks.finishPosition("success")
     act(() => settle())
     expect(latest.initialPosition).toMatchObject({
@@ -839,7 +844,8 @@ describe("useMessageListController", () => {
       }))
     })
     expect((mocks.scrollInputs.at(-1) as { initialScrollReady: boolean }).initialScrollReady).toBe(true)
-    expect(latest.initialPosition.phase).toBe("positioning")
+    expect(latest.initialPosition.phase).toBe("revealed")
+    expect(latest.readPositionReady).toBe(false)
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
         value: props({

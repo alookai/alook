@@ -195,14 +195,15 @@ export function ForumView({
       )}
 
       <ForumPostList
-        key={JSON.stringify([forumChannelId, tag])}
+        key={forumChannelId}
+        forumChannelId={forumChannelId}
+        tag={tag}
         posts={posts} loading={loading} positionScope={positionScope}
         hasMore={hasMore} loadingMore={loadingMore} isFetching={isFetching} isError={isError}
         onLoadMore={onLoadMore} onScrollRoot={onScrollRoot} onOpenPost={onOpenPost} loadingContent={<ForumListSkeleton />}
         renderPost={(p) => {
-              const canEdit = onEditPostTags && canEditPostTags ? canEditPostTags(p) : false
-              const canDelete = onDeletePost && canDeletePost ? canDeletePost(p) : false
-              if (canEdit === undefined || canDelete === undefined) return <ForumPostSkeleton key={p.id} postId={p.id} />
+              const canEdit = onEditPostTags && canEditPostTags ? canEditPostTags(p) === true : false
+              const canDelete = onDeletePost && canDeletePost ? canDeletePost(p) === true : false
               const archived = p.tags.includes(FORUM_ARCHIVE_TAG)
               const savingTags = savingTagsFor === p.id
               const actions = canEdit || canDelete ? (

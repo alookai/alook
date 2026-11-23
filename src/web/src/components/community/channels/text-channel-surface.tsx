@@ -145,6 +145,7 @@ export function TextChannelSurface({
                 <MessageList
                   onOpenContextId={controller.openContextId}
                   key={channelId}
+                  channelId={channelId}
                   channel={channelName}
                   messages={feed.messages}
                   loading={feed.isLoading}

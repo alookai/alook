@@ -2553,7 +2553,6 @@
       "application": "Web",
       "candidates": [
         "ForumPostList",
-        "ForumPostListEntry",
         "ForumPostListItem",
         "ForumPostListOwner"
       ],

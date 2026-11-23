@@ -428,6 +428,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
           {dmBlocked ? null : readDenied ? <div role="alert" className="flex min-h-0 flex-1 flex-col p-4"><EmptyState icon={Lock} label="You can no longer read this conversation." /></div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
             onOpenContextId={(id) => { setContextSheetSeq(null); setContextSheetId(id) }}
             key={dmId}
+            channelId={dmId}
             variant="dm"
             channel={displayName}
             messages={messages}
