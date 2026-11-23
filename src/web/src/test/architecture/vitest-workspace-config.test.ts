@@ -27,7 +27,7 @@ describe("service test project ownership", () => {
     expect(files).toEqual(expect.arrayContaining([
       { project: "web-node", file: "src/web/src/components/community/bots/bot-list-facade.contract.test.ts" },
       { project: "web-dom", file: "src/web/src/components/community/bots/bot-list-card.dom.test.ts" },
-      { project: "web-contracts", file: "src/web/src/test/architecture/react-dom-harness-contract.test.ts" },
+      { project: "web-contracts", file: "src/web/src/test/architecture/community-read-state-writer-contract.test.ts" },
       { project: "web-tooling", file: "src/web/app-store-capture/config.test.ts" },
       { project: "blog-node", file: "src/web/blog/src/lib/public-page-metadata.test.ts" },
       { project: "blog-dom", file: "src/web/blog/src/app/tutorials/page.dom.test.tsx" },

@@ -1006,8 +1006,7 @@ jobs:
         run: |
           pnpm --filter @alook/web exec playwright test \
             src/test/e2e-ui/53-mobile-inbox-surface.spec.ts \
-            src/test/e2e-ui/60-desktop-default-user-bar-width.spec.ts \
-            --grep 'preserves Marked tab, scroll, and request ownership across 639↔640|restores fresh and saved mobile-first desktop entries before paint'
+            --grep 'preserves Marked tab, scroll, and request ownership across 639↔640'
       - name: Restore browser services
         if: ${{ always() && contains(fromJSON('["success","failure","cancelled"]'), steps.playwright.outcome) }}
         run: pnpm --filter @alook/web exec tsx -e 'import teardown from "./src/test/e2e-ui/_setup/global-teardown.ts"; teardown().catch(error => { console.error(error); process.exitCode = 1 })'

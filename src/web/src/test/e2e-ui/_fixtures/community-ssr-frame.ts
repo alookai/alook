@@ -6,10 +6,6 @@ export function expectPublicCommunityDocument(html: string) {
   expect(html).not.toMatch(/initialSeed|viewerId|sessionToken/)
 }
 
-export async function expectUniqueSsrInitialFrame(page: Page) {
-  return expectUniqueSsrFrame(page, `[data-testid="${tid.initialFrame}"]`, "initial")
-}
-
 export async function expectUniqueSsrCommunityFrame(page: Page) {
   return expectUniqueSsrFrame(page, `[data-testid="${tid.initialFrame}"], [data-slot="community-shell-root"]`)
 }
