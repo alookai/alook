@@ -4,9 +4,9 @@ import { fireEvent, render as renderDom } from "@/test/react-dom-harness"
 import type { QuotaLimit } from "@alook/shared"
 import type { MachineBackendQuota } from "@/hooks/community/use-machines"
 
-vi.mock("@/components/icons/lucide", () => ({ ChevronDown: "chevron-icon" }))
+vi.mock("@/components/icons/lucide", () => ({ ChevronDown: "chevron-icon", Gauge: "gauge-icon" }))
 vi.mock("@/components/provider-logo", () => ({
-  ProviderLogo: ({ provider }: { provider: string }) => React.createElement("div", {
+  ProviderLogo: ({ provider }: { provider: string }) => React.createElement("span", {
     "data-provider-logo": provider,
   }),
 }))
@@ -190,7 +190,7 @@ describe("MachineQuotaSummary", () => {
     const renderer = render([pi, codex, claude, grok])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
     expect(trigger).toHaveAttribute("aria-expanded", "false")
-    expect(text(trigger)).toBe("Quota·Codex (automatic)18%·65%")
+    expect(text(trigger)).toBe("")
     expect(trigger).toHaveAttribute(
       "aria-label",
       expect.stringContaining("Codex (automatic) 18% left; Grok 65% left"),
@@ -225,7 +225,7 @@ describe("MachineQuotaSummary", () => {
   it("shows one limit's server-authored window and stale state", () => {
     const renderer = render([quotaEntry([limit({ usedPercent: 37.5 })], "stale")])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toBe("Quota·Codex (automatic)62.5%stale")
+    expect(text(trigger)).toBe("")
     expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex (automatic) 62.5% left, stale"))
   })
 
@@ -253,7 +253,7 @@ describe("MachineQuotaSummary", () => {
     })
     const renderer = render([quotaEntry([agyWeekly, agyFiveHour, agyFull], "available", "agy")])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toBe("Quota·71.2%")
+    expect(text(trigger)).toBe("")
     expect(trigger).toHaveAttribute("aria-label", "Quota details: Agy 71.2% left. 3 limits")
     fireEvent.click(trigger)
     const detail = renderer.getByTestId("community-machine-quota-detail-m1")
@@ -272,7 +272,8 @@ describe("MachineQuotaSummary", () => {
     }
     const renderer = render([pending, unavailable])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toBe("Codex (automatic)Quota pending")
+    expect(text(trigger)).toBe("")
+    expect(trigger).toHaveAttribute("aria-label", "Quota details: Codex (automatic), Antigravity. Quota pending")
     expect(trigger).toHaveAttribute("aria-expanded", "false")
     fireEvent.click(trigger)
     const detail = renderer.getByTestId("community-machine-quota-detail-m1")
@@ -291,24 +292,28 @@ describe("MachineQuotaSummary", () => {
   })
 
   it("renders honest fixed-height placeholders for missing capability states", () => {
-    expect(text(render().container)).toContain("Quota unavailable")
+    const unavailable = render().getByRole("img", { name: "Quota unavailable" })
+    expect(text(unavailable)).toBe("")
+    expect(unavailable.querySelector("gauge-icon")).toBeInTheDocument()
     const unsupported = render([{
       scope: { kind: "machine_backend", machineId: "m1", agentBackendId: "pi" },
       capability: "unsupported",
       runtimeState: "healthy",
       snapshot: { status: "pending" },
     }])
-    expect(text(unsupported.container)).toContain("Quota not supported")
-    expect(unsupported.container.querySelector("[data-provider-logo]")).toHaveAttribute(
+    const unsupportedTrigger = unsupported.getByRole("button", { name: /Quota not supported/ })
+    expect(text(unsupportedTrigger)).toBe("")
+    expect(unsupportedTrigger.querySelector("[data-provider-logo]")).toHaveAttribute(
       "data-provider-logo",
       "pi",
     )
-    expect(text(render([{
+    const pending = render([{
       scope: { kind: "machine_backend", machineId: "m1", agentBackendId: "codex" },
       capability: "supported",
       runtimeState: "offline",
       snapshot: { status: "pending" },
-    }]).container)).toContain("Quota pending")
+    }]).getByRole("button", { name: /Quota pending/ })
+    expect(text(pending)).toBe("")
   })
 })
 
@@ -321,9 +326,12 @@ it("shows explicit Codex sources in the summary while retaining legacy details",
   const trigger = renderer.getByTestId("community-machine-quota-m1")
   expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex App 80% left"))
   expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex CLI 30% left"))
-  expect(text(trigger)).not.toContain("Codex (automatic)")
-  expect(text(trigger)).toContain("Codex App80%")
-  expect(text(trigger)).toContain("Codex CLI30%")
+  expect(text(trigger)).toBe("")
+  expect([...trigger.querySelectorAll<HTMLElement>("[data-provider-logo]")]
+    .map((node) => node.dataset.providerLogo))
+    .toEqual(["codex-app", "codex-cli"])
+  expect(trigger.querySelector('[title="Codex App: 80% left"]')).toBeInTheDocument()
+  expect(trigger.querySelector('[title="Codex CLI: 30% left"]')).toBeInTheDocument()
   fireEvent.click(trigger)
   const detail = renderer.getByTestId("community-machine-quota-detail-m1")
   expect(text(detail.querySelector('[data-quota-backend="codex"]')!)).toContain("Codex (automatic)")
@@ -338,12 +346,8 @@ it("does not use legacy quota for pending or unavailable explicit Codex sources"
     { ...quotaEntry([], "available", "codex-cli"), snapshot: { status: "error", code: "unavailable" } },
   ])
   const trigger = renderer.getByTestId("community-machine-quota-m1")
-  expect(text(trigger)).toContain("Codex App")
-  expect(text(trigger)).toContain("Codex CLI")
-  expect(text(trigger)).toContain("Quota pending")
+  expect(text(trigger)).toBe("")
   expect(trigger).toHaveAttribute("aria-label", "Quota details: Codex App, Codex CLI. Quota pending")
-  expect(text(trigger)).not.toContain("%")
-  expect(text(trigger)).not.toContain("Codex (automatic)")
   fireEvent.click(trigger)
   const detail = renderer.getByTestId("community-machine-quota-detail-m1")
   expect(text(detail.querySelector('[data-quota-backend="codex"]')!)).toContain("80% left")

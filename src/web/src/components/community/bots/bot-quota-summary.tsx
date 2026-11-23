@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { ChevronDown } from "@/components/icons/lucide";
+import { ChevronDown, Gauge } from "@/components/icons/lucide";
 import type { QuotaLimit } from "@alook/shared"
 import { ProviderLogo } from "@/components/provider-logo"
 import {
@@ -191,18 +191,21 @@ export function MachineQuotaSummary({
   const summaryEntries = (entries ?? []).filter(({ scope }) => (
     scope.agentBackendId !== "codex" || !hasExplicitCodex
   ))
-  const placeholder = quotaPlaceholder(summaryEntries)
   if (!entries?.length) {
     return (
       <div
         data-testid={tid.machineQuota(machineId)}
-        className="flex h-7 min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+        role="img"
+        aria-label="Quota unavailable"
+        title="Quota unavailable"
+        className="flex h-11 items-center text-muted-foreground sm:h-7"
       >
-        <span className="truncate">{placeholder ?? "Quota unavailable"}</span>
+        <Gauge aria-hidden="true" className="size-3.5 shrink-0" />
       </div>
     )
   }
 
+  const placeholder = quotaPlaceholder(summaryEntries)
   const backendSummaries = summarizeQuotaEntries(summaryEntries)
   const limitCount = entries.reduce((count, entry) => (
     entry.snapshot.status === "available" || entry.snapshot.status === "stale"
@@ -213,8 +216,16 @@ export function MachineQuotaSummary({
     const stale = entry.snapshot.status === "stale" ? ", stale" : ""
     return `${backendLabel(entry.scope.agentBackendId)} ${percentLabel(limit)}${stale}`
   }).join("; ")
+  const providerIcons = placeholder
+    ? summaryEntries.map((entry) => ({
+        id: entry.scope.agentBackendId,
+        title: `${backendLabel(entry.scope.agentBackendId)}: ${backendPlaceholder(entry)}`,
+      }))
+    : backendSummaries.map(({ entry, limit }) => ({
+        id: entry.scope.agentBackendId,
+        title: `${backendLabel(entry.scope.agentBackendId)}: ${percentLabel(limit)}${entry.snapshot.status === "stale" ? " (stale)" : ""}`,
+      }))
   const sortedEntries = sortQuotaEntries(entries)
-  const disclosureIcon = <ChevronDown className="size-3 shrink-0 transition-transform group-data-popup-open:rotate-180" />
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -225,59 +236,14 @@ export function MachineQuotaSummary({
             aria-expanded={open}
             aria-label={placeholder ? `Quota details: ${summaryEntries.map((entry) => backendLabel(entry.scope.agentBackendId)).join(", ")}. ${placeholder}` : `Quota details: ${summary}. ${limitCount} ${limitCount === 1 ? "limit" : "limits"}`}
             data-testid={tid.machineQuota(machineId)}
-            className="group flex min-h-11 max-w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7 sm:py-1"
+            className="group flex min-h-11 max-w-full min-w-11 flex-wrap items-center gap-x-2 gap-y-1 rounded-md py-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7 sm:min-w-0 sm:py-1"
           >
-            {placeholder ? (
-              <>
-                {summaryEntries.map((entry) => (
-                  <span
-                    key={entry.scope.agentBackendId}
-                    className="inline-flex shrink-0 items-center gap-1.5"
-                  >
-                    <ProviderLogo provider={entry.scope.agentBackendId} className="size-3.5 shrink-0" />
-                    {isCodexBackend(entry.scope.agentBackendId) && (
-                      <span>{backendLabel(entry.scope.agentBackendId)}</span>
-                    )}
-                  </span>
-                ))}
-                <span className="inline-flex items-center gap-2">
-                  <span className="truncate">{placeholder}</span>
-                  {disclosureIcon}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="shrink-0 text-foreground/70">Quota</span>
-                <span aria-hidden className="shrink-0 text-border">·</span>
-              </>
-            )}
-            {backendSummaries.map(({ entry, limit }, index) => {
-              const stale = entry.snapshot.status === "stale"
-              const label = `${backendLabel(entry.scope.agentBackendId)}: ${percentLabel(limit)}${stale ? " (stale)" : ""}`
-              return (
-                <span key={entry.scope.agentBackendId} className="contents">
-                  {index > 0 && <span aria-hidden className="shrink-0 text-border">·</span>}
-                  <span
-                    aria-label={label}
-                    title={label}
-                    className="inline-flex shrink-0 items-center gap-1.5"
-                  >
-                    <ProviderLogo
-                      provider={entry.scope.agentBackendId}
-                      className="size-3.5 shrink-0"
-                    />
-                    {isCodexBackend(entry.scope.agentBackendId) && (
-                      <span className="text-foreground/85">{backendLabel(entry.scope.agentBackendId)}</span>
-                    )}
-                    <span className={stale ? "font-mono tabular-nums text-warning" : "font-mono tabular-nums text-foreground/85"}>
-                      {remainingPercent(limit)}%
-                    </span>
-                    {stale && <span className="text-[10px] text-warning">stale</span>}
-                    {index === backendSummaries.length - 1 && disclosureIcon}
-                  </span>
-                </span>
-              )
-            })}
+            {providerIcons.map(({ id, title }) => (
+              <span key={id} title={title} aria-hidden="true" className="shrink-0">
+                <ProviderLogo provider={id} className="size-3.5" />
+              </span>
+            ))}
+            <ChevronDown aria-hidden="true" className="size-3 shrink-0 transition-transform group-data-popup-open:rotate-180" />
           </button>
         }
       />
