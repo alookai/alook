@@ -1,8 +1,12 @@
 export const LANDING_CTA_NAMES = [
   "open_app", "get_started", "templates", "public_nav_open_app", "public_nav_get_started",
   "pricing_open_app", "pricing_get_started", "templates_open_app", "templates_get_started", "closing_open_app", "closing_get_started",
+  "blog_topbar_get_started", "blog_sidebar_get_started", "blog_mid_get_started", "blog_end_get_started", "blog_end_use_cases",
   ...["product", "identity", "continuity", "reach", "ownership", "value_context", "value_flows", "value_attention", "use_cases"].flatMap(section => [`${section}_open_app`, `${section}_get_started`]),
 ] as const
+
+export const BLOG_NEWSLETTER_PLACEMENTS = ["end"] as const
+export type BlogNewsletterPlacement = typeof BLOG_NEWSLETTER_PLACEMENTS[number]
 
 export const ONBOARDING_ANALYTICS_STAGES = ["harness", "machine", "model", "identity", "initializing"] as const
 
@@ -12,6 +16,7 @@ export const PRODUCT_ANALYTICS_EVENTS = [
   "community_onboarding_started", "community_onboarding_stage_completed", "community_onboarding_skipped",
   "community_onboarding_completed", "human_invitation_sent", "human_invitation_copied", "invited_human_joined",
   "runtime_connected", "first_agent_reply_persisted", "pricing_cta_click", "begin_checkout",
+  "blog_newsletter_subscribed",
 ] as const
 
 export const ANALYTICS_ORIGIN = "https://alook.ai"

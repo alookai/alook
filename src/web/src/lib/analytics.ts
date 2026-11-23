@@ -7,7 +7,7 @@ import { hasAnalyticsConsent, isPublicAnalyticsPath, readAnalyticsConsent } from
 
 import { captureProductAnalytics } from "@/lib/product-analytics"
 import { handoffLandingSignInCta } from "@/lib/landing-sign-in-cta"
-import { LANDING_CTA_NAMES, ANALYTICS_ORIGIN, analyticsPlanIds, pricingCtaParams, checkoutParams, type ONBOARDING_ANALYTICS_STAGES, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
+import { LANDING_CTA_NAMES, BLOG_NEWSLETTER_PLACEMENTS, ANALYTICS_ORIGIN, analyticsPlanIds, pricingCtaParams, checkoutParams, type BlogNewsletterPlacement, type ONBOARDING_ANALYTICS_STAGES, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
 import { TEMPLATE_CATEGORIES } from "@/lib/templates/types"
 export type { AnalyticsAuthState, AnalyticsPlanId, AnalyticsCurrentPlan, BillingEntryPoint, PricingCtaAction } from "@/lib/product-analytics-contract"
 import type { AnalyticsPlanId, AnalyticsAuthState, AnalyticsCurrentPlan } from "@/lib/product-analytics-contract"
@@ -112,4 +112,14 @@ export function trackLandingCtaClicked(params: { cta_name: string }, navigation?
 export function trackTemplatesBrowsed(params: { category_filter: string }) {
   if (!["All", ...TEMPLATE_CATEGORIES].includes(params.category_filter)) return
   sendConsentAwareGTMEvent({ event: "templates_browsed", category_filter: params.category_filter });
+}
+
+export function trackBlogNewsletterSubscribed(params: { placement: BlogNewsletterPlacement; sourcePath?: string }) {
+  if (typeof window === "undefined" || !isPublicAnalyticsPath(window.location.pathname)
+    || !BLOG_NEWSLETTER_PLACEMENTS.includes(params.placement)) return
+  void captureProductAnalytics({
+    event: "blog_newsletter_subscribed",
+    placement: params.placement,
+    sourcePath: params.sourcePath ?? window.location.pathname,
+  })
 }

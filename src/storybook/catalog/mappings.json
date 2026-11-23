@@ -3948,6 +3948,66 @@
     "examples": [],
     "reason": "Root html/head/body document initializes metadata, tracking, service worker and platform effects. Storybook owns its iframe document and reuses actual fonts/styles/theme/Tooltip providers; the application document is not embedded."
   },
+  "src/web/blog/src/components/blog/blog-cta-link.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--article",
+        "region": "Blog CTA buttons with lossless cross-zone sign-in analytics attribution"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/components/blog/blog-end-cta.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--article",
+        "region": "Upgraded end-of-article Alook product card above Next Blog"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/components/blog/blog-mid-callout.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--article",
+        "region": "Mid-article contextual Alook callout injected before the third H2 heading"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/components/blog/blog-nav-actions.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--index",
+        "region": "Blog topbar navigation links and right-side Sign in and Start Free actions"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/components/blog/blog-newsletter-form.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--article",
+        "region": "Article end newsletter subscription card between End CTA and Next Blog"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/blog/src/components/blog/blog-toc.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "blog-pages--article",
+        "region": "Desktop sticky rail table of contents with Stageshow motion, Copy link / X share, and Try Alook CTA"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
   "src/web/blog/src/components/company-introductions.tsx": {
     "kind": "composition",
     "examples": [

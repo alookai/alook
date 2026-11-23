@@ -89,8 +89,64 @@
 .blog-footer-navigation a:hover, .blog-footer-socials a:hover { translate: 0 -1px; }
 .blog-footer-navigation a:active, .blog-footer-socials a:active { translate: 0 1px; }
 
+/* Stageshow TOC active pill: snaps on first paint, travels smoothly on change. */
+.tn-blog-toc-indicator {
+  position: absolute;
+  left: 8px;
+  right: 0;
+  z-index: 0;
+  border-radius: 10px;
+  background: linear-gradient(#fffdf8, #f1ebdf);
+  box-shadow: inset 0 1px 0 #fff, 0 1.5px 0 #d4c7ad, 0 2px 4px rgb(60 45 20 / 12%);
+  pointer-events: none;
+  transition:
+    transform 280ms cubic-bezier(0.25, 0.8, 0.25, 1),
+    height 280ms cubic-bezier(0.25, 0.8, 0.25, 1),
+    opacity 160ms ease-out;
+}
+[data-tn-mode="dark"] .tn-blog-toc-indicator,
+.dark .tn-blog-toc-indicator {
+  background: radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 35%), transparent 65%), #141414;
+  box-shadow: inset 0 0 0 1px rgb(120 150 255 / 45%), 0 0 14px rgb(91 124 255 / 30%);
+}
+.tn-blog-toc-indicator[data-animate="false"] {
+  transition: none;
+}
+.tn-blog-toc-dot {
+  position: absolute;
+  left: -3.5px;
+  z-index: 2;
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px;
+  background: var(--tn-blue);
+  pointer-events: none;
+  transition:
+    transform 280ms cubic-bezier(0.25, 0.8, 0.25, 1),
+    opacity 160ms ease-out;
+}
+.tn-blog-toc-dot[data-animate="false"] {
+  transition: none;
+}
+.tn-blog-toc-link {
+  position: relative;
+  z-index: 1;
+  transition: color 160ms ease-out, transform 90ms ease-out;
+}
+.tn-blog-toc-link:active {
+  transform: scale(0.97);
+}
+.tn-blog-bot-perch {
+  transition: transform 220ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.group\/try:hover .tn-blog-bot-perch:nth-child(1) { transform: translateY(-3px) rotate(-6deg); }
+.group\/try:hover .tn-blog-bot-perch:nth-child(2) { transform: translateY(-5px); }
+.group\/try:hover .tn-blog-bot-perch:nth-child(3) { transform: translateY(-3px) rotate(6deg); }
+.group\/try:active .tn-blog-bot-perch { transform: translateY(2px); }
+
 @media (prefers-reduced-motion: reduce) {
   .tn-blog-card, .tn-blog-key, .tn-blog-filter, .tn-blog-back,
+  .tn-blog-toc-indicator, .tn-blog-toc-dot, .tn-blog-toc-link, .tn-blog-bot-perch,
   .blog-shell nav.sticky :is(a, button), .blog-footer-navigation a, .blog-footer-socials a { transition: none; }
 }
 

@@ -150,10 +150,11 @@ it("settles actual content mounted before the URL only after the independent rou
   expect(ready(second.id)).toHaveLength(1);
 });
 
-it("ends an article with the next pillar and the shared Alook call to action", async () => {
+it("ends an article with the upgraded Alook product CTA and next pillar", async () => {
   render(await BlogPostPage({ params: Promise.resolve({ slug: "local-ai-agents" }) }));
   expect(screen.queryByRole("heading", { name: "Keep exploring" })).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open Alook" })).toHaveAttribute("href", "/c");
+  expect(screen.getByRole("link", { name: "Start Free" })).toHaveAttribute("href", "/sign-in?cta_placement=blog-end");
+  expect(screen.getByRole("link", { name: "See use cases" })).toHaveAttribute("href", "/usecases");
   expect(screen.getByRole("link", { name: "More blogs" })).toHaveAttribute("href", "/blog");
 });
 
