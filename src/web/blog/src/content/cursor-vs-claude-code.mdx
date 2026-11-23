@@ -1,20 +1,55 @@
 export const metadata = {
   "slug": "cursor-vs-claude-code",
-  "title": "Cursor vs Claude Code Comparison 2026: Which Is Better for Your Development Workflow?",
+  "title": "Cursor vs Claude Code (2026): Which Is Better for Your Workflow?",
   "seoTitle": "Cursor vs Claude Code (2026): Which Is Better for Your Workflow?",
   "date": "2026-11-02",
-  "dateModified": "2026-11-17",
+  "dateModified": "2026-11-23",
   "author": "Alook Team",
   "excerpt": "Choose between Cursor and Claude Code by editing workflow, code quality and pricing, with CLI differences and ways to use Claude Code in Cursor.",
-  "readingTime": "8 min read",
+  "readingTime": "11 min read",
   "image": "/blog/cursor-vs-claude-code/hero.webp"
 };
 
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Can Claude Code replace Cursor?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "For agent work, yes. Claude Code plans changes, edits across files and runs in a terminal or an editor extension. It doesn't replace the editor itself: Tab completions and direct inline edits stay in Cursor. If you only want to swap the agent, run the Claude Code extension inside Cursor and bill it to your Claude plan."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is Cursor still worth using with Claude Code?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, if you still write part of the code by hand or want to switch between model families. Check the plan first. As of November 2026, Cursor Plus ($8 a month) covers Grok and Composer 2.5 only. On The X Subscription plans, Claude models need Premium ($30 a month) or higher and are billed at API list prices. Legacy Pro, Pro+ and Ultra plans still include them in a monthly pool. If you mostly hand whole tasks to Claude, Claude Code on a Claude plan covers that without Cursor."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Which is better for coding in 2026, Claude Code or Cursor?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "In the two same-model tests cited here, neither tool scored higher. Cursor and Claude Code both passed 186 of 186 checks with Sonnet 5.5 in Not an AI App's October 2026 test, and both fixed 20 of 27 bugs with Opus 4.7 at high effort in HarnessBench's May 2026 run. In the October test, Cursor's Composer 2.5 missed 5 of the 186 checks."
+        }
+      }
+    ]
+  }
+];
+
 [![Cursor vs Claude Code: official product logos with 2026 and Workflow, Models, Using Both.](/blog/cursor-vs-claude-code/hero.webp)](/blog/cursor-vs-claude-code/hero.webp)
 
-Claude Code runs right inside Cursor, so choosing between them starts with how you like to edit code. Picking your first AI coding tool? We'd start with Cursor for its all-in-one editor and built-in agent. Already happy with your editor and mostly after Claude? Add Claude Code instead.
+Claude Code runs inside Cursor, so this isn't a strict either-or. What decides it is how you like to edit code. For a first AI coding tool, we'd pick Cursor: the editor, Tab completions and an agent come in one app. If you already like your editor and mainly want Claude, add Claude Code instead.
 
-If you already use Cursor, you can point Claude Code at a stubborn bug without leaving the editor. Going the other way makes sense too: when Claude Code already handles your agent work, adding Cursor gives you fast Tab completions and direct inline edits right beside it.
+In one October 2026 test, Cursor and Claude Code both passed all 186 checks with Sonnet 5.5. Cursor's own Composer 2.5 missed five in that same test, so changing the model moved the score while changing the tool didn't. The [test results below](#claude-code-vs-cursor-which-writes-better-code) show where the two still differ.
+
+You can also run both. A Cursor user can hand a stubborn bug to Claude Code without leaving the editor. If Claude Code already does your agent work, Cursor adds Tab completions and quick inline edits next to it.
 
 <span id="cursor-vs-claude-code-key-differences-and-strengths" className="block scroll-mt-24" />
 
@@ -28,9 +63,9 @@ If you already use Cursor, you can point Claude Code at a stubborn bug without l
 
 ## Cursor vs Claude Code: What's Actually Different?
 
-Cursor bundles a code editor and coding agent into one app. Claude Code runs as a standalone agent in your terminal, desktop app, browser, or supported editor extension. Both tools plan changes and work across multiple files.
+Cursor is a code editor with a coding agent built in. Claude Code is an agent on its own: it runs in your terminal, the Claude desktop app, a browser or an editor extension. Both plan changes and edit across many files.
 
-In Cursor, your open files and agent chat live in the same window. With the Claude Code extension, proposed edits show up directly in your editor too.
+In Cursor, your files and the agent chat share one window. The Claude Code extension also shows proposed edits inside your editor, so the gap is smaller than "IDE vs terminal" suggests.
 
 <div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:whitespace-nowrap [&_td]:whitespace-normal" role="region" aria-label="Cursor and Claude Code comparison" tabIndex={0}>
 
@@ -50,13 +85,13 @@ In Cursor, your open files and agent chat live in the same window. With the Clau
 
 ### Does Claude Pro Work in Cursor?
 
-Yes. Claude Pro covers the Claude Code extension or CLI running inside Cursor. Selecting a Claude model from Cursor's own model dropdown is different: that runs through Cursor Agent and bills separately through Cursor.
+Yes, through the Claude Code extension or CLI running inside Cursor. Picking a Claude model from Cursor's own model menu is a different thing: that request goes through Cursor Agent, and Cursor bills it.
 
 ### Which Models Can You Choose?
 
-Cursor fits developers who bounce between model families, keeping one familiar agent interface whenever you swap models.
+Cursor suits people who switch between model families. The agent interface stays the same when the model changes.
 
-Claude Code sticks strictly to Anthropic's Claude family. That's a narrower menu, though plenty if Claude is what you came for.
+Claude Code runs Claude models only. That's a narrower menu, and enough if Claude is why you're here.
 
 <span id="cursor-vs-claude-code-pricing" className="block scroll-mt-24" />
 
@@ -68,19 +103,22 @@ Claude Code sticks strictly to Anthropic's Claude family. That's a narrower menu
 
 <div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:whitespace-nowrap [&_td]:whitespace-normal" role="region" aria-label="Cursor and Claude Code comparison" tabIndex={0}>
 
-| Monthly plan | Price | What it covers for this comparison |
+| Plan | Price per month | What it covers for this comparison |
 |---|---:|---|
-| Claude Pro | $20 | Includes Claude Code; Claude chat and Code share the subscription allowance |
+| Claude Pro | $20, or $17 billed annually | Includes Claude Code; Claude chat and Code share the subscription allowance |
+| Claude Max / Ultra | $100 / $200 | Max: 5x Pro usage; Ultra: 10x Pro weekly usage, with no 5-hour limit for verified Ultra accounts |
+| Claude Team | $25 per seat ($20 annually); premium seat $125 ($100 annually) | 2 to 150 seats, Claude Code included; premium seats get 5x standard usage |
 | Cursor Plus | $8 | Included Grok and Composer 2.5 usage at fixed settings; no third-party models |
-| Cursor Premium | $30 | Adds third-party model access, with those requests charged at API list prices from prepaid credit |
+| Cursor Premium / Super / Ultra | $30 / $100 / $200 | 4x / 15x / 50x Plus usage; third-party models charged at API list prices from prepaid credit |
+| Cursor Teams | $30, $100 or $200 per seat | Premium, Super or Ultra seats; eligible third-party requests, including BYOK, add a $0.25 per million token Cursor Token Rate |
 
 </div>
 
-Cursor's included model quota refreshes weekly, sharing one pool across eligible Cursor and Grok products (including the Grok apps). Third-party model requests are billed separately, while existing Cursor Pro and other legacy subscribers keep their older monthly pools. Check the [Cursor plan details](https://cursor.com/docs/models-and-pricing) and [Claude plans](https://claude.com/pricing) for current allowances.
+As of November 2026, Cursor sells its plans through The X Subscription, introduced on October 12, 2026. On those plans, included usage refreshes weekly and is shared across the subscription, Grok apps included, so a long Grok chat draws from the same pool as Cursor Agent. Third-party models are billed separately. Users still on legacy Pro, Pro+ or Ultra plans, or on legacy Teams Standard or Premium seats, have two monthly pools, one of which covers third-party models. Cursor's paid individual plans also bill annually at $80 to $2,000 a year. Read the [Cursor plan details](https://cursor.com/docs/models-and-pricing), [legacy plan prices](https://cursor.com/docs/account/pricing/legacy-cursor-plans) and [Claude plans](https://claude.com/pricing) before you commit (prices checked November 23, 2026).
 
 ## When Should You Choose Cursor?
 
-Cursor shines when we're still writing part of the code by hand. We leave the larger structural change to the agent, then clean up small details ourselves while reading the diff.
+Pick Cursor if you still write part of the code yourself. The agent takes the big structural change; you fix the small details while reading the diff, in the same window.
 
 <span id="editing-code-and-working-with-an-agent" className="block scroll-mt-24" />
 
@@ -94,13 +132,13 @@ Cursor shines when we're still writing part of the code by hand. We leave the la
 
 ### You Want to Edit and Check the Result in One Place
 
-Say you're migrating a settings panel to a new design system. Cursor Agent can swap out the old components in one pass. Once the page runs, though, two buttons sit too close together and one label still uses old wording. Since you already see the fix, editing it directly with Tab filling in nearby lines is faster than prompting for another round.
+This matters most in UI work. After an agent swaps old components for a new design system, the leftovers can be small: two buttons sitting too close, a label with old wording. If you can already see the fix, typing it with Tab filling in nearby lines beats prompting another round.
 
 ### You Want to Delegate While Staying in Your Editor
 
-Before an agent edits half a dozen components, we review a plan first. [Cursor Plan Mode](https://cursor.com/docs/agent/plan-mode) scans the codebase and drafts one, and we include the related test updates in that plan from the start.
+Before an agent touches half a dozen components, ask for a plan. [Cursor Plan Mode](https://cursor.com/docs/agent/plan-mode) researches the codebase and drafts one for you to review. Ask for the related test updates in that same plan.
 
-Changing a setting, for instance, sometimes requires migrating stored values. Catching that in the plan is easy; finding out after six files have changed leaves a lot more code to go back and unwind.
+A settings change, for instance, sometimes means migrating stored values. Spotting that in a plan takes a minute. Spotting it after six files have changed means unwinding all six.
 
 <span id="before-the-agent-changes-your-files" className="block scroll-mt-24" />
 
@@ -114,17 +152,17 @@ Changing a setting, for instance, sometimes requires migrating stored values. Ca
 
 ## When Should You Choose Claude Code Over Cursor?
 
-If you already live in VS Code and want Claude handling investigation and implementation, Claude Code is the agent we'd add. Your editor stays familiar, you review proposed diffs alongside the reasoning behind them, and Claude Pro already includes the agent.
+If you live in VS Code and want Claude to investigate and implement, Claude Code is the agent we'd add. You keep your editor and shortcuts, you review each proposed diff next to Claude's reasoning, and a Claude Pro plan covers it. The cost: no Cursor Tab completions, and no other model families.
 
-In unfamiliar repositories, we prefer Manual mode so file edits and most shell commands pause for approval. Being able to question a shaky approach before Claude modifies files is well worth that pause.
+In a repository you don't know well, start in Manual mode, where file edits and most shell commands wait for your approval. It's slower. It also lets you question a shaky approach before Claude changes any files.
 
 ## Cursor CLI vs Claude Code
 
-Cursor ships a terminal agent too: [Cursor CLI](https://cursor.com/docs/cli/overview) supports interactive terminal sessions and headless runs for scripts and CI, matching Claude Code's interactive and noninteractive modes. Before switching CLIs, weigh model selection and how much existing automation already relies on your current tool.
+Cursor has a terminal agent too. [Cursor CLI](https://cursor.com/docs/cli/overview) runs interactive sessions and headless runs for scripts and CI, which matches Claude Code's interactive and noninteractive modes.
 
-Replacing a CLI wired into CI takes real work. Say a PR job sends the agent a prompt, parses its output, and posts review comments: switching means updating output handling, checking CI authentication, and deciding what happens when a check lacks permission to run.
+Replacing a CLI wired into CI takes work: if a PR job sends the agent a prompt, parses its output and posts review comments, a switch means rewriting the output handling, rechecking CI authentication and deciding what happens when a check lacks permission to run.
 
-For occasional terminal questions in a local repo, there are far fewer scripts to touch. Try the new CLI on one real task before moving the rest of your workflow over.
+For occasional terminal questions in a local repo, there's little to rewire. Try the other CLI on one real task before you move anything else.
 
 <span id="cursor-vs-claude-code-does-code-quality-differ" className="block scroll-mt-24" />
 
@@ -132,36 +170,55 @@ For occasional terminal questions in a local repo, there are far fewer scripts t
 
 ## Claude Code vs Cursor: Which Writes Better Code?
 
-In a three-task benchmark published in October 2026 (three runs per setup), Cursor and Claude Code running Sonnet 5.5 both passed all 186 checks. A separate public May benchmark running Opus 4.7 at high effort ended in another tie, with both passing 20 of 27 tasks.
+In Not an AI App's October 2026 test, Cursor and Claude Code each ran Sonnet 5.5 on three coding tasks, three times per setup. Both passed all 186 hidden checks. An earlier benchmark, [HarnessBench](https://nyosegawa.com/en/posts/harness-bench/) from May 2026, gave both tools Opus 4.7 at high effort on 27 real bug fixes, and each passed 20. Its author says 27 tasks are too few to call the gaps significant.
 
+<a href="/blog/cursor-vs-claude-code/results.webp" aria-label="Open full-size benchmark chart">
 <picture>
   <source media="(max-width: 640px)" srcSet="/blog/cursor-vs-claude-code/results-mobile.webp" />
   <img width={1200} height={930} loading="lazy" decoding="async" style={{ width: "100%", height: "auto" }} src="/blog/cursor-vs-claude-code/results.webp" alt="Both Sonnet 5.5 setups passed 186 of 186 checks; Cursor Composer 2.5 and Auto passed 181." />
 </picture>
+</a>
 
-*Three-task test, October 2026: three runs per setup.*
+*Data: Not an AI App, October 2026 test. Three runs per setup.*
 
 ### When the Same Model Misses Different Requirements
 
-Even tied overall, the two tools tripped on different details. In the May benchmark, Claude Code passed a username-validation fix while Cursor missed the rule keeping numeric-only usernames invalid. On a dev-server hot-reload task, their results flipped.
+A tie overall still hid different misses. In HarnessBench, Claude Code passed a username fix that Cursor failed: Cursor's patch let numeric-only usernames through, breaking the rule that keeps them invalid. On a Vite hot-reload task, the results flipped.
 
-A solid username check needs ordinary names to pass and numeric-only strings to fail; verifying hot reload requires editing a file after startup and confirming the running server picks up the change.
+A username check should accept ordinary names and reject numeric-only ones. A hot-reload check should edit a file after the server starts and confirm the running server picks up the change.
 
-When we bring in a second agent to review a patch, we point it at concrete rules like those. Asking “Does this still reject numeric-only usernames?” gives the reviewer a specific path to trace through code and tests, whereas asking for a general opinion makes it easy to echo the first agent's summary.
+When a second agent reviews the patch, hand it rules like those. "Does this still reject numeric-only usernames?" sends the reviewer down a specific path through code and tests. "Any issues?" makes it easy to echo the first agent's summary.
 
 ### How Model Selection Changes the Result
 
-Model choice shifts results inside the same editor too. That October three-task test also ran Composer 2.5 and Auto in Cursor: each missed five of 186 checks while Cursor with Sonnet 5.5 passed them all. Composer rejected the valid amount `1234,5` and mishandled CSV line breaks.
+Model choice moves results inside one editor, too. The same October test ran Cursor's Composer 2.5 and Auto: each missed 5 of 186 checks, while Cursor with Sonnet 5.5 missed none. Composer rejected the valid amount `1234,5` and got CSV line-break rules wrong.
 
-We turn edge cases like those straight into regression tests because happy-path suites rarely catch them. If switching models fixes `1234,5`, re-run the CSV line-break tests too. And avoid changing the tool and the model at the exact same time, or you won't know which switch fixed the bug.
+Turn misses like these into regression tests, since a happy-path suite rarely catches them. If a model switch fixes `1234,5`, rerun the CSV line-break tests as well. And change the tool or the model, not both at once, or you won't know which change fixed the bug.
+
+### What Developers Reported on X
+
+Controlled tests use fixed tasks, so we also looked at the jobs people actually brought. Our [analysis of 757 task-feedback posts on X](/blog/claude-code-codex-cursor-grok-which-to-choose) about seven agents includes 69 posts about Cursor and 153 about Claude Code. About one in ten posts for each tool reported a problem. Both had reports of small changes spreading beyond the request: 7 posts for Cursor and 8 for Claude Code. Ten Claude Code posts reported defects missed during acceptance checks. In one, tests passed but registration still failed.
+
+<div className="overflow-x-auto thin-scrollbar [&_table]:min-w-[640px] [&_th]:whitespace-nowrap [&_td]:whitespace-normal" role="region" aria-label="Cursor and Claude Code task feedback on X" tabIndex={0}>
+
+| Task-feedback posts on X | Cursor | Claude Code |
+|---|---:|---:|
+| Posts in the sample | 69 | 153 |
+| Posts reporting a problem (negative or mixed) | 7 (10.1%) | 18 (11.8%) |
+| Most common job | Websites and interactive components (35) | Websites and frontends (66) |
+| Problem categories in the source | Small fixes expanding in scope or changing unrelated code (7) | Small changes expanding in scope or overwriting existing work (8); Missed defects during acceptance checks; passing tests but unusable results (10 posts; one example: tests passed but registration failed) |
+
+</div>
+
+These are counts from public posts, not success rates or a ranking, and a post can cover more than one job. The source article links every post and its label.
 
 <span id="using-claude-code-and-cursor-together" className="block scroll-mt-24" />
 
 ## How to Use Cursor and Claude Code Together
 
-Give one agent ownership of the patch and let the other review it. Either tool works in either role.
+Give one agent ownership of the patch and let the other review it. Either tool can play either role.
 
-Focused side investigations during a change belong with the agent already doing the work: Claude Code can hand a quick research question to a subagent inside its own session. Our guide to [Claude Code subagents and independent agents](/blog/claude-code-subagents-vs-independent-agents) breaks down how that differs from having a separate agent review the finished patch.
+Side questions during a change stay with the agent doing the work: Claude Code can send a quick research question to a subagent inside its own session. That is different from handing the finished patch to a separate agent for review.
 
 <span id="adding-claude-code-to-cursor" className="block scroll-mt-24" />
 
@@ -171,9 +228,9 @@ Focused side investigations during a change belong with the agent already doing 
 
 ### How to Use Claude Code in Cursor (Extension or Terminal)
 
-Anthropic supports the [Claude Code extension](https://code.claude.com/docs/en/vs-code#install-the-extension) in both VS Code and Cursor, where it runs right alongside Cursor's Tab completions and Agent.
+Anthropic supports the [Claude Code extension](https://code.claude.com/docs/en/vs-code#install-the-extension) in VS Code and in Cursor, where it runs next to Cursor's Tab completions and Agent. Cursor's [October 29 security notice](https://cursor.com/blog/claude-code-extension-security-notice) reports that malicious copies of versions 2.1.312 and 2.1.313 appeared in its extension marketplace. The notice lists checks and remediation for affected installations; a [November 13 update](https://cursor.com/blog/security-incident-update) explains the attack.
 
-We prefer the extension when stepping through individual edits, and run the separately installed Claude Code CLI from the project folder in Cursor's integrated terminal for command-heavy work.
+Use the extension to step through edits one at a time. For command-heavy work, install the Claude Code CLI separately and run it from the project folder in Cursor's integrated terminal.
 
 ### Sharing Project Rules and Handing Off Changes
 
@@ -181,34 +238,40 @@ We prefer the extension when stepping through individual edits, and run the sepa
 
 Cursor reads shared project conventions from `AGENTS.md`. Current Claude Code versions also read `AGENTS.md` directly under the default Project instructions setting, provided neither the working directory nor its parent folders contain `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md`.
 
-If your repo already has a `CLAUDE.md`, add `@AGENTS.md` inside it so both agents pull from one shared rule file instead of drifting out of sync (that import works in sessions without direct `AGENTS.md` support too). Claude Code's [instruction-file documentation](https://code.claude.com/docs/en/memory) covers version and setting details, and `/context all` lists which memory files loaded.
+If your repo already has a `CLAUDE.md`, add `@AGENTS.md` inside it so both agents read one rule file instead of drifting apart (the import works in sessions without direct `AGENTS.md` support, too). Claude Code's [instruction-file documentation](https://code.claude.com/docs/en/memory) covers version and setting details, and `/context all` lists which memory files loaded.
 
 <span id="give-each-tool-a-defined-task" className="block scroll-mt-24" />
 
 #### What the Next Agent Needs
 
-Real-repo tests show how easily context drops between sessions. In [SSShken's October 2026 test](https://x.com/SSShken/status/2105696802666061863), Cursor and Claude Code each created a design-system file yet forgot to add it to the index list that tells future agents what to read (a list maintained in four places in that repo). Codex added the entry.
+[SSShken's comparison](https://x.com/SSShken/status/2105696802666061863) gave Cursor, Codex and Claude Code the same task in the same codebase, each on a $20 plan. In [a reply on October 3](https://x.com/SSShken/status/2106339639078351198), he said Codex and Claude Code wrote and ran their own tests, while Cursor "tested nothing at all." A handoff note that only says the work is done would hide that difference.
 
-Each tool implemented the same feature once on a roughly $20 plan at default settings: Cursor on Grok 4.7 High, Codex on Astra, and Claude Code on Opus 5.5. All three failed one item on the 16-item checklist, though their mixes of full and partial passes differed.
+So when you hand off a patch in progress, write down which checks already ran, along with the diff, the failing input and anything still open. For the username fix above, say whether numeric-only inputs were tested, not just that tests passed. Point the next agent to the project rules and any files that must change together, then check its plan for those constraints before it starts editing. If the reasoning behind the change matters, pass along the relevant part of the conversation too. Our guide to [keeping context across agent sessions](/blog/keep-context-across-coding-agent-sessions) covers the rest.
 
-Whenever work moves between tools, a design file sitting in the repo won't help if the next session never opens it. Include that document's entry point in your handoff along with any files that need to change together. Simply asking “Did you find the file?” tells you very little once it answers yes; ask for a plan first and check whether those design constraints actually show up while gaps are still cheap to fix.
-
-When handing off a patch in progress, include the diff, the failing input, the checks already run, and anything still open. On the username fix earlier, spell out whether numeric-only inputs were tested rather than just noting that tests passed. Our guide to [sharing a Claude Code conversation](/blog/share-claude-code-session) covers how to pass along the discussion behind a change.
-
+<a href="/blog/cursor-vs-claude-code/handoff.webp" aria-label="Open full-size agent handoff diagram">
 <picture>
   <source media="(max-width: 640px)" srcSet="/blog/cursor-vs-claude-code/handoff-mobile.webp" />
   <img width={1200} height={870} loading="lazy" decoding="async" style={{ width: "100%", height: "auto" }} src="/blog/cursor-vs-claude-code/handoff.webp" alt="Either agent makes the patch, passes the goal, diff, tests and open questions, then the other reviews before fixes and verification." />
 </picture>
+</a>
 
 <span id="when-we-want-claude-code-and-cursor-in-one-conversation" className="block scroll-mt-24" />
 
 ### Keeping the Request and Review in One Conversation
 
-In Alook, a [multi agent collaboration workspace](https://alook.ai), a reviewing bot can question the implementing bot directly instead of making us relay answers back and forth. You connect Cursor and Claude Code as bot accounts running on your own computer.
+In [Alook](https://alook.ai), a shared workspace for people and their agents, Cursor CLI and Claude Code run as separate bot accounts and share a channel with you. When the reviewing bot asks the implementing bot a question there, the answer lands next to the request.
 
-During one blog review, a Cursor bot shared pricing research and a Claude Code bot checked the draft. The reviewer caught a missing detail: the draft noted that Cursor shared its usage pool with Grok, without explaining that requests inside the Grok apps draw from that pool too. We added the clarification in the same thread.
+<a href="/blog/cursor-vs-claude-code/alook-machines.webp" aria-label="Open full-size Alook Machines screenshot">
+<picture>
+  <img width={1280} height={720} loading="lazy" decoding="async" style={{ width: "100%", height: "auto" }} src="/blog/cursor-vs-claude-code/alook-machines.webp" alt="Alook Machines page showing an online computer with Claude, Codex, Cursor, OpenCode and Pi runtimes" />
+</picture>
+</a>
 
-Local bots do require a computer that stays online, and connecting both tools doesn't grant shared access: each bot still needs its own project permissions and instructions. The [Cursor and Claude Code tutorial](/tutorials/cursor-and-claude-code) walks through that setup.
+*A connected computer showing its available runtimes in Alook.*
+
+We'd use this setup when two agents share a patch: the reviewer asks about a failing input, and the person approving the change follows the exchange in one place.
+
+Local bots need a computer that stays online. Connecting both tools doesn't merge their access either: each bot keeps its own project permissions and instructions. The [Cursor and Claude Code tutorial](/tutorials/cursor-and-claude-code) walks through the setup.
 
 <span id="cursor-or-claude-code-which-should-you-choose" className="block scroll-mt-24" />
 
@@ -216,4 +279,18 @@ Local bots do require a computer that stays online, and connecting both tools do
 
 <span id="which-tool-fits-your-workflow-and-budget" className="block scroll-mt-24" />
 
-Start with the editor you want to spend your day in, then pick the agent and subscription around it. Whenever two agents share a patch, judge your handoff by one simple test: does the reviewer have enough context to continue without guessing?
+Start with the editor you want to spend your day in, then pick the agent and plan around it. When two agents share a patch, test the handoff with one question: could the reviewer continue without guessing?
+
+## Cursor vs Claude Code FAQ
+
+### Can Claude Code replace Cursor?
+
+For agent work, yes. Claude Code plans changes, edits across files and runs in a terminal or an editor extension. It doesn't replace the editor itself: Tab completions and direct inline edits stay in Cursor. If you only want to swap the agent, run the Claude Code extension inside Cursor and bill it to your Claude plan.
+
+### Is Cursor still worth using with Claude Code?
+
+Yes, if you still write part of the code by hand or want to switch between model families. Check the plan first. As of November 2026, Cursor Plus ($8 a month) covers Grok and Composer 2.5 only. On The X Subscription plans, Claude models need Premium ($30 a month) or higher and are billed at API list prices. Legacy Pro, Pro+ and Ultra plans still include them in a monthly pool. If you mostly hand whole tasks to Claude, Claude Code on a Claude plan covers that without Cursor.
+
+### Which is better for coding in 2026, Claude Code or Cursor?
+
+In the two same-model tests cited here, neither tool scored higher. Cursor and Claude Code both passed 186 of 186 checks with Sonnet 5.5 in Not an AI App's October 2026 test, and both fixed 20 of 27 bugs with Opus 4.7 at high effort in HarnessBench's May 2026 run. In the October test, Cursor's Composer 2.5 missed 5 of the 186 checks.
