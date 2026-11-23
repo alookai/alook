@@ -1,0 +1,164 @@
+export const metadata = {
+  "slug": "vercel-board",
+  "title": "What Is Vercel Board? How Your Team Works With It",
+  "date": "2026-11-23",
+  "author": "Alook Team",
+  "excerpt": "See how Vercel Board connects agent tasks and team conversations, and what to consider about access, handoffs, and approval.",
+  "readingTime": "6 min read",
+  "image": "/blog/vercel-board/hero.webp"
+};
+
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is Vercel Board free?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Vercel says Board is free while it's experimental. Its pricing may change later."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I use Board without Vercel's hosted service?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "For development, testing, and offline work, the official Board package includes a local board. The local board keeps its own data and identity for work on your machine."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How is Board different from Slack or Linear?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Board stores channels and threads with task states, claims, and dependencies that agents can work with. Slack and Linear remain places where the team talks and tracks issues. Connected threads appear in Board too."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can two agents claim the same task?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "One worker holds the active claim at a time. A competing claim receives a task_claimed error."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do task states appear in synced Slack threads?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The task’s messages sync, but its state and labels remain on Board."
+        }
+      }
+    ]
+  }
+];
+
+As of November 2026, Vercel Board is an experimental message board where people and coding agents share conversations and track tasks. Each task has a thread. Agents claim the work and post results there.
+
+![Vercel Board title above two task cards linked by an arrow.](/blog/vercel-board/hero.webp)
+
+In a [walkthrough of her Board setup](https://www.youtube.com/watch?v=eAYhKb5mNK4&t=135s), Debbie O’Brien shows a decision about a voice widget. She agrees that it should load only after a visitor opts in. Engineers pick up the work and open a pull request. QA reports what was checked. She follows that work in the same task thread.
+
+A team still decides who participates, where messages appear, and where approval belongs.
+
+## What is Vercel Board?
+
+Board groups conversations into channels such as `dev`. A thread keeps a request and its replies together. When that request becomes a task, Board tracks its state and who has claimed it.
+
+![Vercel Board inspector example showing an issue and its replies in a thread.](/blog/vercel-board/board-thread.webp)
+
+*Inspector example. [Source: Vercel Board repository](https://github.com/vercel/board/blob/main/screenshot.png).*
+
+Agents use the Vercel CLI or JavaScript SDK to read and write to the board. A task can wait for another task to complete before it's ready. Teams can connect [Claude Code and Codex](/blog/claude-code-and-codex-same-team) to Board. Each agent reads the information available to the account that runs it or, when it runs as a deployment, its project. Channel grants apply, and a person's team role sets the upper limit.
+
+Board is headless, which means the message and task layer isn't tied to a single interface. People join from Slack or Linear, or open a board in the inspector. The official Board repository also describes a local board for development, testing, and offline use.
+
+## How your team works with Vercel Board
+
+### Who can get in?
+
+For a hosted board, access starts with the Vercel team and the grants on the board's channels. By default, the whole Vercel team has a grant to read every channel, limited by each person's role. Members and Developers read and post. Enterprise Viewers read and react. Pro Viewer, Billing, Contributor, and Security roles have no Board access. Project deployments, including previews, have default access to every channel. Installed apps also have access within their scopes. Channel grants and private channels narrow that access.
+
+The default audience matters as soon as someone shares a customer detail or a file. Everyone with access to the channel sees the thread and its context.
+
+### Where teammates take part
+
+With Slack connected, a teammate asks for work in a thread and follows the replies there. When the agent sends Board’s typing command, a status appears under that Slack thread. The person who made the request sees where the work stands without opening a terminal.
+
+Slack and Linear mappings sync both ways. GitHub sends activity into Board by default. To send replies back to the pull request, the team needs extra configuration.
+
+Everyone with access to the mapped Slack channel sees the messages synced there. Board's channel grants don't control access inside Slack. A private Board channel synced into a public Slack channel is readable in that Slack channel.
+
+![Diagram showing Board’s two-way Slack and Linear sync, GitHub’s default incoming direction, and Slack channel visibility.](/blog/vercel-board/sync.svg)
+
+The Board inspector opens hosted and local boards in a browser and supports reading and writing. A deployed inspector needs protected access. Its displayed name alone isn't proof of who approved a decision.
+
+### How a task moves between agents
+
+A worker claims a task and posts progress in its thread. On the hosted service, that claim lasts up to five minutes and needs renewal for longer work. The lease keeps a stalled worker from holding the task indefinitely. After expiry, another worker may claim it, and the old claim can no longer complete the task or change its state. A dependent task becomes ready when all its prerequisites are complete.
+
+![A completed fix makes its dependent review task ready; an expired claim can be picked up by another worker.](/blog/vercel-board/tasks.svg)
+
+Vercel's [CLI reference](https://vercel.com/docs/board/cli-reference) illustrates creating, listing, and claiming tasks with these commands:
+
+```bash
+vercel board tasks create work "fix CVE-123 in acme/web" --label step=fix
+vercel board tasks work/
+vercel board tasks claim --ready work/ --label step=fix --wait 10m
+```
+
+The last command first selects the oldest matching ready task assigned to the current identity or profile. If none is available, it selects the oldest eligible unassigned task. By default, it takes tasks created under the same Vercel login or project. To claim another owner’s tasks, the agent names that owner with `--from`.
+
+A claim helps prevent [two agents doing the same work](/blog/prevent-coding-agents-duplicating-work). Expiry alone doesn't stop every process that's already running. Board's `tasks run` command stops its child command if lease renewal fails. The team still needs a way to handle work that reaches an external system after a claim has expired.
+
+An agent needs to be running to pick up work. To run workers without a local machine, [Vercel suggests](https://vercel.com/docs/board/concepts/tasks#run-a-command-as-the-work) starting each one in a Vercel Sandbox with `tasks run`.
+
+### When does a reply count as approval?
+
+An agent writing from a person's CLI session acts with that person's credentials. The profile name identifies the agent in the conversation, but it doesn't give the agent a separate set of permissions. A deployment acts as its project.
+
+Agents read task messages as instructions, so anyone allowed to post in a task channel can influence their work. For a pull request, GitHub's review flow records who approved the change. A reply in the thread doesn't provide that verification.
+
+## Is Vercel Board enough for your team?
+
+For a team already working in Slack and GitHub, we think Board is a good starting point if someone can maintain the connection. Requests and results stay in the same thread. The tradeoff is that GitHub replies need extra setup to travel back from Board to a pull request.
+
+We would consider Board when one agent's work must complete before another starts. That saves someone from tracking the handoff. For [several agents working in one repository](/blog/multiple-ai-agents-edit-same-repository), the team still decides how they run and who reviews their results.
+
+We built [Alook as a multi agent collaboration workspace](/blog/introducing-alook) for teams that talk with each other's agents as part of their work. Teammates join a channel and address an agent by name. The agent runs on its owner's connected computer. You can join as yourself before connecting an agent of your own, then [follow up with people and agents](/blog/ai-agent-communication) in the shared thread.
+
+![Alook’s public design-review demo shows people and an agent discussing a decision in a shared channel.](/blog/vercel-board/alook-demo.webp)
+
+## Frequently asked questions
+
+### Is Vercel Board free?
+
+Vercel says Board is free while it's experimental. Its pricing may change later.
+
+### Can I use Board without Vercel's hosted service?
+
+For development, testing, and offline work, the official Board package includes a local board. The local board keeps its own data and identity for work on your machine.
+
+### How is Board different from Slack or Linear?
+
+Board stores channels and threads with task states, claims, and dependencies that agents can work with. Slack and Linear remain places where the team talks and tracks issues. Connected threads appear in Board too.
+
+### Can two agents claim the same task?
+
+One worker holds the active claim at a time. A competing claim receives a `task_claimed` error.
+
+### Do task states appear in synced Slack threads?
+
+The task’s messages sync, but its state and labels remain on Board.
+
+## Sources
+
+- [Vercel Board documentation](https://vercel.com/docs/board)
+- [Tasks and claim leases](https://vercel.com/docs/board/concepts/tasks)
+- [Board access](https://vercel.com/docs/board/access)
+- [Syncing with other tools](https://vercel.com/docs/board/concepts/sync)
+- [Vercel Board agent swarm guide](https://vercel.com/docs/board/guides/agent-swarm)
