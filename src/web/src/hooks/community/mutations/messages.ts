@@ -42,11 +42,14 @@ import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
   commitConfirmedAttentionScopeRead,
+  markDecisionCardDismissedOptimistically,
   removeAttentionItemsOptimistically,
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
+  restoreDecisionCardDismissedOptimistically,
   type AttentionDomain,
   type AttentionIntent,
+  type DecisionCardDismissOptimisticSnapshot,
 } from "@/lib/community-db/sync"
 
 function sendMessageScope(input: SendMessageArgs | SendDmMessageArgs): MessageScope {
@@ -321,7 +324,7 @@ export function useDismissInboxTodo() {
     { revision: number },
     Error,
     { input: DismissInboxTodoArgs; original: Original },
-    { attentionSnapshot?: AttentionIntent }
+    { attentionSnapshot?: AttentionIntent; messageDismissSnapshot?: DecisionCardDismissOptimisticSnapshot }
   >({
     meta: { observabilityAction: "inbox.todo.dismiss" },
     scope: { id: "community-todo-dismiss" },
@@ -339,6 +342,7 @@ export function useDismissInboxTodo() {
       await Promise.all([
         registry!.collections.attentionScopes.preload(),
         registry!.collections.attentionItems.preload(),
+        registry!.collections.messages.preload(),
       ])
       origin.assert(original)
       const attentionSnapshot = registry
@@ -347,7 +351,8 @@ export function useDismissInboxTodo() {
             (item) => item.kind === "question" && item.messageId === messageId,
           )
         : undefined
-      return { attentionSnapshot }
+      const messageDismissSnapshot = markDecisionCardDismissedOptimistically(registry!, messageId)
+      return { attentionSnapshot, messageDismissSnapshot }
     },
     onSuccess: async (_result, { original }, context) => {
       origin.assert(original)
@@ -362,6 +367,9 @@ export function useDismissInboxTodo() {
       const registry = origin.registry
       if (registry && ctx?.attentionSnapshot) {
         restoreAttentionOptimisticSnapshot(registry, ctx.attentionSnapshot)
+      }
+      if (registry && ctx?.messageDismissSnapshot) {
+        restoreDecisionCardDismissedOptimistically(registry, ctx.messageDismissSnapshot)
       }
       try { origin.assert(original) } catch { return }
       if (isAbortError(err)) return

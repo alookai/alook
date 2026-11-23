@@ -196,20 +196,17 @@ export const DecisionCardEmbedSchema = z.strictObject({
     .min(DECISION_CARD_MIN_QUESTIONS)
     .max(DECISION_CARD_MAX_QUESTIONS),
   respondedUserIds: z.array(z.string().min(1)).optional(),
+  viewerDismissed: z.boolean().optional(),
 });
 export type DecisionCardEmbed = z.infer<typeof DecisionCardEmbedSchema>;
 
-export function attachDecisionCardResponders(
+function mapDecisionCardEmbed(
   embeds: readonly unknown[] | undefined,
-  respondedUserIds: readonly string[] | undefined,
+  transform: (card: DecisionCardEmbed) => DecisionCardEmbed,
 ): unknown[] | undefined {
   if (!embeds || embeds.length === 0) {
     return embeds ? [...embeds] : undefined;
   }
-  if (respondedUserIds === undefined) {
-    return [...embeds];
-  }
-  const uniqueResponders = [...new Set(respondedUserIds.filter((id) => id.length > 0))];
   let attached = false;
   return embeds.map((item) => {
     if (
@@ -222,11 +219,32 @@ export function attachDecisionCardResponders(
       const parsed = DecisionCardEmbedSchema.safeParse(item);
       if (parsed.success) {
         attached = true;
-        return { ...parsed.data, respondedUserIds: uniqueResponders };
+        return transform(parsed.data);
       }
     }
     return item;
   });
+}
+
+export function attachDecisionCardResponders(
+  embeds: readonly unknown[] | undefined,
+  respondedUserIds: readonly string[] | undefined,
+): unknown[] | undefined {
+  if (respondedUserIds === undefined) {
+    return embeds ? [...embeds] : undefined;
+  }
+  const uniqueResponders = [...new Set(respondedUserIds.filter((id) => id.length > 0))];
+  return mapDecisionCardEmbed(embeds, (card) => ({ ...card, respondedUserIds: uniqueResponders }));
+}
+
+export function attachDecisionCardViewerDismissed(
+  embeds: readonly unknown[] | undefined,
+  viewerDismissed: boolean | undefined,
+): unknown[] | undefined {
+  if (viewerDismissed === undefined) {
+    return embeds ? [...embeds] : undefined;
+  }
+  return mapDecisionCardEmbed(embeds, (card) => ({ ...card, viewerDismissed }));
 }
 
 export function mergeDecisionCardEmbeds(
@@ -235,10 +253,17 @@ export function mergeDecisionCardEmbeds(
 ): unknown[] | undefined {
   if (!incomingEmbeds || incomingEmbeds.length === 0) return incomingEmbeds ? [...incomingEmbeds] : undefined;
   const previousCard = extractDecisionCardFromEmbeds(previousEmbeds).card;
-  if (!previousCard || previousCard.respondedUserIds === undefined) return [...incomingEmbeds];
+  if (!previousCard) return [...incomingEmbeds];
   const incomingCard = extractDecisionCardFromEmbeds(incomingEmbeds).card;
-  if (!incomingCard || incomingCard.respondedUserIds !== undefined) return [...incomingEmbeds];
-  return attachDecisionCardResponders(incomingEmbeds, previousCard.respondedUserIds);
+  if (!incomingCard) return [...incomingEmbeds];
+  const preserveResponders = previousCard.respondedUserIds !== undefined && incomingCard.respondedUserIds === undefined;
+  const preserveDismissed = previousCard.viewerDismissed !== undefined && incomingCard.viewerDismissed === undefined;
+  if (!preserveResponders && !preserveDismissed) return [...incomingEmbeds];
+  return mapDecisionCardEmbed(incomingEmbeds, (card) => ({
+    ...card,
+    ...(preserveResponders ? { respondedUserIds: previousCard.respondedUserIds } : {}),
+    ...(preserveDismissed ? { viewerDismissed: previousCard.viewerDismissed } : {}),
+  }));
 }
 
 export function appendDecisionCardResponder(
@@ -250,6 +275,16 @@ export function appendDecisionCardResponder(
   if (!card) return undefined;
   if (card.respondedUserIds?.includes(responderUserId)) return undefined;
   return attachDecisionCardResponders(embeds, [...(card.respondedUserIds ?? []), responderUserId]);
+}
+
+export function markDecisionCardViewerDismissed(
+  embeds: readonly unknown[] | undefined,
+): unknown[] | undefined {
+  if (!embeds || embeds.length === 0) return undefined;
+  const card = extractDecisionCardFromEmbeds(embeds).card;
+  if (!card) return undefined;
+  if (card.viewerDismissed === true) return undefined;
+  return attachDecisionCardViewerDismissed(embeds, true);
 }
 
 export function buildDecisionCardEmbed(

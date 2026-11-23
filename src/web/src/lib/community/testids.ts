@@ -14,6 +14,7 @@ export const tid = {
   decisionCardSubmit: "community-decision-card-submit",
   decisionCardResponders: "community-decision-card-responders",
   decisionCardReadonlyNotice: "community-decision-card-readonly-notice",
+  decisionCardToggle: "community-decision-card-toggle",
   composerInput: "community-composer-input",
   channelComposerShell: "community-composer-shell",
   composerFileInput: "community-composer-file-input",

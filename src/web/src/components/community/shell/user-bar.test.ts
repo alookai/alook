@@ -62,6 +62,8 @@ describe("UserBar", () => {
     expect(html).toContain(`${styles.base} flex items-center gap-3 border border-border/40 bg-muted px-2`)
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).toContain('class="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1"')
+    expect(html).toContain("sm:@max-[156px]/user-bar:hidden")
+    expect(html).not.toContain("sm:@max-[224px]/user-bar:hidden")
     expect(html).toContain('data-testid="community-user-bar-name"')
     expect(html).toContain('class="truncate text-sm font-medium leading-tight"')
     expect(html).toContain('class="flex shrink-0 items-center gap-1"')
@@ -97,6 +99,8 @@ describe("UserBar", () => {
     expect(html).toContain(
       `${styles.base} flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2`,
     )
+    expect(html).toContain("sm:@max-[156px]/user-bar:hidden")
+    expect(html).not.toContain("sm:@max-[224px]/user-bar:hidden")
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).not.toContain("<button")
     expect(html).not.toContain("<a")

@@ -1,5 +1,5 @@
 import { messageProfilesFixture } from "@/test/community-resource-fixtures"
-import { AccountAttentionSnapshotSchema, AttentionIncludedChannelSchema, AttentionIncludedMessageSchema, type AccountAttentionSnapshot, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
+import { AccountAttentionSnapshotSchema, AttentionIncludedChannelSchema, AttentionIncludedMessageSchema, extractDecisionCardFromEmbeds, type AccountAttentionSnapshot, BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { messageResourceFixture, channelResourceFixture, serverResourceFixture, fullResourceBundleFixture, messageSeedFixture } from "@/test/community-resource-fixtures"
 import { serverDirectoryFixture } from "@/test/community-resource-fixtures"
 import { serverRailResponseFixture } from "@/test/community-resource-fixtures"
@@ -1588,6 +1588,7 @@ describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
     mountHook(() => mod.useDismissInboxTodo())
     const pending = startMutation({ messageId: "m_q1" })
     await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeUndefined())
+    expect(extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.viewerDismissed).toBe(true)
     expect(resolveDelete).toBeTypeOf("function")
 
     await act(async () => {
@@ -1618,6 +1619,7 @@ describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
     mountHook(() => mod.useDismissInboxTodo())
     const pending = startMutation({ messageId: "m_q1" })
     await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeUndefined())
+    expect(extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.viewerDismissed).toBe(true)
 
     await act(async () => {
       rejectDelete(new Error("dismiss unavailable"))
@@ -1625,6 +1627,7 @@ describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
     })
 
     await waitFor(() => expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeDefined())
+    expect(extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.viewerDismissed).toBe(false)
     expect(toastMock).toHaveBeenCalledWith("dismiss unavailable")
   })
 

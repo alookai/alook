@@ -1,5 +1,5 @@
 
-import { attachDecisionCardResponders, BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, DECISION_CARD_MESSAGE_TYPE, queries, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
+import { attachDecisionCardResponders, attachDecisionCardViewerDismissed, BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, DECISION_CARD_MESSAGE_TYPE, queries, type CommunityContract, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment } from "@alook/shared"
 import type { BotCreationPayload, FriendApprovalPayload } from "@alook/shared"
 
 import { readCommunityResourceProfiles, type CommunityResourceProfileReader } from "./resource-profiles.server"
@@ -68,6 +68,7 @@ export type ApiMessageContext = {
   approvalByMessageId?: Map<string, FriendApprovalPayload>
   botCreationByMessageId?: Map<string, BotCreationPayload>
   respondedUserIdsByMessageId?: ReadonlyMap<string, readonly string[]>
+  dismissedQuestionMessageIds?: ReadonlySet<string>
 }
 
 type MessageContextOptions = { skipEmpty?: boolean; rootReactions?: boolean; rootMessages?: readonly (Pick<MessageRow, "id" | "type" | "friendshipId"> & { channelId?: string })[] }
@@ -109,17 +110,19 @@ export async function loadApiMessageContext(db: Database, userId: string, ids: s
   const related = replies.filter(reply => !ids.includes(reply.id))
   const relatedIds = related.map(reply => reply.id)
   const cardRows = [...new Map([...(options.rootMessages ?? []), ...related].map(row => [row.id, row])).values()]
-  const [replyAttachments, replyReactions, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId] = await Promise.all([
+  const questionCardIds = cardRows.filter(row => row.type === DECISION_CARD_MESSAGE_TYPE).map(row => row.id)
+  const [replyAttachments, replyReactions, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId, dismissedQuestionMessageIds] = await Promise.all([
     relatedIds.length ? queries.communityAttachment.listByMessageIds(db, relatedIds) : Promise.resolve([]),
     relatedIds.length ? queries.communityReaction.listReactionsByMessageIds(db, relatedIds) : Promise.resolve([]),
     cardRows.some(row => row.friendshipId) ? queries.communityFriendship.hydrateApprovalsForDmMessages(db, cardRows.filter(row => row.friendshipId).map(row => row.id), userId) : Promise.resolve(new Map<string, FriendApprovalPayload>()),
     cardRows.some(row => row.type === "bot_creation_request") ? queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, cardRows.filter(row => row.type === "bot_creation_request").map(row => row.id), userId) : Promise.resolve(new Map<string, BotCreationPayload>()),
-    cardRows.some(row => row.type === DECISION_CARD_MESSAGE_TYPE) ? hydrateDecisionCardRespondersByChannel(db, cardRows) : Promise.resolve(new Map<string, string[]>()),
+    questionCardIds.length > 0 ? hydrateDecisionCardRespondersByChannel(db, cardRows) : Promise.resolve(new Map<string, string[]>()),
+    questionCardIds.length > 0 ? queries.communityInbox.listDismissedQuestionMessageIdsForUser(db, userId, questionCardIds) : Promise.resolve(undefined),
   ])
   const attachmentsByMessage = groupAttachments([...attachments, ...replyAttachments]), reactionsByMessage = groupReactions([...reactions, ...replyReactions], userId)
   return (channelId: string): ApiMessageContext => {
     const replyMap = new Map(replies.filter(reply => reply.channelId === channelId).map(reply => [reply.id, reply]))
-    const context: ApiMessageContext = { viewerId: userId, attachmentsByMessage, reactionsByMessage, replyMap, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId }
+    const context: ApiMessageContext = { viewerId: userId, attachmentsByMessage, reactionsByMessage, replyMap, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId, dismissedQuestionMessageIds }
     context.relatedMessages = [...replyMap.values()].filter(reply => !ids.includes(reply.id)).map(reply => {
       const resource = mapMessageForApi(reply, context, BUSINESS_SCHEMA_VERSION, channelId)
       delete resource.replyTo
@@ -159,11 +162,16 @@ function mapMessageResource(row: MessageRow, ctx: Omit<ApiMessageContext, "viewe
   const checkedResponders = row.type === DECISION_CARD_MESSAGE_TYPE && ctx.respondedUserIdsByMessageId?.has(row.id)
     ? (ctx.respondedUserIdsByMessageId.get(row.id) ?? []).filter((uid) => uid !== row.authorId)
     : undefined
-  const embeds = Array.isArray(row.embeds)
-    ? (checkedResponders !== undefined
-      ? attachDecisionCardResponders(row.embeds, checkedResponders)
-      : row.embeds)
+  const checkedDismissed = row.type === DECISION_CARD_MESSAGE_TYPE && ctx.dismissedQuestionMessageIds !== undefined
+    ? ctx.dismissedQuestionMessageIds.has(row.id)
     : undefined
+  let embeds: unknown[] | undefined = Array.isArray(row.embeds) ? row.embeds : undefined
+  if (embeds !== undefined && checkedResponders !== undefined) {
+    embeds = attachDecisionCardResponders(embeds, checkedResponders)
+  }
+  if (embeds !== undefined && checkedDismissed !== undefined) {
+    embeds = attachDecisionCardViewerDismissed(embeds, checkedDismissed)
+  }
   return CommunityMessageResourceSchema.parse({
     ...coreFields(row, ctx.replyMap), channelId,
     authorAvatar: canonicalUserImage(row.authorId, row.authorImage, row.authorAvatarVersion),
