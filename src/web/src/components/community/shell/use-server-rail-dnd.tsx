@@ -39,7 +39,7 @@ export function railInstructionAt(state: RailState, source: RailEntity, target: 
 
 export function useServerRailDnd(options: Options) {
   const latest = useRef(options)
-  useLayoutEffect(() => { latest.current = options })
+  useLayoutEffect(() => { latest.current = options }, [options])
   const owner = useMemo(() => ({}), [])
   const manager = useDragDropManager()
   const returning = useCreateAtom<RailReturn | null>(null)

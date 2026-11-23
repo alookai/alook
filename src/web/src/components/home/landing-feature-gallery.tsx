@@ -26,7 +26,7 @@ const features: { id: string; tab: string; title: string; accent: string; descri
 
 export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [selected, setSelected] = useState(0)
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useState<boolean>(() => typeof window !== "undefined" && !("IntersectionObserver" in window))
   const [loadedFeature, setLoadedFeature] = useState<string | null>(null)
   const [paused, setPaused] = useState(false)
   const [hovered, setHovered] = useState(false)
@@ -74,8 +74,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
 
   useEffect(() => {
     const element = section.current
-    if (!element) return
-    if (!("IntersectionObserver" in window)) { setVisible(true); return }
+    if (!element || !("IntersectionObserver" in window)) return
     const observer = new IntersectionObserver(entries => {
       const entry = entries[entries.length - 1]
       setVisible(Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.3))
@@ -84,9 +83,9 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
-    if (visible) setLoadedFeature(current.id)
-  }, [visible, current.id])
+  if (visible && loadedFeature !== current.id) {
+    setLoadedFeature(current.id)
+  }
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)")

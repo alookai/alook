@@ -7,7 +7,7 @@
     "dev": "pnpm prepare:assets && storybook dev --host 127.0.0.1 --port 6006 --ci --disable-telemetry",
     "build": "pnpm prepare:assets && storybook build --disable-telemetry",
     "typecheck": "tsc --noEmit && pnpm catalog:check",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "catalog": "node scripts/catalog.mjs",
     "catalog:check": "node scripts/catalog.mjs --check --complete",
     "prepare:assets": "tsx scripts/prepare-assets.ts"

@@ -36,7 +36,7 @@ export function ChannelDndScope({ tree, onDrop, enabled = true, children }: {
   children: ReactNode
 }) {
   const latest = useRef({ tree, onDrop, enabled })
-  useLayoutEffect(() => { latest.current = { tree, onDrop, enabled } })
+  useLayoutEffect(() => { latest.current = { tree, onDrop, enabled } }, [tree, onDrop, enabled])
   const manager = useDragDropManager()
   const owner = useMemo(() => ({}), [])
   const targets = useMemo(() => new Map<NonNullable<TargetId>, Target>(), [])
@@ -206,21 +206,21 @@ export function ChannelDropContainer({ id, before = false, lastRowId }: { id: st
   const controller = useContext(ChannelDndContext)
   const feedback = useContext(ChannelFeedbackContext)
   const anchor = useRef<HTMLDivElement | null>(null)
-  const lastRow = useRef<HTMLElement | null>(null)
-  useLayoutEffect(() => {
-    lastRow.current = Array.from(anchor.current?.parentElement?.querySelectorAll<HTMLElement>("[data-channel-tree-row]") ?? []).find((node) => node.dataset.channelTreeRow === lastRowId) ?? null
-  })
   const instruction = useCallback((item: Item | null, point: { x: number; y: number } | null): ChannelTreeDrop | null => {
     const rect = anchor.current?.getBoundingClientRect()
     if (!item || item.kind !== "channel" || !point || !rect) return null
     const top = rect.top - (before ? 16 : 0)
-    const row = lastRow.current?.getBoundingClientRect()
+    const row = lastRowId
+      ? Array.from(anchor.current?.parentElement?.querySelectorAll<HTMLElement>("[data-channel-tree-row]") ?? [])
+          .find((node) => node.dataset.channelTreeRow === lastRowId)
+          ?.getBoundingClientRect()
+      : undefined
     const overLast = row && point.x >= row.left && point.x <= row.right && point.y >= row.top + row.height / 2 && point.y < row.bottom
     const overEnd = point.x >= rect.left && point.x <= rect.right && point.y >= top && point.y < top + 16
     if (!overLast && !overEnd) return null
     const result: ChannelTreeDrop = { active: { id: item.id, kind: item.kind }, over: { id, kind: "category" }, placement: "append" }
     return controller?.resolve(item, result) ?? null
-  }, [controller, id, before])
+  }, [controller, id, before, lastRowId])
   const [{ targetId }, drop] = useDrop<Item, ChannelTreeDrop, { targetId: TargetId }>(() => ({
     accept: CHANNEL_ITEM,
     canDrop: (item, monitor) => !!instruction(item, monitor.getClientOffset()),

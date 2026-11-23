@@ -85,11 +85,12 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     staleTime: 30_000, refetchOnWindowFocus: true,
     refetchInterval: state.polling ? 2_000 : false, retry: false,
   })
-  const data = useMemo(() => query.data ? BillingSummarySchema.parse(query.data) : undefined, [query.data])
+  const queryData = query.data
+  const data = useMemo(() => queryData ? BillingSummarySchema.parse(queryData) : undefined, [queryData])
   const isCurrentRead = useCallback(() => {
-    const current = qc.getQueryState<typeof query.data>(key)
-    return enabled && admitted && current?.status === "success" && !current.isInvalidated && current.data === query.data && current.data?.observed === true
-  }, [enabled, admitted, key, qc, query.data])
+    const current = qc.getQueryState<typeof queryData>(key)
+    return enabled && admitted && current?.status === "success" && !current.isInvalidated && current.data === queryData && current.data?.observed === true
+  }, [enabled, admitted, key, qc, queryData])
   const invalidateDependents = useCallback(() => {
     if (!registry) return
     void qc.invalidateQueries({ queryKey: communityKeys.bots() })

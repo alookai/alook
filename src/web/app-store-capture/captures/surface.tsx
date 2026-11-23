@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import LandingInteractiveShell from "@/components/home/landing-interactive-shell"
 import { CONTINUITY_WORK_MESSAGES, LANDING_PREVIEW_PROFILES, LandingShellMotion } from "@/components/home/landing-shell-motion"
@@ -27,8 +28,7 @@ function FixtureProviders({ children, identity = false }: { children: ReactNode;
 }
 
 export function CaptureSurface({ scene, beat }: { scene: string; beat: number }) {
-  const [ready, setReady] = useState(false)
-  useEffect(() => setReady(true), [])
+  const ready = useHydratedClient()
   const reply = DEMO_MESSAGES["demo-general"].find(message => message.authorId === "demo-alli")!
   const content = scene === "workspace" ? <LandingInteractiveShell />
     : scene === "profile" ? <FixtureProviders><LandingProfileContent /></FixtureProviders>

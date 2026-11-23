@@ -100,7 +100,7 @@ export const InMessageStream: Story = {
   render: () => (
     <div
       data-slot="community-conversation-surface"
-      className="mx-auto flex h-[860px] max-w-3xl flex-col overflow-hidden border-x border-border bg-background"
+      className="mx-auto flex h-215 max-w-3xl flex-col overflow-hidden border-x border-border bg-background"
     >
       <ChannelHeader channel="general" kind="text" rightPanel={null} onToggle={() => {}} />
       <div className="flex-1 overflow-y-auto px-2 py-2 thin-scrollbar">

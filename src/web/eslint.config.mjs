@@ -44,9 +44,11 @@ const eslintConfig = defineConfig([
   ]),
   {
     rules: {
-      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/set-state-in-effect": "error",
+      "react-hooks/no-deriving-state-in-effects": "error",
       "react-hooks/preserve-manual-memoization": "off",
-      "react-hooks/refs": "warn",
+      "react-hooks/refs": "error",
+      "react-hooks/exhaustive-deps": "error",
       "react/jsx-child-element-spacing": "warn",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", destructuredArrayIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "warn",
@@ -56,6 +58,52 @@ const eslintConfig = defineConfig([
       ],
       "@next/next/no-img-element": "off",
       "@next/next/no-before-interactive-script-outside-document": "off",
+    },
+  },
+  {
+    files: ["**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}"],
+    ignores: [
+      "**/*.test.*",
+      "**/*.spec.*",
+      "src/test/**",
+      "test-runtime/**",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name=/^(useEffect|useLayoutEffect)$/][arguments.length=1]",
+          message: "Do not call useEffect/useLayoutEffect without a dependency array in production code.",
+        },
+        {
+          selector: "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(useEffect|useLayoutEffect)$/][arguments.length=1]",
+          message: "Do not call React.useEffect/React.useLayoutEffect without a dependency array in production code.",
+        },
+      ],
+    },
+  },
+  // TODO(#372): remove these temporary narrow overrides once /Alook#5620/fix/#372 lands.
+  {
+    files: ["src/hooks/community/use-conversation-entry.ts"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/exhaustive-deps": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+    },
+  },
+  {
+    files: ["src/components/community/messages/message-list-controller.ts"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
+  {
+    files: [
+      "src/components/community/channels/forum-post-list.tsx",
+      "src/hooks/community/use-scroll-anchor.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   },
   {

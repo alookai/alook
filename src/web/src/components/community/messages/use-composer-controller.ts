@@ -74,7 +74,8 @@ export function useComposerController(
   const hoverCapableRef = useRef(hoverCapable)
   const [editorHasContent, setEditorHasContent] = useAtom(useCreateAtom(false))
   const protocol = useCreateStore({ active, generation: 0, scope: "", scopeVersion: 0, draftKey, nextLongPasteIndex: 1, suppress: false, previousHasContent: false })
-  const sendKey = ["community", "composer-accept", useCreateAtom(crypto.randomUUID()).get()]
+  const sendId = useCreateAtom(crypto.randomUUID()).get()
+  const sendKey = useMemo(() => ["community", "composer-accept", sendId], [sendId])
   const sendInFlight = useIsMutating({ mutationKey: sendKey, exact: true }) > 0
   useLayoutEffect(() => {
     hoverCapableRef.current = hoverCapable
@@ -117,7 +118,7 @@ export function useComposerController(
     channelRefCandidateSource,
     onChannelRefIntent,
   })
-  const { resetPopups } = suggestions
+  const { resetPopups, bindEditor } = suggestions
   useLayoutEffect(() => {
     protocol.setState((state) => ({ ...state, draftKey, scope, ...(state.scope !== scope ? { scopeVersion: state.scopeVersion + 1, nextLongPasteIndex: 1 } : {}) }))
   }, [scope, draftKey, protocol])
@@ -235,8 +236,12 @@ export function useComposerController(
   }, [active, editor, protocol, resetPopups])
   useLayoutEffect(() => {
     editorRef.current = editor
-    return () => { if (editorRef.current === editor) editorRef.current = null }
-  }, [editor])
+    bindEditor?.(editor)
+    return () => {
+      if (editorRef.current === editor) editorRef.current = null
+      bindEditor?.(null)
+    }
+  }, [bindEditor, editor])
   const enterKeyHint = isForumThreadBody || !hoverCapable ? "enter" : "send"
   useLayoutEffect(() => {
     editor?.view?.dom?.setAttribute("aria-label", resolvedPlaceholder)
@@ -316,17 +321,17 @@ export function useComposerController(
   ), [editor, protocol, scope, suppressSuggestions])
   useLayoutEffect(() => () => pickerKeyboard.retire(), [active, pickerKeyboard])
 
-  const send = () => {
+  const send = useCallback(() => {
     pickerKeyboard.retire()
     if (!editor || client.isMutating({ mutationKey: sendKey, exact: true })) return
     const current = protocol.get()
     if (!current.active) return
     sendCommand.mutate({ generation: current.generation, scopeVersion: current.scopeVersion, editor })
-  }
+  }, [client, editor, pickerKeyboard, protocol, sendCommand, sendKey])
 
   useLayoutEffect(() => {
     sendRef.current = send
-  })
+  }, [send])
 
   const attachmentInputHandlers = createComposerAttachmentInputHandlers(
     () => protocol.get().active,

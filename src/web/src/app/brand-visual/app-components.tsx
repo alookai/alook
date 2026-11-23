@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
@@ -141,8 +142,7 @@ export function AppComponents() {
   const [collapsedMachines, setCollapsedMachines] = useState<Set<string>>(new Set())
   const [sent, setSent] = useState<Msg[]>([])
   // Relative times ("Active 1h ago") depend on the clock; render those specimens after mount.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const mounted = useHydratedClient()
   // The real bot form autofocuses its name; on this board, keep the page at the top.
   useEffect(() => {
     const el = document.activeElement

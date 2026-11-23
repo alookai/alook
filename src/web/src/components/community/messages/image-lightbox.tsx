@@ -267,7 +267,7 @@ function PreviewGallery({ image, onClose }: { image: ImagePreview; onClose: () =
 export function ImageLightbox({ image, onClose }: { image: ImagePreview | null; onClose: () => void }) {
   const popupRef = useRef<HTMLDivElement>(null)
   const [retained, setRetained] = useState(image)
-  useLayoutEffect(() => { if (image) setRetained(image) }, [image])
+  if (image && retained !== image) setRetained(image)
   const displayed = image ?? retained
   if (!displayed) return null
   return (

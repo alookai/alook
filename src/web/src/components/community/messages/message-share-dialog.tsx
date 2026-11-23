@@ -78,8 +78,12 @@ export function MessageShareDialog({ m, open, onClose }: {
   open: boolean
   onClose: () => void
 }) {
+  const [prevOpen, setPrevOpen] = useState(open)
   const [visible, setVisible] = useState(open)
-  useEffect(() => { setVisible(open) }, [open])
+  if (prevOpen !== open) {
+    setPrevOpen(open)
+    setVisible(open)
+  }
   const messages = useMemo(() => (Array.isArray(m) ? m : [m]), [m])
   const mobileNative = isTauri() && isMobile()
   const runtime = useCommunityRuntime(), client = useQueryClient()

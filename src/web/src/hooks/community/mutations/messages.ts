@@ -79,7 +79,7 @@ function postedMessageForIntent(message: PostedMessage, nonce: string, channelId
   return projectPostedMessage(message, nonce, channelId)
 }
 
-function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(kind: MessageScope["kind"]) {
+function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(_kind: MessageScope["kind"]) {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Intent = Args & { original: ReturnType<typeof origin.begin>["token"] }

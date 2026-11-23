@@ -59,12 +59,13 @@ export function useAutomation(userId: string) {
       document.removeEventListener("visibilitychange", resume)
     }
   }, [list.data, setNow, refetch])
-  const data = list.data ? { ...list.data, accessCodes: list.data.accessCodes.filter((code) => !code.expiresAt || Date.parse(code.expiresAt) > (now ?? Infinity)) } : undefined
+  const listData = list.data
+  const data = listData ? { ...listData, accessCodes: listData.accessCodes.filter((code) => !code.expiresAt || Date.parse(code.expiresAt) > (now ?? Infinity)) } : undefined
   const isCurrentRead = useCallback((id?: string) => {
-    const current = client.getQueryState<typeof list.data>(queryKey)
-    return current?.status === "success" && !current.isInvalidated && current.data === list.data && current.data?.observed === true
+    const current = client.getQueryState<typeof listData>(queryKey)
+    return current?.status === "success" && !current.isInvalidated && current.data === listData && current.data?.observed === true
       && (!id || current.data.accessCodes.some(code => code.id === id && (!code.expiresAt || Date.parse(code.expiresAt) > Date.now())))
-  }, [client, list.data, queryKey])
+  }, [client, listData, queryKey])
   type Intent = { action: Command; assert: ReturnType<typeof view.capture>; token: ReturnType<typeof origin.begin>["token"]; onCreated?: (result: AutomationAccessCodeCreateResponse) => void }
   const mutation = useMutation({
     mutationKey: [...queryKey, "action"], retry: false, gcTime: 0,

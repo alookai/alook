@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { ArrowRight, Check, Copy } from "@/components/icons/lucide";
 import { GeneratedAvatar } from "@/components/avatar/generated-avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -18,6 +18,18 @@ type IndicatorMetrics = {
   animate: boolean;
 };
 
+const EMPTY_HEADINGS: readonly BlogHeading[] = [];
+
+function createHeadingsSlot() {
+  let current: readonly BlogHeading[] = EMPTY_HEADINGS;
+  return {
+    get: () => current,
+    set: (next: readonly BlogHeading[]) => {
+      current = next;
+    },
+  };
+}
+
 export function BlogToc({
   headings,
   title,
@@ -27,8 +39,38 @@ export function BlogToc({
   title: string;
   slug: string;
 }) {
-  const [resolvedHeadings, setResolvedHeadings] = useState<readonly BlogHeading[]>(headings);
-  const [activeId, setActiveId] = useState<string>(headings[0]?.id ?? "");
+  const [discoveredSlot] = useState(createHeadingsSlot);
+  const subscribeDiscovered = useCallback((onStoreChange: () => void) => {
+    if (headings.length > 0) return () => {};
+    const prose = document.querySelector("[data-blog-prose]");
+    if (!prose) return () => {};
+    const discovered = [...prose.querySelectorAll("h2[id]")]
+      .map((el) => ({ id: el.id, text: (el.textContent ?? "").trim() }))
+      .filter((item) => item.id && item.text);
+    if (discovered.length > 0) {
+      discoveredSlot.set(discovered);
+      onStoreChange();
+    }
+    return () => {
+      discoveredSlot.set(EMPTY_HEADINGS);
+    };
+  }, [headings.length, discoveredSlot]);
+  const discoveredHeadings = useSyncExternalStore(
+    subscribeDiscovered,
+    discoveredSlot.get,
+    () => EMPTY_HEADINGS,
+  );
+  const resolvedHeadings = headings.length > 0 ? headings : discoveredHeadings;
+  const [selectedActive, setSelectedActive] = useState<{ slug: string; id: string }>({
+    slug,
+    id: headings[0]?.id ?? "",
+  });
+  const activeId = selectedActive.slug === slug && resolvedHeadings.some((item) => item.id === selectedActive.id)
+    ? selectedActive.id
+    : (resolvedHeadings[0]?.id ?? "");
+  const setActiveId = useCallback((id: string) => {
+    setSelectedActive({ slug, id });
+  }, [slug]);
   const [copied, setCopied] = useState(false);
   const [indicator, setIndicator] = useState<IndicatorMetrics>({
     top: 0,
@@ -57,23 +99,6 @@ export function BlogToc({
       clickScrollMaxTimerRef.current = null;
     }
   }, []);
-
-  useEffect(() => {
-    if (headings.length > 0) {
-      setResolvedHeadings(headings);
-      setActiveId(headings[0].id);
-      return;
-    }
-    const prose = document.querySelector("[data-blog-prose]");
-    if (!prose) return;
-    const discovered = [...prose.querySelectorAll("h2[id]")]
-      .map((el) => ({ id: el.id, text: (el.textContent ?? "").trim() }))
-      .filter((item) => item.id && item.text);
-    if (discovered.length > 0) {
-      setResolvedHeadings(discovered);
-      setActiveId(discovered[0].id);
-    }
-  }, [headings]);
 
   const measureIndicator = useCallback((id: string, allowAnimate: boolean) => {
     const list = listRef.current;
@@ -193,7 +218,7 @@ export function BlogToc({
       window.removeEventListener("wheel", handleUserInterrupt);
       window.removeEventListener("touchstart", handleUserInterrupt);
     };
-  }, [resolvedHeadings, releaseClickScrollLock]);
+  }, [resolvedHeadings, releaseClickScrollLock, setActiveId]);
 
   const handleHeadingClick = (event: MouseEvent<HTMLAnchorElement>, id: string) => {
     const target = document.getElementById(id);

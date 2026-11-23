@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useRef, type HTMLAttributes, type ReactNode } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from "react"
 import type { ReactVirtualizer } from "@tanstack/react-virtual"
 import type { VirtualRowsLayoutSnapshot } from "@/hooks/community/virtualizer-react-options"
 
@@ -33,13 +33,16 @@ export function VirtualRows<T>({
     virtualizer.containerRef(node)
   }, [virtualizer])
   const totalSize = reactLayout ? virtualizer.getTotalSize() : null
+  const scrollMargin = virtualizer.options.scrollMargin
   const virtualRows = virtualizer.getVirtualItems()
-  const rows = onLayoutCommit && reactLayout ? virtualRows.map(row => ({ ...row })) : virtualRows
-  const layout = onLayoutCommit && reactLayout ? {
-    totalSize: totalSize!,
-    scrollMargin: virtualizer.options.scrollMargin,
-    rows,
-  } : null
+  const layout = useMemo(() => (
+    onLayoutCommit && reactLayout ? {
+      totalSize: totalSize!,
+      scrollMargin,
+      rows: virtualRows.map(row => ({ ...row })),
+    } : null
+  ), [onLayoutCommit, reactLayout, scrollMargin, totalSize, virtualRows])
+  const rows = layout ? layout.rows : virtualRows
   useLayoutEffect(() => {
     if (!layout || !onLayoutCommit) return
     const root = virtualizer.options.getScrollElement()
@@ -48,7 +51,7 @@ export function VirtualRows<T>({
       ? container.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientTop + root.scrollTop
       : layout.scrollMargin })
     return () => onLayoutCommit(null)
-  })
+  }, [layout, onLayoutCommit, virtualizer])
   return (
     <div
       {...containerAttributes}

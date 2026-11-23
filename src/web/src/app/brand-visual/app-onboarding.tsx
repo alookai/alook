@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import type { BillingSummary, MachineCapacitySummary } from "@alook/shared"
 import { Button } from "@/components/ui/button"
@@ -114,9 +115,9 @@ function Pad({ children }: { children: ReactNode }) {
 
 function Seeded({ machines, capacity, children }: { machines: MachineSummary[]; capacity?: MachineCapacitySummary; children: ReactNode }) {
   const client = useQueryClient()
-  const [ready, setReady] = useState(false)
-  useEffect(() => { seedMachines(client, machines, capacity); setReady(true) }, [client, machines, capacity])
-  return ready ? <>{children}</> : null
+  useState(() => { seedMachines(client, machines, capacity); return true })
+  useEffect(() => { seedMachines(client, machines, capacity) }, [client, machines, capacity])
+  return <>{children}</>
 }
 
 /** One isolated runtime + cache per specimen, so onboarding state and seeds never leak between them. */
@@ -432,8 +433,7 @@ function BillingSpecimens() {
 
 export function AppOnboardingSpecimens(_props: { mode: "light" | "dark" }) {
   // Tiles, relative times and the GSAP timelines depend on the client; render after mount.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const mounted = useHydratedClient()
   if (!mounted) return null
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
