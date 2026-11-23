@@ -190,7 +190,7 @@ describe("MachineQuotaSummary", () => {
     const renderer = render([pi, codex, claude, grok])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
     expect(trigger).toHaveAttribute("aria-expanded", "false")
-    expect(text(trigger)).toBe("")
+    expect(text(trigger)).toBe("18%65%")
     expect(trigger).toHaveAttribute(
       "aria-label",
       expect.stringContaining("Codex (automatic) 18% left; Grok 65% left"),
@@ -225,7 +225,7 @@ describe("MachineQuotaSummary", () => {
   it("shows one limit's server-authored window and stale state", () => {
     const renderer = render([quotaEntry([limit({ usedPercent: 37.5 })], "stale")])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toBe("")
+    expect(text(trigger)).toBe("62.5%")
     expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex (automatic) 62.5% left, stale"))
   })
 
@@ -253,7 +253,7 @@ describe("MachineQuotaSummary", () => {
     })
     const renderer = render([quotaEntry([agyWeekly, agyFiveHour, agyFull], "available", "agy")])
     const trigger = renderer.getByTestId("community-machine-quota-m1")
-    expect(text(trigger)).toBe("")
+    expect(text(trigger)).toBe("71.2%")
     expect(trigger).toHaveAttribute("aria-label", "Quota details: Agy 71.2% left. 3 limits")
     fireEvent.click(trigger)
     const detail = renderer.getByTestId("community-machine-quota-detail-m1")
@@ -326,7 +326,7 @@ it("shows explicit Codex sources in the summary while retaining legacy details",
   const trigger = renderer.getByTestId("community-machine-quota-m1")
   expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex App 80% left"))
   expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex CLI 30% left"))
-  expect(text(trigger)).toBe("")
+  expect(text(trigger)).toBe("80%30%")
   expect([...trigger.querySelectorAll<HTMLElement>("[data-provider-logo]")]
     .map((node) => node.dataset.providerLogo))
     .toEqual(["codex-app", "codex-cli"])

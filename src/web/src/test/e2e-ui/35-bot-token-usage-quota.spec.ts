@@ -364,6 +364,7 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
     "aria-label",
     "Quota details: Claude 64% left; Codex (automatic) 18% left; Grok 72% left. 4 limits",
   )
+  await expect(quota).toHaveText(/^64%\s*18%\s*72%$/)
 
   await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-24")))
     .toHaveClass(/bg-muted-foreground\/15/)

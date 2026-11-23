@@ -216,15 +216,22 @@ export function MachineQuotaSummary({
     const stale = entry.snapshot.status === "stale" ? ", stale" : ""
     return `${backendLabel(entry.scope.agentBackendId)} ${percentLabel(limit)}${stale}`
   }).join("; ")
-  const providerIcons = placeholder
+  const providerSummaries = placeholder
     ? summaryEntries.map((entry) => ({
         id: entry.scope.agentBackendId,
         title: `${backendLabel(entry.scope.agentBackendId)}: ${backendPlaceholder(entry)}`,
+        remaining: null,
+        stale: false,
       }))
-    : backendSummaries.map(({ entry, limit }) => ({
-        id: entry.scope.agentBackendId,
-        title: `${backendLabel(entry.scope.agentBackendId)}: ${percentLabel(limit)}${entry.snapshot.status === "stale" ? " (stale)" : ""}`,
-      }))
+    : backendSummaries.map(({ entry, limit }) => {
+        const stale = entry.snapshot.status === "stale"
+        return {
+          id: entry.scope.agentBackendId,
+          title: `${backendLabel(entry.scope.agentBackendId)}: ${percentLabel(limit)}${stale ? " (stale)" : ""}`,
+          remaining: remainingPercent(limit),
+          stale,
+        }
+      })
   const sortedEntries = sortQuotaEntries(entries)
 
   return (
@@ -238,9 +245,14 @@ export function MachineQuotaSummary({
             data-testid={tid.machineQuota(machineId)}
             className="group flex min-h-11 max-w-full min-w-11 flex-wrap items-center gap-x-2 gap-y-1 rounded-md py-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7 sm:min-w-0 sm:py-1"
           >
-            {providerIcons.map(({ id, title }) => (
-              <span key={id} title={title} aria-hidden="true" className="shrink-0">
-                <ProviderLogo provider={id} className="size-3.5" />
+            {providerSummaries.map(({ id, title, remaining, stale }) => (
+              <span key={id} title={title} aria-hidden="true" className="inline-flex shrink-0 items-center gap-1.5">
+                <ProviderLogo provider={id} className="size-3.5 shrink-0" />
+                {remaining !== null && (
+                  <span className={stale ? "font-mono text-xs tabular-nums text-warning" : "font-mono text-xs tabular-nums text-foreground/85"}>
+                    {remaining}%
+                  </span>
+                )}
               </span>
             ))}
             <ChevronDown aria-hidden="true" className="size-3 shrink-0 transition-transform group-data-popup-open:rotate-180" />
