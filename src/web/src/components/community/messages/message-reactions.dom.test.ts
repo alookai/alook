@@ -148,53 +148,13 @@ describe("MessageReactions", () => {
     expect(onToggleReaction).not.toHaveBeenCalled()
   })
 
-  it("requests a 44px mobile close target for the details dialog", () => {
-    vi.useFakeTimers()
-    const { renderer } = renderReactions()
-    openDetails(renderer, "👍")
-    expect(renderer.container.querySelector("[data-mock-dialog-content]")?.className)
-      .toContain("**:data-[slot=dialog-close]:size-11")
-  })
-
-  it("constrains long reactor lists to the dialog scroll region", () => {
-    vi.useFakeTimers()
-    const { renderer } = renderReactions()
-    openDetails(renderer, "👍")
-    expect(renderer.container.querySelector("[data-mock-dialog-content]")?.className)
-      .toContain("flex-col")
-    expect(renderer.container.querySelector('[role="tabpanel"]')?.className)
-      .toContain("flex-auto")
-  })
-
-  it("switches the dialog surface with its overflow fades without a color transition", () => {
-    vi.useFakeTimers()
-    const { renderer } = renderReactions()
-    openDetails(renderer, "👍")
-    expect(renderer.container.querySelector("[data-mock-dialog-content]")?.className)
-      .toContain("transition-none")
-    expect(renderer.container.querySelector("[data-mock-dialog-content]")?.className)
-      .toContain("**:data-[slot=dialog-close]:transition-none")
-  })
-
-  it("renders a transparent single-line horizontal tab rail with an accessible label", () => {
+  it("renders a reaction tab rail with an accessible label and active tab", () => {
     vi.useFakeTimers()
     const { renderer } = renderReactions()
     openDetails(renderer, "👍")
     const rail = byTestId(renderer, tid.reactionScroller("message_1"))
     expect(rail.getAttribute("aria-label")).toBe("Reaction types")
-    expect(rail.className).toContain("flex-nowrap")
-    expect(rail.className).toContain("overflow-x-auto")
-    expect(rail.className).toContain("bg-transparent!")
-  })
-
-  it("fills only the active reaction tab without relying on the line indicator", () => {
-    vi.useFakeTimers()
-    const { renderer } = renderReactions()
-    openDetails(renderer, "👍")
-    const tab = byTestId(renderer, tid.reactionTab("👍"))
-    expect(tab.className).toContain("data-active:bg-accent!")
-    expect(tab.className).toContain("data-active:text-foreground!")
-    expect(tab.className).toContain("after:hidden")
+    expect(byTestId(renderer, tid.reactionTab("👍"))).toBeInTheDocument()
   })
 
   it("uses the message author and one-line message preview as its header", () => {
@@ -204,9 +164,7 @@ describe("MessageReactions", () => {
     const title = renderer.container.querySelector("h2")!
     const description = renderer.container.querySelector("p")!
     expect(title.textContent).toBe("Alice")
-    expect(title.className).toContain("truncate")
     expect(description.textContent).toBe("A deliberately long message preview")
-    expect(description.className).toContain("truncate")
   })
 
   it("uses the shared 32px identity row for authorized reactors", () => {

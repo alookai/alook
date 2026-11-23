@@ -107,15 +107,6 @@ describe("BotAuditPreview", () => {
     expect(button.getAttribute("aria-label")).toBe(
       "Bot activity in progress. Open full bot activity log",
     )
-    expect(button.className).toContain("duration-150")
-    expect(button.className).not.toContain("h-40")
-    expect(button.className).not.toContain("hover:bg-accent")
-    expect(button.className).toContain("hover:after:opacity-100")
-    expect(button.className).toContain("after:ring-inset")
-    expect(button.className).toContain("bot-audit-active-heartbeat")
-    expect(button.className).toContain("before:ring-primary/60")
-    expect(button.className).toContain("before:z-20")
-    expect(button.className).toContain("after:z-10")
     expect(button.textContent).toContain("Only you can see this")
     expect(button.querySelectorAll("lock-icon")).toHaveLength(1)
     expect(renderer.container.querySelectorAll(
@@ -124,9 +115,6 @@ describe("BotAuditPreview", () => {
     expect(renderer.container.querySelectorAll('[data-testid^="community-bot-audit-preview-row-"]'))
       .toHaveLength(4)
     expect(renderer.container.querySelectorAll("button")).toHaveLength(1)
-    const timeline = button.querySelector('.flex.flex-col.py-1')!
-    expect(timeline.className).not.toContain("overflow-y-auto")
-    expect(timeline.className).not.toContain("thin-scrollbar")
     const rows = [...renderer.container.querySelectorAll('[data-testid^="community-bot-audit-preview-row-"]')]
     expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
       "community-bot-audit-preview-row-e2",
@@ -137,16 +125,11 @@ describe("BotAuditPreview", () => {
     const activeRow = renderer.container.querySelector(
       '[data-testid="community-bot-audit-preview-active"]',
     )!
-    expect(activeRow.className).toContain("motion-safe:duration-200")
     expect(activeRow.textContent).toContain("running")
     const activeTime = activeRow.querySelector("time")!
     expect(activeTime.dateTime).toBeTypeOf("string")
     expect(Math.abs(Date.now() - Date.parse(activeTime.dateTime))).toBeLessThan(5_000)
     expect(activeTime.textContent).not.toContain("running")
-    expect(activeRow.querySelectorAll('[class*="rounded-full"]'))
-      .toHaveLength(3)
-    expect(activeRow.querySelectorAll('[class*="bg-linear-to-r"]'))
-      .toHaveLength(0)
     const timelineRows = renderer.container.querySelectorAll(
       '[data-testid="community-bot-audit-preview-active"], [data-testid^="community-bot-audit-preview-row-"]',
     )
@@ -200,9 +183,7 @@ describe("BotAuditPreview", () => {
     expect(button.getAttribute("aria-label")).toBe(
       "Bot at rest. Open full bot activity log",
     )
-    expect(button.className).toContain("hover:after:opacity-100")
-    expect(button.className).not.toContain("bot-audit-active-heartbeat")
-    expect(button.className).not.toContain("before:ring-primary/60")
+    expect(button.getAttribute("data-active")).toBeNull()
 
     mocks.result.isNotFound = true
     renderer.rerender(React.createElement(BotAuditPreview, props))

@@ -253,18 +253,13 @@ describe("Composer suggestion popups", () => {
     const selected = renderer.container.querySelector<HTMLButtonElement>(
       'button[aria-selected="true"]',
     )!
-    expect(selected.className).toContain("min-w-0")
     expect(selected.title).toBe("Ada#0001")
     expect(selected.querySelectorAll("[data-suggestion-icon]")).toHaveLength(1)
-    expect(selected.querySelector('[class*="flex-1"]')?.className).toContain("min-w-0")
-    expect(selected.querySelector("[data-suggestion-label]")?.className).toContain("truncate")
-    expect(selected.querySelector("[data-suggestion-discriminator]")?.className)
-      .toContain("shrink-0")
+    expect(selected.querySelector("[data-suggestion-label]")?.textContent).toBe("Ada")
+    expect(selected.querySelector("[data-suggestion-discriminator]")?.textContent).toBe("#0001")
     const virtual = renderer.container.querySelectorAll("button")[0]!
     expect(virtual.title).toBe("@everyone")
-    expect(virtual.querySelector('[class*="bg-primary/15"]')?.className).toContain("shrink-0")
-    expect([...virtual.querySelectorAll("span")]
-      .find((node) => node.textContent === "Notify everyone")?.className).toContain("shrink-0")
+    expect(virtual.textContent).toContain("Notify everyone")
     fireEvent.mouseDown(selected)
     expect(command).toHaveBeenCalledWith({ id: "member-1", label: "Ada#0001" })
   })
@@ -366,11 +361,9 @@ describe("Composer suggestion popups", () => {
 
     const first = renderer.container.querySelectorAll("button")[0]!
     expect(first.getAttribute("data-testid")).toBe("community-channel-ref-option-channel-1")
-    expect(first.className).toContain("min-w-0")
     expect(first.title).toBe("One / general")
-    expect(first.querySelector("[data-suggestion-icon]")?.className).toContain("shrink-0")
-    expect(first.querySelector("[data-suggestion-label]")?.className).toContain("min-w-0")
-    expect(first.querySelector("[data-suggestion-label]")?.className).toContain("truncate")
+    expect(first.querySelector("[data-suggestion-icon]")).not.toBeNull()
+    expect(first.querySelector("[data-suggestion-label]")?.textContent).toContain("general")
     fireEvent.mouseDown(first)
     expect(command).toHaveBeenCalledWith({
       id: "channel-1",

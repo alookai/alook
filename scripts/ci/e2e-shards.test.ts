@@ -217,7 +217,7 @@ describe("single-pass native discovery and balanced LPT partitioning", { timeout
     }
   })
 
-  it("balances the live repository inventory into 20 non-empty shards and separates known heavy specs", { timeout: 60_000 }, () => {
+  it("balances the live repository inventory into target non-empty shards and separates known heavy specs", { timeout: 60_000 }, () => {
     const live = queryNativeUiFacts(["all"])
     expect(live.shards).toHaveLength(E2E_TARGET_SHARDS)
     expect(live.shards.every(shard => shard.files.length > 0 && shard.cases.length > 0)).toBe(true)

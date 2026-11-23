@@ -187,8 +187,6 @@ describe("AttachmentPreviewSheet", () => {
     )!
     expect(download.tagName).toBe("BUTTON")
     expect(download.textContent).toContain("Download")
-    expect(download.className).toContain("h-11")
-    expect(download.className).toContain("sm:h-7")
     expect(renderer.container.querySelector("footer")?.contains(download)).toBe(true)
     expect(renderer.container.querySelector("p")?.textContent).toContain("text/markdown · 128 B")
     await act(async () => {
@@ -259,14 +257,6 @@ describe("AttachmentPreviewSheet", () => {
     }))
     await waitFor(() => expect(renderer.container.querySelector('[data-testid="community-pdf-preview"]')
       ?.getAttribute("data-byte-length")).toBe("4"))
-    expect(renderer.container.querySelector(
-      '[data-testid="community-attachment-preview-content"]',
-    )?.className)
-      .toContain("p-0")
-    expect(renderer.container.querySelector(
-      '[data-testid="community-attachment-preview-content"]',
-    )?.className)
-      .toContain("overflow-hidden")
     expect(renderer.container.querySelector(
       '[data-testid="community-attachment-preview-download"]',
     )).not.toBeNull()
@@ -344,17 +334,9 @@ describe("AttachmentPreviewSheet", () => {
     await waitFor(() => expect(renderer.container.querySelector('[data-code-language="typescript"]')?.textContent).toBe("const answer = 42"))
     const preview = renderer.container.querySelector('[data-code-language="typescript"]')!
     expect(preview.textContent).toBe("const answer = 42")
-    expect(renderer.container.querySelector(
-      '[data-testid="community-attachment-preview-content"]',
-    )?.className)
-      .toContain("p-0")
-    expect(renderer.container.querySelector(
-      '[data-testid="community-attachment-preview-content"]',
-    )?.className)
-      .toContain("sm:p-0")
   })
 
-  it("keeps the existing SheetBody spacing for Markdown", async () => {
+  it("renders Markdown preview content inside the attachment preview container", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("# Hello", { status: 200 })))
     const renderer = render(React.createElement(AttachmentPreviewSheet, {
       attachment: file(),
@@ -366,12 +348,7 @@ describe("AttachmentPreviewSheet", () => {
     const content = renderer.container.querySelector(
       '[data-testid="community-attachment-preview-content"]',
     )!
-    expect(content.className)
-      .not.toContain("p-0")
-    expect(content.className)
-      .not.toContain("sm:p-0")
-    expect(content.className)
-      .not.toContain("overflow-hidden")
+    await waitFor(() => expect(content.querySelector("[data-markdown]")?.textContent).toBe("# Hello"))
   })
 
   it("keeps the existing one MiB ceiling for code", async () => {

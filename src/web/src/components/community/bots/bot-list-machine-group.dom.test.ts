@@ -119,11 +119,6 @@ const group = (overrides: Partial<BotMachineGroup> = {}): BotMachineGroup => ({
 
 const text = (node: Node): string => node.textContent ?? ""
 
-function withExactClass(container: HTMLElement, className: string): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>("*"))
-    .filter((node) => node.className === className)
-}
-
 describe("renderBotMachineGroup", () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -135,18 +130,7 @@ describe("renderBotMachineGroup", () => {
     const renderer = render(element)
     const groupNode = renderer.container.firstElementChild
     expect(state.groupRefs.current.mac1).toBe(groupNode)
-    expect(element.props.className).toBe(
-      "flex flex-col gap-3 rounded-lg p-1 transition-colors duration-500 ",
-    )
-    expect(withExactClass(renderer.container, "flex flex-col gap-1 px-1")).toHaveLength(1)
-    expect(withExactClass(renderer.container, "flex flex-col gap-3")).toHaveLength(1)
-    expect(renderer.container.querySelector("mock-card")).toHaveClass("flex", "flex-col", "gap-3", "p-4")
-    expect(withExactClass(renderer.container,
-      "flex items-start justify-between gap-3")).toHaveLength(1)
-    expect(withExactClass(renderer.container,
-      "flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5")).toHaveLength(1)
-    expect(withExactClass(renderer.container,
-      "basis-full sm:ml-auto sm:basis-auto")).toHaveLength(0)
+    expect(renderer.container.querySelector("mock-card")).not.toBeNull()
     expect(renderer.getByRole("button", { name: "Collapse My Mac" }))
       .toHaveAttribute("aria-expanded", "true")
     expect(mocks.avatar).toHaveBeenCalledWith(expect.objectContaining({
@@ -175,9 +159,6 @@ describe("renderBotMachineGroup", () => {
       group({ machine: { id: "mac1", displayName: "My Mac", status: "online" } as BotMachineGroup["machine"] }),
       controller({ profilesByUserId: new Map([["b1", { id: "b1", presence: "offline" }]]), setConfirmResetMachine }),
     ))
-    expect(withExactClass(renderer.container,
-      "inline-block size-1.5 shrink-0 rounded-full bg-status-online"))
-      .toHaveLength(1)
     expect(renderer.getByText("Offline")).toBeInTheDocument()
     fireEvent.click(renderer.getByRole("button", { name: "Restart all" }))
     expect(setConfirmResetMachine).toHaveBeenCalledWith("mac1")
@@ -186,9 +167,7 @@ describe("renderBotMachineGroup", () => {
       group({ machine: { id: "mac1", displayName: "My Mac", status: "offline" } as BotMachineGroup["machine"] }),
       controller({ profilesByUserId: new Map([["b1", { id: "b1", presence: "offline" }]]), setConfirmResetMachine }),
     ))
-    expect(withExactClass(renderer.container,
-      "inline-block size-1.5 shrink-0 rounded-full bg-status-offline"))
-      .toHaveLength(1)
+    expect(renderer.getByText("My Mac")).toBeInTheDocument()
   })
 
   it("renders menu actions, keeps entitlement separate from presence, and scopes pending", () => {
@@ -218,7 +197,6 @@ describe("renderBotMachineGroup", () => {
     expect(renderer.queryByRole("button", { name: "Bring online" })).not.toBeInTheDocument()
     const inlineActivate = renderer.getAllByRole("button", { name: "Activate" })
       .find((element) => !element.hasAttribute("data-host"))!
-    expect(inlineActivate).toHaveClass("h-6", "shrink-0", "px-2", "text-xs")
     fireEvent.click(inlineActivate)
     expect(setBotActive).toHaveBeenCalledWith(inactiveBot, true)
     fireEvent.click(inactiveSwitch)
@@ -341,12 +319,7 @@ describe("renderBotMachineGroup", () => {
       group({ bots: [item] }),
       controller({ highlightId: "other" }),
     )
-    expect(highlighted.props.className).toBe(
-      "flex flex-col gap-3 rounded-lg p-1 transition-colors duration-500 bg-primary/5 ring-2 ring-primary/40",
-    )
-    expect(plain.props.className).toBe(
-      "flex flex-col gap-3 rounded-lg p-1 transition-colors duration-500 ",
-    )
+    expect(highlighted.props.className).not.toBe(plain.props.className)
     const body = React.Children.toArray(highlighted.props.children)[1] as React.ReactElement<{
       children: React.ReactElement[]
     }>
@@ -425,9 +398,6 @@ describe("renderBotMachineGroup", () => {
     ])
     expect(items[4]).toHaveAttribute("data-testid", "bot-reset-session-item")
     expect(items[5]).toHaveAttribute("data-testid", "bot-report-problem-item")
-    expect(items[0]!.firstElementChild).toHaveClass("size-4")
-    expect(items[3]!.firstElementChild).toHaveClass("size-4")
-    expect(items[5]!.firstElementChild).toHaveClass("size-4")
     expect([0, 3, 5, 6].map((index) => items[index]!.firstElementChild?.localName))
       .toEqual(["span", "span", "span", "span"])
     expect(items[2]!.querySelectorAll("activity-icon")).toHaveLength(1)

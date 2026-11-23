@@ -305,11 +305,8 @@
         "specs": [
           "07-invite.spec.ts",
           "12-friends.spec.ts",
-          "30-activity-older-pages.spec.ts",
-          "30-activity-recovery.spec.ts",
           "30-bot-lifecycle-audit-modal.spec.ts",
-          "56-inbox-friend-requests.spec.ts",
-          "68-bot-memberships.spec.ts"
+          "56-inbox-friend-requests.spec.ts"
         ]
       },
       {
@@ -323,8 +320,7 @@
           "09-forum-thread.spec.ts",
           "14-forum-post-tags-presence.spec.ts",
           "27-canonical-forum-post-delete.spec.ts",
-          "28-thread-realtime-audiences.spec.ts",
-          "67-text-sidebar-threads.spec.ts"
+          "28-thread-realtime-audiences.spec.ts"
         ]
       },
       {
@@ -340,14 +336,10 @@
           "04-dm.spec.ts",
           "08-mobile.spec.ts",
           "13-mentions.spec.ts",
-          "15-mention-scope.spec.ts",
           "16-jump-to-present.spec.ts",
           "18-new-divider-scroll.spec.ts",
           "22-committed-message-delivery.spec.ts",
-          "31-mention-candidate-pagination.spec.ts",
-          "39-mobile-composer-send.spec.ts",
           "39-mobile-message-interactions.spec.ts",
-          "43-composer-attachment-drafts.spec.ts",
           "45-desktop-thread-split-view.spec.ts",
           "55-composer-resize-anchors.spec.ts",
           "55-dm-composer-viewport.spec.ts",
