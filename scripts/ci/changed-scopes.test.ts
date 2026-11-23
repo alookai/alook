@@ -341,7 +341,7 @@ describe("canonical execution plan", () => {
     expect(result.full).toBe(false)
     expect(result.ui.specs).toEqual(expect.arrayContaining([
       "01-auth.spec.ts", "03-realtime-multiuser.spec.ts", "06-channel-member-admin.spec.ts",
-      "50-daemon-update-notice.spec.ts", "53-mobile-inbox-surface.spec.ts", "60-desktop-default-user-bar-width.spec.ts",
+      "50-daemon-update-notice.spec.ts", "53-mobile-inbox-surface.spec.ts", "56-inbox-friend-requests.spec.ts",
     ]))
     expect(result.ui.specs).not.toContain("all")
     expect(result.ui.specs.some(spec => spec.startsWith("55-"))).toBe(false)
@@ -1196,7 +1196,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
           expect(result.suites.smoke).toEqual(loadScopeManifest().smoke_tests)
           expect(result.ui.specs).toEqual([...loadScopeManifest().ui.contracts.smoke].sort())
         } else {
-          expect(result.ui.specs).toContain("60-desktop-default-user-bar-width.spec.ts")
+          expect(result.ui.specs).toContain("53-mobile-inbox-surface.spec.ts")
           expect(result.ui.specs).not.toContain("all")
         }
         expect(readFileSync(join(fixture.root, "outputs"), "utf8")).toContain(`execution_mode=${mode}\n`)

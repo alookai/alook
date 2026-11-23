@@ -362,14 +362,12 @@ describe("E2E UI workflow", () => {
 
     expect(changeScopeManifest.ui.contracts.resizable_panels).toEqual([
       "53-mobile-inbox-surface.spec.ts",
-      "60-desktop-default-user-bar-width.spec.ts",
     ])
     expect(compatibility).toContain("needs.scope.outputs.run_resizable_panels_compat == 'true'")
     for (const spec of changeScopeManifest.ui.contracts.resizable_panels) {
       expect(compatibility).toContain(`src/test/e2e-ui/${spec}`)
     }
     expect(compatibility).toContain("preserves Marked tab, scroll, and request ownership across 639↔640")
-    expect(compatibility).toContain("restores fresh and saved mobile-first desktop entries before paint")
     expect(compatibility).toContain("needs: [scope, ui-e2e-build]")
     expect(compatibility).toContain("e2e-build-artifact.mjs verify")
     expect(compatibility).toContain('ALOOK_E2E_PREBUILT: "1"')

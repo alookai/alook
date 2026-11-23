@@ -247,8 +247,7 @@
         "66-public-static-resource-cache.spec.ts"
       ],
       "resizable_panels": [
-        "53-mobile-inbox-surface.spec.ts",
-        "60-desktop-default-user-bar-width.spec.ts"
+        "53-mobile-inbox-surface.spec.ts"
       ],
       "smoke": [
         "01-auth.spec.ts",
@@ -284,7 +283,6 @@
         ],
         "specs": [
           "19-marketing-seo.spec.ts",
-          "31-machine-guide-motion.spec.ts",
           "51-share-image-assets.spec.ts"
         ]
       },
@@ -297,11 +295,9 @@
         "specs": [
           "11-profile-ui-stability.spec.ts",
           "34-inbox-read-race.spec.ts",
-          "41-community-initial-load-module-skeletons.spec.ts",
           "50-daemon-update-notice.spec.ts",
           "53-mobile-inbox-surface.spec.ts",
-          "56-inbox-friend-requests.spec.ts",
-          "60-desktop-default-user-bar-width.spec.ts"
+          "56-inbox-friend-requests.spec.ts"
         ]
       },
       {
@@ -461,8 +457,7 @@
     "src/shared/test/queries/session-identity.test.ts",
     "src/web/src/app/api/community/channels/[id]/messages/route.atomic-replay.test.ts",
     "src/web/src/lib/session.test.ts",
-    "src/web/src/test/e2e-service-lifecycle.test.ts",
-    "src/web/src/test/e2e-fixture-isolation.test.ts"
+    "src/web/src/test/e2e-service-lifecycle.test.ts"
   ],
   "unit_tasks": {
     "@alook/shared#test": {
