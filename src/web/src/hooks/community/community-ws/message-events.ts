@@ -170,7 +170,7 @@ export function handleMessageUpdated(
   event: CommunityMessageUpdated,
   context: CommunityWsHandlerContext,
 ) {
-  writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true, resourceSeed: true })
+  void writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true, resourceSeed: true })
   if (event.botCreation?.status === "approved") invalidateBotSurfaces(context.queryClient)
 
   if (event.approval && (event.approval.status !== "pending" || event.approval.waitingOn !== "you")) {

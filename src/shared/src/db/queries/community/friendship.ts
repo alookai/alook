@@ -1344,7 +1344,7 @@ export async function ensureNewSiblingBotFriendships(db: Database, ownerId: stri
   if (!rows.length) return;
   const paramsPerRow = db.insert(communityFriendship).values(rows[0]!).onConflictDoNothing().toSQL().params.length;
   const [first, ...rest] = chunk(rows, maxRowsPerInsert(paramsPerRow)).map((part) => db.insert(communityFriendship).values(part).onConflictDoNothing());
-  if (first) await db.batch([first, ...rest]);
+  if (first !== undefined) await db.batch([first, ...rest]);
 }
 
 export type EnsureSiblingResult =

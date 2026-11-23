@@ -62,7 +62,7 @@ export async function handleActivityFrame(
 ): Promise<boolean> {
   const activityParse = AgentActivityMessageSchema
     .omit({ usageTimeZone: true, usageDay: true, dailyUsage: true, quota: true, modelObservation: true })
-    .passthrough()
+    .loose()
     .safeParse(parsed)
   if (!activityParse.success) return false
 

@@ -182,12 +182,18 @@ importers:
       '@types/node':
         specifier: ^25.9.4
         version: 25.9.4
+      eslint:
+        specifier: ^9.39.5
+        version: 9.39.5(jiti@2.7.0)
       knip:
         specifier: ^6.32.2
         version: 6.32.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.73.0
+        version: 8.73.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3)
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.10.0)(@types/node@25.9.4)(@vitest/coverage-istanbul@5.1.1)(@vitest/coverage-v8@5.1.1)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@3.0.7(@types/node@25.9.4)(graphql@16.14.2)(typescript@6.0.3)(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -210,12 +216,18 @@ importers:
       '@types/node':
         specifier: ^25.9.4
         version: 25.9.4
+      eslint:
+        specifier: ^9.39.5
+        version: 9.39.5(jiti@2.7.0)
       knip:
         specifier: ^6.32.2
         version: 6.32.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.73.0
+        version: 8.73.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3)
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.10.0)(@types/node@25.9.4)(@vitest/coverage-istanbul@5.1.1)(@vitest/coverage-v8@5.1.1)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@3.0.7(@types/node@25.9.4)(graphql@16.14.2)(typescript@6.0.3)(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -292,12 +304,18 @@ importers:
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
+      eslint:
+        specifier: ^9.39.5
+        version: 9.39.5(jiti@2.7.0)
       knip:
         specifier: ^6.32.2
         version: 6.32.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.73.0
+        version: 8.73.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3)
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.10.0)(@types/node@25.9.4)(@vitest/coverage-istanbul@5.1.1)(@vitest/coverage-v8@5.1.1)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@3.0.7(@types/node@25.9.4)(graphql@16.14.2)(typescript@6.0.3)(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -775,12 +793,18 @@ importers:
       '@types/node':
         specifier: ^25.9.4
         version: 25.9.4
+      eslint:
+        specifier: ^9.39.5
+        version: 9.39.5(jiti@2.7.0)
       knip:
         specifier: ^6.32.2
         version: 6.32.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.73.0
+        version: 8.73.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3)
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.10.0)(@types/node@25.9.4)(@vitest/coverage-istanbul@5.1.1)(@vitest/coverage-v8@5.1.1)(jsdom@29.1.1(@noble/hashes@2.4.0))(msw@3.0.7(@types/node@25.9.4)(graphql@16.14.2)(typescript@6.0.3)(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.8(@types/node@25.9.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.36.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -6186,10 +6210,6 @@ packages:
 
   brace-expansion@2.1.8:
     resolution: {integrity: sha512-BnlDzDYQoplTsZSvPi86CNzmbcb07X8ufR8fk1zivaiEJlXJkiq1MQyDCVmlWcsWbj6aWXqHnrwwevbrm/Saig==}
-
-  brace-expansion@5.0.12:
-    resolution: {integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==}
-    engines: {node: 20 || >=22}
 
   brace-expansion@5.0.13:
     resolution: {integrity: sha512-Vh3dmFbc4wZeox7M9I/0L9GfFd83Su4+yCck/OF9Gi/P/dAHn0RT7X4K9R7gMNMhDck3DvhR6QXsnQdjjgwNvQ==}
@@ -14665,7 +14685,7 @@ snapshots:
 
   '@sentry/server-utils@11.13.0':
     dependencies:
-      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/api': 1.10.0
       '@sentry/conventions': 0.33.0
       '@sentry/core': 11.13.0
 
@@ -16753,10 +16773,6 @@ snapshots:
   brace-expansion@2.1.8:
     dependencies:
       balanced-match: 1.0.2
-
-  brace-expansion@5.0.12:
-    dependencies:
-      balanced-match: 4.0.4
 
   brace-expansion@5.0.13:
     dependencies:
@@ -20164,7 +20180,7 @@ snapshots:
 
   minimatch@10.2.6:
     dependencies:
-      brace-expansion: 5.0.12
+      brace-expansion: 5.0.13
 
   minimatch@11.0.9:
     dependencies:

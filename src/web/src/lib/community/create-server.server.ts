@@ -50,7 +50,7 @@ export async function createServerForUser(req: NextRequest, ctx: ResourceCreatio
 
   ctx.onCreated?.(server)
 
-  fanOutToServerMembers(server.id, {
+  void fanOutToServerMembers(server.id, {
     type: WS_EVENTS.MEMBER_JOIN,
     serverId: server.id,
     member: {

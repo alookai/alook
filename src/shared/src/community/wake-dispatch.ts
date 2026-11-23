@@ -244,7 +244,6 @@ export async function buildUnreadWakeCommand(
       authorId: msg.authorId,
     });
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("wake_trigger_audit_failed", {
       botUserId: input.botUserId,
       messageId: msg.id,
@@ -325,7 +324,6 @@ async function writeWakeTriggerAudit(
       }),
     });
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("wake_trigger_broadcast_failed", {
       botUserId: input.botUserId,
       messageId: input.messageId,

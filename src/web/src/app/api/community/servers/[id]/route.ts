@@ -64,7 +64,7 @@ export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => 
   const updated = await queries.communityServer.updateServer(db, serverId, changes)
   if (!updated) return writeError("server not found", 404)
 
-  fanOutToServerMembers(serverId, {
+  void fanOutToServerMembers(serverId, {
     type: WS_EVENTS.SERVER_UPDATE,
     serverId,
     changes,

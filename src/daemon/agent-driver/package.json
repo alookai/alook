@@ -44,7 +44,7 @@
     "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "knip": "knip"
   },
   "devDependencies": {

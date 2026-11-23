@@ -347,7 +347,7 @@ export function useShellProfileController({
     statusText: currentUser.statusText,
     onUploadAvatar,
     onSave: onSaveProfile,
-    onLogout,
+    onLogout: () => { void onLogout() },
     onAccountDeleted,
   }
 

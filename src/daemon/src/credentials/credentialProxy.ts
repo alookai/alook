@@ -488,7 +488,8 @@ export async function startCredentialProxy(
     }
   };
 
-  const server = http.createServer(async (req, res) => {
+  const server = http.createServer((req, res) => {
+    void (async () => {
     const requestUrl = new URL(req.url ?? "/", "http://placeholder");
     const pathname = requestUrl.pathname;
     if (pathname === LOCAL_MEMORY_COMMIT_PATH) {
@@ -834,6 +835,7 @@ export async function startCredentialProxy(
     });
     if (filteredBody) upstreamReq.end(filteredBody);
     else req.pipe(upstreamReq);
+    })();
   });
 
   await new Promise<void>((resolve, reject) => {

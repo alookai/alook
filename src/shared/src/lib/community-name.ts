@@ -10,7 +10,6 @@ import { MAX_PROFILE_NAME_LENGTH } from "../constants/community";
 // The forbidden set: `#`, `@`, and any C0/C1 control char (covers `\n`, `\r`,
 // `\t`, DEL). Everything else — spaces, unicode letters, hyphens, underscores —
 // stays allowed.
-// eslint-disable-next-line no-control-regex
 const FORBIDDEN_NAME_CHARS = /[#@\x00-\x1f\x7f-\x9f]/;
 
 export type CommunityNameValidation =
@@ -46,7 +45,6 @@ export function validateCommunityName(name: string): CommunityNameValidation {
 export function sanitizeCommunityName(name: string): string {
   const stripped = name
     .replace(/[#@]/g, "")
-    // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x1f\x7f-\x9f]/g, " ")
     .replace(/\s+/g, " ")
     .trim()

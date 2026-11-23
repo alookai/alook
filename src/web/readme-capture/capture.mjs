@@ -146,9 +146,10 @@ async function main() {
     },
   )
 
-  const stopForSignal = async () => {
-    await stopApp(child)
-    process.exit(1)
+  const stopForSignal = () => {
+    void stopApp(child).finally(() => {
+      process.exit(1)
+    })
   }
   process.once("SIGINT", stopForSignal)
   process.once("SIGTERM", stopForSignal)

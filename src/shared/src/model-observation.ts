@@ -13,7 +13,7 @@ export const AgentModelReportSchema = z.object({
   provider: identity.optional(),
   source: z.enum(["response", "session"]),
   responseId: identity.optional(),
-  observedAt: z.string().datetime({ offset: true }),
+  observedAt: z.iso.datetime({ offset: true }),
 });
 
 export type AgentModelReport = z.infer<typeof AgentModelReportSchema>;

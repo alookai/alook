@@ -131,28 +131,28 @@ function publishConversationEntryResult(
   notifyManager.batch(() => {
     if (channel.serverId) registry.runtime.ws.actions.grantServerAccess(channel.serverId)
     registry.runtime.ws.actions.rememberChannelAccess(channel.serverId, channel.id, parent ?? undefined)
-    publishCommunityChannelMetadata(client, { metadata: channel, proof })
-    if (entry.parent) publishCommunityChannelMetadata(client, { metadata: entry.parent, proof })
-    if (entry.peer) publishCommunityChannelMembersSnapshot(client, null, channel.id, "access", [entry.viewerId, entry.peer.id].map((userId) => ({
+    void publishCommunityChannelMetadata(client, { metadata: channel, proof })
+    if (entry.parent) void publishCommunityChannelMetadata(client, { metadata: entry.parent, proof })
+    if (entry.peer) void publishCommunityChannelMembersSnapshot(client, null, channel.id, "access", [entry.viewerId, entry.peer.id].map((userId) => ({
       channelId: channel.id, userId, relation: "access", source: "added", isCreator: channel.creatorId === userId, role: null, memberId: null,
     })), proof, [entry.peer])
-    publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles, proof })
+    void publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles, proof })
     if (entry.opener) {
-      publishCommunityMessages(client, { channelId: entry.opener.channelId, messages: [entry.opener], relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.opener!.channelId), profiles: entry.profiles, proof })
-      afterCommunityCollectionWrites(registry, () => { client.setQueryData(communityKeys.message(entry.opener!.id), entry.opener!.id) })
+      void publishCommunityMessages(client, { channelId: entry.opener.channelId, messages: [entry.opener], relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.opener!.channelId), profiles: entry.profiles, proof })
+      void afterCommunityCollectionWrites(registry, () => { client.setQueryData(communityKeys.message(entry.opener!.id), entry.opener!.id) })
     }
-    publishCommunityConversationReadState(client, entry.readState, entry.readStateRevision, proof)
+    void publishCommunityConversationReadState(client, entry.readState, entry.readStateRevision, proof)
     confirmCommunityConversationPresence(client, channel.id, proof)
     if (entry.forumFeed) {
       const page = normalizeThreadResources(channel.id, entry.forumFeed)
-      publishCommunityForumFeed(client, channel.id, page, proof)
-      afterCommunityCollectionWrites(registry, () => {
+      void publishCommunityForumFeed(client, channel.id, page, proof)
+      void afterCommunityCollectionWrites(registry, () => {
       if (conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) publication.retainedWindow = true
       else client.setQueryData(windowKey, { pages: [forumFeedWindow(page)], pageParams: [null] })
       })
     }
     else {
-      afterCommunityCollectionWrites(registry, () => {
+      void afterCommunityCollectionWrites(registry, () => {
       const retained = conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.find(window => hashKey(window.key) === hashKey(windowKey))
       const anchor = target.anchorMessageId
       const restoreAnchor = retained && anchor && entry.messages.some(message => message.id === anchor)

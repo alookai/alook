@@ -12,7 +12,7 @@ export function createScene(root: HTMLElement, complete: () => void) {
   action("create-server", 0); move(plus, 0.4); zoom(0, 1.4, plus); click(plus, 2.3); frame(0, 1, 3.6);
   const name = target(1, '[data-testid="community-create-server-name"]');
   zoom(1, 4, name); click(name, 4.9);
-  [..."Studio"].forEach((_, i) => update(form, { name: "Studio".slice(0, i + 1) }, 6 + i * 0.17));
+  [..."Studio"].forEach((_, i) => { update(form, { name: "Studio".slice(0, i + 1) }, 6 + i * 0.17); });
   click(target(1, '[data-testid="community-create-server-submit"]'), 7.5); frame(1, 2, 8.9);
   const invite = target(2, '[aria-label="Invite to server"]');
   action("open-invite", 9); zoom(2, 9.3, invite); click(invite, 10.2); frame(2, 3, 11.6);

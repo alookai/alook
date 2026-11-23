@@ -322,7 +322,7 @@ function ChannelSidebarContent({
       {dialog?.kind === "create-category" && (
         <CreateCategoryDialog
           onClose={() => setDialog(null)}
-          onCreate={(name, opts) => { onCreateCategory?.(name, opts) }}
+          onCreate={(name, opts) => { void onCreateCategory?.(name, opts) }}
           canTogglePrivate={isAdmin}
         />
       )}

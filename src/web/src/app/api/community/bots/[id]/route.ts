@@ -330,7 +330,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   })
 
   for (const serverId of priorMemberships) {
-    fanOutToServerMembers(serverId, {
+    void fanOutToServerMembers(serverId, {
       type: WS_EVENTS.MEMBER_LEAVE,
       serverId,
       userId: id,

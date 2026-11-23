@@ -617,7 +617,7 @@ export function cancelInboxProjectionTicket(ticket: InboxProjectionTicket) {
   const state = managers.get(ticket.queryClient)
   const current = state?.projectionTickets.get(ticket.token)
   if (!state || !current || !deleteManagerMap(state, "projectionTickets", ticket.token)) return false
-  settleProjectionAttention(current, false)
+  void settleProjectionAttention(current, false)
   return true
 }
 
@@ -647,7 +647,7 @@ export function registerInboxReadReservationSurface(
   setManagerMap(state, "leases", token, { lease, onCandidate })
   state.latestToken = token
   if (state.focusedCandidate?.epoch !== lease.epoch) {
-    settleFocusedAttention(queryClient, state.focusedCandidate, false)
+    void settleFocusedAttention(queryClient, state.focusedCandidate, false)
     state.focusedCandidate = null
   }
   return lease
@@ -684,7 +684,7 @@ export function armInboxReadReservationCandidate(
   ) return false
 
   if (current?.epoch === lease.lease.epoch) {
-    settleFocusedAttention(queryClient, current, false)
+    void settleFocusedAttention(queryClient, current, false)
   }
   state.focusedCandidate = {
     epoch: lease.lease.epoch,
@@ -720,7 +720,7 @@ export function releaseInboxReadReservationSurface(lease: InboxReadReservationLe
   if (state.latestToken !== lease.token) return
   state.latestToken = null
   if (state.focusedCandidate?.epoch === lease.epoch) {
-    settleFocusedAttention(lease.queryClient, state.focusedCandidate, false)
+    void settleFocusedAttention(lease.queryClient, state.focusedCandidate, false)
     state.focusedCandidate = null
   }
 
@@ -753,7 +753,7 @@ export function takeInboxReadReservationNegative(lease: InboxReadReservationLeas
   if (!state || !current || current.lease.epoch !== lease.epoch) return false
   const focused = state.focusedCandidate
   if (focused?.epoch === lease.epoch && focused.candidate.channelId === lease.channelId && focused.generation === null) {
-    settleFocusedAttention(lease.queryClient, focused, false)
+    void settleFocusedAttention(lease.queryClient, focused, false)
     state.focusedCandidate = null
     notifyActive(state, null)
     const captured = [...state.projectionTickets.values()].filter((ticket) => targetMatchesCandidate(ticket.target, focused.candidate))
@@ -779,7 +779,7 @@ export async function settleInboxReadReservationGeneration(
     const lease = activeLease(state)
     if (lease?.lease.channelId !== (claimed?.childChannelId ?? channelId)) return
     if (state.focusedCandidate?.generation === generation) {
-      settleFocusedAttention(queryClient, state.focusedCandidate, false)
+      void settleFocusedAttention(queryClient, state.focusedCandidate, false)
       state.focusedCandidate = null
       notifyActive(state, null)
     }
@@ -911,12 +911,12 @@ export function disposeInboxReadReservation(queryClient: QueryClient) {
   state.handoff = null
   clearManagerMap(state, "claimedOpeners")
   clearManagerMap(state, "routeLeases")
-  settleFocusedAttention(queryClient, state.focusedCandidate, true)
+  void settleFocusedAttention(queryClient, state.focusedCandidate, true)
   state.focusedCandidate = null
   clearManagerMap(state, "leases")
   state.latestToken = null
   for (const ticket of state.projectionTickets.values()) {
-    settleProjectionAttention(ticket, true)
+    void settleProjectionAttention(ticket, true)
   }
   clearManagerMap(state, "projectionTickets")
   clearManagerMap(state, "projectionCandidates")

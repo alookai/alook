@@ -339,7 +339,7 @@ function MessageContextSheetContent({
     const m = findMessage(id)
     const content = m ? (selectedText ?? m.content ?? "") : ""
     if (content) {
-      navigator.clipboard?.writeText(content)
+      void navigator.clipboard?.writeText(content)
       toast("Copied to clipboard")
     }
   }, [findMessage])

@@ -170,7 +170,7 @@ export function ShellFrameView({
             updateBadgePhase: userBarUpdateBadgePhase(userBarExtension),
             eligibleMachines: daemonUpdate.eligibleMachines,
             onOpenUpdate: onUserBarOpenUpdate,
-            onRequestUpdate: daemonUpdate.request,
+            onRequestUpdate: () => { void daemonUpdate.request() },
             onDismiss: dismissUserBarExtension,
           }}
         />

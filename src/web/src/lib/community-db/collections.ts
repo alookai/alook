@@ -123,7 +123,7 @@ function buildCommunityDbRegistry(
         const row = readCommunityCollectionRow(registry, "profiles", id)
         return !row || presence === row.presence ? [] : [{ ...row, presence }]
       })
-      return writeCommunityCollectionChanges(registry, "profiles", next)
+      void writeCommunityCollectionChanges(registry, "profiles", next)
     }), messageStream: createMessageStreamStore(() => ({ get: (id) => { const message = messages.get(id); return typeof message?.seq === "number" ? message as CanonicalMessage : undefined } })),
     serverEject: createOwnerServerDeleteStore(),
     lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },

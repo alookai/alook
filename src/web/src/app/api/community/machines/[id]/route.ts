@@ -67,7 +67,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) =>
       }
       avatarKeys.push(buildBotAvatarKey(bot.id))
       for (const serverId of priorMemberships) {
-        fanOutToServerMembers(serverId, {
+        void fanOutToServerMembers(serverId, {
           type: WS_EVENTS.MEMBER_LEAVE,
           serverId,
           userId: bot.id,
@@ -109,7 +109,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) =>
 
   // 4. Tell the owner's other tabs the machine is gone.
   const event: CommunityWsEvent = { type: WS_EVENTS.MACHINE_REMOVED, machineId: id }
-  broadcastToUserSafe(ctx.userId, event)
+  void broadcastToUserSafe(ctx.userId, event)
 
   return new NextResponse(null, { status: 204 })
 })

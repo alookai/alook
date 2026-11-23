@@ -12,7 +12,7 @@ export const EntitlementValueSchema: z.ZodType<EntitlementValue> = z.lazy(() =>
   z.union([
     z.null(),
     z.boolean(),
-    z.number().finite(),
+    z.number(),
     z.string(),
     z.array(EntitlementValueSchema),
     z.record(z.string(), EntitlementValueSchema),

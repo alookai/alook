@@ -390,7 +390,7 @@ function HeaderRename({ label, onRename, className = "" }: {
               <Input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(event) => onEnterSubmit(save)(event)}
+                onKeyDown={(event) => onEnterSubmit(() => { void save() })(event)}
                 placeholder="thread-name"
                 aria-label="Thread name"
                 className="h-10"

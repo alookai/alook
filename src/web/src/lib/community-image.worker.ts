@@ -1,7 +1,8 @@
 import { MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES } from "@alook/shared/constants/community"
 import { renderCommunityThumbnail, requiresCommunityThumbnail, type CommunityImageWorkerResult } from "./community-image-thumbnail"
 
-self.addEventListener("message", async (event: MessageEvent<File>) => {
+self.addEventListener("message", (event: MessageEvent<File>) => {
+  void (async () => {
   const respond = (message: CommunityImageWorkerResult) => self.postMessage(message)
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function" || typeof OffscreenCanvas.prototype.convertToBlob !== "function") {
     respond({ unsupported: true })
@@ -29,4 +30,5 @@ self.addEventListener("message", async (event: MessageEvent<File>) => {
   } finally {
     bitmap?.close()
   }
+  })()
 })

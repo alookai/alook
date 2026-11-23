@@ -30,7 +30,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) =
 
   await queries.communityPin.unpinMessage(db, { channelId, messageId })
 
-  fanOutToChannel(channelId, {
+  void fanOutToChannel(channelId, {
     type: WS_EVENTS.PIN_REMOVE,
     channelId,
     messageId,

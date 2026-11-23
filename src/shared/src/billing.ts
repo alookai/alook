@@ -19,11 +19,11 @@ export const BillingOfferSchema = z.object({
 export const BillingSubscriptionSchema = z.object({
   plan: BillingPlanSchema,
   status: z.string().min(1),
-  currentPeriodEnd: z.string().datetime().nullable(),
-  cancelAt: z.string().datetime().nullable(),
+  currentPeriodEnd: z.iso.datetime().nullable(),
+  cancelAt: z.iso.datetime().nullable(),
   scheduledChange: z.object({
     plan: BillingPlanSchema,
-    effectiveAt: z.string().datetime(),
+    effectiveAt: z.iso.datetime(),
   }).nullable(),
 });
 
@@ -53,7 +53,7 @@ export const BillingPortalRequestSchema = z.strictObject({
 });
 
 export const BillingRedirectResponseSchema = z.object({
-  url: z.string().url(),
+  url: z.url(),
 });
 
 export type BillingSummary = z.infer<typeof BillingSummarySchema>;

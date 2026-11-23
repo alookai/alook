@@ -35,6 +35,6 @@ export default async function blogConfig() {
 	return withMDX(nextConfig);
 }
 
-initOpenNextCloudflareForDev({
+void initOpenNextCloudflareForDev({
 	configPath: path.resolve(__dirname, "wrangler.toml"),
 });

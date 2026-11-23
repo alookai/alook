@@ -866,7 +866,7 @@ export type BotAuditEventKind = z.infer<typeof BotAuditEventKindSchema>;
 export const HostBotAuditEventFrameSchema = z.object({
   type: z.literal("bot_audit_event"),
   eventId: z.string().min(1).max(128).optional(),
-  occurredAt: z.string().datetime({ offset: true }).optional(),
+  occurredAt: z.iso.datetime({ offset: true }).optional(),
   agentId: z.string().min(1),
   sessionId: z.string().nullable().optional(),
   launchId: z.string().nullable().optional(),

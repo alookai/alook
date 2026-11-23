@@ -83,8 +83,8 @@ export const QuotaLimitSchema = z.object({
     model: QuotaModelIdentitySchema,
     window: QuotaWindowIdentitySchema,
   }).strict(),
-  usedPercent: z.number().finite().min(0).max(100),
-  resetsAt: z.string().datetime({ offset: true }).optional(),
+  usedPercent: z.number().min(0).max(100),
+  resetsAt: z.iso.datetime({ offset: true }).optional(),
 }).strict();
 export type QuotaLimit = z.infer<typeof QuotaLimitSchema>;
 

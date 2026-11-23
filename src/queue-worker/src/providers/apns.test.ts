@@ -57,9 +57,7 @@ describe("APNs adapter", () => {
 
   it("signs a real provider JWT and uses the default send dependencies", async () => {
     const originalFetch = globalThis.fetch
-    let fetchReceiver: unknown = Symbol("unset")
     const fetchMock = vi.fn(function (this: unknown, _input: RequestInfo | URL, _init?: RequestInit) {
-      fetchReceiver = this
       return Promise.resolve(new Response(null, { status: 200 }))
     })
     globalThis.fetch = fetchMock as typeof fetch
@@ -84,7 +82,7 @@ describe("APNs adapter", () => {
         iat: expect.any(Number),
       })
       expect(signaturePart).not.toBe("")
-      expect(fetchReceiver).toBeUndefined()
+      expect(fetchMock.mock.contexts[0]).toBeUndefined()
     } finally {
       globalThis.fetch = originalFetch
       vi.resetModules()
