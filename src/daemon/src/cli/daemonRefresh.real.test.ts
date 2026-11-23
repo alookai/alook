@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
-import { macosAgentLauncher } from "@alook/agent-driver/host";
 import { readDaemonVersion } from "../version";
 
 it.runIf(process.platform !== "win32").each([100, 1000])("refreshes a real CLI runner and rolls back after a %dms startup receipt failure", async (receiptTimeoutMs) => {
@@ -22,13 +21,12 @@ it.runIf(process.platform !== "win32").each([100, 1000])("refreshes a real CLI r
   const exportsFile = join(root, "exports");
   const observationFile = join(root, "probe-observations");
   const bin = join(root, "bin");
-  const desktopLauncher = join(root, "desktop-launcher");
   mkdirSync(bin);
   mkdirSync(join(baseDir, "daemons"), { recursive: true });
   writeFileSync(shell, `#!/bin/sh\n. '${exportsFile}'\nprintf '__ALOOK_ENV_V1__\\000'\nexec /usr/bin/env -0\n`, { mode: 0o700 });
-  const exportValue = (value: string) => writeFileSync(exportsFile, `export ALOOK_SYNTHETIC_REFRESH='${value}'\nexport ${macosAgentLauncher}='/shell-launcher'\nexport PATH='${bin}:/usr/bin:/bin'\n`);
+  const exportValue = (value: string) => writeFileSync(exportsFile, `export ALOOK_SYNTHETIC_REFRESH='${value}'\nexport PATH='${bin}:/usr/bin:/bin'\n`);
   exportValue("v1");
-  writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf '%s|%s|%s\\n' "$ALOOK_SYNTHETIC_REFRESH" "$ALOOK_OLD_ONLY" "$${macosAgentLauncher}" >> '${observationFile}'\necho 'codex-cli 0.70.0'\n`, { mode: 0o700 });
+  writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf '%s|%s\\n' "$ALOOK_SYNTHETIC_REFRESH" "$ALOOK_OLD_ONLY" >> '${observationFile}'\necho 'codex-cli 0.70.0'\n`, { mode: 0o700 });
   const wss = new WebSocketServer({ noServer: true });
   const sockets: WebSocket[] = [];
   const ready: Array<{ socket: WebSocket; frame: { daemonVersion: string; capabilities: string[] } }> = [];
@@ -51,7 +49,7 @@ it.runIf(process.platform !== "win32").each([100, 1000])("refreshes a real CLI r
   const cliRun = async (args: string[]) => {
     const child = spawn(process.execPath, ["--import", loader, cli, "daemon", ...args], {
       cwd: packageRoot, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env,
-        HOME: root, SHELL: shell, PATH: `${bin}:/usr/bin:/bin`, ALOOK_SYNTHETIC_REFRESH: "v1", [macosAgentLauncher]: desktopLauncher, ALOOK_OLD_ONLY: "stale", ALOOK_LOG_LEVEL: "warn" },
+        HOME: root, SHELL: shell, PATH: `${bin}:/usr/bin:/bin`, ALOOK_SYNTHETIC_REFRESH: "v1", ALOOK_OLD_ONLY: "stale", ALOOK_LOG_LEVEL: "warn" },
     });
     let output = "";
     child.stdout.on("data", (data) => { output += String(data); });
@@ -96,8 +94,8 @@ it.runIf(process.platform !== "win32").each([100, 1000])("refreshes a real CLI r
     expect(sockets).toHaveLength(2);
     expect(ready.find((entry) => entry.socket === sockets[1])!.frame.daemonVersion).toBe(ready[0].frame.daemonVersion);
     expect(readFileSync(recordPath, "utf8")).toBe(originalRecord);
-    expect(readFileSync(observationFile, "utf8").split("\n")).toContain(`v2||${desktopLauncher}`);
-    expect(readFileSync(observationFile, "utf8").split("\n")).toContain(`v1|stale|${desktopLauncher}`);
+    expect(readFileSync(observationFile, "utf8").split("\n")).toContain("v2|");
+    expect(readFileSync(observationFile, "utf8").split("\n")).toContain("v1|stale");
     expect(requests.some((url) => /activate|pair|identity/.test(url))).toBe(false);
     writeFileSync(shell, "#!/bin/sh\necho PRIVATE_ENVIRONMENT_VALUE >&2\nexit 1\n", { mode: 0o700 });
     sockets[1].send(command);
@@ -113,13 +111,13 @@ it.runIf(process.platform !== "win32").each([100, 1000])("refreshes a real CLI r
     await waitFor(() => {
       if (existsSync(join(baseDir, "daemons", machineId, "daemon.replace.lock")) || !existsSync(pidfile)) return false;
       const probes = readFileSync(observationFile, "utf8").trim().split("\n").slice(probeOffset);
-      return owner().pid !== second.pid && probes.includes(`v3||${desktopLauncher}`) && probes.at(-1) === `v2||${desktopLauncher}`
+      return owner().pid !== second.pid && probes.includes("v3|") && probes.at(-1) === "v2|"
         && ready.some((entry) => entry.socket !== sockets[1] && entry.socket.readyState === WebSocket.OPEN);
     });
     expect(owner().pid).not.toBe(second.pid);
     expect(owner().machineId).toBe(machineId);
     expect(readFileSync(recordPath, "utf8")).toBe(originalRecord);
-    expect(readFileSync(observationFile, "utf8").trim().split("\n").at(-1)).toBe(`v2||${desktopLauncher}`);
+    expect(readFileSync(observationFile, "utf8").trim().split("\n").at(-1)).toBe("v2|");
 
   } finally {
     if (started && existsSync(pidfile)) await cliRun(["stop", machineId, "--base-dir", baseDir]);

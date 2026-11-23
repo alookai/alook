@@ -4,7 +4,6 @@ export { createAgentDriverSdk as createBuiltinAgentDriverSdk } from "./sdk.js";
 export { createDefaultAgentDriverHost } from "./host/default-host.js";
 export { readBuiltinProviderQuota, supportsBuiltinQuotaPolling } from "./provider-quota.js";
 export { scrubDriverErrorMessage as scrubAgentDriverDiagnosticText } from "./internal/errors.js";
-export { macosAgentLauncher } from "./internal/macos-agent-launch.js";
 export type {
   AgentDriverHost,
   CreateAgentDriverSdkOptions,

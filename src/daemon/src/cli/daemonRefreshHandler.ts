@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { macosAgentLauncher } from "@alook/agent-driver/host";
 import { readShellEnvironment } from "./shellEnvironment.js";
 import { daemonProcessArguments, ownsDaemon } from "./daemonState.js";
 import type { DaemonOwnerContext } from "./daemonOwnership.js";
@@ -21,9 +20,6 @@ export function createDaemonRefreshHandler(context: RefreshContext, options: {
       if (!ownsDaemon(context)) throw new Error("ownership_changed");
       const priorEnvironment = { ...process.env };
       if (process.env.ALOOK_DAEMON_PACKAGE_WRAPPER) environment.ALOOK_DAEMON_PACKAGE_WRAPPER = process.env.ALOOK_DAEMON_PACKAGE_WRAPPER;
-      const launcher = priorEnvironment[macosAgentLauncher];
-      if (launcher === undefined) delete environment[macosAgentLauncher];
-      else environment[macosAgentLauncher] = launcher;
       if (process.env.NODE_ENV === "test") {
         for (const [key, value] of Object.entries(process.env)) {
           if (key === "NODE_ENV" || key.startsWith("ALOOK_DAEMON_TEST_")) environment[key] = value;
