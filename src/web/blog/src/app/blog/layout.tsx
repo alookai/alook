@@ -1,7 +1,7 @@
 import { BlogFooter } from "./blog-footer";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { PublicLayout } from "@/components/public-layout";
 import { GithubOutboundBoundary } from "@/components/github-outbound-link";
+import { BlogNavCenter, BlogNavRight } from "@blog/components/blog/blog-nav-actions";
 
 export default function BlogLayout({
   children,
@@ -9,7 +9,13 @@ export default function BlogLayout({
   children: React.ReactNode;
 }) {
   return (
-    <PublicLayout zone="blog" breadcrumb="Blog" rightSlot={<ThemeToggle />} footer={<BlogFooter />}>
+    <PublicLayout
+      zone="blog"
+      breadcrumb="Blog"
+      centerSlot={<BlogNavCenter />}
+      rightSlot={<BlogNavRight />}
+      footer={<BlogFooter />}
+    >
       <GithubOutboundBoundary surface="blog">
         {children}
       </GithubOutboundBoundary>

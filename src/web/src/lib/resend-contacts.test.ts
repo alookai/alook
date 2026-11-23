@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const logs = vi.hoisted(() => ({ warn: vi.fn() }))
 vi.mock("@alook/shared", () => ({ createLogger: () => logs }))
 
-import { syncResendSignupContact, unsubscribeResendContact } from "./resend-contacts"
+import {
+  BLOG_NEWSLETTER_SEGMENT_ID,
+  subscribeResendNewsletter,
+  syncResendSignupContact,
+  unsubscribeResendContact,
+} from "./resend-contacts"
 
 const fetchMock = vi.fn<typeof fetch>()
 const env = { RESEND_API_KEY: "mock-contact-key" } as Env
@@ -263,5 +268,82 @@ describe("Resend contact lifecycle with the official SDK", () => {
       ["resend_contact_sync_failed", { action: "signup", stage: "lookup", errorCategory: "exception" }],
       ["resend_contact_sync_failed", { action: "account-deletion", stage: "update", errorCategory: "exception" }],
     ])
+  })
+
+  it.each([undefined, ""])("returns unavailable for newsletter signup without a Key (%s)", async (key) => {
+    await expect(subscribeResendNewsletter({ RESEND_API_KEY: key } as Env, user.email)).resolves.toBe("unavailable")
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(logs.warn).not.toHaveBeenCalled()
+  })
+
+  it("creates a new Resend contact in the newsletter segment", async () => {
+    fetchMock.mockResolvedValueOnce(providerError(404, "not_found"))
+      .mockResolvedValueOnce(response({ id: "newsletter-contact", object: "contact" }))
+
+    await expect(subscribeResendNewsletter(env, user.email)).resolves.toBe("subscribed")
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(requestAt(0)).toEqual({
+      url: `https://api.resend.com/contacts/${user.email}`, method: "GET", body: undefined,
+    })
+    expect(requestAt(1)).toEqual({
+      url: "https://api.resend.com/contacts", method: "POST",
+      body: { email: user.email, unsubscribed: false, segments: [{ id: BLOG_NEWSLETTER_SEGMENT_ID }] },
+    })
+    expect(logs.warn).not.toHaveBeenCalled()
+  })
+
+  it("adds an existing active contact to the newsletter segment without redundant update", async () => {
+    fetchMock.mockResolvedValueOnce(existingContact(false))
+      .mockResolvedValueOnce(response({ id: BLOG_NEWSLETTER_SEGMENT_ID }))
+
+    await expect(subscribeResendNewsletter(env, user.email)).resolves.toBe("subscribed")
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(requestAt(1)).toEqual({
+      url: `https://api.resend.com/contacts/contact-1/segments/${BLOG_NEWSLETTER_SEGMENT_ID}`,
+      method: "POST", body: undefined,
+    })
+    expect(logs.warn).not.toHaveBeenCalled()
+  })
+
+  it("re-subscribes a previously unsubscribed contact before joining the newsletter segment", async () => {
+    fetchMock.mockResolvedValueOnce(existingContact(true))
+      .mockResolvedValueOnce(response({ id: "contact-1", object: "contact" }))
+      .mockResolvedValueOnce(response({ id: BLOG_NEWSLETTER_SEGMENT_ID }))
+
+    await expect(subscribeResendNewsletter(env, user.email)).resolves.toBe("subscribed")
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(requestAt(1)).toEqual({
+      url: "https://api.resend.com/contacts/contact-1", method: "PATCH",
+      body: { unsubscribed: false },
+    })
+    expect(requestAt(2)).toEqual({
+      url: `https://api.resend.com/contacts/contact-1/segments/${BLOG_NEWSLETTER_SEGMENT_ID}`,
+      method: "POST", body: undefined,
+    })
+    expect(logs.warn).not.toHaveBeenCalled()
+  })
+
+  it.each(["lookup", "create", "update", "segment"] as const)("returns failed with sanitized logs on %s provider error during newsletter subscribe", async (stage) => {
+    if (stage === "lookup") {
+      fetchMock.mockResolvedValueOnce(providerError(500))
+    } else if (stage === "create") {
+      fetchMock.mockResolvedValueOnce(providerError(404, "not_found"))
+        .mockResolvedValueOnce(providerError(500))
+    } else if (stage === "update") {
+      fetchMock.mockResolvedValueOnce(existingContact(true))
+        .mockResolvedValueOnce(providerError(500))
+    } else {
+      fetchMock.mockResolvedValueOnce(existingContact(false))
+        .mockResolvedValueOnce(providerError(500))
+    }
+
+    await expect(subscribeResendNewsletter(env, user.email)).resolves.toBe("failed")
+    expect(logs.warn).toHaveBeenCalledWith("resend_contact_sync_failed", {
+      action: "newsletter-subscribe", stage, errorCategory: "provider_error", statusCode: 500,
+    })
+    expect(JSON.stringify(logs.warn.mock.calls)).not.toContain(privateError)
   })
 })

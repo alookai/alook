@@ -2,11 +2,12 @@
 
 import { isTauri } from "@alook/shared"
 import { googleCommand, isPublicAnalyticsPath, readAnalyticsConsent } from "@/lib/analytics-consent"
-import { LANDING_CTA_NAMES, ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS, ANALYTICS_ORIGIN, pricingCtaParams, checkoutParams, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
+import { LANDING_CTA_NAMES, BLOG_NEWSLETTER_PLACEMENTS, ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS, ANALYTICS_ORIGIN, pricingCtaParams, checkoutParams, type BlogNewsletterPlacement, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
 import { authFailureParams } from "@/lib/auth-failure"
 
 export type ProductAnalyticsInput =
   | { event: "landing_cta_clicked"; ctaName: string; sourcePath?: string }
+  | { event: "blog_newsletter_subscribed"; placement: BlogNewsletterPlacement; sourcePath?: string }
   | { event: "login_page_view" }
   | { event: "sign_up" | "sign_in_success"; method: string }
   | { event: "sign_in_failed"; method: string; failureStage: "send_code" | "verify_code" | "social_start" | "provider_callback"; error: unknown }
@@ -67,6 +68,11 @@ export async function captureProductAnalytics(input: ProductAnalyticsInput, asse
     if (input.event === "landing_cta_clicked") {
       if (!LANDING_CTA_NAMES.some(name => name === input.ctaName)) return
       params.cta_name = input.ctaName
+      if (input.sourcePath && isPublicAnalyticsPath(input.sourcePath)) params.source_path = input.sourcePath
+    }
+    if (input.event === "blog_newsletter_subscribed") {
+      if (!BLOG_NEWSLETTER_PLACEMENTS.some(placement => placement === input.placement)) return
+      params.placement = input.placement
       if (input.sourcePath && isPublicAnalyticsPath(input.sourcePath)) params.source_path = input.sourcePath
     }
     if ((input.event === "sign_up" || input.event === "sign_in_success" || input.event === "sign_in_failed") && ["email", "email_otp", "github", "google", "apple", "development_password"].includes(input.method)) params.method = input.method

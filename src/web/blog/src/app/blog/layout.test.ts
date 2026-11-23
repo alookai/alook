@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./blog-footer", () => ({ BlogFooter: "blog-footer" }));
 
-vi.mock("@/components/theme-toggle", () => ({
-  ThemeToggle: "theme-toggle",
+vi.mock("@blog/components/blog/blog-nav-actions", () => ({
+  BlogNavCenter: "blog-nav-center",
+  BlogNavRight: "blog-nav-right",
 }));
 
 vi.mock("@/components/public-layout", () => ({
@@ -18,7 +19,7 @@ vi.mock("@/components/github-outbound-link", () => ({
 import BlogLayout from "./layout";
 
 describe("BlogLayout", () => {
-  it("wraps blog content in the outbound GitHub analytics boundary", () => {
+  it("wraps blog content with navigation, conversion actions, and outbound GitHub boundary", () => {
     const child = createElement("article", null, "Post");
     const layout = BlogLayout({ children: child });
 
@@ -28,7 +29,8 @@ describe("BlogLayout", () => {
       breadcrumb: "Blog",
       footer: expect.objectContaining({ type: "blog-footer" }),
     });
-    expect(layout.props.rightSlot.type).toBe("theme-toggle");
+    expect(layout.props.centerSlot.type).toBe("blog-nav-center");
+    expect(layout.props.rightSlot.type).toBe("blog-nav-right");
     expect(layout.props.children.type).toBe("github-outbound-boundary");
     expect(layout.props.children.props).toEqual({
       surface: "blog",

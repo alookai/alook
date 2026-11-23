@@ -180,6 +180,7 @@ export const apiRoutes = [
   "/api/desktop/update/[target]/[arch]/[current_version]",
   "/api/health",
   "/api/internal/account-maintenance",
+  "/api/newsletter/subscribe",
   "/api/pricing",
   "/api/privacy/analytics-consent",
   "/api/stripe/webhook",

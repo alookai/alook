@@ -41,7 +41,7 @@
 
 /* Prose styles stop at embedded product demos: guide/use case animations render real app
    components (messages, tables, images) that must keep their own app styling (gus-issues/#274#169). */
-@scope (.blog-prose) to ([data-guide-demo]) {
+@scope (.blog-prose) to ([data-guide-demo], [data-blog-callout]) {
 :scope {
   font-family: var(--font-dm-sans);
   font-size: 1rem;

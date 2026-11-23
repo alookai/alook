@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 350,
+    "composition": 356,
     "environment": 13,
     "nonvisual": 32,
     "direct": 163
@@ -262,6 +262,97 @@
         {
           "story": "blog-pages--use-cases",
           "region": "Actual use case directory with original registry and shared gallery"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/blog/blog-cta-link.tsx",
+      "application": "Blog",
+      "candidates": [
+        "BlogCtaLink"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--article",
+          "region": "Blog CTA buttons with lossless cross-zone sign-in analytics attribution"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/blog/blog-end-cta.tsx",
+      "application": "Blog",
+      "candidates": [
+        "BlogEndCta"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--article",
+          "region": "Upgraded end-of-article Alook product card above Next Blog"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/blog/blog-mid-callout.tsx",
+      "application": "Blog",
+      "candidates": [
+        "BlogMidCallout"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--article",
+          "region": "Mid-article contextual Alook callout injected before the third H2 heading"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/blog/blog-nav-actions.tsx",
+      "application": "Blog",
+      "candidates": [
+        "BlogNavCenter",
+        "BlogNavRight"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--index",
+          "region": "Blog topbar navigation links and right-side Sign in and Start Free actions"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/blog/blog-newsletter-form.tsx",
+      "application": "Blog",
+      "candidates": [
+        "BlogNewsletterForm"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--article",
+          "region": "Article end newsletter subscription card between End CTA and Next Blog"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/blog/blog-toc.tsx",
+      "application": "Blog",
+      "candidates": [
+        "BlogToc"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-pages--article",
+          "region": "Desktop sticky rail table of contents with Stageshow motion, Copy link / X share, and Try Alook CTA"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."

@@ -33,12 +33,12 @@ describe("actual isolated product-event document", () => {
     const document = documentSender()
     const pricing = { plan_id: "studio", cta_id: "billing_studio", cta_action: "choose_plan", auth_state: "signed_in", current_plan: "free", entry_point: "billing_sheet" }
     const checkout = { currency: "USD", value: 20, items: [{ item_id: "studio", item_name: "Studio", price: 20, quantity: 1 }], entry_point: "billing_sheet" }
-    for (const event of PRODUCT_ANALYTICS_EVENTS) document.sendProductEvent({ event, params: { private_id: "secret", page_location: "https://private.test/token", method: "private", failure_stage: "private", stage: "harness", conversation_type: "thread", cta_name: "get_started", ...(event === "pricing_cta_click" ? pricing : {}), ...(event === "begin_checkout" ? checkout : {}) } })
+    for (const event of PRODUCT_ANALYTICS_EVENTS) document.sendProductEvent({ event, params: { private_id: "secret", page_location: "https://private.test/token", method: "private", failure_stage: "private", stage: "harness", conversation_type: "thread", cta_name: "get_started", ...(event === "blog_newsletter_subscribed" ? { placement: "end" } : {}), ...(event === "pricing_cta_click" ? pricing : {}), ...(event === "begin_checkout" ? checkout : {}) } })
     document.sendProductEvent({ event: "unknown", params: {} })
     const commands = document.dataLayer.map(command => Array.from(command))
     expect(commands).toHaveLength(PRODUCT_ANALYTICS_EVENTS.length)
     expect(commands.map(command => command[1])).toEqual([...PRODUCT_ANALYTICS_EVENTS])
-    for (const command of commands) expect(command[2]).toEqual({ page_location: "https://alook.ai/analytics/product", page_referrer: "", page_title: "Alook", send_to: "G-STBCL8F4ZY", ...(["community_onboarding_stage_completed", "community_onboarding_skipped"].includes(String(command[1])) ? { stage: "harness" } : {}), ...(command[1] === "runtime_connected" ? { surface: "community", connection_type: "local_daemon" } : {}), ...(command[1] === "first_agent_reply_persisted" ? { surface: "community", conversation_type: "thread" } : {}), ...(command[1] === "landing_cta_clicked" ? { cta_name: "get_started" } : {}), ...(command[1] === "pricing_cta_click" ? pricing : {}), ...(command[1] === "begin_checkout" ? checkout : {}) })
+    for (const command of commands) expect(command[2]).toEqual({ page_location: "https://alook.ai/analytics/product", page_referrer: "", page_title: "Alook", send_to: "G-STBCL8F4ZY", ...(["community_onboarding_stage_completed", "community_onboarding_skipped"].includes(String(command[1])) ? { stage: "harness" } : {}), ...(command[1] === "runtime_connected" ? { surface: "community", connection_type: "local_daemon" } : {}), ...(command[1] === "first_agent_reply_persisted" ? { surface: "community", conversation_type: "thread" } : {}), ...(command[1] === "landing_cta_clicked" ? { cta_name: "get_started" } : {}), ...(command[1] === "blog_newsletter_subscribed" ? { placement: "end" } : {}), ...(command[1] === "pricing_cta_click" ? pricing : {}), ...(command[1] === "begin_checkout" ? checkout : {}) })
     expect(JSON.stringify(commands)).not.toContain("secret")
   })
 })
@@ -131,6 +131,25 @@ it.each(LANDING_CTA_NAMES)("accepts the existing finite CTA %s", cta_name => {
   const document = documentSender()
   document.sendProductEvent({ event: "landing_cta_clicked", params: { cta_name } })
   expect(Array.from(document.dataLayer[0])[2]).toMatchObject({ cta_name })
+})
+
+it.each(["end"] as const)("accepts finite newsletter placement %s and public source_path", placement => {
+  const document = documentSender()
+  document.sendProductEvent({ event: "blog_newsletter_subscribed", params: { placement, source_path: "/blog/introducing-alook", email: "private@example.test" } })
+  expect(Array.from(document.dataLayer[0])[2]).toEqual({
+    placement,
+    page_location: "https://alook.ai/blog/introducing-alook",
+    page_referrer: "",
+    page_title: "Alook",
+    send_to: "G-STBCL8F4ZY",
+  })
+  expect(JSON.stringify(document.dataLayer)).not.toContain("private@example.test")
+})
+
+it("rejects arbitrary newsletter placement in the actual document", () => {
+  const document = documentSender()
+  document.sendProductEvent({ event: "blog_newsletter_subscribed", params: { placement: "private@example.test" } })
+  expect(document.dataLayer).toEqual([])
 })
 
 it("canonicalizes billing fields in the real receiver without identifiers or mutable labels", () => {
