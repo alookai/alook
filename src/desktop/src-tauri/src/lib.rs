@@ -224,6 +224,8 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             eprintln!("file save storage unavailable");
         }
         if let Some(window) = app.get_webview_window("main") {
+            #[cfg(target_os = "macos")]
+            macos_window::observe_fullscreen_exit(&window);
             webview_recovery::attach(&window);
             webview_recovery::watch_bootstrap(&window);
         }
@@ -282,6 +284,8 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             }
         }
         if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+            #[cfg(target_os = "macos")]
+            macos_window::retire_fullscreen_exit_observer();
             native_oauth_runtime::retire_listener(window.app_handle());
             file_save_runtime::retire(window.app_handle());
             system_notifications::retire_listener(window.app_handle());

@@ -6,10 +6,28 @@ desktop => {
     if (typeof api?.webview?.getCurrentWebview !== 'function') return false
     if (api.webview.getCurrentWebview().label !== 'main') return true
     const edges = ['top', 'right', 'bottom', 'left']
+    const retryDelays = [50, 150, 300, 600, 1000]
     const subscribers = new Set()
     let state = Object.freeze({ status: 'pending', insets: null })
     let revision = 0
     let active = true
+    let retryTimer
+    let retryIndex = 0
+    const clearRetry = () => {
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer)
+        retryTimer = undefined
+      }
+    }
+    const scheduleRetry = () => {
+      if (!desktop || !active || retryIndex >= retryDelays.length) return
+      clearRetry()
+      const delay = retryDelays[retryIndex++]
+      retryTimer = window.setTimeout(() => {
+        retryTimer = undefined
+        void sync(false)
+      }, delay)
+    }
     const valid = value => value && typeof value.caption === 'boolean'
       && ['viewportWidth', 'viewportHeight'].every(key => Number.isFinite(value[key]) && value[key] > 0)
       && edges.every(key => Number.isFinite(value[key]) && value[key] >= 0 && Number.isFinite(value[key] / value.viewportWidth * 100))
@@ -42,8 +60,14 @@ desktop => {
       project()
       for (const subscriber of subscribers) subscriber()
     }
+    const fail = () => {
+      publish('error')
+      scheduleRetry()
+    }
     const accept = value => {
-      if (!valid(value)) { publish('error'); return }
+      if (!valid(value)) { fail(); return }
+      clearRetry()
+      retryIndex = 0
       const keys = [...edges, 'viewportWidth', 'viewportHeight', 'caption']
       if (value.windowHeight !== undefined) keys.push('windowHeight', 'windowBottom')
       if (state.status === 'ready' && keys.every(key => state.insets[key] === value[key])
@@ -51,8 +75,10 @@ desktop => {
       const insets = Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])))
       publish('ready', insets)
     }
-    const sync = async () => {
+    const sync = async (resetRetry = true) => {
       if (!active) return
+      clearRetry()
+      if (resetRetry) retryIndex = 0
       const request = ++revision
       try {
         let value
@@ -62,19 +88,19 @@ desktop => {
         else return
         if (active && request === revision) accept(value)
       } catch {
-        if (active && request === revision) publish('error')
+        if (active && request === revision) fail()
       }
     }
     window.__alookNativeGeometry = Object.freeze({
       getSnapshot: () => state,
       subscribe: callback => { subscribers.add(callback); return () => subscribers.delete(callback) },
     })
-    const change = () => { void sync() }
+    const change = () => { void sync(true) }
     window.addEventListener('alook:geometry-change', change)
-    window.addEventListener('resize', sync)
-    window.addEventListener('pagehide', () => { active = false; revision++; publish('pending') })
-    window.addEventListener('pageshow', event => { if (event.persisted) { active = true; void sync() } })
-    document.addEventListener('DOMContentLoaded', () => { project(); void sync() }, { once: true })
+    window.addEventListener('resize', change)
+    window.addEventListener('pagehide', () => { active = false; revision++; clearRetry(); retryIndex = 0; publish('pending') })
+    window.addEventListener('pageshow', event => { if (event.persisted) { active = true; void sync(true) } })
+    document.addEventListener('DOMContentLoaded', () => { project(); void sync(true) }, { once: true })
     if (!document.documentElement) {
       const observer = new MutationObserver(() => {
         if (document.documentElement) { project(); observer.disconnect() }
@@ -83,7 +109,7 @@ desktop => {
     }
     project()
     window.dispatchEvent(new Event('alook:geometry-ready'))
-    void sync()
+    void sync(true)
     return true
   }
   if (install()) return
