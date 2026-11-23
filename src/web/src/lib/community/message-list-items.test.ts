@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { flattenMessageItems, estimateRowHeight, computeBelowCount } from "./message-list-items"
+import { flattenMessageItems, estimateRowHeight, computeBelowCount, stabilizeFirstRowGrouping } from "./message-list-items"
 import type { Msg } from "./models/message"
 
 function msg(overrides: Partial<Msg> & { id: string }): Msg {
@@ -388,5 +388,60 @@ describe("computeBelowCount", () => {
 
   it("returns 0 when lastVisibleIndex is at or beyond the last index", () => {
     expect(computeBelowCount(items, 99)).toBe(0)
+  })
+})
+
+describe("stabilizeFirstRowGrouping", () => {
+  it("keeps the first message grouped state stable across hasMoreOlder settlement on the same first row", () => {
+    const messages = [
+      msg({ id: "m10", authorId: "alice", createdAt: "2026-01-01T10:00:00.000Z" }),
+      msg({ id: "m11", authorId: "bob", createdAt: "2026-01-01T10:01:00.000Z" }),
+    ]
+    const initial = stabilizeFirstRowGrouping(flattenMessageItems(messages, undefined, false), null)
+    const initialFirst = initial.items.find((item) => item.kind === "message")!
+    expect(initialFirst.kind === "message" && initialFirst.m.grouped).toBe(false)
+
+    const settled = stabilizeFirstRowGrouping(
+      flattenMessageItems(messages, undefined, true),
+      initial.firstMessageGrouping,
+    )
+    const settledFirst = settled.items.find((item) => item.kind === "message")!
+    expect(settledFirst.kind === "message" && settledFirst.m.grouped).toBe(false)
+
+    const prepended = stabilizeFirstRowGrouping(
+      flattenMessageItems(
+        [msg({ id: "m9", authorId: "alice", createdAt: "2026-01-01T09:59:00.000Z" }), ...messages],
+        undefined,
+        true,
+      ),
+      settled.firstMessageGrouping,
+    )
+    const prependedRows = prepended.items.filter((item) => item.kind === "message")
+    expect(prependedRows[0]?.m.id).toBe("m9")
+    expect(prependedRows[0]?.m.grouped).toBe(true)
+    expect(prependedRows[1]?.m.id).toBe("m10")
+    expect(prependedRows[1]?.m.grouped).toBe(true)
+  })
+
+  it("releases grouped=true on the first message when hasMoreOlder settles true to false (channel start confirmed)", () => {
+    const messages = [
+      msg({ id: "m1", authorId: "alice", createdAt: "2026-01-01T10:00:00.000Z" }),
+      msg({ id: "m2", authorId: "alice", createdAt: "2026-01-01T10:01:00.000Z" }),
+    ]
+    const pendingOlder = stabilizeFirstRowGrouping(flattenMessageItems(messages, undefined, true), null)
+    const pendingRows = pendingOlder.items.filter((item) => item.kind === "message")
+    expect(pendingRows[0]?.m.grouped).toBe(true)
+    expect(pendingRows[1]?.m.grouped).toBe(true)
+
+    const confirmedStart = stabilizeFirstRowGrouping(
+      flattenMessageItems(messages, undefined, false),
+      pendingOlder.firstMessageGrouping,
+    )
+    const confirmedRows = confirmedStart.items.filter((item) => item.kind === "message")
+    expect(confirmedRows[0]?.m.id).toBe("m1")
+    expect(confirmedRows[0]?.m.grouped).toBe(false)
+    expect(confirmedRows[1]?.m.id).toBe("m2")
+    expect(confirmedRows[1]?.m.grouped).toBe(true)
+    expect(confirmedStart.firstMessageGrouping).toEqual({ key: "msg:id:m1", grouped: false })
   })
 })

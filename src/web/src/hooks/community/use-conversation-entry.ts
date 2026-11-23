@@ -11,7 +11,7 @@ import { useCanonicalMessagesById, useCanonicalProfilesProjection, useChannelRea
 import { canonicalMessageResource } from "@/lib/community-db/resources"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRuntime } from "@/stores/community/runtime"
-import { conversationListScopeKey, isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
+import { isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import {
   assessConversationScope, conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationEntry, getQualifiedConversationScope,
   type ConversationEntryResource, type ConversationEntryTarget,
@@ -211,7 +211,16 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const baseTarget = useMemo(() => target ? { ...target, preferTail: true } : null,
     [target?.channelId, target?.serverId, target?.anchorMessageId, target?.tag])
   const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, displayWindowReady, windowReady, revoked, denied, anchorMissing } = useConversationResource(baseTarget, intent, "messages")
-  const entryIdentity = hashKey([input, scope ? conversationListScopeKey({ proof: scope.proof, tag: input.tag }) : null])
+  const entryIdentity = hashKey([
+    input.channelId,
+    input.serverId,
+    input.anchorMessageId,
+    input.tag,
+    input.preferTail,
+    input.newAfterSeq,
+    scope?.proof.viewerId ?? null,
+    scope?.proof.accountEpoch ?? -1,
+  ])
   const createEntry = () => {
     const pointer = scope ? currentConversationReadState(client, input.channelId) : undefined
     const cachedScope = cachedResource ?? scope

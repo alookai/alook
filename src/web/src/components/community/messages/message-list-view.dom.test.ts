@@ -201,32 +201,27 @@ describe("renderMessageListView", () => {
     expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
   })
 
-  it("keeps real rows mounted beneath an independent skeleton while positioning", () => {
+  it("keeps qualified rows visible without a secondary positioning skeleton while read readiness is pending", () => {
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
     const renderer = render(renderMessageListView(
       props({ loading: false }),
-      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning", showSkeleton: true, contentVisible: false, contentInteractive: false }) }),
+      controller({ readPositionReady: false, initialPosition: initialPosition() }),
       renderRows,
     ))
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     expect(renderRows).toHaveBeenCalledOnce()
     expect(renderer.container.querySelector("virtual-rows")).toBeInTheDocument()
-    expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
+    expect(content).toHaveAttribute("data-initial-position-phase", "revealed")
     expect(content).toHaveAttribute("data-read-position-ready", "false")
-    expect(content).toHaveAttribute("aria-hidden", "true")
-    expect(content).toHaveAttribute("inert")
-    expect(content).toHaveStyle({ visibility: "hidden" })
+    expect(content).toHaveAttribute("aria-hidden", "false")
+    expect(content).not.toHaveAttribute("inert")
+    expect(content.style.visibility).toBe("")
     expect(content).not.toHaveClass("opacity-0", "transition-opacity", "duration-300")
     const scroller = renderer.getByTestId("community-message-scroller")
-    const skeleton = renderer.container.querySelector("[data-message-positioning-skeleton]")!
-    expect(scroller.contains(skeleton)).toBe(false)
-    expect(scroller.parentElement).toBe(skeleton.parentElement)
-    expect(skeleton).toHaveClass("pointer-events-none", "absolute", "inset-0", "bg-background")
-    expect(skeleton).toHaveAttribute("aria-hidden", "true")
-    expect(scroller).toHaveAttribute("aria-busy", "true")
+    expect(renderer.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
+    expect(scroller).toHaveAttribute("aria-busy", "false")
     expect(scroller).not.toHaveAttribute("inert")
-    expect(scroller.tabIndex).toBe(0)
-    expect(mockedRail).not.toHaveBeenCalled()
+    expect(mockedRail).toHaveBeenCalled()
   })
 
   it.each([[undefined, 0], [40, 40]] as const)("reserves the supplied capsule input %s as %ipx in the standalone skeleton", (capsuleHeight, expectedHeight) => {
@@ -242,7 +237,7 @@ describe("renderMessageListView", () => {
     expect(content).toHaveClass("pl-(--community-composer-inline-start)", "pr-(--community-composer-inline-end)")
   })
 
-  it("reveals the same rows without waiting for read readiness or replaying skeleton on later data", () => {
+  it("keeps the same rows mounted and visible across read readiness without replaying a skeleton", () => {
     const mounted = vi.fn()
     const unmounted = vi.fn()
     function Rows() {
@@ -252,16 +247,12 @@ describe("renderMessageListView", () => {
     const renderRows = () => React.createElement(Rows)
     const renderer = render(renderMessageListView(
       props({ loading: false }),
-      controller({ readPositionReady: false, initialPosition: initialPosition({ phase: "positioning", showSkeleton: true, contentVisible: false, contentInteractive: false }) }),
+      controller({ readPositionReady: false, initialPosition: initialPosition() }),
       renderRows,
     ))
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     const scroller = renderer.getByTestId("community-message-scroller")
     const rows = content.querySelector("virtual-rows")
-    expect(content).toHaveAttribute("data-read-position-ready", "false")
-    renderer.rerender(renderMessageListView(
-      props({ loading: false }), controller({ readPositionReady: false }), renderRows,
-    ))
     expect(content).toHaveAttribute("data-read-position-ready", "false")
     expect(content.style.visibility).toBe("")
     expect(content).toHaveAttribute("aria-hidden", "false")

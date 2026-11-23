@@ -15,9 +15,9 @@ const pending: Input = { firstWindowReady: true, authoritativeEmpty: false, posi
 describe("initial message positioning presentation", () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
-  it("holds a qualified first window beneath the skeleton until position settles or releases", () => {
+  it("reveals a qualified first window immediately without a positioning skeleton cover", () => {
     render(React.createElement(Probe, pending))
-    expect(latest).toEqual({ phase: "positioning", showSkeleton: true, contentVisible: false, contentInteractive: false })
+    expect(latest).toEqual({ phase: "revealed", showSkeleton: false, contentVisible: true, contentInteractive: true })
     expect(vi.getTimerCount()).toBe(0)
   })
   it("holds the skeleton until the first window is qualified and reveals an empty window immediately", () => {
@@ -27,7 +27,7 @@ describe("initial message positioning presentation", () => {
     expect(latest).toMatchObject({ phase: "revealed", showSkeleton: false, contentVisible: true })
     expect(vi.getTimerCount()).toBe(0)
   })
-  it("records actual position settlement without a timed revealing phase", () => {
+  it("stays revealed without a timed phase when position settles", () => {
     const view = render(React.createElement(Probe, pending))
     view.rerender(React.createElement(Probe, { ...pending, positionSettled: true }))
     expect(latest).toMatchObject({ phase: "revealed", contentVisible: true, contentInteractive: true })
@@ -35,9 +35,9 @@ describe("initial message positioning presentation", () => {
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
   })
-  it("hides content again if its first-window qualification is lost", () => {
+  it("returns to skeleton only if first-window qualification is lost", () => {
     const view = render(React.createElement(Probe, { ...pending, positionSettled: true }))
     view.rerender(React.createElement(Probe, { ...pending, firstWindowReady: false }))
-    expect(latest).toMatchObject({ showSkeleton: true, contentVisible: false, contentInteractive: false })
+    expect(latest).toMatchObject({ phase: "skeleton", showSkeleton: true, contentVisible: false, contentInteractive: false })
   })
 })

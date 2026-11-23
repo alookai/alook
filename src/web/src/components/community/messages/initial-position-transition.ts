@@ -1,21 +1,18 @@
 "use client"
 
-type InitialPositionPhase = "skeleton" | "positioning" | "revealed"
+type InitialPositionPhase = "skeleton" | "revealed"
 
 export function useInitialPositionTransition({
   firstWindowReady,
-  authoritativeEmpty,
-  positionSettled,
 }: {
   firstWindowReady: boolean
-  authoritativeEmpty: boolean
-  positionSettled: boolean
+  authoritativeEmpty?: boolean
+  positionSettled?: boolean
 }) {
-  const phase: InitialPositionPhase = !firstWindowReady ? "skeleton"
-    : authoritativeEmpty || positionSettled ? "revealed" : "positioning"
+  const phase: InitialPositionPhase = firstWindowReady ? "revealed" : "skeleton"
   return {
     phase,
-    showSkeleton: phase !== "revealed",
+    showSkeleton: phase === "skeleton",
     contentVisible: phase === "revealed",
     contentInteractive: phase === "revealed",
   }

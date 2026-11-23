@@ -183,6 +183,56 @@ describe("MessageList loading-to-loaded mount identity", () => {
     expect(second.getByTestId(tid.messageScroller)).toBe(restored)
     expect(restored.scrollTop).toBeCloseTo(entered, 0)
   })
+
+  it("preserves scroller and row DOM identity across undefined-to-qualified positionScope, accessEpoch, and channel generation bumps", async () => {
+    const owner = await createCommunityQueryOwner()
+    const messages = Array.from({ length: 12 }, (_, index) => ({
+      id: `m${index}`,
+      type: "chat" as const,
+      authorId: "peer",
+      authorName: "Alice",
+      content: `Message ${index}`,
+      createdAt: new Date(index * 1000).toISOString(),
+    }))
+    const baseProps = {
+      channelId: "ch-stable",
+      channel: "Stable",
+      viewerUserId: "viewer",
+      messages,
+      onOpenThread: () => {},
+    }
+    const view = render(React.createElement(MessageList, { ...baseProps, positionScope: undefined }))
+    resize()
+    const scroller = view.getByTestId(tid.messageScroller)
+    const row = scroller.querySelector('[data-msg-id="m11"]')
+    expect(row).not.toBeNull()
+    expect(view.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
+
+    const firstScope: ConversationListScope = {
+      proof: captureChannelMetadataToken(owner.client, "ch-stable"),
+      tag: null,
+    }
+    view.rerender(React.createElement(MessageList, { ...baseProps, positionScope: firstScope }))
+    resize()
+    expect(view.getByTestId(tid.messageScroller)).toBe(scroller)
+    expect(scroller.querySelector('[data-msg-id="m11"]')).toBe(row)
+
+    act(() => {
+      owner.runtime.ws.actions.revokeServerAccess("unrelated-server")
+    })
+    const bumpedScope: ConversationListScope = {
+      proof: captureChannelMetadataToken(owner.client, "ch-stable"),
+      tag: null,
+    }
+    expect(bumpedScope.proof.accessEpoch).not.toBe(firstScope.proof.accessEpoch)
+    view.rerender(React.createElement(MessageList, { ...baseProps, positionScope: bumpedScope }))
+    resize()
+    expect(view.getByTestId(tid.messageScroller)).toBe(scroller)
+    expect(scroller.querySelector('[data-msg-id="m11"]')).toBe(row)
+    expect(view.container.querySelector("[data-message-positioning-skeleton]")).toBeNull()
+    view.unmount()
+    owner.client.clear()
+  })
 })
 
 

@@ -3,12 +3,11 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
-import { flattenMessageItems } from "@/lib/community/message-list-items"
+import { flattenMessageItems, stabilizeFirstRowGrouping, type FirstMessageGrouping } from "@/lib/community/message-list-items"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
-import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
 import { hashKey } from "@tanstack/react-query"
 import { messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
@@ -16,6 +15,7 @@ import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
 
 export function useMessageListController({
+  channelId,
   messages,
   viewerUserId,
   onOpenContextId,
@@ -64,7 +64,12 @@ export function useMessageListController({
 }: ResolvedMessageListProps, capsuleHeight = 0, presentation = { revision: 0, available: true }) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
-  const scopeKey = positionScope ? hashKey(conversationListScopeKey(positionScope)) : null
+  const resolvedChannelId = channelId ?? positionScope?.proof.channelId ?? null
+  const scopeKey = hashKey([
+    viewerUserId ?? positionScope?.proof.viewerId ?? null,
+    resolvedChannelId,
+    positionScope?.tag ?? null,
+  ])
   const observedSeq = Math.max(latestSeq ?? 0, ...messages.map(message => message.seq ?? 0))
   const createLookback = () => ({ owner: {}, scopeKey, entry: positionEntry,
     initialized: newBoundary !== undefined || newDividerBefore !== undefined,
@@ -76,11 +81,37 @@ export function useMessageListController({
   const dividerTarget = lookback.initialized ? lookback.target ?? undefined
     : newBoundary !== undefined ? newBoundary.target?.id : newDividerBefore
 
-  const items = useMemo(
+  const rawItems = useMemo(
     () => flattenMessageItems(messages, dividerTarget, !!hasMore, !!hasMoreNewer && (!!isFetchingNewer || !!newerLoadError),
       !!historyStartKnown || !!isFetchingOlder || !!olderLoadError, viewerUserId ?? positionScope?.proof.viewerId),
     [messages, dividerTarget, hasMore, hasMoreNewer, isFetchingNewer, newerLoadError, historyStartKnown, isFetchingOlder, olderLoadError, viewerUserId, positionScope?.proof.viewerId],
   )
+  const [firstGroupingState, setFirstGroupingState] = useState<{
+    scopeKey: string
+    entry: typeof positionEntry
+    first: FirstMessageGrouping | null
+  }>(() => ({ scopeKey, entry: positionEntry, first: null }))
+  const previousFirst =
+    firstGroupingState.scopeKey === scopeKey && firstGroupingState.entry === positionEntry
+      ? firstGroupingState.first
+      : null
+  const stabilized = useMemo(
+    () => stabilizeFirstRowGrouping(rawItems, previousFirst, dividerTarget),
+    [rawItems, previousFirst, dividerTarget],
+  )
+  const items = stabilized.items
+  if (
+    firstGroupingState.scopeKey !== scopeKey
+    || firstGroupingState.entry !== positionEntry
+    || firstGroupingState.first?.key !== stabilized.firstMessageGrouping?.key
+    || firstGroupingState.first?.grouped !== stabilized.firstMessageGrouping?.grouped
+  ) {
+    setFirstGroupingState({
+      scopeKey,
+      entry: positionEntry,
+      first: stabilized.firstMessageGrouping,
+    })
+  }
 
   const footerSlot = useConversationFooterSlot()
   const localSelection = useCreateAtom(false)
