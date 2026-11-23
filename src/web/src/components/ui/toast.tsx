@@ -4,6 +4,7 @@ import * as React from "react"
 import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon, XIcon } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 export type MessageNotificationData = {
@@ -41,9 +42,10 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
   return (
     <ToastPrimitive.Root
       data-slot="message-notification"
+      data-type={props.toast?.type}
       swipeDirection={["up", "left", "right"]}
       className={cn(
-        "group/message-notification pointer-events-auto absolute top-0 left-0 z-[calc(1000-var(--toast-index))] w-full origin-top rounded-xl border border-border bg-popover text-popover-foreground shadow-(--e2) outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+        "group/message-notification pointer-events-auto absolute top-0 left-0 z-[calc(1000-var(--toast-index))] w-full origin-top rounded-2xl text-popover-foreground outline-none select-none focus-visible:ring-3 focus-visible:ring-ring/50",
         "[--gap:0.5rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)+calc(var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] [--peek:0.5rem] [--scale:calc(max(0,1-(var(--toast-index)*0.04)))] [--shrink:calc(1-var(--scale))]",
         "h-(--height) transform-[translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+(var(--toast-index)*var(--peek))+(var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_300ms_cubic-bezier(0.2,0.8,0.2,1),opacity_200ms,height_150ms] motion-reduce:transition-none",
         "after:absolute after:bottom-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",
@@ -65,7 +67,7 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
     <ToastPrimitive.Content
       data-slot="message-notification-content"
       className={cn(
-        "grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-3 overflow-hidden p-4 transition-opacity duration-200 ease-out data-behind:opacity-0 data-expanded:opacity-100 motion-reduce:transition-none sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center",
+        "grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-3 overflow-hidden px-5 py-4 transition-opacity duration-200 ease-out data-behind:opacity-0 data-expanded:opacity-100 motion-reduce:transition-none sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center",
         className,
       )}
       {...props}
@@ -188,33 +190,35 @@ function ToastList() {
         toast={toastItem}
         data-testid={toastItem.data?.testId}
       >
-        <ToastContent
-          className={hasIcon
-            ? undefined
-            : "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_auto]"}
-        >
-          <ToastIcon toastItem={toastItem} icon={icon} />
-          <div className={cn(
-            "row-start-1 flex min-w-0 flex-col gap-1",
-            hasIcon ? "col-start-2" : "col-start-1",
-          )}>
-            <ToastTitle />
-            <ToastDescription />
-          </div>
-          <ToastAction
+        <Card surface="sticker" size="sm" className="h-full gap-0 py-0">
+          <ToastContent
             className={hasIcon
               ? undefined
-              : "col-span-2 col-start-1 sm:col-span-1 sm:col-start-2"}
-          />
-          <ToastClose
-            aria-label={closeLabel}
-            title={closeLabel}
-            className={hasIcon ? undefined : "col-start-2 sm:col-start-3"}
+              : "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_auto]"}
           >
-            <XIcon aria-hidden="true" />
-            <span className="sr-only">{closeLabel}</span>
-          </ToastClose>
-        </ToastContent>
+            <ToastIcon toastItem={toastItem} icon={icon} />
+            <div className={cn(
+              "row-start-1 flex min-w-0 flex-col gap-1",
+              hasIcon ? "col-start-2" : "col-start-1",
+            )}>
+              <ToastTitle />
+              <ToastDescription />
+            </div>
+            <ToastAction
+              className={hasIcon
+                ? undefined
+                : "col-span-2 col-start-1 sm:col-span-1 sm:col-start-2"}
+            />
+            <ToastClose
+              aria-label={closeLabel}
+              title={closeLabel}
+              className={hasIcon ? undefined : "col-start-2 sm:col-start-3"}
+            >
+              <XIcon aria-hidden="true" />
+              <span className="sr-only">{closeLabel}</span>
+            </ToastClose>
+          </ToastContent>
+        </Card>
       </Toast>
     )
   })

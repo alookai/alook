@@ -62,8 +62,8 @@ export function UserBarExtensionSlot({
   const generatedId = useId()
   const ref = useRef<HTMLDivElement>(null)
   const boundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
-  const inboxBoundedHeight = `min(40rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
-  const activeHeight = active === "inbox" ? inboxBoundedHeight : boundedHeight
+  const desktopInboxBoundedHeight = `min(40rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
+  const activeHeight = active === "inbox" && presentation === "popup" ? desktopInboxBoundedHeight : boundedHeight
   const unframedMobileProfile = presentation === "slot" && active === "profile"
 
   useEffect(() => {
@@ -123,7 +123,7 @@ export function UserBarExtensionSlot({
       style={{
         maxHeight: activeHeight,
         height: active === "inbox"
-          ? inboxBoundedHeight
+          ? activeHeight
           : undefined,
       }}
     >

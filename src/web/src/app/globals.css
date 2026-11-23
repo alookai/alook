@@ -1452,14 +1452,17 @@
   }
 }
 
-/* ── Sonner toast: close button only on hover ── */
-[data-sonner-toast] [data-close-button] {
-  opacity: 0;
-  transition: opacity 150ms ease;
-}
+/* ── Sonner toast: close button revealed on hover/focus on pointer devices ── */
+@media (hover: hover) {
+  [data-sonner-toast] [data-close-button] {
+    opacity: 0;
+    transition: opacity 150ms ease, background-color 150ms ease, color 150ms ease;
+  }
 
-[data-sonner-toast]:hover [data-close-button] {
-  opacity: 1;
+  [data-sonner-toast]:hover [data-close-button],
+  [data-sonner-toast]:focus-within [data-close-button] {
+    opacity: 1;
+  }
 }
 
 /* ── Gradient background blobs ── */

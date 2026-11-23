@@ -100,8 +100,8 @@ describe("UserBarExtensionSlot", () => {
     expect(slot).toHaveAttribute("role", "dialog")
     expect(slot).toHaveAttribute("aria-modal", "false")
     expect(slot).toHaveAttribute("data-extension", "inbox")
-    expect(slot.style.height).toContain("40rem")
-    expect(slot.style.maxHeight).toContain("40rem")
+    expect(slot.style.height).toContain("28rem")
+    expect(slot.style.maxHeight).toContain("28rem")
     const classes = slot.className.split(" ")
     expect(classes).toEqual(expect.arrayContaining([
       "rounded-t-xl",
@@ -118,6 +118,19 @@ describe("UserBarExtensionSlot", () => {
     expect(renderer.queryByTestId("profile-content")).not.toBeInTheDocument()
     expect(renderer.queryByTestId(tid.daemonUpdateNotice)).not.toBeInTheDocument()
     expect(renderer.queryByRole("button", { name: "Dismiss Inbox" })).not.toBeInTheDocument()
+
+    renderer.rerender(createElement(UserBarExtensionSlot, {
+      active: "inbox",
+      inbox: createElement("div", { "data-testid": "inbox-content" }, "Inbox content"),
+      profile: createElement("div", { "data-testid": "profile-content" }),
+      update: update(),
+      eligibleMachines: machines,
+      onDismiss: vi.fn(),
+      onRequestUpdate: vi.fn(),
+      presentation: "popup",
+    }))
+    expect(slot.style.height).toContain("40rem")
+    expect(slot.style.maxHeight).toContain("40rem")
   })
 
   it.each([
