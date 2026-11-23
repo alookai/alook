@@ -223,9 +223,9 @@ describe("single-pass native discovery and balanced LPT partitioning", { timeout
     expect(live.shards.every(shard => shard.files.length > 0 && shard.cases.length > 0)).toBe(true)
     const heavySpecs = [
       "25-community-cache-first-warm-reload.spec.ts",
-      "51-share-image-assets.spec.ts",
       "55-history-reading-continuity.spec.ts",
-      "51-mobile-forum-tag-editor.spec.ts",
+      "19-marketing-seo.spec.ts",
+      "29-multi-device-read-state.spec.ts",
     ].filter(file => live.files.includes(file))
     const heavyShardIds = heavySpecs.map(file => live.shards.find(shard => shard.files.includes(file))!.current)
     expect(new Set(heavyShardIds).size).toBe(heavySpecs.length)

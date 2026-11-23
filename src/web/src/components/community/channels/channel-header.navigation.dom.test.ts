@@ -129,4 +129,23 @@ describe("ChannelHeader hierarchy navigation", () => {
     expect(renderer.queryByTestId(tid.typingIndicator)).not.toBeInTheDocument()
     expect(renderer.getByRole("banner")).toHaveClass("h-12", "shrink-0")
   })
+
+  it.each([
+    ["text", "general"],
+    ["forum", "ideas"],
+    ["thread", "post-title"],
+  ] as const)("keeps Back enabled and the current %s label non-interactive", (kind, channel) => {
+    const mobileBack = vi.fn()
+    const rendered = renderHeader({ kind, channel, mobileBack })
+    const back = screen.getByRole("button", { name: "Back" })
+    expect(back).toBeEnabled()
+    const label = screen.getByTitle(channel)
+    expect(label.tagName).toBe("SPAN")
+    expect(label.closest("a, button")).toBeNull()
+    fireEvent.click(label)
+    expect(mobileBack).not.toHaveBeenCalled()
+    fireEvent.click(back)
+    expect(mobileBack).toHaveBeenCalledOnce()
+    rendered.unmount()
+  })
 })

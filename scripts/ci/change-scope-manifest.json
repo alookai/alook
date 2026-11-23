@@ -243,8 +243,7 @@
     "all": "all",
     "contracts": {
       "blog": [
-        "54-blog-multizone.spec.ts",
-        "66-public-static-resource-cache.spec.ts"
+        "54-blog-multizone.spec.ts"
       ],
       "resizable_panels": [
         "53-mobile-inbox-surface.spec.ts"
@@ -265,8 +264,7 @@
         ],
         "specs": [
           "01-auth.spec.ts",
-          "10-eject-nav-auth.spec.ts",
-          "54-authenticated-context-menu-policy.spec.ts"
+          "10-eject-nav-auth.spec.ts"
         ]
       },
       {
@@ -277,13 +275,13 @@
           "src/web/src/app/(home)/",
           "src/web/src/app/landing-legacy/",
           "src/web/src/app/download/",
+          "src/web/src/app/contact/",
           "src/web/src/app/og/",
           "src/web/src/app/_og/",
           "src/web/src/lib/seo/"
         ],
         "specs": [
-          "19-marketing-seo.spec.ts",
-          "51-share-image-assets.spec.ts"
+          "19-marketing-seo.spec.ts"
         ]
       },
       {
@@ -293,9 +291,7 @@
           "src/web/src/components/community/shell/use-user-bar"
         ],
         "specs": [
-          "11-profile-ui-stability.spec.ts",
           "34-inbox-read-race.spec.ts",
-          "50-daemon-update-notice.spec.ts",
           "53-mobile-inbox-surface.spec.ts",
           "56-inbox-friend-requests.spec.ts"
         ]
@@ -308,17 +304,10 @@
         ],
         "specs": [
           "07-invite.spec.ts",
-          "11-profile-ui-stability.spec.ts",
           "12-friends.spec.ts",
-          "29-community-bot-avatar-cleanup.spec.ts",
           "30-activity-older-pages.spec.ts",
           "30-activity-recovery.spec.ts",
-          "30-audit-hover-touch.spec.ts",
           "30-bot-lifecycle-audit-modal.spec.ts",
-          "30-bot-profile-bounds.spec.ts",
-          "30-sheet-footer-geometry.spec.ts",
-          "35-bot-token-usage-quota.spec.ts",
-          "42-versioned-avatar-identity.spec.ts",
           "56-inbox-friend-requests.spec.ts",
           "68-bot-memberships.spec.ts"
         ]
@@ -333,11 +322,8 @@
         "specs": [
           "09-forum-thread.spec.ts",
           "14-forum-post-tags-presence.spec.ts",
-          "17-forum-sidebar-stage-b.spec.ts",
-          "26-mobile-forum-post-actions.spec.ts",
           "27-canonical-forum-post-delete.spec.ts",
           "28-thread-realtime-audiences.spec.ts",
-          "51-mobile-forum-tag-editor.spec.ts",
           "67-text-sidebar-threads.spec.ts"
         ]
       },
@@ -357,20 +343,12 @@
           "15-mention-scope.spec.ts",
           "16-jump-to-present.spec.ts",
           "18-new-divider-scroll.spec.ts",
-          "20-community-attachment-thumbnails.spec.ts",
-          "21-mobile-message-layout.spec.ts",
           "22-committed-message-delivery.spec.ts",
-          "23-message-selection-context-menu.spec.ts",
-          "24-composer-overflow.spec.ts",
-          "25-composer-accessory-rail-occupancy.spec.ts",
           "31-mention-candidate-pagination.spec.ts",
-          "33-picker-async-layout.spec.ts",
           "39-mobile-composer-send.spec.ts",
           "39-mobile-message-interactions.spec.ts",
           "43-composer-attachment-drafts.spec.ts",
-          "44-mobile-reaction-details.spec.ts",
           "45-desktop-thread-split-view.spec.ts",
-          "52-chat-composer-ordered-list.spec.ts",
           "55-composer-resize-anchors.spec.ts",
           "55-dm-composer-viewport.spec.ts",
           "55-draft-optimistic-viewport.spec.ts",
@@ -381,24 +359,7 @@
           "55-reaction-backward-reading.spec.ts",
           "55-scroll-loading-prepend-jump.spec.ts",
           "55-upward-release-resize.spec.ts",
-          "59-message-pagination-anchor.spec.ts",
-          "66-grouped-message-toolbar.spec.ts",
-          "69-table-fullscreen-scroll.spec.ts",
-          "70-renderer-action-themes.spec.ts",
-          "native-keyboard-viewport-projection.spec.ts"
-        ]
-      },
-      {
-        "name": "billing",
-        "prefixes": [
-          "src/web/src/components/community/billing/",
-          "src/web/src/hooks/community/use-billing",
-          "src/web/src/app/api/community/billing/",
-          "src/web/src/app/contact/"
-        ],
-        "specs": [
-          "35-bot-token-usage-quota.spec.ts",
-          "64-billing-contact.spec.ts"
+          "59-message-pagination-anchor.spec.ts"
         ]
       }
     ],

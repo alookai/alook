@@ -129,4 +129,68 @@ describe("Forum navigation row inside the real shared Drawer", () => {
       expect(f.opened).not.toHaveBeenCalled()
     } finally { restore(); f.restore() }
   })
+
+  it("gates mobile post actions by permission and keeps Delete confirmation isolated from opening the post", () => {
+    const opened = vi.fn()
+    const deleted = vi.fn()
+    const edited = vi.fn()
+    const authorized = render(
+      <ForumView
+        forumChannelId="forum"
+        members={[]}
+        posts={[post]}
+        tag="All"
+        tagsKnown
+        availableTags={["bug"]}
+        onTagChange={() => {}}
+        onOpenPost={opened}
+        onEditPostTags={edited}
+        canEditPostTags={() => true}
+        onDeletePost={deleted}
+        canDeletePost={() => true}
+        onScrollRoot={node => { if (node) mockElementGeometry(node, { clientHeight: 600, clientWidth: 390, width: 390, height: 600 }) }}
+      />,
+    )
+    try {
+      expect(authorized.getByTestId(tid.forumThreadTagBtn(post.id))).toBeEnabled()
+      expect(authorized.getByTestId(tid.forumThreadArchiveBtn(post.id))).toBeEnabled()
+      const deleteBtn = authorized.getByTestId(tid.forumThreadDeleteBtn(post.id))
+      expect(deleteBtn).toBeEnabled()
+      fireEvent.click(deleteBtn)
+      expect(opened).not.toHaveBeenCalled()
+      expect(authorized.getByRole("heading", { name: "Delete post?" })).toBeVisible()
+      fireEvent.click(authorized.getByRole("button", { name: "Cancel" }))
+      expect(authorized.queryByRole("heading", { name: "Delete post?" })).toBeNull()
+      expect(deleted).not.toHaveBeenCalled()
+    } finally {
+      authorized.unmount()
+    }
+
+    const unauthorized = render(
+      <ForumView
+        forumChannelId="forum"
+        members={[]}
+        posts={[post]}
+        tag="All"
+        tagsKnown
+        availableTags={["bug"]}
+        onTagChange={() => {}}
+        onOpenPost={opened}
+        onEditPostTags={edited}
+        canEditPostTags={() => false}
+        onDeletePost={deleted}
+        canDeletePost={() => false}
+        onScrollRoot={node => { if (node) mockElementGeometry(node, { clientHeight: 600, clientWidth: 390, width: 390, height: 600 }) }}
+      />,
+    )
+    try {
+      expect(unauthorized.queryByTestId(tid.forumThreadTagBtn(post.id))).toBeNull()
+      expect(unauthorized.queryByTestId(tid.forumThreadArchiveBtn(post.id))).toBeNull()
+      expect(unauthorized.queryByTestId(tid.forumThreadDeleteBtn(post.id))).toBeNull()
+      fireEvent.click(unauthorized.getByTestId(tid.forumThreadCard(post.id)))
+      expect(opened).toHaveBeenCalledExactlyOnceWith(post.id)
+    } finally {
+      unauthorized.unmount()
+    }
+  })
 })

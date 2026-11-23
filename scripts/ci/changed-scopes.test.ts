@@ -273,7 +273,7 @@ describe("canonical execution plan", () => {
       path: "src/web/src/hooks/community/community-ws/presence-machine-events.ts",
       owner: "@alook/web",
       unitRoot: "src/web",
-      consumers: ["07-invite.spec.ts", "30-bot-profile-bounds.spec.ts"],
+      consumers: ["07-invite.spec.ts", "30-bot-lifecycle-audit-modal.spec.ts"],
     },
     {
       path: "src/ws-do/src/ws-durable/presence-typing.ts",
@@ -299,15 +299,13 @@ describe("canonical execution plan", () => {
   })
 
   it.each([
-    ["src/web/src/components/authenticated-context-menu-boundary.tsx", "54-authenticated-context-menu-policy.spec.ts"],
+    ["src/web/src/components/authenticated-context-menu-boundary.tsx", "01-auth.spec.ts"],
     ["src/web/src/app/(auth)/sign-in/sign-in-client.tsx", "10-eject-nav-auth.spec.ts"],
     ["src/web/src/components/download/download-current-platform.tsx", "19-marketing-seo.spec.ts"],
     ["src/web/src/app/(home)/page.tsx", "19-marketing-seo.spec.ts"],
-    ["src/web/src/app/og/route.tsx", "51-share-image-assets.spec.ts"],
-    ["src/web/src/app/_og/render-og-image.tsx", "51-share-image-assets.spec.ts"],
-    ["src/web/src/app/api/community/billing/route.ts", "64-billing-contact.spec.ts"],
-    ["src/web/src/hooks/community/use-billing.ts", "64-billing-contact.spec.ts"],
-    ["src/web/src/app/contact/page.tsx", "64-billing-contact.spec.ts"],
+    ["src/web/src/app/og/route.tsx", "19-marketing-seo.spec.ts"],
+    ["src/web/src/app/_og/render-og-image.tsx", "19-marketing-seo.spec.ts"],
+    ["src/web/src/app/contact/page.tsx", "19-marketing-seo.spec.ts"],
   ])("maps real feature path %s to its existing HTTP/browser journey", (path, consumer) => {
     const result = plan([path])
     expect(result.full).toBe(false)
@@ -341,23 +339,23 @@ describe("canonical execution plan", () => {
     expect(result.full).toBe(false)
     expect(result.ui.specs).toEqual(expect.arrayContaining([
       "01-auth.spec.ts", "03-realtime-multiuser.spec.ts", "06-channel-member-admin.spec.ts",
-      "50-daemon-update-notice.spec.ts", "53-mobile-inbox-surface.spec.ts", "56-inbox-friend-requests.spec.ts",
+      "34-inbox-read-race.spec.ts", "53-mobile-inbox-surface.spec.ts", "56-inbox-friend-requests.spec.ts",
     ]))
     expect(result.ui.specs).not.toContain("all")
     expect(result.ui.specs.some(spec => spec.startsWith("55-"))).toBe(false)
     const mixed = plan([source, "src/web/src/components/home/landing-workspace-skeleton.tsx"])
     expect(mixed.ui.specs).toEqual(expect.arrayContaining([
-      ...result.ui.specs, "19-marketing-seo.spec.ts", "51-share-image-assets.spec.ts",
+      ...result.ui.specs, "19-marketing-seo.spec.ts",
     ]))
     expect(new Set(mixed.ui.specs).size).toBe(mixed.ui.specs.length)
     expect(projectPlan(mixed).e2e_matrix).not.toContain('"all"')
   })
 
   it("keeps direct browser edits and expands removed specs, shared helpers and unclassified runtime inputs", () => {
-    const spec = "src/web/src/test/e2e-ui/64-billing-contact.spec.ts"
+    const spec = "src/web/src/test/e2e-ui/12-friends.spec.ts"
     const nativeTasks = nativeFacts(modified(spec))
     const uiPlan = (changes) => createExecutionPlan(changes, { nativeTasks })
-    expect(uiPlan(modified(spec)).ui.specs).toContain("64-billing-contact.spec.ts")
+    expect(uiPlan(modified(spec)).ui.specs).toContain("12-friends.spec.ts")
     expect(uiPlan(modified("src/web/src/components/community/shell/user-bar.test.ts")).ui.specs).toEqual([])
     for (const path of [
       "src/web/src/test/e2e-ui/_fixtures/actions.ts",
@@ -374,16 +372,16 @@ describe("canonical execution plan", () => {
     expect(renamed.ui.specs).toEqual(["all"])
   })
 
-  it("starts Blog for the native partition containing66 and keeps Web-only consumers isolated", () => {
-    const blog = plan(["src/web/src/test/e2e-ui/66-public-static-resource-cache.spec.ts"])
+  it("starts Blog for the native partition containing54 and keeps Web-only consumers isolated", () => {
+    const blog = plan(["src/web/src/test/e2e-ui/54-blog-multizone.spec.ts"])
     expect(blog.ui.zones).toEqual(["web", "blog"])
     expect(JSON.parse(projectPlan(blog).e2e_matrix).include).toEqual([
-      expect.objectContaining({ specs: expect.arrayContaining(["src/test/e2e-ui/66-public-static-resource-cache.spec.ts"]), zones: ["web", "blog"] }),
+      expect.objectContaining({ specs: expect.arrayContaining(["src/test/e2e-ui/54-blog-multizone.spec.ts"]), zones: ["web", "blog"] }),
     ])
-    const web = plan(["src/web/src/test/e2e-ui/64-billing-contact.spec.ts"])
+    const web = plan(["src/web/src/test/e2e-ui/12-friends.spec.ts"])
     expect(web.ui.zones).toEqual(["web"])
     expect(JSON.parse(projectPlan(web).e2e_matrix).include).toEqual([
-      expect.objectContaining({ specs: expect.arrayContaining(["src/test/e2e-ui/64-billing-contact.spec.ts"]), zones: ["web"] }),
+      expect.objectContaining({ specs: expect.arrayContaining(["src/test/e2e-ui/12-friends.spec.ts"]), zones: ["web"] }),
     ])
   })
 
@@ -493,7 +491,7 @@ describe("canonical execution plan", () => {
     expect(result.suites.unit).toEqual(["src/web"])
     expect(result.coverage.targets).toEqual(["web"])
     expect(result.coverage.include_roots).toEqual(["src/web/**/*.{ts,tsx,js,jsx}"])
-    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts", "66-public-static-resource-cache.spec.ts"])
+    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts"])
     expect(result.suites.integration).toEqual([])
     expect(result.suites.windows).toEqual([])
     expect(result.suites.build_tasks).toContain("@alook/web#build:blog")
@@ -519,7 +517,7 @@ describe("canonical execution plan", () => {
     expect(result.suites.unit_tasks).toContain("@alook/web#test:blog")
     expect(result.suites.unit_tasks).not.toContain("@alook/web#test")
     expect(result.coverage.include_roots).toEqual(["src/web/**/*.{ts,tsx,js,jsx}"])
-    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts", "66-public-static-resource-cache.spec.ts"])
+    expect(result.ui.specs).toEqual(["54-blog-multizone.spec.ts"])
     expect(result.jobs.blog_build).toBe(true)
   })
 

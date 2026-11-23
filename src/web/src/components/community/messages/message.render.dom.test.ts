@@ -1288,5 +1288,41 @@ describe("Message selected-text menu focus", () => {
     } finally { outsideButton.remove() }
   })
 
+  it("opens the context menu via Shift+F10, invokes full-message copy, and restores trigger focus", async () => {
+    const onCopy = vi.fn()
+    const view = mount({ m: baseMsg({ content: "keyboard copy phrase" }), hoverCapable: true, onCopy })
+    activate(view)
+    const trigger = view.container.querySelector<HTMLElement>('[data-slot="context-menu-trigger"]')!
+    trigger.focus()
+    fireEvent.keyDown(trigger, { key: "F10", shiftKey: true })
+    await waitFor(() => expect(screen.getByRole("menu")).toBeVisible())
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy Text", exact: true }))
+    expect(onCopy).toHaveBeenCalledExactlyOnceWith(undefined)
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+    expect(trigger.contains(document.activeElement)).toBe(true)
+
+    fireEvent.keyDown(trigger, { key: "F10", shiftKey: true })
+    await waitFor(() => expect(screen.getByRole("menu")).toBeVisible())
+    await closeMenu()
+    expect(trigger.contains(document.activeElement)).toBe(true)
+  })
+
+  it("omits the author header on grouped rows while keeping the hover More actions toolbar reachable", async () => {
+    const onCopy = vi.fn()
+    const view = mount({
+      m: baseMsg({ grouped: true, content: "Grouped message body" }),
+      hoverCapable: true,
+      onCopy,
+    })
+    expect(view.container.querySelectorAll("[data-message-author-line]")).toHaveLength(0)
+    expect(view.queryByRole("button", { name: "Alice", exact: true })).toBeNull()
+    activate(view)
+    const more = view.getByRole("button", { name: "More actions", exact: true })
+    expect(more).toBeVisible()
+    fireEvent.click(more)
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Copy Text", exact: true })).toBeVisible())
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy Text", exact: true }))
+    expect(onCopy).toHaveBeenCalledOnce()
+  })
 
 })
