@@ -892,7 +892,8 @@ describe("conversation entry positioning through real reading owners", () => {
     await view.navigate("/c/channels/s1/c1?msg=m5", { settle: false })
     const positionEntry = latest.feed.positionEntry
     expect(latest.channel.scrollTargetId).toBe("m5")
-    expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "true")
+    expect(root.querySelector("[data-message-list-content]")).toHaveAttribute("aria-hidden", "false")
+    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
     const covered = latest.feed.messageWindow!
     const query = owner.client.getQueryCache().getAll().find(query => query.state.data === covered)!
     await act(async () => {

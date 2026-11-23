@@ -7,6 +7,7 @@ import type { EntityKind } from "@/lib/community/models/navigation"
 import type { CommunityConversationEntryRead } from "@alook/shared"
 
 export type MessageListProps = {
+  channelId?: string
   channel: string
   messages: Msg[]
   loading?: boolean

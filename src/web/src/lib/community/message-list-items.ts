@@ -32,6 +32,44 @@ export type FlatItem = {
   newDivider?: boolean
 }
 
+export type FirstMessageGrouping = Readonly<{
+  key: string
+  grouped: boolean
+}>
+
+export function stabilizeFirstRowGrouping(
+  items: FlatItem[],
+  previousFirst: FirstMessageGrouping | null,
+  newDividerBefore?: string,
+): { items: FlatItem[]; firstMessageGrouping: FirstMessageGrouping | null } {
+  const firstIndex = items.findIndex((item) => item.kind === "message")
+  if (firstIndex === -1) return { items, firstMessageGrouping: null }
+  const firstItem = items[firstIndex]!
+  if (firstItem.kind !== "message") return { items, firstMessageGrouping: null }
+  const eligible =
+    firstItem.m.type === "chat"
+    && !firstItem.m.replyTo
+    && firstItem.m.id !== newDividerBefore
+  if (
+    eligible
+    && previousFirst
+    && previousFirst.key === firstItem.key
+    && !previousFirst.grouped
+    && firstItem.m.grouped
+  ) {
+    const stabilized = items.slice()
+    stabilized[firstIndex] = {
+      ...firstItem,
+      m: { ...firstItem.m, grouped: false },
+    }
+    return { items: stabilized, firstMessageGrouping: previousFirst }
+  }
+  return {
+    items,
+    firstMessageGrouping: { key: firstItem.key, grouped: firstItem.m.grouped },
+  }
+}
+
 export function flattenMessageItems(
   messages: Msg[],
   newDividerBefore: string | undefined,

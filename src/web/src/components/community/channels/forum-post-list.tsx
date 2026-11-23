@@ -3,10 +3,9 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { defaultRangeExtractor, measureElement, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual"
 import { ListChevronsUpDown } from "@/components/icons/lucide";
-import { hashKey } from "@tanstack/react-query"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
-import { conversationListScopeKey, type ConversationListScope } from "@/lib/community/conversation-qualification"
+import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
@@ -19,6 +18,8 @@ const OVERSCAN = 5
 export const FORUM_LIST_SPACING_CLASS = "p-0"
 const forumRangeExtractor = (range: Range) => defaultRangeExtractor({ ...range, overscan: range.overscan + range.endIndex - range.startIndex + 1 })
 type Props = {
+  forumChannelId?: string
+  tag?: string
   posts: ForumThread[]
   loading?: boolean
   positionScope?: ConversationListScope
@@ -47,19 +48,39 @@ export function ForumPostListItem({ first, children, onActivate }: { first: bool
 }
 
 export function ForumPostList(props: Props) {
-  return <ForumPostListEntry key={props.positionScope ? hashKey(conversationListScopeKey(props.positionScope)) : undefined} {...props} />
+  const viewerId = props.positionScope?.proof.viewerId ?? null
+  const channelId = props.forumChannelId ?? props.positionScope?.proof.channelId ?? null
+  const [mountSlot, setMountSlot] = useState(() => ({
+    viewerId,
+    channelId,
+    generation: 0,
+  }))
+  let nextMountSlot = mountSlot
+  if (
+    (viewerId !== null && mountSlot.viewerId !== null && viewerId !== mountSlot.viewerId)
+    || (channelId !== null && mountSlot.channelId !== null && channelId !== mountSlot.channelId)
+  ) {
+    nextMountSlot = { viewerId, channelId, generation: mountSlot.generation + 1 }
+    setMountSlot(nextMountSlot)
+  } else if (
+    (mountSlot.viewerId === null && viewerId !== null)
+    || (mountSlot.channelId === null && channelId !== null)
+  ) {
+    nextMountSlot = {
+      ...mountSlot,
+      viewerId: mountSlot.viewerId ?? viewerId,
+      channelId: mountSlot.channelId ?? channelId,
+    }
+    setMountSlot(nextMountSlot)
+  }
+  return <ForumPostListOwner key={nextMountSlot.generation} {...props} />
 }
 
-function ForumPostListEntry(props: Props) {
-  const [admitted, setAdmitted] = useState(false)
-  if (!props.loading && !admitted || props.posts.length > 0 && !admitted) setAdmitted(true)
-  if (!admitted && props.loading && !props.posts.length) return <div data-testid={tid.forumPostList} aria-label="Loading forum" aria-busy="true" data-community-conversation-subtype="forum" className={`flex-1 overflow-y-auto thin-scrollbar scroll-fade-y scroll-fade-4 ${FORUM_LIST_SPACING_CLASS}`}>{props.loadingContent}</div>
-  return <ForumPostListOwner {...props} />
-}
-
-function ForumPostListOwner({ posts, loading, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, onOpenPost, renderPost, loadingContent }: Props) {
+function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, onOpenPost, renderPost, loadingContent }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
+  const activeTag = tag ?? positionScope?.tag ?? null
+  const previousTagRef = useRef(activeTag)
   const [positionReady, setPositionReady] = useState(false)
   useLayoutEffect(() => { if (posts.length === 0) setPositionReady(!loading) }, [loading, posts.length])
   const presentation = useInitialPositionTransition({ firstWindowReady: !loading || posts.length > 0,
@@ -115,6 +136,22 @@ function ForumPostListOwner({ posts, loading, hasMore, loadingMore, isFetching, 
     onChange: native => { initializePosition(native); inspectPosition(native) },
   })
   useLayoutEffect(() => {
+    if (previousTagRef.current !== activeTag) {
+      previousTagRef.current = activeTag
+      const root = scrollRef.current
+      if (root) root.scrollTop = 0
+      if (postsRef.current.length > 0) {
+        virtualizer.scrollToIndex(0, { align: "start" })
+      }
+    }
+  }, [activeTag, virtualizer])
+  useLayoutEffect(() => {
+    const root = scrollRef.current
+    if (root && root.clientWidth > 0 && root.clientHeight > 0) {
+      for (const node of root.querySelectorAll<HTMLElement>("[data-index]")) {
+        virtualizer.measureElement(node)
+      }
+    }
     initializePosition(virtualizer)
     inspectPosition(virtualizer)
   })
@@ -133,14 +170,12 @@ function ForumPostListOwner({ posts, loading, hasMore, loadingMore, isFetching, 
     <div ref={bindScrollRoot} role="main" data-testid={tid.forumPostList} data-community-conversation-subtype="forum"
       aria-busy={presentation.showSkeleton || undefined} aria-label={presentation.showSkeleton ? "Loading forum" : undefined}
       className={`flex-1 overflow-y-auto thin-scrollbar scroll-fade-y scroll-fade-4 [overflow-anchor:none] ${FORUM_LIST_SPACING_CLASS}`}>
-    {!posts.length && loading ? <div data-message-list-content aria-hidden="true" inert data-read-position-ready="false" />
+    {!posts.length && loading ? <div data-message-list-content aria-hidden="false" data-read-position-ready="false">{loadingContent}</div>
       : !posts.length ? <div className="flex min-h-full flex-col" data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
       : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer}
         renderItem={(post, index) => <ForumPostListItem first={index === 0} onActivate={onOpenPost ? () => onOpenPost(post.id) : undefined}>{renderPost(post, index)}</ForumPostListItem>}
-        containerAttributes={{ "data-message-list-content": "", "aria-hidden": !presentation.contentVisible, inert: !presentation.contentInteractive,
+        containerAttributes={{ "data-message-list-content": "", "aria-hidden": false,
           "data-read-position-ready": positionReady ? "true" : "false" }} />}
     </div>
-    {presentation.showSkeleton && <div data-forum-positioning-skeleton aria-hidden="true"
-      className={`pointer-events-none absolute inset-0 overflow-hidden bg-background ${FORUM_LIST_SPACING_CLASS}`}>{loadingContent}</div>}
   </div>
 }

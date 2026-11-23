@@ -360,12 +360,10 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
     await expect(row).toHaveCount(1)
     await expect(row.getByText(body, { exact: true })).toHaveCount(1)
     await expect(root).toBeVisible()
-    await expect(content).toHaveAttribute("data-initial-position-phase", "positioning")
+    await expect(content).toHaveAttribute("data-initial-position-phase", "revealed")
     await expect(content).toHaveAttribute("data-read-position-ready", "false")
-    await expect(content).toHaveAttribute("aria-hidden", "true")
-    await expect(content).toHaveAttribute("inert", "")
-    await expect(content).toHaveCSS("visibility", "hidden")
-    await expect(skeleton).toBeVisible()
+    await expect(content).toHaveAttribute("aria-hidden", "false")
+    await expect(skeleton).toHaveCount(0)
     expect(await row.evaluate((node, scrollerId) => {
       const root = node.closest<HTMLElement>(`[data-testid="${scrollerId}"]`)!
       const content = root.querySelector("[data-message-list-content]")!
