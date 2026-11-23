@@ -364,3 +364,66 @@ describe("MessageBody — specialized redaction rendering", () => {
     expect(renderer!.container.querySelector(".katex-display")).not.toBeNull()
   })
 })
+
+describe("MessageBody — long Markdown and table fullscreen", () => {
+  it("renders long wrapped Markdown paragraphs with inline code and multi-line fenced code blocks intact", () => {
+    const longParagraph = Array.from(
+      { length: 40 },
+      (_, index) => `wrapped phrase ${index} with \`inline-${index}\` content`,
+    ).join(" ")
+    const fencedLines = Array.from(
+      { length: 20 },
+      (_, index) => `const row${index} = "${"x".repeat(32)}"`,
+    ).join("\n")
+    let renderer: ReturnType<typeof render>
+    act(() => {
+      renderer = render(React.createElement(MessageBody, {
+        text: `Intro paragraph.\n\n${longParagraph}\n\n\`\`\`ts\n${fencedLines}\n\`\`\``,
+      }))
+    })
+    const body = renderer!.container.querySelector("[data-community-message-body]")!
+    expect(body).toHaveTextContent("wrapped phrase 0 with inline-0 content")
+    expect(body).toHaveTextContent("wrapped phrase 39 with inline-39 content")
+    expect(body.querySelectorAll('code[data-streamdown="inline-code"]')).toHaveLength(40)
+    const preCode = body.querySelector("pre code")
+    expect(preCode).not.toBeNull()
+    expect(preCode!.textContent).toContain("const row0 =")
+    expect(preCode!.textContent).toContain("const row19 =")
+  })
+
+  it("opens and exits fullscreen for a wide Markdown table while keeping all headers and cells intact", () => {
+    const headers = ["Exact baseline location(s)", "Purpose / current context", "Column_2", "Column_3", "Column_4"]
+    const wideTable = [
+      `| ${headers.join(" | ")} |`,
+      `| ${headers.map(() => "---").join(" | ")} |`,
+      ...Array.from({ length: 12 }, (_, row) => `| ${headers.map((_, col) => (
+        row === 0 && col === 0 ? "FIRST_TABLE" : row === 11 && col === 4 ? "LAST_TABLE" : `${row}-${col}`
+      )).join(" | ")} |`),
+    ].join("\n")
+    let renderer: ReturnType<typeof render>
+    act(() => {
+      renderer = render(React.createElement(MessageBody, { text: wideTable }))
+    })
+    const inlineTable = renderer!.container.querySelector('[data-streamdown="table"]')
+    expect(inlineTable).not.toBeNull()
+    expect(Array.from(inlineTable!.querySelectorAll("thead th")).map((th) => th.textContent)).toEqual(headers)
+    expect(renderer!.getByRole("cell", { name: "FIRST_TABLE", exact: true })).toBeInTheDocument()
+    expect(renderer!.getByRole("cell", { name: "LAST_TABLE", exact: true })).toBeInTheDocument()
+
+    act(() => {
+      fireEvent.click(renderer!.getByRole("button", { name: "View fullscreen", exact: true }))
+    })
+    const fullscreen = document.querySelector('[data-streamdown="table-fullscreen"]')
+    expect(fullscreen).not.toBeNull()
+    const fullscreenTable = fullscreen!.querySelector('[data-streamdown="table"]')
+    expect(fullscreenTable).not.toBeNull()
+    expect(fullscreenTable!.textContent).toContain("FIRST_TABLE")
+    expect(fullscreenTable!.textContent).toContain("LAST_TABLE")
+
+    act(() => {
+      fireEvent.click(renderer!.getByRole("button", { name: "Exit fullscreen", exact: true }))
+    })
+    expect(document.querySelector('[data-streamdown="table-fullscreen"]')).toBeNull()
+    expect(renderer!.container.querySelector('[data-streamdown="table"]')).not.toBeNull()
+  })
+})

@@ -284,4 +284,19 @@ describe("CommunityOnboardingForm room navigation", () => {
     mocks.selectedHarness = "codex"
   })
 
+  it("keeps focus on the active onboarding control and leaves the surface non-inert across reconnect rerenders", () => {
+    mocks.state = { status: "active", stage: "harness" }
+    const rendered = render(createElement(CommunityOnboardingForm))
+    const surface = screen.getByTestId("onboarding-surface")
+    const control = screen.getByTestId("select-harness")
+    control.focus()
+    expect(control).toHaveFocus()
+    expect(surface.closest("[inert]")).toBeNull()
+
+    rendered.rerender(createElement(CommunityOnboardingForm))
+    expect(screen.getByTestId("onboarding-surface")).toBe(surface)
+    expect(control).toHaveFocus()
+    expect(surface.closest("[inert]")).toBeNull()
+  })
+
 })

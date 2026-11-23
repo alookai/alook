@@ -688,4 +688,49 @@ describe("ComposerView", () => {
       "relative rounded-(--community-composer-top-radius) bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40",
     )
   })
+
+  it.each([
+    ["long English draft", "overflow".repeat(12) + "edge"],
+    ["long CJK draft", "界".repeat(100)],
+  ])("keeps composer controls enabled and clickable with %s and hides chat actions in forum mode", (_label, longDraft) => {
+    const onUploadFile = vi.fn()
+    const onEmojiPick = vi.fn()
+    const onSend = vi.fn()
+    const draftContent = createElement("div", { contentEditable: true, role: "textbox", "aria-label": "Draft", suppressContentEditableWarning: true }, longDraft)
+    const view = render(createElement(ComposerView, baseProps({
+      editorContent: draftContent,
+      onUploadFile,
+      onEmojiPick,
+    })))
+    const attach = view.getByTestId(tid.composerAttach)
+    expect(attach).toBeEnabled()
+    expect(view.getByRole("textbox", { name: "Draft" })).toHaveTextContent(longDraft)
+
+    fireEvent.click(attach)
+    ;(mocks.emojiProps.mock.calls.at(-1)?.[0].onPick as (emoji: string) => void)("👍")
+    expect(onUploadFile).toHaveBeenCalledOnce()
+    expect(onEmojiPick).toHaveBeenCalledWith("👍")
+
+    view.rerender(createElement(ComposerView, baseProps({
+      editorContent: draftContent,
+      showSend: true,
+      sendDisabled: false,
+      onUploadFile,
+      onSend,
+    })))
+    const send = view.getByTestId(tid.composerSend)
+    expect(send).toBeEnabled()
+    fireEvent.click(send)
+    expect(onSend).toHaveBeenCalledOnce()
+
+    view.rerender(createElement(ComposerView, baseProps({
+      isForumThreadBody: true,
+      hideAttach: true,
+      hideEmoji: true,
+      editorContent: draftContent,
+    })))
+    expect(view.queryByTestId(tid.composerAttach)).toBeNull()
+    expect(view.container.querySelector("[data-emoji-picker]")).toBeNull()
+    expect(view.getByRole("textbox", { name: "Draft" })).toHaveTextContent(longDraft)
+  })
 })
