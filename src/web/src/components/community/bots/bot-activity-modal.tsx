@@ -88,16 +88,18 @@ export function BotActivityModal({
     overscan: 8,
     enabled: scrollRoot !== null,
   })
+  const virtualItems = virtualizer.getVirtualItems()
+  const scrollRootHeight = scrollRoot?.clientHeight ?? 0
   useLayoutEffect(() => {
     setInitialized(false)
     return () => virtualizer.cancelScroll()
   }, [open, bot?.id, scrollRoot, setInitialized, virtualizer])
   useLayoutEffect(() => {
-    if (!open || initialized || !scrollRoot || scrollRoot.clientHeight <= 0 || chronological.length === 0
-      || !scrollRoot.querySelector("[data-activity-event-id]")) return
+    if (!open || initialized || !scrollRoot || scrollRootHeight <= 0 || chronological.length === 0
+      || virtualItems.length === 0 || !scrollRoot.querySelector("[data-activity-event-id]")) return
     virtualizer.scrollToEnd()
     setInitialized(true)
-  })
+  }, [chronological, initialized, open, scrollRoot, scrollRootHeight, setInitialized, virtualItems, virtualizer])
   const subscribeVisibleDate = useCallback((listener: () => void) => {
     visibleDateListener.current = listener
     scrollRoot?.addEventListener("scroll", listener)

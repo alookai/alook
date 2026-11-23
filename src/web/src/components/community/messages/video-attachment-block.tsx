@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { useQueryClient } from "@tanstack/react-query"
 import { createPortal } from "react-dom"
 import { Container, Controls, Menu, MuteButton, PlayButton, PlaybackRateRadioGroup, Time, TimeSlider, VolumePopover, VolumeSlider } from "@videojs/react"
@@ -131,7 +132,13 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
   registry: CommunityDbRegistry | null
   contextMenuDisabled?: boolean
 }) {
-  const [host, setHost] = useState<HTMLDivElement | null>(null)
+  const hydrated = useHydratedClient()
+  const host = useMemo(() => {
+    if (!hydrated) return null
+    const element = document.createElement("div")
+    element.className = "alook-video-host"
+    return element
+  }, [hydrated])
   const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null)
   const [maskSlot, setMaskSlot] = useState<HTMLDivElement | null>(null)
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
@@ -141,8 +148,10 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)
-  const [poster, setPoster] = useState<string | undefined>()
-  const [previewSettled, setPreviewSettled] = useState(false)
+  const [previewState, setPreviewState] = useState<{ url: string; registry: CommunityDbRegistry | null; poster?: string; settled: boolean }>({ url: attachment.url, registry, settled: false })
+  const previewMatches = previewState.url === attachment.url && previewState.registry === registry
+  const poster = previewMatches ? previewState.poster : undefined
+  const previewSettled = previewMatches ? previewState.settled : false
   const download = useFileDownload(attachment)
   const activatedRef = useRef(false)
   const previewSeeked = useRef(false)
@@ -164,8 +173,6 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
       ready: Promise.resolve<VideoPreviewOwner | null>(null),
     }
     previewLease.current = lease
-    setPoster(undefined)
-    setPreviewSettled(false)
     lease.ready = (async () => {
       try {
         if (!registry?.accountId) return null
@@ -179,13 +186,28 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
           if (saved.poster && !activatedRef.current) {
             try {
               objectUrl = URL.createObjectURL(saved.poster)
-              setPoster(objectUrl)
+              const resolvedPoster = objectUrl
+              setPreviewState(previous => ({
+                url: attachment.url,
+                registry,
+                poster: resolvedPoster,
+                settled: previous.url === attachment.url && previous.registry === registry ? previous.settled : false,
+              }))
               setReady(true)
             } catch {}
           }
         }
         return owner
-      } finally { if (lease.current()) setPreviewSettled(true) }
+      } finally {
+        if (lease.current()) {
+          setPreviewState(previous => ({
+            url: attachment.url,
+            registry,
+            poster: previous.url === attachment.url && previous.registry === registry ? previous.poster : undefined,
+            settled: true,
+          }))
+        }
+      }
     })().catch(() => null)
     return () => {
       lease.active = false
@@ -225,11 +247,8 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
   }
 
   useLayoutEffect(() => {
-    const element = document.createElement("div")
-    element.className = "alook-video-host"
-    setHost(element)
-    return () => { element.parentNode?.removeChild(element) }
-  }, [])
+    return () => { host?.parentNode?.removeChild(host) }
+  }, [host])
 
   useLayoutEffect(() => {
     const target = expanded ? maskSlot : inlineSlot

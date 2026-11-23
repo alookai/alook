@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight } from "@/components/icons/lucide";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,16 @@ import { cn } from "@/lib/utils";
 import { BlogCtaLink } from "./blog-cta-link";
 import { buildBlogSignInHref, type BlogConversionCopy } from "@blog/lib/blog/conversion-copy";
 
+function createHostSlot() {
+  let current: HTMLDivElement | null = null;
+  return {
+    get: () => current,
+    set: (next: HTMLDivElement | null) => {
+      current = next;
+    },
+  };
+}
+
 export function BlogMidCallout({
   copy,
   headingCount,
@@ -19,29 +29,31 @@ export function BlogMidCallout({
   copy: BlogConversionCopy["mid"];
   headingCount?: number;
 }) {
-  const [host, setHost] = useState<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (typeof headingCount === "number" && headingCount > 0 && headingCount < 4) return;
+  const [hostSlot] = useState(createHostSlot);
+  const subscribe = useCallback((onStoreChange: () => void) => {
+    if (typeof headingCount === "number" && headingCount > 0 && headingCount < 4) return () => {};
     const prose = document.querySelector("[data-blog-prose]");
-    if (!prose) return;
+    if (!prose) return () => {};
     const headings = prose.querySelectorAll("h2");
-    if (headings.length < 4) return;
+    if (headings.length < 4) return () => {};
 
     const target = headings[2];
-    if (!target || !target.parentNode) return;
+    if (!target || !target.parentNode) return () => {};
 
     const container = document.createElement("div");
     container.setAttribute("data-blog-callout", "");
     container.className = "my-9";
     target.parentNode.insertBefore(container, target);
-    setHost(container);
+    hostSlot.set(container);
+    onStoreChange();
 
     return () => {
       container.remove();
-      setHost(null);
+      hostSlot.set(null);
+      onStoreChange();
     };
-  }, [headingCount]);
+  }, [headingCount, hostSlot]);
+  const host = useSyncExternalStore(subscribe, hostSlot.get, () => null);
 
   if (!host) return null;
 

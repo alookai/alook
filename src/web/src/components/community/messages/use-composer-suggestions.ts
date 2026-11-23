@@ -203,12 +203,13 @@ export function useComposerSuggestions({
 
   const composingEditor = useRef<Editor | null>(null)
   const retiredBackEditor = useRef<Editor | null>(null)
+  const popupOpen = Boolean(mentionPopup.command || channelRefPopup.command)
   const readBackEditor = useCallback(() => {
     const editor = editorRef.current
     if (!editor || retiredBackEditor.current === editor || editor.isDestroyed || !eligible(editor) || !editor.view.hasFocus()) return null
-    return mentionPopupRef.current.command || channelRefPopupRef.current.command
+    return popupOpen || mentionPopupRef.current.command || channelRefPopupRef.current.command
       || composingEditor.current === editor || editor.view.composing ? editor : null
-  }, [editorRef, eligible])
+  }, [editorRef, eligible, popupOpen])
   const backElement = useCallback(() => readBackEditor()?.view.dom ?? null, [readBackEditor])
   const requestBack = useCallback(() => {
     const editor = readBackEditor()
@@ -218,8 +219,12 @@ export function useComposerSuggestions({
     return "requested"
   }, [readBackEditor, resetPopups])
   const refreshBackOwner = useNativeBackOwner(backElement, requestBack)
+  const [boundEditor, setBoundEditor] = useAtom(useCreateAtom<Editor | null>(null))
+  const bindEditor = useCallback((next: Editor | null) => {
+    setBoundEditor(next)
+  }, [setBoundEditor])
   useEffect(() => {
-    const editor = editorRef.current
+    const editor = boundEditor ?? editorRef.current
     refreshBackOwner()
     if (!editor || editor.isDestroyed) return
     const retire = () => {
@@ -236,7 +241,7 @@ export function useComposerSuggestions({
       editor.off("destroy", destroy)
       editor.off("blur", retire)
     }
-  })
+  }, [boundEditor, editorRef, refreshBackOwner])
   useLayoutEffect(() => {
     composingEditor.current = null
     refreshBackOwner()
@@ -320,5 +325,6 @@ export function useComposerSuggestions({
     channelRefPopupRef,
     channelRefExtension,
     resetPopups,
+    bindEditor,
   }
 }

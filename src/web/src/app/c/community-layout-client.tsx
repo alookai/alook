@@ -33,38 +33,38 @@ function CommunityAccountEntry({ pathname }: { pathname: string }) {
   const confirmedId = ready && user && !invalid ? user.id : undefined
   const confirmedEmail = confirmedId ? user!.email : undefined
   const authoritative = ready || rejected || invalid
+  const confirmedIdentity = confirmedId && confirmedEmail ? { id: confirmedId, email: confirmedEmail } : undefined
   const [localIdentity, setLocalIdentity] = useState<PersistedAccountIdentity>()
-  const currentUser = authoritative
-    ? confirmedId && confirmedEmail ? { id: confirmedId, email: confirmedEmail } : undefined
-    : localIdentity
+  if (authoritative && (localIdentity?.id !== confirmedIdentity?.id || localIdentity?.email !== confirmedIdentity?.email)) {
+    setLocalIdentity(confirmedIdentity)
+  }
+  const currentUser = authoritative ? confirmedIdentity : localIdentity
   const search = searchParams.toString()
   const currentUserId = currentUser?.id
   const [retry, setRetry] = useState(0)
-  const [signOutFailed, setSignOutFailed] = useState(false)
-  const [entry, setEntry] = useState<{ Component?: ComponentType<{ currentUser: PersistedAccountIdentity; confirmedAccountId?: string }>; failed: boolean }>({ failed: false })
+  const [signOutFailedFor, setSignOutFailedFor] = useState<number | null>(null)
+  const signOutFailed = signOutFailedFor === retry
+  const [entry, setEntry] = useState<{ userId?: string; Component?: ComponentType<{ currentUser: PersistedAccountIdentity; confirmedAccountId?: string }>; failed: boolean }>({ failed: false })
+  const entryFailed = entry.userId === currentUserId && entry.failed
 
   useEffect(() => {
     if (!currentUserId || entry.Component) return
     let active = true
-    setEntry({ failed: false })
     void import("./community-authenticated-entry").then(module => {
-      if (active) setEntry({ Component: module.CommunityAuthenticatedEntry, failed: false })
-    }).catch(() => { if (active) setEntry({ failed: true }) })
+      if (active) setEntry({ userId: currentUserId, Component: module.CommunityAuthenticatedEntry, failed: false })
+    }).catch(() => { if (active) setEntry({ userId: currentUserId, failed: true }) })
     return () => { active = false }
   }, [currentUserId, entry.Component])
 
   useEffect(() => {
-    if (authoritative) {
-      setLocalIdentity(confirmedId && confirmedEmail ? { id: confirmedId, email: confirmedEmail } : undefined)
-      return
-    }
+    if (authoritative) return
     let active = true
     void capturePersistedAccountIdentity().then(origin => origin
       ? import("@/lib/query-persister").then(module => module.readPersistedAccountIdentity()) : undefined).then(identity => {
       if (active) setLocalIdentity(previous => previous ?? identity)
     }).catch(() => undefined)
     return () => { active = false }
-  }, [authoritative, confirmedEmail, confirmedId, retry])
+  }, [authoritative, retry])
 
   useEffect(() => {
     if (!authoritative || currentUserId) return
@@ -73,12 +73,11 @@ function CommunityAccountEntry({ pathname }: { pathname: string }) {
     const redirect = () => router.replace(`/sign-in?${new URLSearchParams({ redirect: destination })}`)
     if (!invalid) { redirect(); return }
     let active = true
-    setSignOutFailed(false)
     void authClient.signOut().then(result => {
       if (!active) return
-      if (result.error) setSignOutFailed(true)
+      if (result.error) setSignOutFailedFor(retry)
       else redirect()
-    }).catch(() => { if (active) setSignOutFailed(true) })
+    }).catch(() => { if (active) setSignOutFailedFor(retry) })
     return () => { active = false }
   }, [authoritative, currentUserId, invalid, pathname, retry, router, search])
 
@@ -94,7 +93,7 @@ function CommunityAccountEntry({ pathname }: { pathname: string }) {
   </CommunityAccountPendingFrame>
 
   if (!entry.Component) return <CommunityAccountPendingFrame pathname={pathname}>
-    {entry.failed ? <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8" role="alert">
+    {entryFailed ? <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8" role="alert">
       <p>Couldn&apos;t load the app.</p>
       <Button variant="outline" onClick={() => window.location.reload()}>Reload</Button>
     </div> : undefined}

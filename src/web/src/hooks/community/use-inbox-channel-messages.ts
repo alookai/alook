@@ -73,7 +73,7 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const windowIncomplete = !first || needsPages
   const { error, errorUpdatedAt, errorUpdateCount, fetchNextPage, fetchPreviousPage, hasPreviousPage, isError, isFetching, isPending, isSuccess, refetch } = query
   const recovery = useRef<{ client: typeof client; channelId: string; attempts: number } | null>(null)
-  const loadMissing = useCallback(async () => {
+  const loadMissing = useCallback(async (): Promise<MessageWindowData["pages"][number] | null> => {
     if (needsNewer) {
       const result = hasPreviousPage
         ? await fetchPreviousPage({ cancelRefetch: false })
@@ -81,19 +81,26 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
       const head = result.data?.pages[0]
       // A fresh terminal page can cover the tail even when a captured row was deleted.
       if (!result.isError && head && !head.hasMoreNewer && (!hasPreviousPage || head !== first)) {
-        setReachedTail({ client, channelId, throughSeq, page: head })
+        return head
       }
-      return
+      return null
     }
     if (needsOlder) await fetchNextPage({ cancelRefetch: false })
     else await refetch({ cancelRefetch: false })
-  }, [channelId, client, fetchNextPage, fetchPreviousPage, first, hasPreviousPage, needsNewer, needsOlder, refetch, throughSeq])
+    return null
+  }, [fetchNextPage, fetchPreviousPage, first, hasPreviousPage, needsNewer, needsOlder, refetch])
   useEffect(() => {
     if (!enabled || isFetching) return
+    let active = true
+    const runLoadMissing = () => {
+      void loadMissing().then(head => {
+        if (active && head) setReachedTail({ client, channelId, throughSeq, page: head })
+      })
+    }
     if (isSuccess) {
       recovery.current = null
-      if (needsPages) void loadMissing()
-      return
+      if (needsPages) runLoadMissing()
+      return () => { active = false }
     }
     if (!isError || !windowIncomplete || isAbortError(error) || isConversationAccessError(error) || isConversationAnchorMissingError(error)) return
     const previous = recovery.current
@@ -104,10 +111,10 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
       const current = client.getQueryState(communityKeys.channelMessages(channelId))
       if (current?.status !== "error" || current.fetchStatus !== "idle" || current.errorUpdateCount !== errorUpdateCount) return
       recovery.current = { client, channelId, attempts: attempts + 1 }
-      void loadMissing()
+      runLoadMissing()
     }, Math.max(0, errorUpdatedAt + delay - Date.now()))
-    return () => clearTimeout(timer)
-  }, [channelId, client, enabled, error, errorUpdatedAt, errorUpdateCount, isError, isFetching, isSuccess, loadMissing, needsPages, windowIncomplete])
+    return () => { active = false; clearTimeout(timer) }
+  }, [channelId, client, enabled, error, errorUpdatedAt, errorUpdateCount, isError, isFetching, isSuccess, loadMissing, needsPages, throughSeq, windowIncomplete])
   const loading = accessAllowed && (!hasSnapshot || restoring
     || enabled && (isPending || !isError && needsPages || ids.some(id => !canonical?.has(id))))
   return { messages, accessAllowed, loading, empty: !loading && (!enabled || !windowIncomplete) }

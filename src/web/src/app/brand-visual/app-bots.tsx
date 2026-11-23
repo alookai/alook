@@ -1,7 +1,8 @@
 "use client"
 import type { BotRuntimeOption } from "@/lib/community/machines"
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import { useState, type CSSProperties, type ReactNode } from "react"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import type { PiiPlugin, QuotaLimit, ReasoningEffort } from "@alook/shared"
 import { Button } from "@/components/ui/button"
@@ -210,9 +211,8 @@ function Pad({ children }: { children: ReactNode }) {
 
 function Seeded({ children }: { children: ReactNode }) {
   const client = useQueryClient()
-  const [ready, setReady] = useState(false)
-  useEffect(() => { seedBoardCache(client); setReady(true) }, [client])
-  return ready ? <>{children}</> : null
+  useState(() => { seedBoardCache(client); return true })
+  return <>{children}</>
 }
 
 function SheetLaunchers() {
@@ -364,8 +364,7 @@ function PiiSpecimen() {
 
 export function AppBotsSpecimens(_props: { mode: "light" | "dark" }) {
   // Heatmaps and relative times depend on the clock; render after mount.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const mounted = useHydratedClient()
   if (!mounted) return null
   return (
     <Fixtures>

@@ -1,7 +1,7 @@
 "use client"
 
 import { createStore } from "@tanstack/react-store";
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useQuery, useMutation } from "@tanstack/react-query"
 import { PublicQueryProvider, applicationKey, runApplicationRequest } from "@/lib/application-owner"
 import { useApplicationViewSource } from "@/hooks/use-application-view-source"
@@ -44,7 +44,9 @@ function isDeadInvite(err: unknown): boolean {
  * Fetches invite info, displays server preview, and joins on button click.
  */
 export function InviteAcceptClient({ token }: { token: string }) {
-  const autojoinIntent = useMemo(() => createStore(false), [token])
+  const [intentByToken, setIntentByToken] = useState(() => ({ token, store: createStore(false) }))
+  const autojoinIntent = intentByToken.token === token ? intentByToken.store : createStore(false)
+  if (intentByToken.token !== token) setIntentByToken({ token, store: autojoinIntent })
   return <PublicQueryProvider><InviteAcceptInner token={token} autojoinIntent={autojoinIntent} /></PublicQueryProvider>
 }
 

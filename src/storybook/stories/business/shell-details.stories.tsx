@@ -107,8 +107,8 @@ function InteractiveTodoInbox({ surface }: { surface: "desktop" | "mobile" }) {
   return (
     <div
       className={surface === "desktop"
-        ? "w-[30rem] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
-        : "h-[42rem] w-full max-w-[22.5rem] overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-lg"}
+        ? "w-120 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
+        : "h-168 w-full max-w-90 overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-lg"}
     >
       <InboxPopover
         surface={surface}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { Mac, CdPlayer, Cassette, FlipPhone } from "@/components/brand/retro-objects"
 import { HomepageFaqList } from "@/components/home/homepage-faq"
 import { ArrowRight, Inbox, Mail, Settings, Users, X } from "@/components/icons/lucide";
@@ -211,8 +212,7 @@ export function BrandVisual() {
   // never overwrites the user's saved app theme preference.
   const { resolvedTheme } = useTheme()
   const [overrideMode, setOverrideMode] = useState<"light" | "dark" | null>(null)
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const mounted = useHydratedClient()
   const mode: "light" | "dark" = overrideMode ?? (mounted && resolvedTheme === "dark" ? "dark" : "light")
   const setMode = (next: "light" | "dark") => setOverrideMode(next)
 

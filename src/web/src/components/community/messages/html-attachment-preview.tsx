@@ -22,7 +22,7 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   const { resolvedTheme } = useTheme()
   const fonts = useMemo(() => typeof document === "undefined" ? [] : collectHtmlPreviewFonts(document,
     getComputedStyle(document.documentElement).getPropertyValue("--font-dm-sans") + "," + getComputedStyle(document.documentElement).getPropertyValue("--font-dm-mono")), [])
-  const [mounted, setMounted] = useState(false)
+  const [mounted, setMounted] = useState<boolean>(() => typeof window !== "undefined" && !window.IntersectionObserver)
   const [loaded, setLoaded] = useState(false)
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
   const [height, setHeight] = useState(320)
@@ -46,14 +46,13 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
 
   useEffect(() => {
     const element = root.current
-    if (!element) return
-    if (!window.IntersectionObserver) { setMounted(true); return }
+    if (mounted || !element || !window.IntersectionObserver) return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) { setMounted(true); observer.disconnect() }
     }, { rootMargin: "200px" })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [mounted])
 
   useEffect(() => {
     if (!mounted || error) return

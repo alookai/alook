@@ -18,8 +18,7 @@ function conversationConsumer(useFrame: typeof import("./community-route-context
 }
 
 function Application({ Route, Frame, href }: { Route: React.ComponentType<{ href: string; routeCommitted: boolean }>; Frame: typeof import("./community-route-context").CommunityRouteContext; href: string }) {
-  const [breakpoint, setBreakpoint] = React.useState("unknown")
-  React.useEffect(() => { setBreakpoint("desktop") }, [])
+  const breakpoint = React.useSyncExternalStore(() => () => {}, () => "desktop", () => "unknown")
   return <Frame value={{ breakpoint } as never}><Route href={href} routeCommitted /></Frame>
 }
 

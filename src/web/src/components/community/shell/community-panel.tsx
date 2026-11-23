@@ -1,7 +1,7 @@
 "use client"
 
 import { EmptyState } from "../empty-state"
-import { useLayoutEffect, useState } from "react"
+import { useState } from "react"
 import { MessagesSquare, Pin, Users } from "@/components/icons/lucide";
 import { messagePreviewText, type CommunityRole as Role } from "@alook/shared"
 
@@ -60,7 +60,7 @@ export type CommunityPanelProps = {
 export function CommunityPanel(props: CommunityPanelProps) {
   const { open, onOpenChange, kind } = props
   const [retained, setRetained] = useState(kind)
-  useLayoutEffect(() => { if (kind) setRetained(kind) }, [kind])
+  if (kind && retained !== kind) setRetained(kind)
   const displayed = kind ?? retained
   const profilesByUserId = useCanonicalProfilesByUserId()
   if (!displayed) return null

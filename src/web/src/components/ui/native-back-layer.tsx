@@ -126,15 +126,14 @@ function NativeBackPopup<State extends { open: boolean }>({ elementProps, state,
   render: useRender.RenderProp<State> | undefined
 }) {
   const owner = React.useContext(NativeBackContext)
-  const ref = React.useRef<HTMLDivElement>(null)
+  const [element, setElement] = React.useState<HTMLDivElement | null>(null)
   React.useLayoutEffect(() => {
-    const element = ref.current
     if (!owner || !element) return
     if (state.open) activate(owner, element, () => requestEscape(element), () => (
       !element.hidden && !element.parentElement?.closest("[inert], [hidden]")
     ))
     else startClosing(owner, element)
-  })
+  }, [element, owner, state.open])
   React.useLayoutEffect(() => {
     return () => { if (owner) release(owner) }
   }, [owner])
@@ -142,7 +141,7 @@ function NativeBackPopup<State extends { open: boolean }>({ elementProps, state,
     render,
     state,
     props: { ...elementProps },
-    ref: [ref, elementProps.ref ?? null],
+    ref: [setElement, elementProps.ref ?? null],
   })
 }
 
@@ -162,6 +161,6 @@ export function useNativeBackOwner(getElement: () => HTMLElement | null, request
     }
     activate(owner, element, request, () => getElement() === element)
   }, [getElement, owner, request])
-  React.useLayoutEffect(() => { refresh() })
+  React.useLayoutEffect(() => { refresh() }, [refresh])
   return refresh
 }

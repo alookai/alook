@@ -99,7 +99,7 @@ function BotAuditTimeline({
           data-testid={tid.botAuditPreviewEarlier}
           aria-label="Earlier activity omitted"
           className={tone === "note"
-            ? "flex min-h-5 shrink-0 items-center px-[2px] text-left text-sm font-semibold leading-5 text-black"
+            ? "flex min-h-5 shrink-0 items-center px-0.5 text-left text-sm font-semibold leading-5 text-black"
             : "flex min-h-5 shrink-0 items-center px-3 text-left text-sm font-semibold leading-5 text-black"}
         >
           …

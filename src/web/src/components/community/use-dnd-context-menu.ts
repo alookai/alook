@@ -28,7 +28,7 @@ export function useDndContextMenu(options: Options) {
   useLayoutEffect(() => {
     latest.current = options
     if (!options.canOpen || !options.canDrag()) clearHold()
-  })
+  }, [clearHold, options])
   useEffect(() => {
     if (options.canOpen) return
     actionsRef.current?.close()

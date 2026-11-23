@@ -2,7 +2,7 @@
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { dmHref, normalizeCommunityHref, resolveCommunityModulePlan } from "@/lib/community/community-route"
-import { Activity, useCallback, useLayoutEffect, useMemo, useState } from "react"
+import { Activity, useCallback, useMemo, useState } from "react"
 import { useCommunityRouteFrame } from "./community-route-context"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { useDms } from "@/hooks/community/use-dms"
@@ -14,9 +14,7 @@ export function DmSidebarSlot({ visible = true, href, routeCommitted = true }: {
   const target = normalizeCommunityHref(href ?? frame.href)
   const inMe = target.scope.kind === "me"
   const [visitedMe, setVisitedMe] = useState(inMe)
-  useLayoutEffect(() => {
-    if (inMe) setVisitedMe(true)
-  }, [inMe])
+  if (inMe && !visitedMe) setVisitedMe(true)
   if (!inMe && !visitedMe) return null
   return <Activity mode={inMe && visible ? "visible" : "hidden"}><MeSidebar pathname={target.pathname} routeCommitted={routeCommitted} /></Activity>
 }

@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import { useState, type CSSProperties, type ReactNode } from "react"
+import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import type { BotCreationItem, BotCreationPayload, FriendApprovalPayload, NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
@@ -136,9 +137,8 @@ function Pad({ children, style }: { children: ReactNode; style?: CSSProperties }
 
 function Seeded({ children }: { children: ReactNode }) {
   const client = useQueryClient()
-  const [ready, setReady] = useState(false)
-  useEffect(() => { seedPeopleCache(client); setReady(true) }, [client])
-  return ready ? <>{children}</> : null
+  useState(() => { seedPeopleCache(client); return true })
+  return <>{children}</>
 }
 
 function FriendsSpecimens() {
@@ -344,8 +344,7 @@ function BotLogSpecimens() {
 
 export function AppPeopleSpecimens(_props: { mode: "light" | "dark" }) {
   // Relative times and the running clock depend on Date.now(); render after mount.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const mounted = useHydratedClient()
   if (!mounted) return null
   return (
     <Fixtures>
