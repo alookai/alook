@@ -69,7 +69,16 @@ jobs:
       run_static_checks: ${{ steps.scope.outputs.run_static_checks }}
       run_linux: ${{ steps.scope.outputs.run_linux }}
       run_db_query_check: ${{ steps.scope.outputs.run_db_query_check }}
-      run_windows: ${{ steps.scope.outputs.run_windows }}
+      run_windows_agent_driver: >-
+        ${{ steps.scope.outputs.run_windows == 'true' &&
+            contains(fromJSON(steps.scope.outputs.windows_suites || '[]'), 'agent-driver') }}
+      run_windows_daemon: >-
+        ${{ steps.scope.outputs.run_windows == 'true' &&
+            contains(fromJSON(steps.scope.outputs.windows_suites || '[]'), 'daemon') }}
+      run_windows_workspace: >-
+        ${{ steps.scope.outputs.run_windows == 'true' &&
+            (contains(fromJSON(steps.scope.outputs.windows_suites || '[]'), 'app') ||
+             contains(fromJSON(steps.scope.outputs.windows_suites || '[]'), 'shared')) }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
       run_ui_e2e: ${{ steps.scope.outputs.run_ui_e2e }}
       run_resizable_panels_compat: ${{ steps.scope.outputs.run_resizable_panels_compat }}
@@ -417,10 +426,94 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  test-windows:
-    name: Tests (windows-latest)
+  test-windows-agent-driver:
+    name: Windows Tests (Agent Driver)
     needs: scope
-    if: needs.scope.outputs.run_windows == 'true'
+    if: needs.scope.outputs.run_windows_agent_driver == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.11
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
+      - name: Validate execution plan
+        if: needs.scope.result == 'success'
+        env:
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: windows_suites
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.windows_suites }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - name: Run Windows process authority fixtures
+        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts
+      - name: Run agent-driver tests in isolation
+        run: pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=text
+      - name: Upload Windows agent-driver coverage
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./src/daemon/agent-driver/coverage/coverage-final.json
+          disable_search: true
+          fail_ci_if_error: true
+          name: windows-agent-driver
+
+  test-windows-daemon:
+    name: Windows Tests (Daemon)
+    needs: scope
+    if: needs.scope.outputs.run_windows_daemon == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.11
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download execution plan
+        if: needs.scope.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.scope.outputs.plan_artifact_name }}
+          path: .ci
+      - name: Validate execution plan
+        if: needs.scope.result == 'success'
+        env:
+          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
+          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
+          CI_PROJECTION_NAME: windows_suites
+          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.windows_suites }}
+        run: node scripts/ci/validate-execution-plan.mjs
+      - name: Run Windows daemon admission fixture
+        run: |
+          pnpm --filter @alook/agent-driver build
+          pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts -t "starts the builtin Codex lane from a fresh nested daemon workspace"
+      - name: Run daemon tests in isolation
+        env:
+          VITEST_MAX_WORKERS: 1
+        run: pnpm --filter @alook/daemon test
+
+  test-windows:
+    name: Windows Tests (App / Shared)
+    needs: scope
+    if: needs.scope.outputs.run_windows_workspace == 'true'
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -454,33 +547,7 @@ jobs:
           CI_PROJECTION_NAME: windows_suites
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.windows_suites }}
         run: node scripts/ci/validate-execution-plan.mjs
-      - name: Run Windows process authority fixtures
-        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'agent-driver')
-        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts
-      - name: Run agent-driver tests in isolation
-        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'agent-driver')
-        run: pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=text
-      - name: Upload Windows agent-driver coverage
-        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'agent-driver')
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./src/daemon/agent-driver/coverage/coverage-final.json
-          disable_search: true
-          fail_ci_if_error: true
-          name: windows-agent-driver
-      - name: Run Windows daemon admission fixture
-        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'daemon')
-        run: |
-          pnpm --filter @alook/agent-driver build
-          pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts -t "starts the builtin Codex lane from a fresh nested daemon workspace"
-      - name: Run daemon tests in isolation
-        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'daemon')
-        env:
-          VITEST_MAX_WORKERS: 1
-        run: pnpm --filter @alook/daemon test
       - name: Run selected Windows workspace tests
-        if: contains(fromJSON(needs.scope.outputs.windows_suites), 'app') || contains(fromJSON(needs.scope.outputs.windows_suites), 'shared')
         shell: bash
         env:
           WINDOWS_SUITES: ${{ needs.scope.outputs.windows_suites }}
@@ -1030,6 +1097,8 @@ jobs:
       - static-checks
       - test-linux
       - db-query-check
+      - test-windows-agent-driver
+      - test-windows-daemon
       - test-windows
       - app-packed-artifact
       - e2e
@@ -1046,7 +1115,9 @@ jobs:
           {"name":"static-checks","expected":${{ needs.scope.outputs.run_static_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_linux == 'true' }},"result":"${{ needs.test-linux.result }}"},
           {"name":"db-query-check","expected":${{ needs.scope.outputs.run_db_query_check != 'false' }},"result":"${{ needs.db-query-check.result }}"},
-          {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
+          {"name":"test-windows-agent-driver","expected":${{ needs.scope.outputs.run_windows_agent_driver == 'true' }},"result":"${{ needs.test-windows-agent-driver.result }}"},
+          {"name":"test-windows-daemon","expected":${{ needs.scope.outputs.run_windows_daemon == 'true' }},"result":"${{ needs.test-windows-daemon.result }}"},
+          {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows_workspace == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
           {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' }},"result":"${{ needs.e2e.result }}"},
           {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"},

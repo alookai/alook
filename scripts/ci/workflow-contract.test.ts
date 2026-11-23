@@ -249,6 +249,8 @@ function ciJob(name: string): string {
   return next < 0 ? ciWorkflow.slice(start) : ciWorkflow.slice(start, start + 1 + next)
 }
 
+const windowsTestJobs = ["test-windows-agent-driver", "test-windows-daemon", "test-windows"]
+
 describe("E2E UI workflow", () => {
   it("uses one exact Node release for shared build production and verification", () => {
     const nodeVersion = (job: string) => ciJob(job).match(/^\s*node-version:\s*["']?([^"'\s]+)["']?\s*$/m)?.[1]
@@ -400,7 +402,7 @@ describe("Bun workflow setup", () => {
   it("installs pinned Bun in every CI job that builds a daemon package fixture", () => {
     const selectedBun = ciJob("static-checks").match(/bun-version: (\d+\.\d+\.\d+)$/m)?.[1]
     expect(selectedBun).toMatch(/^\d+\.\d+\.\d+$/)
-    const bunJobs = ["static-checks", "test-linux", "test-windows", "app-packed-artifact"]
+    const bunJobs = ["static-checks", "test-linux", ...windowsTestJobs, "app-packed-artifact"]
     expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(bunJobs.length)
     for (const job of bunJobs) {
       expect(ciJob(job)).toContain("oven-sh/setup-bun")
@@ -481,7 +483,8 @@ describe("CI workflow graph", () => {
     expect(scope).toContain("--plan-file .ci/execution-plan.json")
     expect(scope).toContain("name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}")
     for (const job of [
-      "auth-build", "blog-build", "static-checks", "test-linux", "test-windows", "app-packed-artifact",
+      "auth-build", "blog-build", "static-checks", "test-linux", ...windowsTestJobs,
+      "app-packed-artifact",
       "e2e", "desktop-rust", "lighthouse", "ui-e2e-build", "e2e-ui", "resizable-panels-compat", "merge-reports",
       "ci-gate", "ui-e2e-gate",
     ]) {
@@ -562,9 +565,21 @@ describe("CI workflow graph", () => {
 
   it("gates the consolidated jobs under the stable CI Gate", () => {
     const gate = ciJob("ci-gate")
-    for (const job of ["auth-build", "static-checks", "test-linux", "test-windows", "app-packed-artifact"]) {
-      expect(gate).toContain(`- ${job}`)
+    for (const job of ["auth-build", "static-checks", "test-linux", "app-packed-artifact"]) {
+      expect(gate).toContain(`- ${job}\n`)
       expect(gate).toContain(`"name":"${job}"`)
+    }
+    for (const [job, output] of [
+      ["test-windows-agent-driver", "run_windows_agent_driver"],
+      ["test-windows-daemon", "run_windows_daemon"],
+      ["test-windows", "run_windows_workspace"],
+    ]) {
+      const expected = `needs.scope.outputs.${output} == 'true'`
+      expect(ciJob(job)).toContain(`if: ${expected}\n`)
+      expect(gate).toContain(`- ${job}\n`)
+      expect(gate).toContain(
+        `{"name":"${job}","expected":\${{ ${expected} }},"result":"\${{ needs.${job}.result }}"}`,
+      )
     }
     for (const removed of ["quality", "knip", "build", "coverage"]) {
       expect(gate).not.toContain(`- ${removed}`)
@@ -690,38 +705,47 @@ describe("Private agent driver package", () => {
 })
 
 describe("CI test budgets", () => {
-  it("gives the slower Windows workspace suite enough job time", () => {
-    expect(ciJob("test-windows")).toContain("timeout-minutes: 15")
+  it("gives each independent Windows test job a 15 minute budget", () => {
+    for (const job of windowsTestJobs) {
+      const windows = ciJob(job)
+      expect(windows).toContain("needs: scope\n")
+      expect(windows).toContain("runs-on: windows-latest")
+      expect(windows).toContain("timeout-minutes: 15")
+    }
   })
 
-  it("runs Windows process-authority and full driver fixtures in isolation before the daemon suite", () => {
-    const windows = ciJob("test-windows")
-    const processAuthority = windows.indexOf(
+  it("runs the Windows process fixtures before their complete test suites", () => {
+    const driver = ciJob("test-windows-agent-driver")
+    const processAuthority = driver.indexOf(
       "pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts",
     )
-    const driver = windows.indexOf(
+    const driverTests = driver.indexOf(
       "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=text",
     )
-    const coverageUpload = windows.indexOf("files: ./src/daemon/agent-driver/coverage/coverage-final.json")
-    const focusedAdmission = windows.indexOf(
+    const coverageUpload = driver.indexOf("files: ./src/daemon/agent-driver/coverage/coverage-final.json")
+    expect(processAuthority).toBeGreaterThan(0)
+    expect(driverTests).toBeGreaterThan(processAuthority)
+    expect(coverageUpload).toBeGreaterThan(driverTests)
+
+    const daemon = ciJob("test-windows-daemon")
+    const driverBuild = daemon.indexOf("pnpm --filter @alook/agent-driver build")
+    const focusedAdmission = daemon.indexOf(
       "pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts",
     )
-    const daemon = windows.indexOf("pnpm --filter @alook/daemon test")
-    expect(processAuthority).toBeGreaterThan(0)
-    expect(driver).toBeGreaterThan(processAuthority)
-    expect(coverageUpload).toBeGreaterThan(driver)
-    expect(focusedAdmission).toBeGreaterThan(coverageUpload)
-    expect(daemon).toBeGreaterThan(focusedAdmission)
+    const daemonTests = daemon.indexOf("pnpm --filter @alook/daemon test")
+    expect(driverBuild).toBeGreaterThan(0)
+    expect(focusedAdmission).toBeGreaterThan(driverBuild)
+    expect(daemonTests).toBeGreaterThan(focusedAdmission)
   })
 
   it("uploads the Windows driver report without accidentally discovering unrelated files", () => {
-    const windows = ciJob("test-windows")
+    const windows = ciJob("test-windows-agent-driver")
     expect(windows).toContain("disable_search: true")
     expect(windows).toContain("name: windows-agent-driver")
     expect(windows).toContain("fail_ci_if_error: true")
   })
 
-  it("runs only Windows-relevant workspace packages after the process-bearing suites", () => {
+  it("runs only Windows-relevant workspace packages in the workspace job", () => {
     const windows = ciJob("test-windows")
     expect(windows).toContain("for suite in app shared")
     expect(windows).toContain('filters+=("--filter=@alook/$suite")')
@@ -901,7 +925,9 @@ describe("Turbo CI execution", () => {
     expect(scope).toContain("plan_hash: ${{ steps.scope.outputs.plan_hash }}")
     expect(ciWorkflow).not.toContain("--affected")
     expect(ciJob("static-checks")).toContain("CI_PROJECTION_NAME: static_tasks")
-    expect(ciJob("test-windows")).toContain("CI_PROJECTION_NAME: windows_suites")
+    for (const job of windowsTestJobs) {
+      expect(ciJob(job)).toContain("CI_PROJECTION_NAME: windows_suites")
+    }
   })
 
   it("runs validated native task groups and the canonical unit entry", () => {
@@ -911,10 +937,10 @@ describe("Turbo CI execution", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("node scripts/ci/run-unit-tests.mjs")
     expect(linux).toContain("--ci --receipt .ci/unit-execution.json")
-    const windows = ciJob("test-windows")
-    expect(windows).toContain("run: pnpm --filter @alook/daemon test")
-    expect(windows).toContain('node scripts/ci/run-turbo.mjs run test "${filters[@]}"')
-    expect(windows.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
+    const windowsDaemon = ciJob("test-windows-daemon")
+    expect(windowsDaemon).toContain("run: pnpm --filter @alook/daemon test")
+    expect(windowsDaemon.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
+    expect(ciJob("test-windows")).toContain('node scripts/ci/run-turbo.mjs run test "${filters[@]}"')
   })
 
   it("isolates daemon process-authority tests in root workspace runs", () => {
