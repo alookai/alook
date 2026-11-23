@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, type ComponentProps } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
-import { beginNavigationPrefetch } from "@/lib/observability/context"
 
 const absentLifecycle = createStore({ active: true, generation: 0 })
 type Props = ComponentProps<"a"> & {
@@ -29,8 +28,7 @@ export function CommunityNavigationLink({
     if (preview || !enabled || active || warmed.current?.href === href
       && warmed.current.registry === registry && warmed.current.generation === lifecycle.generation) return
     warmed.current = { href, registry, generation: lifecycle.generation }
-    beginNavigationPrefetch(href)
-    if (registry) void prepareNavigationMetadata(registry.queryClient, href, "prefetch")
+    if (registry) void prepareNavigationMetadata(registry.queryClient, href)
   }, [active, enabled, href, lifecycle.generation, preview, registry])
   useEffect(() => { if (prefetchMode === "visible") warm() }, [prefetchMode, warm])
 

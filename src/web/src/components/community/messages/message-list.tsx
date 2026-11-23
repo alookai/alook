@@ -3,8 +3,6 @@
 import type { ImagePreview } from "@/lib/community/models/message"
 import { withImageGallery } from "./image-preview-gallery"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
-import { useObservedRegion } from "@/lib/observability/regions"
-import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { hashKey } from "@tanstack/react-query"
 import { conversationListScopeKey } from "@/lib/community/conversation-qualification"
@@ -122,8 +120,6 @@ function MessageListOwner({ variant, initialScrollReady, renderer, ...props }: M
     tailAttached: !props.hasMoreNewer && !props.isFetchingNewer && !props.presentPending,
     viewerId: props.viewerUserId ?? props.positionScope?.proof.viewerId,
   })
-  const visible = visibleVirtualItems(controller.virtualizer).flatMap(item => { const row = controller.items[item.index]; return row?.kind === "message" ? [row.m] : [] })
-  useObservedRegion("messages", controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive && !resolvedProps.initialLoadError && (!props.messages.length || visible.length > 0), visible.length, { ...props.observation, wait_reason: props.observation?.wait_reason === "none" && !(controller.initialPosition.contentVisible && controller.initialPosition.contentInteractive) ? "position" : props.observation?.wait_reason })
   return renderMessageListView(resolvedProps, controller, () => (
     <MessageUpdateMotionContext.Provider value={motionActive ? renderer.revision : null}>
       <VirtualRows

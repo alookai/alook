@@ -253,7 +253,6 @@ export function ThreadChannelSurface({
                   loading={controller.feed.isLoading}
                   initialLoadError={controller.feed.initialLoadError}
                   targetLoadError={controller.feed.targetLoadError}
-                  observation={controller.feed.observation}
                   retryingInitialLoad={controller.feed.retryingInitialLoad}
                   onRetryInitialLoad={controller.feed.retryInitialLoad}
                   pinnedIds={controller.pinnedIds}

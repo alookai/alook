@@ -1,10 +1,6 @@
-import faroPackage from "@grafana/faro-web-sdk/package.json"
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { initializeFaro, InternalLoggerLevel, SessionInstrumentation, VolatileSessionsManager } from "@grafana/faro-web-sdk";
-import { act, render } from "@/test/react-dom-harness";
+import { act } from "@/test/react-dom-harness";
 import { announceAnalyticsConsent } from "@/lib/analytics-consent";
-
-vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useSearchParams: () => new URLSearchParams(window.location.search) }));
 
 beforeEach(() => { Reflect.get(globalThis, "jsdom").reconfigure({ url: "https://alook.ai/" }); });
 
@@ -18,61 +14,8 @@ afterEach(async () => {
   vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
 });
 
-it("boots the actual Blog entry with the native resumed session and exports its router transition through the rendered content owner", async () => {
-  vi.useFakeTimers();
-  vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public");
-  vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", "qa");
-  vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", "a".repeat(40));
-  Object.defineProperty(performance, "getEntriesByType", { configurable: true, value: () => [] });
-  window.history.replaceState(null, "", "/blog");
-  document.cookie = "alook_analytics_consent=v1.granted; path=/";
-  VolatileSessionsManager.removeUserSession();
-  const priorDocument = initializeFaro({
-    isolate: true, preventGlobalExposure: true, internalLoggerLevel: InternalLoggerLevel.OFF,
-    app: { name: "alook-web" }, transports: [], instrumentations: [new SessionInstrumentation()],
-    sessionTracking: { enabled: true, persistent: false, samplingRate: 1, session: { attributes: { alook_account: "anon" } } },
-  })!;
-  const prior = VolatileSessionsManager.fetchUserSession()!;
-  expect(prior.sessionId).toBe(priorDocument.api.getSession()!.id);
-  priorDocument.instrumentations.remove(...priorDocument.instrumentations.instrumentations);
-  const sent: Array<{ meta: { sdk: { name: string; version: string }; session: { id: string } }; events?: Array<{ name: string; attributes?: Record<string, string> }> }> = [];
-  vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => { if (options?.body) sent.push(JSON.parse(String(options.body))); return new Response(null, { status: 204 }); }));
-  const { onRouterTransitionStart } = await import("./instrumentation-client");
-  expect(Array.from(window.dataLayer![0] as IArguments)).toEqual(["consent", "default", { analytics_storage: "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }]);
-  const { navigationForHref } = await import("@/lib/observability/context");
-  const { ObservedStaticContent, ObservedRouteCommit } = await import("@/lib/observability/regions");
-  await vi.waitFor(() => expect(sent.some(body => body.events?.some(event => event.name === "session_resume"))).toBe(true), { timeout: 5000 });
-  const view = render(<ObservedStaticContent key="/blog" pathname="/blog" />);
-  const route = render(<ObservedRouteCommit />);
-  await act(async () => { onRouterTransitionStart("/blog/introducing-alook?private=article-title"); });
-  expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/introducing-alook`, page_referrer: "" }]);
-  const navigation = navigationForHref("/blog/introducing-alook?private=article-title")!;
-  expect(navigation).toBeDefined();
-  expect(navigation.done).toBe(false);
-  await act(async () => {
-    view.rerender(<ObservedStaticContent key="introducing-alook" pathname="/blog/introducing-alook" />);
-  });
-  expect(navigation.done).toBe(false);
-  await act(async () => {
-    window.history.pushState(null, "", "/blog/introducing-alook?private=article-title");
-    route.rerender(<ObservedRouteCommit />);
-  });
-  await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
-  const exported = sent.flatMap(body => body.events ?? []).filter(event => event.attributes?.action_id === navigation.id);
-  expect(exported.map(event => event.name)).toEqual(expect.arrayContaining(["action.start", "navigation.intent", "navigation.commit", "region.ready_commit", "action.finish"]));
-  expect(exported.filter(event => event.name === "action.finish").map(event => event.attributes?.outcome)).toEqual(["success"]);
-  for (const event of exported) expect(event.attributes).toMatchObject({ session_id: prior.sessionId, frontend_surface: "blog", route_template: "/blog/[slug]", navigation_id: navigation.navigationId });
-  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: faroPackage.version }, session: { id: prior.sessionId } } });
-  expect(VolatileSessionsManager.fetchUserSession()).toMatchObject({ sessionId: prior.sessionId, started: prior.started });
-  expect(JSON.stringify(sent)).not.toContain("alook_account");
-  expect(JSON.stringify(exported)).not.toContain("article-title");
-  expect(JSON.stringify(exported)).not.toContain("introducing-alook");
-});
-
-
 it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog document from %s with default public collection and saved denial preserved", async value => {
   vi.resetModules();
-  vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "");
   window.history.replaceState(null, "", "/blog/public?secret=query#hash");
   document.cookie = `alook_analytics_consent=${value}; path=/`;
   window.dataLayer = [];
@@ -94,7 +37,6 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog do
 
 it.each(["http://localhost:3000", "https://preview.alook.test"])("keeps production Google collection disabled on %s in the real Blog entry", async origin => {
   vi.resetModules();
-  vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "");
   Reflect.get(globalThis, "jsdom").reconfigure({ url: `${origin}/blog/public?secret=query#hash` });
   document.cookie = "alook_analytics_consent=v1.granted; path=/";
   window.dataLayer = [];

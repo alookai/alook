@@ -10,10 +10,6 @@ import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityRuntime } from "@/stores/community/runtime-owner"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
-import type { ApiRequestOptions } from "@/lib/api/client"
-import { actionAttributes, currentPageObservation } from "@/lib/observability/context"
-import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
-import { channelHref } from "@/lib/community/community-route"
 import { messageWindowPage, type MessageInput, type MessagesPage, type MessagesReadPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
 import { buildMessagesUrl, messageWindowIdentity, viewportFillFetchMeta } from "@/lib/community/message-window"
 
@@ -106,7 +102,7 @@ function cachedCoverage(queryClient: QueryClient, scopeId: string, cache: Messag
   } satisfies MessagesPage }
 }
 
-type MessageRepairOwner = { query: Query; signal: AbortSignal; lifetime?: "query"; observation?: ApiRequestOptions["observation"] }
+type MessageRepairOwner = { query: Query; signal: AbortSignal; lifetime?: "query" }
 type MessageRepairReceipt = {
   token: ReturnType<typeof captureCommunityLiveSnapshotToken>
   window: Query | undefined
@@ -179,31 +175,19 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
     networkMode: "online",
     meta: { communityMessageRepair: receipt },
     queryFn: async ({ signal }) => {
-      const path = scope.kind === "dm" ? `/c/me/${encodeURIComponent(scopeId)}` : serverId ? channelHref(serverId, scopeId) : undefined
-      const observation = owner?.observation ?? (typeof window !== "undefined" && window.location.pathname === path
-        ? { page: currentPageObservation(), reason: "background" as const } : { page: undefined, reason: "unknown" as const })
-      const generation = telemetryGeneration()
-      const observed = isTelemetryEligible()
-      const record = (reconcile_stage: "start" | "settled" | "error" | "cancelled" | "retired") => {
-        if (observed && generation === telemetryGeneration()) emitTelemetry("conversation.reconcile", {
-          ...actionAttributes(observation?.action ?? observation?.page), reconcile_stage, request_role: "reconcile",
-        })
-      }
-      record("start")
       const assert = () => assertRepairCurrent(queryClient, receipt, signal)
       try {
         await registry?.ready
         assert()
         const data = originalQuery?.state.data
-        if (!isMessageCache(data) || !data.pageParams[0]) { record("retired"); return { latestSeq: 0 } }
+        if (!isMessageCache(data) || !data.pageParams[0]) return { latestSeq: 0 }
         await queryClient.cancelQueries({ queryKey: key, exact: true }, { revert: true, silent: true })
         assert()
         const tag = messageWindowIdentity(key)?.tag ?? null
         const load = async (param: MessagesPageParam) => {
           assert()
           const page = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesReadPage>(
-            url(scopeId, param, tag), { signal: readSignal, assertActive: assert, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) },
-              observation: { ...observation, reason: "background", role: "reconcile", windowMode: param.mode } }, token,
+            url(scopeId, param, tag), { signal: readSignal, assertActive: assert, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
           ))
           assert()
           return page
@@ -245,12 +229,12 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
           queryClient.setQueryData<MessageCache>(key, (cache) => isMessageCache(cache) ? mergeWindow(cache, refreshed, catchUp) : cache)
         }
         const current = originalQuery?.state.data
-        if (!isMessageCache(current) || !current.pageParams[0]) { record("retired"); return { latestSeq: 0 } }
+        if (!isMessageCache(current) || !current.pageParams[0]) return { latestSeq: 0 }
         if (!landingPage || hashKey([landingPage.param]) !== hashKey([current.pageParams[0]])) {
           landingPage = { param: current.pageParams[0], page: await load(current.pageParams[0]) }
         }
         const refreshed = landingPage.page
-        if (!isMessageCache(originalQuery?.state.data)) { record("retired"); return { latestSeq: 0 } }
+        if (!isMessageCache(originalQuery?.state.data)) return { latestSeq: 0 }
         await prefetch(current, refreshed)
         await publish(refreshed)
         if (pendingDirection && !paginationReplayed) {
@@ -268,10 +252,8 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         if (latestSeq < target() && !(prefetched?.page.hasMoreNewer && prefetched.page.newerCursor)) {
           throw new Error("Messages have not caught up yet")
         }
-        record("settled")
         return { latestSeq }
       } catch (error) {
-        record(signal.aborted ? "cancelled" : isAbortError(error) ? "retired" : "error")
         assert()
         if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404) || isConversationAnchorMissingError(error)) throw error
         if (registry) await completeCommunityPublication(registry, () => retireCommunityChannelReading(registry, scopeId, {

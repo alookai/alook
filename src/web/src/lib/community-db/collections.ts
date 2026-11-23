@@ -3,7 +3,6 @@ import type { z } from "zod"
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import { clearPersistedCache, type QualifiedPersister, type CommunityRestoredCollections } from "@/lib/query-persister"
 import type { AuxiliaryWindowScope } from "@/lib/community/auxiliary-window-contract"
-import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import {
   DbClient,
   BasicIndex,
@@ -125,7 +124,7 @@ function buildCommunityDbRegistry(
         return !row || presence === row.presence ? [] : [{ ...row, presence }]
       })
       return writeCommunityCollectionChanges(registry, "profiles", next)
-    }), messageStream: createMessageStreamStore(() => ({ get: (id) => { const message = messages.get(id); return typeof message?.seq === "number" ? message as CanonicalMessage : undefined } }), queryClient),
+    }), messageStream: createMessageStreamStore(() => ({ get: (id) => { const message = messages.get(id); return typeof message?.seq === "number" ? message as CanonicalMessage : undefined } })),
     serverEject: createOwnerServerDeleteStore(),
     lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },
   }
@@ -182,7 +181,6 @@ function buildCommunityDbRegistry(
     hasRestoredData: () => restoration.get().hasData,
     preload: () => Promise.all(Object.values(collections).map((collection) => collection.preload())),
     cleanup: () => {
-      disposeQueryDiagnostics(queryClient)
       if (registryByQueryClient.get(queryClient) === registry) registryByQueryClient.delete(queryClient)
       runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
       runtime.transport.send = null

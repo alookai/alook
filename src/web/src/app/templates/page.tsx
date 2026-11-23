@@ -1,4 +1,3 @@
-import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import { TEMPLATES, TEMPLATE_CATEGORIES } from "@/lib/templates";
 import { TemplatesClient } from "./client";
@@ -40,7 +39,7 @@ const itemListJsonLd = {
 
 export default async function TemplatesPage() {
   return (
-    <><ObservedStaticContent /><>
+    <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
@@ -49,6 +48,6 @@ export default async function TemplatesPage() {
         templates={TEMPLATES}
         categories={TEMPLATE_CATEGORIES}
       />
-    </></>
+    </>
   );
 }

@@ -1,4 +1,3 @@
-import { annotateWorkerSpan, observeWorkerOperation } from "./observability/worker"
 import { betterAuth } from "better-auth"
 import { emailOTP, lastLoginMethod, oneTimeToken } from "better-auth/plugins"
 import {
@@ -483,14 +482,9 @@ function authVersionId(env: Env): string | undefined {
  * API call and are never retained here.
  */
 export function getAuth(env: Env): AuthInstance {
-  return observeWorkerOperation("auth.instance", {}, () => resolveAuthInstance(env))
-}
-
-function resolveAuthInstance(env: Env): AuthInstance {
   const versionId = authVersionId(env)
   const mode = resolveMode({ nodeEnv: env.NODE_ENV ?? process.env.NODE_ENV })
   if (!versionId && mode === "production") {
-    annotateWorkerSpan({ auth_instance: "request_local", auth_reuse_reason: "version_missing" })
     return createAuth(env)
   }
 
@@ -505,20 +499,12 @@ function resolveAuthInstance(env: Env): AuthInstance {
     || entry.versionId !== lifecycleVersion
     || !sameAuthConfiguration(entry.configuration, configuration)
   ) {
-    annotateWorkerSpan({ auth_instance: "created", auth_reuse_reason: !entry ? "cold" : entry.versionId !== lifecycleVersion ? "version_changed" : "configuration_changed" })
     entry = {
       configuration,
       versionId: lifecycleVersion,
       auth: createAuth(env),
     }
     lifecycle.entry = entry
-  } else {
-    annotateWorkerSpan({ auth_instance: "reused", auth_reuse_reason: "match" })
   }
   return entry.auth
-}
-
-export async function observeAuthSession<T>(auth: AuthInstance, execute: () => Promise<T>): Promise<T> {
-  await observeWorkerOperation("auth.context_ready", {}, () => auth.$context)
-  return observeWorkerOperation("auth.get_session", {}, execute)
 }

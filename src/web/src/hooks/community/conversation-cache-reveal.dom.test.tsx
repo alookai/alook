@@ -21,7 +21,6 @@ import type { MessageWindowData } from "@/lib/community/message-window"
 type ScrollResult = ReturnType<typeof import("./use-scroll-anchor").useScrollAnchor>
 const preCommand = vi.hoisted(() => ({
   latest: null as unknown,
-  finishes: [] as Array<{ kind: string; entry?: object | null; reason: string; source?: string }>,
 }))
 vi.mock("./use-scroll-anchor", async original => {
   const actual = await original<typeof import("./use-scroll-anchor")>()
@@ -29,18 +28,6 @@ vi.mock("./use-scroll-anchor", async original => {
     const result = actual.useScrollAnchor(...args)
     preCommand.latest = result
     return result
-  } }
-})
-vi.mock("@/lib/observability/position", async original => {
-  const actual = await original<typeof import("@/lib/observability/position")>()
-  return { ...actual, beginPositionObservation: (...args: Parameters<typeof actual.beginPositionObservation>) => {
-    const finish = actual.beginPositionObservation(...args)
-    let observed = false
-    return (...end: Parameters<typeof finish>) => {
-      if (!observed) preCommand.finishes.push({ kind: args[0], entry: args[2], reason: end[0], source: end[1]?.position_source })
-      observed = true
-      return finish(...end)
-    }
   } }
 })
 
@@ -58,7 +45,7 @@ vi.mock("@/components/community/messages/virtual-cursor-list", async original =>
   } }
 })
 vi.mock("@/lib/api/client", async original => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: load }))
-beforeEach(() => { installMessageScrollFixture(); load.mockReset(); preCommand.latest = null; preCommand.finishes = []; commitGate.hold = false; commitGate.publish = undefined })
+beforeEach(() => { installMessageScrollFixture(); load.mockReset(); preCommand.latest = null; commitGate.hold = false; commitGate.publish = undefined })
 afterEach(restoreMessageScrollFixture)
 const kinds = ["text", "text-thread", "forum-post", "dm"] as const
 
@@ -1476,22 +1463,20 @@ it.each([
     phase = "new-entry-first-frames"
     runFrames()
     phases.push({ phase, ...geometry(), firstEndCalls: end.mock.calls.length, newHandovers: handovers.mock.calls.length })
-    const decisions = preCommand.finishes.filter(event => event.entry === nextIntent)
-    expect(decisions.some(event => event.source === "tail"), "Preparation invalid: no actual tail decision").toBe(true)
     expect(inputs).toBe(inputBaseline)
     if (external) {
       expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeGreaterThan(500)
-      expect(decisions.some(event => event.reason === "origin_changed")).toBe(true)
+      expect(current().positionOutcome).toBe("user-cancelled")
       expect(handovers).toHaveBeenCalledOnce()
       expect(end).not.toHaveBeenCalled()
     } else {
       expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
-      expect(decisions.some(event => event.reason === "origin_changed")).toBe(false)
+      expect(current().positionOutcome).toBe("success")
       expect(handovers).not.toHaveBeenCalled()
       expect(end).toHaveBeenCalledOnce()
     }
   } finally {
-    console.info("pre-command-row-measurement-facts", JSON.stringify({ phases, writes, decisions: preCommand.finishes.map(({ kind, entry, reason, source }) => ({ kind, entry: entry === nextIntent ? "new" : "old", reason, source })) }))
+    console.info("pre-command-row-measurement-facts", JSON.stringify({ phases, writes, outcome: current().positionOutcome }))
     view.unmount()
     owner.client.clear()
   }

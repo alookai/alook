@@ -4,7 +4,6 @@ import { CommunitySelfProfileReadSchema } from "@alook/shared"
 import { forumSidebarWindowComplete, isForumSidebarWindowKey, readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
 import { clearPublicWorkerCaches, getPublicWorkerCacheSizeBytes } from "@/lib/service-worker/public-cache-storage"
-import { observeRestoreRead, observeRestoreDecode } from "@/lib/observability/restore"
 import { createStore as createNativeStore } from "@tanstack/store"
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister"
 import type {
@@ -589,22 +588,21 @@ export function createIdbPersister(userId: string | null, domain: DisplayDomain 
     persistClient: (client) => { if (!persisting) return; discardInitialSnapshot(); return writer.persistClient(client) },
     restoreClient: async () => {
       try {
-        const input = await observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", undefined, async (store, current) => {
+        const input = await withEligiblePersister(key, userId, eligibility, "readwrite", undefined, async (store, current) => {
           const raw = await promisifyRequest<unknown>(store.get(key))
           const decoded = initialSnapshot && initialSnapshot.raw === raw ? initialSnapshot.decoded : decodeDiskSnapshot(raw)
           discardInitialSnapshot()
           const expected = await eligibility
           if (!decoded || decoded.ownerEpochs.device !== expected.device || decoded.ownerEpochs.account !== expected.account) { store.delete(key); return undefined }
           return { ...decoded, retired: changedChannelFences(current, decoded.fences) }
-        }), persister)
-        return input && observeRestoreDecode(persister, () => {
-          const snapshot = scrubDehydratedClient(input.snapshot, userId, input.retired, undefined, domain)
-          if (!snapshot.timestamp || Date.now() - snapshot.timestamp <= PERSIST_MAX_AGE_MS) return snapshot
-          if (domain === "application") return snapshot
-          const profiles = snapshot.clientState.queries.filter(query => isCommunityDbCollectionKey(query.queryKey)
-            && query.queryKey[2] === userId && query.queryKey[3] === "profiles" && Array.isArray(query.state.data) && query.state.data.length > 0)
-          return profiles.length ? { ...snapshot, timestamp: Date.now(), clientState: { queries: profiles, mutations: [] } } : snapshot
-        }, PERSIST_BUSTER, PERSIST_MAX_AGE_MS)
+        })
+        if (!input) return undefined
+        const snapshot = scrubDehydratedClient(input.snapshot, userId, input.retired, undefined, domain)
+        if (!snapshot.timestamp || Date.now() - snapshot.timestamp <= PERSIST_MAX_AGE_MS) return snapshot
+        if (domain === "application") return snapshot
+        const profiles = snapshot.clientState.queries.filter(query => isCommunityDbCollectionKey(query.queryKey)
+          && query.queryKey[2] === userId && query.queryKey[3] === "profiles" && Array.isArray(query.state.data) && query.state.data.length > 0)
+        return profiles.length ? { ...snapshot, timestamp: Date.now(), clientState: { queries: profiles, mutations: [] } } : snapshot
       } finally { discardInitialSnapshot() }
     },
     removeClient: () => { if (!persisting) return; discardInitialSnapshot(); return writer.removeClient() },

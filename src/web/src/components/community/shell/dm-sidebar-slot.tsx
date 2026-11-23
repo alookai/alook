@@ -1,5 +1,4 @@
 "use client"
-import { useObservedRegion } from "@/lib/observability/regions"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { dmHref, normalizeCommunityHref, resolveCommunityModulePlan } from "@/lib/community/community-route"
@@ -33,7 +32,6 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
   } = useDms()
   const { blocked } = useFriends({ enabled: false })
   const dmsLoading = !isDisplayReady && !initialError
-  useObservedRegion("sidebar", !dmsLoading && !initialError, dms.length)
   const friendRequestCount = useInboxUnreads().friendRequests.length
   const main = resolveCommunityModulePlan(pathname).main
   const currentChannelId = main.kind === "dm" ? main.dmId : null

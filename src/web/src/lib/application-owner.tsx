@@ -9,8 +9,6 @@ import { createStore, createStoreContext } from "@tanstack/react-store"
 import { useSession, currentSessionViewer } from "@/lib/auth-client"
 import { createQueryClient } from "@/lib/query-client"
 import type { ApiRequestOptions } from "@/lib/api/client"
-import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
-import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 
 export function createApplicationOwner(userId: string, queryClient = createQueryClient(), assertEligible = () => {}) {
@@ -80,12 +78,6 @@ function ScopedPublicQueryProvider({ userId, children }: { userId: string; child
     window.location.reload()
   }, [owner])
   usePersistedAccountLifecycle(persister, onRetired)
-  const retireTelemetryIdentity = useRef<() => void>(() => undefined)
-  useLayoutEffect(() => {
-    if (userId === "__pending__" || userId === "__guest__") return
-    setTelemetryUser(userId)
-    retireTelemetryIdentity.current = captureTelemetryIdentityRetirement()
-  }, [userId])
   const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useLayoutEffect(() => {
     if (disposeTimer.current !== null) { clearTimeout(disposeTimer.current); disposeTimer.current = null }
@@ -93,7 +85,6 @@ function ScopedPublicQueryProvider({ userId, children }: { userId: string; child
     return () => {
       retireApplicationOwner(owner)
       const viewer = owner.sessionViewer()
-      if (viewer === null) retireTelemetryIdentity.current()
       if (accountId !== null && viewer !== undefined && viewer !== accountId) void owner.retireDisk().catch(() => undefined)
       disposeTimer.current = setTimeout(() => { persister.stopPersisting(); owner.queryClient.clear() }, 0)
     }
@@ -106,7 +97,6 @@ function ScopedPublicQueryProvider({ userId, children }: { userId: string; child
   </PersistQueryClientProvider></StoreProvider>
 }
 export function retireApplicationOwner(owner: ApplicationOwner) {
-  disposeQueryDiagnostics(owner.queryClient)
   owner.lifecycle.setState((state) => state.active ? { active: false, generation: state.generation + 1 } : state)
   void owner.queryClient.cancelQueries()
 }

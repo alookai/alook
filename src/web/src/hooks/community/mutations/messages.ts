@@ -84,7 +84,6 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
   const queryClient = useQueryClient()
   type Intent = Args & { original: ReturnType<typeof origin.begin>["token"] }
   const native = useMutation<SendMessageResult, Error, Intent>({
-    meta: { observabilityAction: `${kind}.message.send` },
     mutationFn: async (args) => {
       const { content, replyToId, replyTo, attachments, nonce, original: token, assertActive, assertCommand } = args
       origin.assert(token); (assertCommand ?? assertActive)?.()
@@ -186,7 +185,6 @@ export function useSubmitInboxDecisionCard() {
     { input: SubmitInboxDecisionCardArgs; original: Original },
     Context
   >({
-    meta: { observabilityAction: "inbox.decision_card.submit" },
     mutationFn: async ({ input: { channelId, messageId, content, nonce }, original }) => {
       origin.assert(original)
       const result = await origin.request<SendMessageResult>(
@@ -258,7 +256,6 @@ export function useReplyInboxChannel(dismissConversation?: RequestNativeConversa
     Error,
     { input: ReplyInboxChannelArgs; original: Original }
   >({
-    meta: { observabilityAction: "inbox.channel.reply" },
     mutationFn: async ({ input: { channelId, content, nonce }, original }) => {
       origin.assert(original)
       const result = await origin.request<SendMessageResult>(
@@ -326,7 +323,6 @@ export function useDismissInboxTodo() {
     { input: DismissInboxTodoArgs; original: Original },
     { attentionSnapshot?: AttentionIntent; messageDismissSnapshot?: DecisionCardDismissOptimisticSnapshot }
   >({
-    meta: { observabilityAction: "inbox.todo.dismiss" },
     scope: { id: "community-todo-dismiss" },
     mutationFn: async ({ input: { messageId }, original }) => {
       return origin.request<{ revision: number }>(
@@ -409,7 +405,7 @@ export type CreateThreadResult = CommunityChannelResource
 export function useCreateThread() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   type Intent = CreateThreadArgs & { original: ReturnType<typeof origin.begin>["token"]; resource: ReturnType<ReturnType<typeof queryClient.getQueryCache>["find"]> }
-  const native = useMutation<CreateThreadResult, Error, Intent>({ meta: { observabilityAction: "message.thread.create" },
+  const native = useMutation<CreateThreadResult, Error, Intent>({
     mutationFn: async (args) => {
       const token = args.original
       origin.assert(token); args.assertActive?.()
@@ -443,7 +439,7 @@ export function useMarkAllInboxRead() {
     snapshot?: AttentionIntent
   }
   type Original = ReturnType<typeof origin.begin>["token"]
-  const mutation = useMutation<DomainResult[], Error, Original, MarkAllContext>({ meta: { observabilityAction: "inbox.read_all" },
+  const mutation = useMutation<DomainResult[], Error, Original, MarkAllContext>({
     scope: { id: "community-inbox-read-all" },
     mutationFn: async (original) => {
       const requests = [
@@ -534,7 +530,7 @@ export function useDeleteMention() {
     {
       attentionSnapshot?: AttentionIntent
     }
-  >({ meta: { observabilityAction: "mention.dismiss" },
+  >({
     scope: { id: "community-mention-delete" },
     mutationFn: async ({ input: { mentionId }, original }) => {
       return origin.request<{ revision: number }>(original,

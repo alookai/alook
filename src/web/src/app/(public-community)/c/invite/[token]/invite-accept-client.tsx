@@ -1,6 +1,5 @@
 "use client"
 
-import { useObservedRegion } from "@/lib/observability/regions"
 import { createStore } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo } from "react"
 import { useQuery, useMutation } from "@tanstack/react-query"
@@ -61,11 +60,10 @@ function InviteAcceptInner({ token, autojoinIntent }: { token: string; autojoinI
       ...options, onUnauthorized: async () => { options.assertActive?.(); return false },
     }), signal),
   })
-  useObservedRegion("page", !query.isPending && query.data !== undefined, 1)
   const info = query.data
   const loading = query.isPending
   const error = query.error ? { message: query.error instanceof Error ? query.error.message : "This invite is no longer valid", dead: isDeadInvite(query.error) } : null
-  const command = useMutation({ meta: { observabilityAction: "server.invite.accept" }, mutationKey: applicationKey(owner, "community-invite", token, "join"),
+  const command = useMutation({ mutationKey: applicationKey(owner, "community-invite", token, "join"),
     scope: { id: JSON.stringify(applicationKey(owner, "community-invite", token, "join")) },
     mutationFn: async (original: ReturnType<typeof source.capture>) => {
       original.assert()

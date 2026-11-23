@@ -1,5 +1,4 @@
 "use client"
-import { useObservedRegion } from "@/lib/observability/regions"
 
 
 import { createStore, useSelector, useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -54,7 +53,6 @@ export function useBotListController(): BotListController {
   const machinesQuery = useMachines()
   const { machines, isPending: machinesLoading } = machinesQuery
   const machinesUnknown = machinesQuery.data?.observed === false
-  useObservedRegion("bots", botsResolved, bots.length, { snapshot_source: botsQuery.data?.source ?? "unknown", target_coverage: botsResolved ? "covered" : "uncovered", wait_reason: botsQuery.profilesPending ? "identity" : botsResolved ? "none" : "entry" })
   const profilesByUserId = useCanonicalProfilesByUserId(bots.map((bot) => bot.id))
   const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
   const [editingBotId, setEditingBotId] = useAtom(useCreateAtom<string | null>(null))

@@ -7,8 +7,6 @@ import { hashKey } from "@tanstack/react-query"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { conversationListScopeKey, type ConversationListScope } from "@/lib/community/conversation-qualification"
-import { useObservedRegion, type ResourceObservation } from "@/lib/observability/regions"
-import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
@@ -23,7 +21,6 @@ const forumRangeExtractor = (range: Range) => defaultRangeExtractor({ ...range, 
 type Props = {
   posts: ForumThread[]
   loading?: boolean
-  observation?: ResourceObservation
   positionScope?: ConversationListScope
   hasMore?: boolean
   loadingMore?: boolean
@@ -60,7 +57,7 @@ function ForumPostListEntry(props: Props) {
   return <ForumPostListOwner {...props} />
 }
 
-function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, onOpenPost, renderPost, loadingContent }: Props) {
+function ForumPostListOwner({ posts, loading, hasMore, loadingMore, isFetching, isError, onLoadMore, onScrollRoot, onOpenPost, renderPost, loadingContent }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialized = useRef(false)
   const [positionReady, setPositionReady] = useState(false)
@@ -128,8 +125,6 @@ function ForumPostListOwner({ posts, loading, observation, hasMore, loadingMore,
     const indexes = new Set(defaultRangeExtractor({ ...range, count: posts.length, overscan: OVERSCAN }))
     return virtualItems.filter(item => indexes.has(item.index))
   }, [posts.length, range, virtualItems])
-  const observedPosts = visibleVirtualItems(virtualizer).flatMap(item => posts[item.index] ? [posts[item.index]] : [])
-  useObservedRegion("forum", presentation.contentVisible && (!posts.length || observedPosts.length > 0), observedPosts.length, observation)
   useVirtualCursorPagination({
     virtualizer: { getVirtualItems: () => paginationItems }, count: posts.length, enabled: !loading,
     hasMore, isFetching: isFetching || loadingMore, isError, onLoad: onLoadMore, edge: "end",

@@ -39,7 +39,7 @@ function useReactionIntent(intent: "toggle" | "add") {
     assert(args)
     await completeCommunityPublication(queryClient, () => publishCommunityMessageReaction(queryClient, args.messageId, args.emoji, args.userId, args.nextMe, { token: proof, signal: args.assertActive?.signal }))
   }
-  const mutation = useMutation<void, Error, Intent>({ meta: { observabilityAction: intent === "add" ? "message.reaction.add" : "message.reaction.toggle" },
+  const mutation = useMutation<void, Error, Intent>({
     mutationKey: key, scope: { id: "community-reaction-commands" }, gcTime: 0,
     onMutate: async (args) => {
       await origin.registry?.ready

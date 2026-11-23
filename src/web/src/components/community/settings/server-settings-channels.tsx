@@ -1,7 +1,5 @@
 "use client"
 
-import { useObservedRegion } from "@/lib/observability/regions"
-
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { ChevronDown, Hash, Lock } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
@@ -26,7 +24,6 @@ function groupChannels(channels: AdminChannel[]) {
 export function ServerSettingsChannels({ serverId }: { serverId: string }) {
   const [collapsed, setCollapsed] = useAtom(useCreateAtom<Set<string>>(new Set<string>()))
   const { channels, isError, isFetching, refetch, forbidden } = useServerAdminChannels(serverId, true)
-  useObservedRegion("settings", !!channels && !forbidden, channels?.length ?? 0)
   const retry = () => { void refetch() }
   if (forbidden) return <div role="alert" className="flex flex-1 flex-col"><EmptyState icon={Lock} label="Only server administrators can view channels." /></div>
   if (isError && !channels) return <ConversationResolutionErrorFrame as="div" title="Couldn’t load channels." retrying={isFetching} onRetry={retry} />

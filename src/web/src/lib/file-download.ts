@@ -1,6 +1,5 @@
 "use client"
 
-import { startAction, finishAction } from "./observability/context"
 import { useCallback } from "react"
 import { useApplicationViewSource } from "@/hooks/use-application-view-source"
 import { QueryObserver, queryOptions, useQuery, CancelledError, type QueryKey } from "@tanstack/react-query"
@@ -48,7 +47,6 @@ export async function cancelFileDownload(owner: ApplicationOwner, key: QueryKey)
 export async function startFileDownload(owner: ApplicationOwner, target: FileDownloadTarget, signal?: AbortSignal): Promise<FileSaveResult> {
   const token = captureApplicationOwner(owner)
   assertApplicationOwner(token, signal)
-  const observation = startAction("attachment.download", { capability: "limited" })
   const options = downloadOptions(owner, target)
   const observer = new QueryObserver(owner.queryClient, { ...options, enabled: false })
   const unsubscribe = observer.subscribe(() => undefined)
@@ -59,10 +57,8 @@ export async function startFileDownload(owner: ApplicationOwner, target: FileDow
     assertApplicationOwner(token, signal)
     const receipt = await owner.queryClient.query({ ...options, select: undefined })
     assertApplicationOwner(token, signal)
-    finishAction(observation, receipt.status === "saved" ? "success" : receipt.status === "cancelled" ? "cancelled" : receipt.status === "error" ? "error" : "observed", { capability: receipt.status === "saved" ? "available" : "limited" })
     return receipt
   } catch (error) {
-    finishAction(observation, error instanceof CancelledError || isAbortError(error) ? "cancelled" : "error")
     if (error instanceof CancelledError || isAbortError(error) || signal?.aborted) return { status: "cancelled" }
     throw error
   } finally {

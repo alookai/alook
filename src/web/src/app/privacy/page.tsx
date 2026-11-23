@@ -1,4 +1,3 @@
-import { ObservedStaticContent } from "@/lib/observability/regions";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata"
 import {
   PRIVACY_POLICY,
@@ -13,11 +12,11 @@ export const metadata = buildPublicPageMetadata({
 
 export default function PrivacyPage() {
   return (
-    <><ObservedStaticContent /><main className="mx-auto max-w-3xl px-6 pt-12 pb-28 sm:pt-24">
+    <main className="mx-auto max-w-3xl px-6 pt-12 pb-28 sm:pt-24">
       <h1 className="mb-4 text-4xl font-semibold tracking-tight sm:text-5xl">
         {PRIVACY_POLICY.title}
       </h1>
       <PrivacyPolicyContent showAnalyticsChoices />
-    </main></>
+    </main>
   )
 }

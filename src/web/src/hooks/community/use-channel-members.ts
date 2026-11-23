@@ -173,7 +173,7 @@ export function useChannelMemberCommand(channelId: string, kind: "add" | "remove
   const source = useCommunityViewSource(`channel-member-command:${channelId}`)
   type Intent = ChannelMemberCommandInput & { view: ReturnType<typeof source.capture>; original: ReturnType<typeof origin.begin>["token"]; resources: ReturnType<ReturnType<typeof client.getQueryCache>["findAll"]> }
   const isSelfRemove = useCallback((userId: string) => kind === "remove" && Boolean(options?.selfRemoveUserId && userId === options.selfRemoveUserId), [kind, options?.selfRemoveUserId])
-  const native = useMutation({ meta: { observabilityAction: kind === "add" ? "channel.member.add" : "channel.member.remove" },
+  const native = useMutation({
     mutationKey: ["community", "channel-member-command", channelId], scope: { id: "channel-member-command:" + channelId },
     mutationFn: async ({ userId, original, resources, assertActive, view }: Intent) => {
       const selfRetire = isSelfRemove(userId)

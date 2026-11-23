@@ -20,7 +20,7 @@ export function useUploadFile(options: { gcTime?: number } = {}) {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Intent = UploadFileArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<UploadFileResult, Error, Intent>({ meta: { observabilityAction: "attachment.upload" },
+  const native = useMutation<UploadFileResult, Error, Intent>({
     mutationKey: ["community", "file-upload"], gcTime: options.gcTime ?? 0,
     mutationFn: async ({ target, file, thumbnailBlob, width, height, original, assertActive, assertCommand }) => {
       origin.assert(original); (assertCommand ?? assertActive)?.()

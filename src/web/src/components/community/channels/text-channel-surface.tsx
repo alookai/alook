@@ -150,7 +150,6 @@ export function TextChannelSurface({
                   loading={feed.isLoading}
                   initialLoadError={feed.initialLoadError}
                   targetLoadError={feed.targetLoadError}
-                  observation={feed.observation}
                   retryingInitialLoad={feed.retryingInitialLoad}
                   onRetryInitialLoad={feed.retryInitialLoad}
                   pinnedIds={controller.pinnedIds}

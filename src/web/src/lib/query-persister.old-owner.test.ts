@@ -12,7 +12,6 @@ import * as forum from "@/lib/community/forum-sidebar-window"
 import * as messages from "@/lib/community/models/message"
 import * as legacyCache from "@/lib/legacy-chat-persistence"
 import * as workerCache from "@/lib/service-worker/public-cache-storage"
-import * as restore from "@/lib/observability/restore"
 import * as lists from "@/lib/community/list-persistence"
 import * as schemas from "@/lib/community-db/schema"
 import { communityKeys } from "@/lib/query-keys"
@@ -28,7 +27,7 @@ function oldDocument() {
     "@/lib/community/models/message": messages,
     "@/lib/legacy-chat-persistence": legacyCache,
     "@/lib/service-worker/public-cache-storage": workerCache,
-    "@/lib/observability/restore": restore,
+    "@/lib/observability/restore": { observeRestoreRead: <T,>(read: () => Promise<T>) => read(), observeRestoreDecode: <T,>(_persister: object, decode: () => T) => decode() },
     "@/lib/community/list-persistence": lists,
     "@/lib/community-db/schema": schemas,
   }

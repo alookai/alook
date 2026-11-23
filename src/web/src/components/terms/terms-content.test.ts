@@ -6,7 +6,6 @@ import TermsPage, { metadata } from "@/app/terms/page"
 import { TERMS_OF_SERVICE } from "@/lib/terms"
 import { TermsContent } from "./terms-content"
 
-vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }))
 
 describe("Terms of Service", () => {
   it("renders public terms with the shared body, company, limited rights and independent privacy link", () => {

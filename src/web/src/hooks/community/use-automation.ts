@@ -67,7 +67,6 @@ export function useAutomation(userId: string) {
   }, [client, list.data, queryKey])
   type Intent = { action: Command; assert: ReturnType<typeof view.capture>; token: ReturnType<typeof origin.begin>["token"]; onCreated?: (result: AutomationAccessCodeCreateResponse) => void }
   const mutation = useMutation({
-    meta: { observabilityAction: "automation.access_code.command" },
     mutationKey: [...queryKey, "action"], retry: false, gcTime: 0,
     mutationFn: async ({ action, assert, token, onCreated }: Intent) => {
       assert()

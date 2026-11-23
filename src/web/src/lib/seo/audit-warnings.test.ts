@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 import { TEMPLATES } from "@/lib/templates"
 
 vi.mock("@/lib/session", () => ({ getSession: () => { throw new Error("Public documents must not wait for an account session") } }))
-vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }))
 vi.mock("@/app/templates/client", () => ({ TemplatesClient: () => null }))
 vi.mock("@/app/templates/[id]/client", () => ({ TemplateDetailClient: () => null }))
 vi.mock("@/components/privacy/privacy-policy-content", () => ({ PRIVACY_POLICY: { title: "Privacy Policy" }, PrivacyPolicyContent: () => null }))
@@ -35,7 +34,7 @@ describe("audit warning repairs", () => {
       expect(metadata.openGraph).toMatchObject({ type: "website", url: `${SITE}/templates/${template.id}` })
       expect(metadata.description!.length).toBeGreaterThanOrEqual(100)
       const page = await TemplatePage({ params })
-      const json = JSON.parse(page.props.children[1].props.children[0].props.dangerouslySetInnerHTML.__html)
+      const json = JSON.parse(page.props.children[0].props.dangerouslySetInnerHTML.__html)
       expect(json[0]).toMatchObject({ "@type": "CreativeWork", url: `${SITE}/templates/${template.id}`, description: template.longDescription })
       expect(json[0]).not.toHaveProperty("offers")
       expect(json[1]["@type"]).toBe("BreadcrumbList")

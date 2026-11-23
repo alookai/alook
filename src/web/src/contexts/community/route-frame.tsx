@@ -1,7 +1,6 @@
 "use client"
 
 import { type OwnerServerDeleteRouteToken } from "@/stores/community/server-eject-store"
-import type { Action } from "@/lib/observability/context"
 import { createContext, useContext, type RefObject } from "react"
 import type { useRouter } from "next/navigation"
 import type { Breakpoint } from "@/hooks/use-mobile"
@@ -15,7 +14,7 @@ export type CommunityNavigationController = {
   navigationPending: boolean
   pendingHref: string | null
   push: ReturnType<typeof useRouter>["push"]
-  pushImmediate: (href: string, prepare?: (action?: Action) => void) => void
+  pushImmediate: (href: string, prepare?: () => void) => void
   replace: (href: string, options?: { resume?: boolean }) => void
   resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
   cancelPendingNavigation: () => void

@@ -61,7 +61,7 @@ export function useFileAttachments(draftSessionScope?: string) {
     };
   }, [protocol]);
   type Preparation = { drafts: readonly AttachmentDraftFile[]; generation: number; signal: AbortSignal };
-  const preparation = useMutation({ meta: { observabilityAction: "attachment.prepare" }, mutationKey: key, scope: { id }, gcTime: 0,
+  const preparation = useMutation({ mutationKey: key, scope: { id }, gcTime: 0,
     mutationFn: async ({ drafts, generation, signal }: Preparation) => {
       const eligible = () => protocol.get().active && protocol.get().generation === generation && !signal.aborted;
       if (!eligible()) return;

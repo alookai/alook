@@ -86,7 +86,7 @@ export function OnboardingMachineDialog({
     autoAdvance.set(source.signal)
     onConnected(readyMachineId)
   }, [open, readyMachineId, source, onConnected, autoAdvance])
-  const generation = useMutation({ meta: { observabilityAction: "machine.pair.generate" },
+  const generation = useMutation({
     mutationKey: ["community", "onboarding-machine-pair", harness], gcTime: 0,
     mutationFn: async ({ token, assert }: { token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       assert()

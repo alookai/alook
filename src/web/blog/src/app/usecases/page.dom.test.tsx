@@ -3,7 +3,6 @@ import { render, screen } from "@/test/react-dom-harness";
 import { useCases } from "@/lib/usecases";
 import UseCasesPage from "./page";
 
-vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }));
 
 describe("Use cases directory", () => {
   it("lists every use case under /usecases", () => {

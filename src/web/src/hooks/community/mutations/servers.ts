@@ -25,7 +25,7 @@ export type CreateServerResult = { server: { id: string } }
 export function useCreateServer() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useCommunityCommandMutation<CreateServerResult, Error, CreateServerArgs>(origin, { meta: { observabilityAction: "server.create" },
+  return useCommunityCommandMutation<CreateServerResult, Error, CreateServerArgs>(origin, {
     mutationFn: async ({ name, original }) => {
       return origin.request<CreateServerResult>(original, "/api/community/servers", {
         method: "POST",
@@ -45,7 +45,7 @@ export type JoinServerResult = { serverId: string }
 export function useJoinServer() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useCommunityCommandMutation<JoinServerResult, Error, JoinServerArgs>(origin, { meta: { observabilityAction: "server.join" },
+  return useCommunityCommandMutation<JoinServerResult, Error, JoinServerArgs>(origin, {
     mutationFn: async ({ inviteCode, original }) => {
       let token = inviteCode.trim()
       try {
@@ -87,7 +87,7 @@ function mutateViewerMembership(registry: NonNullable<ReturnType<typeof useCommu
 export function useLeaveServer() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   const assertLeaveSuccess = useCallback((args: CommunityCommandArgs<LeaveServerArgs>) => origin.assertOwner(args.original), [origin])
-  return useCommunityCommandMutation<void, Error, LeaveServerArgs, { proof: CommunityLiveSnapshotToken }>(origin, { meta: { observabilityAction: "server.leave" },
+  return useCommunityCommandMutation<void, Error, LeaveServerArgs, { proof: CommunityLiveSnapshotToken }>(origin, {
     scope: { id: "community-server-membership" },
     mutationKey: [...communityServerRetirementKey, "leave"],
     onMutate: async (args) => {
@@ -122,7 +122,7 @@ export function useLeaveServer() {
 
 export function useDeleteServer(callbacks: DeleteServerCallbacks) {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, DeleteServerArgs, { proof: CommunityLiveSnapshotToken } & DeleteServerCallbacks & { routeToken: OwnerServerDeleteRouteToken }>(origin, { meta: { observabilityAction: "server.delete" },
+  return useCommunityCommandMutation<void, Error, DeleteServerArgs, { proof: CommunityLiveSnapshotToken } & DeleteServerCallbacks & { routeToken: OwnerServerDeleteRouteToken }>(origin, {
     scope: { id: "community-server-membership" },
     mutationKey: [...communityServerRetirementKey, "delete"],
     onMutate: async (args) => {
@@ -175,7 +175,7 @@ export type UpdateServerArgs = {
 export function useUpdateServer() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, UpdateServerArgs>(origin, { meta: { observabilityAction: "server.update" },
+  return useCommunityCommandMutation<void, Error, UpdateServerArgs>(origin, {
     scope: { id: "community-server-fields" },
     mutationFn: async (args) => {
       const original = args.original, registry = origin.registry
@@ -216,7 +216,7 @@ export type UploadServerIconResult = { url: string }
 
 export function useUploadServerIcon() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<UploadServerIconResult, Error, UploadServerIconArgs>(origin, { meta: { observabilityAction: "server.icon.upload" },
+  return useCommunityCommandMutation<UploadServerIconResult, Error, UploadServerIconArgs>(origin, {
     scope: { id: "community-server-fields" },
     mutationFn: async (args) => {
       const { serverId, file, original } = args

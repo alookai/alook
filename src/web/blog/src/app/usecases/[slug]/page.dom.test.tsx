@@ -3,7 +3,6 @@ import { render, screen } from "@/test/react-dom-harness";
 import { useCases } from "@/lib/usecases";
 import UseCasePage, { generateMetadata, generateStaticParams } from "./page";
 
-vi.mock("@/lib/observability/regions", () => ({ ObservedStaticContent: () => null }));
 vi.mock("@blog/components/guides/story-demo", () => ({ StoryDemo: ({ label }: { label: string }) => <div data-testid="story-demo">{label}</div> }));
 
 describe("use case pages", () => {

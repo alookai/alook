@@ -77,7 +77,6 @@ describe("packed artifact verifier", () => {
     expect(packageWrite).toBeDefined();
     expect(JSON.parse(String(packageWrite![1]))).toEqual({ type: "module", imports: JSON.parse(packageSource).imports });
     expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib"), { recursive: true });
-    expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib", "observability"), { recursive: true });
     const copies = new Map(cpSync.mock.calls.map(([source, destination]) => [source, destination]));
     const pending = [[join(monoRoot, "src", "web", "src", "lib", "worker-runtime.ts"), join(webDest, "src", "lib", "worker-runtime.ts")]];
     const visited = new Set<string>();

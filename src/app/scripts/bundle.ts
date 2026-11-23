@@ -61,8 +61,7 @@ const webPackage = JSON.parse(readFileSync(join(webSrc, "package.json"), "utf8")
 writeFileSync(join(webDest, "package.json"), JSON.stringify({ type: "module", imports: webPackage.imports }, null, 2) + "\n");
 cpSync(join(webSrc, "custom-worker.ts"), join(webDest, "custom-worker.ts"));
 mkdirSync(join(webDest, "src", "lib"), { recursive: true });
-mkdirSync(join(webDest, "src", "lib", "observability"), { recursive: true });
-for (const runtimeFile of ["worker-runtime.ts", "public-worker-response.ts", "observability/build.ts", "observability/coverage.ts", "observability/schema.ts", "observability/trace-response.ts"]) {
+for (const runtimeFile of ["worker-runtime.ts", "public-worker-response.ts"]) {
   cpSync(
     join(webSrc, "src", "lib", runtimeFile),
     join(webDest, "src", "lib", runtimeFile),

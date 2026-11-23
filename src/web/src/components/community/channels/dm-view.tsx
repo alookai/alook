@@ -139,7 +139,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     refetch: refetchMessages,
     navigationBlocked,
     readSnapshot, readSnapshotFetching, initialDisplayReady, preserveInitialPresentation, onUserTakeover,
-    initialLoadError, targetLoadError, retryInitialLoad, retryingInitialLoad, observation, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow,
+    initialLoadError, targetLoadError, retryInitialLoad, retryingInitialLoad, positionEntry, positionScope, positionDataState, targetPositionDataState, messageWindow,
   } = useDmMessages(dmId, {
     enabled: !dmBlocked && !metadata.revoked && !metadata.denied,
     viewerUserId: currentUser.id,
@@ -434,7 +434,6 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
             loading={!historyAllowed || loadingOwnership.messageBodyLoading}
             initialLoadError={initialLoadError}
             targetLoadError={targetLoadError}
-            observation={observation}
             retryingInitialLoad={retryingInitialLoad || messagesFetching}
             onRetryInitialLoad={retryInitialLoad}
             newDividerBefore={newDividerBefore}

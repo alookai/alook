@@ -1054,7 +1054,7 @@ describe("compatibility and CLI fail-closed behavior", () => {
 
   it.each([
     "src/web/src/lib/worker-runtime.ts",
-    "src/web/src/lib/observability/trace-response.ts",
+    "src/web/src/lib/public-worker-response.ts",
     "src/web/package.json",
   ])("selects and invalidates the App filesystem contract for %s", path => {
     const fixture = gitDiffFixture()

@@ -152,7 +152,7 @@ export function MemberList({
   const kickTarget = members.find((member) => member.id === kickTargetId)
   const manageTarget = members.find((member) => member.id === manageConfirm?.memberId)
   type Intent = { kind: "kick" | "leave" | "remove"; memberId: string; userId: string; work: (id: string, assert?: MemberOriginalView) => Promise<unknown> | void; assert: ReturnType<typeof source.capture> }
-  const command = useMutation({ meta: { observabilityAction: "member.management.command", observabilityDelegate: true },
+  const command = useMutation({
     mutationKey: commandKey,
     gcTime: 0,
     mutationFn: async (intent: Intent) => {

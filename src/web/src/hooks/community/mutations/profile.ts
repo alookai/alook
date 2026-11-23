@@ -25,7 +25,7 @@ export type UpdateProfileResult = CommunitySelfProfileRead
 export function useUpdateProfile() {
   const origin = useCommunityMutationOrigin()
   type Intent = UpdateProfileArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<UpdateProfileResult, Error, Intent>({ meta: { observabilityAction: "profile.update" },
+  const native = useMutation<UpdateProfileResult, Error, Intent>({
     mutationKey: ["community", "profile-command"], scope: { id: "community-profile-command" }, gcTime: 0,
     mutationFn: async ({ original, assertActive, ...patch }) => {
       origin.assert(original); assertActive?.()
@@ -51,7 +51,7 @@ export type UploadUserAvatarResult = { url: string; avatarVersion: number }
 export function useUploadUserAvatar() {
   const origin = useCommunityMutationOrigin()
   type Intent = UploadUserAvatarArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<UploadUserAvatarResult, Error, Intent>({ meta: { observabilityAction: "profile.avatar.upload" },
+  const native = useMutation<UploadUserAvatarResult, Error, Intent>({
     mutationKey: ["community", "profile-avatar-command"], scope: { id: "community-profile-command" }, gcTime: 0,
     mutationFn: async ({ file, original, assertActive }) => {
       origin.assert(original); assertActive?.()

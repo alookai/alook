@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import technostalgia from "@/components/brand/technostalgia.module.css";
 import { ZoneLink } from "@/components/public-layout";
-import { ObservedStaticContent } from "@/lib/observability/regions";
 import { buildPublicPageMetadata } from "@/lib/seo/public-page-metadata";
 import { cn } from "@/lib/utils";
 import { getUseCase, useCases } from "@/lib/usecases";
@@ -25,7 +24,6 @@ export default async function UseCasePage({ params }: { params: Promise<{ slug: 
   if (!useCase) notFound();
   const { default: Content } = await import(`@blog/usecases/${useCase.slug}.mdx`);
   return <article className="blog-article mx-auto max-w-3xl px-6 py-12 sm:py-16" data-usecase={useCase.slug}>
-    <ObservedStaticContent key={useCase.slug} pathname={`/usecases/${useCase.slug}`} />
     <ZoneLink href="/usecases" zone="blog" className="tn-blog-back mb-8 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
       <ArrowLeft className="size-3.5" />All use cases
     </ZoneLink>

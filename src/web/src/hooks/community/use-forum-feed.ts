@@ -18,8 +18,6 @@ import { forumTagFromUrl, validateForumTagSelection, writeForumTagSelection } fr
 import { messageProfileIds, type ForumThread, type Msg } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import { channelHref } from "@/lib/community/community-route"
-import { currentPageObservation, navigationForHref } from "@/lib/observability/context"
 import { useForumTags } from "./use-channel-panels"
 import { useStoredForumTag } from "./use-stored-forum-tag"
 import { useConversationResource } from "./use-conversation-entry"
@@ -59,15 +57,7 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
     if (tag) params.set("tag", tag)
     if (pageParam) params.set("cursor", pageParam)
     const request = communityRequestOptions(queryClient, token, readSignal)
-    const channel = registry!.collections.channels.get(channelId)
-    const path = channel?.serverId ? channelHref(channel.serverId, channelId) : undefined
-    const action = typeof window !== "undefined" && window.location.pathname === path ? navigationForHref(window.location.pathname + window.location.search) : undefined
-    const observation = request.observation ?? (action && !action.done ? { action, reason: "foreground" as const }
-      : typeof window !== "undefined" && window.location.pathname === path ? { page: currentPageObservation(), reason: "background" as const }
-      : { page: undefined, reason: "unknown" as const })
-    const transport = await apiFetch<CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?${params}`, {
-      ...request, observation: { ...observation, ...(pageParam ? { reason: "pagination" as const } : {}), role: pageParam ? "pagination" : "window", windowMode: pageParam ? "older" : "newest" },
-    })
+    const transport = await apiFetch<CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?${params}`, request)
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, readSignal)
     const page = normalizeThreadResources(channelId, transport)
     const freshThreads = page.threads.filter((thread) => !protocol.get().publishedIds.has(thread.id))
@@ -164,5 +154,5 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
   const fetchNextPage = query.fetchNextPage
   const fetchOlder = useCallback(() => { if (presented && displayReady && entry.windowReady) void fetchNextPage({ cancelRefetch: false }) }, [fetchNextPage, presented, displayReady, entry.windowReady])
   return { ...query, refetch, isPending: pending, isLoading: pending, displayReady, initialLoadError,
-    observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: displayReady ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : displayReady ? "none" as const : "window" as const }, posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: displayReady && entry.windowReady && query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
+    posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: displayReady && entry.windowReady && query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
 }

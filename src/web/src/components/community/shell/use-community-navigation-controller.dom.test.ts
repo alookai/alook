@@ -3,8 +3,6 @@ import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import { normalizeCommunityHref, type CommunityCommittedFrame } from "@/lib/community/community-route"
-import { navigationForHref, clearActions } from "@/lib/observability/context"
-import { configureTelemetry, retireTelemetry } from "@/lib/observability/telemetry"
 
 const mocks = vi.hoisted(() => ({
   pathname: { current: "/c/me" },
@@ -380,18 +378,14 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.push).toHaveBeenCalledWith("/c/channels/s1/c1")
   })
 
-  it("prepares Inbox transport with its actual navigation before router submission", async () => {
+  it("prepares Inbox transport before router submission", async () => {
     Object.defineProperty(window, "location", { value: { origin: "https://alook.test", href: "https://alook.test/c/me" } })
-    configureTelemetry({ session_id: "chain-session" }, true)
     const hook = await renderController(), href = "/c/channels/s1/c1"
-    const prepare = vi.fn(action => {
-      expect(action).toBe(navigationForHref(href))
-      expect(action?.done).toBe(false)
+    const prepare = vi.fn(() => {
       expect(mocks.push).not.toHaveBeenCalled()
     })
     await act(async () => hook.current.pushImmediate(href, prepare))
     expect(prepare).toHaveBeenCalledOnce()
     expect(mocks.push).toHaveBeenCalledExactlyOnceWith(href)
-    retireTelemetry(); clearActions()
   })
 })

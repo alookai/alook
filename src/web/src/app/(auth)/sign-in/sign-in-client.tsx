@@ -2,8 +2,6 @@
 
 import { captureProductAnalytics } from "@/lib/product-analytics"
 import { takeLandingSignInCta } from "@/lib/landing-sign-in-cta"
-import { startAction, finishAction } from "@/lib/observability/context"
-import { ObservedStaticContent } from "@/lib/observability/regions"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCallback, useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
@@ -231,7 +229,6 @@ function SignInForm({
 
   async function sendCode(targetEmail: string) {
     if (retryAfter != null) return
-    const observation = startAction("auth_send_code")
     setEmailError("")
     setRetryAfter(null)
     setLoading(true)
@@ -241,7 +238,6 @@ function SignInForm({
         type: "sign-in",
         fetchOptions: rateLimitHandler,
       })
-      finishAction(observation, error ? "error" : "success")
       if (error) {
         failed("send_code", error)
         if (error.status !== 429) setEmailError(error.message ?? "Failed to send code")
@@ -252,7 +248,6 @@ function SignInForm({
         enterCodeStep()
       }
     } catch (error) {
-      finishAction(observation, "error")
       failed("send_code", error)
       setEmailError("Failed to send code")
     }
@@ -267,14 +262,12 @@ function SignInForm({
   }
 
   async function verifyCode(value: string) {
-    const observation = startAction("auth_verify_code")
     setLoading(true)
     try {
       const { error } = await authClient.signIn.emailOtp({
         email,
         otp: value,
       })
-      finishAction(observation, error ? "error" : "success")
       if (error) {
         failed("verify_code", error)
         setOtpError(error.message ?? "Invalid code")
@@ -287,7 +280,6 @@ function SignInForm({
         return
       }
     } catch (error) {
-      finishAction(observation, "error")
       failed("verify_code", error)
       setOtpError("Invalid code")
       setCode("")
@@ -296,7 +288,6 @@ function SignInForm({
   }
 
   async function devSignIn(targetEmail: string) {
-    const observation = startAction("auth_dev_sign_in")
     setEmailError("")
     setLoading(true)
     const { error: signInErr } = await signIn.email(
@@ -309,7 +300,6 @@ function SignInForm({
         { onError: () => {} },
       )
       if (signUpErr) {
-        finishAction(observation, "error")
         setEmailError(signUpErr.message ?? "Failed to sign in")
         setLoading(false)
         return
@@ -317,7 +307,6 @@ function SignInForm({
     }
     rememberLastLoginMethod("email")
     setLastUsedMethod("email")
-    finishAction(observation, "success")
     window.location.href = postLoginUrl
   }
 
@@ -363,7 +352,6 @@ function SignInForm({
 
   return (
     <div className="app-auth-form-viewport thin-scrollbar relative flex min-h-0 w-full flex-1 overflow-x-clip">
-      <ObservedStaticContent />
       <div
         ref={trackRef}
         data-testid={tid.signInStepTrack}

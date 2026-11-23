@@ -18,7 +18,6 @@ vi.mock("@/lib/auth-client", () => ({ useSession: () => useContext(identityInput
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }), useSearchParams: () => new URLSearchParams(mocks.autojoin ? "autojoin=1" : "") }))
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: vi.fn(async () => undefined) }))
-vi.mock("@/lib/observability/regions", () => ({ useObservedRegion: vi.fn() }))
 
 type Post = { path: string; signal: AbortSignal; response: Promise<Response>; complete: (value: Response) => void }
 let posts: Post[]

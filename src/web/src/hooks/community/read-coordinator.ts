@@ -301,7 +301,6 @@ class ReadCoordinator {
     try {
       return await this.queryClient.getMutationCache().build<ReadMutationResponse, Error, void, unknown>(this.queryClient, {
         ...this.readMutationOptions(target.channelId),
-        meta: { observabilityDelegate: true },
         retry: false,
         mutationFn: async () => {
           assertActive()

@@ -26,15 +26,15 @@ export async function middleware(request: NextRequest) {
   }
   if ((pathname === "/sign-in" || pathname === "/sign-up") &&
     (request.headers.has("Cookie") || request.headers.has("Authorization"))) {
-    const [{ getCloudflareContext }, { getAuth, observeAuthSession }] = await Promise.all([
+    const [{ getCloudflareContext }, { getAuth }] = await Promise.all([
       import("@opennextjs/cloudflare"), import("@/lib/auth"),
     ])
     const { env } = await getCloudflareContext({ async: true })
     const auth = getAuth(env as Env)
-    const result = await observeAuthSession(auth, () => auth.api.getSession({
+    const result = await auth.api.getSession({
       headers: request.headers,
       returnHeaders: true,
-    })) as { headers: Headers; response: unknown } | null
+    }) as { headers: Headers; response: unknown } | null
 
     if (result?.response) {
       const redirect = request.nextUrl.searchParams.get("redirect")

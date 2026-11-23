@@ -1,7 +1,6 @@
 "use client"
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 
-import type { Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { createElement, useCallback, useRef, type ComponentProps } from "react"
 import { channelHref } from "@/lib/community/community-route"
@@ -65,7 +64,7 @@ export function useShellInboxController({
   viewerId,
   dismissNativeConversation,
 }: Options) {
-  const pushInboxHref = useCallback((href: string, prepare?: (action?: Action) => void) => {
+  const pushInboxHref = useCallback((href: string, prepare?: () => void) => {
     if (router.pushImmediate) router.pushImmediate(href, prepare)
     else { prepare?.(); router.push(href) }
   }, [router])
@@ -134,10 +133,10 @@ export function useShellInboxController({
     let pushedHref = destinationHref
     try {
       pushedHref = prepare?.() ?? destinationHref
-      pushInboxHref(pushedHref, action => {
+      pushInboxHref(pushedHref, () => {
         void startConversationNavigationWarmup(queryClient, {
           ...warmup, href: destinationHref, viewerId,
-        }, action)
+        })
       })
       if (inbox.markProjectionSubmitted(epoch)) afterPush?.()
     } catch (error) {
@@ -166,7 +165,7 @@ export function useShellInboxController({
       cancelPendingNavigation()
       clearThreadOpenerReadHandoff(queryClient)
         try {
-        pushInboxHref(href, action => {
+        pushInboxHref(href, () => {
           void startConversationNavigationWarmup(queryClient, {
             href,
             viewerId,
@@ -174,7 +173,7 @@ export function useShellInboxController({
             serverId: server.serverId,
             scopeKind: "channel",
             expectedSurfaceKind: channel.type === "forum" ? "forum" : "channel",
-          }, action)
+          })
         })
       } catch (error) {
           cancelPendingNavigation()
@@ -228,7 +227,7 @@ export function useShellInboxController({
       ? `${channelHref(marked.serverId, marked.channelId)}${seqQuery}`
       : `/c/me/${marked.channelId}${seqQuery}`
     try {
-      pushInboxHref(href, action => {
+      pushInboxHref(href, () => {
         void startConversationNavigationWarmup(queryClient, {
           href,
           viewerId,
@@ -237,7 +236,7 @@ export function useShellInboxController({
           scopeKind: marked.serverId ? "channel" : "dm",
           ...(marked.serverId ? { anchorMessageId: marked.m.id } : {}),
           ...(!marked.serverId ? { expectedSurfaceKind: "dm" as const } : {}),
-        }, action)
+        })
       })
     } catch (error) {
       cancelPendingNavigation()
@@ -273,7 +272,7 @@ export function useShellInboxController({
       ? `${channelHref(todo.serverId, todo.channelId)}${seqQuery}`
       : `/c/me/${todo.channelId}${seqQuery}`
     try {
-      pushInboxHref(href, action => {
+      pushInboxHref(href, () => {
         void startConversationNavigationWarmup(queryClient, {
           href,
           viewerId,
@@ -282,7 +281,7 @@ export function useShellInboxController({
           scopeKind: todo.serverId ? "channel" : "dm",
           ...(todo.serverId ? { anchorMessageId: todo.messageId } : {}),
           ...(!todo.serverId ? { expectedSurfaceKind: "dm" as const } : {}),
-        }, action)
+        })
       })
     } catch (error) {
       cancelPendingNavigation()

@@ -56,7 +56,6 @@ export function useBotMemberships(botId: string, open: boolean) {
   })
   const mutation = useMutation({
     mutationKey,
-    meta: { observabilityAction: "community.command" },
     mutationFn: async ({ target, confirmation, view }: LeaveIntent) => {
       view()
       assertBotDirectoryCommandCurrent(client, confirmation)

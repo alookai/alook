@@ -1,7 +1,6 @@
 import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 import { isCookieHumanSameOrigin } from "@/lib/server/request-security"
 import type { AuthPolicy, AuthResolution } from "./auth-policy"
-import { observeWorkerOperation } from "@/lib/observability/worker"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { COMMUNITY_BOT_ACTOR_HEADER, queries } from "@alook/shared"
@@ -77,11 +76,11 @@ async function resolveSession(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      sessionResult = await observeWorkerOperation("auth.get_session", {}, () => auth.api.getSession({
+      sessionResult = await auth.api.getSession({
         headers: req.headers,
         query: { disableCookieCache: new URL(req.url).pathname.startsWith("/api/community/") },
         returnHeaders: true,
-      })) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
+      }) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
       lastErr = undefined
       break
     } catch (err) {

@@ -82,7 +82,7 @@ function settleTree(origin: ReturnType<typeof useCommunityMutationOrigin>, query
 
 export function useCreateChannel() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<CreateChannelResult, Error, CreateChannelArgs>(origin, { meta: { observabilityAction: "channel.create" },
+  return useCommunityCommandMutation<CreateChannelResult, Error, CreateChannelArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: async (args) => {
       const id = tempChannelId()
@@ -118,7 +118,7 @@ export type RenameChannelResult = { id: string; name: string }
 export function useRenameChannel() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useCommunityCommandMutation<RenameChannelResult, Error, RenameChannelArgs>(origin, { meta: { observabilityAction: "channel.rename" },
+  return useCommunityCommandMutation<RenameChannelResult, Error, RenameChannelArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: async (args) => {
       const original = args.original
@@ -168,7 +168,7 @@ export type DeleteChannelArgs = { serverId: string; channelId: string }
 
 export function useDeleteChannel() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, DeleteChannelArgs>(origin, { meta: { observabilityAction: "channel.delete" },
+  return useCommunityCommandMutation<void, Error, DeleteChannelArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
       if (db.collections.channels.has(args.channelId)) db.collections.channels.delete(args.channelId)
@@ -192,7 +192,7 @@ const tempCategoryId = () => `tmp_cat_${nanoid()}`
 
 export function useCreateCategory() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<CreateCategoryResult, Error, CreateCategoryArgs>(origin, { meta: { observabilityAction: "category.create" },
+  return useCommunityCommandMutation<CreateCategoryResult, Error, CreateCategoryArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: async (args) => {
       const id = tempCategoryId()
@@ -224,7 +224,7 @@ export type UpdateCategoryArgs = {
 
 export function useUpdateCategory() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, UpdateCategoryArgs>(origin, { meta: { observabilityAction: "category.update" },
+  return useCommunityCommandMutation<void, Error, UpdateCategoryArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
       if (args.name !== undefined && db.collections.categories.has(args.categoryId)) db.collections.categories.update(args.categoryId, (row) => { row.name = args.name!.trim() })
@@ -241,7 +241,7 @@ export type DeleteCategoryArgs = { serverId: string; categoryId: string }
 
 export function useDeleteCategory() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, DeleteCategoryArgs>(origin, { meta: { observabilityAction: "category.delete" },
+  return useCommunityCommandMutation<void, Error, DeleteCategoryArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
       if (db.collections.categories.has(args.categoryId)) db.collections.categories.delete(args.categoryId)
@@ -258,7 +258,7 @@ export type ReorderCategoriesArgs = { serverId: string; categoryIds: string[] }
 
 export function useReorderCategories() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, ReorderCategoriesArgs>(origin, { meta: { observabilityAction: "category.reorder" },
+  return useCommunityCommandMutation<void, Error, ReorderCategoriesArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
       args.categoryIds.forEach((id, position) => { if (db.collections.categories.get(id)?.serverId === args.serverId) db.collections.categories.update(id, (row) => { row.position = position }) })
@@ -277,7 +277,7 @@ export type ReorderChannelsArgs = { serverId: string; channelIds: string[]; move
 
 export function useReorderChannels() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, ReorderChannelsArgs>(origin, { meta: { observabilityAction: "channel.reorder" },
+  return useCommunityCommandMutation<void, Error, ReorderChannelsArgs>(origin, {
     scope: { id: "community-tree-commands" },
     mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
       args.channelIds.forEach((id, position) => { if (db.collections.channels.get(id)?.serverId === args.serverId) db.collections.channels.update(id, (row) => { row.position = position; if (args.move?.channelId === id) row.categoryId = args.move.categoryId }) })

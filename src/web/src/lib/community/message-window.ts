@@ -1,10 +1,7 @@
 import type { InitialMessageWindow, MessageWindowData } from "./message-window-contract"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { hashKey, infiniteQueryOptions, type QueryClient, type QueryKey } from "@tanstack/react-query"
-import type { ApiRequestOptions } from "@/lib/api/client"
 import { COMMUNITY_CONTRACT_HEADER, type CommunityMessageSurfaceReceipt } from "@alook/shared"
-import { actionAttributes } from "@/lib/observability/context"
-import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetry"
 import { apiFetchCommunity } from "./account-cache-lifecycle"
 import { captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
@@ -17,7 +14,6 @@ type MessagesTransportPage = WireMessagesPage & {
 
 export type MessagesTransportOptions = {
   queryClient?: QueryClient
-  observation?: ApiRequestOptions["observation"] | (() => ApiRequestOptions["observation"])
 }
 
 export function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: string | null): string {
@@ -46,12 +42,11 @@ export function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag
 async function fetchMessagesTransport(
   url: string,
   signal: AbortSignal | undefined,
-  options: MessagesTransportOptions | undefined,
   token: ReturnType<typeof captureCommunityLiveSnapshotToken>,
 ): Promise<WireMessagesPage> {
   const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesTransportPage>(
     url,
-    { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) }, observation: typeof options?.observation === "function" ? options.observation() : options?.observation }, token,
+    { signal: readSignal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) } }, token,
   ))
   const { surfaceReceipt: _surfaceReceipt, ...page } = transport
   return page
@@ -70,31 +65,20 @@ export const channelMessagesQueryFn =
   }): Promise<MessagesPage> => {
     const originalClient = options?.queryClient ?? client
     if (!originalClient) throw new DOMException("Missing message query owner", "AbortError")
-    const captured = typeof options?.observation === "function" ? options.observation() : options?.observation
-    const observation: ApiRequestOptions["observation"] = pageParam.mode === "older" || pageParam.mode === "newer"
-      ? { page: captured?.page ?? captured?.action, reason: "pagination" }
-      : pageParam.mode === "since" ? { page: captured?.page ?? captured?.action, reason: "background" }
-      : captured?.action?.done ? { page: captured.action.name === "navigation" ? captured.action : captured.page, reason: "background" } : captured
-    const generation = telemetryGeneration()
     const publicationToken = captureCommunityLiveSnapshotToken(originalClient, channelId)
     const url = buildMessagesUrl(
       `/api/community/channels/${channelId}/messages`,
       pageParam,
       tag,
     )
-    const page = await fetchMessagesTransport(url, signal, { ...options, observation: { ...observation,
-      role: pageParam.mode === "older" || pageParam.mode === "newer" ? "pagination" : "window", windowMode: pageParam.mode,
-    } }, publicationToken)
-    {
-      const result = await publishCommunityMessages(originalClient, {
-        channelId,
-        messages: page.messages,
-        relatedMessages: page.relatedMessages,
-        profiles: page.profiles,
-        proof: { token: publicationToken, signal },
-      })
-      if (result === "published" && generation === telemetryGeneration()) emitTelemetry("data.publish", { ...actionAttributes(observation?.action ?? observation?.page), source: "network", cache_stage: "canonical", request_reason: observation?.reason ?? "unknown", eligibility: "eligible", outcome: "success" })
-    }
+    const page = await fetchMessagesTransport(url, signal, publicationToken)
+    await publishCommunityMessages(originalClient, {
+      channelId,
+      messages: page.messages,
+      relatedMessages: page.relatedMessages,
+      profiles: page.profiles,
+      proof: { token: publicationToken, signal },
+    })
     return messageWindowPage(page)
   }
 
