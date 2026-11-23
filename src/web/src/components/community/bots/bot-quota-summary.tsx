@@ -247,7 +247,7 @@ export function MachineQuotaSummary({
           >
             {providerSummaries.map(({ id, title, remaining, stale }) => (
               <span key={id} title={title} aria-hidden="true" className="inline-flex shrink-0 items-center gap-1.5">
-                <ProviderLogo provider={id} className="size-3.5 shrink-0" />
+                <ProviderLogo provider={id} className="size-3.5 shrink-0" monochrome />
                 {remaining !== null && (
                   <span className={stale ? "font-mono text-xs tabular-nums text-warning" : "font-mono text-xs tabular-nums text-foreground/85"}>
                     {remaining}%

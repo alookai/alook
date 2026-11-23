@@ -355,6 +355,17 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
     `[data-testid^="${tid.botUsageDay("bot_claude", "")}"]`,
   )).toHaveCount(30)
   const quota = page.getByTestId(tid.machineQuota(machine.id))
+  const expectQuotaIconInk = () => expect.poll(() => quota.evaluate((trigger) => {
+    const ink = getComputedStyle(trigger).color
+    return [
+      '[data-provider-logo="claude"]',
+      '[data-provider-logo="codex"]',
+      '[data-provider-logo="grok"] path',
+    ].map((selector) => {
+      const mark = trigger.querySelector(selector)
+      return mark !== null && getComputedStyle(mark).fill === ink
+    })
+  })).toEqual([true, true, true])
   const updateExtension = page.getByTestId(tid.userBarExtension)
   await expect(quota).toHaveCount(1)
   await page.keyboard.press("Escape")
@@ -365,6 +376,7 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
     "Quota details: Claude 64% left; Codex (automatic) 18% left; Grok 72% left. 4 limits",
   )
   await expect(quota).toHaveText(/^64%\s*18%\s*72%$/)
+  await expectQuotaIconInk()
 
   await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-24")))
     .toHaveClass(/bg-muted-foreground\/15/)
@@ -383,6 +395,7 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await attachScreenshot(page, testInfo, "my-bots-token-heatmap-pc")
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" })
   await expectDarkTheme(page, true)
+  await expectQuotaIconInk()
   await attachScreenshot(page, testInfo, "my-bots-token-heatmap-pc-dark")
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
   await expectDarkTheme(page, false)
@@ -404,6 +417,7 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await expect(quotaDetail).toContainText("Pi")
   await expect(quotaDetail).toContainText("Not supported")
   await expect(quotaDetail).toContainText("Claude")
+  await expect(quotaDetail.locator('[data-provider-logo="claude"]')).toHaveCSS("fill", "rgb(217, 119, 87)")
   await expect(quotaDetail).toContainText("Max")
   await expect(quotaDetail).toContainText("64% left")
   await expect(quotaDetail).toContainText("Grok")
