@@ -256,7 +256,7 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
       render(screen).unmount()
       render(screen)
       expect(mocks.capture.mock.calls.map(([event]) => event)).toEqual([
-        { event: "landing_cta_clicked", ctaName: "get_started" },
+        { event: "landing_cta_clicked", ctaName: "get_started", sourcePath: "/" },
         { event: "login_page_view" },
         { event: "login_page_view" },
       ])

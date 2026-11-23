@@ -88,8 +88,8 @@ function SignInForm({
   const hydrated = useHydratedClient()
 
   useEffect(() => {
-    const ctaName = takeLandingSignInCta()
-    if (ctaName) void captureProductAnalytics({ event: "landing_cta_clicked", ctaName })
+    const cta = takeLandingSignInCta()
+    if (cta) void captureProductAnalytics({ event: "landing_cta_clicked", ...cta })
     void captureProductAnalytics({ event: "login_page_view" })
   }, [])
 

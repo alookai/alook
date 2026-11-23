@@ -99,17 +99,17 @@ describe("frontend product analytics", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
   it("carries a cold signup click through document navigation to the finite sender once", () => {
-    window.history.replaceState(null, "", "/")
+    window.history.replaceState(null, "", "/blog/introducing-alook?utm_campaign=source-query")
     trackLandingCtaClicked({ cta_name: "get_started" }, "/sign-in?redirect=private-value")
     expect(window.dataLayer).toEqual([])
     expect(sessionStorage.length).toBe(1)
-    expect(sessionStorage.getItem(sessionStorage.key(0)!)).not.toContain("private-value")
+    expect(sessionStorage.getItem(sessionStorage.key(0)!)).not.toMatch(/source-query|private-value/)
     expect(takeLandingSignInCta()).toBeNull()
     window.history.replaceState(null, "", "/sign-in")
-    const ctaName = takeLandingSignInCta()!
-    void captureProductAnalytics({ event: "landing_cta_clicked", ctaName })
+    const cta = takeLandingSignInCta()!
+    void captureProductAnalytics({ event: "landing_cta_clicked", ...cta })
     const { send } = loadFrame()
-    expect(send).toHaveBeenCalledExactlyOnceWith({ event: "landing_cta_clicked", params: { cta_name: "get_started" } })
+    expect(send).toHaveBeenCalledExactlyOnceWith({ event: "landing_cta_clicked", params: { cta_name: "get_started", source_path: "/blog/introducing-alook" } })
     expect(takeLandingSignInCta()).toBeNull()
     expect(sessionStorage.length).toBe(0)
     expect(fetch).not.toHaveBeenCalled()

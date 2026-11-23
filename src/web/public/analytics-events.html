@@ -28,6 +28,7 @@ gtag('config', 'G-STBCL8F4ZY', { send_page_view: false, allow_google_signals: fa
 window.sendProductEvent = function ({ event, params }) {
   if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit', 'community_onboarding_started', 'community_onboarding_stage_completed', 'community_onboarding_skipped', 'community_onboarding_completed', 'human_invitation_sent', 'human_invitation_copied', 'invited_human_joined', 'runtime_connected', 'first_agent_reply_persisted', 'pricing_cta_click', 'begin_checkout'].includes(event)) return;
   const safe = {};
+  let pageLocation = fields.page_location;
   if (event === 'runtime_connected') Object.assign(safe, { surface: 'community', connection_type: 'local_daemon' });
   if (event === 'first_agent_reply_persisted') {
     if (!['dm', 'channel', 'thread'].includes(params?.conversation_type)) return;
@@ -41,6 +42,10 @@ window.sendProductEvent = function ({ event, params }) {
     const names = ['open_app', 'get_started', 'templates', 'public_nav_open_app', 'public_nav_get_started', 'pricing_open_app', 'pricing_get_started', 'templates_open_app', 'templates_get_started', 'closing_open_app', 'closing_get_started', ...['product', 'identity', 'continuity', 'reach', 'ownership', 'value_context', 'value_flows', 'value_attention', 'use_cases'].flatMap(section => [section + '_open_app', section + '_get_started'])];
     if (!names.includes(params?.cta_name)) return;
     safe.cta_name = params.cta_name;
+    const path = params.source_path;
+    if (typeof path === 'string' && /^\/(?:download|pricing|contact|privacy|terms|(?:tutorials|usecases|templates)(?:\/[a-z0-9-]+)?|blog(?:\/[a-z0-9-]+)*)?$/.test(path)) {
+      pageLocation = location.origin + path;
+    }
   }
   if (event === 'pricing_cta_click') {
     const ids = { pricing_page: { free: 'pricing_free', studio: 'pricing_studio', house: 'pricing_house' }, billing_sheet: { studio: 'billing_studio', house: 'billing_house' } };
@@ -66,7 +71,7 @@ window.sendProductEvent = function ({ event, params }) {
       safe.error_code = 'HTTP_ERROR'; safe.error_reason = 'HTTP ' + safe.http_status;
     }
   }
-  gtag('event', event, { ...safe, ...fields, send_to: 'G-STBCL8F4ZY' });
+  gtag('event', event, { ...safe, ...fields, page_location: pageLocation, send_to: 'G-STBCL8F4ZY' });
 };
 const sdk = document.createElement('script');
 sdk.async = true;

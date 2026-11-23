@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react"
 import { isTauri } from "@alook/shared"
-import { readAnalyticsConsent } from "./analytics-consent"
+import { isPublicAnalyticsPath, readAnalyticsConsent } from "./analytics-consent"
 import { ANALYTICS_ORIGIN, LANDING_CTA_NAMES } from "./product-analytics-contract"
 
 const key = "alook:landing-sign-in-cta"
@@ -21,14 +21,14 @@ export function handoffLandingSignInCta(ctaName: string, navigation: string | Mo
   try {
     const target = new URL(href, window.location.href)
     if (target.origin !== ANALYTICS_ORIGIN || target.pathname !== "/sign-in") return false
-    window.sessionStorage.setItem(key, JSON.stringify([ctaName, Date.now() + lifetimeMs]))
+    window.sessionStorage.setItem(key, JSON.stringify([ctaName, window.location.pathname, Date.now() + lifetimeMs]))
     return true
   } catch {
     return false
   }
 }
 
-export function takeLandingSignInCta(): string | null {
+export function takeLandingSignInCta(): { ctaName: string; sourcePath: string } | null {
   if (window.location.origin !== ANALYTICS_ORIGIN || window.location.pathname !== "/sign-in" || isTauri()) return null
   try {
     const pending = window.sessionStorage.getItem(key)
@@ -37,10 +37,11 @@ export function takeLandingSignInCta(): string | null {
     if (readAnalyticsConsent() === "denied") return null
     const data: unknown = JSON.parse(pending)
     if (!Array.isArray(data)) return null
-    const [ctaName, expiresAt] = data
+    const [ctaName, sourcePath, expiresAt] = data
     if (typeof ctaName !== "string" || !LANDING_CTA_NAMES.includes(ctaName)
+      || typeof sourcePath !== "string" || !isPublicAnalyticsPath(sourcePath)
       || typeof expiresAt !== "number" || expiresAt <= Date.now()) return null
-    return ctaName
+    return { ctaName, sourcePath }
   } catch {
     return null
   }
