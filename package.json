@@ -54,14 +54,14 @@
     "pre-commit": "pnpm check"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "5.1.0",
+    "@vitest/coverage-istanbul": "5.1.1",
     "badge-maker": "6.0.0",
     "sharp": "^0.35.5",
     "simple-git-hooks": "^2.14.0",
     "turbo": "^2.11.11",
     "typescript": "^6.0.3",
-    "vitest": "5.1.0",
-    "wrangler": "4.162.0"
+    "vitest": "5.1.1",
+    "wrangler": "4.165.0"
   },
   "pnpm": {
     "patchedDependencies": {

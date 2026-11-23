@@ -45,13 +45,13 @@
     "remark-cjk-friendly-gfm-strikethrough": "^2.3.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261114.1",
+    "@cloudflare/workers-types": "^5.20261119.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.4",
     "better-sqlite3": "^12.11.1",
     "knip": "^6.32.2",
     "typescript": "^6.0.3",
-    "vitest": "5.1.0",
+    "vitest": "5.1.1",
     "@types/mdast": "^4.0.4"
   }
 }
