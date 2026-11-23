@@ -1,108 +1,114 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { killProcessTree, spawnAgentProcess } from "./killTree.js";
-import { macosAgentLauncher } from "./macos-agent-launch.js";
+import { macosAgentLauncher, macosAgentSpawnSpec } from "./macos-agent-launch.js";
 
-const guiSession = process.platform === "darwin"
-  && spawnSync("/bin/launchctl", ["print", `gui/${process.getuid?.()}`], { stdio: "ignore" }).status === 0;
+const source = fileURLToPath(new URL("../../../../desktop/src-tauri/src/macos_agent_launcher.c", import.meta.url));
 
-describe.runIf(guiSession)("macOS backend launch", () => {
+describe.runIf(process.platform === "darwin")("macOS backend launch", () => {
   let directory: string;
-  let originalEntrypoint: string;
-  let originalNodeArgs: string[];
 
   beforeAll(() => {
     directory = mkdtempSync("/private/tmp/alook-launch-test.");
     const launcher = join(directory, "launcher");
     execFileSync("/usr/bin/xcrun", [
-      "clang", "-Wall", "-Wextra", "-Werror", "-DALOOK_AGENT_LAUNCHER_STANDALONE", "-framework", "CoreFoundation",
-      fileURLToPath(new URL("../../../../desktop/src-tauri/src/macos_agent_launcher.c", import.meta.url)), "-o", launcher,
+      "clang", "-Wall", "-Wextra", "-Werror", "-DALOOK_AGENT_LAUNCHER_STANDALONE",
+      source, "-o", launcher,
     ]);
-    const preload = join(directory, "preload.cjs");
-    writeFileSync(preload, "globalThis.alookCleanupPreloaded = true;");
-    originalNodeArgs = process.execArgv;
-    process.execArgv = ["--require", preload];
-    const entrypoint = join(directory, "cleanup.mjs");
-    writeFileSync(entrypoint, `
-      import { writeFileSync } from "node:fs";
-      import { setTimeout } from "node:timers/promises";
-      if (!globalThis.alookCleanupPreloaded || process.argv[2] !== "--alook-macos-agent-cleanup") process.exit(1);
-      const pid = Number(process.argv[3]);
-      process.kill(pid, "SIGTERM");
-      for (let attempt = 0; attempt < 50; attempt += 1) {
-        await setTimeout(10);
-        try { process.kill(pid, 0); } catch {
-          writeFileSync(new URL("./cleaned", import.meta.url), String(pid));
-          process.exit(0);
-        }
-      }
-      process.exit(1);
-    `);
-    originalEntrypoint = process.argv[1];
-    process.argv[1] = entrypoint;
     vi.stubEnv(macosAgentLauncher, realpathSync(launcher));
   });
 
   afterAll(() => {
-    if (originalEntrypoint) process.argv[1] = originalEntrypoint;
-    if (originalNodeArgs) process.execArgv = originalNodeArgs;
     vi.unstubAllEnvs();
     if (directory) rmSync(directory, { recursive: true, force: true });
   });
 
-  it("transfers original stdio, cwd and environment then waits for native shutdown", async () => {
+  it("keeps the owned PID and process group with the original stdio, cwd and environment", async () => {
     const program = [
-      "process.stdin.once('data', input =>",
-      "  console.log(JSON.stringify({ pid: process.pid, cwd: process.cwd(), input: String(input), env: process.env.TEST_MARKER })));",
+      "process.stdin.once('data', input => console.log(JSON.stringify({",
+      "  pid: process.pid, parent: process.ppid, cwd: process.cwd(), input: String(input),",
+      "  env: process.env.TEST_MARKER, launcher: process.env.ALOOK_MACOS_AGENT_LAUNCHER,",
+      "})));",
       "setInterval(() => {}, 1000);",
     ].join("\n");
     const worker = spawnAgentProcess(process.execPath, ["-e", program], {
-      cwd: directory, env: { TEST_MARKER: "preserved\nvalue" }, macosIdentity: true,
+      cwd: directory,
+      env: { TEST_MARKER: "preserved\nvalue", [macosAgentLauncher]: "host-only" },
+      macosIdentity: true,
     });
-    let backendPid: number | undefined;
+    const closed = once(worker, "close");
     try {
       const output = once(worker.stdout!, "data");
       worker.stdin!.write("from client");
       const [chunk] = await output;
-      const report = JSON.parse(String(chunk));
-      backendPid = report.pid;
-      expect(report).toEqual({ pid: expect.any(Number), cwd: directory, input: "from client", env: "preserved\nvalue" });
-      expect(backendPid).not.toBe(worker.pid);
-      await killProcessTree(worker.pid!, { graceMs: 100 });
-      expect(readFileSync(join(directory, "cleaned"), "utf8")).toBe(String(backendPid));
-      backendPid = undefined;
+      expect(JSON.parse(String(chunk))).toEqual({
+        pid: worker.pid, parent: process.pid, cwd: directory, input: "from client", env: "preserved\nvalue",
+      });
+      const group = execFileSync("/bin/ps", ["-o", "pgid=", "-p", String(worker.pid)], { encoding: "utf8" });
+      expect(Number(group.trim())).toBe(worker.pid);
     } finally {
-      if (worker.pid) await killProcessTree(worker.pid);
-      if (backendPid) {
-        try { process.kill(backendPid, "SIGKILL"); } catch { /* Worker already exited. */ }
-      }
+      if (worker.pid) await killProcessTree(worker.pid, { graceMs: 100 });
     }
+    await expect(closed).resolves.toEqual([null, "SIGTERM"]);
   });
 
-  it("cancels a launch before it executes the backend program", async () => {
-    const marker = join(directory, "ran");
-    const worker = spawnAgentProcess(process.execPath, [
-      "-e", "require('node:fs').writeFileSync(process.argv[1], 'ran')", marker,
-    ], { cwd: directory, macosIdentity: true });
-    expect(worker.pid).toEqual(expect.any(Number));
-    await killProcessTree(worker.pid!, { graceMs: 100 });
-    expect(existsSync(marker)).toBe(false);
+  it("preserves the backend exit status", async () => {
+    const worker = spawnAgentProcess(process.execPath, ["-e", "process.exit(37)"], { cwd: directory, macosIdentity: true });
+    await expect(once(worker, "close")).resolves.toEqual([37, null]);
   });
 
-  it("rejects a stop when the supervisor exits without confirming cleanup", async () => {
-    const launcher = join(directory, "failed-launcher");
-    writeFileSync(launcher, "#!/bin/sh\nexit 125\n", { mode: 0o700 });
-    const configuredLauncher = process.env[macosAgentLauncher];
+  it("keeps normal launch available when macOS reports independent identity is unsupported", async () => {
+    const unsupported = join(directory, "unsupported.c");
+    const launcher = join(directory, "unsupported-launcher");
+    writeFileSync(unsupported, `
+      #include <errno.h>
+      #include <signal.h>
+      #include <spawn.h>
+      __attribute__((constructor)) static void start_with_ignored_sigpipe(void) {
+        signal(SIGPIPE, SIG_IGN);
+      }
+      static int unsupported(posix_spawnattr_t *attributes, int enabled) {
+        (void)attributes;
+        (void)enabled;
+        return ENOTSUP;
+      }
+      void *alook_test_dlsym(void *handle, const char *name) {
+        (void)handle;
+        (void)name;
+        return (void *)unsupported;
+      }
+    `);
+    execFileSync("/usr/bin/xcrun", [
+      "clang", "-Wall", "-Wextra", "-Werror", "-DALOOK_AGENT_LAUNCHER_STANDALONE",
+      "-Ddlsym=alook_test_dlsym", source, unsupported, "-o", launcher,
+    ]);
+    const normalLauncher = process.env[macosAgentLauncher];
     vi.stubEnv(macosAgentLauncher, launcher);
     try {
-      const worker = spawnAgentProcess(process.execPath, ["-v"], { cwd: directory, macosIdentity: true });
-      await expect(killProcessTree(worker.pid!)).rejects.toThrow("could not finish cleanup");
+      const worker = spawnAgentProcess(process.execPath, ["-e", "process.exit(37)"], { cwd: directory, macosIdentity: true });
+      let diagnostics = "";
+      worker.stderr!.on("data", (chunk) => { diagnostics += String(chunk); });
+      await expect(once(worker, "close")).resolves.toEqual([37, null]);
+      expect(diagnostics).toContain("Independent macOS agent identity is unavailable");
+
+      const brokenPipe = spawnAgentProcess("/usr/bin/yes", [], { cwd: directory, macosIdentity: true });
+      const closed = once(brokenPipe, "close");
+      brokenPipe.stdout!.destroy();
+      await expect(closed).resolves.toEqual([null, "SIGPIPE"]);
     } finally {
-      vi.stubEnv(macosAgentLauncher, configuredLauncher);
+      vi.stubEnv(macosAgentLauncher, normalLauncher);
     }
+  });
+
+  it("keeps shell scripts on their normal launch path", async () => {
+    const script = join(directory, "script");
+    writeFileSync(script, "#!/bin/sh\nexit 21\n", { mode: 0o700 });
+    expect(macosAgentSpawnSpec(script, [], { cwd: directory })).toBeUndefined();
+    const worker = spawnAgentProcess(script, [], { cwd: directory, macosIdentity: true });
+    await expect(once(worker, "close")).resolves.toEqual([21, null]);
   });
 });

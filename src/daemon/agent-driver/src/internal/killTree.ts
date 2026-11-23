@@ -24,7 +24,7 @@ import { createServer, type Socket } from "node:net";
 import { PassThrough } from "node:stream";
 import { win32 } from "node:path";
 import { quoteWindowsShimCommand } from "./probe.js";
-import { spawnMacosAgent, stopMacosAgent } from "./macos-agent-launch.js";
+import { macosAgentSpawnSpec } from "./macos-agent-launch.js";
 
 const POLL_MS = 100;
 const FORCE_EXIT_WAIT_MS = 2_000;
@@ -509,7 +509,7 @@ interface AgentSpawnOptions {
    */
   stdin?: "pipe" | "ignore";
   traceDirectory?: string;
-  macosIdentity?: boolean | "managed-launcher";
+  macosIdentity?: boolean;
 }
 
 /**
@@ -521,10 +521,6 @@ interface AgentSpawnOptions {
  * entry point rather than each driver calling `child_process.spawn` itself.
  */
 export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
-  if (opts.macosIdentity) {
-    const isolated = spawnMacosAgent(command, args, opts);
-    if (isolated) return isolated;
-  }
   if (!isPosix) {
     const encodedTargetEnv = Buffer.from(JSON.stringify(copyWindowsEnvironment(opts.env ?? process.env))).toString("base64");
     const environment = copyWindowsEnvironment(process.env);
@@ -600,12 +596,13 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     }
     return proc;
   }
-  return spawn(command, args, {
+  const macos = opts.macosIdentity ? macosAgentSpawnSpec(command, args, opts) : undefined;
+  return spawn(macos?.command ?? command, macos?.args ?? args, {
     cwd: opts.cwd,
     // stdout/stderr always piped (we read stream-json/JSON-RPC); stdin defaults
     // to pipe for persistent transports. See AgentSpawnOptions.stdin.
     stdio: [opts.stdin ?? "pipe", "pipe", "pipe"],
-    env: opts.env,
+    env: macos?.env ?? opts.env,
     shell: opts.shell ?? false,
     detached: isPosix,
   });
@@ -785,8 +782,6 @@ export async function killProcessTree(
   opts?: { graceMs?: number },
 ): Promise<void> {
   if (!pid || pid < 1) return;
-  const isolated = stopMacosAgent(pid, opts?.graceMs ?? DEFAULT_GRACE_MS);
-  if (isolated) return isolated;
   if (!isPosix) {
     await killWindowsProcessTree(pid);
     return;

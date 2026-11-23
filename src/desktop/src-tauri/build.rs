@@ -1,7 +1,6 @@
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rerun-if-changed=src/macos_agent_launcher.c");
-        println!("cargo:rustc-link-lib=framework=CoreFoundation");
         cc::Build::new()
             .file("src/macos_agent_launcher.c")
             .compile("alook_macos_agent_launcher");

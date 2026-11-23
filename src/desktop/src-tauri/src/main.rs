@@ -8,26 +8,28 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 fn run_agent_launcher() {
-    use std::{env, ffi::CString, os::unix::ffi::OsStrExt, process};
+    use std::{
+        env,
+        ffi::{CString, OsStr},
+        os::unix::ffi::OsStrExt,
+        process,
+    };
 
     unsafe extern "C" {
-        fn alook_macos_agent_main(argc: i32, argv: *const *const std::ffi::c_char) -> i32;
+        fn alook_macos_agent_exec(argv: *const *const std::ffi::c_char) -> i32;
     }
 
-    let arguments: Vec<_> = env::args_os().collect();
-    let Some(mode) = arguments.get(1).and_then(|value| value.to_str()) else {
-        return;
-    };
-    if !matches!(mode, "--alook-agent-supervise" | "--alook-agent-exec") {
+    let mut arguments = env::args_os().skip(1);
+    if arguments.next().as_deref() != Some(OsStr::new("--alook-agent-exec")) {
         return;
     }
-    let Ok(executable) = env::current_exe().and_then(|path| path.canonicalize()) else {
-        process::exit(125);
-    };
-    let values: Vec<_> = std::iter::once(executable.into_os_string())
-        .chain(arguments.into_iter().skip(1))
+    let values: Vec<_> = arguments
         .map(|argument| CString::new(argument.as_bytes()).expect("OS argument contains NUL"))
         .collect();
-    let pointers: Vec<_> = values.iter().map(|value| value.as_ptr()).collect();
-    process::exit(unsafe { alook_macos_agent_main(pointers.len() as i32, pointers.as_ptr()) });
+    let pointers: Vec<_> = values
+        .iter()
+        .map(|value| value.as_ptr())
+        .chain(std::iter::once(std::ptr::null()))
+        .collect();
+    process::exit(unsafe { alook_macos_agent_exec(pointers.as_ptr()) });
 }

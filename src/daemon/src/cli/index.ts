@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { MEMORY_COMMIT_MAX_BYTES, validateMemoryCommit } from "../memory/commit.js";
-import { stopOwnedProcessTree } from "@alook/agent-driver/host";
 import {
   BOT_FEEDBACK_MAX_BYTES,
   DECISION_CARD_MAX_BYTES,
@@ -1346,15 +1345,5 @@ try {
 }
 
 if (isMainModule) {
-  const [, , mode, pid, grace] = process.argv;
-  if (process.platform === "darwin" && mode === "--alook-macos-agent-cleanup") {
-    if (process.argv.length !== 5 || !/^[1-9]\d{0,9}$/.test(pid ?? "") || Number(pid) < 2 || Number(pid) > 2_147_483_647
-      || !/^\d{1,5}$/.test(grace ?? "")) process.exit(1);
-    stopOwnedProcessTree(Number(pid), { graceMs: Number(grace) }).then(
-      () => process.exit(0),
-      () => process.exit(1),
-    );
-  } else {
-    main().then((code) => { process.stdout.write("", () => process.exit(code)); });
-  }
+  main().then((code) => { process.stdout.write("", () => process.exit(code)); });
 }

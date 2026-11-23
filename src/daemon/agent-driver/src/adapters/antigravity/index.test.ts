@@ -67,6 +67,30 @@ function setup(options: { authError?: boolean; loadId?: string; loadError?: bool
 }
 
 describe("Antigravity native ACP", () => {
+  it.runIf(process.platform !== "win32")("unwraps the documented native entrypoint and leaves customized scripts alone", () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook-antigravity-launcher-"));
+    dirs.push(directory);
+    const home = vi.mocked(os.homedir);
+    const previousHome = home.getMockImplementation()!;
+    home.mockReturnValue(directory);
+    const bin = join(directory, ".local", "bin");
+    mkdirSync(bin, { recursive: true });
+    const wrapper = join(bin, "agy_acp_server.par");
+    const runtime = ".local/share/alook/runtimes/antigravity-acp/1.3.0/agy_acp_server.par";
+    try {
+      for (const target of [join(directory, runtime), "$HOME/" + runtime]) {
+        writeFileSync(wrapper, `#!/bin/sh\nexec "${target}" "$@"\n`);
+        expect(probeModule.managedAntigravityExecutable(wrapper, directory)).toBe(join(directory, runtime));
+      }
+      writeFileSync(wrapper, `#!/bin/sh\nexport CI=1\nexec "$HOME/${runtime}" "$@"\n`);
+      expect(probeModule.managedAntigravityExecutable(wrapper, directory)).toBeUndefined();
+      writeFileSync(wrapper, '#!/bin/sh\nexec "$HOME/$(whoami)/agy_acp_server.par" "$@"\n');
+      expect(probeModule.managedAntigravityExecutable(wrapper, directory)).toBeUndefined();
+    } finally {
+      home.mockImplementation(previousHome);
+    }
+  });
+
   it("keeps the public driver's default native catalog and isolates installation probes from cache state", async () => {
     const nativeProbe = probeModule.probeAntigravity;
     for (const includeModels of [false, true]) {
