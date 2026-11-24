@@ -35,7 +35,7 @@
     "remark-gfm": "^4.0.1",
     "remark-breaks": "^4.0.0",
     "remark-math": "6.0.0",
-    "mdast-util-find-and-replace": "^3.0.4",
+    "mdast-util-find-and-replace": "^3.0.5",
     "mdast-util-from-markdown": "^2.1.0",
     "micromark-util-chunked": "^2.0.1",
     "micromark-util-classify-character": "^2.0.1",

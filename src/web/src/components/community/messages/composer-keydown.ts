@@ -56,35 +56,125 @@ function submitComposerForKeyDown(
   return true
 }
 
-function syncNativeDeletionSelection(view: EditorView, event: KeyboardEvent): void {
+const IME_POST_COMPOSITION_GUARD_MS = 500
+
+function isAppleWebKitVendor(): boolean {
+  return typeof navigator !== "undefined" && /Apple Computer/.test(navigator.vendor)
+}
+
+type ComposerDomKeyDownGuardOptions = {
+  now?: () => number
+  isSafari?: () => boolean
+}
+
+type NativeDeletionSyncResult = "skipped" | "synced" | "declined"
+
+function hasUnreconciledNativeRange(view: EditorView): boolean {
+  if (
+    view.isDestroyed
+    || !view.editable
+    || !view.dom.isConnected
+    || !view.hasFocus()
+    || !(view.state.selection instanceof TextSelection)
+    || !view.state.selection.empty
+  ) {
+    return false
+  }
+  const native = view.dom.ownerDocument.getSelection()
+  return Boolean(
+    native
+    && native.rangeCount === 1
+    && !native.isCollapsed
+    && native.anchorNode
+    && native.focusNode
+    && view.dom.contains(native.anchorNode)
+    && view.dom.contains(native.focusNode),
+  )
+}
+
+function syncNativeDeletionSelection(
+  view: EditorView,
+  event: KeyboardEvent,
+): NativeDeletionSyncResult {
   if (
     (event.key !== "Delete" && event.key !== "Backspace")
     || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
     || event.isComposing || view.composing || view.isDestroyed
     || !view.editable || !view.dom.isConnected || !view.hasFocus()
     || !(view.state.selection instanceof TextSelection)
-  ) return
+  ) return "skipped"
 
   const native = view.dom.ownerDocument.getSelection()
   if (
     !native || native.rangeCount !== 1 || native.isCollapsed
     || !native.anchorNode || !native.focusNode
     || !view.dom.contains(native.anchorNode) || !view.dom.contains(native.focusNode)
-  ) return
+  ) return "skipped"
 
   let selection: ReturnType<typeof TextSelection.between>
   try {
     const anchor = view.posAtDOM(native.anchorNode, native.anchorOffset, 1)
     const head = view.posAtDOM(native.focusNode, native.focusOffset, 1)
     const doc = view.state.doc
-    if (anchor < 0 || head < 0 || anchor > doc.content.size || head > doc.content.size) return
+    if (anchor < 0 || head < 0 || anchor > doc.content.size || head > doc.content.size) return "declined"
     selection = TextSelection.between(doc.resolve(anchor), doc.resolve(head))
   } catch (error) {
-    if (error instanceof RangeError) return
+    if (error instanceof RangeError) return "declined"
     throw error
   }
   if (!selection.empty && !selection.eq(view.state.selection)) {
     view.dispatch(view.state.tr.setSelection(selection))
+    return "synced"
+  }
+  return "skipped"
+}
+
+/**
+ * Runs from ProseMirror's `handleDOMEvents` before `editHandlers.keydown`:
+ * 1. Guards Safari/WKWebView's trailing Enter/Tab keydown right after
+ *    `compositionend` (prosemirror-view 1.43 removed `inOrNearComposition`
+ *    from `editHandlers.keydown`).
+ * 2. Prevents prosemirror-view 1.43's eager `domObserver.forceFlush(true)` from
+ *    reconciling native DOM ranges during IME deletion, modified Delete/Backspace,
+ *    or when `posAtDOM` rejects an invalid mapping with `RangeError`.
+ */
+export function createComposerDomKeyDownGuard({
+  now = () => Date.now(),
+  isSafari = isAppleWebKitVendor,
+}: ComposerDomKeyDownGuardOptions = {}) {
+  let pendingConfirmUntil = 0
+
+  return {
+    onCompositionStart() {
+      pendingConfirmUntil = 0
+    },
+    onCompositionEnd() {
+      pendingConfirmUntil = isSafari() ? now() + IME_POST_COMPOSITION_GUARD_MS : 0
+    },
+    onKeyDown(view: EditorView, event: KeyboardEvent): boolean {
+      const isDeletionKey = event.key === "Delete" || event.key === "Backspace"
+
+      if (event.isComposing || view.composing) {
+        return isDeletionKey
+      }
+
+      if (pendingConfirmUntil > 0) {
+        const withinWindow = now() <= pendingConfirmUntil
+        pendingConfirmUntil = 0
+        if (withinWindow && (event.key === "Enter" || event.key === "Tab")) {
+          return true
+        }
+      }
+
+      if (isDeletionKey) {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+          return hasUnreconciledNativeRange(view)
+        }
+        return syncNativeDeletionSelection(view, event) === "declined"
+      }
+
+      return false
+    },
   }
 }
 

@@ -30,7 +30,7 @@ import {
   createLongPasteAttachment,
   pendingFilesToSendAttachments,
 } from "./composer-file-utils"
-import { handleComposerEditorKeyDown } from "./composer-keydown"
+import { createComposerDomKeyDownGuard, handleComposerEditorKeyDown } from "./composer-keydown"
 import { composerDocumentExtensions, preserveComposerPlainTextPaste, serializeComposerDocument } from "./composer-ordered-list"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./caret-text-insertion"
@@ -129,6 +129,7 @@ export function useComposerController(
       typingTimer.current = null
     }, 3_000)
   }
+  const domKeyDownGuard = useMemo(() => createComposerDomKeyDownGuard(), [])
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -162,7 +163,17 @@ export function useComposerController(
           splitListItem: () => editorRef.current?.commands.splitListItem("listItem") ?? false,
           undoInputRule: () => editorRef.current?.commands.undoInputRule() ?? false,
         }),
-      handleDOMEvents: { paste: (_view, event) => {
+      handleDOMEvents: {
+        compositionstart: () => {
+          domKeyDownGuard.onCompositionStart()
+          return false
+        },
+        compositionend: () => {
+          domKeyDownGuard.onCompositionEnd()
+          return false
+        },
+        keydown: (view, event) => domKeyDownGuard.onKeyDown(view, event),
+        paste: (_view, event) => {
         if (!protocol.get().active) { event.preventDefault(); return true }
         const files = clipboardFiles(event.clipboardData?.items)
         if (files.length > 0) {
