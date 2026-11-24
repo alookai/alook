@@ -167,6 +167,18 @@ describe("HTML attachment frame", () => {
     expect(view.container).toHaveTextContent("before")
     expect(view.container).toHaveTextContent("after")
   })
+  it("synchronously restores the cached height on remount without flashing 320px", () => {
+    const view = setup()
+    const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    expect(frame.style.height).toBe("320px")
+    frameMessage(frame, { type: "alook-html-height", height: 642 })
+    expect(frame.style.height).toBe("642px")
+
+    view.rerender(view.tree(<div />))
+    view.rerender(view.tree(<HtmlAttachmentPreview attachment={file} />))
+    const remounted = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    expect(remounted.style.height).toBe("642px")
+  })
 })
 
 describe("HTML marker rendering", () => {

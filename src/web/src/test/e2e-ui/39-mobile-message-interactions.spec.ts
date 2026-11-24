@@ -341,19 +341,17 @@ async function expectTouchActionMenu(
   const action = page.getByRole("menuitem", { name: actionName })
   await expect.poll(async () => ({
     menuVisible: await action.isVisible(),
-    touchTriggerCount: await message.locator(
-      '[data-slot="dropdown-menu-trigger"][aria-hidden="true"]',
-    ).count(),
-    contextTriggerCount: await message.locator(
-      '[data-slot="context-menu-trigger"]',
+    touchMenuCount: await page.locator("[data-message-touch-menu][data-open]").count(),
+    perRowTriggerCount: await message.locator(
+      '[data-slot="dropdown-menu-trigger"][aria-hidden="true"], [data-slot="context-menu-trigger"]',
     ).count(),
   }), {
     timeout: 3_000,
-    message: "touch action menu state after same-row mouse then touch input",
+    message: "shared touch action menu state after same-row mouse then touch input",
   }).toEqual({
     menuVisible: true,
-    touchTriggerCount: 1,
-    contextTriggerCount: 1,
+    touchMenuCount: 1,
+    perRowTriggerCount: 0,
   })
   return action
 }

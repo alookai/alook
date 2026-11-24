@@ -24,6 +24,7 @@ import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { useAccountAttention } from "@/hooks/community/use-account-attention"
+import { preloadMessageBodyPlugins } from "@/components/community/messages/message-body"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingForm } from "@/components/community/onboarding/community-onboarding-form"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
@@ -121,6 +122,7 @@ function CommunityBootstrap({ children, viewerId }: { children: ReactNode; viewe
   })
 
   useEffect(() => {
+    preloadMessageBodyPlugins()
     if (projection.isReady && !projection.isError && !hasCanonicalSelf && isSuccess && !isFetching) {
       void refetch()
     }

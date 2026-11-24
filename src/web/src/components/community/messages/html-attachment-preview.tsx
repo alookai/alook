@@ -8,6 +8,7 @@ import { useTheme } from "next-themes"
 import { collectHtmlPreviewFonts, loadHtmlPreviewFonts } from "@/lib/community/html-preview-fonts"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import { HTML_PREVIEW_SANDBOX, HTML_PREVIEW_THEME_VARIABLES } from "@/lib/community/html-preview-policy"
+import { useHtmlPreviewHeight } from "@/hooks/community/use-html-preview-height"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 
@@ -25,7 +26,8 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   const [mounted, setMounted] = useState<boolean>(() => typeof window !== "undefined" && !window.IntersectionObserver)
   const [loaded, setLoaded] = useState(false)
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
-  const [height, setHeight] = useState(320)
+  const id = attachment.id
+  const { height, recordHeight } = useHtmlPreviewHeight(owner, id, attachment.url)
   const fontSheet = useQuery({
     queryKey: applicationKey(owner, "html-preview-fonts", fonts), enabled: mounted && fonts.length > 0,
     staleTime: Infinity, retry: false,
@@ -40,7 +42,6 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   const root = useRef<HTMLDivElement>(null)
   const frame = useRef<HTMLIFrameElement>(null)
   const ready = useRef(false)
-  const id = attachment.id
   const url = `${attachment.url}?preview=html&v=${encodeURIComponent(process.env.NEXT_PUBLIC_APP_VERSION ?? "")}`
   const error = status === "error"
 
@@ -79,14 +80,14 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
       }
       if (event.data.type === "alook-html-height" && "height" in event.data
         && typeof event.data.height === "number" && Number.isFinite(event.data.height) && event.data.height > 0) {
-        setHeight(Math.max(80, Math.min(2000, Math.ceil(event.data.height))))
+        recordHeight(event.data.height)
       }
     }
     window.addEventListener("message", message)
     theme()
     const themeFrame = requestAnimationFrame(theme)
     return () => { clearTimeout(timeout); cancelAnimationFrame(themeFrame); window.removeEventListener("message", message) }
-  }, [mounted, error, resolvedTheme, fontSheet])
+  }, [mounted, error, resolvedTheme, fontSheet, recordHeight])
 
   if (error) return null
 

@@ -11,6 +11,44 @@ import {
 const CACHE_PREFIX = "alook:video-preview:"
 const PREFIX = `${CACHE_PREFIX}v1:`
 const MAX_ENTRIES = 32
+const MAX_MEMORY_DIMENSION_ENTRIES = 256
+
+export type VideoDimensions = { width: number; height: number }
+const videoMemoryDimensions = new WeakMap<object, { epoch: number; entries: Map<string, VideoDimensions> }>()
+let videoMemoryEpoch = 0
+
+export function invalidateVideoMemoryDimensionsCache(): void {
+  videoMemoryEpoch += 1
+}
+
+function getVideoMemoryMap(scope: object): Map<string, VideoDimensions> {
+  const existing = videoMemoryDimensions.get(scope)
+  if (existing && existing.epoch === videoMemoryEpoch) return existing.entries
+  const entries = new Map<string, VideoDimensions>()
+  videoMemoryDimensions.set(scope, { epoch: videoMemoryEpoch, entries })
+  return entries
+}
+
+export function readVideoMemoryDimensions(scope: object | null | undefined, url: string): VideoDimensions | null {
+  if (!scope) return null
+  const map = getVideoMemoryMap(scope)
+  const dims = map.get(url)
+  if (!dims) return null
+  map.delete(url)
+  map.set(url, dims)
+  return dims
+}
+
+export function writeVideoMemoryDimensions(scope: object | null | undefined, url: string, dims: VideoDimensions): void {
+  if (!scope || !dimensions(dims)) return
+  const map = getVideoMemoryMap(scope)
+  map.delete(url)
+  map.set(url, { width: dims.width, height: dims.height })
+  if (map.size > MAX_MEMORY_DIMENSION_ENTRIES) {
+    const oldest = map.keys().next().value
+    if (oldest !== undefined) map.delete(oldest)
+  }
+}
 
 export type VideoPreviewOwner = Pick<AccountIdentityRecord, "id" | "version" | "device" | "account" | "scope"> & {
   channelId: string
@@ -117,6 +155,7 @@ export async function saveVideoPreview(owner: VideoPreviewOwner, url: string, pr
 }
 
 export async function clearVideoPreviewChannels(store: IDBObjectStore, accountId: string | null, channelIds: readonly string[]) {
+  invalidateVideoMemoryDimensionsCache()
   const channels = new Set(channelIds)
   await new Promise<void>((resolve, reject) => {
     const request = store.openKeyCursor(IDBKeyRange.bound(CACHE_PREFIX, `${CACHE_PREFIX}\uffff`))

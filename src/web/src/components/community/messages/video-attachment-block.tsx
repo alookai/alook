@@ -13,7 +13,14 @@ import { fileDownloadStatusText, useFileDownload } from "@/lib/file-download"
 import { tid } from "@/lib/community/testids"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { renderCommunityThumbnail } from "@/lib/community-image-thumbnail"
-import { captureVideoPreviewOwner, readVideoPreview, saveVideoPreview, type VideoPreviewOwner } from "@/lib/community/video-preview-cache"
+import {
+  captureVideoPreviewOwner,
+  readVideoMemoryDimensions,
+  readVideoPreview,
+  saveVideoPreview,
+  writeVideoMemoryDimensions,
+  type VideoPreviewOwner,
+} from "@/lib/community/video-preview-cache"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import { AttachmentContextMenu } from "./attachment-context-menu"
 import "@videojs/react/video/neutral-skin.css"
@@ -147,7 +154,9 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(
+    () => readVideoMemoryDimensions(registry, attachment.url),
+  )
   const [previewState, setPreviewState] = useState<{ url: string; registry: CommunityDbRegistry | null; poster?: string; settled: boolean }>({ url: attachment.url, registry, settled: false })
   const previewMatches = previewState.url === attachment.url && previewState.registry === registry
   const poster = previewMatches ? previewState.poster : undefined
@@ -182,6 +191,7 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
         const saved = owner ? await readVideoPreview(owner, attachment.url) : null
         if (!lease.current()) return null
         if (saved && retryVersion.current === version) {
+          writeVideoMemoryDimensions(registry, attachment.url, { width: saved.width, height: saved.height })
           if (!metadataSeen.current) setDimensions({ width: saved.width, height: saved.height })
           if (saved.poster && !activatedRef.current) {
             try {
@@ -299,7 +309,11 @@ function VideoAttachmentSession({ attachment, registry, contextMenuDisabled }: {
         onLoadedMetadata={event => {
           const media = event.currentTarget
           metadataSeen.current = true
-          if (media.videoWidth > 0 && media.videoHeight > 0) setDimensions({ width: media.videoWidth, height: media.videoHeight })
+          if (media.videoWidth > 0 && media.videoHeight > 0) {
+            const nextDims = { width: media.videoWidth, height: media.videoHeight }
+            writeVideoMemoryDimensions(registry, attachment.url, nextDims)
+            setDimensions(nextDims)
+          }
           void rememberPreview(media)
           if (poster && attempt === 0) return
           if (activatedRef.current || previewSeeked.current) return

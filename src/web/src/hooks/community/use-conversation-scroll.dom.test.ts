@@ -519,4 +519,21 @@ describe("useConversationScroll", () => {
     expect(scrollFixture.latest.paginationScroller.getVirtualItems()).not.toBe(initialVirtual)
     h.view.unmount()
   })
+
+  it("compensates above-anchor height growth even while a pointer drag is active", () => {
+    const h = mount()
+    h.move(500)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    const beforeTop = bodyTop(h.root, "m5")
+    const beforeScrollTop = h.root.scrollTop
+
+    fireEvent.pointerDown(h.root, { pointerId: 9 })
+    scrollFixture.bodyHeights.set("m1", 340)
+    resize()
+
+    expect(h.root.scrollTop).toBeGreaterThan(beforeScrollTop + 200)
+    expect(Math.abs(bodyTop(h.root, "m5") - beforeTop)).toBeLessThanOrEqual(1)
+    fireEvent.pointerUp(document, { pointerId: 9 })
+    h.view.unmount()
+  })
 })

@@ -31,7 +31,13 @@ import {
   type AccountIdentityRecord, type PersistedAccountIdentity,
 } from "./persisted-account-identity"
 import { cacheStore, cacheTransaction } from "./query-cache-store"
-import { clearVideoPreviewChannels, isVideoPreviewCacheKey, videoPreviewSizeBytes } from "./community/video-preview-cache"
+import { clearVideoPreviewChannels, invalidateVideoMemoryDimensionsCache, isVideoPreviewCacheKey, videoPreviewSizeBytes } from "./community/video-preview-cache"
+import {
+  clearHtmlPreviewHeightChannels,
+  htmlPreviewHeightSizeBytes,
+  invalidateHtmlPreviewHeightMemoryCache,
+  isHtmlPreviewHeightCacheKey,
+} from "./community/html-preview-height-cache"
 export { PERSIST_VERSION, PERSIST_BUSTER, PERSIST_CACHE_PREFIX, PERSIST_ACCOUNT_PREFIX, type PersistedAccountIdentity } from "./persisted-account-identity"
 const IDB_PREFIX = PERSIST_CACHE_PREFIX
 
@@ -408,7 +414,9 @@ function publishCacheInvalidation() {
 }
 export type QualifiedPersister = Persister & { stopPersisting: () => void; rememberAccountIdentity: (identity: PersistedAccountIdentity, assertCurrent: () => void) => Promise<void>; isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void>; retireChannels: (ids: Iterable<string>, deleted?: boolean) => Promise<void>; retireAuxiliaryScopes: (scopes: Iterable<AuxiliaryWindowScope>) => Promise<void>; captureAuxiliaryReadEpoch: () => Promise<string | undefined> }
 function isPersistedCacheBlobKey(key: IDBValidKey): key is string {
-  return isVideoPreviewCacheKey(key) || typeof key === "string" && /^alook:(?:qc:[^:]+|business:v\d+):[^:]+(?::application)?:client$/.test(key)
+  return isVideoPreviewCacheKey(key)
+    || isHtmlPreviewHeightCacheKey(key)
+    || typeof key === "string" && /^alook:(?:qc:[^:]+|business:v\d+):[^:]+(?::application)?:client$/.test(key)
 }
 
 export function formatBytes(bytes: number): string {
@@ -657,7 +665,7 @@ async function clearAccountRows(store: IDBObjectStore, userId: string | null, le
     request.onsuccess = () => {
       const cursor = request.result
       if (!cursor) { resolve(); return }
-      if (!legacyOnly && isVideoPreviewCacheKey(cursor.key, userId)) store.delete(cursor.primaryKey)
+      if (!legacyOnly && (isVideoPreviewCacheKey(cursor.key, userId) || isHtmlPreviewHeightCacheKey(cursor.key, userId))) store.delete(cursor.primaryKey)
       const match = typeof cursor.key === "string" && /^(alook:(?:qc:[^:]+|business:v[1-9]\d*)):([^:]+):((?:application:)?client(?::epoch)?|account-epoch(?::channels)?)$/.exec(cursor.key)
       if (match && match[2] === (userId ?? "anon")) {
         const version = /^alook:(?:business|qc):v([1-9]\d*)$/.exec(match[1])
@@ -682,6 +690,7 @@ async function retireChannelRows(store: IDBObjectStore, key: string, userId: str
   for (const id of scopes) fences.set(id, { epoch: crypto.randomUUID(), deleted: deleted || fences.get(id)?.deleted === true })
   store.put(fences, channelFenceKey(userId))
   await clearVideoPreviewChannels(store, userId, scopes)
+  await clearHtmlPreviewHeightChannels(store, userId, scopes)
   const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
   if (decoded) {
     const snapshot = scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(fences, decoded.fences), undefined, domain)
@@ -690,6 +699,8 @@ async function retireChannelRows(store: IDBObjectStore, key: string, userId: str
 }
 
 export async function clearPersistedCache(userId: string | null): Promise<void> {
+  invalidateVideoMemoryDimensionsCache()
+  invalidateHtmlPreviewHeightMemoryCache()
   await cacheTransaction("readwrite", (store) => clearAccountRows(store, userId))
   publishCacheInvalidation()
 }
@@ -708,6 +719,8 @@ export async function getPersistedCacheSizeBytes(signal?: AbortSignal): Promise<
         total += encoder.encode(cursor.value).byteLength
       } else if (isVideoPreviewCacheKey(cursor.key)) {
         total += videoPreviewSizeBytes(cursor.value)
+      } else if (isHtmlPreviewHeightCacheKey(cursor.key)) {
+        total += htmlPreviewHeightSizeBytes(cursor.value)
       }
       cursor.continue()
     }
@@ -721,6 +734,8 @@ export async function getPersistedCacheSizeBytes(signal?: AbortSignal): Promise<
 
 /** Clear this device, including qualified writers with no payload yet. */
 export async function clearAllPersistedCaches(): Promise<void> {
+  invalidateVideoMemoryDimensionsCache()
+  invalidateHtmlPreviewHeightMemoryCache()
   await cacheTransaction("readwrite", (store) => new Promise<void>((resolve, reject) => {
     store.delete(LAST_ACCOUNT_KEY)
     store.put(crypto.randomUUID(), DEVICE_EPOCH_KEY)

@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { memo, useRef } from "react"
-import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
 import { SmilePlus, MessagesSquare, UserPlus, Reply, MoreHorizontal, X, Share, Check } from "@/components/icons/lucide";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isKeyboardContextMenu, isSecondaryContextPointer } from "@/components/ui/context-menu"
@@ -30,7 +29,14 @@ import { BotCreationRequestCard } from "../social/bot-creation-request-card"
 import { DecisionCard } from "./decision-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
+import { hasMessageMenu } from "./message-menu"
+import {
+  MessageContextItemsWithMark,
+  MessageDropdownItemsWithMark,
+  useMessageOverlayHost,
+  useMessageOverlayToolbarActive,
+  useMessageOverlayToolbarOpen,
+} from "./message-overlay-host"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
@@ -257,8 +263,12 @@ function MessageImpl({
   const visibleAttachments = m.attachments?.map((attachment, index) => ({ attachment, index }))
     .filter(({ attachment }) => !attachment.id || !htmlPreviews.has(attachment.id)) ?? []
 
+  const overlayHost = useMessageOverlayHost()
+  const listToolbarActive = useMessageOverlayToolbarActive(overlayHost, m.id)
+  const listToolbarOpen = useMessageOverlayToolbarOpen(overlayHost, m.id)
   const pageSwipe = usePageSwipeStart()
-  const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
+  const [localToolbarOpen, setLocalToolbarOpen] = useAtom(useCreateAtom(false))
+  const [localHovered, setLocalHovered] = useAtom(useCreateAtom(false))
 
   const [contextOpen, setContextOpen] = useAtom(useCreateAtom(false))
   const contextRowRef = useRef<HTMLDivElement | null>(null)
@@ -292,14 +302,12 @@ function MessageImpl({
       onOpenProfile?.(authorName, event, undefined, m.authorId)
     },
   })
-  // The Mark/Unmark label needs to know if THIS message is already in the
-  // viewer's saved set. That's a single indexed row read, fired lazily only
-  // while a menu that shows the item is open (never per-row on mount) — so a
-  // channel scroll doesn't pre-load mark state for every row. Defaults to
-  // "Mark"; flips to "Unmark" silently once the read resolves (no spinner).
-  const markMenuOpen = !readOnly && (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
-  const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
   const [activated, setActivated] = useAtom(useCreateAtom(false))
+  const toolbarOpen = overlayHost ? listToolbarOpen : localToolbarOpen
+  const setToolbarOpen = (open: boolean) => {
+    if (overlayHost) overlayHost.setToolbarOpen(m.id, open)
+    else setLocalToolbarOpen(open)
+  }
 
   if (m.type === "system") {
     const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
@@ -316,7 +324,7 @@ function MessageImpl({
   const menuHandlers = {
     onAddReaction: onReact ? () => onReact("👍") : undefined,
     onReply, onPin, pinned,
-    onMark, marked: markedData?.marked ?? false,
+    onMark,
     onCreateThread: m.thread ? undefined : onCreateThread,
     onCopy: onCopy ? () => onCopy() : undefined,
 
@@ -338,20 +346,36 @@ function MessageImpl({
   const touchFallbackActive = menuInputModality === "touch"
     || (!desktopMenuInputActive && touchInputCapable)
   const touchMenuActive = touchFallbackActive || touchMenuOpen
-  const contextMenuEnabled = activated && !selectMode && !touchMenuActive
+  const contextMenuEnabled = (overlayHost ? true : activated) && !selectMode && !touchMenuActive
+  const toolbarMounted = interactive && !selectMode && (overlayHost ? listToolbarActive : (localHovered || localToolbarOpen))
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
   const swipePointerEnabled = interactive && touchInputCapable && !selectMode && !m.botCreation
   const swipeReplyEnabled = swipePointerEnabled && !!onReply
-  const activateOverlays = interactive && !selectMode && !activated
+  const activateRowOverlay = () => {
+    if (overlayHost) {
+      overlayHost.setHovered(m.id)
+    } else {
+      if (!activated) setActivated(true)
+      if (!localHovered) setLocalHovered(true)
+    }
+  }
+  const deactivateRowOverlay = () => {
+    if (overlayHost) {
+      overlayHost.clearHovered(m.id)
+    } else if (!localToolbarOpen && !contextOpen) {
+      setLocalHovered(false)
+    }
+  }
+  const activateOverlays = interactive && !selectMode
     ? (event: React.SyntheticEvent<HTMLElement>) => {
-        if (shouldActivateMessageOverlays(event.target)) setActivated(true)
+        if (shouldActivateMessageOverlays(event.target)) activateRowOverlay()
       }
     : undefined
-  const activateLinkOrOverlays = interactive && !selectMode && !activated
+  const activateLinkOrOverlays = interactive && !selectMode
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (messageExternalLinkTargetFromEventTarget(event.target)) {
-          setActivated(true)
+          activateRowOverlay()
         } else {
           activateOverlays?.(event)
         }
@@ -375,11 +399,48 @@ function MessageImpl({
         }
       }
     : undefined
+  const openSharedContextMenu = (
+    rowElement: HTMLElement,
+    target: EventTarget | null,
+    anchor: ReturnType<typeof createMessageMenuPointAnchor>,
+    fromKeyboard: boolean,
+  ) => {
+    if (!overlayHost) return
+    const selection = window.getSelection?.() ?? null
+    const selectedText = selectionBelongsToRow(selection, rowElement)
+      ? selection?.toString() || null
+      : null
+    const targetLink = messageExternalLinkTargetFromEventTarget(target)
+    overlayHost.openMenu({
+      kind: "context",
+      messageId: m.id,
+      anchor,
+      rowEl: rowElement,
+      restoreFocusOnKeyboardClose: fromKeyboard || Boolean(selectedText),
+      linkTarget: targetLink,
+      handlers: {
+        ...menuHandlers,
+        onCopy: onCopy ? () => onCopy(selectedText ?? undefined) : undefined,
+      },
+    })
+  }
   const activateFromKeyboard = interactive && !selectMode
     ? (event: React.KeyboardEvent<HTMLElement>) => {
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         if (isKeyboardContextMenu(event.nativeEvent) && isAttachmentContextMenuTarget(event.target)) return
         dismissTap.current = null
+        if (overlayHost && isKeyboardContextMenu(event.nativeEvent)) {
+          event.preventDefault()
+          setMenuInputModality("desktop")
+          const rect = event.currentTarget.getBoundingClientRect()
+          openSharedContextMenu(
+            event.currentTarget,
+            event.target,
+            createMessageMenuPointAnchor(rect.left + 24, rect.top + 24),
+            true,
+          )
+          return
+        }
         if (
           (event.key === "Enter" || event.key === " ")
           && !shouldActivateMessageOverlays(event.target)
@@ -410,7 +471,8 @@ function MessageImpl({
         : reactionAddButton}
     </EmojiPickerPopover>
   )
-  const reactionAddControl = activated || !hoverCapable
+  const reactionOverlayReady = overlayHost ? listToolbarActive : activated
+  const reactionAddControl = reactionOverlayReady || !hoverCapable
     ? hoverCapable
       ? (
           <Tooltip>
@@ -438,6 +500,7 @@ function MessageImpl({
         ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
         : undefined}
       onPointerEnter={activate}
+      onPointerLeave={interactive && !selectMode ? () => { deactivateRowOverlay() } : undefined}
       onPointerDownCapture={interactive && !selectMode
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
@@ -558,6 +621,11 @@ function MessageImpl({
             if (messageEventBelongsToRow(event.target, event.currentTarget)) activateOverlays?.(event)
           }
         : undefined}
+      onBlurCapture={hoverCapable
+        ? (event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) deactivateRowOverlay()
+          }
+        : undefined}
       onKeyDownCapture={activateFromKeyboard}
       onTouchStart={interactive && touchFallbackActive
           ? (event) => {
@@ -609,8 +677,21 @@ function MessageImpl({
             // short tap on its non-control body opens the controlled menu;
             // nested buttons/links and native long-press selection stay intact.
             if (!suppress) {
-              setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
-              setTouchMenuOpen(true)
+              const anchor = createMessageMenuPointAnchor(event.clientX, event.clientY)
+              if (overlayHost) {
+                overlayHost.openMenu({
+                  kind: "touch",
+                  messageId: m.id,
+                  anchor,
+                  rowEl: event.currentTarget,
+                  restoreFocusOnKeyboardClose: false,
+                  linkTarget: null,
+                  handlers: menuHandlers,
+                })
+              } else {
+                setTouchMenuAnchor(anchor)
+                setTouchMenuOpen(true)
+              }
             }
           }
         : undefined}
@@ -627,7 +708,8 @@ function MessageImpl({
               event.preventDefault()
               event.stopPropagation()
               dismissal.editor?.blur()
-              setTouchMenuOpen(false)
+              if (overlayHost) overlayHost.closeMenu()
+              else setTouchMenuOpen(false)
               return
             }
             const target = messageExternalLinkTargetFromEventTarget(event.target)
@@ -651,12 +733,39 @@ function MessageImpl({
 
             event.preventDefault()
             event.stopPropagation()
-            setLinkTarget(target)
-            setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
-            setTouchMenuOpen(true)
+            const anchor = createMessageMenuPointAnchor(event.clientX, event.clientY)
+            if (overlayHost) {
+              overlayHost.openMenu({
+                kind: "touch",
+                messageId: m.id,
+                anchor,
+                rowEl: event.currentTarget,
+                restoreFocusOnKeyboardClose: false,
+                linkTarget: target,
+                handlers: menuHandlers,
+              })
+            } else {
+              setLinkTarget(target)
+              setTouchMenuAnchor(anchor)
+              setTouchMenuOpen(true)
+            }
           }
         : undefined}
-      onContextMenuCapture={interactive
+      onContextMenu={overlayHost && interactive && !selectMode
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            if (isAttachmentContextMenuTarget(event.target)) return
+            if (touchMenuActive) return
+            event.preventDefault()
+            openSharedContextMenu(
+              event.currentTarget,
+              event.target,
+              createMessageMenuPointAnchor(event.clientX, event.clientY),
+              false,
+            )
+          }
+        : undefined}
+      onContextMenuCapture={interactive && !overlayHost
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             if (isAttachmentContextMenuTarget(event.target)) return
@@ -685,7 +794,7 @@ function MessageImpl({
         onContentResize={onImageLoad}
         slots={{
           actions: <>
-            {interactive && activated && !selectMode && (
+            {toolbarMounted && (
         <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none ${m.grouped ? "bottom-full" : m.replyTo ? "top-5" : "-top-2"} ${toolbarOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-0.5 opacity-0 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
             <span className="mr-0.5 select-none font-mono text-xs text-muted-foreground" aria-label={`Message ${m.seq}`}>
@@ -716,7 +825,7 @@ function MessageImpl({
               <MoreHorizontal className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <MessageDropdownItems {...menuHandlers} />
+              <MessageDropdownItemsWithMark messageId={m.id} {...menuHandlers} />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -950,7 +1059,7 @@ function MessageImpl({
                 messagePreview={m.decisionCard ? messagePreviewText(m) : visibleContent}
                 reactions={m.reactions}
                 hoverCapable={hoverCapable}
-                tooltipActive={activated}
+                tooltipActive={reactionOverlayReady}
                 onToggleReaction={onToggleReaction}
                 resolveUserName={resolveUserName}
                 trailingControl={m.reactions.length ? reactionAddControl : undefined}
@@ -997,6 +1106,25 @@ function MessageImpl({
 
   if (!interactive) return row
 
+  if (overlayHost) {
+    return (
+      <div className="relative">
+        {swipeReplyEnabled && (
+          <div
+            aria-hidden
+            data-mobile-reply-affordance
+            data-threshold-crossed={swipeVisual.crossed || undefined}
+            className="absolute inset-y-0 right-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
+            style={{ opacity: Math.min(1, -swipeVisual.offset / 48) }}
+          >
+            <Reply className="size-5" />
+          </div>
+        )}
+        {row}
+      </div>
+    )
+  }
+
   return (
     <DropdownMenu
       open={touchMenuOpen && !selectMode}
@@ -1040,7 +1168,8 @@ function MessageImpl({
               if (closeType === "keyboard") contextRowRef.current?.focus({ preventScroll: true })
               return false
             } : undefined}>
-              <MessageContextItems
+              <MessageContextItemsWithMark
+                messageId={m.id}
                 {...menuHandlers}
                 {...linkMenuHandlers}
                 onCopy={onCopy ? () => onCopy(contextSelectedText ?? undefined) : undefined}
@@ -1073,7 +1202,7 @@ function MessageImpl({
           collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
           className="w-48 select-none"
         >
-          <MessageDropdownItems {...menuHandlers} {...linkMenuHandlers} touch />
+          <MessageDropdownItemsWithMark messageId={m.id} {...menuHandlers} {...linkMenuHandlers} touch />
         </DropdownMenuContent>
       )}
     </DropdownMenu>

@@ -977,7 +977,31 @@ export function useConversationScroll({
       return
     }
 
-    if (activeTouchRef.current || activePointersRef.current.size > 0) return
+    const userDragging = activeTouchRef.current || activePointersRef.current.size > 0
+    if (userDragging) {
+      if (!prevGeo || prevGeo.clientHeight !== root.clientHeight || prevGeo.clientWidth !== root.clientWidth) return
+      const scrollHeightDelta = root.scrollHeight - prevGeo.scrollHeight
+      if (Math.abs(scrollHeightDelta) <= 0.5) return
+      const targetEl = (state.anchorId ? findMessageBody(root, state.anchorId) : null)
+        ?? (state.anchorKey ? findRowByKey(root, state.anchorKey) : null)
+      if (!targetEl) return
+      const rootRect = root.getBoundingClientRect()
+      const bounds = state.anchorId ? messageContentBounds(targetEl) : targetEl.getBoundingClientRect()
+      if (!bounds || bounds.height <= 0) return
+      const currentOffset = bounds.top - rootRect.top
+      const userDelta = root.scrollTop - prevGeo.scrollTop
+      const layoutDrift = (currentOffset - state.viewportOffset) + userDelta
+      if (
+        Math.abs(layoutDrift) > 0.5
+        && layoutDrift * scrollHeightDelta > 0
+        && Math.abs(layoutDrift) <= Math.abs(scrollHeightDelta) + 2
+      ) {
+        writeScrollTopInstant(root, root.scrollTop + layoutDrift)
+        const refreshed = captureVisibleAnchor(root, ctx.items, ctx.viewportInsetEnd)
+        if (refreshed) stateRef.current = { mode: "reading-history", ...refreshed }
+      }
+      return
+    }
     const currentFirstKey = firstMessageKeyOf(ctx.items)
     const messagesPrepended = state.firstMessageKey !== null && currentFirstKey !== null && state.firstMessageKey !== currentFirstKey
     const pureVerticalViewportResize = !!prevGeo
@@ -1675,6 +1699,7 @@ export function useConversationScroll({
 
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
+    if (footer) ro.observe(footer)
     const footerMo = footer && typeof MutationObserver !== "undefined"
       ? new MutationObserver(() => {
         const prevGeo = prevGeometryRef.current
@@ -1691,7 +1716,7 @@ export function useConversationScroll({
         }
       })
       : null
-    footerMo?.observe(footer!, { attributes: true, characterData: true, childList: true, subtree: true })
+    footerMo?.observe(footer!, { childList: true, subtree: true })
 
     return () => {
       root.removeEventListener("scroll", onScroll)

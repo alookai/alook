@@ -11,6 +11,7 @@ import { useConversationFooterSlot } from "./conversation-footer-shell"
 import type { MessageListProps, ResolvedMessageListProps } from "./message-list-types"
 import { renderMessageListRow } from "./message-list-row"
 import { renderMessageListView } from "./message-list-view"
+import { MessageOverlayHostProvider } from "./message-overlay-host"
 import { MessageUpdateMotionContext, useMessageArrivalMotion } from "./message-update-motion"
 import { ConversationPresentationContext, useConversationActivity } from "@/contexts/view-activity"
 
@@ -107,22 +108,24 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
   })
   return renderMessageListView(resolvedProps, controller, () => (
     <MessageUpdateMotionContext.Provider value={motionActive}>
-      <div
-        data-message-rows
-        className="mt-auto flex w-full flex-col"
-      >
-        {controller.items.map((item, index) => (
-          <div key={item.key} data-index={index} className="w-full">
-            {renderMessageListRow(item, resolvedProps, controller)}
-          </div>
-        ))}
+      <MessageOverlayHostProvider>
         <div
-          aria-hidden="true"
-          data-message-list-tail
-          className="shrink-0"
-          style={{ height: controller.tailPaddingEnd }}
-        />
-      </div>
+          data-message-rows
+          className="mt-auto flex w-full flex-col"
+        >
+          {controller.items.map((item, index) => (
+            <div key={item.key} data-index={index} className="w-full">
+              {renderMessageListRow(item, resolvedProps, controller)}
+            </div>
+          ))}
+          <div
+            aria-hidden="true"
+            data-message-list-tail
+            className="shrink-0"
+            style={{ height: controller.tailPaddingEnd }}
+          />
+        </div>
+      </MessageOverlayHostProvider>
     </MessageUpdateMotionContext.Provider>
   ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, capsuleHeight)
 }
