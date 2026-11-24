@@ -1256,6 +1256,28 @@ describe("ChannelRoute message surface ownership", () => {
     renderer.unmount()
   })
 
+  it("pre-seeds a verified forum post title from canonical messages while windowReady is pending", async () => {
+    configureThreadRoute()
+    mockRouteModel.isForumPostChild = true
+    mockRouteModel.windowReady = false
+    mockSplitMode.value = "split"
+    mockForumOpener.data = null
+    const registry = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+    const opener = {
+      ...conversationEntryFixture().messages[0]!,
+      id: "opener_1",
+      channelId: "parent_1",
+      content: "Cached Forum Post Title",
+    }
+    await act(async () => {
+      registry.collections.messages.utils.writeUpsert(opener)
+    })
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    expect(screen.queryByTestId("community-message-header-title-loading")).toBeNull()
+    expect(screen.getByTestId("resolved-header-title")).toHaveTextContent("Cached Forum Post Title")
+    view.unmount()
+  })
+
   it("keeps the qualified child mounted through a failed title hint and its recovery", () => {
     configureThreadRoute()
     mockRouteModel.isForumPostChild = true

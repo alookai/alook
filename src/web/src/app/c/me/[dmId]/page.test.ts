@@ -1,33 +1,37 @@
 import rawContractInput0 from "../../../../components/community/channels/dm-view.tsx?raw"
+import rawContractInput1 from "../../../../components/community/channels/conversation-surface.tsx?raw"
 import { describe, expect, it } from "vitest"
 
 describe("DM page loading ownership", () => {
   it("keeps full-frame and message-body ownership separate", () => {
     const source = rawContractInput0
+    const surfaceSource = rawContractInput1
     expect(source).toContain("fullFramePending: !hasDm && dmsLoading")
     expect(source).toContain("missingPeer: !hasDm && !dmsLoading")
     expect(source).toContain("messageBodyLoading: hasDm && messagesLoading")
     expect(source).not.toContain("currentChannelMatches")
     expect(source).not.toContain("readSnapshotFetching ||\n      messagesLoading")
     expect(source).toContain("useDmMessages(dmId")
-    expect(source).toContain("if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError")
+    expect(source).toContain("if (!dm && !hasDisplayableCache && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError")
     expect(source).toContain('metadata.status === "retryable-error"')
     expect(source).toContain("if (!historyAllowed && loadingOwnership.fullFramePending)")
     expect(source).toContain("<DmHeader\n")
     expect(source).toContain("<Composer\n")
-    expect(source).toContain("<ConversationFooterShell\n")
-    expect(source).toContain("<ConversationFooterSlotProvider>")
-    expect(source).toContain('data-slot="community-conversation-surface"')
-    expect(source).toContain("data-channel-id={dmId}")
+    expect(source).toContain("<ConversationSurface\n")
+    expect(source).toContain("channelId={dmId}")
+    expect(surfaceSource).toContain("<ConversationFooterShell")
+    expect(surfaceSource).toContain("<ConversationFooterSlotProvider>")
+    expect(surfaceSource).toContain('data-slot="community-conversation-surface"')
+    expect(surfaceSource).toContain("data-channel-id={channelId}")
     expect(source).not.toContain("composerOverlap")
     expect(source).not.toContain("onOverlapChange")
-    expect(source).toContain("typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}")
+    expect(source).toContain("typingUsers: typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))")
     const dmHeaderProps = source.split("<DmHeader\n")[1]?.split("/>")[0]
     expect(dmHeaderProps).not.toContain("typingUsers")
-    const messageListProps = source.split("<MessageList\n")[1]?.split("/>")[0]
+    const messageListProps = source.split("messageListProps={")[1]?.split("footerProps={")[0]
     expect(messageListProps).toContain("typingUsers")
     expect(source).not.toContain('data-onboarding-name={dm.name} className="shrink-0"')
-    expect(source).toContain("loading={!historyAllowed || loadingOwnership.messageBodyLoading}")
+    expect(source).toContain("loading: !historyAllowed || loadingOwnership.messageBodyLoading")
     expect(source).toContain("!sendAllowed ? <ComposerSkeleton")
     expect(source).toContain("<DmHeaderSkeleton")
   })

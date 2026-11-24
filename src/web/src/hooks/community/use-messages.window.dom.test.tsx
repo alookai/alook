@@ -166,6 +166,32 @@ describe("native conversation windows", () => {
     hook.unmount()
   })
 
+  it("exposes bounded fillHistory for non-DM conversations once the newest window is verified with a matching older cursor", async () => {
+    const { wrapper } = await setup()
+    const packet = fixture()
+    const first = packet.messages[0]!
+    packet.page = {
+      ...packet.page,
+      hasMoreOlder: true,
+      olderCursor: `${first.createdAt}|${first.id}`,
+      hasMoreNewer: false,
+    }
+    load.mockResolvedValue(packet)
+    const hook = renderHook(() => useMessages("c1", options), { wrapper })
+    await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+    expect(hook.result.current.fillHistory).toEqual(expect.any(Function))
+    load.mockResolvedValueOnce(page("m0", 0))
+    let request!: ReturnType<NonNullable<typeof hook.result.current.fillHistory>>
+    act(() => { request = hook.result.current.fillHistory!() })
+    const pending = request
+    expect(pending.accepted).toBe(true)
+    if (!pending.accepted) throw new Error("Expected underfill history request to be accepted")
+    await act(async () => expect((await pending.completed).status).toBe("success"))
+    await waitFor(() => expect(hook.result.current.messages.map((message) => message.id)).toEqual(["m0", "m1"]))
+    expect(hook.result.current.fillHistory).toBeUndefined()
+    hook.unmount()
+  })
+
   it("drops a queued pagination intent when the original target loses permission", async () => {
     const { wrapper, registry } = await setup()
     const refresh = deferred<MessagesPage>()

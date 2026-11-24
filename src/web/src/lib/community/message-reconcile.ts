@@ -338,8 +338,18 @@ export function reconcileConversationLanding(queryClient: QueryClient, scope: Ga
   return reconcileWindow(queryClient, scope, key, highWater, { page, param }, owner)
 }
 
+function hasPendingConversationEntry(queryClient: QueryClient, scopeId: string) {
+  return queryClient.getQueryCache()
+    .findAll({ queryKey: communityKeys.conversationEntries(scopeId), type: "active" })
+    .some((query) => query.state.fetchStatus === "fetching")
+}
+
 function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0, initialMode?: "newest") {
-  const queries = queryClient.getQueryCache().findAll({ queryKey: messagesKey(scope), type: "active" }).filter((query) => isWindowKey(query.queryKey, initialMode))
+  const pendingEntry = initialMode === "newest" && hasPendingConversationEntry(queryClient, scope.scopeId)
+  const queries = queryClient.getQueryCache().findAll({ queryKey: messagesKey(scope), type: "active" }).filter((query) => (
+    isWindowKey(query.queryKey, initialMode)
+    && !(pendingEntry && isMessageCache(query.state.data) && query.state.data.pages[0]?.hasMoreNewer === true)
+  ))
   return Promise.all(queries.map(query => reconcileWindow(queryClient, scope, query.queryKey, target, undefined, undefined, initialMode === "newest"))).then(() => undefined)
 }
 
