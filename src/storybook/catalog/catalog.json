@@ -4928,7 +4928,8 @@
       "source": "src/web/src/components/community/shell/inbox-unread-indicator.tsx",
       "application": "Web",
       "candidates": [
-        "InboxUnreadIndicator"
+        "InboxUnreadIndicator",
+        "InboxUnreadOverflowIcon"
       ],
       "kind": "composition",
       "examples": [

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { CommunityNavigationLink } from "./community-navigation-link"
 import { InboxInlineReply } from "./inbox-inline-reply"
 import { InboxMessagePreview, isInboxPreviewContentClick } from "./inbox-message-preview"
-import { useRetainedInboxCount } from "./inbox-unread-indicator"
+import { InboxUnreadOverflowIcon, useRetainedInboxCount } from "./inbox-unread-indicator"
 import { DecisionCard } from "../messages/decision-card"
 import type { OpenProfile } from "../social/profile-types"
 import { Avatar } from "../avatar"
@@ -123,8 +123,8 @@ function InboxCountBadge({ count, shown, descriptionId }: { count: number; shown
   const description = shown ? `${count} unread ${count === 1 ? "message" : "messages"}` : undefined
   return (
     <span role={shown ? "img" : undefined} aria-label={description} data-slot="inbox-disclosure-count"
-      className={cn(indicatorStyles.countMotion, "grid shrink-0 place-items-center px-2 text-xs font-semibold leading-none tabular-nums")}>
-      {count}
+      className={cn(indicatorStyles.countMotion, "grid size-full shrink-0 place-items-center text-xs font-semibold leading-none tabular-nums")}>
+      {count > 99 ? <InboxUnreadOverflowIcon /> : count}
       {description && <span id={descriptionId} className="sr-only">{description}</span>}
     </span>
   )
@@ -328,7 +328,7 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
         <Button variant={showCount ? "unread" : "ghost"} size="icon"
           className={cn(
             showCount
-              ? "relative h-7 w-auto min-w-7 rounded-full max-sm:mx-2 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] sm:h-8 sm:min-w-8"
+              ? "relative size-7 rounded-full max-sm:mx-2 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] sm:size-8"
               : cn(cardActionClassName, "rounded-full bg-transparent! text-muted-foreground! hover:bg-foreground/7 dark:hover:bg-foreground/9"),
             "focus-visible:ring-inset",
           )}

@@ -197,7 +197,13 @@ describe("InboxPopover thread opener rows", () => {
     const disclosure = renderer.getByTestId(tid.inboxToggleChannel("dm1"))
     if (unreadCount) {
       expect(disclosure).toHaveAccessibleDescription(`${unreadCount} unread messages`)
+      expect(disclosure).toHaveAttribute("data-variant", "unread")
       expect(disclosure).toHaveTextContent(String(unreadCount))
+      if (unreadCount > 99) {
+        expect(disclosure.querySelector('[data-slot="inbox-unread-ellipsis"]')).not.toBeNull()
+      } else {
+        expect(disclosure.querySelector('[data-slot="inbox-unread-ellipsis"]')).toBeNull()
+      }
       expect(row).not.toHaveTextContent(String(unreadCount))
     } else {
       expect(disclosure).toHaveAccessibleDescription("")
