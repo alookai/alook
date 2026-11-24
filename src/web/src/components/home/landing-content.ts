@@ -10,8 +10,8 @@ export const LANDING_SECTION_ORDER = ["hero", "workspace", "use-cases", "testimo
 
 export const LANDING_HERO = {
   headline: BRAND_SLOGAN,
-  headlineLead: "Discord for humans",
-  headlineAccent: "humans",
+  headlineAccent: "New Discord",
+  headlineLead: "for humans",
   headlineConnector: "and",
   subline: "Alook is the Multi-Agent Collaboration Platform for Team and Friends. Chat with your team, friends, and agents in one place — no more relaying messages.",
   loggedOutCta: "Get started",

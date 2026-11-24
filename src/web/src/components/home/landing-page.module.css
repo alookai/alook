@@ -42,11 +42,16 @@
 
 .landingHeroLead {
   color: var(--landing-text);
-  white-space: nowrap;
 }
 
 .landingHeroAccent {
+  margin-inline-end: 0.14em;
   font-size: 1.16em;
+  white-space: nowrap;
+}
+
+.landingHeroHumans {
+  white-space: nowrap;
 }
 
 .landingHeroTail {
@@ -154,9 +159,13 @@
 
 @media (min-width: 1024px) {
   /* The intro column stops at 592px, so the size stops where
-   * "and [GitHub Copilot]" still fits cleanly on one line. */
+   * "New Discord for humans" and "and [GitHub Copilot]" fit cleanly on two lines. */
   .landingHeroHeadline {
-    font-size: clamp(36px, 5vw, 64px) !important;
+    font-size: clamp(36px, 4.35vw, 58px) !important;
+  }
+
+  .landingHeroLead {
+    white-space: nowrap;
   }
 
   .landingHeroTypewriter {
