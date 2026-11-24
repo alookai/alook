@@ -1002,42 +1002,50 @@ export function ingestMessages(
 function ingestMessageResources(registry: CommunityDbRegistry, resources: readonly CommunityMessageResource[], profiles: readonly CommunityResourceProfile[]) {
   const fullProfiles = new Map(profiles.map(profile => [profile.id, profile]))
   const viewerId = registry.accountId
-  const incomingById = new Map<string, CommunityMessageResource>()
-  const rows = resources.map(resource => {
-    const existing = registry.collections.messages.get(resource.id)
-    const mergedEmbeds = mergeDecisionCardEmbeds(existing?.embeds, resource.embeds)
-    const next: CommunityMessageResource = {
-      ...resource,
-      ...(mergedEmbeds !== undefined ? { embeds: mergedEmbeds } : {}),
-      ...(resource.reactions ? {
-        reactions: resource.reactions.map(reaction => ({ ...reaction, me: viewerId !== null && reaction.userIds.includes(viewerId) })),
-      } : {}),
+  const pendingResponders = pendingDecisionCardResponderStates.get(registry)
+  notifyManager.batch(() => {
+    if (pendingResponders) rollbackPendingResponderTransaction(pendingResponders)
+    try {
+      const incomingById = new Map<string, CommunityMessageResource>()
+      const nextRows = resources.map(resource => {
+        const existing = registry.collections.messages.get(resource.id)
+        const mergedEmbeds = mergeDecisionCardEmbeds(existing?.embeds, resource.embeds)
+        const next: CommunityMessageResource = {
+          ...resource,
+          ...(mergedEmbeds !== undefined ? { embeds: mergedEmbeds } : {}),
+          ...(resource.reactions ? {
+            reactions: resource.reactions.map(reaction => ({ ...reaction, me: viewerId !== null && reaction.userIds.includes(viewerId) })),
+          } : {}),
+        }
+        incomingById.set(next.id, next)
+        return next
+      })
+
+      // Fold live committed direct replies onto cached/incoming decision-card targets
+      // so window-evicted history responders and new live responders stay merged.
+      const responderPatches = new Map<string, CommunityMessageResource>()
+      for (const reply of nextRows) {
+        if (!reply.replyToId || reply.seq <= 0) continue
+        const target = responderPatches.get(reply.replyToId)
+          ?? incomingById.get(reply.replyToId)
+          ?? registry.collections.messages.get(reply.replyToId)
+        if (!target || target.channelId !== reply.channelId || target.authorId === reply.authorId) continue
+        const updatedEmbeds = appendDecisionCardResponder(target.embeds, reply.authorId)
+        if (!updatedEmbeds) continue
+        const patched: CommunityMessageResource = { ...target, embeds: updatedEmbeds }
+        responderPatches.set(patched.id, patched)
+        if (incomingById.has(patched.id)) incomingById.set(patched.id, patched)
+      }
+
+      const finalRows = [
+        ...nextRows.map(row => responderPatches.get(row.id) ?? row),
+        ...[...responderPatches.values()].filter(patch => !incomingById.has(patch.id)),
+      ]
+      upsertRows(registry, "messages", finalRows)
+    } finally {
+      if (pendingResponders) rebasePendingDecisionCardResponderOverlay(registry)
     }
-    incomingById.set(next.id, next)
-    return next
   })
-
-  // Fold live committed direct replies onto cached/incoming decision-card targets
-  // so window-evicted history responders and new live responders stay merged.
-  const responderPatches = new Map<string, CommunityMessageResource>()
-  for (const reply of rows) {
-    if (!reply.replyToId || reply.seq <= 0) continue
-    const target = responderPatches.get(reply.replyToId)
-      ?? incomingById.get(reply.replyToId)
-      ?? registry.collections.messages.get(reply.replyToId)
-    if (!target || target.channelId !== reply.channelId || target.authorId === reply.authorId) continue
-    const updatedEmbeds = appendDecisionCardResponder(target.embeds, reply.authorId)
-    if (!updatedEmbeds) continue
-    const patched: CommunityMessageResource = { ...target, embeds: updatedEmbeds }
-    responderPatches.set(patched.id, patched)
-    if (incomingById.has(patched.id)) incomingById.set(patched.id, patched)
-  }
-
-  const finalRows = [
-    ...rows.map(row => responderPatches.get(row.id) ?? row),
-    ...[...responderPatches.values()].filter(patch => !incomingById.has(patch.id)),
-  ]
-  upsertRows(registry, "messages", finalRows)
   void afterCanonicalWrites(registry, () => {
   const threads = new Map<string, CommunityCollectionRows["channels"]>()
   for (const resource of resources) {
@@ -1618,6 +1626,95 @@ export function restoreDecisionCardDismissedOptimistically(
   const restored = attachDecisionCardViewerDismissed(current.embeds, snapshot.previousViewerDismissed ?? false)
   if (!restored) return
   upsertRows(registry, "messages", [{ ...current, embeds: restored }])
+}
+
+export type DecisionCardResponderOptimisticSnapshot = {
+  messageId: string
+  responderUserId: string
+}
+
+type PendingResponderOverlayState = {
+  intents: Set<DecisionCardResponderOptimisticSnapshot>
+  transaction: Transaction<Record<string, unknown>> | null
+}
+
+const pendingDecisionCardResponderStates = new WeakMap<
+  CommunityDbRegistry,
+  PendingResponderOverlayState
+>()
+
+function rollbackPendingResponderTransaction(state: PendingResponderOverlayState) {
+  const transaction = state.transaction
+  state.transaction = null
+  if (transaction && transaction.state !== "completed" && transaction.state !== "failed") {
+    transaction.rollback({ isSecondaryRollback: true })
+  }
+}
+
+function rebasePendingDecisionCardResponderOverlay(registry: CommunityDbRegistry) {
+  const state = pendingDecisionCardResponderStates.get(registry)
+  if (!state) return
+  rollbackPendingResponderTransaction(state)
+  if (state.intents.size === 0 || registry.collections.messages.status !== "ready") return
+
+  const patches = new Map<string, unknown[]>()
+  for (const intent of state.intents) {
+    const base = registry.collections.messages.get(intent.messageId)
+    if (!base || base.authorId === intent.responderUserId) continue
+    const currentEmbeds = patches.get(intent.messageId) ?? base.embeds
+    const nextEmbeds = appendDecisionCardResponder(currentEmbeds, intent.responderUserId)
+    if (nextEmbeds) patches.set(intent.messageId, nextEmbeds)
+  }
+  if (patches.size === 0) return
+
+  const transaction = registry.dbClient.createTransaction({
+    autoCommit: false,
+    mutationFn: async () => undefined,
+  })
+  void transaction.when("settled").catch(() => undefined)
+  transaction.mutate(() => {
+    for (const [messageId, embeds] of patches) {
+      registry.collections.messages.update(messageId, (draft) => {
+        draft.embeds = embeds as typeof draft.embeds
+      })
+    }
+  })
+  state.transaction = transaction
+}
+
+export function commitDecisionCardRespondedOptimistically(
+  registry: CommunityDbRegistry,
+  snapshot: DecisionCardResponderOptimisticSnapshot,
+) {
+  const state = pendingDecisionCardResponderStates.get(registry)
+  if (!state || !state.intents.delete(snapshot)) return
+  rebasePendingDecisionCardResponderOverlay(registry)
+}
+
+export function markDecisionCardRespondedOptimistically(
+  registry: CommunityDbRegistry,
+  messageId: string,
+  responderUserId: string,
+): DecisionCardResponderOptimisticSnapshot | undefined {
+  const existing = registry.collections.messages.get(messageId)
+  if (!existing || existing.authorId === responderUserId) return undefined
+  if (!appendDecisionCardResponder(existing.embeds, responderUserId)) return undefined
+  let state = pendingDecisionCardResponderStates.get(registry)
+  if (!state) {
+    state = { intents: new Set(), transaction: null }
+    pendingDecisionCardResponderStates.set(registry, state)
+  }
+  const snapshot: DecisionCardResponderOptimisticSnapshot = { messageId, responderUserId }
+  state.intents.add(snapshot)
+  rebasePendingDecisionCardResponderOverlay(registry)
+  return snapshot
+}
+
+export function restoreDecisionCardRespondedOptimistically(
+  registry: CommunityDbRegistry,
+  snapshot: DecisionCardResponderOptimisticSnapshot,
+) {
+  commitDecisionCardRespondedOptimistically(registry, snapshot)
 }
 
 function ingestNotificationSettings(

@@ -1543,6 +1543,63 @@ describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
     expect(toastMock).not.toHaveBeenCalled()
   })
 
+  it("removes the Todo and marks the decision card responded optimistically before POST settles, and rolls back only this viewer on error while preserving concurrent peer replies", async () => {
+    const mod = await loadMod()
+    const canonical = await seedPendingQuestionTodo("m_q1", "ch_1")
+    const { extractDecisionCardFromEmbeds } = await import("@alook/shared")
+    const { projectCommunityWsEventToDb } = await import("@/lib/community-db/sync")
+    let rejectPost!: (error: Error) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPost = reject }))
+    apiFetchMock.mockResolvedValueOnce(canonical)
+
+    const hook = mountHook(() => mod.useSubmitInboxDecisionCard())
+    let pendingPromise!: Promise<{ replyToId: string | null }>
+    act(() => {
+      pendingPromise = hook.mutateAsync({
+        channelId: "ch_1",
+        messageId: "m_q1",
+        content: "Confirm rollout: Yes",
+        nonce: "nonce-opt-fail",
+      })
+    })
+
+    await waitFor(() => {
+      expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeUndefined()
+      expect(
+        extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.respondedUserIds,
+      ).toContain("u_me")
+    })
+    expect(rejectPost).toBeTypeOf("function")
+
+    const peerReply = postedMessage("m_peer_reply", 6, "ch_1", {
+      authorId: "u_peer",
+      replyToId: "m_q1",
+      content: "Confirm rollout: No",
+    })
+    act(() => {
+      projectCommunityWsEventToDb(canonicalRegistry.queryClient, {
+        type: "community:message.create",
+        channelId: "ch_1",
+        profiles: messageProfilesFixture([peerReply]),
+        message: peerReply,
+      })
+    })
+    expect(
+      extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.respondedUserIds,
+    ).toEqual(["u_peer", "u_me"])
+
+    await act(async () => {
+      rejectPost(new Error("Offline"))
+      await pendingPromise.catch(() => undefined)
+    })
+
+    expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeDefined()
+    expect(
+      extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.respondedUserIds,
+    ).toEqual(["u_peer"])
+    expect(toastMock).toHaveBeenCalledWith("Offline")
+  })
+
   it("supports mutate() wrapper on useSubmitInboxDecisionCard and ignores stale origin on success", async () => {
     const mod = await loadMod()
     await seedPendingQuestionTodo("m_q1", "ch_1")

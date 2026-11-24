@@ -278,26 +278,35 @@ export function useMessageChannelController({
     messageId: string,
     content: string,
     nonce: string,
-  ): Promise<{ replyToId: string | null }> => {
+  ): Promise<{ replyToId: string | null; queued?: boolean }> => {
     if (committedFeed.current.navigationBlocked) {
       throw new Error("Conversation is unavailable")
     }
-    const { assertActive, assertCommand } = captureSendCommand()
-    const result = await sendMessageAsync({
-      channelId,
-      serverId,
-      forumParentChannelId,
-      content,
-      replyToId: messageId,
+    const command = captureSendCommand()
+    const target = getMessage(messageId)
+    const decisionReplyTo: ReplyTarget = {
+      id: messageId,
+      ...(target?.authorId ? { authorId: target.authorId } : {}),
+      authorName: target?.authorName ?? "",
+      text: target ? messagePreviewText(target) : "",
+    }
+    const accepted = acceptChannelMessage({
+      runtime: communityRuntime,
+      markdown: content,
+      messageScope,
+      viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
+      replyTo: decisionReplyTo,
       nonce,
-      author: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
-      assertActive,
-      assertCommand,
+      runAcceptedIntent: (acceptedNonce) => runAcceptedIntent(acceptedNonce, command),
+      channelId,
     })
+    if (!accepted) {
+      throw new Error("Could not send answer — try again.")
+    }
     if (hasMoreNewer) jumpToPresent()
     setLocalSubmitVersion((version) => version + 1)
-    return { replyToId: result.message.replyToId ?? null }
-  }, [captureSendCommand, channelId, forumParentChannelId, hasMoreNewer, jumpToPresent, sendMessageAsync, serverId, setLocalSubmitVersion, viewer.avatar, viewer.id, viewer.name])
+    return { replyToId: messageId, queued: true }
+  }, [captureSendCommand, channelId, communityRuntime, getMessage, hasMoreNewer, jumpToPresent, messageScope, runAcceptedIntent, setLocalSubmitVersion, viewer.avatar, viewer.id, viewer.name])
 
   return useMemo<MessageChannelControllerValue>(() => ({
     feed,

@@ -2182,6 +2182,16 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/community/messages/composer-send-button.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-conversation-surfaces--text-channel",
+        "region": "Original text conversation: message rows/menu/reactions, real composer and suggestion/accessory layers. Open the applicable menu/compose control; local command failures remain explicit."
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
   "src/web/src/components/community/messages/composer-suggestion-popups.tsx": {
     "kind": "composition",
     "examples": [

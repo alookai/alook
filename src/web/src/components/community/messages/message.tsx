@@ -230,7 +230,7 @@ function MessageImpl({
   onEnterSelect?: () => void
   onShareSingle?: () => void
   viewerUserId?: string
-  onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null; queued?: boolean }>
   allowDecisionCardSubmit?: boolean
   liveRespondedUserIds?: readonly string[]
   // Resolved once by MessageList and threaded into virtualized rows. Keeping

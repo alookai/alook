@@ -118,7 +118,7 @@ export type DecisionCardSubmitHandler = (
   messageId: string,
   content: string,
   nonce: string,
-) => Promise<{ replyToId: string | null }>
+) => Promise<{ replyToId: string | null; queued?: boolean }>
 
 export function DecisionCard({
   card,
@@ -319,23 +319,56 @@ export function DecisionCard({
     const content = formatDecisionCardAnswerMessage(card, check.resolved)
     const nonce = pendingNonce ?? generateNonce()
     if (pendingNonce === null) setPendingNonce(nonce)
+    const previousExpandedOverride = expandedOverride
+    if (previousExpandedOverride !== null) setExpandedOverride(null)
     setSubmitting(true)
 
     try {
       const receipt = await onSubmit(messageId, content, nonce)
       if (receipt.replyToId !== messageId) {
         setPendingNonce(null)
+        if (previousExpandedOverride === true) setExpandedOverride(true)
         setErrorMessage("Could not link your answer to this question — reload and try again.")
         return
       }
       setPendingNonce(null)
-      setSubmittedNotice(true)
+      if (!receipt.queued) {
+        setSubmittedNotice(true)
+      }
     } catch (error) {
+      if (previousExpandedOverride === true) setExpandedOverride(true)
       if (!isAbortError(error)) {
         setErrorMessage(error instanceof Error ? error.message : "Could not send answer — try again.")
       }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleOtherKeyDown = (
+    question: DecisionCardNormalizedQuestion,
+    entry: QuestionDraft,
+    event: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (
+      event.key !== "Enter"
+      || event.nativeEvent.isComposing
+      || event.shiftKey
+      || event.altKey
+      || event.ctrlKey
+      || event.metaKey
+    ) {
+      return
+    }
+    if (!isQuestionAnswered(question, entry)) return
+    if (isMultiQuestion && nextUnansweredId) {
+      event.preventDefault()
+      setActiveQuestionId(nextUnansweredId)
+      return
+    }
+    if (allAnswered && interactive && !submitting) {
+      event.preventDefault()
+      void handleSubmit()
     }
   }
 
@@ -347,15 +380,6 @@ export function DecisionCard({
     const singleValue = entry.otherSelected
       ? OTHER_RADIO_VALUE
       : (entry.selectedOptionIds[0] ?? "")
-
-    const handleOtherKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key !== "Enter" || event.nativeEvent.isComposing) return
-      if (!isQuestionAnswered(question, entry)) return
-      if (isMultiQuestion && nextUnansweredId) {
-        event.preventDefault()
-        setActiveQuestionId(nextUnansweredId)
-      }
-    }
 
     return (
       <div className="flex flex-col gap-2">
@@ -439,8 +463,9 @@ export function DecisionCard({
                     placeholder="Write your answer..."
                     aria-label={`Other answer for ${question.header ?? question.question}`}
                     data-testid={tid.decisionCardOtherInput(question.id)}
+                    enterKeyHint={isMultiQuestion && nextUnansweredId ? "next" : "send"}
                     onChange={(event) => updateOtherText(question.id, event.target.value)}
-                    onKeyDown={handleOtherKeyDown}
+                    onKeyDown={(event) => handleOtherKeyDown(question, entry, event)}
                     className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-medium leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground disabled:cursor-not-allowed"
                     autoFocus
                   />
@@ -520,8 +545,9 @@ export function DecisionCard({
                     placeholder="Write your answer..."
                     aria-label={`Other answer for ${question.header ?? question.question}`}
                     data-testid={tid.decisionCardOtherInput(question.id)}
+                    enterKeyHint={isMultiQuestion && nextUnansweredId ? "next" : "send"}
                     onChange={(event) => updateOtherText(question.id, event.target.value)}
-                    onKeyDown={handleOtherKeyDown}
+                    onKeyDown={(event) => handleOtherKeyDown(question, entry, event)}
                     className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-medium leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground disabled:cursor-not-allowed"
                     autoFocus
                   />

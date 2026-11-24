@@ -226,6 +226,36 @@ describe("real DmView accepted send UI lifecycle", () => {
     expect(mocks.api).toHaveBeenCalledOnce()
     view.unmount()
   })
+
+  it("submits DM decision card replies optimistically before POST settles", async () => {
+    const owner = await createDmOwner()
+    let finish!: (value: unknown) => void
+    mocks.api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    const listProps = mocks.list.mock.lastCall?.[0] as {
+      onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null; queued?: boolean }>
+    }
+    expect(listProps.onSubmitDecisionCard).toBeTypeOf("function")
+
+    let receipt: { replyToId: string | null; queued?: boolean } | undefined
+    await act(async () => {
+      receipt = await listProps.onSubmitDecisionCard!("q_dm_1", "Confirm rollout: Yes", "dm-dc-nonce")
+    })
+    expect(receipt).toEqual({ replyToId: "q_dm_1", queued: true })
+    expect(
+      owner.runtime.messageStream.actions.getRetryPayload({ kind: "dm", id: "dm_1" }, "dm-dc-nonce")?.message,
+    ).toMatchObject({ content: "Confirm rollout: Yes", replyTo: { id: "q_dm_1" } })
+
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledOnce())
+    const [, options] = mocks.api.mock.calls[0]
+    const body = JSON.parse(options.body)
+    expect(body).toMatchObject({ content: "Confirm rollout: Yes", replyToId: "q_dm_1", nonce: "dm-dc-nonce" })
+
+    await act(async () => finish(posted(body)))
+    await waitFor(() => expect(owner.registry.collections.messages.get("confirmed")?.channelId).toBe("dm_1"))
+    view.unmount()
+  })
 })
 
 describe("DM initial responsive Back admission", () => {

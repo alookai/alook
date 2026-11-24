@@ -42,7 +42,6 @@ import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-direct
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
   useAddReactionApi,
-  useSendDmMessage,
   useToggleReactionApi,
   useToggleMark,
 } from "@/hooks/community/mutations"
@@ -225,7 +224,6 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
   const typingUsers = useTypingUsersForScope(`dm:${dmId}`)
   const typingNames = useTypingNamesForScope(`dm:${dmId}`)
   const { accept: acceptDmMessage, retry: retryDmMessage } = useDmMessageSender()
-  const { mutateAsync: sendDmMessageAsync } = useSendDmMessage()
   const toggleReaction = useToggleReactionApi()
   const addReaction = useAddReactionApi()
   const toggleMark = useToggleMark()
@@ -333,20 +331,35 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     messageId: string,
     content: string,
     nonce: string,
-  ): Promise<{ replyToId: string | null }> => {
+  ): Promise<{ replyToId: string | null; queued?: boolean }> => {
     if (!sendAllowed) throw new Error("You cannot send messages in this conversation")
     const assertActive = sendView.capture()
-    const result = await sendDmMessageAsync({
+    const target = messages.find((m) => m.id === messageId)
+    const receipt = acceptDmMessage({
+      assertActive,
       dmId,
       content,
-      replyToId: messageId,
       nonce,
-      assertActive,
+      replyTo: {
+        id: messageId,
+        ...(target?.authorId ? { authorId: target.authorId } : {}),
+        authorName: target?.authorName ?? "",
+        text: target ? messagePreviewText(target) : "",
+      },
+      author: {
+        id: currentUser.id,
+        name: currentUser.name,
+        avatar: currentUser.avatar,
+      },
     })
+    if (!receipt.accepted) {
+      throw new Error("Could not send answer — try again.")
+    }
     if (hasMoreNewerMessages) jumpToPresent()
     setLocalSubmitVersion((version) => version + 1)
-    return { replyToId: result.message.replyToId ?? null }
-  }, [dmId, hasMoreNewerMessages, jumpToPresent, sendAllowed, sendDmMessageAsync, sendView, setLocalSubmitVersion])
+    communityWsEndTyping(communityRuntime, { channelId: dmId })
+    return { replyToId: messageId, queued: true }
+  }, [acceptDmMessage, communityRuntime, currentUser.avatar, currentUser.id, currentUser.name, dmId, hasMoreNewerMessages, jumpToPresent, messages, sendAllowed, sendView, setLocalSubmitVersion])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.

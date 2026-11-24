@@ -273,8 +273,51 @@ describe("community-decision-card", () => {
     expect(validated.ok).toBe(true);
     if (!validated.ok) return;
     expect(formatDecisionCardAnswerMessage(card, validated.resolved)).toBe(
-      "1. Mode: Fast\n2. Targets: Web, macOS, Other: iOS later",
+      "1. Mode: Fast\n2. Targets: Web, macOS, iOS later",
     );
+
+    const singleWithSummary = buildDecisionCardEmbed(
+      DecisionCardInputSchema.parse({
+        summary: "Confirm PR #1421\nmerge",
+        questions: [
+          {
+            id: "merge",
+            header: "Release",
+            question: "PR #1421 passed all 42 CI checks (+250/-12 lines). Should Claudette squash-merge it to main now?",
+            options: [{ id: "yes", label: "Merge" }, { id: "wait", label: "Wait" }],
+          },
+        ],
+      }),
+      [{ userId: "u1", handle: "gus#1813" }],
+    );
+    const singlePreset = validateDecisionCardAnswers(singleWithSummary, {
+      answers: [{ questionId: "merge", selectedOptionIds: ["yes"] }],
+    });
+    expect(singlePreset.ok).toBe(true);
+    if (singlePreset.ok) {
+      expect(formatDecisionCardAnswerMessage(singleWithSummary, singlePreset.resolved)).toBe(
+        "Confirm PR #1421 merge: Merge",
+      );
+    }
+    const singleOther = validateDecisionCardAnswers(singleWithSummary, {
+      answers: [{ questionId: "merge", otherText: "Wait for review" }],
+    });
+    expect(singleOther.ok).toBe(true);
+    if (singleOther.ok) {
+      expect(formatDecisionCardAnswerMessage(singleWithSummary, singleOther.resolved)).toBe(
+        "Confirm PR #1421 merge: Wait for review",
+      );
+    }
+
+    const legacySingleAnswer = validateDecisionCardAnswers(legacySingleCard, {
+      answers: [{ questionId: "q1", selectedOptionIds: ["o1"] }],
+    });
+    expect(legacySingleAnswer.ok).toBe(true);
+    if (legacySingleAnswer.ok) {
+      expect(formatDecisionCardAnswerMessage(legacySingleCard, legacySingleAnswer.resolved)).toBe(
+        "哪天开会？: 周四",
+      );
+    }
   });
 
   it("validates single-select, allowOther=false, missing, duplicate, and unknown answers", () => {
