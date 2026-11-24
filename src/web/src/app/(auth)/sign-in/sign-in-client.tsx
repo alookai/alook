@@ -351,7 +351,7 @@ function SignInForm({
   }
 
   return (
-    <div className="app-auth-form-viewport thin-scrollbar relative flex min-h-0 w-full flex-1 overflow-x-clip">
+    <div className="app-auth-form-viewport scrollbar-none relative flex min-h-0 w-full flex-1 overflow-x-clip">
       <div
         ref={trackRef}
         data-testid={tid.signInStepTrack}

@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar } from "../avatar"
 import { PeoplePickerBody, PeoplePickerHeader, PeoplePickerRowsSkeleton, resolvePeoplePickerViewState } from "../people-picker"
 import { hasStatus } from "./status-presets"
@@ -234,7 +235,11 @@ export function InviteDialog({
           </label>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto thin-scrollbar px-2 py-1.5">
+        <ScrollArea
+          className="min-h-0 flex-1"
+          viewportClassName="overflow-x-hidden overflow-y-auto"
+          contentClassName="flex min-h-full flex-col px-2 py-1.5"
+        >
           <PeoplePickerBody
             state={pickerState}
             loading={(
@@ -265,7 +270,7 @@ export function InviteDialog({
               })}
             </div>
           </PeoplePickerBody>
-        </div>
+        </ScrollArea>
 
         <footer
           data-slot="invite-link-well"

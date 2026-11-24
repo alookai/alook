@@ -1,3 +1,4 @@
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { HOME_TAB_COLUMN_CLASS } from "../home-tab-layout"
 
@@ -23,7 +24,7 @@ export function FriendsPageSkeleton({
           </div>
         </header>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
+      <ScrollArea className="min-h-0 flex-1" contentClassName="flex min-h-full flex-col p-4">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
           <Skeleton className="mb-4 h-11 w-full rounded-md" />
           <div className="flex min-h-0 flex-col">
@@ -35,7 +36,7 @@ export function FriendsPageSkeleton({
             <FriendRowsSkeleton withActions />
           </div>
         </div>
-      </div>
+      </ScrollArea>
       <span className="sr-only">Loading friends</span>
     </div>
   )

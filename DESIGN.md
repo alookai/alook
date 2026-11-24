@@ -225,7 +225,7 @@ A landing-only extension of the inherited green/CRT world, immediately after the
 
 **The Native Attribution Rule.** Keep the source arrow beside the name, with both vertically centered in the author row and an 8px gap. The handle sits below; quote text follows with 8px separation and a maximum of three visible lines with CSS ellipsis. Preserve the full exact quotation in the document. The entire row opens the original in a new tab and includes an accessible source notice; the icon is decorative. There is no visible source label or separate source control.
 
-**The Readable Motion Rule.** Preserve both opposing lanes (100s forward and 110s reverse, linear and continuous). Hover or an active press on the wall pauses the current transform; it does not replace the pressed link. Keyboard-visible focus removes animation, hides loop copies and enables manual horizontal lane scrolling with the shared thin scrollbar. Reduced motion uses the same static manual-reading layout. Focused rows retain a visible landing-text outline (2px, offset 4px). No Pause/Resume control or reading disclosure is present.
+**The Readable Motion Rule.** Preserve both opposing lanes (100s forward and 110s reverse, linear and continuous). Hover or an active press on the wall pauses the current transform; it does not replace the pressed link. Keyboard-visible focus removes animation, hides loop copies and enables manual horizontal lane scrolling without reserving classic scrollbar gutter space. Reduced motion uses the same static manual-reading layout. Focused rows retain a visible landing-text outline (2px, offset 4px). No Pause/Resume control or reading disclosure is present.
 
 **The Single Reading Copy Rule.** Expose the 20 original source links once to assistive technology and keyboard navigation. Repeated loop groups are `aria-hidden`, with their links outside the tab order; originals remain accessible in the moving lanes. These are attributed community comments, not a new claim of verified customers.
 
@@ -287,7 +287,7 @@ Words are part of the interface. They should sound like the brand: **warm, sharp
 - **Do** keep WCAG AA contrast (4.5:1 for body text) in both light and dark.
 - **Do** show a visible focus ring on every interactive element at `:focus-visible`.
 - **Do** desaturate any new accent 20–30% toward gray before shipping.
-- **Do** pair `overflow-y-auto` / `overflow-x-auto` with `thin-scrollbar` — always.
+- **Do** use `@/components/ui/scroll-area` (`ScrollArea` / `ScrollAreaRoot` + `ScrollAreaViewport` + `ScrollAreaContent` + `ScrollBar`) for scrollable panels so scrollbars reserve `0px` gutter, stay hidden at rest, and fade in on hover/scroll; cap inline HTML previews at 1/2 the enclosing scroll viewport height with dynamic top/bottom `scroll-fade` and an outer overlay scrollbar.
 - **Don't** introduce a saturated or off-palette color. Template leftovers (e.g. a blue-violet sidebar token) are bugs to fix, not values to keep.
 - **Don't** signal state by color alone — add an icon, label, or weight.
 - **Don't** use glass-morphism, glossy highlights, or hard/dramatic shadows.

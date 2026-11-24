@@ -208,8 +208,15 @@ export function AttachmentPreviewSheet({
           presentation?.previewKind === "code"
           || presentation?.previewKind === "text"
           || presentation?.previewKind === "pdf"
-        ) && "p-0 sm:p-0",
+        ) && "h-full p-0 sm:p-0",
       )}
+      bodyViewportClassName={
+        presentation?.previewKind === "code"
+        || presentation?.previewKind === "text"
+        || presentation?.previewKind === "pdf"
+          ? "overflow-hidden"
+          : undefined
+      }
     >
       {preview.status === "loading" && (
         <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">

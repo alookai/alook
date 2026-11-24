@@ -12,6 +12,7 @@ import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
@@ -336,17 +337,23 @@ function Step1({
             data-testid={tid.machinePairHelpContent}
             side="bottom"
             align="end"
-            className="flex w-104 max-w-[calc(var(--app-safe-width)-2rem)] max-h-[calc(var(--app-overlay-safe-height)-2rem)] flex-col gap-4 overflow-x-hidden overflow-y-auto thin-scrollbar p-4 sm:p-6"
+            className="flex w-104 max-w-[calc(var(--app-safe-width)-2rem)] max-h-[calc(var(--app-overlay-safe-height)-2rem)] flex-col overflow-hidden p-0"
           >
-            <div className="flex flex-col gap-2">
-              <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why run a terminal command?</PopoverTitle>
-              <p className="text-sm leading-relaxed text-muted-foreground">Your CLI agents run on your computer. This command starts a background service so they can receive messages and reply in Alook, using your existing setup.</p>
-            </div>
-            <MachinePairMessageDiagram />
-            <div className="flex flex-col gap-2">
-              <h4 className="text-base font-semibold leading-tight">No automatic file uploads</h4>
-              <p className="text-sm leading-relaxed text-muted-foreground">Alook does not automatically upload any of your local file contents.</p>
-            </div>
+            <ScrollArea
+              className="flex min-h-0 flex-1 flex-col"
+              viewportClassName="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+              contentClassName="flex flex-col gap-4 p-4 sm:p-6"
+            >
+              <div className="flex flex-col gap-2">
+                <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why run a terminal command?</PopoverTitle>
+                <p className="text-sm leading-relaxed text-muted-foreground">Your CLI agents run on your computer. This command starts a background service so they can receive messages and reply in Alook, using your existing setup.</p>
+              </div>
+              <MachinePairMessageDiagram />
+              <div className="flex flex-col gap-2">
+                <h4 className="text-base font-semibold leading-tight">No automatic file uploads</h4>
+                <p className="text-sm leading-relaxed text-muted-foreground">Alook does not automatically upload any of your local file contents.</p>
+              </div>
+            </ScrollArea>
           </PopoverContent>
         </Popover>
       </header>

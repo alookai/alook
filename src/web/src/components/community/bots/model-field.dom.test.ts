@@ -308,9 +308,10 @@ describe("ModelField", () => {
     const controls = renderer.getByTestId("bot-model-fixed-controls")
     expect(controls.className).toContain("shrink-0")
     const results = renderer.getByTestId("bot-model-probe-results")
+    expect(results).toHaveAttribute("data-slot", "scroll-area-viewport")
     expect(results.className).toContain("max-h-[min(18rem,50dvh)]")
     expect(results.className).toContain("overflow-y-auto")
-    expect(results.className).toContain("thin-scrollbar")
+    expect(results.className).toContain("scrollbar-none")
 
     const printable = new KeyboardEvent("keydown", { key: "o", bubbles: true })
     const printableStop = vi.spyOn(printable, "stopPropagation")

@@ -81,7 +81,7 @@ export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
           </DocumentNavigationLink>
         </div>
         <Tabs value={story.slug} onValueChange={(value) => setActive(String(value))}>
-          <TabsList ref={setList} className={`${styles.tabs} thin-scrollbar`} aria-label="Use cases" data-overflow={overflow} {...handlers}>
+          <TabsList ref={setList} className={`${styles.tabs} scrollbar-none`} aria-label="Use cases" data-overflow={overflow} {...handlers}>
             {STORIES.map(({ slug, tab }) => <TabsTrigger key={slug} value={slug} id={`use-case-tab-${slug}`} aria-controls="use-case-panel">{tab}</TabsTrigger>)}
           </TabsList>
           <div id="use-case-panel" role="tabpanel" aria-labelledby={`use-case-tab-${story.slug}`} className={styles.panel}>

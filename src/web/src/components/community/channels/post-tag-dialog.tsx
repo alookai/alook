@@ -20,6 +20,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { useBreakpoint, type Breakpoint } from "@/hooks/use-mobile"
 import { onEnterSubmit } from "@/lib/ime"
 import { tid } from "@/lib/community/testids"
@@ -54,14 +55,8 @@ function PostTagEditorBody({
   onAddDraft,
 }: TagEditorBodyProps) {
   const atTagLimit = ordinaryTagCount >= MAX_FORUM_TAGS_PER_POST
-  return (
-    <div
-      data-testid={tid.forumTagDialogBody}
-      className={cn(
-        "space-y-3",
-        mobile && "min-h-0 flex-1 overflow-y-auto thin-scrollbar px-3 pt-1 pb-3",
-      )}
-    >
+  const content = (
+    <>
       <div className="space-y-1">
         <p className="text-[11px] font-medium tracking-[0.12em] text-muted-foreground">TAGS</p>
 
@@ -141,7 +136,25 @@ function PostTagEditorBody({
           </p>
         </>
       )}
-
+    </>
+  )
+  if (mobile) {
+    return (
+      <ScrollArea
+        className="min-h-0 flex-1"
+        viewportProps={{ "data-testid": tid.forumTagDialogBody }}
+        contentClassName="space-y-3 px-3 pt-1 pb-3"
+      >
+        {content}
+      </ScrollArea>
+    )
+  }
+  return (
+    <div
+      data-testid={tid.forumTagDialogBody}
+      className="space-y-3"
+    >
+      {content}
     </div>
   )
 }

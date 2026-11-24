@@ -10,6 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { runtimeLabel } from "@/lib/community/runtime-label"
 import { timeAgo } from "@/lib/time"
 import { tid } from "@/lib/community/testids"
@@ -261,10 +262,14 @@ export function MachineQuotaSummary({
       />
       <PopoverContent
         align="start"
-        className="max-h-[min(32rem,calc(var(--app-overlay-safe-height)-2rem))] w-80 max-w-[calc(var(--app-safe-width)-1rem)] overflow-x-hidden overflow-y-auto p-4 thin-scrollbar"
+        className="flex max-h-[min(32rem,calc(var(--app-overlay-safe-height)-2rem))] w-80 max-w-[calc(var(--app-safe-width)-1rem)] flex-col overflow-hidden p-0"
         data-testid={tid.machineQuotaDetail(machineId)}
       >
-        <div className="flex flex-col gap-4">
+        <ScrollArea
+          className="flex min-h-0 flex-1 flex-col"
+          viewportClassName="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+          contentClassName="flex flex-col gap-4 p-4"
+        >
           <h3 className="text-sm font-medium text-foreground">Machine quota</h3>
           {sortedEntries.map((entry) => {
             const snapshot = entry.snapshot
@@ -344,7 +349,7 @@ export function MachineQuotaSummary({
               </section>
             )
           })}
-        </div>
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   )

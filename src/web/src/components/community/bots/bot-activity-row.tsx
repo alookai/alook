@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Tooltip,
   TooltipContent,
@@ -228,9 +229,12 @@ function TruncatedAuditLog({
       <DialogTrigger render={trigger} />
       <DialogContent>
         <DialogTitle className="pr-11">Activity details</DialogTitle>
-        <div data-testid={tid.botActivityDetail} className="thin-scrollbar max-h-[calc(var(--app-overlay-safe-height)-8rem)] overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed">
+        <ScrollArea
+          viewportProps={{ "data-testid": tid.botActivityDetail }}
+          viewportClassName="max-h-[calc(var(--app-overlay-safe-height)-8rem)] whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed"
+        >
           {fullText}
-        </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )
@@ -241,9 +245,14 @@ function TruncatedAuditLog({
         role="tooltip"
         side="bottom"
         align="start"
-        className="thin-scrollbar max-h-[min(24rem,calc(var(--app-overlay-safe-height)-2rem))] max-w-[min(32rem,calc(var(--app-safe-width)-2rem))] overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-[12px] leading-relaxed"
+        className="max-w-[min(32rem,calc(var(--app-safe-width)-2rem))] overflow-hidden p-0 font-mono text-[12px] leading-relaxed"
       >
-        {fullText}
+        <ScrollArea
+          viewportClassName="max-h-[min(24rem,calc(var(--app-overlay-safe-height)-2rem))] whitespace-pre-wrap wrap-break-word"
+          contentClassName="px-3 py-1.5"
+        >
+          {fullText}
+        </ScrollArea>
       </TooltipContent>
     </Tooltip>
   )

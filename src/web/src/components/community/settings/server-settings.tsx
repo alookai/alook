@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { Badge } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import { EmptyState } from "../empty-state"
@@ -277,7 +278,7 @@ function SettingsMembers({ members, loading, known, failed, retrying, onRetry, l
       <div className="mb-4 shrink-0 text-sm text-muted-foreground">
         {known ? query ? `${members.length} matches` : `${shownCount} members` : "Members unavailable"}
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
+      <ScrollArea className="min-h-0 flex-1" viewportRef={scrollRef}>
         <VirtualRows
           items={members}
           virtualizer={rowVirtualizer}
@@ -321,7 +322,7 @@ function SettingsMembers({ members, loading, known, failed, retrying, onRetry, l
             {loadingMore ? "Loading…" : ""}
           </div>
         )}
-      </div>
+      </ScrollArea>
     </div>
   )
 }
@@ -428,7 +429,7 @@ function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
     <div className="flex h-full min-h-0 w-full flex-col">
       {showSearch && <Skeleton className="mb-4 h-11 shrink-0 rounded-md sm:h-9" />}
       <Skeleton className="mb-4 h-4 w-24 shrink-0 rounded" />
-      <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
@@ -442,7 +443,7 @@ function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
             </div>
           ))}
         </div>
-      </div>
+      </ScrollArea>
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { Drawer as SheetPrimitive } from "@base-ui/react/drawer"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "./scroll-area"
 import { AppEdgeFade, appBackdropClassName } from "./app-edge-fade"
 import { XIcon } from "@/components/icons/lucide";
 import { SwipeRoot, SwipeViewport, SwipePopup, SwipeBackdrop, type SwipeRootProps } from "./swipe-container"
@@ -113,13 +114,27 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
+function SheetBody({
+  className,
+  viewportClassName,
+  children,
+  ref,
+  ...props
+}: React.ComponentProps<"div"> & { viewportClassName?: string }) {
   return (
-    <div
-      data-slot="sheet-body"
-      className={cn("flex-1 overflow-x-hidden overflow-y-auto thin-scrollbar px-4 sm:px-6 py-4", className)}
-      {...props}
-    />
+    <ScrollAreaRoot className="min-h-0 flex-1 overflow-hidden">
+      <ScrollAreaViewport
+        ref={ref}
+        data-slot="sheet-body"
+        className={cn("size-full overflow-x-hidden overflow-y-auto", viewportClassName)}
+        {...props}
+      >
+        <ScrollAreaContent className={cn("min-h-full px-4 sm:px-6 py-4", className)}>
+          {children}
+        </ScrollAreaContent>
+      </ScrollAreaViewport>
+      <ScrollBar />
+    </ScrollAreaRoot>
   )
 }
 

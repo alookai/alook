@@ -12,8 +12,7 @@ describe("SettingsMembers loading geometry", () => {
       'className="flex h-full min-h-0 w-full flex-col"',
     )
     expect(source).toContain('className="mb-4 h-11 shrink-0 rounded-md sm:h-9"')
-    expect(source).toContain(
-      'className="min-h-0 flex-1 overflow-y-auto thin-scrollbar"',
-    )
+    expect(source).toContain('<ScrollArea className="min-h-0 flex-1" viewportRef={scrollRef}>')
+    expect(source).toContain('<ScrollArea className="min-h-0 flex-1">')
   })
 })

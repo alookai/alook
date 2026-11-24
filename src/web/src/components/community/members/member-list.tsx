@@ -12,6 +12,7 @@ import {
   ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { toastApiError } from "@/lib/api/client"
@@ -286,7 +287,7 @@ export function MemberList({
             )}
           </div>
         )}
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
+        <ScrollArea className="min-h-0 flex-1" viewportRef={scrollRef}>
           <div className="px-4 py-4">
             <VirtualRows
               items={items}
@@ -315,7 +316,7 @@ export function MemberList({
               </div>
             )}
           </div>
-        </div>
+        </ScrollArea>
       </aside>
     </>
   )
@@ -459,7 +460,7 @@ function MemberListSkeleton({
           {showAddMember && <Skeleton className="size-9 shrink-0 rounded-md" />}
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="px-4 py-4">
           {groups.map((g, i) => (
             <div key={i} className="mb-4">
@@ -475,7 +476,7 @@ function MemberListSkeleton({
             </div>
           ))}
         </div>
-      </div>
+      </ScrollArea>
     </aside>
   )
 }

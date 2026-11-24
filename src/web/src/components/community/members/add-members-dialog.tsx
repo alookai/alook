@@ -10,6 +10,7 @@ import { Search, Loader2 } from "@/components/icons/lucide";
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar } from "../avatar"
 import {
   PeoplePickerBody,
@@ -160,7 +161,11 @@ export function AddMembersDialog({
           </label>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto thin-scrollbar px-2 pt-1.5 pb-4">
+        <ScrollArea
+          className="min-h-0 flex-1"
+          viewportClassName="overflow-x-hidden overflow-y-auto"
+          contentClassName="flex min-h-full flex-col px-2 pt-1.5 pb-4"
+        >
           <PeoplePickerBody
             state={pickerState}
             loading={<PeoplePickerRowsSkeleton actionClassName="w-14" />}
@@ -182,7 +187,7 @@ export function AddMembersDialog({
               ))}
             </div>
           </PeoplePickerBody>
-        </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )

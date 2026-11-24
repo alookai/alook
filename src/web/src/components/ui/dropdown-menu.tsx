@@ -7,6 +7,7 @@ import { useSafeAreaBoundary } from "@/hooks/use-safe-area-boundary"
 
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "@/components/icons/lucide";
+import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "./scroll-area"
 import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
@@ -32,6 +33,7 @@ function DropdownMenuContent({
   collisionPadding,
   collisionAvoidance,
   className,
+  children,
   render,
   ...props
 }: MenuPrimitive.Popup.Props &
@@ -63,10 +65,17 @@ function DropdownMenuContent({
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          className={cn("z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-2 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-150 outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95", className )}
+          className={cn("z-50 flex max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) flex-col overflow-hidden rounded-lg bg-popover p-2 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-150 outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95", className )}
           {...props}
           render={renderPopup}
-        />
+        >
+          <ScrollAreaRoot className="flex min-h-0 flex-1 flex-col">
+            <ScrollAreaViewport className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+              <ScrollAreaContent>{children}</ScrollAreaContent>
+            </ScrollAreaViewport>
+            <ScrollBar />
+          </ScrollAreaRoot>
+        </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
   )

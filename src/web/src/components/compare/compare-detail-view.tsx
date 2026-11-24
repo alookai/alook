@@ -215,7 +215,7 @@ export function CompareDetailView({ page }: { page: ComparisonPage }) {
             </div>
 
             <Card className={styles.tableCard}>
-              <div className={`${styles.tableScroll} thin-scrollbar`}>
+              <div className={`${styles.tableScroll} scrollbar-none`}>
                 <table className={styles.compareTable}>
                   <thead>
                     <tr>

@@ -5,6 +5,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react"
 import { FileWarning } from "lucide-react";
 import { Loader2 } from "@/components/icons/lucide";
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   getDocument,
   GlobalWorkerOptions,
@@ -263,9 +264,10 @@ export function PdfPreview({ data }: { data: Uint8Array<ArrayBuffer> }) {
   }, [data, setState])
 
   return (
-    <div
-      data-testid={tid.pdfPreview}
-      className="min-h-0 flex-1 overflow-y-auto bg-muted/40 thin-scrollbar"
+    <ScrollArea
+      className="min-h-0 flex-1 bg-muted/40"
+      viewportProps={{ "data-testid": tid.pdfPreview }}
+      contentClassName="min-h-full"
     >
       {state.status === "loading" && (
         <div
@@ -289,6 +291,6 @@ export function PdfPreview({ data }: { data: Uint8Array<ArrayBuffer> }) {
       {state.status === "ready" && (
         <PdfPages document={state.document} />
       )}
-    </div>
+    </ScrollArea>
   )
 }

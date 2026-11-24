@@ -9,6 +9,7 @@ import type { BotListController, BotListOverlaySlots } from "@/components/commun
 import { MachineCard } from "@/components/community/machines/machine-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import type { BotSummary } from "@/lib/community/bots"
 import type { MachineSummary } from "@/lib/community/machines"
@@ -82,12 +83,12 @@ export function WorkspaceHome({ page, onBack, onDm, onOpenProfile, onMachines }:
       : page === "bots" ? renderBotListView({ onBack }, controller, emptyOverlays)
       : <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6 sm:hidden"><Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back"><ChevronLeft className="size-5" /></Button><span className="text-base font-semibold">Machines</span></header>
-        <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
+        <ScrollArea className="min-h-0 flex-1" contentClassName="flex flex-col gap-6 p-6">
           <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
             <header className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 flex-col gap-1"><h1 className="text-xl font-medium">Machines</h1><p className="text-sm text-muted-foreground">Your computers running the alook daemon.</p></div><Button onClick={openPanel("Connect a machine")}><Plus className="size-4" />Connect machine</Button></header>
             <div className="flex flex-col gap-3">{machines.map((machine) => <MachineCard key={machine.id} machine={machine} onDelete={() => setMachines((rows) => rows.filter((row) => row.id !== machine.id))} onReconnect={() => setMachines((rows) => rows.map((row) => ({ ...row, status: "online" })))} />)}</div>
           </div>
-        </div>
+        </ScrollArea>
       </div>}
     <Sheet open={panel !== null} onOpenChange={(open) => { if (!open) setPanel(null) }}>
       <SheetContent><SheetHeader><SheetTitle>{panel}</SheetTitle></SheetHeader>

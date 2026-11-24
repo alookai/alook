@@ -83,7 +83,7 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
 
         <DialogContent className={
           isMobile
-            ? "top-auto left-0 translate-x-0 translate-y-0 bottom-0 max-w-full sm:max-w-full w-full rounded-b-none rounded-t-xl max-h-[85%] overflow-y-auto thin-scrollbar pb-4"
+            ? "top-auto left-0 translate-x-0 translate-y-0 bottom-0 max-w-full sm:max-w-full w-full rounded-b-none rounded-t-xl max-h-[85%] overflow-y-auto scrollbar-none pb-4"
             : "sm:max-w-120"
         }>
           <DialogHeader>

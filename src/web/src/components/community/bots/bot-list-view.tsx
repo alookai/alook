@@ -2,6 +2,7 @@ import { ConversationResolutionErrorFrame } from "../channels/conversation-resol
 import { ChevronLeft, HelpCircle } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { tid } from "@/lib/community/testids"
@@ -59,7 +60,7 @@ export function BotListSkeleton({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {botBackBar(undefined, reserveBackSlot || Boolean(onBack))}
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
+      <ScrollArea className="min-h-0 flex-1" contentClassName="flex flex-col gap-6 p-6">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
           <header className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -88,7 +89,7 @@ export function BotListSkeleton({
             </div>
           </div>
         </div>
-      </div>
+      </ScrollArea>
     </div>
   )
 }
@@ -149,7 +150,7 @@ export function renderBotListView(
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {backBar}
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto thin-scrollbar p-6">
+      <ScrollArea className="min-h-0 flex-1" contentClassName="flex flex-col gap-6 p-6">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
           <header className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -181,7 +182,7 @@ export function renderBotListView(
             {controller.groups.map((group) => renderBotMachineGroup(group, controller))}
           </div>
         </div>
-      </div>
+      </ScrollArea>
 
       {overlays.create}
       {overlays.billing}

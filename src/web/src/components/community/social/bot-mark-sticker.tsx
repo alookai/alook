@@ -16,6 +16,7 @@ import { MessageBody } from "../messages/message-body"
 import { MessageAuthorLine } from "../messages/message-author-line"
 import { BotAuditActiveRow } from "./bot-audit-preview"
 import { Button } from "@/components/ui/button"
+import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
 import styles from "./bot-mark-sticker.module.css"
 
 const VISIBLE_MARKS = 3
@@ -166,102 +167,120 @@ export function BotMarkStickerView({
       </div>
       {view === "thoughts" ? (
         <div id={`${tabsId}-thoughts-panel`} role="tabpanel" aria-label="Recent thoughts" className="flex min-h-0 flex-1 flex-col pt-2">
-          <div ref={activityScrollRef} data-testid={tid.botAuditPreviewScroll}
-            onScroll={({ currentTarget }) => {
-              nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
-            }}
-            className={`thin-scrollbar ${styles.scrollbar} min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain`}>
-            <div data-testid={tid.botAuditPreviewBottom} className={`flex min-h-full flex-col ${!activity.isLoading && visibleEvents.length === 0 ? "justify-center" : "justify-end"}`}>
-              {activity.isError && activityKnown && <div role="status" className="flex items-center gap-2 px-2 text-xs text-(--note-muted)">Could not refresh thoughts{activity.refetch && <Button variant="ghost" size="sm" className="h-11 sm:h-8" disabled={activity.isFetching} onClick={() => { void activity.refetch?.() }}>Retry</Button>}</div>}
-              {activity.isLoading && !activityKnown ? <ThoughtsLoading /> : activity.isError && !activityKnown ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
-                const parsed = AuditLogTextPayloadSchema.safeParse(event.payload)
-                return <div key={event.id} data-testid={tid.botAuditPreviewRow(event.id)} className={styles.entry}>
-                  <ThoughtTime onClick={onOpenActivity} title={onOpenActivity ? "Open full audit log" : undefined}
-                    className={styles.thoughtTime}>
-                    <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
-                  </ThoughtTime>
-                  <div className={styles.thought} style={onOpenActivity ? undefined : { cursor: "text" }} onClick={onOpenActivity ? (event) => {
-                    if (event.defaultPrevented || (event.target instanceof Element &&
-                      event.target.closest("a, button, input, select, textarea, summary, [role='button']"))) return
-                    if (window.getSelection()?.toString()) return
-                    onOpenActivity()
-                  } : undefined}>
-                    <MessageBody text={parsed.success ? `${parsed.data.text}${parsed.data.truncated ? "…" : ""}` : "Text unavailable"} />
-                  </div>
+          <ScrollAreaRoot className="min-h-0 flex-1">
+            <ScrollAreaViewport
+              ref={activityScrollRef}
+              data-testid={tid.botAuditPreviewScroll}
+              onScroll={({ currentTarget }) => {
+                nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
+              }}
+              className="size-full overflow-x-hidden overflow-y-auto overscroll-contain"
+            >
+              <ScrollAreaContent className="min-h-full">
+                <div data-testid={tid.botAuditPreviewBottom} className={`flex min-h-full flex-col ${!activity.isLoading && visibleEvents.length === 0 ? "justify-center" : "justify-end"}`}>
+                  {activity.isError && activityKnown && <div role="status" className="flex items-center gap-2 px-2 text-xs text-(--note-muted)">Could not refresh thoughts{activity.refetch && <Button variant="ghost" size="sm" className="h-11 sm:h-8" disabled={activity.isFetching} onClick={() => { void activity.refetch?.() }}>Retry</Button>}</div>}
+                  {activity.isLoading && !activityKnown ? <ThoughtsLoading /> : activity.isError && !activityKnown ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
+                    const parsed = AuditLogTextPayloadSchema.safeParse(event.payload)
+                    return <div key={event.id} data-testid={tid.botAuditPreviewRow(event.id)} className={styles.entry}>
+                      <ThoughtTime onClick={onOpenActivity} title={onOpenActivity ? "Open full audit log" : undefined}
+                        className={styles.thoughtTime}>
+                        <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+                      </ThoughtTime>
+                      <div className={styles.thought} style={onOpenActivity ? undefined : { cursor: "text" }} onClick={onOpenActivity ? (event) => {
+                        if (event.defaultPrevented || (event.target instanceof Element &&
+                          event.target.closest("a, button, input, select, textarea, summary, [role='button']"))) return
+                        if (window.getSelection()?.toString()) return
+                        onOpenActivity()
+                      } : undefined}>
+                        <MessageBody text={parsed.success ? `${parsed.data.text}${parsed.data.truncated ? "…" : ""}` : "Text unavailable"} />
+                      </div>
+                    </div>
+                  })}
                 </div>
-              })}
-            </div>
-          </div>
+              </ScrollAreaContent>
+            </ScrollAreaViewport>
+            <ScrollBar thumbClassName="bg-(--note-rule) hover:bg-(--note-muted) active:bg-(--note-muted)" />
+          </ScrollAreaRoot>
         </div>
       ) : (
-        <div id={`${tabsId}-marks-panel`} role="tabpanel" aria-label="Marked messages" className={`thin-scrollbar ${styles.scrollbar} mt-2 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1`}>
-          {isError && marksKnown && <div role="status" className="flex items-center gap-2 px-2 text-xs text-(--note-muted)">Could not refresh marked messages{onRetryMarks && <Button variant="ghost" size="sm" className="h-11 sm:h-8" disabled={marksRefreshing} onClick={onRetryMarks}>Retry</Button>}</div>}
-          {isLoading && !marksKnown ? (
-            <StickerState label="Loading marked messages" />
-          ) : isError && !marksKnown ? (
-            <StickerState label="Marked messages unavailable" />
-          ) : visibleMarks.length === 0 ? (
-            <StickerState label="No marked messages" />
-          ) : (
-            <div className="space-y-1 py-1">
-              {visibleMarks.map((mark) => {
-                const locationPrefix = mark.serverId ? mark.server : "DM"
-                const normalizedLocationChannel = mark.channel.trim()
-                const rawLocationChannel = !mark.serverId
-                  && normalizedLocationChannel.toLowerCase() === "unknown"
-                  ? ""
-                  : normalizedLocationChannel
-                const locationChannel = rawLocationChannel
-                  ? (mark.serverId ? `#${rawLocationChannel}` : rawLocationChannel)
-                  : ""
-                const location = locationChannel
-                  ? `${locationPrefix} · ${locationChannel}`
-                  : locationPrefix
-                const content = mark.m.content?.trim() ? mark.m.content : "Empty message"
-                return (
-                  <div
-                    key={mark.id}
-                    data-testid={tid.botMarkStickerRow(mark.id)}
-                    className="grid min-h-20 grid-cols-[0.875rem_minmax(0,1fr)] items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-accent/30"
-                  >
-                    <Square className="mt-1.5 size-3.5 shrink-0 text-(--note-muted)" strokeWidth={1.75} aria-hidden />
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-start gap-2">
-                        <Avatar
-                          label={mark.m.authorAvatar || mark.m.authorName || "?"}
-                          seed={mark.m.authorId}
-                          size={28}
-                        />
-                        <div className="w-fit min-w-0 max-w-full">
-                          <MessageAuthorLine
-                            variant="note"
-                            authorName={mark.m.authorName || "Deleted user"}
-                            timestamp={mark.m.createdAt ? formatRelativeTime(mark.m.createdAt) : undefined}
-                            timestampProps={{ dateTime: mark.m.createdAt }}
-                          />
-                          <div title={location} className="flex w-fit min-w-0 max-w-full items-center gap-1 text-[10px] leading-4 text-(--note-muted)">
-                            <span className={mark.serverId ? "min-w-0 truncate" : "shrink-0"}>
-                              {locationPrefix}
-                            </span>
-                            {locationChannel && (
-                              <>
-                                <span className="shrink-0" aria-hidden>·</span>
-                                <span className="min-w-0 truncate">{locationChannel}</span>
-                              </>
-                            )}
+        <ScrollAreaRoot className="mt-2 min-h-0 flex-1">
+          <ScrollAreaViewport
+            id={`${tabsId}-marks-panel`}
+            role="tabpanel"
+            aria-label="Marked messages"
+            className="size-full overflow-x-hidden overflow-y-auto overscroll-contain pr-1"
+          >
+            <ScrollAreaContent className="min-h-full">
+              {isError && marksKnown && <div role="status" className="flex items-center gap-2 px-2 text-xs text-(--note-muted)">Could not refresh marked messages{onRetryMarks && <Button variant="ghost" size="sm" className="h-11 sm:h-8" disabled={marksRefreshing} onClick={onRetryMarks}>Retry</Button>}</div>}
+              {isLoading && !marksKnown ? (
+                <StickerState label="Loading marked messages" />
+              ) : isError && !marksKnown ? (
+                <StickerState label="Marked messages unavailable" />
+              ) : visibleMarks.length === 0 ? (
+                <StickerState label="No marked messages" />
+              ) : (
+                <div className="space-y-1 py-1">
+                  {visibleMarks.map((mark) => {
+                    const locationPrefix = mark.serverId ? mark.server : "DM"
+                    const normalizedLocationChannel = mark.channel.trim()
+                    const rawLocationChannel = !mark.serverId
+                      && normalizedLocationChannel.toLowerCase() === "unknown"
+                      ? ""
+                      : normalizedLocationChannel
+                    const locationChannel = rawLocationChannel
+                      ? (mark.serverId ? `#${rawLocationChannel}` : rawLocationChannel)
+                      : ""
+                    const location = locationChannel
+                      ? `${locationPrefix} · ${locationChannel}`
+                      : locationPrefix
+                    const content = mark.m.content?.trim() ? mark.m.content : "Empty message"
+                    return (
+                      <div
+                        key={mark.id}
+                        data-testid={tid.botMarkStickerRow(mark.id)}
+                        className="grid min-h-20 grid-cols-[0.875rem_minmax(0,1fr)] items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-accent/30"
+                      >
+                        <Square className="mt-1.5 size-3.5 shrink-0 text-(--note-muted)" strokeWidth={1.75} aria-hidden />
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-start gap-2">
+                            <Avatar
+                              label={mark.m.authorAvatar || mark.m.authorName || "?"}
+                              seed={mark.m.authorId}
+                              size={28}
+                            />
+                            <div className="w-fit min-w-0 max-w-full">
+                              <MessageAuthorLine
+                                variant="note"
+                                authorName={mark.m.authorName || "Deleted user"}
+                                timestamp={mark.m.createdAt ? formatRelativeTime(mark.m.createdAt) : undefined}
+                                timestampProps={{ dateTime: mark.m.createdAt }}
+                              />
+                              <div title={location} className="flex w-fit min-w-0 max-w-full items-center gap-1 text-[10px] leading-4 text-(--note-muted)">
+                                <span className={mark.serverId ? "min-w-0 truncate" : "shrink-0"}>
+                                  {locationPrefix}
+                                </span>
+                                {locationChannel && (
+                                  <>
+                                    <span className="shrink-0" aria-hidden>·</span>
+                                    <span className="min-w-0 truncate">{locationChannel}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className={styles.markedBody}>
+                            <MessageBody text={content} />
                           </div>
                         </div>
                       </div>
-                      <div className={styles.markedBody}>
-                        <MessageBody text={content} />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+                    )
+                  })}
+                </div>
+              )}
+            </ScrollAreaContent>
+          </ScrollAreaViewport>
+          <ScrollBar thumbClassName="bg-(--note-rule) hover:bg-(--note-muted) active:bg-(--note-muted)" />
+        </ScrollAreaRoot>
       )}
 
       <footer className={styles.footer}>

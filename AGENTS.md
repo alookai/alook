@@ -125,10 +125,15 @@ Required fields (see `src/web/blog/src/lib/blog/types.ts`): `slug`, `title`, `da
 
 ## Scrollbar
 
-Always use the `thin-scrollbar` class alongside `overflow-y-auto` or `overflow-x-auto`. Never use bare overflow-auto without it.
+Use `@/components/ui/scroll-area` (`ScrollArea` or `ScrollAreaRoot` + `ScrollAreaViewport` + `ScrollAreaContent` + `ScrollBar`) for scrollable regions instead of bare `overflow-y-auto` / `overflow-x-auto` or classic `::-webkit-scrollbar` / `scrollbar-width: thin` CSS overrides.
+
+- Scrollbars must reserve `0px` layout gutter (`scrollbar-none` on the viewport), stay hidden at rest, and fade in only on hover or scroll (`data-hovering:` / `data-scrolling:`).
+- Always wrap scrollable children in `<ScrollAreaContent>` (or use `<ScrollArea>`, which does this automatically) so Base UI tracks dynamic height growth via `ResizeObserver`.
+- Use `scrollbar-none` without a `ScrollBar` only for deliberately hidden horizontal/vertical rails (such as tag bars, server rails, and compact tab strips).
+- Inline HTML previews cap rendered height at half the enclosing scroll viewport height (`maxHeight = clamp(floor(viewportHeight * 0.5), 80, 2000)`), cache only `naturalHeight`, apply top/bottom `scroll-fade` masks on the iframe when scrollable, and render a zero-gutter host overlay scrollbar outside the masked iframe.
 
 ```tsx
-<div className="overflow-y-auto thin-scrollbar">...</div>
+<ScrollArea className="min-h-0 flex-1">...</ScrollArea>
 ```
 
 ## UIUX

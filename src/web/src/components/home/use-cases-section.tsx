@@ -151,7 +151,7 @@ export function UseCasesSection() {
       {/* Layout: Left picker + Right demo */}
       <div className="usecase-layout mx-auto flex max-w-5xl flex-col gap-6 md:flex-row md:items-start md:gap-8">
         {/* Left: Scenario picker */}
-        <div className="flex flex-row gap-2 overflow-x-auto thin-scrollbar pb-2 md:w-72 md:shrink-0 md:flex-col md:overflow-x-visible md:pb-0">
+        <div className="flex flex-row gap-2 overflow-x-auto scrollbar-none pb-2 md:w-72 md:shrink-0 md:flex-col md:overflow-x-visible md:pb-0">
           {scenarios.map((scenario, i) => (
             <Button size="sm"
               key={scenario.id}
