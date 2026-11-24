@@ -56,7 +56,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         onReady={handleHeroReady}
         staticPaper
         desktopSplit
-        nextSectionId="use-cases"
+        nextSectionId="workspace"
         isLoggedIn={isLoggedIn}
         headline={(
           <>
@@ -94,11 +94,11 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <ThemeToggle />
       </div>
 
+      <LandingInteractiveDemo heroReady={heroReady} />
+
       <LandingUseCases isLoggedIn={isLoggedIn} />
 
       <LandingTestimonials />
-
-      <LandingInteractiveDemo heroReady={heroReady} />
 
       <LandingValueSections isLoggedIn={isLoggedIn} />
 

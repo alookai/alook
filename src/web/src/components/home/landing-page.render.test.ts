@@ -114,7 +114,7 @@ describe("standalone interactive second screen", () => {
     try {
       const document = dom.window.document
       expect(Array.from(document.querySelectorAll("main > section[id]"), section => section.id))
-        .toEqual(["use-cases", "testimonials", "workspace", "value", "product"])
+        .toEqual(["workspace", "use-cases", "testimonials", "value", "product"])
       const workspace = document.querySelector('section[aria-label="Explore Alook"]')
       expect(workspace).not.toBeNull()
       expect(workspace!.querySelector("iframe")).toBeNull()

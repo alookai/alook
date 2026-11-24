@@ -15,7 +15,7 @@ export function LandingInteractiveDemo({ heroReady }: { heroReady: boolean }) {
     window.addEventListener("message", receive)
     return () => window.removeEventListener("message", receive)
   }, [])
-  return <section id="workspace" className={styles.section} aria-label="Explore Alook" data-testid="landing-interactive-section">
+  return <section id="workspace" tabIndex={-1} className={styles.section} aria-label="Explore Alook" data-testid="landing-interactive-section">
     <h2 id="workspace-heading" tabIndex={-1} className={styles.demoHeading} data-landing-scroll-anchor>Imagine your <HandAccent>team and friends</HandAccent> here</h2>
     <div className={styles.frame} aria-busy={!ready}>
       {!ready && <LandingWorkspaceSkeleton />}

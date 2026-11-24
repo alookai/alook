@@ -54,8 +54,9 @@ describe("landing content contract", () => {
   it("puts social product proof before machine and provider ownership", () => {
     expect(LANDING_SECTION_ORDER).toEqual([
       "hero",
-      "testimonials",
       "workspace",
+      "use-cases",
+      "testimonials",
       "value",
       "features",
       "faq",
