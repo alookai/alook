@@ -6,17 +6,19 @@ workers_dev = false
 
 [observability]
 enabled = true
-head_sampling_rate = 0.1
+head_sampling_rate = 1
 
 [observability.logs]
-invocation_logs = true
-head_sampling_rate = 0.1
-destinations = ["grafana-logs"]
+enabled = true
+invocation_logs = false
+head_sampling_rate = 1
+persist = true
 
 [observability.traces]
+enabled = false
+
+[observability.issues]
 enabled = true
-head_sampling_rate = 0.05
-destinations = ["grafana-traces"]
 
 # Must match DEV_PORTS.queueWorker in src/shared/src/constants.ts
 [dev]

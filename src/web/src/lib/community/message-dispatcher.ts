@@ -278,7 +278,7 @@ async function runCommittedMessageDispatch(
       err: String(wake.reason),
     })
   }
-  log.info("committed_message_dispatch_complete", {
+  log.debug("committed_message_dispatch_complete", {
     messageId,
     contentCount: plan.contentUserIds.length,
     unreadCount: plan.unreadPlainUserIds.length + plan.unreadMentionUserIds.length,

@@ -33,6 +33,7 @@ describe("official Resend SDK in workerd", () => {
       }, { status: 500 }))
       vi.stubGlobal("fetch", fetchMock)
       const log = vi.spyOn(console, "log").mockImplementation(() => {})
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
       const error = vi.spyOn(console, "error").mockImplementation(() => {})
       const context = createExecutionContext()
       context.waitUntil(syncResendSignupContact(env, user))
@@ -41,8 +42,9 @@ describe("official Resend SDK in workerd", () => {
       await expect(waitOnExecutionContext(context)).resolves.toBeUndefined()
 
       expect(fetchMock).toHaveBeenCalledTimes(2)
-      expect(log).toHaveBeenCalledTimes(2)
-      const entries = log.mock.calls.map(([value]) => JSON.parse(value as string))
+      expect(log).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalledTimes(2)
+      const entries = warn.mock.calls.map(([value]) => value)
       expect(entries).toEqual(expect.arrayContaining([
         expect.objectContaining({
           service: "resend-contacts", msg: "resend_contact_sync_failed", action: "signup",
@@ -54,7 +56,7 @@ describe("official Resend SDK in workerd", () => {
         }),
       ]))
       for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
-        expect(JSON.stringify(log.mock.calls)).not.toContain(value)
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(value)
       }
       if (debug !== "true") {
         expect(error).not.toHaveBeenCalled()
@@ -99,20 +101,22 @@ describe("official Resend SDK in workerd", () => {
       .mockResolvedValueOnce(Response.json({ name: "application_error", statusCode: 500, message: privateError }, { status: 500 }))
     vi.stubGlobal("fetch", fetchMock)
     const log = vi.spyOn(console, "log")
+    const warn = vi.spyOn(console, "warn")
     const error = vi.spyOn(console, "error")
     const context = createExecutionContext()
     context.waitUntil(syncResendSignupContact(env, user))
     await expect(waitOnExecutionContext(context)).resolves.toBeUndefined()
     expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(fetchMock.mock.calls[3]?.[0]).toBe("https://api.resend.com/events/send")
+    expect(log).not.toHaveBeenCalled()
     expect(error).not.toHaveBeenCalled()
-    expect(log).toHaveBeenCalledOnce()
-    expect(JSON.parse(log.mock.calls[0]?.[0] as string)).toMatchObject({
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toMatchObject({
       service: "resend-contacts", msg: "resend_contact_sync_failed", action: "signup",
       stage: "event", errorCategory: "provider_error", statusCode: 500,
     })
     for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
-      expect(JSON.stringify(log.mock.calls)).not.toContain(value)
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(value)
     }
   })
 
@@ -123,6 +127,7 @@ describe("official Resend SDK in workerd", () => {
     }, { status: 429 }))
     vi.stubGlobal("fetch", fetchMock)
     const log = vi.spyOn(console, "log")
+    const warn = vi.spyOn(console, "warn")
     const error = vi.spyOn(console, "error")
     const context = createExecutionContext()
     context.waitUntil(unsubscribeResendContact(env, user.email))
@@ -130,14 +135,15 @@ describe("official Resend SDK in workerd", () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("PATCH")
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({ unsubscribed: true })
+    expect(log).not.toHaveBeenCalled()
     expect(error).not.toHaveBeenCalled()
-    const entry = JSON.parse(log.mock.calls[0]?.[0] as string)
+    const entry = warn.mock.calls[0]?.[0]
     expect(entry).toMatchObject({
       service: "resend-contacts", msg: "resend_contact_sync_failed", action: "account-deletion",
       stage: "update", errorCategory: "provider_error", statusCode: 429,
     })
     for (const value of [user.email, user.name, env.RESEND_API_KEY]) {
-      expect(JSON.stringify(log.mock.calls)).not.toContain(value)
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(value)
     }
   })
 

@@ -122,6 +122,7 @@ describe("GET /api/community/friends/presence", () => {
 
   it("degrades to { online: [], stale: true } (200) when D1 exhausts retries", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
     mockGetFriendUserIds.mockRejectedValue(makeD1Error("internal_error"))
 
     const res = await GET(getReq())

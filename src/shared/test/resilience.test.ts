@@ -7,6 +7,7 @@ describe("withD1Retry", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
   })
   afterEach(() => {
@@ -73,15 +74,17 @@ describe("withD1Retry", () => {
   })
 
   it("retry-exhaust throws the last error and logs d1_retry_exhausted", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
     const fn = mockD1FailingUntil(999, "unused")
     const promise = withD1Retry(fn, { attempts: 3, route: "test-route" }).catch((e) => e)
     await vi.runAllTimersAsync()
     const caught = await promise
     expect(caught).toBeInstanceOf(DrizzleQueryError)
-    const logged = logSpy.mock.calls.flat().join(" ")
-    expect(logged).toContain("d1_retry_exhausted")
-    expect(logged).toContain("test-route")
+    expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({
+      level: "warn",
+      msg: "d1_retry_exhausted",
+      route: "test-route",
+    }))
   })
 })
 
@@ -172,6 +175,7 @@ describe("readOrStale", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
   })
   afterEach(() => {
@@ -187,14 +191,17 @@ describe("readOrStale", () => {
   })
 
   it("returns { value: fallback, stale: true } on retry-exhaust and logs d1_fail_closed", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
     const fn = mockD1FailingUntil(999, { online: [] })
     const promise = readOrStale(fn, { online: [] as string[] }, { route: "test", category: "d1_fail_closed" })
     await vi.runAllTimersAsync()
     const result = await promise
     expect(result).toEqual({ value: { online: [] }, stale: true })
-    const logged = logSpy.mock.calls.flat().join(" ")
-    expect(logged).toContain("d1_fail_closed")
+    expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({
+      level: "warn",
+      msg: "d1_fail_closed",
+      route: "test",
+    }))
   })
 
 

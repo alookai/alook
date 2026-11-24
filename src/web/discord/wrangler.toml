@@ -9,14 +9,14 @@ pattern = "discord.alook.ai"
 custom_domain = true
 
 [observability]
-enabled = true
-head_sampling_rate = 1
+enabled = false
+head_sampling_rate = 0
 
 [observability.logs]
-enabled = true
-invocation_logs = true
-head_sampling_rate = 1
+enabled = false
+invocation_logs = false
+head_sampling_rate = 0
 
 [observability.traces]
 enabled = false
-head_sampling_rate = 1
+head_sampling_rate = 0

@@ -194,7 +194,7 @@ export async function handleMessageDelivery(
       deliveredCount += 1
     }
   }
-  log.info("message_delivery_complete", {
+  const deliverySummary = {
     traceId,
     messageId: batch.messageId,
     operationId,
@@ -204,7 +204,12 @@ export async function handleMessageDelivery(
     failedCount: failedUserIds.length,
     failureCounts,
     durationMs: Date.now() - startedAt,
-  })
+  }
+  if (failedUserIds.length > 0) {
+    log.warn("message_delivery_complete", deliverySummary)
+  } else {
+    log.debug("message_delivery_complete", deliverySummary)
+  }
   return Response.json(
     { failedUserIds },
     { status: failedUserIds.length > 0 ? 207 : 200 },

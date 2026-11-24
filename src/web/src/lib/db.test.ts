@@ -17,6 +17,7 @@ describe("web/lib/db withD1Retry re-export", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
   })
   afterEach(() => {

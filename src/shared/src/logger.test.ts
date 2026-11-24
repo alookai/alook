@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { Logger } from "./logger"
 
 let logSpy: ReturnType<typeof vi.spyOn>
+let warnSpy: ReturnType<typeof vi.spyOn>
 let errorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
@@ -13,20 +15,20 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function parseLog(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
-  return JSON.parse(spy.mock.calls[0][0] as string)
+function firstLog(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
+  return spy.mock.calls[0][0] as Record<string, unknown>
 }
 
 function allLogs(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown>[] {
-  return spy.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string))
+  return spy.mock.calls.map((c: unknown[]) => c[0] as Record<string, unknown>)
 }
 
 describe("Logger", () => {
-  it("outputs valid JSON with level, msg, service, ts fields", () => {
+  it("outputs a structured object with level, msg, service, ts fields", () => {
     const logger = new Logger({ service: "test" })
     logger.info("hello")
 
-    const entry = parseLog(logSpy)
+    const entry = firstLog(logSpy)
     expect(entry.level).toBe("info")
     expect(entry.msg).toBe("hello")
     expect(entry.service).toBe("test")
@@ -37,7 +39,7 @@ describe("Logger", () => {
     const logger = new Logger({ service: "test" })
     logger.info("task done", { taskId: "t1", duration: 42 })
 
-    const entry = parseLog(logSpy)
+    const entry = firstLog(logSpy)
     expect(entry.taskId).toBe("t1")
     expect(entry.duration).toBe(42)
   })
@@ -49,21 +51,35 @@ describe("Logger", () => {
     logger.warn("visible")
     logger.error("also visible")
 
-    expect(logSpy).toHaveBeenCalledTimes(1)
+    expect(logSpy).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(errorSpy).toHaveBeenCalledTimes(1)
   })
 
-  it("writes error to console.error, others to console.log", () => {
+  it("writes error to console.error, warn to console.warn, and debug/info to console.log", () => {
     const logger = new Logger({ service: "test", level: "debug" })
     logger.debug("d")
     logger.info("i")
     logger.warn("w")
 
-    expect(logSpy).toHaveBeenCalledTimes(3)
+    expect(logSpy).toHaveBeenCalledTimes(2)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(errorSpy).not.toHaveBeenCalled()
 
     logger.error("e")
     expect(errorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("pretty mode formats strings and routes warn/error to matching console methods", () => {
+    const logger = new Logger({ service: "test", pretty: true })
+    logger.warn("careful", { code: 429 })
+    logger.error("failed")
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0][0]).toContain("WARN")
+    expect(warnSpy.mock.calls[0][0]).toContain("code=429")
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy.mock.calls[0][0]).toContain("ERROR")
   })
 
   it("silent level suppresses all output", () => {
@@ -74,6 +90,7 @@ describe("Logger", () => {
     logger.error("nope")
 
     expect(logSpy).not.toHaveBeenCalled()
+    expect(warnSpy).not.toHaveBeenCalled()
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
@@ -82,7 +99,7 @@ describe("Logger", () => {
     const err = new Error("bad input")
     logger.error("failed", { err })
 
-    const entry = parseLog(errorSpy)
+    const entry = firstLog(errorSpy)
     const serialized = entry.err as { message: string; stack: string }
     expect(serialized.message).toBe("bad input")
     expect(serialized.stack).toContain("Error: bad input")
@@ -110,7 +127,7 @@ describe("Logger", () => {
 
       parent.info("parent log")
 
-      const entry = parseLog(logSpy)
+      const entry = firstLog(logSpy)
       expect(entry.traceId).toBeUndefined()
     })
 
@@ -120,7 +137,7 @@ describe("Logger", () => {
 
       child.info("override", { requestId: "r2" })
 
-      const entry = parseLog(logSpy)
+      const entry = firstLog(logSpy)
       expect(entry.requestId).toBe("r2")
     })
 
@@ -131,8 +148,9 @@ describe("Logger", () => {
       child.info("should be filtered")
       child.warn("should appear")
 
-      expect(logSpy).toHaveBeenCalledTimes(1)
-      const entry = parseLog(logSpy)
+      expect(logSpy).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      const entry = firstLog(warnSpy)
       expect(entry.service).toBe("web")
     })
   })

@@ -166,7 +166,7 @@ async function runBroadcastToUsers(
           serializeBulkBroadcast(chunk, wireMessage, excludeUserId, community),
           { label: `${target}:chunk:${chunkNumber}/${chunks.length}`, type: message.type, contract: encoded?.contract },
         )
-        safeLog(() => log.info("broadcast_users_chunk_complete", {
+        safeLog(() => log.debug("broadcast_users_chunk_complete", {
           target,
           type: message.type,
           chunkNumber,
@@ -204,7 +204,7 @@ async function runBroadcastToUsers(
     }
   }
 
-  safeLog(() => log.info("broadcast_users_complete", {
+  const summary = {
     target,
     type: message.type,
     inputCount: userIds.length,
@@ -217,7 +217,14 @@ async function runBroadcastToUsers(
     sent,
     maxActive,
     durationMs: Date.now() - startedAt,
-  }))
+  }
+  safeLog(() => {
+    if (transportFailureChunkCount > 0) {
+      log.warn("broadcast_users_complete", summary)
+    } else {
+      log.debug("broadcast_users_complete", summary)
+    }
+  })
 
   if (transportFailureChunkCount > 0) {
     throw new Error(`broadcast failed for ${transportFailureChunkCount} of ${chunks.length} chunks`)
