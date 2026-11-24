@@ -148,17 +148,26 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
   const siteAnchors = 'a:not([href="/"]):not([href="/sign-in"]):not([href="/c/me"]):not([href="https://github.com/alookai/alook"]):not([href="https://discord.com/invite/24PHyEHU3M"]):not([href="https://x.com/alook_ai"])'
   const inlineLinks = header.locator(`${siteAnchors}:not(details a)`)
   await expect(header.getByRole("link", { name: "Tutorials", exact: true, includeHidden: true })).toHaveCount(0)
-  await expect(inlineLinks).toHaveCount(4)
+  await expect(inlineLinks).toHaveCount(5)
   for (const link of await inlineLinks.all()) await expect(link).toBeHidden()
 
   const mobileMenu = header.locator("details")
   await mobileMenu.locator("summary").click()
   const mobileLinks = mobileMenu.locator(siteAnchors)
-  await expect(mobileLinks).toHaveCount(4)
+  await expect(mobileLinks).toHaveCount(5)
   const expectedLinks = [
+    { href: "/usecases", label: "Use Cases" },
     { href: "/download", label: "Download" },
     { href: "/pricing", label: "Pricing" },
     { href: "/blog", label: "Blog" },
+    { href: "/contact", label: "Contact" },
+  ]
+  const expectedFooterLinks = [
+    { href: "/usecases", label: "Use Cases" },
+    { href: "/download", label: "Download" },
+    { href: "/pricing", label: "Pricing" },
+    { href: "/blog", label: "Blog" },
+    { href: "/compare", label: "Compare" },
     { href: "/contact", label: "Contact" },
   ]
   const linkContract = (elements: Element[]) => elements.map((element) => ({
@@ -167,10 +176,7 @@ test("homepage keeps Tutorials in the footer and collapses mobile header links",
   }))
   expect(await mobileLinks.evaluateAll(linkContract)).toEqual(expectedLinks)
   const footerLinks = page.getByTestId(tid.landingFooterNavigation).locator("a")
-  expect(await footerLinks.evaluateAll(linkContract)).toEqual([
-    ...expectedLinks,
-    { href: "/usecases", label: "Use Cases" },
-  ])
+  expect(await footerLinks.evaluateAll(linkContract)).toEqual(expectedFooterLinks)
 
   const styleContract = (element: Element) => {
     const style = getComputedStyle(element)

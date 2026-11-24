@@ -1,5 +1,7 @@
 import type { MetadataRoute } from "next";
 import type { BlogDiscoveryManifestV1 } from "@/lib/blog-discovery-manifest";
+import { AGENT_RUNTIME_PAGES } from "./agents";
+import { COMPARE_PAGES } from "./compare";
 import { stepGuides } from "./step-guides";
 import { useCases } from "./usecases";
 import { TEMPLATES } from "@/lib/templates";
@@ -9,6 +11,17 @@ const SITE_URL = "https://alook.ai";
 export function buildRootSitemap(manifest: BlogDiscoveryManifestV1 | null): MetadataRoute.Sitemap {
 	const templateEntries: MetadataRoute.Sitemap = TEMPLATES.map((template) => ({
 		url: `${SITE_URL}/templates/${template.id}`,
+		changeFrequency: "monthly",
+		priority: 0.7,
+	}));
+	const compareEntries: MetadataRoute.Sitemap = COMPARE_PAGES.map((page) => ({
+		url: `${SITE_URL}/compare/${page.slug}`,
+		lastModified: page.reviewedDate,
+		changeFrequency: "monthly",
+		priority: 0.7,
+	}));
+	const agentEntries: MetadataRoute.Sitemap = AGENT_RUNTIME_PAGES.map((agent) => ({
+		url: `${SITE_URL}/agents/${agent.slug}`,
 		changeFrequency: "monthly",
 		priority: 0.7,
 	}));
@@ -28,6 +41,10 @@ export function buildRootSitemap(manifest: BlogDiscoveryManifestV1 | null): Meta
 		{ url: SITE_URL, changeFrequency: "weekly", priority: 1 },
 		{ url: `${SITE_URL}/download`, changeFrequency: "weekly", priority: 0.8 },
 		{ url: `${SITE_URL}/pricing`, changeFrequency: "monthly", priority: 0.8 },
+		{ url: `${SITE_URL}/compare`, changeFrequency: "weekly", priority: 0.8 },
+		...compareEntries,
+		{ url: `${SITE_URL}/agents`, changeFrequency: "weekly", priority: 0.8 },
+		...agentEntries,
 		{ url: `${SITE_URL}/templates`, changeFrequency: "weekly", priority: 0.8 },
 		...templateEntries,
 		...(manifest

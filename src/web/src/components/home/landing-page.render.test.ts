@@ -59,11 +59,12 @@ describe("landing identity profile preview", () => {
         ])
       expect(Array.from(navigation!.querySelectorAll("a"), link => ({ name: link.textContent?.trim(), href: link.getAttribute("href") })))
         .toEqual([
+          { name: "Use Cases", href: "/usecases" },
           { name: "Download", href: "/download" },
           { name: "Pricing", href: "/pricing" },
           { name: "Blog", href: "/blog" },
+          { name: "Compare", href: "/compare" },
           { name: "Contact", href: "/contact" },
-          { name: "Use Cases", href: "/usecases" },
         ])
       const ordered = [brand!, slogan!, social!, navigation!]
       for (let index = 1; index < ordered.length; index++) {
@@ -123,6 +124,11 @@ describe("standalone interactive second screen", () => {
       const product = document.querySelector('section[aria-label="Explore Alook features"] [role="tabpanel"]')
       expect(product).not.toBeNull()
       expect(product!.querySelector('img[src="/landing/posters/server.webp"]')).not.toBeNull()
+      const useCasesSection = document.querySelector("#use-cases")
+      expect(useCasesSection).not.toBeNull()
+      const useCaseHrefs = Array.from(useCasesSection!.querySelectorAll("a"), link => link.getAttribute("href"))
+      expect(useCaseHrefs).toContain("/usecases")
+      expect(useCaseHrefs.filter(href => href?.startsWith("/usecases/"))).toHaveLength(6)
     } finally {
       dom.window.close()
     }

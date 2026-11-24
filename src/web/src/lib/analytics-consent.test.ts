@@ -173,7 +173,7 @@ describe("analytics consent browser contract", () => {
   })
 })
 
-it.each(["/terms", "/tutorials", "/tutorials/first-agent", "/usecases", "/usecases/team-updates"])("recognizes the published public route %s", path => {
+it.each(["/terms", "/compare", "/compare/alook-vs-myclaw", "/agents", "/agents/claude-code", "/tutorials", "/tutorials/first-agent", "/usecases", "/usecases/team-updates"])("recognizes the published public route %s", path => {
   expect(isPublicAnalyticsPath(path)).toBe(true)
 })
 
