@@ -1,14 +1,9 @@
 "use client"
 
 import { useState, type KeyboardEvent, type SubmitEvent } from "react"
-import { LoaderCircle } from "@/components/icons/lucide"
-import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
-import { Button } from "@/components/ui/button"
-import { SendStrokeRoundedIcon } from "../messages/send-stroke-rounded-icon"
-import { useHoverCapable } from "@/hooks/use-hover-capable"
+import { ComposerSendButton } from "../messages/composer-send-button"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
-import styles from "./community-inbox-popover.module.css"
 
 function generateReplyNonce(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -45,7 +40,6 @@ export function InboxInlineReply({
   className?: string
   onSend: (content: string, nonce: string) => Promise<InboxInlineReplyOutcome>
 }) {
-  const hoverCapable = useHoverCapable()
   const [value, setValue] = useState("")
   const [sending, setSending] = useState(false)
   const [pendingNonce, setPendingNonce] = useState<string | null>(null)
@@ -83,16 +77,14 @@ export function InboxInlineReply({
     void submit()
   }
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      event.key !== "Enter"
-      || event.shiftKey
-      || event.nativeEvent.isComposing
-      || !hoverCapable
-    ) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) {
       return
     }
     event.preventDefault()
+    if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      return
+    }
     void submit()
   }
 
@@ -106,16 +98,17 @@ export function InboxInlineReply({
       <div
         data-slot="inbox-reply-composer"
         className={cn(
-          "relative rounded-[24px] bg-background/80 ring-1 transition-[background-color,box-shadow] duration-150 motion-reduce:transition-none dark:bg-background/60",
+          "relative rounded-full bg-background/80 ring-1 transition-[background-color,box-shadow] duration-150 motion-reduce:transition-none dark:bg-background/60",
           errorMessage
             ? "ring-destructive/60 focus-within:bg-background focus-within:ring-2 focus-within:ring-destructive/50"
             : "ring-border/50 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/55 dark:focus-within:bg-background/90",
         )}
       >
-        <div className="py-3 pl-4 pr-16">
-          <AutoResizeTextarea
+        <div className="py-3 pl-4 pr-16 sm:pr-12">
+          <input
+            type="text"
+            enterKeyHint="send"
             data-testid={inputTestId}
-            rows={1}
             value={value}
             disabled={disabled || sending}
             placeholder={placeholder}
@@ -127,22 +120,16 @@ export function InboxInlineReply({
               if (errorMessage) setErrorMessage(null)
             }}
             onKeyDown={handleKeyDown}
-            className="block max-h-32 min-h-6 w-full overflow-y-auto thin-scrollbar bg-transparent text-base leading-6 text-foreground placeholder:text-muted-foreground outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm sm:leading-6"
+            className="block h-6 w-full truncate bg-transparent text-base leading-6 text-foreground placeholder:text-muted-foreground outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm sm:leading-6"
           />
         </div>
-        <Button
+        <ComposerSendButton
           type="submit"
-          variant="ghost"
-          size="icon"
-          data-testid={sendTestId}
-          aria-label="Send reply"
+          testId={sendTestId}
+          ariaLabel="Send reply"
           disabled={!canSend}
-          className={cn("absolute right-0.5 bottom-0.5", styles.replySendButton)}
-        >
-          {sending
-            ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
-            : <SendStrokeRoundedIcon className="size-5 -translate-x-px translate-y-px" />}
-        </Button>
+          sending={sending}
+        />
       </div>
       {errorMessage && (
         <p role="alert" className="wrap-anywhere text-xs font-medium text-destructive">

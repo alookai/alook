@@ -1182,12 +1182,23 @@ describe("InboxPopover inline reply in Unreads", () => {
       expect(renderer.getByTestId(tid.inboxReplyInput("dm_1"))).toBeInTheDocument()
 
       fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("ch_text")))
-      const input = renderer.getByTestId(tid.inboxReplyInput("ch_text")) as HTMLTextAreaElement
+      const input = renderer.getByTestId(tid.inboxReplyInput("ch_text")) as HTMLInputElement
+      expect(input.tagName).toBe("INPUT")
+      expect(input.type).toBe("text")
+      expect(input.getAttribute("enterkeyhint")).toBe("send")
+      const sendButton = renderer.getByTestId(tid.inboxReplySend("ch_text")) as HTMLButtonElement
+      expect(sendButton).toHaveClass("community-composer-send")
+      expect(sendButton.getAttribute("data-variant")).toBe("default")
+      expect(sendButton).toBeDisabled()
       fireEvent.click(input)
       expect(onOpenChannel).not.toHaveBeenCalled()
       expect(onOpenDm).not.toHaveBeenCalled()
 
       fireEvent.change(input, { target: { value: "Looks good" } })
+      expect(sendButton).toBeEnabled()
+      fireEvent.keyDown(input, { key: "Enter", isComposing: true })
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: true })
+      expect(onReplyChannel).not.toHaveBeenCalled()
       fireEvent.keyDown(input, { key: "Enter" })
       await waitFor(() => {
         expect(renderer.getByRole("alert")).toHaveTextContent("Temporary outage")
@@ -1196,7 +1207,7 @@ describe("InboxPopover inline reply in Unreads", () => {
       const firstNonce = onReplyChannel.mock.calls[0]?.[2]
       expect(firstNonce).toEqual(expect.any(String))
 
-      fireEvent.click(renderer.getByTestId(tid.inboxReplySend("ch_text")))
+      fireEvent.click(sendButton)
       await waitFor(() => {
         expect(onReplyChannel).toHaveBeenCalledTimes(2)
         expect(input.value).toBe("")
@@ -1307,7 +1318,7 @@ describe("InboxPopover inline reply in Unreads", () => {
     }))
 
     fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("dm_err")))
-    const input = renderer.getByTestId(tid.inboxReplyInput("dm_err")) as HTMLTextAreaElement
+    const input = renderer.getByTestId(tid.inboxReplyInput("dm_err")) as HTMLInputElement
     const send = renderer.getByTestId(tid.inboxReplySend("dm_err")) as HTMLButtonElement
 
     fireEvent.change(input, { target: { value: "First draft" } })
