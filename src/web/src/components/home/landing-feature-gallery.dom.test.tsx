@@ -133,7 +133,7 @@ describe("feature gallery", () => {
     expect(screen.getByRole("heading")).toHaveTextContent("Chat with shared agents")
     expect(screen.getByRole("link", { name: "Share your agent" })).toHaveAttribute("href", isLoggedIn ? "/c/me" : "/sign-in")
     fireEvent.click(screen.getByRole("tab", { name: "Free and local" }))
-    expect(screen.getByRole("link", { name: /Browse supported agents/ })).toHaveAttribute("href", "/agents")
+    expect(screen.getByRole("link", { name: /All 9 agents/ })).toHaveAttribute("href", "/agents")
   })
 
   it("pauses in a hidden document and clears timers on unmount", async () => {

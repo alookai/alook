@@ -505,7 +505,7 @@ for (const width of [1440, 1024, 820, 768, 640, 639, 390, 320]) {
       }
       if (width === 390) {
         await page.locator("#product").evaluate(element => element.scrollIntoView({ block: "start" }))
-        for (const element of [page.getByRole("tablist", { name: "Features" }), page.locator("#product").getByRole("tabpanel").getByRole("heading"), page.locator("#product").getByRole("tabpanel").getByRole("link"), stage]) {
+        for (const element of [page.getByRole("tablist", { name: "Features" }), page.locator("#product").getByRole("tabpanel").getByRole("heading"), page.locator("#product").getByRole("tabpanel").locator('[data-testid^="landing-section-cta-"]'), stage]) {
           const rect = await element.boundingBox()
           expect(rect!.y).toBeGreaterThanOrEqual(0)
           expect(rect!.y + rect!.height).toBeLessThanOrEqual(844)
