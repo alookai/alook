@@ -2996,6 +2996,29 @@
   .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has(:is([data-slot="radio-group-item"], [data-slot="checkbox"]))) { transition: none !important; }
 }
 
+/* The composer send sits flush inside a 48px pill (with 2px mobile inset), so
+ * it keeps the primary keycap face & inner bevel without an outward bottom lip
+ * (--tn-key-depth) that would overhang the capsule edge. */
+.theme button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]) {
+  border-width: 0 !important;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 42%),
+    inset 0 -2px 0 rgb(20 40 80 / 24%) !important;
+}
+.theme button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]):active {
+  transform: scale(0.96);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 28%),
+    inset 0 -1px 0 rgb(20 40 80 / 20%) !important;
+}
+.theme[data-tn-mode="dark"] button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]),
+[data-tn-mode="dark"] .theme button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]) {
+  border-width: 0 !important;
+  box-shadow:
+    inset 0 0 10px rgb(var(--neon) / var(--tn-neon-inner, 35%)),
+    inset 0 1px 0 rgb(180 200 255 / 22%) !important;
+}
+
 /* The composer send keeps its own disabled look: a quiet icon with no key
  * face (the disabled-key tray fill above would paint its whole 44px touch
  * target). Placed last so it also wins over the dark disabled-key rule. */
