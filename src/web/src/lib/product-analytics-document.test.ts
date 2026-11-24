@@ -1,22 +1,55 @@
 import rawContractInput0 from "../../public/analytics-events.html?raw"
 import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
-import { LANDING_CTA_NAMES, ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS } from "./product-analytics-contract"
+import { GOOGLE_ADS_SIGNUP_DESTINATION, GOOGLE_ADS_TAG_ID, LANDING_CTA_NAMES, ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS } from "./product-analytics-contract"
 import { authFailureParams } from "./auth-failure"
 
-function documentSender(origin = "https://alook.ai") {
+function documentSender(origin = "https://alook.ai", hash = "", cookie = "", embedded = true) {
   const html = rawContractInput0
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]
   if (!script) throw new Error("missing event document script")
-  const window = { gtag: undefined as ((...args: unknown[]) => void) | undefined, dataLayer: [] as ArrayLike<unknown>[], sendProductEvent: (_input: { event: string; params: Record<string, unknown> }) => {} }
+  const window = {
+    gtag: undefined as ((...args: unknown[]) => void) | undefined,
+    dataLayer: [] as ArrayLike<unknown>[],
+    frameElement: embedded ? {} : null,
+    sendProductEvent: (_input: { event: string; params: Record<string, unknown> }) => {},
+    sendSignupConversion: undefined as ((destination: string) => void) | undefined,
+  }
   const scripts: { src?: string; async?: boolean }[] = []
-  const document = { createElement: () => ({}), head: { appendChild: (script: { src?: string; async?: boolean }) => scripts.push(script) } }
-  runInNewContext(script, { window, document, location: { origin } })
+  const document = { cookie, createElement: () => ({}), head: { appendChild: (script: { src?: string; async?: boolean }) => scripts.push(script) } }
+  runInNewContext(script, { window, document, location: { origin, hash } })
   window.dataLayer.length = 0
   return { ...window, scripts }
 }
 
 describe("actual isolated product-event document", () => {
+  it("starts Ads only for the one labeled signup with fixed fields", () => {
+    const receiver = documentSender("https://alook.ai", "#signup")
+    expect(receiver.scripts).toEqual([])
+    receiver.sendSignupConversion?.("AW-123/private@example.com")
+    receiver.sendSignupConversion?.(GOOGLE_ADS_SIGNUP_DESTINATION)
+    receiver.sendSignupConversion?.(GOOGLE_ADS_SIGNUP_DESTINATION)
+    const commands = receiver.dataLayer.map(command => Array.from(command))
+    expect(commands[0]).toEqual(["consent", "default", { analytics_storage: "denied", ad_storage: "granted", ad_user_data: "granted", ad_personalization: "denied" }])
+    expect(commands.filter(([name]) => name === "event")).toEqual([
+      ["event", "conversion", {
+        page_location: "https://alook.ai/analytics/signup", page_referrer: "", page_title: "Alook", send_to: GOOGLE_ADS_SIGNUP_DESTINATION,
+      }],
+    ])
+    expect(receiver.scripts).toEqual([{ async: true, src: `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ADS_TAG_ID}` }])
+    expect(documentSender().sendSignupConversion).toBeUndefined()
+  })
+
+  it.each([
+    { cookie: "other=1; alook_analytics_consent=v1.denied; session=2", embedded: true },
+    { cookie: "", embedded: false },
+  ])("does not load Ads from a denied or standalone signup document", ({ cookie, embedded }) => {
+    const receiver = documentSender("https://alook.ai", "#signup", cookie, embedded)
+    receiver.sendSignupConversion?.(GOOGLE_ADS_SIGNUP_DESTINATION)
+    expect(receiver.dataLayer).toEqual([])
+    expect(receiver.scripts).toEqual([])
+  })
+
   it("accepts fixed connection and reply dimensions without forwarding private inputs", () => {
     const document = documentSender()
     document.sendProductEvent({ event: "runtime_connected", params: { surface: "private-user", connection_type: "private-machine", user_id: "private-owner" } })

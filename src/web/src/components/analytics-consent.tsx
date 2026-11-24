@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef } from "react"
 import {
   ANALYTICS_CONSENT_CHANGE_EVENT,
   ANALYTICS_CONSENT_COOKIE,
+  GOOGLE_ADS_SIGNUP_FRAME_ID,
   announceAnalyticsConsent,
   applyGoogleConsent,
   isPublicAnalyticsPath,
@@ -15,6 +16,7 @@ import {
   publicAnalyticsReferrer,
   googleCommand,
   readAnalyticsConsent,
+  startGoogleAds,
   type AnalyticsConsentDecision,
 } from "@/lib/analytics-consent"
 import { Button } from "@/components/ui/button"
@@ -36,7 +38,7 @@ function reloadAnalyticsDocument() {
   window.location.reload()
 }
 
-function useStoredAnalyticsConsent(syncGoogleConsent = false) {
+function useStoredAnalyticsConsent(syncGoogleConsent = false, pathname?: string | null) {
   const [ready, setReady] = useAtom(useCreateAtom(false))
   const [decision, setDecision] = useAtom(useCreateAtom<AnalyticsConsentDecision | null>(null))
   const [nativeMobile, setNativeMobile] = useAtom(useCreateAtom(false))
@@ -46,10 +48,16 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
     const native = isTauri()
     const refresh = (announce = false, initial = false) => {
       const next = readAnalyticsConsent()
-      if (syncGoogleConsent && next === "denied") document.getElementById("alook-product-events")?.remove()
+      if (syncGoogleConsent && next === "denied") {
+        document.getElementById("alook-product-events")?.remove()
+        document.getElementById(GOOGLE_ADS_SIGNUP_FRAME_ID)?.remove()
+      }
       const changed = next !== decisionRef.current
       if (syncGoogleConsent && (changed || initial)) {
-        if (!native) applyGoogleConsent(isPublicAnalyticsPath(window.location.pathname) ? next ?? "granted" : "denied")
+        if (!native) {
+          const decision = isPublicAnalyticsPath(window.location.pathname) ? next ?? "granted" : "denied"
+          applyGoogleConsent(decision, "update", window.location.origin === ANALYTICS_ORIGIN ? decision : "denied")
+        }
         else if (initial && next === "granted") applyGoogleConsent(next, "default")
       }
       if (syncGoogleConsent && !native && !initial && next === "denied"
@@ -107,7 +115,7 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
       window.removeEventListener("pageshow", onResume)
       document.removeEventListener("visibilitychange", onVisibility)
     }
-  }, [setDecision, setNativeMobile, setReady, syncGoogleConsent])
+  }, [pathname, setDecision, setNativeMobile, setReady, syncGoogleConsent])
 
   return { ready, decision, nativeMobile }
 }
@@ -184,7 +192,7 @@ function ConsentButtons({
           data-testid={tid.analyticsConsentAllow}
           onClick={() => onChoose("granted")}
         >
-          {saving === "granted" ? "Saving…" : "Allow analytics"}
+          {saving === "granted" ? "Saving…" : "Allow measurement"}
         </Button>
       </span>
     </div>
@@ -193,7 +201,7 @@ function ConsentButtons({
 
 export function AnalyticsConsent() {
   const pathname = usePathname()
-  const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true)
+  const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true, pathname)
   const defaultStarted = useRef(false)
   const [defaultSettled, setDefaultSettled] = useAtom(useCreateAtom(false))
 
@@ -206,6 +214,9 @@ export function AnalyticsConsent() {
 
   const googleAllowed = ready && !!pathname && isPublicAnalyticsPath(pathname) && (!isTauri() || decision === "granted")
   const allowed = googleAllowed && (isTauri() ? decision === "granted" : decision !== "denied")
+  useEffect(() => {
+    if (!isTauri() && allowed) startGoogleAds()
+  }, [allowed, pathname])
   useEffect(() => {
     if (!isTauri()) return
     Object.defineProperty(window, GA_DISABLE, {
@@ -239,10 +250,10 @@ export function AnalyticsPreferenceControl() {
   const { ready, decision } = useStoredAnalyticsConsent()
   const { choose, saving, error } = useAnalyticsConsentChoice()
   const status = decision === "granted"
-    ? "Analytics cookies allowed"
+    ? "Analytics and conversion measurement allowed"
     : decision === "denied"
-      ? "Analytics cookies denied"
-      : "Analytics cookies allowed by default"
+      ? "Analytics and conversion measurement turned off"
+      : "Analytics and conversion measurement allowed by default"
 
   return (
     <section
@@ -252,10 +263,10 @@ export function AnalyticsPreferenceControl() {
     >
       <div className={styles.copy}>
         <p className={styles.eyebrow}>PRIVACY · BROWSER PREFERENCE</p>
-        <h2 className={styles.preferenceHeading}>Analytics choices</h2>
+        <h2 className={styles.preferenceHeading}>Measurement choices</h2>
         <p className={styles.description}>
-          {ready ? status : "Reading this browser’s choice…"}. Necessary cookies keep sign-in and
-          security working either way.
+          {ready ? status : "Reading this browser’s choice…"}. Google Ads measures whether an ad
+          led to a new Alook account. Choose Only necessary to turn off optional measurement.
         </p>
         {error ? (
           <p className={styles.error} role="alert">

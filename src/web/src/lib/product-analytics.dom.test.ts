@@ -9,9 +9,10 @@ import { advanceCommunityOnboarding, finishCommunityOnboardingAgentSetup, comple
 const mocks = vi.hoisted(() => ({ native: false, consent: null as string | null }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), isTauri: () => mocks.native }))
 vi.mock("@/lib/analytics-consent", async original => ({ ...await original<typeof import("@/lib/analytics-consent")>(), readAnalyticsConsent: () => mocks.consent }))
-import { ONBOARDING_ANALYTICS_STAGES } from "./product-analytics-contract"
+import { GOOGLE_ADS_SIGNUP_DESTINATION, ONBOARDING_ANALYTICS_STAGES } from "./product-analytics-contract"
 import { beginOnboardingAnalytics, captureOnboardingFirstMessage, captureProductAnalytics, type ProductAnalyticsInput } from "./product-analytics"
 import { trackCommunityRuntimeConnected, trackFirstAgentReplyPersisted, trackLandingCtaClicked, trackPricingCtaClick, trackBeginCheckout } from "./analytics"
+import { GOOGLE_ADS_SIGNUP_FRAME_ID } from "./analytics-consent"
 import { takeLandingSignInCta } from "./landing-sign-in-cta"
 
 function setOrigin(origin: string) {
@@ -23,6 +24,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/sign-in")
   window.dataLayer = []
   document.getElementById("alook-product-events")?.remove()
+  document.getElementById(GOOGLE_ADS_SIGNUP_FRAME_ID)?.remove()
   document.cookie = "_ga=; Max-Age=0; Path=/"
   sessionStorage.clear()
   _resetCommunityFunnelAnalyticsForTesting()
@@ -60,12 +62,35 @@ it.each(["denied", "native", "retired", "reactivated"] as const)("suppresses bot
 })
 
 describe("frontend product analytics", () => {
+  it.each(["allowed", "denied", "retired"] as const)("routes a completed signup when %s", async state => {
+    window.history.replaceState(null, "", "/c/me?token=private-token")
+    const assertCurrent = vi.fn()
+    await captureProductAnalytics({ event: "sign_up", method: "email" }, assertCurrent)
+    const adsFrame = document.getElementById(GOOGLE_ADS_SIGNUP_FRAME_ID) as HTMLIFrameElement
+    expect(adsFrame.getAttribute("src")).toBe("/analytics-events.html#signup")
+    expect(adsFrame.referrerPolicy).toBe("no-referrer")
+    const sendAds = vi.fn()
+    Object.defineProperty(adsFrame.contentWindow, "sendSignupConversion", { value: sendAds })
+    if (state === "denied") mocks.consent = "denied"
+    if (state === "retired") assertCurrent.mockImplementation(() => { throw new Error("retired") })
+    fireEvent.load(adsFrame)
+    const { send } = loadFrame()
+    if (state === "allowed") {
+      expect(sendAds).toHaveBeenCalledExactlyOnceWith(GOOGLE_ADS_SIGNUP_DESTINATION)
+      expect(send).toHaveBeenCalledExactlyOnceWith({ event: "sign_up", params: { method: "email" } })
+    } else {
+      expect(sendAds).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
+    }
+    expect(window.dataLayer).toEqual([])
+  })
   it("carries the actual connection and reply helpers through the private-page document", () => {
     window.history.replaceState(null, "", "/c/channels/private-server/private-channel?token=private-token")
     document.cookie = "_ga=GA1.1.100.200; Path=/"
     const identity = document.cookie
     trackCommunityRuntimeConnected()
     trackFirstAgentReplyPersisted("thread")
+    expect(document.getElementById(GOOGLE_ADS_SIGNUP_FRAME_ID)).toBeNull()
     expect(document.getElementById("alook-product-events")).not.toBeNull()
     const { send } = loadFrame()
     expect(send.mock.calls.map(([event]) => event)).toEqual([

@@ -4,7 +4,7 @@ import { AnalyticsPreferenceControl } from "@/components/analytics-consent"
 export const PRIVACY_POLICY = {
   title: "Privacy Policy",
   description: "How Alook collects, uses, and protects your personal information.",
-  lastUpdated: "November 4, 2026",
+  lastUpdated: "November 24, 2026",
 } as const
 
 const linkClass =
@@ -57,8 +57,10 @@ export function PrivacyPolicyContent({ className, showAnalyticsChoices = false }
           <p className="text-foreground/80">
             Necessary diagnostic data may be processed to keep the Service secure and reliable.
             Google receives page and feature signals when You use our public website and Blog,
-            even without analytics cookies. Allowing analytics enables analytics cookies and
-            other optional analytics. We do not use ad tracking.
+            even without analytics cookies. We use Google Ads on our public pages to measure
+            whether an ad click led to a new Alook account. Google may receive ad click identifiers
+            and a registration conversion signal. We keep ad personalization and remarketing disabled
+            and exclude chat content and account details from the registration signal.
           </p>
 
           <h4 className="mt-6 mb-2 text-base font-medium">
@@ -74,11 +76,12 @@ export function PrivacyPolicyContent({ className, showAnalyticsChoices = false }
           <h4 className="mt-6 mb-2 text-base font-medium">Tracking Technologies and Cookies</h4>
           <p className="text-foreground/80">
             We use necessary cookies to provide sign-in, security, and saved preferences. We use
-            optional analytics cookies by default. Your analytics choice is saved in a first-party
+            optional analytics and Google Ads conversion measurement by default. Your choice is saved in a first-party
             cookie for 180 days and can be changed using the preference control on the{" "}
-            <a href="/privacy#analytics-choices" className={linkClass}>Privacy page</a> at any time. Choosing only necessary cookies denies analytics cookies;
-            Google still receives signals without analytics cookies on our public website and
-            Blog. Other optional analytics follow the same choice.
+            <a href="/privacy#analytics-choices" className={linkClass}>Privacy page</a> at any time.
+            Choose Only necessary to prevent optional analytics cookies and turn off Google Ads
+            conversion measurement. Google Analytics still receives signals without analytics
+            cookies on our public website and Blog.
           </p>
         </section>
 

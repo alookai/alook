@@ -1,8 +1,8 @@
 "use client"
 
 import { isTauri } from "@alook/shared"
-import { googleCommand, isPublicAnalyticsPath, readAnalyticsConsent } from "@/lib/analytics-consent"
-import { LANDING_CTA_NAMES, BLOG_NEWSLETTER_PLACEMENTS, ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS, ANALYTICS_ORIGIN, pricingCtaParams, checkoutParams, type BlogNewsletterPlacement, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
+import { GOOGLE_ADS_SIGNUP_FRAME_ID, googleCommand, isPublicAnalyticsPath, readAnalyticsConsent } from "@/lib/analytics-consent"
+import { LANDING_CTA_NAMES, BLOG_NEWSLETTER_PLACEMENTS, ONBOARDING_ANALYTICS_STAGES, PRODUCT_ANALYTICS_EVENTS, ANALYTICS_ORIGIN, GOOGLE_ADS_SIGNUP_DESTINATION, pricingCtaParams, checkoutParams, type BlogNewsletterPlacement, type PricingCtaFields, type CheckoutFields } from "@/lib/product-analytics-contract"
 import { authFailureParams } from "@/lib/auth-failure"
 
 export type ProductAnalyticsInput =
@@ -22,27 +22,54 @@ export type ProductAnalyticsInput =
   | { event: "first_agent_reply_persisted"; conversationType: "dm" | "channel" | "thread" }
 
 type EventPayload = { event: ProductAnalyticsInput["event"]; params: Record<string, unknown> }
-type EventFrameWindow = Window & { sendProductEvent?: (input: EventPayload) => void }
+type EventFrameWindow = Window & {
+  sendProductEvent?: (input: EventPayload) => void
+  sendSignupConversion?: (destination: string) => void
+}
 const onboardingKey = "alook:onboarding-event"
 
-function prepareProductAnalytics(): HTMLIFrameElement | null {
+function prepareProductAnalytics(signupConversion: boolean): HTMLIFrameElement | null {
   if (typeof window === "undefined" || isTauri() || readAnalyticsConsent() === "denied") return null
   try {
-    let frame = document.getElementById("alook-product-events") as HTMLIFrameElement | null
+    const id = signupConversion ? GOOGLE_ADS_SIGNUP_FRAME_ID : "alook-product-events"
+    let frame = document.getElementById(id) as HTMLIFrameElement | null
+    if (signupConversion && frame) {
+      frame.remove()
+      frame = null
+    }
     if (!frame) {
       frame = document.createElement("iframe")
-      frame.id = "alook-product-events"
+      frame.id = id
       frame.hidden = true
       frame.title = "Alook event analytics"
       frame.setAttribute("sandbox", "allow-scripts allow-same-origin")
       frame.referrerPolicy = "no-referrer"
-      frame.src = "/analytics-events.html"
+      frame.src = signupConversion ? "/analytics-events.html#signup" : "/analytics-events.html"
       const created = frame
       frame.addEventListener("load", () => { created.dataset.ready = "true" }, { once: true })
       document.body.appendChild(frame)
     }
     return frame
   } catch { return null }
+}
+
+function sendFromAnalyticsFrame(
+  signupConversion: boolean,
+  dispatch: (target: EventFrameWindow | null) => void,
+  assertCurrent?: () => void,
+): void {
+  const frame = prepareProductAnalytics(signupConversion)
+  if (!frame) return
+  const send = () => {
+    if (readAnalyticsConsent() === "denied") { frame.remove(); return }
+    try {
+      assertCurrent?.()
+      if (!frame.isConnected || isTauri()) return
+      dispatch(frame.contentWindow as EventFrameWindow | null)
+    } catch {}
+  }
+  if (frame.dataset.ready === "true") send()
+  else frame.addEventListener("load", send, { once: true })
 }
 
 export async function captureProductAnalytics(input: ProductAnalyticsInput, assertCurrent?: () => void): Promise<void> {
@@ -78,23 +105,14 @@ export async function captureProductAnalytics(input: ProductAnalyticsInput, asse
     if ((input.event === "sign_up" || input.event === "sign_in_success" || input.event === "sign_in_failed") && ["email", "email_otp", "github", "google", "apple", "development_password"].includes(input.method)) params.method = input.method
     if (input.event === "sign_in_failed" && ["send_code", "verify_code", "social_start", "provider_callback"].includes(input.failureStage)) params.failure_stage = input.failureStage
     if (input.event === "sign_in_failed") Object.assign(params, authFailureParams(input.error))
+    if (input.event === "sign_up") {
+      sendFromAnalyticsFrame(true, frame => frame?.sendSignupConversion?.(GOOGLE_ADS_SIGNUP_DESTINATION), assertCurrent)
+    }
     if (isPublicAnalyticsPath(window.location.pathname)) {
       googleCommand("event", input.event, { ...params, send_to: "G-STBCL8F4ZY" })
       return
     }
-    const frame = prepareProductAnalytics()
-    if (!frame) return
-    const target = frame
-    const send = () => {
-      if (readAnalyticsConsent() === "denied") { target.remove(); return }
-      try {
-        assertCurrent?.()
-        if (!target.isConnected || isTauri()) return
-        (target.contentWindow as EventFrameWindow | null)?.sendProductEvent?.({ event: input.event, params })
-      } catch {}
-    }
-    if (frame.dataset.ready === "true") send()
-    else frame.addEventListener("load", send, { once: true })
+    sendFromAnalyticsFrame(false, frame => frame?.sendProductEvent?.({ event: input.event, params }), assertCurrent)
   } catch {}
 }
 

@@ -6,6 +6,29 @@ if (location.origin !== 'https://alook.ai') return;
 window.dataLayer = [];
 function gtag() { window.dataLayer.push(arguments); }
 window.gtag = gtag;
+function loadTag(id) {
+  const sdk = document.createElement('script');
+  sdk.async = true;
+  sdk.src = 'https://www.googletagmanager.com/gtag/js?id=' + id;
+  document.head.appendChild(sdk);
+}
+if (location.hash === '#signup') {
+  let sent = false;
+  window.sendSignupConversion = function (destination) {
+    if (!window.frameElement || sent || !/^AW-[0-9]+\/[a-zA-Z0-9_-]+$/.test(destination)
+      || /(?:^|;\s*)alook_analytics_consent=v1\.denied(?:;|$)/.test(document.cookie)) return;
+    sent = true;
+    const id = destination.split('/')[0];
+    const fields = { page_location: 'https://alook.ai/analytics/signup', page_referrer: '', page_title: 'Alook' };
+    gtag('consent', 'default', { analytics_storage: 'denied', ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'denied' });
+    gtag('set', 'ads_data_redaction', true);
+    gtag('js', new Date());
+    gtag('config', id, { ...fields, send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false });
+    gtag('event', 'conversion', { ...fields, send_to: destination });
+    loadTag(id);
+  };
+  return;
+}
 gtag('consent', 'default', { analytics_storage: 'granted', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
 gtag('js', new Date());
 const fields = { page_location: 'https://alook.ai/analytics/product', page_referrer: '', page_title: 'Alook' };
@@ -81,9 +104,6 @@ window.sendProductEvent = function ({ event, params }) {
   }
   gtag('event', event, { ...safe, ...fields, page_location: pageLocation, send_to: 'G-STBCL8F4ZY' });
 };
-const sdk = document.createElement('script');
-sdk.async = true;
-sdk.src = 'https://www.googletagmanager.com/gtag/js?id=G-STBCL8F4ZY';
-document.head.appendChild(sdk);
+loadTag('G-STBCL8F4ZY');
 })();
 </script>

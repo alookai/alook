@@ -1,14 +1,19 @@
-import { ANALYTICS_ORIGIN } from "./product-analytics-contract"
+import { ANALYTICS_ORIGIN, GOOGLE_ADS_TAG_ID } from "./product-analytics-contract"
 
 export const ANALYTICS_CONSENT_COOKIE = "alook_analytics_consent"
 export const ANALYTICS_CONSENT_PROOF_COOKIE = "alook_analytics_consent_proof"
 export const ANALYTICS_CONSENT_VERSION = "v1"
 export const ANALYTICS_CONSENT_MAX_AGE_SECONDS = 60 * 60 * 24 * 180
 export const ANALYTICS_CONSENT_CHANGE_EVENT = "alook:analytics-consent-change"
+export const GOOGLE_ADS_SIGNUP_FRAME_ID = "alook-ads-signup"
 
 export type AnalyticsConsentDecision = "granted" | "denied"
 
 export const isPublicAnalyticsPath = (path: string) => /^\/(?:download|pricing|contact|privacy|terms|tutorials(?:\/[^/]+)?|usecases(?:\/[^/]+)?|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
+
+const adsScriptId = "alook-google-ads"
+const clickKeys = ["gclid", "gbraid", "wbraid", "gad_source"]
+const campaignKeys = ["utm_id", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_source_platform", "utm_creative_format", "utm_marketing_tactic"]
 
 export function googleCommand(..._args: unknown[]): void {
   window.dataLayer ??= []
@@ -28,13 +33,47 @@ export function updateGooglePageFields(href: string): void {
   if (typeof window === "undefined" || typeof document === "undefined") return
   try {
     const location = new URL(href, window.location.origin)
-    if (location.origin !== window.location.origin || !isPublicAnalyticsPath(location.pathname)) return
+    if (location.origin !== window.location.origin) return
+    if (!isPublicAnalyticsPath(location.pathname)) {
+      if (document.getElementById(adsScriptId)) applyGoogleConsent("denied")
+      return
+    }
     const safeReferrer = publicAnalyticsReferrer(document.referrer, window.location.origin)
+    const pageLocation = new URL(location.pathname, location.origin)
+    if (location.origin === ANALYTICS_ORIGIN && readAnalyticsConsent() !== "denied") {
+      for (const key of clickKeys) {
+        const value = location.searchParams.get(key)
+        if (value && /^[a-zA-Z0-9_-]{1,512}$/.test(value)) pageLocation.searchParams.set(key, value)
+      }
+      for (const key of campaignKeys) {
+        const value = location.searchParams.get(key)
+        if (value && /^[\p{L}\p{N} _~.+-]{1,128}$/u.test(value)) pageLocation.searchParams.set(key, value)
+      }
+    }
     googleCommand("set", {
-      page_location: `${location.origin}${location.pathname}`,
+      page_location: pageLocation.href,
       page_referrer: safeReferrer,
     })
   } catch {}
+}
+
+export function startGoogleAds(): void {
+  if (window.location.origin !== ANALYTICS_ORIGIN || !isPublicAnalyticsPath(window.location.pathname)
+    || readAnalyticsConsent() === "denied" || document.getElementById(adsScriptId)) return
+  googleCommand("set", "ads_data_redaction", true)
+  googleCommand("js", new Date())
+  googleCommand("config", GOOGLE_ADS_TAG_ID, {
+    groups: "alookAds",
+    send_page_view: false,
+    allow_google_signals: false,
+    allow_ad_personalization_signals: false,
+  })
+  const script = document.createElement("script")
+  script.id = adsScriptId
+  script.async = true
+  script.referrerPolicy = "no-referrer"
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ADS_TAG_ID}`
+  document.head.appendChild(script)
 }
 
 export function bootstrapGoogleAnalytics(): void {
@@ -43,7 +82,10 @@ export function bootstrapGoogleAnalytics(): void {
     configurable: true,
     get: () => window.location.origin !== ANALYTICS_ORIGIN || !isPublicAnalyticsPath(window.location.pathname),
   })
-  applyGoogleConsent(window.location.origin === ANALYTICS_ORIGIN && isPublicAnalyticsPath(window.location.pathname) ? readAnalyticsConsent() ?? "granted" : "denied", "default")
+  const decision = window.location.origin === ANALYTICS_ORIGIN && isPublicAnalyticsPath(window.location.pathname)
+    ? readAnalyticsConsent() ?? "granted"
+    : "denied"
+  applyGoogleConsent(decision, "default", decision)
   updateGooglePageFields(window.location.href)
 }
 
@@ -81,12 +123,13 @@ export function hasAnalyticsConsent(cookieHeader?: string): boolean {
 export function applyGoogleConsent(
   decision: AnalyticsConsentDecision,
   mode: "default" | "update" = "update",
+  adsDecision: AnalyticsConsentDecision = "denied",
 ): void {
   if (typeof window === "undefined") return
   googleCommand("consent", mode, {
     analytics_storage: decision,
-    ad_storage: "denied",
-    ad_user_data: "denied",
+    ad_storage: adsDecision,
+    ad_user_data: adsDecision,
     ad_personalization: "denied",
   })
 }
