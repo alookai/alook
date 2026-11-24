@@ -13,7 +13,7 @@ export const LANDING_HERO = {
   headlineLead: "Discord for humans",
   headlineAccent: "humans",
   headlineConnector: "and",
-  subline: `${BRAND_SLOGAN}. Chat with your team, friends, and agents in one place — no more relaying messages.`,
+  subline: "Alook is the Multi-Agent Collaboration Platform for Team and Friends. Chat with your team, friends, and agents in one place — no more relaying messages.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",
