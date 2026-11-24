@@ -46,14 +46,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 36 published slugs exactly once", () => {
+  it("covers all 37 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(36);
-    expect(new Set(slugs).size).toBe(36);
+    expect(slugs).toHaveLength(37);
+    expect(new Set(slugs).size).toBe(37);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -71,6 +71,7 @@ describe("blogTopics", () => {
       [
         "claude-agent-teams",
         "vercel-board",
+        "cursor-agent-teams",
         "opencode-vs-claude-code",
         "cursor-vs-claude-code",
         "claude-code-vs-codex",
@@ -121,6 +122,7 @@ describe("blogTopics", () => {
     ).toEqual({
       "claude-agent-teams": "Find stalled Claude teammates and review a team’s work",
       "vercel-board": "Understand how teams use Vercel Board for agent tasks and conversations",
+      "cursor-agent-teams": "Choose Cursor subagents, independent agents, or Projects for a task",
       "claude-code-vs-codex": "Choose Claude Code or Codex by patch review, permissions, runtime and plan usage",
       "opencode-vs-claude-code": "Choose OpenCode or Claude Code by model choice, cost, memory and migration needs",
       "cursor-vs-claude-code": "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs",
