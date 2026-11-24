@@ -27,14 +27,15 @@ it("starts optional client diagnostics without making app boot await them", asyn
 afterEach(() => vi.unstubAllGlobals())
 
 it.each(["", "v1.denied", "v0.granted", "v1.granted"])("initializes the real Web entry synchronously from %s before its existing consumers", async cookie => {
-  const browser = { fetch: vi.fn(), location: new URL("https://alook.ai/?secret=query#hash"), dataLayer: [] as unknown[] }
+  const browser = { fetch: vi.fn(), location: new URL("https://alook.ai/?gclid=click_canary&secret=query#hash"), dataLayer: [] as unknown[] }
   vi.stubGlobal("window", browser)
   vi.stubGlobal("document", { cookie: `alook_analytics_consent=${cookie}`, referrer: "https://alook.ai/c/me?secret=referrer" })
   const entry = await import("./instrumentation-client")
   expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+  const decision = cookie === "v1.denied" ? "denied" : "granted"
   expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
-    ["consent", "default", { analytics_storage: cookie === "v1.denied" ? "denied" : "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
-    ["set", { page_location: "https://alook.ai/", page_referrer: "" }],
+    ["consent", "default", { analytics_storage: decision, ad_storage: decision, ad_user_data: decision, ad_personalization: "denied" }],
+    ["set", { page_location: decision === "granted" ? "https://alook.ai/?gclid=click_canary" : "https://alook.ai/", page_referrer: "" }],
   ])
   expect(installReactScanMock).toHaveBeenCalledOnce()
   entry.onRouterTransitionStart("/pricing?secret=route#hash")

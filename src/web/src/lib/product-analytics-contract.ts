@@ -20,6 +20,8 @@ export const PRODUCT_ANALYTICS_EVENTS = [
 ] as const
 
 export const ANALYTICS_ORIGIN = "https://alook.ai"
+export const GOOGLE_ADS_SIGNUP_DESTINATION = "AW-18503125333/GsYTCOqyoL4dENWS_fZE"
+export const GOOGLE_ADS_TAG_ID = GOOGLE_ADS_SIGNUP_DESTINATION.split("/")[0]
 export const analyticsPlanIds = ["free", "studio", "house"] as const
 const analyticsPlanNames = { free: "Free", studio: "Studio", house: "House" } as const
 export type AnalyticsPlanId = typeof analyticsPlanIds[number]

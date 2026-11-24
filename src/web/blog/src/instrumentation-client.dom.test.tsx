@@ -23,7 +23,7 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog do
   vi.stubGlobal("fetch", fetcher);
   const { onRouterTransitionStart } = await import("./instrumentation-client");
   expect(window.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
-    ["consent", "default", { analytics_storage: value === "v1.denied" ? "denied" : "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+    ["consent", "default", { analytics_storage: value === "v1.denied" ? "denied" : "granted", ad_storage: value === "v1.denied" ? "denied" : "granted", ad_user_data: value === "v1.denied" ? "denied" : "granted", ad_personalization: "denied" }],
     ["set", { page_location: `${window.location.origin}/blog/public`, page_referrer: "" }],
   ]);
   onRouterTransitionStart("/blog/other?secret=route#hash");
