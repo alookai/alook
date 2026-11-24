@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 359,
+    "composition": 369,
     "environment": 13,
     "nonvisual": 32,
     "direct": 163
@@ -706,6 +706,36 @@
       "reason": "Next ImageResponse/metadata renderer produces an HTTP image response, not a React DOM component. Its server/SEO response contract is outside this local component renderer; this exclusion is distinct from a rendered UI or a pure provider."
     },
     {
+      "source": "src/web/src/app/agents/[slug]/page.tsx",
+      "application": "Web",
+      "candidates": [
+        "AgentDetailPage"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-agents--detail",
+          "region": "Server route wrapper for AgentDetailView"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/app/agents/page.tsx",
+      "application": "Web",
+      "candidates": [
+        "AgentsPage"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-agents--hub",
+          "region": "Server route wrapper for AgentsHubView"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/app/brand-visual/app-bots.tsx",
       "application": "Web",
       "candidates": [
@@ -1048,6 +1078,36 @@
         }
       ],
       "reason": "Next route placeholder returns null. Community root resolution and painted module output belong to the original component routes."
+    },
+    {
+      "source": "src/web/src/app/compare/[slug]/page.tsx",
+      "application": "Web",
+      "candidates": [
+        "CompareDetailPage"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-compare--detail",
+          "region": "Server route wrapper for CompareDetailView"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/app/compare/page.tsx",
+      "application": "Web",
+      "candidates": [
+        "ComparePage"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-compare--hub",
+          "region": "Server route wrapper for CompareHubView"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
       "source": "src/web/src/app/contact/page.tsx",
@@ -1468,6 +1528,56 @@
         {
           "story": "web-business-presence--typing",
           "region": "Current agent typing line"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/agents/agent-detail-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "AgentDetailView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-agents--detail",
+          "region": "Full /agents/[slug] detail page with real community channel preview"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/agents/agent-hero-preview.tsx",
+      "application": "Web",
+      "candidates": [
+        "AgentChannelPreview",
+        "AgentsHubPreview"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-agents--hub",
+          "region": "Hero community shell preview mounting MachineCard and BotCardView"
+        },
+        {
+          "story": "web-pages-agents--detail",
+          "region": "Hero community channel preview mounting ChannelHeader, Message, and ComposerPreview"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/agents/agents-hub-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "AgentsHubView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-agents--hub",
+          "region": "Full /agents hub page with real community shell preview and runtime cards"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -5407,6 +5517,55 @@
         {
           "story": "web-business-product-compositions--friends-profiles-and-approvals",
           "region": "Matching Friends, Status editor, Invite, Approval, Creation request or Bot log/audit specimen; profile cards also open in the real homepage community demo"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/compare/compare-detail-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "CompareDetailView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-compare--detail",
+          "region": "Full /compare/[slug] comparison template page"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/compare/compare-hub-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "CompareHubView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-compare--hub",
+          "region": "Full /compare hub page listing all competitor comparisons"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/compare/competitor-mark.tsx",
+      "application": "Web",
+      "candidates": [
+        "CompetitorMark"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-compare--hub",
+          "region": "Competitor monogram sticker marks on comparison hub cards"
+        },
+        {
+          "story": "web-pages-compare--detail",
+          "region": "Alook vs competitor mark lockup in comparison hero"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
@@ -10200,6 +10359,18 @@
       "source": "src/storybook/stories/foundations/tooltip.stories.tsx"
     },
     {
+      "id": "web-pages-agents--hub",
+      "title": "Web/Pages/Agents",
+      "name": "Hub",
+      "source": "src/storybook/stories/pages/agents.stories.tsx"
+    },
+    {
+      "id": "web-pages-agents--detail",
+      "title": "Web/Pages/Agents",
+      "name": "Detail",
+      "source": "src/storybook/stories/pages/agents.stories.tsx"
+    },
+    {
       "id": "web-pages-community-account-entry--loading",
       "title": "Web/Pages/Community account entry",
       "name": "Loading",
@@ -10264,6 +10435,18 @@
       "title": "Web/Pages/Community shell",
       "name": "Message Resolution Unavailable",
       "source": "src/storybook/stories/pages/community-shell.stories.tsx"
+    },
+    {
+      "id": "web-pages-compare--hub",
+      "title": "Web/Pages/Compare",
+      "name": "Hub",
+      "source": "src/storybook/stories/pages/compare.stories.tsx"
+    },
+    {
+      "id": "web-pages-compare--detail",
+      "title": "Web/Pages/Compare",
+      "name": "Detail",
+      "source": "src/storybook/stories/pages/compare.stories.tsx"
     },
     {
       "id": "web-pages-invitation--preview",

@@ -25,6 +25,13 @@ vi.mock("./message-row", async original => {
 })
 vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => createElement("span", null, value) }))
 
+async function flushPeerUpdates() {
+  for (let index = 0; index < 5; index++) {
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    resize(5)
+  }
+}
+
 describe("existing Retry button starts a bound positioning attempt", () => {
   it.each(["channel", "dm"] as const)("recovers a failed %s without remounting its scroller or replaying on background refetch", async kind => {
     const owner = await createCommunityQueryOwner()
@@ -119,20 +126,14 @@ describe("canonical peer arrival while reading a tall final body", () => {
     }
     const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
     const view = render(createElement(Surface), { wrapper })
-    const flush = async () => {
-      for (let index = 0; index < 5; index++) {
-        await act(async () => { await vi.advanceTimersByTimeAsync(1) })
-        resize()
-      }
-    }
     try {
-      await flush()
+      await flushPeerUpdates()
       const root = view.getByTestId("community-message-scroller")
       const entry = latest.positionEntry
       expect(latest.positionDataState).toBe("ready")
       fireEvent.wheel(root, { deltaY: -600 })
       act(() => root.scrollTo({ top: root.scrollHeight - root.clientHeight - 600 }))
-      await flush()
+      await flushPeerUpdates()
       const before = root.scrollTop, body = bodyTop(root, "history13")
       await act(async () => { await vi.advanceTimersByTimeAsync(155470) })
       runFrames()
@@ -144,7 +145,7 @@ describe("canonical peer arrival while reading a tall final body", () => {
         ingestMessages(owner.registry, "c1", [peer])
         owner.registry.runtime.messageStream.actions.dispatch(kind === "channel" ? { kind: "channel", id: "c1", serverId: "s1" } : { kind: "dm", id: "c1" }, { type: "wsMessage", message: peer })
       })
-      await flush()
+      await flushPeerUpdates()
       expect(latest.messages.at(-1)?.id).toBe("peer167")
       expect(latest.positionEntry).toBe(entry)
       expect(view.getByTestId("community-message-scroller")).toBe(root)
@@ -217,12 +218,6 @@ describe("consecutive live peers preserve the reading body", () => {
     }
     const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, createElement(CommunityDbProvider, { registry: owner.registry }, children))
     const view = render(createElement(Surface), { wrapper })
-    const flush = async () => {
-      for (let index = 0; index < 5; index++) {
-        await act(async () => { await vi.advanceTimersByTimeAsync(1) })
-        resize()
-      }
-    }
     const scope = kind === "channel" ? { kind: "channel" as const, id: "c1", serverId: "s1" } : { kind: "dm" as const, id: "c1" }
     const publish = async (message: typeof packet.messages[number]) => {
       if (publication === "ws" || publication === "ws-turn") {
@@ -248,10 +243,10 @@ describe("consecutive live peers preserve the reading body", () => {
         ingestMessages(owner.registry, "c1", [message])
         owner.registry.runtime.messageStream.actions.dispatch(scope, { type: "wsMessage", message })
       })
-      await flush()
+      await flushPeerUpdates()
     }
     try {
-      await flush()
+      await flushPeerUpdates()
       const root = view.getByTestId("community-message-scroller")
       const entry = latest.positionEntry
       expect(latest.positionDataState).toBe("ready")
@@ -264,7 +259,7 @@ describe("consecutive live peers preserve the reading body", () => {
       expect(originalBody).not.toBeNull()
       fireEvent.wheel(root, { deltaY: -600 })
       act(() => root.scrollTo({ top: root.scrollHeight - root.clientHeight - 600 }))
-      await flush()
+      await flushPeerUpdates()
       const before = root.scrollTop, body = bodyTop(root, "live168")
       await act(async () => { await vi.advanceTimersByTimeAsync(233013) })
       runFrames()
@@ -286,7 +281,7 @@ describe("consecutive live peers preserve the reading body", () => {
           clientNonce: nonceTransition === "remove" ? null : "00000000-0000-4000-8000-000000000268" }])
       })
       await publish(peer)
-      await flush()
+      await flushPeerUpdates()
       expect(latest.messages.at(-1)?.id).toBe("peer169")
       if (nonceTransition === "api-read") {
         expect(load.mock.calls.some(([url]) => String(url).includes("newAfterSeq=168"))).toBe(true)

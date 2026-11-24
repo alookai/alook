@@ -5621,5 +5621,113 @@
       }
     ],
     "reason": "The story imports this actual adapted icon through its existing product alias. Rendering and hover/action acceptance require separate runtime evidence."
+  },
+  "src/web/src/app/agents/page.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-agents--hub",
+        "region": "Server route wrapper for AgentsHubView"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/app/agents/[slug]/page.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-agents--detail",
+        "region": "Server route wrapper for AgentDetailView"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/agents/agents-hub-view.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-agents--hub",
+        "region": "Full /agents hub page with real community shell preview and runtime cards"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/agents/agent-detail-view.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-agents--detail",
+        "region": "Full /agents/[slug] detail page with real community channel preview"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/agents/agent-hero-preview.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-agents--hub",
+        "region": "Hero community shell preview mounting MachineCard and BotCardView"
+      },
+      {
+        "story": "web-pages-agents--detail",
+        "region": "Hero community channel preview mounting ChannelHeader, Message, and ComposerPreview"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/app/compare/page.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-compare--hub",
+        "region": "Server route wrapper for CompareHubView"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/app/compare/[slug]/page.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-compare--detail",
+        "region": "Server route wrapper for CompareDetailView"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/compare/compare-hub-view.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-compare--hub",
+        "region": "Full /compare hub page listing all competitor comparisons"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/compare/compare-detail-view.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-compare--detail",
+        "region": "Full /compare/[slug] comparison template page"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/compare/competitor-mark.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-compare--hub",
+        "region": "Competitor monogram sticker marks on comparison hub cards"
+      },
+      {
+        "story": "web-pages-compare--detail",
+        "region": "Alook vs competitor mark lockup in comparison hero"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   }
 }

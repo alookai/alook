@@ -70,7 +70,7 @@ export function BlogNewsletterForm({
           kind: "subscribed",
           message: already
             ? "You're already on the list."
-            : "Subscribed. Weekly notes are on the way.",
+            : "Subscribed. Monthly notes are on the way.",
         });
         return;
       }
@@ -116,7 +116,7 @@ export function BlogNewsletterForm({
               Newsletter
             </p>
             <p className="mt-1 font-sans text-base font-semibold tracking-tight text-foreground">
-              Get weekly multi-agent engineering notes.
+              Get monthly multi-agent engineering notes.
             </p>
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
               Practical workflows for Claude Code, Codex, and shared human-agent rooms.

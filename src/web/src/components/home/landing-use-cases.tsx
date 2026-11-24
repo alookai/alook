@@ -72,8 +72,13 @@ export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
     <section id="use-cases" tabIndex={-1} aria-labelledby="use-cases-heading" className={styles.section}>
       <div className={styles.container} data-landing-scroll-anchor>
         <div className={styles.intro}>
-          <h2 id="use-cases-heading">Ways people use <HandAccent>Alook</HandAccent></h2>
-          <p>A few setups people run with their own agents, teammates, and computers.</p>
+          <div className={styles.introText}>
+            <h2 id="use-cases-heading">Ways people use <HandAccent>Alook</HandAccent></h2>
+            <p>A few setups people run with their own agents, teammates, and computers.</p>
+          </div>
+          <DocumentNavigationLink href="/usecases" className={styles.allLink}>
+            All use cases <ArrowRight size={16} aria-hidden="true" />
+          </DocumentNavigationLink>
         </div>
         <Tabs value={story.slug} onValueChange={(value) => setActive(String(value))}>
           <TabsList ref={setList} className={`${styles.tabs} thin-scrollbar`} aria-label="Use cases" data-overflow={overflow} {...handlers}>
@@ -108,6 +113,13 @@ export function LandingUseCases({ isLoggedIn }: { isLoggedIn: boolean }) {
             </StepSlide>
           </div>
         </Tabs>
+        <div hidden>
+          {STORIES.filter(({ slug }) => slug !== story.slug).map(({ slug, title }) => (
+            <DocumentNavigationLink key={slug} href={`/usecases/${slug}`}>
+              {title}
+            </DocumentNavigationLink>
+          ))}
+        </div>
       </div>
     </section>
   )

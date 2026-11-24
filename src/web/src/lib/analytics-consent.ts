@@ -8,7 +8,7 @@ export const ANALYTICS_CONSENT_CHANGE_EVENT = "alook:analytics-consent-change"
 
 export type AnalyticsConsentDecision = "granted" | "denied"
 
-export const isPublicAnalyticsPath = (path: string) => /^\/(?:download|pricing|contact|privacy|terms|tutorials(?:\/[^/]+)?|usecases(?:\/[^/]+)?|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
+export const isPublicAnalyticsPath = (path: string) => /^\/(?:download|pricing|contact|privacy|terms|compare(?:\/[^/]+)?|agents(?:\/[^/]+)?|tutorials(?:\/[^/]+)?|usecases(?:\/[^/]+)?|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
 
 export function googleCommand(..._args: unknown[]): void {
   window.dataLayer ??= []

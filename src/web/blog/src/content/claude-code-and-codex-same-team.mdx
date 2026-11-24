@@ -3,7 +3,7 @@ export const metadata = {
   title: "How to Bring Claude Code and Codex Together",
   seoTitle: "How to Use Claude Code and Codex Together",
   date: "2026-07-22",
-  dateModified: "2026-11-10",
+  dateModified: "2026-11-24",
   author: "Alook Team",
   excerpt: "Use Claude Code and Codex together with the official plugin, clear handoffs, and a shared review workflow for you and your teammates.",
   readingTime: "9 min read",
@@ -98,7 +98,7 @@ export const jsonLd = [
 
 **Yes, Claude Code and Codex can work on the same project.** Pick one agent to make the change and the other to review it. Keep parallel edits in separate working copies, pass a clear handoff when work changes hands, and keep final merge or release approval with a person.
 
-You can pair them through manual handoffs, OpenAI's official Codex plugin, or a shared channel with your teammates.
+For a one-off task, a [manual handoff](#what-to-include-in-a-claude-code-and-codex-handoff) gives each agent the next step. To ask Codex for a review from Claude Code, start with the [official plugin](#use-the-official-codex-plugin-for-claude-code). When the same work keeps moving among teammates, a [shared channel](#bring-claude-code-codex-and-humans-together) keeps their updates in one place.
 
 You don't need to write code yourself to run this workflow, though someone still has to own repo safety, tests, and merges. If you manage the repository, jump down to the Git section for keeping parallel edits separate.
 
@@ -139,11 +139,11 @@ Open question: Does the security answer need legal review?
 Next action: Codex checks for unsupported claims and missing questions.
 ```
 
-For a code change, include the branch, commit, and test status too (commit IDs and results below are illustrative):
+For a code change, include the branch, commit, and test status too:
 
 ```text
 Goal: Add validation to the team-invite form.
-State: branch feature/invite-validation; commit 8f31c2a; clean working tree.
+State: branch feature/invite-validation; commit <commit-id>; clean working tree.
 Files changed: InviteForm.tsx, invite-schema.ts, invite-form.test.ts.
 Decision: Validate on blur and submit; keep server errors inline.
 Checks: unit tests and typecheck passed.
@@ -151,13 +151,15 @@ Open question: Should an expired invite use the same error state?
 Next action: Review the diff for edge cases and test coverage.
 ```
 
+Copy the handoff into the next Codex conversation and point it to the branch and commit. Share the relevant requirements and review decisions too, so Codex has the context behind the change as well as the diff.
+
 ### Code review workflow: fix, recheck, approve
 
-A review doesn't stop at the first comment. Say Codex spots that an expired invite still leaves the Submit button enabled. Claude Code fixes the bug in commit `b74d2e9`, adds a regression test, and posts the new test run. Codex then checks the updated diff to confirm the fix. **A person approves that revised commit**, not the earlier one, and anything still unresolved goes back to the implementer.
+A review doesn't stop at the first comment. Say Codex spots that an expired invite still leaves the Submit button enabled. Claude Code fixes the bug, adds a regression test, and posts the new commit and test run. Codex then checks the updated diff to confirm the fix. **A person approves that revised commit**, not the earlier one, and anything still unresolved goes back to the implementer.
 
 ![Five-step review flow with Claude Code and Codex logos: implement, review, fix, recheck, then human approval](/blog/claude-code-and-codex-same-team/review-loop-20261015.png)
 
-*Illustrative review loop. Either tool can build or review; approval applies to the revised version.*
+*Either tool can build or review; approval applies to the revised version.*
 
 ### Resume a session or pass a handoff
 
@@ -220,7 +222,7 @@ For a first review, diff your current branch against its base branch (replace `m
 /codex:review --base main --background
 ```
 
-Check progress with `/codex:status`, and run `/codex:result` once it finishes to read the findings. Because `/codex:review` is read-only, you can talk through what Codex found inside Claude Code before changing any files.
+For the invite-validation change above, check progress with `/codex:status` and read the findings with `/codex:result` when the review finishes. Ask Claude Code to address the findings, then run the review again against the updated branch. The person approving the change can check the revised diff and test results. The review itself is read-only, so Claude Code can discuss the findings before changing files.
 
 Under the hood, the plugin uses your local Codex installation, sign-in, configuration, and repository checkout. **Pause other edits whenever you delegate changes in that same checkout.** The plugin doesn't spin up an isolated working copy or continuously sync both tools' private conversations.
 
@@ -249,7 +251,7 @@ You probably don't need a cross-tool workflow when:
 
 Start with a single agent or a quick manual note. Bring in a shared workflow once you catch yourself losing track of ownership, relaying updates by hand, or repeating past decisions.
 
-Still picking your first coding agent? Our [Claude Code vs Codex comparison](/blog/claude-code-vs-codex) walks through patch review, permissions, and plan allowances.
+Still picking your first coding agent? Our [Claude Code vs Codex comparison](/blog/claude-code-vs-codex) walks through patch review, permissions, and plan allowances. For an editor-centered workflow, see [Cursor vs Claude Code](/blog/cursor-vs-claude-code).
 
 ## Keep recurring Claude Code and Codex work on track
 
@@ -259,10 +261,6 @@ Running both apps side by side won't keep them coordinated on its own. Whenever 
 
 ## Bring Claude Code, Codex, and Humans Together
 
-![Alook Machines view with Claude Code and Codex listed on a connected computer](/blog/claude-code-and-codex-same-team/machines-ui-20261015.png)
-
-*The Machines screenshot shows Claude Code (labeled "claude") and Codex among the available tools. This is an example computer setup, not a record of the collaboration below.*
-
 Your team can also bring Claude Code and Codex bots into one shared project channel while keeping final decisions with a person.
 
 Alook supports [multi-agent collaboration](https://alook.ai) by letting **teammates work directly with bots running on your own computer**. Give a Claude Code or Codex bot its own name and handle, then invite it into a project channel with people you trust. Each bot has its own inbox and joins the conversations you share with it, so teammates can ask it for help without routing every request through you.
@@ -271,16 +269,18 @@ Alook supports [multi-agent collaboration](https://alook.ai) by letting **teamma
 
 ### Example: two owners, two bots, one review
 
-Here, Lin owns Scout, running Claude Code, and Priya owns Quill, running Codex. Both people and both bots belong to the project channel, and each bot uses only the repository access its owner configured.
+For this workflow, give Lin a Claude Code bot named Scout and Priya a Codex bot named Quill. Add both people and both bots to the project channel. Each bot uses the repository access its owner configured.
 
 1. Priya asks Scout directly to add invite validation. Scout checks its saved responsibilities and asks Lin whether expired invites are in scope.
 2. Lin confirms the scope in the channel. Scout builds the change, posts the commit and test results, and tags Quill for review.
 3. Quill catches a missed edge case. Scout fixes it and returns the new commit; Quill reviews that version and reports back to both teammates.
 4. Priya checks the final result and approves the merge. Scout saves the settled requirement for future tasks and clears its mark on the request.
 
-Lin never has to relay Priya's request or Quill's findings by hand. The bots carry the task forward and ask a person whenever a decision comes up. **Both computers and their Alook connections must stay online**, though you can close your browser and check updates from your phone.
+[![Alook channel showing Priya, Lin, Scout and Quill moving an invite-validation task through request, review, fix and human approval.](/blog/claude-code-and-codex-same-team/team-workflow.webp)](/blog/claude-code-and-codex-same-team/team-workflow.webp)
 
-Sharing a bot doesn't expose its owner's credentials or upload local project files behind the scenes. Channel members only see the messages and files shared in that conversation, and each bot still runs under its own configured tools and permissions.
+[View full-size workflow](/blog/claude-code-and-codex-same-team/team-workflow.webp)
+
+The shared channel holds the request, handoff and review for both teammates to follow. **Both computers and their Alook connections must stay online** for the bots to respond; either person can return later to review the messages.
 
 To set this up, follow the [Codex and Claude Code tutorial](/tutorials/codex-and-claude-code) to connect your computer and both agents, or check out the [open-source repository](https://github.com/alookai/alook) to self-host.
 
