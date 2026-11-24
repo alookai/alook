@@ -336,22 +336,13 @@
           "04-dm.spec.ts",
           "08-mobile.spec.ts",
           "13-mentions.spec.ts",
-          "16-jump-to-present.spec.ts",
-          "18-new-divider-scroll.spec.ts",
+          "16-scroll-pagination-and-jump.spec.ts",
+          "18-new-divider-and-live-follow.spec.ts",
           "22-committed-message-delivery.spec.ts",
           "39-mobile-message-interactions.spec.ts",
           "45-desktop-thread-split-view.spec.ts",
-          "55-composer-resize-anchors.spec.ts",
-          "55-dm-composer-viewport.spec.ts",
-          "55-draft-optimistic-viewport.spec.ts",
-          "55-history-local-remote-owners.spec.ts",
-          "55-history-reading-continuity.spec.ts",
-          "55-jump-peer-tail-follow.spec.ts",
-          "55-peer-bottom-clamp-follow.spec.ts",
-          "55-reaction-backward-reading.spec.ts",
-          "55-scroll-loading-prepend-jump.spec.ts",
-          "55-upward-release-resize.spec.ts",
-          "59-message-pagination-anchor.spec.ts"
+          "55-composer-viewport-anchors.spec.ts",
+          "55-history-reading-continuity.spec.ts"
         ]
       }
     ],

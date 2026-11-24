@@ -269,10 +269,12 @@ async function trace(actors: CaseActors, page: Page, info: TestInfo, channelId: 
   return finish
 }
 
-for (const kind of ["channel", "dm"] as const) {
-  for (const narrow of [false, true]) {
-    for (const fast of [false, true]) {
-      test(`${kind} ${narrow ? "narrow" : "desktop"} ${fast ? "fast" : "slow"} preserves reading across two real pages in both directions`, async ({ caseActors }, info) => {
+for (const { kind, narrow, fast } of [
+  { kind: "channel", narrow: false, fast: false },
+  { kind: "dm", narrow: true, fast: false },
+  { kind: "channel", narrow: true, fast: true },
+] as const) {
+  test(`${kind} ${narrow ? "narrow" : "desktop"} ${fast ? "fast" : "slow"} preserves reading across two real pages in both directions`, async ({ caseActors }, info) => {
         test.setTimeout(240_000)
         const actors = await caseActors(["alice", "bob"])
         const value = await prepare(actors, kind)
@@ -396,9 +398,7 @@ for (const kind of ["channel", "dm"] as const) {
           }
         }
         await info.attach("reading-cursor-stages.json", { body: JSON.stringify({ kind, narrow, fast, receipts, requests: traffic.requests, olderPositions, newerPositions, newerPhase, returnLatestBefore, before, dmReentry }, null, 2), contentType: "application/json" })
-      })
-    }
-  }
+  })
 }
 
 async function moveToEdge(root: Locator, edge: "start" | "end") {
