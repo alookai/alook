@@ -27,6 +27,7 @@ vi.mock("@next/third-parties/google", () => ({
 import { AnalyticsConsent, AnalyticsPreferenceControl } from "./analytics-consent"
 import { bootstrapGoogleAnalytics } from "@/lib/analytics-consent"
 import { tid } from "@/lib/community/testids"
+import { GOOGLE_ADS_TAG_ID } from "@/lib/product-analytics-contract"
 
 function clearCookies() {
   for (const cookie of document.cookie.split(";")) {
@@ -103,6 +104,11 @@ describe("AnalyticsConsent", () => {
       analytics_storage: "granted", ad_storage: "granted", ad_user_data: "granted", ad_personalization: "denied",
     })
     expect(document.getElementById("alook-google-ads")).toBeInTheDocument()
+    expect(window.dataLayer!.map(command => Array.from(command as IArguments))).toContainEqual([
+      "config", GOOGLE_ADS_TAG_ID, {
+        groups: "alookAds", allow_google_signals: false, allow_ad_personalization_signals: false,
+      },
+    ])
     await act(async () => {
       document.cookie = "alook_analytics_consent=v1.granted; Path=/"
       finish(new Response(JSON.stringify({ decision: "granted" })))

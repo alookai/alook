@@ -64,7 +64,6 @@ export function startGoogleAds(): void {
   googleCommand("js", new Date())
   googleCommand("config", GOOGLE_ADS_TAG_ID, {
     groups: "alookAds",
-    send_page_view: false,
     allow_google_signals: false,
     allow_ad_personalization_signals: false,
   })
