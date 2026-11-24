@@ -324,6 +324,14 @@
   text-shadow: 0 1px 0 rgb(255 255 255 / 26%);
 }
 
+.theme :is(button, a)[data-variant][data-variant="unread"]:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--ring),
+    inset 0 2px 0 rgb(255 255 255 / 45%),
+    inset 0 -3px 0 rgb(135 65 0 / 22%),
+    0 var(--tn-key-depth) 0 #b56100;
+}
+
 .theme :is(button, a)[data-variant][data-variant="unread"]:not(:disabled):active {
   box-shadow:
     inset 0 2px 0 rgb(255 255 255 / 30%),
@@ -3021,6 +3029,15 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has(:is([data-slot="radio-group-item"], [data-slot="checkbox"]))) { transition: none !important; }
+}
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="unread"]:not(:disabled, [aria-disabled="true"], [data-disabled]):focus-visible,
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="unread"]:not(:disabled, [aria-disabled="true"], [data-disabled]):focus-visible {
+  box-shadow:
+    0 0 0 2px var(--ring),
+    inset 0 0 10px rgb(var(--neon) / var(--tn-neon-inner, 26%)),
+    0 var(--tn-key-depth) 0 rgb(var(--neon) / var(--tn-neon-edge, 72%)),
+    0 calc(var(--tn-key-depth) + 2px) 10px rgb(var(--neon) / var(--tn-neon-spill, 38%)) !important;
 }
 
 /* The composer send sits flush inside a 48px pill (with 2px mobile inset), so
