@@ -69,6 +69,23 @@ describe("landing hero backend badge", () => {
     expect(screen.queryByRole("button")).toBeNull()
   })
 
+  it("updates the badge track width to match each active provider label", () => {
+    const widths: Record<string, number> = {
+      "Claude Code": 212.4,
+      Codex: 138.2,
+    }
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const width = widths[this.textContent ?? ""] ?? 0
+      return { width, height: 40, top: 0, left: 0, right: width, bottom: 40, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+    })
+    render(<LandingHeroBackendBadge />)
+    setVisible(true)
+    const track = screen.getByTestId("landing-hero-backend-track")
+    expect(track).toHaveStyle({ width: "213px" })
+    advance()
+    expect(track).toHaveStyle({ width: "139px" })
+  })
+
   it("keeps the first provider visible with reduced motion", () => {
     vi.mocked(window.matchMedia).mockReturnValue({
       matches: true,
@@ -80,6 +97,7 @@ describe("landing hero backend badge", () => {
     advance()
     expect(currentBackend()).toHaveTextContent("Claude Code")
     expect(currentBackend()?.parentElement?.childElementCount).toBe(1)
+    expect(screen.getByTestId("landing-hero-backend-track").style.width).toBe("")
     expect(screen.queryByRole("button")).toBeNull()
   })
 })

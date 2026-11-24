@@ -63,17 +63,15 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
             <span className={styles.landingHeroLead}>{LANDING_HERO.headlineLead}</span>
             <br />
             <span className={styles.landingHeroTail}>
-              {LANDING_HERO.headlineTail.replace(LANDING_HERO.headlineAccent, "")}
-              <HandAccent className={styles.landingHeroAccent}>{LANDING_HERO.headlineAccent}</HandAccent>
+              {LANDING_HERO.headlineConnector}{" "}
+              <LandingHeroBackendBadge />
             </span>
           </>
         )}
-        subline={<>
-          {LANDING_HERO.subline.before}{" "}<LandingHeroBackendBadge />{LANDING_HERO.subline.after}
-        </>}
+        subline={LANDING_HERO.subline}
         headlineClassName={styles.landingHeroHeadline}
         headlineStyle={{
-          lineHeight: 0.98,
+          lineHeight: 1.08,
           letterSpacing: "-0.035em",
         }}
         typewriterClassName={styles.landingHeroTypewriter}

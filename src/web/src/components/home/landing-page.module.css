@@ -37,79 +37,108 @@
 
 .landingHeroHeadline {
   max-width: 900px;
-  font-size: 72px !important;
+  font-size: clamp(24px, 7.5vw, 38px) !important;
 }
 
 .landingHeroLead {
   color: var(--landing-text);
 }
 
-.landingHeroAccent {
-  font-size: 1.16em;
-}
-
 .landingHeroTail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24em;
   color: var(--landing-text);
-  /* "for" never sits alone: the tail breaks as one unit. */
   white-space: nowrap;
 }
 
 .heroBackendSlot {
-  display: inline-block;
-  inline-size: 8.25rem;
-  vertical-align: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
 }
 
 .heroBackendBadge {
   display: inline-flex;
-  inline-size: 100%;
-  block-size: 1.5rem;
-  padding-inline: 0.5rem;
+  align-items: center;
+  block-size: 1.26em;
+  padding-block: 0;
+  padding-inline: 0.36em;
+  border-width: 1.5px;
   border-color: var(--landing-border);
+  border-radius: 999px;
   background: var(--secondary);
   color: var(--landing-text);
+  font-size: 0.86em;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 68%),
+    0 2px 6px rgb(31 26 21 / 7%);
+}
+
+:global(.dark) .heroBackendBadge {
+  border-color: rgb(91 124 255 / 42%);
+  background: rgb(255 255 255 / 6%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 12%),
+    0 0 18px rgb(91 124 255 / 16%);
 }
 
 .heroBackendTrack {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  inline-size: 100%;
+  position: relative;
+  display: inline-grid;
+  align-items: center;
+  padding-block: 0.08em;
+  margin-block: -0.08em;
+  overflow: hidden;
+  transition: width 480ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .heroBackendName {
-  display: grid;
   grid-area: 1 / 1;
-  grid-template-columns: 1rem minmax(0, 1fr);
+  display: inline-flex;
+  inline-size: max-content;
   align-items: center;
-  gap: 0.375rem;
-  text-align: center;
+  gap: 0.24em;
+  padding-inline: 1px;
+  white-space: nowrap;
 }
 
 .heroBackendIcon {
-  display: flex;
+  display: inline-flex;
+  inline-size: 0.78em;
+  block-size: 0.78em;
+  flex-shrink: 0;
+}
+
+.heroBackendIcon :global(svg),
+.heroBackendIcon :global(img) {
+  inline-size: 100%;
+  block-size: 100%;
 }
 
 .heroBackendIncoming {
-  animation: hero-backend-in 420ms cubic-bezier(0.25, 0.8, 0.25, 1) both;
-  animation-timing-function: linear(0, 0.2 10%, 0.66 25%, 1.1 42%, 1.16 52%, 0.98 75%, 1);
+  animation: hero-backend-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .heroBackendOutgoing {
-  animation: hero-backend-out 150ms cubic-bezier(0.45, 0, 0.65, 1) both;
+  animation: hero-backend-out 160ms ease-out both;
 }
 
 @keyframes hero-backend-in {
-  from { opacity: 0; transform: translateY(0.65rem); }
-  14% { opacity: 0; }
-  45% { opacity: 1; }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; filter: blur(3px); transform: translateY(0.22em); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
 }
 
 @keyframes hero-backend-out {
-  to { opacity: 0; transform: translateY(-0.5rem); }
+  from { opacity: 1; filter: blur(0); transform: translateY(0); }
+  to { opacity: 0; filter: blur(3px); transform: translateY(-0.22em); }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .heroBackendTrack { transition: none; }
   .heroBackendIncoming { animation: none; }
   .heroBackendOutgoing { display: none; }
 }
@@ -120,9 +149,9 @@
 
 @media (min-width: 1024px) {
   /* The intro column stops at 592px, so the size stops where
-   * "for Team and Friends" still fits one line (QA #10). */
+   * "and [GitHub Copilot]" still fits cleanly on one line. */
   .landingHeroHeadline {
-    font-size: clamp(36px, 5vw, 64px) !important;
+    font-size: clamp(32px, 3.85vw, 52px) !important;
   }
 
   .landingHeroTypewriter {
@@ -1547,10 +1576,6 @@ main.page > .footer {
     display: none;
   }
 
-  .landingHeroHeadline {
-    font-size: 48px !important;
-  }
-
   .landingHeroTypewriter {
     transform: translateY(-12%);
   }
@@ -1812,12 +1837,6 @@ main.page > .footer {
   .footerBrand,
   .footerSocialGroup {
     justify-self: center;
-  }
-}
-
-@media (max-width: 359px) {
-  .landingHeroHeadline {
-    font-size: 44px !important;
   }
 }
 
@@ -2195,7 +2214,7 @@ main.page > .footer {
 
 @media (min-width: 640px) and (max-width: 1023px) {
   .landingHeroHeadline {
-    font-size: clamp(40px, 6.6vw, 60px) !important;
+    font-size: clamp(38px, 6.2vw, 56px) !important;
   }
 }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { ProviderLogo } from "@/components/provider-logo"
 import { Badge } from "@/components/ui/badge"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
@@ -15,6 +15,8 @@ export function LandingHeroBackendBadge() {
   const reducedMotion = useReducedMotion()
   const { targetRef, isPlaying } = useLandingMotionPlayback<HTMLSpanElement>()
   const [step, setStep] = useState(0)
+  const trackRef = useRef<HTMLSpanElement | null>(null)
+  const currentRef = useRef<HTMLSpanElement | null>(null)
   const provider = LANDING_PROVIDERS[reducedMotion ? 0 : step % LANDING_PROVIDERS.length]
   const previous = !reducedMotion && step > 0 ? LANDING_PROVIDERS[(step - 1) % LANDING_PROVIDERS.length] : null
 
@@ -37,6 +39,34 @@ export function LandingHeroBackendBadge() {
     }
   }, [isPlaying, reducedMotion])
 
+  useLayoutEffect(() => {
+    const track = trackRef.current
+    if (!track) return
+    if (reducedMotion) {
+      track.style.width = ""
+      return
+    }
+    const element = currentRef.current
+    if (!element) return
+    let active = true
+    const measure = () => {
+      if (!active || !currentRef.current || !trackRef.current) return
+      const target = currentRef.current
+      const width = Math.max(target.scrollWidth, target.offsetWidth, target.getBoundingClientRect().width)
+      if (width > 0) trackRef.current.style.width = `${Math.ceil(width)}px`
+    }
+    measure()
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null
+    observer?.observe(element)
+    window.addEventListener("resize", measure)
+    void document.fonts?.ready?.then(measure)
+    return () => {
+      active = false
+      observer?.disconnect()
+      window.removeEventListener("resize", measure)
+    }
+  }, [provider.id, reducedMotion])
+
   return (
     <span className={styles.heroBackendSlot} ref={targetRef}>
       <Badge
@@ -45,12 +75,17 @@ export function LandingHeroBackendBadge() {
         data-testid="landing-hero-backend"
         data-provider={provider.id}
       >
-        <span className={styles.heroBackendTrack}>
+        <span
+          ref={trackRef}
+          className={styles.heroBackendTrack}
+          data-testid="landing-hero-backend-track"
+        >
           {(previous ? [previous, provider] : [provider]).map((item) => {
             const leaving = item === previous
             return (
               <span
                 key={item.id}
+                ref={leaving ? undefined : currentRef}
                 data-backend-current={!leaving || undefined}
                 aria-hidden={leaving || undefined}
                 className={cn(styles.heroBackendName, previous && (leaving ? styles.heroBackendOutgoing : styles.heroBackendIncoming))}
