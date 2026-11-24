@@ -7,7 +7,7 @@ vi.mock("./consecutive-hard-break", () => ({
     mocks.normalize(...args),
 }))
 
-import { handleComposerEditorKeyDown } from "./composer-keydown"
+import { createComposerDomKeyDownGuard, handleComposerEditorKeyDown } from "./composer-keydown"
 
 function event(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -139,5 +139,52 @@ describe("handleComposerEditorKeyDown", () => {
 
     const newline = event()
     expect(handleComposerEditorKeyDown({} as never, newline, opts)).toBe(false)
+  })
+})
+
+describe("createComposerDomKeyDownGuard", () => {
+  const idleView = { composing: false } as never
+
+  it.each(["Enter", "Tab"])("suppresses one immediate post-compositionend %s on Safari then allows the next", (key) => {
+    let clock = 1_000
+    const guard = createComposerDomKeyDownGuard({ now: () => clock, isSafari: () => true })
+    guard.onCompositionStart()
+    expect(guard.onKeyDown(idleView, event({ key, isComposing: true }))).toBe(false)
+    guard.onCompositionEnd()
+    clock += 40
+    expect(guard.onKeyDown(idleView, event({ key }))).toBe(true)
+    expect(guard.onKeyDown(idleView, event({ key }))).toBe(false)
+  })
+
+  it.each(["Enter", "Tab"])("does not swallow post-compositionend %s within 500ms on non-Safari browsers", (key) => {
+    let clock = 1_000
+    const guard = createComposerDomKeyDownGuard({ now: () => clock, isSafari: () => false })
+    guard.onCompositionStart()
+    guard.onCompositionEnd()
+    clock += 40
+    expect(guard.onKeyDown(idleView, event({ key }))).toBe(false)
+  })
+
+  it("allows Enter once the 500ms post-compositionend window expires on Safari", () => {
+    let clock = 1_000
+    const guard = createComposerDomKeyDownGuard({ now: () => clock, isSafari: () => true })
+    guard.onCompositionEnd()
+    clock += 501
+    expect(guard.onKeyDown(idleView, event({ key: "Enter" }))).toBe(false)
+  })
+
+  it("consumes the post-compositionend window on any non-confirm key without suppressing it", () => {
+    let clock = 1_000
+    const guard = createComposerDomKeyDownGuard({ now: () => clock, isSafari: () => true })
+    guard.onCompositionEnd()
+    clock += 10
+    expect(guard.onKeyDown(idleView, event({ key: "a" }))).toBe(false)
+    expect(guard.onKeyDown(idleView, event({ key: "Enter" }))).toBe(false)
+  })
+
+  it.each(["Delete", "Backspace"])("blocks %s during IME composition before ProseMirror forceFlush", (key) => {
+    const guard = createComposerDomKeyDownGuard({ isSafari: () => false })
+    expect(guard.onKeyDown(idleView, event({ key, isComposing: true }))).toBe(true)
+    expect(guard.onKeyDown({ composing: true } as never, event({ key }))).toBe(true)
   })
 })
