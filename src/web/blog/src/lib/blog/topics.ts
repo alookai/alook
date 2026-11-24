@@ -42,6 +42,7 @@ export const blogTopics = [
     entries: [
       { slug: "claude-agent-teams", userJob: "Find stalled Claude teammates and review a team’s work" },
       { slug: "vercel-board", userJob: "Understand how teams use Vercel Board for agent tasks and conversations" },
+      { slug: "cursor-agent-teams", userJob: "Choose Cursor subagents, independent agents, or Projects for a task" },
       { slug: "opencode-vs-claude-code", userJob: "Choose OpenCode or Claude Code by model choice, cost, memory and migration needs" },
       { slug: "cursor-vs-claude-code", userJob: "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs" },
       { slug: "claude-code-vs-codex", userJob: "Choose Claude Code or Codex by patch review, permissions, runtime and plan usage" },
