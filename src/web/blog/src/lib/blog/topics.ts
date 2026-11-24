@@ -40,6 +40,7 @@ export const blogTopics = [
       "Coordinate coding agents across tools and repositories without duplicated work, lost decisions, or merge conflicts.",
     pillarSlug: "claude-code-and-codex-same-team",
     entries: [
+      { slug: "claude-agent-teams", userJob: "Find stalled Claude teammates and review a team’s work" },
       { slug: "vercel-board", userJob: "Understand how teams use Vercel Board for agent tasks and conversations" },
       { slug: "opencode-vs-claude-code", userJob: "Choose OpenCode or Claude Code by model choice, cost, memory and migration needs" },
       { slug: "cursor-vs-claude-code", userJob: "Choose Cursor or Claude Code by editing workflow, models, pricing and first-project needs" },
