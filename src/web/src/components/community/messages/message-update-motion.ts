@@ -8,7 +8,7 @@ const duration = 150
 const arrivalFrames = [{ opacity: 0, translate: "0 4px" }, { opacity: 1, translate: "0 0" }]
 const updateFrames = [{ opacity: 0.65 }, { opacity: 1 }]
 
-export const MessageUpdateMotionContext = createContext<number | null>(null)
+export const MessageUpdateMotionContext = createContext<boolean>(false)
 
 function playMotion(element: Element | null | undefined, frames: Keyframe[]) {
   if (element?.ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
@@ -19,7 +19,6 @@ type ArrivalSnapshot = {
   root: HTMLDivElement
   channel: string
   entry: object | null | undefined
-  rendererRevision: number
   tailAttached: boolean
   greatestSequence: number
   pendingKeys: ReadonlySet<string>
@@ -28,9 +27,9 @@ type ArrivalSnapshot = {
 export function useMessageArrivalMotion(
   items: readonly FlatItem[],
   scrollRef: RefObject<HTMLDivElement | null>,
-  options: { active: boolean; channel: string; entry?: object | null; rendererRevision: number; tailAttached: boolean; viewerId?: string | null },
+  options: { active: boolean; channel: string; entry?: object | null; tailAttached: boolean; viewerId?: string | null },
 ) {
-  const { active, channel, entry, rendererRevision, tailAttached, viewerId } = options
+  const { active, channel, entry, tailAttached, viewerId } = options
   const previous = useRef<ArrivalSnapshot | null>(null)
   const running = useRef(new Set<Animation>())
 
@@ -44,7 +43,7 @@ export function useMessageArrivalMotion(
   useLayoutEffect(() => {
     const root = scrollRef.current
     const last = previous.current
-    const sameView = last !== null && last.root === root && last.channel === channel && last.entry === entry && last.rendererRevision === rendererRevision
+    const sameView = last !== null && last.root === root && last.channel === channel && last.entry === entry
     if (!active || !sameView) {
       for (const animation of running.current) animation.cancel()
     }
@@ -66,7 +65,7 @@ export function useMessageArrivalMotion(
         && (sequence > last.greatestSequence && !last.pendingKeys.has(item.key)
           || pending && !last.pendingKeys.has(item.key))) arrivals.add(item.key)
     }
-    previous.current = { root, channel, entry, rendererRevision, tailAttached, greatestSequence, pendingKeys }
+    previous.current = { root, channel, entry, tailAttached, greatestSequence, pendingKeys }
     if (arrivals.size === 0) return
 
     const animations = running.current
@@ -80,20 +79,20 @@ export function useMessageArrivalMotion(
         void animation.finished.then(remove, remove)
       }
     }
-  }, [active, channel, entry, items, rendererRevision, scrollRef, tailAttached, viewerId])
+  }, [active, channel, entry, items, scrollRef, tailAttached, viewerId])
 }
 
 export function useMessageReactionMotion(reactions: readonly Reaction[] | undefined) {
-  const revision = useContext(MessageUpdateMotionContext)
+  const active = useContext(MessageUpdateMotionContext)
   const group = useRef<HTMLDivElement | null>(null)
-  const previous = useRef<{ revision: number; reactions: readonly Reaction[] | undefined } | null>(null)
+  const previous = useRef<readonly Reaction[] | undefined | null>(null)
 
   useLayoutEffect(() => {
     const last = previous.current
-    previous.current = revision === null ? null : { revision, reactions }
-    if (!last || last.revision !== revision || !reactions?.length || !group.current) return
+    previous.current = active ? reactions : null
+    if (!active || last === null || !reactions?.length || !group.current) return
 
-    const former = new Map(last.reactions?.map(reaction => [reaction.emoji, reaction]))
+    const former = new Map(last?.map(reaction => [reaction.emoji, reaction]))
     const changed = new Set<string>()
     for (const reaction of reactions) {
       const before = former.get(reaction.emoji)
@@ -110,7 +109,7 @@ export function useMessageReactionMotion(reactions: readonly Reaction[] | undefi
     return () => {
       for (const animation of animations) animation.cancel()
     }
-  }, [reactions, revision])
+  }, [active, reactions])
 
   return group
 }
