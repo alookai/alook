@@ -33,9 +33,9 @@ describe("Tutorials layout", () => {
 
     const navigation = within(footer.getByRole("navigation", { name: "Footer navigation" }));
     expect(navigation.getAllByRole("link").map((link) => link.getAttribute("href")))
-      .toEqual(["/download", "/pricing", "/blog", "/contact", "/usecases"]);
+      .toEqual(["/usecases", "/download", "/pricing", "/blog", "/compare", "/contact"]);
     expect(navigation.getByRole("link", { name: "Blog", exact: true })).toHaveAttribute("data-next-link", "true");
-    for (const name of ["Download", "Pricing", "Contact"]) {
+    for (const name of ["Download", "Pricing", "Compare", "Contact"]) {
       expect(navigation.getByRole("link", { name, exact: true })).not.toHaveAttribute("data-next-link");
     }
     expect(navigation.getByRole("link", { name: "Use Cases", exact: true })).toHaveAttribute("data-next-link", "true");

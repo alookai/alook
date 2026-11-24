@@ -1,8 +1,8 @@
 "use client"
 
+import Link from "next/link"
 import { buttonVariants } from "@/components/ui/button"
 import { HandAccent } from "@/components/brand/hand-accent"
-import { cn } from "@/lib/utils"
 import { StepSlide } from "@/components/ui/step-slide"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DocumentNavigationLink } from "./document-navigation-link"
@@ -16,9 +16,9 @@ import styles from "./landing-feature-gallery.module.css"
 import mediaStyles from "./deferred-landing-media.module.css"
 
 const FeatureScene = lazy(() => import("./landing-feature-scene"))
-const features: { id: string; tab: string; title: string; accent: string; description: string; cta: string; scene: LandingScene }[] = [
+const features: { id: string; tab: string; title: string; accent: string; description: string; cta: string; secondaryLink?: { href: string; label: string }; scene: LandingScene }[] = [
   { id: "product", description: "Bring an agent into a group chat so friends and teammates can work with it together.", title: "Chat with shared agents", accent: "shared agents", cta: "Share your agent", tab: "Collaboration", scene: "server" },
-  { id: "ownership", description: "Keep the agent tools you already use, running on your own computer.", title: "Run agents on your computer", accent: "your computer", cta: "Connect your agent", tab: "Free and local", scene: "machine" },
+  { id: "ownership", description: "Keep the agent tools you already use, running on your own computer.", title: "Run agents on your computer", accent: "your computer", cta: "Connect your agent", secondaryLink: { href: "/agents", label: "All 9 agents" }, tab: "Free and local", scene: "machine" },
   { id: "reach", description: "Send a task from your phone and check the result while your agent works on your computer.", title: "Control your agent from anywhere", accent: "anywhere", cta: "Work anywhere", tab: "Remote control", scene: "server" },
   { id: "identity", description: "Give your agent one profile across rooms, so everyone knows who they’re talking to.", title: "One agent, every room", accent: "every room", cta: "Invite your agent", tab: "Agent identity", scene: "identity" },
   { id: "continuity", description: "Return to a task after a break. Your agent can find earlier messages and pick up where you left off.", title: "Continue earlier conversations", accent: "earlier conversations", cta: "Start a task", tab: "Persistent Memory", scene: "continuity" },
@@ -156,9 +156,21 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.copy}>
           <h2>{current.title.slice(0, current.title.lastIndexOf(current.accent))}<HandAccent>{current.accent}</HandAccent>{current.title.slice(current.title.lastIndexOf(current.accent) + current.accent.length)}</h2>
           <p>{current.description}</p>
-          <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default" className={cn(buttonVariants({ size: "lg" }), "mt-6")}
-            data-testid={tid.landingSectionCta(current.id)}
-            onClick={event => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` }, event)}>{current.cta}</DocumentNavigationLink>
+          <div className={styles.copyActions}>
+            <DocumentNavigationLink href={isLoggedIn ? "/c/me" : "/sign-in"} data-variant="default" className={buttonVariants({ size: "lg" })}
+              data-testid={tid.landingSectionCta(current.id)}
+              onClick={event => trackLandingCtaClicked({ cta_name: `${current.id}_${isLoggedIn ? "open_app" : "get_started"}` }, event)}>{current.cta}</DocumentNavigationLink>
+            {current.secondaryLink ? (
+              <Link
+                href={current.secondaryLink.href}
+                className={styles.secondaryLink}
+                data-testid={`landing-feature-link-${current.id}`}
+              >
+                {current.secondaryLink.label}
+                <span aria-hidden="true">→</span>
+              </Link>
+            ) : null}
+          </div>
         </div>
         <div ref={section} className={styles.stage}>
           {loadedFeature === current.id ? <MediaFallback key={current.id} fallback={<FeaturePoster scene={current.scene} />}><Suspense fallback={<FeaturePoster scene={current.scene} />}>

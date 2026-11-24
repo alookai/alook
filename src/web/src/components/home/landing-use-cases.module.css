@@ -17,7 +17,16 @@
 }
 
 .intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
   margin-bottom: 32px;
+}
+
+.introText {
+  min-width: 0;
 }
 
 .intro h2 {
@@ -34,6 +43,30 @@
   margin-top: 16px;
   color: var(--landing-text-muted);
   line-height: 1.6;
+}
+
+.allLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  color: var(--landing-text-muted);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  text-underline-offset: 4px;
+  transition: color 150ms ease-out;
+}
+
+.allLink:hover {
+  color: var(--landing-text);
+  text-decoration: underline;
+}
+
+.allLink:focus-visible {
+  outline: 2px solid var(--landing-text);
+  outline-offset: 4px;
+  border-radius: 6px;
 }
 
 .section .tabs {
@@ -139,9 +172,10 @@
 @media (max-width: 767px) {
   /* One phone screen holds heading, tabs, sticker, copy and both buttons. */
   .section { padding-block: 56px 40px; }
-  .intro { margin-bottom: 16px; }
+  .intro { gap: 4px 16px; margin-bottom: 12px; }
   .intro h2 { font-size: 2.5rem; }
   .intro p { margin-top: 8px; font-size: 0.9375rem; line-height: 1.45; }
+  .allLink { font-size: 0.875rem; }
   .panel { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .art { max-width: 320px; margin-inline: auto; width: 100%; }
   .copy { gap: 8px; }

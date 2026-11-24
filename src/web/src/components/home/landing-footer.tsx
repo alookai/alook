@@ -7,7 +7,7 @@ import { BRAND_SLOGAN } from "@/lib/brand-copy"
 import { HandAccent } from "@/components/brand/hand-accent"
 import { Badge } from "@/components/ui/badge"
 import { tid } from "@/lib/community/testids"
-import { MARKETING_SITE_LINK_CLASS_NAME, MARKETING_SITE_LINK_STYLE, MARKETING_SITE_LINKS } from "./marketing-site-links"
+import { MARKETING_FOOTER_LINKS, MARKETING_SITE_LINK_CLASS_NAME, MARKETING_SITE_LINK_STYLE } from "./marketing-site-links"
 import styles from "./landing-page.module.css"
 
 const FOOTER_ACCENT = "Team and Friends"
@@ -59,10 +59,9 @@ export function LandingFooter({ zone = "main" }: { zone?: PublicZone }) {
             </div>
           </div>
           <nav className={styles.footerNavigation} aria-label="Footer navigation" data-testid={tid.landingFooterNavigation}>
-            {MARKETING_SITE_LINKS.map((link) => (
+            {MARKETING_FOOTER_LINKS.map((link) => (
               <ZoneLink key={link.href} href={link.href} zone={zone} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>{link.label}</ZoneLink>
             ))}
-            <ZoneLink href="/usecases" zone={zone} className={MARKETING_SITE_LINK_CLASS_NAME} style={MARKETING_SITE_LINK_STYLE}>Use Cases</ZoneLink>
           </nav>
         </div>
         {/* The footer's memory point (Gus #2419): the wordmark set huge, like

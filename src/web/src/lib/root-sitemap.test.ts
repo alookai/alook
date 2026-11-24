@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AGENT_RUNTIME_PAGES } from "./agents";
+import { COMPARE_PAGES } from "./compare";
 import { stepGuides } from "./step-guides";
 import { useCases } from "./usecases";
 import { buildRootSitemap, serializeRootSitemap } from "./root-sitemap";
@@ -39,6 +41,10 @@ describe("sitemap", () => {
     expect(urls).toContain("https://alook.ai/templates");
     expect(urls).toContain("https://alook.ai/pricing");
     expect(urls).toContain("https://alook.ai/download");
+    expect(urls).toContain("https://alook.ai/compare");
+    expect(urls.filter(url => url.startsWith("https://alook.ai/compare/"))).toEqual(COMPARE_PAGES.map(page => `https://alook.ai/compare/${page.slug}`));
+    expect(urls).toContain("https://alook.ai/agents");
+    expect(urls.filter(url => url.startsWith("https://alook.ai/agents/"))).toEqual(AGENT_RUNTIME_PAGES.map(agent => `https://alook.ai/agents/${agent.slug}`));
     expect(urls).not.toContain("https://alook.ai/pricing-concept");
     expect(urls).toContain("https://alook.ai/blog");
     expect(urls).not.toContain("https://alook.ai/guides");
@@ -74,6 +80,7 @@ describe("sitemap", () => {
       "https://alook.ai/blog",
       "https://alook.ai/blog/revised",
       "https://alook.ai/blog/published",
+      ...COMPARE_PAGES.map((page) => `https://alook.ai/compare/${page.slug}`),
     ]);
 
     for (const entry of entries) {
