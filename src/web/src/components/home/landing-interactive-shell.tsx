@@ -89,40 +89,16 @@ function InteractiveShell() {
   const [leftChannelIds, setLeftChannelIds] = useState<string[]>([])
   const [thread, setThread] = useState<Msg | null>(null)
   const [threadMessages, setThreadMessages] = useState<Record<string, Msg[]>>({})
-  const [annotationEntered, setAnnotationEntered] = useState(false)
   const [annotationDismissed, setAnnotationDismissed] = useState(false)
   const [annotationRemoved, setAnnotationRemoved] = useState(false)
-  const shellWrapRef = useRef<HTMLDivElement | null>(null)
   const fileUrls = useRef<string[]>([])
   useEffect(() => () => { fileUrls.current.forEach((url) => URL.revokeObjectURL(url)) }, [])
   useEffect(() => {
-    if (annotationEntered) return
-    if (window.parent === window) {
-      const id = window.requestAnimationFrame(() => setAnnotationEntered(true))
-      return () => window.cancelAnimationFrame(id)
-    }
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin === window.location.origin && event.data?.type === "alook-demo-in-view") {
-        setAnnotationEntered(true)
-      }
-    }
-    window.addEventListener("message", onMessage)
-    return () => window.removeEventListener("message", onMessage)
-  }, [annotationEntered])
-  useEffect(() => {
     if (annotationDismissed) return
     const dismiss = () => setAnnotationDismissed(true)
-    const opts: AddEventListenerOptions = { capture: true, passive: true }
-    window.addEventListener("pointerdown", dismiss, opts)
-    window.addEventListener("touchstart", dismiss, opts)
-    window.addEventListener("wheel", dismiss, opts)
-    window.addEventListener("keydown", dismiss, true)
-    return () => {
-      window.removeEventListener("pointerdown", dismiss, opts)
-      window.removeEventListener("touchstart", dismiss, opts)
-      window.removeEventListener("wheel", dismiss, opts)
-      window.removeEventListener("keydown", dismiss, true)
-    }
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "touchstart", "wheel", "keydown"]
+    events.forEach((type) => window.addEventListener(type, dismiss, { capture: true, passive: type !== "keydown" }))
+    return () => events.forEach((type) => window.removeEventListener(type, dismiss, true))
   }, [annotationDismissed])
   const direct = homePage === "dm"
   const server = DEMO_SERVERS.find((item) => item.id === serverId)!
@@ -202,28 +178,20 @@ function InteractiveShell() {
       </ConversationFooterSlotProvider>
     </main>
   </>
-  return <div ref={shellWrapRef} className="relative h-full w-full">
-    <CommunityShellLayout breakpoint={breakpoint} surface={surface} testId="landing-interactive-shell" label="Alook workspace"
-      rail={<ServerRail servers={DEMO_SERVERS.map((item) => ({ ...item, active: !homePage && item.id === serverId, unread: unreadServers.some((room) => room.serverId === item.id) }))} folders={[]} view={homePage ? "dm" : "server"} activeServerId={homePage ? "" : serverId} onHome={() => { showHome("friends"); setSurface("list") }} onServerNavigate={pickServer} />}
-      sidebar={sidebar} main={<div className="flex min-h-0 flex-1 flex-col bg-background">{homePage && homePage !== "dm" ? <WorkspaceHome page={homePage} onBack={() => setSurface("list")} onDm={messagePerson} onOpenProfile={openProfile} onMachines={() => showHome("machines")} /> : conversationView}</div>}
-      userBar={<UserBar breakpoint={breakpoint} user={{ id: "demo-gus", name: "Gus", avatar: DEMO_PROFILES.get("demo-gus")!.avatar!, runningBotCount: 1 }} inbox={inbox} hasUnread={totalUnread > 0} unreadCount={totalUnread}
-        inboxOpen={extension === "inbox"} onInboxOpenChange={(open) => setExtension(open ? "inbox" : "none")} onOpenProfile={() => setExtension((current) => current === "profile" ? "none" : "profile")} onEditProfile={() => setExtension("profile")}
-        extension={{ active: extension, inbox, profile: selfProfile, profileCompanion, update: null, updateBadgePhase: null, eligibleMachines: [], onOpenUpdate: () => {}, onRequestUpdate: () => {}, onDismiss: () => setExtension("none") }} />}
-      overlays={<>
-        {profile && <ProfileCard key={profile.id} data={profileData(profile.id)} secondaryCard={DEMO_PROFILES.get(profile.id)?.kind === "bot" ? <LandingBotLog key={profile.id} botId={profile.id} /> : undefined} x={profile.x} y={profile.y} bp={breakpoint} onClose={() => setProfile(null)} canMessage={profile.id !== "demo-gus"}
-          onMessage={(id, text) => { messagePerson(id); if (text.trim()) setMessages((items) => { const target = DEMO_DMS.find((item) => item.userId === id)?.id ?? `demo-dm-${id.slice(5)}`; return { ...items, [target]: [...(items[target] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] } }); setProfile(null) }}
-          onOpenOwnerProfile={(owner) => setProfile({ ...profile, id: owner.id })} />}
-        <Sheet open={membersOpen} onOpenChange={setMembersOpen}><SheetContent><SheetHeader><SheetTitle>Members</SheetTitle></SheetHeader><MemberList members={members} onOpenProfile={openProfile} /></SheetContent></Sheet>
-        <Sheet open={!!thread} onOpenChange={(open) => { if (!open) setThread(null) }}><SheetContent className="flex flex-col p-0"><SheetHeader className="p-4"><SheetTitle>Thread</SheetTitle></SheetHeader>{thread && <ConversationFooterSlotProvider><MessageList channel="Thread" kind="thread" messages={[thread, ...(threadMessages[thread.id] ?? [])]} onOpenThread={() => {}} onOpenProfile={openProfile} viewerUserId="demo-gus" /><ConversationFooterShell><Composer channel="Thread" context="channel" members={members} sendContract="accepted" autoFocus={false} onAcceptSend={(text) => { if (!text.trim()) return false; setThreadMessages((items) => ({ ...items, [thread.id]: [...(items[thread.id] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] })); return true }} /></ConversationFooterShell></ConversationFooterSlotProvider>}</SheetContent></Sheet>
-      </>} />
-    {!annotationRemoved && !homePage && conversation === "demo-general" && (
-      <LandingShellBotAnnotation
-        shellRef={shellWrapRef}
-        scrollRoot={scrollRoot}
-        entered={annotationEntered}
-        visible={!annotationDismissed}
-        onExited={() => setAnnotationRemoved(true)}
-      />
-    )}
-  </div>
+  return <CommunityShellLayout breakpoint={breakpoint} surface={surface} testId="landing-interactive-shell" label="Alook workspace"
+    rail={<ServerRail servers={DEMO_SERVERS.map((item) => ({ ...item, active: !homePage && item.id === serverId, unread: unreadServers.some((room) => room.serverId === item.id) }))} folders={[]} view={homePage ? "dm" : "server"} activeServerId={homePage ? "" : serverId} onHome={() => { showHome("friends"); setSurface("list") }} onServerNavigate={pickServer} />}
+    sidebar={sidebar} main={<div className="flex min-h-0 flex-1 flex-col bg-background">{homePage && homePage !== "dm" ? <WorkspaceHome page={homePage} onBack={() => setSurface("list")} onDm={messagePerson} onOpenProfile={openProfile} onMachines={() => showHome("machines")} /> : conversationView}</div>}
+    userBar={<UserBar breakpoint={breakpoint} user={{ id: "demo-gus", name: "Gus", avatar: DEMO_PROFILES.get("demo-gus")!.avatar!, runningBotCount: 1 }} inbox={inbox} hasUnread={totalUnread > 0} unreadCount={totalUnread}
+      inboxOpen={extension === "inbox"} onInboxOpenChange={(open) => setExtension(open ? "inbox" : "none")} onOpenProfile={() => setExtension((current) => current === "profile" ? "none" : "profile")} onEditProfile={() => setExtension("profile")}
+      extension={{ active: extension, inbox, profile: selfProfile, profileCompanion, update: null, updateBadgePhase: null, eligibleMachines: [], onOpenUpdate: () => {}, onRequestUpdate: () => {}, onDismiss: () => setExtension("none") }} />}
+    overlays={<>
+      {!annotationRemoved && !homePage && conversation === "demo-general" && (
+        <LandingShellBotAnnotation scrollRoot={scrollRoot} visible={!annotationDismissed} onExited={() => setAnnotationRemoved(true)} />
+      )}
+      {profile && <ProfileCard key={profile.id} data={profileData(profile.id)} secondaryCard={DEMO_PROFILES.get(profile.id)?.kind === "bot" ? <LandingBotLog key={profile.id} botId={profile.id} /> : undefined} x={profile.x} y={profile.y} bp={breakpoint} onClose={() => setProfile(null)} canMessage={profile.id !== "demo-gus"}
+        onMessage={(id, text) => { messagePerson(id); if (text.trim()) setMessages((items) => { const target = DEMO_DMS.find((item) => item.userId === id)?.id ?? `demo-dm-${id.slice(5)}`; return { ...items, [target]: [...(items[target] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] } }); setProfile(null) }}
+        onOpenOwnerProfile={(owner) => setProfile({ ...profile, id: owner.id })} />}
+      <Sheet open={membersOpen} onOpenChange={setMembersOpen}><SheetContent><SheetHeader><SheetTitle>Members</SheetTitle></SheetHeader><MemberList members={members} onOpenProfile={openProfile} /></SheetContent></Sheet>
+      <Sheet open={!!thread} onOpenChange={(open) => { if (!open) setThread(null) }}><SheetContent className="flex flex-col p-0"><SheetHeader className="p-4"><SheetTitle>Thread</SheetTitle></SheetHeader>{thread && <ConversationFooterSlotProvider><MessageList channel="Thread" kind="thread" messages={[thread, ...(threadMessages[thread.id] ?? [])]} onOpenThread={() => {}} onOpenProfile={openProfile} viewerUserId="demo-gus" /><ConversationFooterShell><Composer channel="Thread" context="channel" members={members} sendContract="accepted" autoFocus={false} onAcceptSend={(text) => { if (!text.trim()) return false; setThreadMessages((items) => ({ ...items, [thread.id]: [...(items[thread.id] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] })); return true }} /></ConversationFooterShell></ConversationFooterSlotProvider>}</SheetContent></Sheet>
+    </>} />
 }

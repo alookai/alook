@@ -43,42 +43,4 @@ describe("background workspace loading", () => {
     expect(screen.getByTitle("Alook workspace")).toHaveAttribute("src", "/demo")
     expect(idle).not.toHaveBeenCalled()
   })
-
-  it("notifies the demo iframe only once the reported annotation bounds enter the viewport", () => {
-    vi.useFakeTimers()
-    vi.spyOn(window, "innerHeight", "get").mockReturnValue(900)
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id))
-    render(<LandingInteractiveDemo heroReady />)
-    const frame = screen.getByTitle("Alook workspace") as HTMLIFrameElement
-    const wrapper = frame.parentElement as HTMLElement
-    const postMessage = vi.fn()
-    Object.defineProperty(frame, "contentWindow", { value: { postMessage }, configurable: true })
-
-    let frameTop = 520
-    vi.spyOn(wrapper, "getBoundingClientRect").mockImplementation(() => ({
-      top: frameTop,
-      bottom: frameTop + 640,
-      left: 0,
-      right: 1080,
-      width: 1080,
-      height: 640,
-      x: 0,
-      y: frameTop,
-      toJSON: () => ({}),
-    }) as DOMRect)
-
-    act(() => {
-      window.dispatchEvent(new MessageEvent("message", { origin: window.location.origin, source: frame.contentWindow, data: { type: "alook-demo-ready" } }))
-      window.dispatchEvent(new MessageEvent("message", { origin: window.location.origin, source: frame.contentWindow, data: { type: "alook-demo-annotation-bounds", top: 380, bottom: 530 } }))
-      vi.runAllTimers()
-    })
-    // 520 + 530 = 1050 > 900 - 16: still below viewport.
-    expect(postMessage).not.toHaveBeenCalled()
-
-    frameTop = 260
-    act(() => { window.dispatchEvent(new Event("scroll")) })
-    // 260 + 530 = 790 <= 884: now completely inside viewport.
-    expect(postMessage).toHaveBeenCalledWith({ type: "alook-demo-in-view" }, window.location.origin)
-  })
 })

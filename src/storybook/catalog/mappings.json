@@ -2812,6 +2812,16 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/home/landing-shell-bot-annotation.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-pages-public-pages--community-demo",
+        "region": "Actual homepage demo with local conversation/DM/thread/composer state"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
   "src/web/src/components/home/landing-shell-motion.tsx": {
     "kind": "composition",
     "examples": [

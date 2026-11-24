@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 368,
+    "composition": 369,
     "environment": 13,
     "nonvisual": 32,
     "direct": 163
@@ -6109,6 +6109,21 @@
         {
           "story": "web-pages-public-pages--home",
           "region": "Original current homepage; scroll to the matching hero/feature/interactive workspace/testimonial/FAQ/footer section and use its real controls"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/home/landing-shell-bot-annotation.tsx",
+      "application": "Web",
+      "candidates": [
+        "LandingShellBotAnnotation"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-pages-public-pages--community-demo",
+          "region": "Actual homepage demo with local conversation/DM/thread/composer state"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
