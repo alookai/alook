@@ -1622,7 +1622,7 @@ export function restoreDecisionCardDismissedOptimistically(
 
 export type DecisionCardResponderOptimisticSnapshot = {
   messageId: string
-  previousRespondedUserIds: string[] | undefined
+  responderUserId: string
 }
 
 export function markDecisionCardRespondedOptimistically(
@@ -1632,14 +1632,10 @@ export function markDecisionCardRespondedOptimistically(
 ): DecisionCardResponderOptimisticSnapshot | undefined {
   const existing = registry.collections.messages.get(messageId)
   if (!existing || existing.authorId === responderUserId) return undefined
-  const previousCard = extractDecisionCardFromEmbeds(existing.embeds).card
   const updatedEmbeds = appendDecisionCardResponder(existing.embeds, responderUserId)
   if (!updatedEmbeds) return undefined
   upsertRows(registry, "messages", [{ ...existing, embeds: updatedEmbeds }])
-  return {
-    messageId,
-    previousRespondedUserIds: previousCard?.respondedUserIds ? [...previousCard.respondedUserIds] : undefined,
-  }
+  return { messageId, responderUserId }
 }
 
 export function restoreDecisionCardRespondedOptimistically(
@@ -1648,7 +1644,10 @@ export function restoreDecisionCardRespondedOptimistically(
 ) {
   const current = registry.collections.messages.get(snapshot.messageId)
   if (!current) return
-  const restored = attachDecisionCardResponders(current.embeds, snapshot.previousRespondedUserIds ?? [])
+  const currentCard = extractDecisionCardFromEmbeds(current.embeds).card
+  if (!currentCard?.respondedUserIds?.includes(snapshot.responderUserId)) return
+  const nextResponders = currentCard.respondedUserIds.filter((id) => id !== snapshot.responderUserId)
+  const restored = attachDecisionCardResponders(current.embeds, nextResponders)
   if (!restored) return
   upsertRows(registry, "messages", [{ ...current, embeds: restored }])
 }

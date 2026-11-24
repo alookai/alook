@@ -118,7 +118,7 @@ export type DecisionCardSubmitHandler = (
   messageId: string,
   content: string,
   nonce: string,
-) => Promise<{ replyToId: string | null }>
+) => Promise<{ replyToId: string | null; queued?: boolean }>
 
 export function DecisionCard({
   card,
@@ -319,18 +319,24 @@ export function DecisionCard({
     const content = formatDecisionCardAnswerMessage(card, check.resolved)
     const nonce = pendingNonce ?? generateNonce()
     if (pendingNonce === null) setPendingNonce(nonce)
+    const previousExpandedOverride = expandedOverride
+    if (previousExpandedOverride !== null) setExpandedOverride(null)
     setSubmitting(true)
 
     try {
       const receipt = await onSubmit(messageId, content, nonce)
       if (receipt.replyToId !== messageId) {
         setPendingNonce(null)
+        if (previousExpandedOverride === true) setExpandedOverride(true)
         setErrorMessage("Could not link your answer to this question — reload and try again.")
         return
       }
       setPendingNonce(null)
-      setSubmittedNotice(true)
+      if (!receipt.queued) {
+        setSubmittedNotice(true)
+      }
     } catch (error) {
+      if (previousExpandedOverride === true) setExpandedOverride(true)
       if (!isAbortError(error)) {
         setErrorMessage(error instanceof Error ? error.message : "Could not send answer — try again.")
       }

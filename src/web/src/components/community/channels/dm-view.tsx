@@ -331,7 +331,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     messageId: string,
     content: string,
     nonce: string,
-  ): Promise<{ replyToId: string | null }> => {
+  ): Promise<{ replyToId: string | null; queued?: boolean }> => {
     if (!sendAllowed) throw new Error("You cannot send messages in this conversation")
     const assertActive = sendView.capture()
     const target = messages.find((m) => m.id === messageId)
@@ -358,7 +358,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     if (hasMoreNewerMessages) jumpToPresent()
     setLocalSubmitVersion((version) => version + 1)
     communityWsEndTyping(communityRuntime, { channelId: dmId })
-    return { replyToId: messageId }
+    return { replyToId: messageId, queued: true }
   }, [acceptDmMessage, communityRuntime, currentUser.avatar, currentUser.id, currentUser.name, dmId, hasMoreNewerMessages, jumpToPresent, messages, sendAllowed, sendView, setLocalSubmitVersion])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend

@@ -3433,13 +3433,27 @@ describe("decision card responder preservation in community-db sync", () => {
     expect(restoredCard?.viewerDismissed).toBe(false)
     expect(restoredCard?.respondedUserIds).toEqual(["u_gus", "u_alice"])
 
-    // Optimistic responder marks viewer responded, skips author/missing targets, and rolls back cleanly.
+    // Optimistic responder marks viewer responded, skips author/missing targets, and rolls back only this viewer without dropping concurrent peer replies.
     expect(markDecisionCardRespondedOptimistically(db, "missing_card", "u_bob")).toBeUndefined()
     expect(markDecisionCardRespondedOptimistically(db, "card_1", "bot_evan")).toBeUndefined()
     const responderSnapshot = markDecisionCardRespondedOptimistically(db, "card_1", "u_bob")
-    expect(responderSnapshot).toEqual({ messageId: "card_1", previousRespondedUserIds: ["u_gus", "u_alice"] })
+    expect(responderSnapshot).toEqual({ messageId: "card_1", responderUserId: "u_bob" })
     expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_bob"])
+    const carolProfile = profileResourceFixture({ id: "u_carol", name: "carol" })
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:message.create",
+      channelId: "c1",
+      profiles: [carolProfile],
+      message: messageResourceFixture({
+        id: "reply_carol",
+        channelId: "c1",
+        authorId: "u_carol",
+        authorName: "carol",
+        replyToId: "card_1",
+      }),
+    })
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_bob", "u_carol"])
     restoreDecisionCardRespondedOptimistically(db, responderSnapshot!)
-    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice"])
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_carol"])
   })
 })

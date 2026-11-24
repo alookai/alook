@@ -278,7 +278,7 @@ export function useMessageChannelController({
     messageId: string,
     content: string,
     nonce: string,
-  ): Promise<{ replyToId: string | null }> => {
+  ): Promise<{ replyToId: string | null; queued?: boolean }> => {
     if (committedFeed.current.navigationBlocked) {
       throw new Error("Conversation is unavailable")
     }
@@ -305,7 +305,7 @@ export function useMessageChannelController({
     }
     if (hasMoreNewer) jumpToPresent()
     setLocalSubmitVersion((version) => version + 1)
-    return { replyToId: messageId }
+    return { replyToId: messageId, queued: true }
   }, [captureSendCommand, channelId, communityRuntime, getMessage, hasMoreNewer, jumpToPresent, messageScope, runAcceptedIntent, setLocalSubmitVersion, viewer.avatar, viewer.id, viewer.name])
 
   return useMemo<MessageChannelControllerValue>(() => ({

@@ -19,7 +19,7 @@ export interface MessageRowProps {
   m: RenderMsg
   bodyKey?: string
   viewerUserId?: string
-  onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+  onSubmitDecisionCard?: (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null; queued?: boolean }>
   liveRespondedUserIds?: readonly string[]
   hoverCapable: boolean
   pinned?: boolean

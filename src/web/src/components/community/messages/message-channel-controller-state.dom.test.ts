@@ -612,11 +612,11 @@ describe("useMessageChannelController", () => {
     const view = rtlRender(React.createElement(Probe, { value }))
 
     act(() => latest.setReplyTo({ id: "m1", authorName: "Alice", text: "hi" }))
-    let receipt: { replyToId: string | null } | undefined
+    let receipt: { replyToId: string | null; queued?: boolean } | undefined
     await act(async () => {
       receipt = await latest.sendDecisionReply("m_card", "Confirm ship: Yes", "dc-nonce-1")
     })
-    expect(receipt).toEqual({ replyToId: "m_card" })
+    expect(receipt).toEqual({ replyToId: "m_card", queued: true })
     expect(mocks.sendMutation).not.toHaveBeenCalled()
     expect(mocks.accept).toHaveBeenCalledWith(expect.objectContaining({
       markdown: "Confirm ship: Yes",
