@@ -7,6 +7,7 @@ import { resolve } from "node:path"
 
 import { extractTableDataFromElement } from "streamdown"
 import fullMessagePlugins from "./message-body-full"
+import { isPlainTextMessageBody, MessageBody as RealMessageBody } from "./message-body"
 import { MessageBodyView } from "./message-body-view"
 
 function MessageBody(props: Omit<React.ComponentProps<typeof MessageBodyView>, "plugins">) {
@@ -425,5 +426,40 @@ describe("MessageBody — long Markdown and table fullscreen", () => {
     })
     expect(document.querySelector('[data-streamdown="table-fullscreen"]')).toBeNull()
     expect(renderer!.container.querySelector('[data-streamdown="table"]')).not.toBeNull()
+  })
+})
+
+describe("MessageBody — plain-text fast path", () => {
+  it("renders plain text and single-newline lines directly without Streamdown", () => {
+    expect(isPlainTextMessageBody("好的")).toBe(true)
+    expect(isPlainTextMessageBody("Hello, world! (2026-11-24)")).toBe(true)
+    expect(isPlainTextMessageBody("line one\nline two")).toBe(true)
+
+    for (const rich of [
+      "**bold**",
+      "`code`",
+      "Visit https://example.com",
+      "Visit www.example.com",
+      "hi @Alice#0001",
+      "/Alook#5620/fix/#372",
+      "||secret||",
+      "$x^2$",
+      "[REDACTED_EMAIL]",
+      "[alook-html-preview](a1)",
+      "- item",
+      "1. item",
+      "> quote",
+      "para one\n\npara two",
+      "&commat;everyone",
+      "<b>raw</b>",
+    ]) {
+      expect(isPlainTextMessageBody(rich), rich).toBe(false)
+    }
+
+    const view = render(React.createElement(RealMessageBody, { text: "第一行\n第二行" }))
+    const body = view.container.querySelector("[data-community-message-body]")!
+    expect(body).toHaveAttribute("data-message-body-mode", "plain")
+    expect(body.querySelectorAll("br")).toHaveLength(1)
+    expect(body.textContent).toBe("第一行第二行")
   })
 })

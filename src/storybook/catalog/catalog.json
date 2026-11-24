@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 369,
+    "composition": 370,
     "environment": 13,
     "nonvisual": 32,
     "direct": 161
@@ -3618,7 +3618,9 @@
       "source": "src/web/src/components/community/messages/message-body.tsx",
       "application": "Web",
       "candidates": [
-        "MessageBody"
+        "MessageBody",
+        "PlainTextMessageBody",
+        "RichMessageBody"
       ],
       "kind": "composition",
       "examples": [
@@ -3767,6 +3769,25 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/messages/message-overlay-host.tsx",
+      "application": "Web",
+      "candidates": [
+        "MessageContextItemsWithMark",
+        "MessageDropdownItemsWithMark",
+        "MessageOverlayHostContext",
+        "MessageOverlayHostProvider",
+        "SharedMessageMenuPortal"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-conversation-surfaces--text-channel",
+          "region": "Shared list-level message context and touch action menu mounted once inside MessageList"
+        }
+      ],
+      "reason": "MessageOverlayHostProvider is mounted inside MessageList to coordinate hover actions and a single shared menu portal across message rows. Runtime pointer, focus and keyboard flows require separate runtime evidence."
     },
     {
       "source": "src/web/src/components/community/messages/message-reactions.tsx",

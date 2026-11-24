@@ -463,4 +463,16 @@ describe("video attachment", () => {
     expect(screen.getByRole("menu", { name: "More" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: /^Speed/ })).toHaveTextContent("1.5×")
   })
+
+  it("synchronously restores cached video dimensions on remount under the same registry", () => {
+    const view = render(<VideoAttachmentBlock attachment={cachedAttachment} />)
+    mounted.push(view)
+    const video = view.container.querySelector("video")!
+    metadata(video)
+    expect(view.container.querySelector("article")?.style.aspectRatio).toBe("640/480")
+
+    view.rerender(<div />)
+    view.rerender(<VideoAttachmentBlock attachment={cachedAttachment} />)
+    expect(view.container.querySelector("article")?.style.aspectRatio).toBe("640/480")
+  })
 })
