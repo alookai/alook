@@ -273,7 +273,7 @@ describe("community-decision-card", () => {
     expect(validated.ok).toBe(true);
     if (!validated.ok) return;
     expect(formatDecisionCardAnswerMessage(card, validated.resolved)).toBe(
-      "1. Mode: Fast\n2. Targets: Web, macOS, Other: iOS later",
+      "1. Mode: Fast\n2. Targets: Web, macOS, iOS later",
     );
 
     const singleWithSummary = buildDecisionCardEmbed(
@@ -305,7 +305,7 @@ describe("community-decision-card", () => {
     expect(singleOther.ok).toBe(true);
     if (singleOther.ok) {
       expect(formatDecisionCardAnswerMessage(singleWithSummary, singleOther.resolved)).toBe(
-        "Confirm PR #1421 merge: Other: Wait for review",
+        "Confirm PR #1421 merge: Wait for review",
       );
     }
 

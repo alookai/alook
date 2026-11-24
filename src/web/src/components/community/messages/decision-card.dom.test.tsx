@@ -112,7 +112,7 @@ describe("DecisionCard", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1)
     const firstNonce = onSubmit.mock.calls[0]![2]
     expect(onSubmit.mock.calls[0]![1]).toContain("1. Timing: Today")
-    expect(onSubmit.mock.calls[0]![1]).toContain("2. Targets: Web, Other: Mobile")
+    expect(onSubmit.mock.calls[0]![1]).toContain("2. Targets: Web, Mobile")
 
     // Second submit returns dropped replyToId -> reuses nonce, does NOT show "Answer sent".
     await act(async () => {
@@ -252,7 +252,7 @@ describe("DecisionCard", () => {
     })
     expect(onSubmit).toHaveBeenCalledWith(
       "m_single",
-      "Confirm release today: Other: Ship tomorrow",
+      "Confirm release today: Ship tomorrow",
       expect.any(String),
     )
     expect(view.getByRole("status")).toHaveTextContent("Answer sent")
@@ -285,7 +285,7 @@ describe("DecisionCard", () => {
     })
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
       "m_multi_enter",
-      "1. Timing: Today\n2. Targets: Web, Other: iOS",
+      "1. Timing: Today\n2. Targets: Web, iOS",
       expect.any(String),
     )
     view.unmount()
