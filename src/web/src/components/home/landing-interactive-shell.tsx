@@ -32,6 +32,7 @@ import type { Marked, Mention, UnreadServer } from "@/lib/community/models/inbox
 import type { NotifLevel } from "@alook/shared"
 import { DEMO_CHANNELS, DEMO_DMS, DEMO_MESSAGES, DEMO_PROFILES, DEMO_SERVERS, DEMO_UNREADS, DEMO_MENTIONS } from "./landing-interactive-shell-data"
 import { LandingBotLog } from "./landing-bot-log"
+import { LandingShellBotAnnotation } from "./landing-shell-bot-annotation"
 import styles from "./landing-interactive-shell.module.css"
 
 const WorkspaceHome = dynamic(() => import("./landing-workspace-home").then((module) => module.WorkspaceHome), {
@@ -88,8 +89,17 @@ function InteractiveShell() {
   const [leftChannelIds, setLeftChannelIds] = useState<string[]>([])
   const [thread, setThread] = useState<Msg | null>(null)
   const [threadMessages, setThreadMessages] = useState<Record<string, Msg[]>>({})
+  const [annotationDismissed, setAnnotationDismissed] = useState(false)
+  const [annotationRemoved, setAnnotationRemoved] = useState(false)
   const fileUrls = useRef<string[]>([])
   useEffect(() => () => { fileUrls.current.forEach((url) => URL.revokeObjectURL(url)) }, [])
+  useEffect(() => {
+    if (annotationDismissed) return
+    const dismiss = () => setAnnotationDismissed(true)
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "touchstart", "wheel", "keydown"]
+    events.forEach((type) => window.addEventListener(type, dismiss, { capture: true, passive: type !== "keydown" }))
+    return () => events.forEach((type) => window.removeEventListener(type, dismiss, true))
+  }, [annotationDismissed])
   const direct = homePage === "dm"
   const server = DEMO_SERVERS.find((item) => item.id === serverId)!
   const categories = DEMO_CHANNELS[serverId].map((group) => ({
@@ -175,6 +185,9 @@ function InteractiveShell() {
       inboxOpen={extension === "inbox"} onInboxOpenChange={(open) => setExtension(open ? "inbox" : "none")} onOpenProfile={() => setExtension((current) => current === "profile" ? "none" : "profile")} onEditProfile={() => setExtension("profile")}
       extension={{ active: extension, inbox, profile: selfProfile, profileCompanion, update: null, updateBadgePhase: null, eligibleMachines: [], onOpenUpdate: () => {}, onRequestUpdate: () => {}, onDismiss: () => setExtension("none") }} />}
     overlays={<>
+      {!annotationRemoved && !homePage && conversation === "demo-general" && (
+        <LandingShellBotAnnotation scrollRoot={scrollRoot} visible={!annotationDismissed} onExited={() => setAnnotationRemoved(true)} />
+      )}
       {profile && <ProfileCard key={profile.id} data={profileData(profile.id)} secondaryCard={DEMO_PROFILES.get(profile.id)?.kind === "bot" ? <LandingBotLog key={profile.id} botId={profile.id} /> : undefined} x={profile.x} y={profile.y} bp={breakpoint} onClose={() => setProfile(null)} canMessage={profile.id !== "demo-gus"}
         onMessage={(id, text) => { messagePerson(id); if (text.trim()) setMessages((items) => { const target = DEMO_DMS.find((item) => item.userId === id)?.id ?? `demo-dm-${id.slice(5)}`; return { ...items, [target]: [...(items[target] ?? []), { id: crypto.randomUUID(), type: "chat", authorId: "demo-gus", content: text, createdAt: new Date().toISOString() }] } }); setProfile(null) }}
         onOpenOwnerProfile={(owner) => setProfile({ ...profile, id: owner.id })} />}

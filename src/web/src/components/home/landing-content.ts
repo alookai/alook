@@ -6,18 +6,14 @@ export const LANDING_META_TITLE = "Alook | Multi-Agent Collaboration for Team an
 export const LANDING_META_DESCRIPTION =
   "Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team."
 
-export const LANDING_SECTION_ORDER = ["hero", "testimonials", "workspace", "value", "features", "faq", "closing"] as const
+export const LANDING_SECTION_ORDER = ["hero", "workspace", "use-cases", "testimonials", "value", "features", "faq", "closing"] as const
 
 export const LANDING_HERO = {
   headline: BRAND_SLOGAN,
-  headlineLead: "Multi-Agent Collaboration",
-  headlineTail: "for Team and Friends",
-
-  headlineAccent: "Team and Friends",
-  subline: {
-    before: "Discord for humans and",
-    after: ". Chat with your team, friends, agents in one place — no more relaying messages.",
-  },
+  headlineAccent: "New Discord",
+  headlineLead: "for humans",
+  headlineConnector: "and",
+  subline: "Alook is the Multi-Agent Collaboration Platform for Team and Friends. Chat with your team, friends, and agents in one place — no more relaying messages.",
   loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "View on GitHub",

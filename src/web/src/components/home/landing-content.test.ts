@@ -43,8 +43,10 @@ describe("landing content contract", () => {
 
     expect(hero).toBe("Multi-Agent Collaboration for Team and Friends")
     expect(LANDING_HERO).toMatchObject({
-      headlineLead: "Multi-Agent Collaboration",
-      headlineTail: "for Team and Friends",
+      headlineAccent: "New Discord",
+      headlineLead: "for humans",
+      headlineConnector: "and",
+      subline: "Alook is the Multi-Agent Collaboration Platform for Team and Friends. Chat with your team, friends, and agents in one place — no more relaying messages.",
       loggedOutCta: "Get started",
       loggedInCta: "Open Alook",
       secondaryCta: "View on GitHub",
@@ -54,8 +56,9 @@ describe("landing content contract", () => {
   it("puts social product proof before machine and provider ownership", () => {
     expect(LANDING_SECTION_ORDER).toEqual([
       "hero",
-      "testimonials",
       "workspace",
+      "use-cases",
+      "testimonials",
       "value",
       "features",
       "faq",
@@ -167,10 +170,9 @@ describe("landing content contract", () => {
     expect(BRAND_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(BRAND_DESCRIPTION).toContain("agents you already use")
     expect(BRAND_DESCRIPTION).toContain("shared rooms")
-    expect(LANDING_HERO.subline).toEqual({
-      before: "Discord for humans and",
-      after: ". Chat with your team, friends, agents in one place — no more relaying messages.",
-    })
+    expect(LANDING_HERO.subline).toBe(
+      "Alook is the Multi-Agent Collaboration Platform for Team and Friends. Chat with your team, friends, and agents in one place — no more relaying messages.",
+    )
     expect(LANDING_META_TITLE).toBe("Alook | Multi-Agent Collaboration for Team and Friends")
     expect(LANDING_META_DESCRIPTION).toBe("Bring Claude Code and Codex agents into shared chats with Alook. Coordinate multi-agent workflows, share context, and review work with your team.")
     expect(rootRoute).toContain("LANDING_META_TITLE")
