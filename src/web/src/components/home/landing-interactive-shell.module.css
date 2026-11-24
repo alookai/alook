@@ -69,7 +69,7 @@
 
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 20;
   pointer-events: none;
   user-select: none;
   color: var(--bot-ink);
@@ -138,21 +138,6 @@
 
 .botAnnotation[data-compact="true"] .botAnnotationHint {
   font-size: 16px;
-}
-
-.botAnnotation[data-mode="mobile"] .botAnnotationCircle,
-.botAnnotation[data-mode="mobile"] .botAnnotationArrow,
-.botAnnotation[data-mode="mobile"] .botAnnotationArrowHead {
-  stroke-width: 2.2;
-}
-
-.botAnnotation[data-mode="mobile"] .botAnnotationTitle {
-  font-size: 22px;
-  line-height: 0.9;
-}
-
-.botAnnotation[data-mode="mobile"][data-compact="true"] .botAnnotationTitle {
-  font-size: 19px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
