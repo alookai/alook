@@ -43,13 +43,16 @@ import {
   commitAttentionOptimisticSnapshot,
   commitConfirmedAttentionScopeRead,
   markDecisionCardDismissedOptimistically,
+  markDecisionCardRespondedOptimistically,
   removeAttentionItemsOptimistically,
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
   restoreDecisionCardDismissedOptimistically,
+  restoreDecisionCardRespondedOptimistically,
   type AttentionDomain,
   type AttentionIntent,
   type DecisionCardDismissOptimisticSnapshot,
+  type DecisionCardResponderOptimisticSnapshot,
 } from "@/lib/community-db/sync"
 
 function sendMessageScope(input: SendMessageArgs | SendDmMessageArgs): MessageScope {
@@ -178,7 +181,10 @@ export function useSubmitInboxDecisionCard() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Original = ReturnType<typeof origin.begin>["token"]
-  type Context = { attentionSnapshot?: AttentionIntent }
+  type Context = {
+    attentionSnapshot?: AttentionIntent
+    messageResponderSnapshot?: DecisionCardResponderOptimisticSnapshot
+  }
   const mutation = useMutation<
     { replyToId: string | null },
     Error,
@@ -212,12 +218,41 @@ export function useSubmitInboxDecisionCard() {
       })
       return { replyToId: result.message.replyToId ?? null }
     },
-    onSuccess: async (data, { input: { messageId, toastMessage }, original }) => {
-      try { origin.assert(original) } catch { return }
-      if (data.replyToId !== messageId) return
+    onMutate: async ({ input: { messageId }, original }) => {
       const registry = origin.registry
+      await registry?.ready
+      origin.assert(original)
+      await Promise.all([
+        registry!.collections.attentionScopes.preload(),
+        registry!.collections.attentionItems.preload(),
+        registry!.collections.messages.preload(),
+      ])
+      origin.assert(original)
+      const attentionSnapshot = registry
+        ? removeAttentionItemsOptimistically(
+            registry,
+            (item) => item.kind === "question" && item.messageId === messageId,
+          )
+        : undefined
+      const messageResponderSnapshot = registry && original.viewerId
+        ? markDecisionCardRespondedOptimistically(registry, messageId, original.viewerId)
+        : undefined
+      return { attentionSnapshot, messageResponderSnapshot }
+    },
+    onSuccess: async (data, { input: { messageId, toastMessage }, original }, context) => {
+      const registry = origin.registry
+      if (data.replyToId !== messageId) {
+        if (registry && context?.attentionSnapshot) {
+          restoreAttentionOptimisticSnapshot(registry, context.attentionSnapshot)
+        }
+        if (registry && context?.messageResponderSnapshot) {
+          restoreDecisionCardRespondedOptimistically(registry, context.messageResponderSnapshot)
+        }
+        return
+      }
+      try { origin.assert(original) } catch { return }
       if (registry) {
-        const snapshot = removeAttentionItemsOptimistically(
+        const snapshot = context?.attentionSnapshot ?? removeAttentionItemsOptimistically(
           registry,
           (item) => item.kind === "question" && item.messageId === messageId,
         )
@@ -226,6 +261,19 @@ export function useSubmitInboxDecisionCard() {
         void reconcileAccountAttention(registry).catch(() => undefined)
       }
       toast(toastMessage ?? "Answer sent")
+    },
+    onError: (err, { original }, context) => {
+      const registry = origin.registry
+      if (registry && context?.attentionSnapshot) {
+        restoreAttentionOptimisticSnapshot(registry, context.attentionSnapshot)
+      }
+      if (registry && context?.messageResponderSnapshot) {
+        restoreDecisionCardRespondedOptimistically(registry, context.messageResponderSnapshot)
+      }
+      try { origin.assert(original) } catch { return }
+      if (isAbortError(err)) return
+      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
+      toastApiError(err, "Failed to send answer")
     },
   })
   return {

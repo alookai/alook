@@ -604,4 +604,35 @@ describe("useMessageChannelController", () => {
     expect(mocks.sendTyping).toHaveBeenCalledOnce()
   })
 
+  it("submits decision card replies optimistically via acceptChannelMessage without clearing composer reply state", async () => {
+    const seeded = messageSeedFixture("channel_1", [{ id: "m_card", seq: 2, content: "Confirm ship", authorId: "bot_1" }])[0]
+    ingestMessages(fixtureOwner.registry, "channel_1", [seeded])
+    const jumpToPresent = vi.fn()
+    const value = props({ feed: { ...feed, hasMoreNewer: true, jumpToPresent } as MessageChannelControllerProps["feed"] })
+    const view = rtlRender(React.createElement(Probe, { value }))
+
+    act(() => latest.setReplyTo({ id: "m1", authorName: "Alice", text: "hi" }))
+    let receipt: { replyToId: string | null } | undefined
+    await act(async () => {
+      receipt = await latest.sendDecisionReply("m_card", "Confirm ship: Yes", "dc-nonce-1")
+    })
+    expect(receipt).toEqual({ replyToId: "m_card" })
+    expect(mocks.sendMutation).not.toHaveBeenCalled()
+    expect(mocks.accept).toHaveBeenCalledWith(expect.objectContaining({
+      markdown: "Confirm ship: Yes",
+      nonce: "dc-nonce-1",
+      replyTo: expect.objectContaining({ id: "m_card", text: "Confirm ship" }),
+      channelId: "channel_1",
+    }))
+    expect(mocks.accept.mock.calls[0]?.[0]).not.toHaveProperty("clearReply")
+    expect(latest.replyTo?.id).toBe("m1")
+    expect(jumpToPresent).toHaveBeenCalledOnce()
+
+    mocks.accept.mockReturnValueOnce(false)
+    await expect(latest.sendDecisionReply("m_card", "Confirm ship: No", "dc-nonce-2")).rejects.toThrow("Could not send answer")
+
+    view.rerender(React.createElement(Probe, { value: { ...value, feed: { ...feed, navigationBlocked: true } } }))
+    await expect(latest.sendDecisionReply("m_card", "Confirm ship: No", "dc-nonce-3")).rejects.toThrow("Conversation is unavailable")
+  })
+
 })

@@ -82,6 +82,7 @@ export function acceptChannelMessage({
   messageScope,
   viewer,
   replyTo,
+  nonce: requestedNonce,
   runAcceptedIntent,
   channelId,
   clearReply,
@@ -93,14 +94,15 @@ export function acceptChannelMessage({
   messageScope: ChannelMessageScope
   viewer: Viewer
   replyTo: ReplyTarget | null
+  nonce?: string
   runAcceptedIntent: (nonce: string) => Promise<void>
   channelId: string
-  clearReply: () => void
+  clearReply?: () => void
 }): boolean {
-  const nonce = acceptMessageIntent(runtime, messageScope, { content: markdown, attachments, mentionType, author: viewer, replyTo: replyTo ?? undefined })
+  const nonce = acceptMessageIntent(runtime, messageScope, { content: markdown, attachments, mentionType, author: viewer, replyTo: replyTo ?? undefined, nonce: requestedNonce })
   if (nonce === undefined) return false
   void runAcceptedIntent(nonce)
   communityWsEndTyping(runtime, { channelId })
-  clearReply()
+  clearReply?.()
   return true
 }

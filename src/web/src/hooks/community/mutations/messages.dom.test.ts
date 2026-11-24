@@ -1543,6 +1543,45 @@ describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
     expect(toastMock).not.toHaveBeenCalled()
   })
 
+  it("removes the Todo and marks the decision card responded optimistically before POST settles, and rolls back on error", async () => {
+    const mod = await loadMod()
+    const canonical = await seedPendingQuestionTodo("m_q1", "ch_1")
+    const { extractDecisionCardFromEmbeds } = await import("@alook/shared")
+    let rejectPost!: (error: Error) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPost = reject }))
+    apiFetchMock.mockResolvedValueOnce(canonical)
+
+    const hook = mountHook(() => mod.useSubmitInboxDecisionCard())
+    let pendingPromise!: Promise<{ replyToId: string | null }>
+    act(() => {
+      pendingPromise = hook.mutateAsync({
+        channelId: "ch_1",
+        messageId: "m_q1",
+        content: "Confirm rollout: Yes",
+        nonce: "nonce-opt-fail",
+      })
+    })
+
+    await waitFor(() => {
+      expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeUndefined()
+      expect(
+        extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.respondedUserIds,
+      ).toContain("u_me")
+    })
+    expect(rejectPost).toBeTypeOf("function")
+
+    await act(async () => {
+      rejectPost(new Error("Offline"))
+      await pendingPromise.catch(() => undefined)
+    })
+
+    expect(canonicalRegistry.collections.attentionItems.get("question:m_q1")).toBeDefined()
+    expect(
+      extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.respondedUserIds,
+    ).not.toContain("u_me")
+    expect(toastMock).toHaveBeenCalledWith("Offline")
+  })
+
   it("supports mutate() wrapper on useSubmitInboxDecisionCard and ignores stale origin on success", async () => {
     const mod = await loadMod()
     await seedPendingQuestionTodo("m_q1", "ch_1")

@@ -22,7 +22,7 @@ import {
   registerCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "./collections"
-import { publishCommunityResourceBundle, publishCommunityForumFeed, ingestDms, ingestAttentionSnapshot, ingestMessages, ingestReadStateSnapshot, publishCommunityConversationReadState, ingestServerDetail, ingestServers, captureCommunityLiveSnapshotToken, getCanonicalCommunityTypingMembership, publishCommunityMembersSnapshot, publishCommunityChannelMembersSnapshot, setCanonicalCommunityChannelMember, clearAttentionOptimistically, clearAttentionScopeOptimistically, commitAttentionOptimisticSnapshot, markDecisionCardDismissedOptimistically, patchCanonicalCommunityMessage, publishCommunityDmSummary, publishCommunityMessages, publishCommunityChannelDirectory, publishCommunityChannelMetadata, publishCommunityServerFields, publishCommunityChannelFields, publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof, publishAccountAttentionSnapshot, projectCommunityWsEventToDb, purgeCommunityChannel, purgeCommunityServer, retireCommunityChannelReading, removeCanonicalCommunityChannelMembership, removeAttentionItemsOptimistically, restoreAttentionOptimisticSnapshot, restoreDecisionCardDismissedOptimistically, type CommunityLiveSnapshot } from "./sync"
+import { publishCommunityResourceBundle, publishCommunityForumFeed, ingestDms, ingestAttentionSnapshot, ingestMessages, ingestReadStateSnapshot, publishCommunityConversationReadState, ingestServerDetail, ingestServers, captureCommunityLiveSnapshotToken, getCanonicalCommunityTypingMembership, publishCommunityMembersSnapshot, publishCommunityChannelMembersSnapshot, setCanonicalCommunityChannelMember, clearAttentionOptimistically, clearAttentionScopeOptimistically, commitAttentionOptimisticSnapshot, markDecisionCardDismissedOptimistically, markDecisionCardRespondedOptimistically, patchCanonicalCommunityMessage, publishCommunityDmSummary, publishCommunityMessages, publishCommunityChannelDirectory, publishCommunityChannelMetadata, publishCommunityServerFields, publishCommunityChannelFields, publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof, publishAccountAttentionSnapshot, projectCommunityWsEventToDb, purgeCommunityChannel, purgeCommunityServer, retireCommunityChannelReading, removeCanonicalCommunityChannelMembership, removeAttentionItemsOptimistically, restoreAttentionOptimisticSnapshot, restoreDecisionCardDismissedOptimistically, restoreDecisionCardRespondedOptimistically, type CommunityLiveSnapshot } from "./sync"
 
 
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
@@ -3432,5 +3432,14 @@ describe("decision card responder preservation in community-db sync", () => {
     const restoredCard = extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card
     expect(restoredCard?.viewerDismissed).toBe(false)
     expect(restoredCard?.respondedUserIds).toEqual(["u_gus", "u_alice"])
+
+    // Optimistic responder marks viewer responded, skips author/missing targets, and rolls back cleanly.
+    expect(markDecisionCardRespondedOptimistically(db, "missing_card", "u_bob")).toBeUndefined()
+    expect(markDecisionCardRespondedOptimistically(db, "card_1", "bot_evan")).toBeUndefined()
+    const responderSnapshot = markDecisionCardRespondedOptimistically(db, "card_1", "u_bob")
+    expect(responderSnapshot).toEqual({ messageId: "card_1", previousRespondedUserIds: ["u_gus", "u_alice"] })
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_bob"])
+    restoreDecisionCardRespondedOptimistically(db, responderSnapshot!)
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice"])
   })
 })

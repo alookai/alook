@@ -14,7 +14,7 @@ import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/c
 import { notifyManager,type QueryClient } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"
-import { appendDecisionCardResponder, attachDecisionCardViewerDismissed, extractDecisionCardFromEmbeds, markDecisionCardViewerDismissed, mergeDecisionCardEmbeds, FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
+import { appendDecisionCardResponder, attachDecisionCardResponders, attachDecisionCardViewerDismissed, extractDecisionCardFromEmbeds, markDecisionCardViewerDismissed, mergeDecisionCardEmbeds, FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
 import type { CommunityDmsRead as DmsResponse } from "@alook/shared"
 import type { FoldersResponse, ServersResponse } from "@/lib/community/models/navigation"
 import type { queries } from "@alook/shared"
@@ -1616,6 +1616,39 @@ export function restoreDecisionCardDismissedOptimistically(
   const current = registry.collections.messages.get(snapshot.messageId)
   if (!current) return
   const restored = attachDecisionCardViewerDismissed(current.embeds, snapshot.previousViewerDismissed ?? false)
+  if (!restored) return
+  upsertRows(registry, "messages", [{ ...current, embeds: restored }])
+}
+
+export type DecisionCardResponderOptimisticSnapshot = {
+  messageId: string
+  previousRespondedUserIds: string[] | undefined
+}
+
+export function markDecisionCardRespondedOptimistically(
+  registry: CommunityDbRegistry,
+  messageId: string,
+  responderUserId: string,
+): DecisionCardResponderOptimisticSnapshot | undefined {
+  const existing = registry.collections.messages.get(messageId)
+  if (!existing || existing.authorId === responderUserId) return undefined
+  const previousCard = extractDecisionCardFromEmbeds(existing.embeds).card
+  const updatedEmbeds = appendDecisionCardResponder(existing.embeds, responderUserId)
+  if (!updatedEmbeds) return undefined
+  upsertRows(registry, "messages", [{ ...existing, embeds: updatedEmbeds }])
+  return {
+    messageId,
+    previousRespondedUserIds: previousCard?.respondedUserIds ? [...previousCard.respondedUserIds] : undefined,
+  }
+}
+
+export function restoreDecisionCardRespondedOptimistically(
+  registry: CommunityDbRegistry,
+  snapshot: DecisionCardResponderOptimisticSnapshot,
+) {
+  const current = registry.collections.messages.get(snapshot.messageId)
+  if (!current) return
+  const restored = attachDecisionCardResponders(current.embeds, snapshot.previousRespondedUserIds ?? [])
   if (!restored) return
   upsertRows(registry, "messages", [{ ...current, embeds: restored }])
 }
