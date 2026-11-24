@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { mkdirSync, existsSync, rmSync } from "fs";
+import { EventEmitter } from "events";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -31,12 +32,12 @@ describe("services", () => {
   const originalProjectRoot = process.env.ALOOK_PROJECT_ROOT;
 
   function fakeChild(pid?: number) {
-    return {
+    return Object.assign(new EventEmitter(), {
       pid,
       stderr: { on: vi.fn() },
       stdout: { on: vi.fn() },
       unref: vi.fn(),
-    };
+    });
   }
 
   function mockChildren(pids: Array<number | undefined> = [101, 102, 103, 104]) {
@@ -216,18 +217,51 @@ describe("services", () => {
         vi.spyOn(console, "error").mockImplementation(() => {});
         const { startServices } = await import("../src/lib/services.js");
 
-        expect(() => startServices({
+        await expect(startServices({
           web: 3000,
           emailWorker: 8787,
           wsDo: 8789,
           queueWorker: 8790,
-        })).toThrow("exit:1");
+        })).rejects.toThrow("exit:1");
         expect(childMocks.spawn).toHaveBeenCalledTimes(4);
         expectTerminatedPids([101, 103, 104], platform);
         expect(exit).toHaveBeenCalledOnce();
         expect(exit).toHaveBeenCalledWith(1);
       },
     );
+
+    it("reports the spawn error for a service that cannot start", async () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.ALOOK_PROJECT_ROOT;
+      vi.resetModules();
+      const failing = fakeChild(undefined);
+      const healthy = mockChildren([102, 103, 104]);
+      let calls = 0;
+      childMocks.spawn.mockImplementation(() =>
+        calls++ === 0 ? failing : healthy.shift()!,
+      );
+      vi.spyOn(process, "kill").mockImplementation(() => true);
+      vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`exit:${code}`);
+      }) as never);
+      const errLines: string[] = [];
+      vi.spyOn(console, "error").mockImplementation((m?: unknown) => {
+        errLines.push(String(m));
+      });
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const { startServices } = await import("../src/lib/services.js");
+
+      const run = startServices({
+        web: 3000,
+        emailWorker: 8787,
+        wsDo: 8789,
+        queueWorker: 8790,
+      });
+      failing.emit("error", new Error("spawn npx ENOENT"));
+      await expect(run).rejects.toThrow("exit:1");
+
+      expect(errLines.join("\n")).toContain("spawn npx ENOENT");
+    });
 
     it.each(["linux", "win32"] as const)(
       "cleans up every foreground child on SIGINT exactly once on %s",

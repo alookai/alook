@@ -69,7 +69,7 @@ function killProcess(pid: number): boolean {
   }
 }
 
-export function startServices(ports: DevPortProfile, opts: StartOptions = {}): void {
+export async function startServices(ports: DevPortProfile, opts: StartOptions = {}): Promise<void> {
   const existing = readPids();
   const anyAlive = SELF_HOSTED_SERVICES.map((service) => existing[service.key]).some(
     (pid) => pid && isAlive(pid),
@@ -100,8 +100,27 @@ export function startServices(ports: DevPortProfile, opts: StartOptions = {}): v
     child: spawnService(record.service.directory, record.command, record.args, record.cwd, foreground),
   }));
 
-  if (started.some(({ child }) => !child.pid)) {
+  const failed = started.filter(({ child }) => !child.pid);
+  if (failed.length) {
+    // A spawn failure arrives on the child's 'error' event one turn later;
+    // without waiting for it, the exit below discards the real reason
+    // (missing command, missing working directory) and nothing is logged.
+    const reasons = await Promise.all(
+      failed.map(({ child }) =>
+        Promise.race<Error | undefined>([
+          new Promise<Error | undefined>((resolve) => {
+            child.once("error", resolve);
+            child.once("spawn", () => resolve(undefined));
+          }),
+          new Promise<undefined>((resolve) => setImmediate(resolve)),
+        ]),
+      ),
+    );
     console.error("Error: failed to start one or more services.");
+    failed.forEach(({ service, command }, index) => {
+      const detail = reasons[index]?.message ?? "process did not start";
+      console.error(`  ${service.label}: could not run "${command}": ${detail}`);
+    });
     for (const { child } of started) {
       if (child.pid) killProcess(child.pid);
     }
