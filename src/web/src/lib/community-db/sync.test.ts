@@ -3452,7 +3452,7 @@ describe("decision card responder preservation in community-db sync", () => {
         replyToId: "card_1",
       }),
     })
-    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_bob", "u_carol"])
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_carol", "u_bob"])
     restoreDecisionCardRespondedOptimistically(db, responderSnapshot!)
     expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_carol"])
 

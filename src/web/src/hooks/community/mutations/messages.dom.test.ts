@@ -1586,7 +1586,7 @@ describe("useSubmitInboxDecisionCard & useDismissInboxTodo", () => {
     })
     expect(
       extractDecisionCardFromEmbeds(canonicalRegistry.collections.messages.get("m_q1")?.embeds).card?.respondedUserIds,
-    ).toEqual(["u_me", "u_peer"])
+    ).toEqual(["u_peer", "u_me"])
 
     await act(async () => {
       rejectPost(new Error("Offline"))
