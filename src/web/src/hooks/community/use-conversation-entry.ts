@@ -23,10 +23,9 @@ import { isConversationAccessError, isConversationAnchorMissingError } from "@/l
 
 type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
 
-export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
+export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, _consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
   const client = useQueryClient()
   const restoring = useIsRestoring()
-  const active = useConversationActivity()
   const presented = useConversationPresentation()
   const runtime = useCommunityRuntime()
   const canonical = useRouteChannelProjection(target?.channelId ?? null)
@@ -115,10 +114,11 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
     && canonical.id === channelId && canonical.serverId === serverId && !canonical.archived
   const refetch = query.refetch
   useEffect(() => { if (presented && enabled && verification.needed) void refetch({ cancelRefetch: false }) }, [refetch, verification, enabled, presented])
+  const queryProofCurrent = query.data ? isChannelMetadataTokenCurrent(query.data.proof) : true
   useEffect(() => {
-    if (!presented || restoring || !target || revoked || !query.data || isChannelMetadataTokenCurrent(query.data.proof) || query.isFetching || query.isError) return
+    if (!presented || restoring || !target || revoked || !query.data || queryProofCurrent || query.isFetching || query.isError) return
     void client.invalidateQueries({ queryKey: options.queryKey, exact: true })
-  }, [client, parentGeneration, options.queryKey, query.data, query.isFetching, query.isError, revoked, target, presented, restoring])
+  }, [client, options.queryKey, query.data, query.isFetching, query.isError, queryProofCurrent, revoked, target, presented, restoring])
   const fallbackRefetch = fallback.refetch
   const retryVerification = useCallback(() => (anchorMissing ? fallbackRefetch : refetch)({ cancelRefetch: false }), [anchorMissing, fallbackRefetch, refetch])
   useEffect(() => {
@@ -170,7 +170,6 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   const dependencyIds = dependencyWindow && Array.isArray(dependencyWindow.pages) && dependencyWindow.pages.every(page => Array.isArray(page?.messages) && page.messages.every(message => typeof message?.id === "string" && message.id))
     ? dependencyWindow.pages.flatMap(page => page.messages.map(message => message.id)) : canonical?.type === "forum" ? forumMessageIds : undefined
   const retainedBodiesReady = dependencyIds === undefined || dependencyIds.every(id => getCommunityDbRegistry(client)?.collections.messages.get(id)?.channelId === channelId)
-  const cachedData = cachedWindow ? client.getQueryData<{ pages: Array<{ messages?: unknown[]; threads?: unknown[] }> }>(cachedWindow.key) : undefined
   const rawWindowExists = canonical?.type === "forum" && !anchorMessageId ? client.getQueryData(communityKeys.forumFeed(channelId, tag)) !== undefined
     : client.getQueryCache().findAll({ queryKey: communityKeys.channelMessages(channelId) }).some(query => {
       const identity = messageWindowIdentity(query.queryKey)
@@ -184,7 +183,6 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   // Local display must not wait for the read snapshot. Keep read-dependent admission separate.
   const displayWindowReady = qualified && cachedWindow !== undefined
   const windowReady = displayWindowReady && currentPointer !== undefined
-  const cacheWindow = !cachedWindow ? rawWindowExists ? "incomplete" : "missing" : cachedData?.pages.some(page => (page.messages ?? page.threads ?? []).length > 0) ? "ready" : "empty"
   return { client, cachedResource, scope: readableScope, currentPointer, displayWindowReady, windowReady, displayWindow: cachedWindow, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
     denied: serverRevoked || revoked && (!verification.needed || generation !== verification.generation) || isConversationAccessError(query.error) && Number((query.error as { status?: unknown } | null)?.status) !== 401, anchorMissing,
     verificationError: (!qualified && anchorMissing ? fallback.error : query.error)?.name === "AbortError" ? null : !qualified && anchorMissing ? fallback.error : query.error,
@@ -203,13 +201,25 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const incomingIntent = currentIntent && normalizeCommunityHref(currentIntent.href).pathname === expectedPath ? currentIntent : null
   const [retainedIntent, setRetainedIntent] = useState({ path: expectedPath, intent: incomingIntent })
   const resuming = incomingIntent?.resume === true
-  useLayoutEffect(() => {
-    if (active && !resuming) setRetainedIntent(current => current.path === expectedPath && current.intent === incomingIntent
-      ? current : { path: expectedPath, intent: incomingIntent })
-  }, [active, expectedPath, incomingIntent, resuming])
+  if (active && !resuming && (retainedIntent.path !== expectedPath || retainedIntent.intent !== incomingIntent)) {
+    setRetainedIntent({ path: expectedPath, intent: incomingIntent })
+  }
   const intent = (active && !resuming) || retainedIntent.path !== expectedPath ? incomingIntent : retainedIntent.intent
-  const baseTarget = useMemo(() => target ? { ...target, preferTail: true } : null,
-    [target?.channelId, target?.serverId, target?.anchorMessageId, target?.tag])
+  const targetChannelId = target?.channelId
+  const targetServerId = target?.serverId ?? null
+  const targetAnchorMessageId = target?.anchorMessageId
+  const targetTag = target?.tag
+  const targetNewAfterSeq = target?.newAfterSeq
+  const baseTarget = useMemo<ConversationEntryTarget | null>(() => targetChannelId !== undefined
+    ? {
+        channelId: targetChannelId,
+        serverId: targetServerId,
+        anchorMessageId: targetAnchorMessageId,
+        tag: targetTag,
+        newAfterSeq: targetNewAfterSeq,
+        preferTail: true,
+      }
+    : null, [targetAnchorMessageId, targetChannelId, targetNewAfterSeq, targetServerId, targetTag])
   const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, displayWindowReady, windowReady, revoked, denied, anchorMissing } = useConversationResource(baseTarget, intent, "messages")
   const entryIdentity = hashKey([
     input.channelId,

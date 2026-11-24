@@ -246,4 +246,38 @@ describe("ConversationFooterShell", () => {
     expect(slots.parent.accessoryTarget).toHaveTextContent("parent typing")
     expect(slots.thread.accessoryTarget).toBe(thread)
   })
+
+  it("reserves capsuleHeight synchronously on render 1 when reserveAccessorySlot is set", () => {
+    const initialCapsuleHeights: number[] = []
+    let latestSlot: NonNullable<ReturnType<typeof useConversationFooterSlot>> | null = null
+    function Probe() {
+      const slot = useConversationFooterSlot()!
+      latestSlot = slot
+      if (initialCapsuleHeights.length === 0) initialCapsuleHeights.push(slot.capsuleHeight)
+      return null
+    }
+    const view = render(
+      <ConversationFooterSlotProvider reserveAccessorySlot>
+        <Probe />
+        <ConversationFooterShell>
+          <div>composer</div>
+        </ConversationFooterShell>
+      </ConversationFooterSlotProvider>,
+    )
+    expect(initialCapsuleHeights).toEqual([40])
+    expect(latestSlot!.capsuleHeight).toBe(40)
+    act(() => latestSlot!.setSelectionActive(true))
+    expect(latestSlot!.capsuleHeight).toBe(0)
+    view.rerender(
+      <ConversationPresentationContext value={false}>
+        <ConversationFooterSlotProvider reserveAccessorySlot>
+          <Probe />
+          <ConversationFooterShell>
+            <div>composer</div>
+          </ConversationFooterShell>
+        </ConversationFooterSlotProvider>
+      </ConversationPresentationContext>,
+    )
+    expect(latestSlot!.capsuleHeight).toBe(0)
+  })
 })

@@ -154,7 +154,8 @@ describe("ForumView post card header", () => {
     expect(html).toContain(`title="${name}"`)
     expect(html).toContain(`<span class="opacity-60">#</span>9007199254740991`)
     expect(html).toContain(name)
-    expect(html).toContain("-webkit-line-clamp:1")
+    expect(html).toContain("min-w-0 truncate")
+    expect(html).toContain("shrink-0 whitespace-nowrap")
   })
 
   it("keeps post padding separate from the independent divider", () => {

@@ -84,30 +84,6 @@ const eslintConfig = defineConfig([
       ],
     },
   },
-  // TODO(#372): remove these temporary narrow overrides once /Alook#5620/fix/#372 lands.
-  {
-    files: ["src/hooks/community/use-conversation-entry.ts"],
-    rules: {
-      "react-hooks/set-state-in-effect": "off",
-      "react-hooks/exhaustive-deps": "off",
-      "@typescript-eslint/no-unused-vars": "off",
-    },
-  },
-  {
-    files: ["src/components/community/messages/message-list-controller.ts"],
-    rules: {
-      "react-hooks/set-state-in-effect": "off",
-    },
-  },
-  {
-    files: [
-      "src/components/community/channels/forum-post-list.tsx",
-      "src/hooks/community/use-scroll-anchor.ts",
-    ],
-    rules: {
-      "no-restricted-syntax": "off",
-    },
-  },
   {
     files: [
       "**/*.test.ts",

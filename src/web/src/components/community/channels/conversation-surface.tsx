@@ -58,7 +58,7 @@ export function ConversationSurface({
         data-community-conversation-subtype={subtype && subtype !== "dm" ? subtype : undefined}
         className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
-        <ConversationFooterSlotProvider>
+        <ConversationFooterSlotProvider reserveAccessorySlot>
           {bodyOverride !== undefined
             ? bodyOverride
             : messageListProps

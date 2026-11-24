@@ -138,8 +138,12 @@ function computeLoadedBelowCount(items: FlatItem[], root: HTMLDivElement | null,
   const rowsEl = findMessageRowsContainer(root)
   if (rowsEl && rowsEl.children.length > 0) {
     const children = rowsEl.children
+    let itemCount = children.length
+    while (itemCount > 0 && !(children[itemCount - 1] as HTMLElement).hasAttribute("data-index")) {
+      itemCount -= 1
+    }
     let lo = 0
-    let hi = children.length - 1
+    let hi = itemCount - 1
     let lastIndex = -1
     while (lo <= hi) {
       const mid = (lo + hi) >>> 1
@@ -154,6 +158,10 @@ function computeLoadedBelowCount(items: FlatItem[], root: HTMLDivElement | null,
     }
     while (lastIndex >= 0) {
       const wrapper = children[lastIndex] as HTMLElement
+      if (!wrapper.hasAttribute("data-index")) {
+        lastIndex -= 1
+        continue
+      }
       const rect = wrapper.getBoundingClientRect()
       if (rect.height > 0 && rect.top < viewportBottom - 0.5) {
         const idx = Number(wrapper.dataset.index)
@@ -182,9 +190,13 @@ function captureVisibleAnchor(root: HTMLDivElement | null, items: FlatItem[], vi
   const rowsEl = findMessageRowsContainer(root)
   if (rowsEl && rowsEl.children.length > 0) {
     const children = rowsEl.children
+    let itemCount = children.length
+    while (itemCount > 0 && !(children[itemCount - 1] as HTMLElement).hasAttribute("data-index")) {
+      itemCount -= 1
+    }
     let lo = 0
-    let hi = children.length - 1
-    let firstCandidate = children.length
+    let hi = itemCount - 1
+    let firstCandidate = itemCount
     while (lo <= hi) {
       const mid = (lo + hi) >>> 1
       const wrapper = children[mid] as HTMLElement
@@ -202,7 +214,7 @@ function captureVisibleAnchor(root: HTMLDivElement | null, items: FlatItem[], vi
       viewportOffset: number
       firstMessageKey: string | null
     } | null = null
-    for (let i = startIndex; i < children.length; i++) {
+    for (let i = startIndex; i < itemCount; i++) {
       const wrapper = children[i] as HTMLElement
       const body = rowMessageBody(wrapper)
       const id = body?.dataset.msgId
@@ -323,16 +335,6 @@ type PresentOperation = {
   receipt?: { result?: MessageRequestResult; before?: object }
 }
 
-type PresentationOwnerState = {
-  revision: number
-  tail: string | undefined
-  entry: object | null | undefined
-  target: string | null | undefined
-  submit: number | undefined
-  present: number | undefined
-  blocked: boolean
-}
-
 type ScrollUiState = {
   committedEntry: object | null | undefined
   positionOutcome: PositionOutcome
@@ -342,7 +344,6 @@ type ScrollUiState = {
   newDividerVisibility: NewDividerVisibility
   stateRevision: number
   requestRevision: number
-  presentationOwner: PresentationOwnerState
   mode: ConversationScrollState["mode"]
   pendingReadReady: boolean
   positionedTarget: string | null
@@ -369,8 +370,6 @@ function getServerDocumentVisible() {
 export function useConversationScroll({
   items,
   messageRows,
-  presentationRevision = 0,
-  presentationAvailable = true,
   newDividerBefore,
   newDividerSeq,
   initialScrollReady,
@@ -404,8 +403,6 @@ export function useConversationScroll({
 }: {
   items: FlatItem[]
   messageRows?: object
-  presentationRevision?: number
-  presentationAvailable?: boolean
   newDividerBefore?: string
   newDividerSeq?: number
   initialScrollReady: boolean
@@ -456,15 +453,6 @@ export function useConversationScroll({
     newDividerVisibility: "pending",
     stateRevision: 0,
     requestRevision: 0,
-    presentationOwner: {
-      revision: presentationRevision,
-      tail: tailMessageKey,
-      entry: positionEntry,
-      target: scrollToMessageId,
-      submit: localSubmitVersion,
-      present: presentVersion,
-      blocked: false,
-    },
     mode: "pinned-to-bottom",
     pendingReadReady: false,
     positionedTarget: null,
@@ -483,16 +471,6 @@ export function useConversationScroll({
   const newDividerVisibility = ui.newDividerVisibility
   const stateRevision = ui.stateRevision
   const requestRevision = ui.requestRevision
-
-  const presentationChanged = ui.presentationOwner.revision !== presentationRevision
-  const presentationBlocked = presentationChanged
-    || (ui.presentationOwner.blocked
-      && ui.presentationOwner.tail === tailMessageKey
-      && ui.presentationOwner.entry === positionEntry
-      && ui.presentationOwner.target === scrollToMessageId
-      && ui.presentationOwner.submit === localSubmitVersion
-      && ui.presentationOwner.present === presentVersion)
-  const readEligible = presentationAvailable && !presentationBlocked
 
   const stateRef = useRef<ConversationScrollState>({ mode: "pinned-to-bottom" })
   const epochRef = useRef(0)
@@ -551,8 +529,6 @@ export function useConversationScroll({
     newBoundaryOwner,
     viewportInsetEnd,
     tailPaddingEnd,
-    readEligible,
-    presentationAvailable,
     onScrollTargetPositioned,
     onScrollTargetCancelled,
     onInitialPositionSettled,
@@ -586,8 +562,6 @@ export function useConversationScroll({
       newBoundaryOwner,
       viewportInsetEnd,
       tailPaddingEnd,
-      readEligible,
-      presentationAvailable,
       onScrollTargetPositioned,
       onScrollTargetCancelled,
       onInitialPositionSettled,
@@ -623,44 +597,13 @@ export function useConversationScroll({
     positionScope,
     presentPending,
     presentRequest,
-    presentationAvailable,
     preserveInitialPresentation,
-    readEligible,
     scrollToMessageId,
     tailPaddingEnd,
     targetDataState,
     viewportInsetEnd,
     visible,
   ])
-
-  useLayoutEffect(() => {
-    uiStore.setState((current) => {
-      const prev = current.presentationOwner
-      if (
-        prev.revision === presentationRevision
-        && prev.tail === tailMessageKey
-        && prev.entry === positionEntry
-        && prev.target === scrollToMessageId
-        && prev.submit === localSubmitVersion
-        && prev.present === presentVersion
-        && prev.blocked === presentationBlocked
-      ) {
-        return current
-      }
-      return {
-        ...current,
-        presentationOwner: {
-          revision: presentationRevision,
-          tail: tailMessageKey,
-          entry: positionEntry,
-          target: scrollToMessageId,
-          submit: localSubmitVersion,
-          present: presentVersion,
-          blocked: presentationBlocked,
-        },
-      }
-    })
-  }, [uiStore, presentationRevision, tailMessageKey, positionEntry, scrollToMessageId, localSubmitVersion, presentVersion, presentationBlocked])
 
   const syncUiSnapshot = useCallback((incrementRevision = false, knownBelowCount?: number) => {
     const ctx = propsRef.current
@@ -720,15 +663,6 @@ export function useConversationScroll({
   const bumpRequestRevision = useCallback(() => {
     uiStore.setState((current) => ({ ...current, requestRevision: current.requestRevision + 1 }))
   }, [uiStore])
-
-  const allowPresentationRead = useCallback(() => {
-    if (!uiStore.state.presentationOwner.blocked) return
-    uiStore.setState((current) => (current.presentationOwner.blocked
-      ? { ...current, presentationOwner: { ...current.presentationOwner, blocked: false } }
-      : current))
-    propsRef.current.readEligible = propsRef.current.presentationAvailable
-    bumpState()
-  }, [bumpState, uiStore])
 
   const setOutcomeOnce = useCallback((outcome: PositionOutcome) => {
     if (positionOutcomeRef.current !== "pending") return
@@ -792,7 +726,7 @@ export function useConversationScroll({
   const reportReadingMessage = useCallback((automatic = false, knownAnchor?: ReturnType<typeof captureVisibleAnchor>) => {
     const ctx = propsRef.current
     const root = scrollRef.current
-    if (!ctx.onReadingMessage || !root || !ctx.visible || !ctx.active || !ctx.readEligible
+    if (!ctx.onReadingMessage || !root || !ctx.visible || !ctx.active
       || ctx.dataState !== "ready" || !readReadyRef.current || stateRef.current.mode === "jumping-to-target") return
     const content = root.querySelector<HTMLElement>("[data-message-list-content]")
     if (content && content.getAttribute("data-read-position-ready") === "false") return
@@ -852,7 +786,7 @@ export function useConversationScroll({
     if (notifyBoundary && next === "visible" && id
       && (manualOriginEpochRef.current === epoch || presentOriginEpochRef.current === epoch)
       && stateRef.current.mode !== "jumping-to-target"
-      && readReadyRef.current && ctx.active && ctx.readEligible && !ctx.entryChanged
+      && readReadyRef.current && ctx.active && !ctx.entryChanged
       && typeof document !== "undefined" && document.visibilityState === "visible") {
       presentOriginEpochRef.current = null
       ctx.onNewBoundaryReached?.({ id, entry: ctx.positionEntry, owner: ctx.newBoundaryOwner, epoch })
@@ -937,7 +871,10 @@ export function useConversationScroll({
     const needsMove = Math.abs(root.scrollTop - top) > 1
     if (needsMove) {
       if (state.behavior === "smooth") {
-        writeScrollTopSmooth(root, top, "smooth")
+        const activeSmooth = programmaticScrollRef.current
+        if (!activeSmooth?.smooth || Math.abs(activeSmooth.target - top) > 1) {
+          writeScrollTopSmooth(root, top, "smooth")
+        }
       } else {
         writeScrollTopInstant(root, top)
       }
@@ -1203,7 +1140,6 @@ export function useConversationScroll({
     const ctx = propsRef.current
     if (!ctx.visible) return
     if (request && !request.accepted) return
-    if (userInitiated) allowPresentationRead()
     finishNewOp("cancelled")
     epochRef.current += 1
     const epoch = epochRef.current
@@ -1233,7 +1169,7 @@ export function useConversationScroll({
       notifyTarget: false,
     }
     bumpState()
-  }, [allowPresentationRead, bumpRequestRevision, bumpState, finishNewOp, writeReadReady])
+  }, [bumpRequestRevision, bumpState, finishNewOp, writeReadReady])
 
   useEffect(() => {
     const suspended = suspendedTailRef.current
@@ -1502,7 +1438,6 @@ export function useConversationScroll({
         && !isFetchingOlder
         && !isFetchingNewer
         && !paginationRef.current
-        && !presentationChanged
       if (settledTailAppend) {
         writeScrollTopSmooth(root, root.scrollHeight - root.clientHeight, messageScrollBehavior())
         syncTailFlags(root)
@@ -1532,8 +1467,6 @@ export function useConversationScroll({
     isFetchingOlder,
     items,
     messageWindow,
-    presentationChanged,
-    presentationRevision,
     preserveInitialPresentation,
     scheduleCheck,
     scrollToMessageId,
@@ -1588,7 +1521,6 @@ export function useConversationScroll({
     }
 
     const onUserIntent = (towardEnd: boolean) => {
-      allowPresentationRead()
       programmaticScrollRef.current = null
       upwardIntentRef.current = !towardEnd
       const wasReadingHistory = stateRef.current.mode === "reading-history"
@@ -1621,19 +1553,24 @@ export function useConversationScroll({
         updateNewDividerVisibility(true)
         return
       }
+      const prevTop = prevGeo?.scrollTop ?? root.scrollTop
+      const delta = root.scrollTop - prevTop
       const prog = programmaticScrollRef.current
-      const isOwnProgrammaticScroll = !!prog && Math.abs(root.scrollTop - prog.target) <= (prog.smooth ? 1 : 0.25)
+      const landedProgrammaticScroll = !!prog && Math.abs(root.scrollTop - prog.target) <= (prog.smooth ? 1 : 0.25)
+      const inFlightSmoothScroll = !!prog && prog.smooth && !landedProgrammaticScroll && (
+        (prog.target >= prevTop && delta >= -0.5 && root.scrollTop <= prog.target + 1)
+        || (prog.target <= prevTop && delta <= 0.5 && root.scrollTop >= prog.target - 1)
+      )
+      const isOwnProgrammaticScroll = landedProgrammaticScroll || inFlightSmoothScroll
       if (prog) {
-        if (isOwnProgrammaticScroll) {
+        if (landedProgrammaticScroll) {
           programmaticScrollRef.current = null
           if (stateRef.current.mode === "jumping-to-target") settleJumpIfLanded(true)
-        } else if (!prog.smooth) {
+        } else if (!prog.smooth || !inFlightSmoothScroll) {
           programmaticScrollRef.current = null
         }
       }
 
-      const prevTop = prevGeo?.scrollTop ?? root.scrollTop
-      const delta = root.scrollTop - prevTop
       const dist = distanceFromEnd(root)
       let capturedAnchor: ReturnType<typeof captureVisibleAnchor> | undefined
 
@@ -1777,7 +1714,7 @@ export function useConversationScroll({
         rafRef.current = null
       }
     }
-  }, [allowPresentationRead, bumpState, compensateAnchor, reportReadingMessage, settleJumpIfLanded, syncTailFlags, syncUiSnapshot, transitionToReadingHistory, updateNewDividerVisibility])
+  }, [bumpState, compensateAnchor, reportReadingMessage, settleJumpIfLanded, syncTailFlags, syncUiSnapshot, transitionToReadingHistory, updateNewDividerVisibility])
 
   useEffect(() => () => {
     finishNewOp("retired")
@@ -1790,7 +1727,6 @@ export function useConversationScroll({
   const scrollToBottom = useCallback(() => {
     const ctx = propsRef.current
     if (!ctx.visible) return
-    allowPresentationRead()
     finishNewOp("cancelled")
     epochRef.current += 1
     presentOriginEpochRef.current = epochRef.current
@@ -1809,12 +1745,11 @@ export function useConversationScroll({
     }
     settleJumpIfLanded(true)
     bumpState()
-  }, [allowPresentationRead, bumpState, finishNewOp, settleJumpIfLanded])
+  }, [bumpState, finishNewOp, settleJumpIfLanded])
 
   const jumpTo = useCallback((messageId: string, behavior: ScrollBehavior = messageScrollBehavior()) => {
     const ctx = propsRef.current
     if (!ctx.visible || findMessageIndex(ctx.items, messageId) === null) return
-    allowPresentationRead()
     finishNewOp("cancelled")
     epochRef.current += 1
     presentOriginEpochRef.current = null
@@ -1830,7 +1765,7 @@ export function useConversationScroll({
     }
     settleJumpIfLanded(true)
     bumpState()
-  }, [allowPresentationRead, bumpState, finishNewOp, settleJumpIfLanded])
+  }, [bumpState, finishNewOp, settleJumpIfLanded])
 
   const requestNewPosition = useCallback((id: string, load?: () => MessageRequest): NewPositionRequest => {
     const ctx = propsRef.current
@@ -1838,7 +1773,6 @@ export function useConversationScroll({
       || (!load && findMessageIndex(ctx.items, id) === null)) {
       return { accepted: false }
     }
-    allowPresentationRead()
     const wasPinned = stateRef.current.mode === "pinned-to-bottom"
     const wasFollowSuspended = followSuspendedRef.current
     if (wasPinned) {
@@ -1897,7 +1831,7 @@ export function useConversationScroll({
       transitionToReadingHistory(false, "error")
     }
     return { accepted: true, completed }
-  }, [allowPresentationRead, bumpRequestRevision, finishNewOp, transitionToReadingHistory])
+  }, [bumpRequestRevision, finishNewOp, transitionToReadingHistory])
 
   const capturePageAnchor = useCallback((direction: "older" | "newer", fillingViewport?: boolean) => {
     const ctx = propsRef.current
@@ -1980,9 +1914,9 @@ export function useConversationScroll({
 
   const awaitingTarget = !!scrollToMessageId && ui.positionedTarget !== scrollToMessageId
   const isSteady = ui.mode !== "jumping-to-target" && positionOutcome !== "pending" && !ui.pendingReadReady
-  const effectiveReadPositionReady = readEligible && active && visible && dataState !== "pending" && dataState !== "error" && resumeValidated && !entryChanged && readReady
-  const effectivePaginationEnabled = readEligible && active && visible && dataState !== "pending" && dataState !== "error" && !entryChanged && isSteady && !awaitingTarget
-  const effectiveUnderfillEnabled = readEligible && active && visible && initialScrollReady && readReady && !entryChanged && isSteady && !awaitingTarget && dataState !== "error"
+  const effectiveReadPositionReady = active && visible && dataState !== "pending" && dataState !== "error" && resumeValidated && !entryChanged && readReady
+  const effectivePaginationEnabled = active && visible && dataState !== "pending" && dataState !== "error" && !entryChanged && isSteady && !awaitingTarget
+  const effectiveUnderfillEnabled = active && visible && initialScrollReady && readReady && !entryChanged && isSteady && !awaitingTarget && dataState !== "error"
   const belowCount = ui.belowCount
   const paginationRequestPending = paginationDirection !== null
 

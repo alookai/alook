@@ -1,7 +1,7 @@
-import type { ComponentType, ReactNode } from "react"
+import type { ReactNode } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 
-export type MessageRendererId = "current" | "chatscope" | "lobe"
+export type MessageRendererId = "current"
 export type MessageCellPresentationProps = {
   message: RenderMsg
   authorName: string
@@ -27,4 +27,3 @@ export type MessageCellPresentationProps = {
   onToggleReaction?: (emoji: string) => void
   onContentResize?: () => void
 }
-export type MessageCellPresentation = ComponentType<MessageCellPresentationProps>
