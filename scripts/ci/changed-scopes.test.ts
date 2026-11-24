@@ -229,7 +229,13 @@ describe("canonical execution plan", () => {
 
   it.each([
     ["src/web/src/hooks/community/member-read.status.test.ts", true],
-    ["src/web/src/components/community/channels/channel-leave.closed-loop.dom.test.tsx", true],
+    ["src/web/src/hooks/community/use-conversation-scroll.ts", false],
+    ["src/web/src/components/community/channels/channel-leave.closed-loop.dom.test.tsx", false],
+    ["src/web/src/components/community/channels/channel-view.tsx", false],
+    ["src/web/src/test/e2e-ui/63-mobile-notification-routing.spec.ts", false],
+    ["src/web/wrangler.toml", false],
+    ["src/ws-do/wrangler.toml", false],
+    ["src/web/eslint.config.mjs", false],
     ["src/web/blog/src/content/ai-agent-communication.mdx", false],
     ["CONTRIBUTING.md", false],
     ["src/web/src/app/api/community/billing/route.ts", true],

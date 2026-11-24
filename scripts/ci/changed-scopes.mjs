@@ -38,8 +38,18 @@ const DB_QUERY_SKIP_DIRECTORIES = [
   "src/web/public",
   "src/web/src/components",
   "src/web/src/contexts",
+  "src/web/src/hooks",
   "src/web/src/stores",
+  "src/web/src/test/e2e",
+  "src/web/src/test/e2e-ui",
 ]
+const DB_QUERY_SKIP_FILES = [
+  /(?:^|\/)wrangler\.toml$/,
+  /(?:^|\/)eslint\.config\.[cm]?[jt]s$/,
+]
+const DB_QUERY_INCLUDE_FILES = new Set([
+  "src/web/src/hooks/community/member-read.status.test.ts",
+])
 const COVERAGE_EXCLUDES = [
   /(?:^|\/)\w[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$/,
   // Project/workspace configs execute before coverage instrumentation and are
@@ -104,10 +114,10 @@ function pathWithin(path, root) {
 }
 
 export function isDbQueryCheckPath(path) {
-  return !isMarkdown(path) && (
-    pathWithin(path, "src/web/src/components/community/channels")
-    || !DB_QUERY_SKIP_DIRECTORIES.some(directory => pathWithin(path, directory))
-  )
+  if (DB_QUERY_INCLUDE_FILES.has(path)) return true
+  return !isMarkdown(path)
+    && !DB_QUERY_SKIP_FILES.some(pattern => pattern.test(path))
+    && !DB_QUERY_SKIP_DIRECTORIES.some(directory => pathWithin(path, directory))
 }
 
 function coverageRootPrefix(glob) {
