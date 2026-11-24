@@ -415,6 +415,9 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     ))
     const closedTriggerSurfaceStyle = await readTriggerSurfaceStyle()
     const closedTriggerFocusRing = await readTriggerFocusRing()
+    await expect(inboxTrigger).toHaveAttribute("data-variant", "unread")
+    expect(closedTriggerSurfaceStyle.borderWidth).toBe("0px")
+    expect(closedTriggerFocusRing).not.toBe("none")
     await inboxTrigger.click()
     await bob.page.mouse.move(0, 0)
     const mobileSurface = bob.page.getByTestId(tid.userBarExtension)
@@ -422,6 +425,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await expect(mobileSurface).toHaveAttribute("role", "dialog")
     await expect(mobileSurface).not.toHaveAttribute("aria-modal", "true")
     await expect(inboxTrigger).toHaveAttribute("aria-expanded", "true")
+    await expect(inboxTrigger).toHaveAttribute("data-variant", "ghost")
     await expect(inboxTrigger).toHaveAttribute("aria-controls", await mobileSurface.getAttribute("id") ?? "")
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Close Inbox")
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "true")
@@ -438,11 +442,9 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     }).toEqual({
       backgroundChanged: true,
       foregroundChanged: true,
-      borderWidth: closedTriggerSurfaceStyle.borderWidth,
-      boxShadow: closedTriggerFocusRing,
+      borderWidth: "0px",
+      boxShadow: "none",
     })
-    expect(closedTriggerSurfaceStyle.borderWidth).toBe("0px")
-    expect(closedTriggerFocusRing).toBe("none")
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
     await expect(mobileSurface.getByRole("button", { name: /^Dismiss / })).toHaveCount(0)
     await expect(mobileSurface).toBeFocused()
