@@ -11,18 +11,15 @@
 
 .circle {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
   border-radius: 50%;
   color: var(--inbox-unread-foreground);
-  background: var(--inbox-unread);
+  background: transparent;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   font-weight: 600;
   font-variant-numeric: tabular-nums;

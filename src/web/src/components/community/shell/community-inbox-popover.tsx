@@ -123,7 +123,7 @@ function InboxCountBadge({ count, shown, descriptionId }: { count: number; shown
   const description = shown ? `${count} unread ${count === 1 ? "message" : "messages"}` : undefined
   return (
     <span role={shown ? "img" : undefined} aria-label={description} data-slot="inbox-disclosure-count"
-      className={cn(indicatorStyles.countMotion, "grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground")}>
+      className={cn(indicatorStyles.countMotion, "grid shrink-0 place-items-center px-2 text-xs font-semibold leading-none tabular-nums")}>
       {count}
       {description && <span id={descriptionId} className="sr-only">{description}</span>}
     </span>
@@ -318,21 +318,31 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
   }
   return (
     <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={identity} animatePreview
-      actions={<div className="-me-1.5 flex shrink-0 items-center gap-0.5 sm:-me-1">
+      actions={<div className="-me-1.5 flex shrink-0 items-center gap-0.5 sm:-me-1 sm:gap-1.5">
         <InboxIconAction restingTint className={unreadChannelActionClassName}
           data-testid={tid.inboxMarkChannelRead(channelId)}
           aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || pending}
           onClick={() => mark(throughSeq)}>
           {pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
         </InboxIconAction>
-        <Button variant="ghost" size="icon"
-          className={cn(cardActionClassName, "w-auto min-w-11 rounded-full bg-transparent! px-1 text-muted-foreground! focus-visible:ring-inset sm:w-auto sm:min-w-8")}
+        <Button variant={showCount ? "unread" : "ghost"} size="icon"
+          className={cn(
+            showCount
+              ? "relative h-7 w-auto min-w-7 rounded-full max-sm:mx-2 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] sm:h-8 sm:min-w-8"
+              : cn(cardActionClassName, "rounded-full bg-transparent! text-muted-foreground! hover:bg-foreground/7 dark:hover:bg-foreground/9"),
+            "focus-visible:ring-inset",
+          )}
           data-testid={tid.inboxToggleChannel(channelId)}
           aria-label={`${expanded ? "Hide" : "Show"} unread messages in ${name}`} aria-expanded={expanded} aria-controls={bodyId}
           aria-describedby={showCount ? countId : undefined}
           onClick={() => setExpanded(value => !value)}>
           <span aria-hidden="true" data-slot="inbox-action-visual" data-unread={showCount}
-            className={cn("pointer-events-none max-sm:min-w-7", styles.disclosureVisual, indicatorStyles.motion)}>
+            className={cn(
+              "pointer-events-none",
+              !showCount && "max-sm:grid max-sm:size-7 max-sm:place-items-center max-sm:rounded-full max-sm:group-hover/button:bg-foreground/10",
+              styles.disclosureVisual,
+              indicatorStyles.motion,
+            )}>
             <InboxCountBadge count={displayCount} shown={showCount} descriptionId={countId} />
             <span data-slot="inbox-disclosure-chevron" className={indicatorStyles.iconMotion}>
               <ChevronDown isAnimated={false} className={cn("size-4", (expanded || showCount) && "rotate-180")} />

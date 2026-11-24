@@ -9795,6 +9795,12 @@
       "source": "src/storybook/stories/business/shell-details.stories.tsx"
     },
     {
+      "id": "web-business-shell-details--user-bar-unread",
+      "title": "Web/Business/Shell details",
+      "name": "User Bar Unread",
+      "source": "src/storybook/stories/business/shell-details.stories.tsx"
+    },
+    {
       "id": "web-business-shell-details--inbox-todo-desktop",
       "title": "Web/Business/Shell details",
       "name": "Inbox Todo Desktop",
@@ -9804,6 +9810,18 @@
       "id": "web-business-shell-details--inbox-todo-mobile",
       "title": "Web/Business/Shell details",
       "name": "Inbox Todo Mobile",
+      "source": "src/storybook/stories/business/shell-details.stories.tsx"
+    },
+    {
+      "id": "web-business-shell-details--inbox-unreads-desktop",
+      "title": "Web/Business/Shell details",
+      "name": "Inbox Unreads Desktop",
+      "source": "src/storybook/stories/business/shell-details.stories.tsx"
+    },
+    {
+      "id": "web-business-shell-details--inbox-unreads-mobile",
+      "title": "Web/Business/Shell details",
+      "name": "Inbox Unreads Mobile",
       "source": "src/storybook/stories/business/shell-details.stories.tsx"
     },
     {

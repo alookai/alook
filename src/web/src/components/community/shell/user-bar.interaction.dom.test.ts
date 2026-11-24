@@ -356,4 +356,34 @@ describe("UserBar Inbox switching", () => {
     expect(onInboxOpenChange).toHaveBeenCalledOnce()
     expect(onEditProfile).toHaveBeenCalledOnce()
   })
+
+  it("renders the inbox trigger with the unread button variant only when closed with unread items", () => {
+    const view = render(createElement(UserBar, {
+      user: { name: "User", avatar: "U", status: "online" },
+      inbox: createElement("div", null, "Inbox content"),
+      unreadCount: 3,
+      inboxOpen: false,
+      onInboxOpenChange: vi.fn(),
+    }))
+    const trigger = screen.getByTestId(tid.inboxTrigger)
+    expect(trigger).toHaveAttribute("data-variant", "unread")
+
+    view.rerender(createElement(UserBar, {
+      user: { name: "User", avatar: "U", status: "online" },
+      inbox: createElement("div", null, "Inbox content"),
+      unreadCount: 3,
+      inboxOpen: true,
+      onInboxOpenChange: vi.fn(),
+    }))
+    expect(trigger).toHaveAttribute("data-variant", "ghost")
+
+    view.rerender(createElement(UserBar, {
+      user: { name: "User", avatar: "U", status: "online" },
+      inbox: createElement("div", null, "Inbox content"),
+      unreadCount: 0,
+      inboxOpen: false,
+      onInboxOpenChange: vi.fn(),
+    }))
+    expect(trigger).toHaveAttribute("data-variant", "ghost")
+  })
 })
