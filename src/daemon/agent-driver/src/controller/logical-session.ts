@@ -220,6 +220,7 @@ implements AgentSession<Specs, Id> {
   private activity?: import("../contract.js").SessionActivityObservation;
   private sessionMessage = emptySemanticAssembler();
   private sessionReasoning = emptySemanticAssembler();
+  private sessionContentTimer?: ReturnType<typeof setTimeout>;
   private backendSessionId?: string;
   private acquisition?: SessionAcquisition;
   private configuration?: RuntimeConfigurationObservation;
@@ -830,6 +831,13 @@ implements AgentSession<Specs, Id> {
     if (event.kind === "model_observed") return;
     if (event.attribution?.scope === "session" && (event.kind === "assistant_message_delta" || event.kind === "assistant_reasoning_delta")) {
       appendSemanticFragment(event.kind === "assistant_message_delta" ? this.sessionMessage : this.sessionReasoning, event.text);
+      if (event.text && !this.sessionContentTimer) {
+        this.sessionContentTimer = setTimeout(() => {
+          this.sessionContentTimer = undefined;
+          if (this.state !== "closed" && this.state !== "stopping") this.flushSessionContent();
+        }, 500);
+        this.sessionContentTimer.unref?.();
+      }
       return;
     }
     if (event.attribution?.scope === "child" || event.attribution?.scope === "unknown" || event.attribution?.scope === "session") {
@@ -1059,6 +1067,8 @@ implements AgentSession<Specs, Id> {
   }
 
   private flushSessionContent(): void {
+    if (this.sessionContentTimer) clearTimeout(this.sessionContentTimer);
+    this.sessionContentTimer = undefined;
     for (const [kind, buffer] of [["assistant_reasoning_completed", this.sessionReasoning], ["assistant_message_completed", this.sessionMessage]] as const) {
       const completion = finishSemanticAssembler(buffer);
       if (completion.text) this.emit({ type: "activity", attribution: { scope: "session" }, kind, ...completion });

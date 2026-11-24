@@ -383,8 +383,10 @@ Explicit stop/reset still owns complete cleanup.
 Late tool results retain their call identity and appear once as session-scoped
 `activity`. Once outside-turn work makes model-output ownership ambiguous, that
 physical session keeps model text at session scope rather than assigning it to
-a later root. Text is bounded and assembled into complete activity records at
-prompt ends, observed idle and close, and is delivered through the existing
+a later root. Text is bounded and assembled into activity records at
+prompt ends, observed idle and close, or within 500ms of the first pending
+fragment when those boundaries do not arrive. Text delivery does not change
+execution activity or create a terminal. Records use the existing
 Bot text-audit path (Activity and Thoughts). Live tool storage tracks only
 unfinished calls; a bounded 4,096-ID completion cache suppresses duplicates.
 
