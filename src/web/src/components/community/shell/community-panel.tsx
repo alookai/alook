@@ -78,7 +78,8 @@ export function CommunityPanel(props: CommunityPanelProps) {
         </span>
       )}
       desktopWidth={kind === "members" ? 380 : undefined}
-      bodyClassName={displayed === "members" ? "p-0 sm:p-0" : "flex flex-col"}
+      bodyClassName={displayed === "members" ? "h-full p-0 sm:p-0" : "flex flex-col"}
+      bodyViewportClassName={displayed === "members" ? "overflow-hidden" : undefined}
     >
       {renderCommunityPanelBody({ ...props, kind: displayed }, profilesByUserId)}
     </CommunitySheet>

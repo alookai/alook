@@ -61,9 +61,10 @@ function ScrollAreaContent({
 
 function ScrollBar({
   className,
+  thumbClassName,
   orientation = "vertical",
   ...props
-}: ScrollAreaPrimitive.Scrollbar.Props) {
+}: ScrollAreaPrimitive.Scrollbar.Props & { thumbClassName?: string }) {
   return (
     <ScrollAreaPrimitive.Scrollbar
       data-slot="scroll-area-scrollbar"
@@ -81,6 +82,7 @@ function ScrollBar({
         className={cn(
           "shrink-0 rounded-full bg-foreground/20 transition-colors duration-150 ease-out hover:bg-foreground/35 active:bg-foreground/45 motion-reduce:transition-none",
           orientation === "vertical" ? "w-full" : "h-full",
+          thumbClassName,
         )}
       />
     </ScrollAreaPrimitive.Scrollbar>

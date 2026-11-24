@@ -19,6 +19,7 @@ import {
   SELF_UPDATE_MIN_DAEMON_VERSION,
 } from "@alook/shared"
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   AlertDialog,
@@ -82,12 +83,12 @@ function MachineCardSkeleton() {
 
 function MachineListContent({ heading, cards }: { heading: ReactNode; cards: ReactNode }) {
   return (
-    <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
+    <ScrollArea className="min-h-0 flex-1" contentClassName="flex flex-col gap-6 p-6">
       <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
         {heading}
         <div className="flex flex-col gap-3">{cards}</div>
       </div>
-    </div>
+    </ScrollArea>
   )
 }
 

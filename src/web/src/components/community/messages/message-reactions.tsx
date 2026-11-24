@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { displayName } from "@/lib/community/display-name"
 import type { Reaction } from "@/lib/community/models/message"
@@ -238,7 +239,7 @@ function ReactionDetailsDialog({
               data-testid={tid.reactionScroller(messageId)}
               aria-label="Reaction types"
               onKeyDown={onReactionRailKeyDown}
-              className="h-11! min-h-11 w-full max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden rounded-none bg-transparent! px-4! py-0! overscroll-x-contain scroll-fade-x scroll-fade-4 scroll-px-4 thin-scrollbar scrollbar-none"
+              className="h-11! min-h-11 w-full max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden rounded-none bg-transparent! px-4! py-0! overscroll-x-contain scroll-fade-x scroll-fade-4 scroll-px-4 scrollbar-none"
             >
               {reactions.map((reaction) => (
                 <TabsTrigger
@@ -260,12 +261,16 @@ function ReactionDetailsDialog({
         </Tabs>
       )}
 
-      <div
-        id={`${tid.reactionDialog(messageId)}-panel`}
-        role="tabpanel"
-        aria-labelledby={selectedEmoji ? tid.reactionTab(selectedEmoji) : undefined}
-        className="min-h-28 flex-auto overflow-y-auto thin-scrollbar"
-        aria-live="polite"
+      <ScrollArea
+        className="flex min-h-28 flex-auto flex-col"
+        viewportClassName="min-h-0 flex-1"
+        contentClassName="min-h-full"
+        viewportProps={{
+          id: `${tid.reactionDialog(messageId)}-panel`,
+          role: "tabpanel",
+          "aria-labelledby": selectedEmoji ? tid.reactionTab(selectedEmoji) : undefined,
+          "aria-live": "polite",
+        }}
       >
         {details.isLoading ? (
           <div className="space-y-2 py-2" aria-label="Loading reactions">
@@ -284,7 +289,7 @@ function ReactionDetailsDialog({
         ) : (
           <div data-testid={tid.reactionEmpty(messageId)} className="flex min-h-full flex-col"><EmptyState icon={Smile} label="No reactions yet" /></div>
         )}
-      </div>
+      </ScrollArea>
     </DialogContent>
   )
 }

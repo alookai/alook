@@ -32,6 +32,7 @@ type CommunitySheetProps = {
   footer?: React.ReactNode | ((requestClose: () => void) => React.ReactNode)
   children: React.ReactNode
   bodyClassName?: string
+  bodyViewportClassName?: string
   bodyRef?: React.Ref<HTMLDivElement>
   desktopWidth?: number
   resizable?: boolean
@@ -50,6 +51,7 @@ export function CommunitySheet({
   footer,
   children,
   bodyClassName,
+  bodyViewportClassName,
   bodyRef,
   desktopWidth = COMMUNITY_SHEET_WIDTH,
   resizable = false,
@@ -80,6 +82,7 @@ export function CommunitySheet({
           headerLeading={headerLeading}
           footer={footer}
           bodyClassName={bodyClassName}
+          bodyViewportClassName={bodyViewportClassName}
           bodyRef={bodyRef}
           desktopWidth={desktopWidth}
           closeLabel={closeLabel}
@@ -98,6 +101,7 @@ export function CommunitySheet({
           headerLeading={headerLeading}
           footer={footer}
           bodyClassName={bodyClassName}
+          bodyViewportClassName={bodyViewportClassName}
           bodyRef={bodyRef}
           closeLabel={closeLabel}
           contentTestId={contentTestId}
@@ -119,6 +123,7 @@ type CommunitySheetContentProps = Pick<
   | "footer"
   | "children"
   | "bodyClassName"
+  | "bodyViewportClassName"
   | "bodyRef"
   | "closeLabel"
   | "contentTestId"
@@ -140,6 +145,7 @@ function CommunitySheetContent({
   footer,
   children,
   bodyClassName,
+  bodyViewportClassName,
   bodyRef,
   closeLabel,
   contentTestId,
@@ -181,7 +187,7 @@ function CommunitySheetContent({
           </div>
         )}
       </SheetHeader>
-      <SheetBody ref={bodyRef} data-testid={bodyTestId} className={bodyClassName}>
+      <SheetBody ref={bodyRef} data-testid={bodyTestId} className={bodyClassName} viewportClassName={bodyViewportClassName}>
         {children}
       </SheetBody>
       {footerContent != null && (

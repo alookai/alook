@@ -6,6 +6,7 @@ import type { ComponentProps, ReactNode } from "react"
 import { X } from "@/components/icons/lucide";
 import styles from "./settings-shell.module.css"
 import { Button } from "@/components/ui/button"
+import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
@@ -110,12 +111,17 @@ export function SettingsShell<Value extends string>({
         ) : null}
       </nav>
 
-      <div
-        className="col-start-1 row-start-3 min-h-0 min-w-0 overflow-y-auto rounded-tl-xl bg-background px-4 pt-6 pb-4 thin-scrollbar sm:col-start-2 sm:row-start-2 sm:p-8 sm:pt-4"
-        data-testid={tid.settingsContent}
-      >
-        {children}
-      </div>
+      <ScrollAreaRoot className="col-start-1 row-start-3 min-h-0 min-w-0 rounded-tl-xl bg-background sm:col-start-2 sm:row-start-2">
+        <ScrollAreaViewport
+          data-testid={tid.settingsContent}
+          className="overflow-x-clip overflow-y-auto"
+        >
+          <ScrollAreaContent className="min-h-full px-4 pt-6 pb-4 sm:p-8 sm:pt-4 has-[>[data-slot=tabs-content][class~='h-full']:not([hidden])]:h-full">
+            {children}
+          </ScrollAreaContent>
+        </ScrollAreaViewport>
+        <ScrollBar />
+      </ScrollAreaRoot>
     </Tabs>
   )
 }

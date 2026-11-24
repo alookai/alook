@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import type { Element, ElementContent, Root } from "hast"
 import type { Plugin } from "unified"
 import { CodeBlockContainer, CodeBlockCopyButton, CodeBlockHeader } from "streamdown"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { REDACTED, parts, RedactedBadge } from "./redacted-text"
 export { RedactedBadge } from "./redacted-text"
@@ -63,9 +64,13 @@ export function RedactedCode({ children, ...props }: Record<string, unknown> & {
           <CodeBlockCopyButton code={text} />
         </div>
       </div>
-      <div data-streamdown="code-block-body" className="thin-scrollbar overflow-x-auto overflow-y-auto">
+      <ScrollArea
+        orientation="both"
+        viewportProps={{ "data-streamdown": "code-block-body" }}
+        contentClassName="w-max min-w-full"
+      >
         <pre><code>{content}</code></pre>
-      </div>
+      </ScrollArea>
     </CodeBlockContainer>
   )
 }

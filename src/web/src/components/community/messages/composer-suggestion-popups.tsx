@@ -1,5 +1,6 @@
 import { observeVisibilitySentinel } from "@/lib/observe-visibility-sentinel"
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
 import { Users } from "@/components/icons/lucide";
@@ -83,10 +84,10 @@ export function CommunityMentionList({
         POPUP_MAX_HEIGHT,
       )}
     >
-      <div
-        ref={listRef}
-        className="relative overflow-x-hidden overflow-y-auto thin-scrollbar"
-        style={{ maxHeight: "var(--anchored-popover-max-height)" }}
+      <ScrollArea
+        viewportRef={listRef}
+        viewportClassName="relative overflow-x-hidden overflow-y-auto"
+        viewportProps={{ style: { maxHeight: "var(--anchored-popover-max-height)" } }}
       >
         {items.map((item, index) => (
           <MentionRow
@@ -107,7 +108,7 @@ export function CommunityMentionList({
         {presentation.status !== "ready" && (
           <MentionStatus status={presentation.status} hasItems={items.length > 0} />
         )}
-      </div>
+      </ScrollArea>
     </div>,
     document.body,
   )
@@ -171,10 +172,10 @@ export function ChannelRefList({
         POPUP_MAX_HEIGHT,
       )}
     >
-      <div
-        ref={listRef}
-        className="relative overflow-x-hidden overflow-y-auto thin-scrollbar"
-        style={{ maxHeight: "var(--anchored-popover-max-height)" }}
+      <ScrollArea
+        viewportRef={listRef}
+        viewportClassName="relative overflow-x-hidden overflow-y-auto"
+        viewportProps={{ style: { maxHeight: "var(--anchored-popover-max-height)" } }}
       >
         {items.map((item, index) => (
           <ChannelRefRow
@@ -188,7 +189,7 @@ export function ChannelRefList({
         {presentation && presentation.status !== "ready" && (
           <ChannelRefStatus status={presentation.status} />
         )}
-      </div>
+      </ScrollArea>
     </div>,
     document.body,
   )

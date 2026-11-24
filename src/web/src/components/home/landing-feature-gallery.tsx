@@ -123,7 +123,7 @@ export function LandingFeatureGallery({ isLoggedIn }: { isLoggedIn: boolean }) {
       <div className={styles.controls} data-left={edges.left} data-right={edges.right}>
         {/* The shared Tabs component (Gus #2354); the panel below is the step slide. */}
         <Tabs value={current.id} onValueChange={value => { const index = features.findIndex(feature => feature.id === value); if (index >= 0) select(index) }}>
-        <TabsList ref={tabList} className={`${styles.tabs} thin-scrollbar`} aria-label="Features"
+        <TabsList ref={tabList} className={`${styles.tabs} scrollbar-none`} aria-label="Features"
           data-overflow={edges.left || edges.right}
           onPointerDown={event => {
             keyboardMove.current = false

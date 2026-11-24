@@ -142,8 +142,9 @@ describe("renderBotListView", () => {
       const cards = withClassFragment(renderer.container, "flex flex-col gap-3 p-4")
       expect(cards).toHaveLength(3)
       expect(cards.every((card) => card.parentElement === cards[0]!.parentElement)).toBe(true)
-      expect(withExactClass(renderer.container,
-        "flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar")).toHaveLength(1)
+      const viewport = renderer.container.querySelector('[data-slot="scroll-area-viewport"]')
+      expect(viewport).toHaveClass("overflow-y-auto", "scrollbar-none")
+      expect(renderer.container.querySelector('[data-slot="scroll-area-content"]')).toHaveClass("flex", "flex-col", "gap-6", "p-6")
       expect(withExactClass(renderer.container,
         "flex items-center justify-between gap-4")).toHaveLength(1)
       expect(withExactClass(renderer.container,
@@ -242,8 +243,9 @@ describe("renderBotListView", () => {
     expect(mocks.group.mock.calls.map(([group]) => group.machineId)).toEqual(["mac1", "mac2"])
     expect(mocks.group.mock.calls.every(([, passed]) => passed === state)).toBe(true)
     expect(mocks.overlays).toHaveBeenCalledWith(state)
-    expect(withExactClass(renderer.container,
-      "flex flex-1 flex-col gap-6 overflow-y-auto thin-scrollbar p-6")).toHaveLength(1)
+    const viewport = renderer.container.querySelector('[data-slot="scroll-area-viewport"]')
+    expect(viewport).toHaveClass("overflow-y-auto", "scrollbar-none")
+    expect(renderer.container.querySelector('[data-slot="scroll-area-content"]')).toHaveClass("flex", "flex-col", "gap-6", "p-6")
     expect(withExactClass(renderer.container,
       "flex items-center justify-between gap-4")).toHaveLength(1)
     expect(renderer.getByText("My Bots")).toHaveClass("text-xl", "font-medium", "text-foreground")
@@ -356,13 +358,13 @@ describe("SSR mobile Back footprint", () => {
     document.body.appendChild(container)
     let view: ReturnType<typeof render> | undefined
     try {
-      const header = container.firstElementChild?.querySelector("header")
+      const header = container.querySelector("header")
       expect(header).not.toBeNull()
       expect(header?.classList.contains("h-12")).toBe(true)
       expect(header?.classList.contains("sm:hidden")).toBe(true)
       expect(header?.querySelectorAll(loading ? '[data-slot="loading-back-placeholder"]' : '[aria-label="Back"]')).toHaveLength(1)
       view = render(node, { container, hydrate: true })
-      expect(container.firstElementChild?.querySelector("header")).toBe(header)
+      expect(container.querySelector("header")).toBe(header)
       if (!loading) {
         fireEvent.click(header!.querySelector('[aria-label="Back"]')!)
         expect(mocks.goBackMobile).toHaveBeenCalledOnce()

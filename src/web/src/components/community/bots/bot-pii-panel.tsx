@@ -5,6 +5,7 @@ import { ListFilter } from "@/components/icons/lucide";
 import { AgentAvatar } from "@/components/avatar"
 import { CreateTile } from "@/components/community/onboarding-tiles/create-tile"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { HOME_TAB_COLUMN_CLASS } from "../home-tab-layout"
 import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
@@ -18,13 +19,18 @@ export function BotPiiPanel({ bots, selectedId, onSelect, emptyAction, children 
 }) {
   const selected = bots.find(bot => bot.id === selectedId)
   return (
-    <section className="@container flex min-h-0 flex-1 flex-col overflow-y-auto p-4 thin-scrollbar sm:p-8" aria-labelledby="pii-heading">
+    <ScrollArea
+      render={<section aria-labelledby="pii-heading" />}
+      className="@container flex min-h-0 flex-1 flex-col"
+      viewportClassName="min-h-0 flex-1"
+      contentClassName="flex min-h-full flex-col p-4 sm:p-8"
+    >
       <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col gap-8`}>
         <header className="max-sm:sr-only">
           <h1 id="pii-heading" className="text-xl font-medium text-foreground">Privacy</h1>
         </header>
         <Tabs defaultValue="filters" className="flex-1 gap-8">
-          <TabsList aria-label="Privacy tools" data-single-tab="switch" className="w-fit shrink-0 thin-scrollbar">
+          <TabsList aria-label="Privacy tools" data-single-tab="switch" className="w-fit shrink-0 scrollbar-none">
             <TabsTrigger value="filters" className="min-h-11 px-4"><ListFilter aria-hidden="true" className="size-4" />PII Filters</TabsTrigger>
           </TabsList>
           <TabsContent value="filters" className="flex w-full flex-1 flex-col gap-8">
@@ -57,7 +63,7 @@ export function BotPiiPanel({ bots, selectedId, onSelect, emptyAction, children 
           </TabsContent>
         </Tabs>
       </div>
-    </section>
+    </ScrollArea>
   )
 }
 

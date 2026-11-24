@@ -13,6 +13,7 @@ import { writeImage } from "@tauri-apps/plugin-clipboard-manager"
 import { isDesktop, isMobile, isTauri } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar } from "../avatar"
 import { ShareImagePreparationContext } from "@/components/remote-image/share-image-context"
 import { MessageBody } from "./message-body"
@@ -239,7 +240,11 @@ export function MessageShareDialog({ m, open, onClose }: {
           <DialogTitle>{messages.length > 1 ? `Share ${messages.length} messages` : "Share message"}</DialogTitle>
         </DialogHeader>
 
-        <div className="thin-scrollbar max-h-[60vh] overflow-x-hidden overflow-y-auto bg-muted/40 px-6 py-6">
+        <ScrollArea
+          className="bg-muted/40"
+          viewportClassName="max-h-[60vh] overflow-x-hidden overflow-y-auto"
+          contentClassName="px-6 py-6"
+        >
           {session.status === "ready" ? (
             <div
               ref={previewRef}
@@ -407,7 +412,7 @@ export function MessageShareDialog({ m, open, onClose }: {
               </div>
             </div>
           )}
-        </div>
+        </ScrollArea>
 
         <div className="flex items-center justify-between gap-2 px-5 pt-3 pb-5">
           {/* Left slot: Reset highlight — MOUNTED only when a highlight exists

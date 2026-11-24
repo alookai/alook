@@ -169,6 +169,7 @@ export function BotActivityModal({
       contentTestId={tid.botActivityModal}
       bodyRef={setLogBody}
       bodyClassName="bg-background p-0 [overflow-anchor:none] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
+      bodyViewportClassName="bg-background [overflow-anchor:none] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
     >
       {isLoading && chronological.length === 0 ? (
         <SkeletonRows />

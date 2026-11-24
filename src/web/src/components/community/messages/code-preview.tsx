@@ -5,6 +5,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef, type CSSProperties } from "react"
 import { Check, Copy, WrapText } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { highlightCode, MAX_CODE_HIGHLIGHT_LINES, type CodeHighlightResult, type CodeToken } from "@/lib/community/code-highlight"
 import type { ShikiLanguage } from "@/lib/community/attachment-presentation"
@@ -164,7 +165,11 @@ export function CodePreview({
           {copyState === "copied" ? "Copied" : copyState === "failed" ? "Retry copy" : "Copy"}
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto thin-scrollbar font-mono text-[13px] leading-6">
+      <ScrollArea
+        orientation="both"
+        className="min-h-0 flex-1 font-mono text-[13px] leading-6"
+        contentClassName={wrap ? "min-h-full min-w-0" : "min-h-full w-max min-w-full"}
+      >
         {useCompactPlainText ? (
           <div className={cn("grid min-h-full grid-cols-[auto_minmax(0,1fr)] py-3", !wrap && "w-max min-w-full")}>
             <pre
@@ -207,7 +212,7 @@ export function CodePreview({
             ))}
           </div>
         )}
-      </div>
+      </ScrollArea>
     </section>
   )
 }

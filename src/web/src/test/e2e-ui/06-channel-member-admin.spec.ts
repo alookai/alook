@@ -87,7 +87,7 @@ test.describe("channel & member admin", () => {
           - Number.parseFloat(style.paddingBottom)
         const frame = panel.getBoundingClientRect()
         const scrollport = panel.querySelector('[role="listitem"]')!
-          .parentElement!.parentElement!
+          .closest<HTMLElement>('[data-slot="scroll-area-viewport"]')!
         const scrollFrame = scrollport.getBoundingClientRect()
         return {
           panelFillsContent: availableHeight > 0 && Math.abs(frame.height - availableHeight) <= 1,

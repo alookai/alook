@@ -8,6 +8,7 @@ import { EditorContent, type Editor } from "@tiptap/react"
 import { Smile, FileIcon, ImageIcon, PlusCircle, X } from "@/components/icons/lucide";
 import { isMobile } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
@@ -211,10 +212,16 @@ export function ComposerView({
           }`}
           data-testid={tid.composerInput}
         >
-          {editorContent ?? <EditorContent
-            editor={editor}
-            className={`${isForumThreadBody ? "max-h-60" : "max-h-48"} min-h-6 overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none`}
-          />}
+          {editorContent ?? (
+            <ScrollArea
+              viewportClassName={`${isForumThreadBody ? "max-h-60" : "max-h-48"} min-h-6 text-base chat-input-line-height outline-none`}
+            >
+              <EditorContent
+                editor={editor}
+                className="min-h-6 outline-none"
+              />
+            </ScrollArea>
+          )}
         </div>
         {!hideAttach && (
           <Button variant="ghost" size="icon"

@@ -70,7 +70,7 @@ export function LandingTestimonials() {
           <p>From the community, in their own words.</p>
         </div>
       </div>
-      <div className={`${styles.wall} thin-scrollbar`}>
+      <div className={`${styles.wall} scrollbar-none`}>
         <div className={styles.wallSurface}>
           {lanes.map((lane, index) => (
             // Each lane repeats once and pans by one copy, so the loop never reverses (Gus #3196).

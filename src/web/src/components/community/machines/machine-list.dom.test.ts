@@ -177,14 +177,14 @@ describe("SSR mobile Back footprint", () => {
     document.body.appendChild(container)
     let view: ReturnType<typeof renderNative> | undefined
     try {
-      const header = container.firstElementChild?.querySelector("header")
+      const header = container.querySelector("header")
       expect(header).not.toBeNull()
       expect(header?.classList.contains("h-12")).toBe(true)
       expect(header?.classList.contains("sm:hidden")).toBe(true)
       expect(header?.querySelectorAll(loading ? '[data-slot="loading-back-placeholder"]' : '[aria-label="Back"]')).toHaveLength(1)
       view = renderNative(node, { container, hydrate: true })
       await act(async () => { await Promise.resolve() })
-      expect(container.firstElementChild?.querySelector("header")).toBe(header)
+      expect(container.querySelector("header")).toBe(header)
       if (!loading) {
         fireEvent.click(header!.querySelector('[aria-label="Back"]')!)
         expect(mocks.goBackMobile).toHaveBeenCalledOnce()
@@ -437,8 +437,10 @@ describe("machine daemon update UI", () => {
       await mocks.fetchLatestDaemonVersion.mock.results[0]?.value
     })
 
-    expect(withExactClass(renderer.container,
-      "flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar")).toHaveLength(1)
+    expect(renderer.container.querySelector('[data-slot="scroll-area-viewport"]'))
+      .toHaveClass("overflow-y-auto", "scrollbar-none")
+    expect(renderer.container.querySelector('[data-slot="scroll-area-content"]'))
+      .toHaveClass("flex", "flex-col", "gap-6", "p-6")
     expect(withExactClass(renderer.container,
       "flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between"))
       .toHaveLength(1)

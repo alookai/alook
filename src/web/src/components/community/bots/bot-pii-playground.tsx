@@ -3,6 +3,7 @@
 import { PII_TEXT_MAX_BYTES, utf8ByteLength } from "@alook/shared"
 import { Check, ListFilter, Play } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { RedactedText } from "@/components/community/messages/redacted-text"
 import styles from "./bot-pii-playground.module.css"
@@ -24,7 +25,7 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
       <div className={`${styles.workspace} overflow-hidden rounded-xl border border-input`} data-phase={phase}>
         <form className="flex flex-col gap-4 p-4" onSubmit={event => { event.preventDefault(); if (!pending && !disabled && !tooLong && value.trim()) onRun() }}>
           <label htmlFor="pii-playground-input" className="text-sm font-medium">Original message</label>
-          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="max-h-64 min-h-28 resize-y overflow-y-auto thin-scrollbar rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 dark:bg-transparent sm:text-base" disabled={pending} />
+          <Textarea aria-describedby="pii-playground-notice" id="pii-playground-input" data-testid="pii-playground-input" value={value} onChange={event => onValueChange(event.target.value)} placeholder="Enter text to test your filters…" className="max-h-64 min-h-28 resize-y overflow-y-auto scrollbar-none rounded-sm border-0 bg-transparent p-0 text-base leading-relaxed shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 dark:bg-transparent sm:text-base" disabled={pending} />
           <div className="flex justify-end">
             <Button type="submit" disabled={pending || disabled || tooLong || !value.trim()} variant="outline" className="min-h-11 gap-2 px-4" data-testid="pii-playground-run"><Play className="size-4" />{pending ? "Running…" : "Run test"}</Button>
           </div>
@@ -35,7 +36,7 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
             <h4 id="pii-output-label" className="text-sm font-medium">Public message</h4>
             {phase === "complete" ? <Check aria-hidden="true" className="size-5 text-muted-foreground" /> : null}
           </div>
-          <div className="max-h-64 min-h-24 overflow-y-auto thin-scrollbar">
+          <ScrollArea viewportClassName="max-h-64 min-h-24">
             {pending ? <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
               <div className={`${styles.processing} w-full`} aria-hidden="true">
                 <span className={styles.packet} /><span className={`${styles.packet} ${styles.packetSecond}`} />
@@ -46,7 +47,7 @@ export function BotPiiPlayground({ value, onValueChange, result, triggeredFilter
               : error ? <p role="alert" className="text-sm leading-relaxed text-destructive">{error}</p>
               : result !== undefined ? <output aria-labelledby="pii-output-label" className={`${styles.result} block whitespace-pre-wrap wrap-anywhere text-sm leading-relaxed`}>{result ? <RedactedText text={result} /> : "The filtered message is empty."}</output>
               : <p className="flex min-h-24 items-center justify-center text-center text-sm leading-relaxed text-muted-foreground">Your filtered text will appear here.</p>}
-          </div>
+          </ScrollArea>
           {phase === "complete" && triggeredFilters !== undefined ? <p data-testid="pii-triggered-filters" className="wrap-anywhere text-sm leading-relaxed text-muted-foreground">
             {triggeredFilters.length ? <>Matched filters: {triggeredFilters.map(filter => filter.name).join(", ")}</> : "No filters matched."}
           </p> : null}

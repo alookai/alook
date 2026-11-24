@@ -98,7 +98,7 @@ function VideoControls({ attachment, download, expanded, onExpand }: {
             <Menu.Trigger className="media-button" aria-label="More"><MoreHorizontal className="media-button-icon" /></Menu.Trigger>
             <Menu.Popup className="media-popup media-menu-popup media-popup-surface media-menu-resizable-popup"
               onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
-              <Menu.Content className="media-menu-content thin-scrollbar" aria-label="More">
+              <Menu.Content className="media-menu-content scrollbar-none" aria-label="More">
                 <Menu.Item className="media-menu-trigger-item" data-testid={tid.mediaDownload(attachment.name)} onSelect={() => {
                   if (download.state.status === "downloading") download.cancel()
                   else void download.start()
@@ -112,7 +112,7 @@ function VideoControls({ attachment, download, expanded, onExpand }: {
                       <Gauge className="media-menu-trigger-item-icon" /><span>Speed</span>
                       <span className="media-menu-hint"><PlaybackRateRadioGroup.Value className="media-menu-hint-label" /><ChevronRight className="media-menu-forward-chevron" /></span>
                     </Menu.Trigger>
-                    <Menu.Content className="media-menu-content thin-scrollbar" aria-label="Playback speed">
+                    <Menu.Content className="media-menu-content scrollbar-none" aria-label="Playback speed">
                       <Menu.Item className="media-menu-back-item" aria-label="Back to More"><ChevronLeft className="media-menu-back-chevron" /><span>Speed</span></Menu.Item>
                       <Menu.Separator className="media-menu-separator" />
                       <PlaybackRateRadioGroup.Options className="media-menu-radio-group" aria-label="Playback speed" renderItem={(props, state) => <Menu.RadioItem {...props} className="media-menu-radio-item">

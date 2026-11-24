@@ -16,6 +16,7 @@ import { toastApiError } from "@/lib/api/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { FieldError } from "@/components/ui/field"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { Avatar } from "../avatar"
@@ -238,7 +239,7 @@ export function FriendsPage({
         </header>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
+      <ScrollArea className="min-h-0 flex-1" contentClassName="flex min-h-full flex-col p-4">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
           <TabsContent value="all" className={blocked.length === 0 ? "flex flex-col" : undefined}>
           <div className="mb-4">
@@ -424,7 +425,7 @@ export function FriendsPage({
           )}
         </TabsContent>
         </div>
-      </div>
+      </ScrollArea>
     </Tabs>
   )
 }

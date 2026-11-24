@@ -122,7 +122,7 @@ export function MarketingNav({
         </Link>
 
         <div className={`relative flex items-center gap-3${sticky ? " max-sm:contents" : ""}`}>
-          <div className={sticky ? "flex items-center gap-1 thin-scrollbar max-sm:order-3 max-sm:-ml-3 max-sm:w-[calc(100%+1.5rem)] max-sm:overflow-x-auto sm:gap-3" : "contents"}>
+          <div className={sticky ? "flex items-center gap-1 scrollbar-none max-sm:order-3 max-sm:-ml-3 max-sm:w-[calc(100%+1.5rem)] max-sm:overflow-x-auto sm:gap-3" : "contents"}>
           {MARKETING_SITE_LINKS.map((link) => {
             const visibility = sticky ? "block" : collapseLinksOnMobile || link.usesDocumentNavigation ? "hidden sm:block" : "block";
             const className = `${visibility} marketing-site-link ${MARKETING_SITE_LINK_CLASS_NAME}`;

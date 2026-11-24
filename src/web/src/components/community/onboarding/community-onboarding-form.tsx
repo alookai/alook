@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation"
 import { finishCommunityOnboardingAgentSetup, switchCommunityOnboardingSetup, advanceCommunityOnboarding, completeCommunityOnboarding, recoverCommunityOnboardingHarness, skipCommunityOnboarding, useCommunityOnboarding, readCommunityOnboardingState, updateCommunityOnboardingInitialization } from "@/lib/community-onboarding"
 
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { X } from "@/components/icons/lucide";
 import { Dialog as SetupDialog } from "@base-ui/react/dialog"
@@ -303,17 +304,17 @@ export function CommunityOnboardingForm() {
         {selected ? <Tabs value={mode} onValueChange={(value) => {
           if (switching && (value === "manual" || (value === "agent" && agentSetup)) && mode !== value) switchCommunityOnboardingSetup(runtime, value)
         }}>
-          <TabsList aria-label="Setup method" className="thin-scrollbar">
+          <TabsList aria-label="Setup method" className="scrollbar-none">
             {(["agent", "manual"] as const).map((value) => <TabsTrigger key={value} value={value} data-testid={`onboarding-mode-${value}`} disabled={!switching || (value === "agent" && !agentSetup)}>{value === "agent" ? "Agent" : "Manual"}</TabsTrigger>)}
           </TabsList>
         </Tabs> : <span className="text-sm text-muted-foreground">Pick your local agent</span>}
         <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>
       </header>
-      <div className="min-h-0 overflow-y-auto thin-scrollbar">
+      <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1">
         <StepSlide testId="onboarding-step-transition" step={`${state.stage}-${mode}`} order={["harness", "machine", "model", "identity", "initializing"].indexOf(state.stage) * 2 + (mode === "manual" ? 1 : 0)}>
           <CommunityOnboardingSteps />
         </StepSlide>
-      </div>
+      </ScrollArea>
     </OnboardingSurface>
     </SetupDialog.Popup>
     </div>

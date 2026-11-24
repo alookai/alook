@@ -14,6 +14,7 @@ import type { CommunityMachineRuntime } from "@alook/shared"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectTrigger,
@@ -150,7 +151,7 @@ export function ModelField({
           portalContainer={menu?.container}
           finalFocus={menu ? false : undefined}
           alignItemWithTrigger={false}
-          className={cn("flex flex-col overflow-y-hidden *:[[role=listbox]]:flex *:[[role=listbox]]:min-h-0 *:[[role=listbox]]:flex-col", menu && "max-h-none")}
+          className={cn("flex flex-col overflow-y-hidden **:[[role=listbox]]:flex **:[[role=listbox]]:min-h-0 **:[[role=listbox]]:flex-col", menu && "max-h-none")}
         >
           {discovery?.isPending && (
             <p role="status" className="flex shrink-0 items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
@@ -206,9 +207,10 @@ export function ModelField({
                 <BotSelectMenuItem value={MODEL_SELECT_CUSTOM}>Custom…</BotSelectMenuItem>
                 <SelectSeparator className="mx-1 my-1.5" />
               </div>
-              <div
-                data-testid="bot-model-probe-results"
-                className="thin-scrollbar min-h-0 max-h-[min(18rem,50dvh)] overflow-x-hidden overflow-y-auto"
+              <ScrollArea
+                className="flex min-h-0 flex-col"
+                viewportProps={{ "data-testid": "bot-model-probe-results" }}
+                viewportClassName="min-h-0 max-h-[min(18rem,50dvh)] overflow-x-hidden overflow-y-auto"
               >
                 {filteredModels.map((model) => (
                   <BotSelectMenuItem key={model.id} value={model.id}>
@@ -229,7 +231,7 @@ export function ModelField({
                     No matching models
                   </p>
                 ) : null}
-              </div>
+              </ScrollArea>
             </>
           )}
         </BotSelectMenuContent>

@@ -719,7 +719,7 @@ export function DecisionCard({
             onValueChange={(value) => setActiveQuestionId(String(value))}
             className="gap-3"
           >
-            <TabsList className="thin-scrollbar">
+            <TabsList className="scrollbar-none">
               {card.questions.map((question, qIndex) => {
                 const answered = isQuestionAnswered(question, draft[question.id])
                 return (

@@ -2,6 +2,7 @@
 
 import { useId } from "react"
 import { Bot, ChevronRight } from "@/components/icons/lucide";
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar } from "../avatar"
 import {
   useRunningOwnedBots,
@@ -100,11 +101,16 @@ export function ProfileRunningBotsCardView({ runningBots, onOpenBotAudit, showSh
       </div>
 
       <div data-slot="profile-running-bots-panel" className="relative z-10 mt-2 flex min-h-0 flex-1 flex-col border-t border-foreground/10 pt-2">
-        <div data-slot="profile-running-bots-list" className="min-h-0 max-h-64 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto overscroll-contain pr-1 thin-scrollbar">
+        <ScrollArea
+          className="flex min-h-0 max-h-64 flex-1 flex-col"
+          viewportProps={{ "data-slot": "profile-running-bots-list" }}
+          viewportClassName="min-h-0 max-h-64 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1"
+          contentClassName="divide-y divide-border/40"
+        >
           {runningBots.map((bot) => (
             <BotRow key={bot.id} bot={bot} onOpenBotAudit={onOpenBotAudit} />
           ))}
-        </div>
+        </ScrollArea>
       </div>
     </section>
   )
