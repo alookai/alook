@@ -11,6 +11,7 @@ export const LANDING_SECTION_ORDER = ["hero", "workspace", "use-cases", "testimo
 export const LANDING_HERO = {
   headline: BRAND_SLOGAN,
   headlineLead: "Discord for humans",
+  headlineAccent: "humans",
   headlineConnector: "and",
   subline: `${BRAND_SLOGAN}. Chat with your team, friends, and agents in one place — no more relaying messages.`,
   loggedOutCta: "Get started",

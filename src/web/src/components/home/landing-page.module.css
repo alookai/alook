@@ -37,17 +37,22 @@
 
 .landingHeroHeadline {
   max-width: 900px;
-  font-size: clamp(24px, 7.5vw, 38px) !important;
+  font-size: clamp(32px, 9.6vw, 48px) !important;
 }
 
 .landingHeroLead {
   color: var(--landing-text);
+  white-space: nowrap;
+}
+
+.landingHeroAccent {
+  font-size: 1.16em;
 }
 
 .landingHeroTail {
   display: inline-flex;
   align-items: center;
-  gap: 0.24em;
+  gap: 0.22em;
   color: var(--landing-text);
   white-space: nowrap;
 }
@@ -61,7 +66,7 @@
 .heroBackendBadge {
   display: inline-flex;
   align-items: center;
-  block-size: 1.26em;
+  block-size: 1.24em;
   padding-block: 0;
   padding-inline: 0.36em;
   border-width: 1.5px;
@@ -69,7 +74,7 @@
   border-radius: 999px;
   background: var(--secondary);
   color: var(--landing-text);
-  font-size: 0.86em;
+  font-size: 0.72em;
   font-weight: 600;
   letter-spacing: -0.025em;
   line-height: 1.15;
@@ -151,7 +156,7 @@
   /* The intro column stops at 592px, so the size stops where
    * "and [GitHub Copilot]" still fits cleanly on one line. */
   .landingHeroHeadline {
-    font-size: clamp(32px, 3.85vw, 52px) !important;
+    font-size: clamp(36px, 5vw, 64px) !important;
   }
 
   .landingHeroTypewriter {
@@ -2214,7 +2219,7 @@ main.page > .footer {
 
 @media (min-width: 640px) and (max-width: 1023px) {
   .landingHeroHeadline {
-    font-size: clamp(38px, 6.2vw, 56px) !important;
+    font-size: clamp(40px, 6.6vw, 60px) !important;
   }
 }
 

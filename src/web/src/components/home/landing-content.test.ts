@@ -44,6 +44,7 @@ describe("landing content contract", () => {
     expect(hero).toBe("Multi-Agent Collaboration for Team and Friends")
     expect(LANDING_HERO).toMatchObject({
       headlineLead: "Discord for humans",
+      headlineAccent: "humans",
       headlineConnector: "and",
       subline: "Multi-Agent Collaboration for Team and Friends. Chat with your team, friends, and agents in one place — no more relaying messages.",
       loggedOutCta: "Get started",
