@@ -115,12 +115,33 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
     expect(readPointer).not.toBe(laterIds.at(-1))
 
     const { page } = await asUser("bob", devices["iPhone 13"])
+    const targetTestId = tid.message(channelMessageId)
+    await page.addInitScript((messageTestId) => {
+      const state = { highlighted: false, className: null as string | null }
+      ;(window as typeof window & { __msgHighlightObserver?: typeof state }).__msgHighlightObserver = state
+      const selector = `[data-testid="${messageTestId}"] .group`
+      const check = (): boolean => {
+        const group = document.querySelector(selector)
+        if (group instanceof HTMLElement && group.classList.contains("bg-primary/10")) {
+          state.highlighted = true
+          state.className = group.className
+          return true
+        }
+        return false
+      }
+      if (!check()) {
+        const observer = new MutationObserver(() => {
+          if (check()) observer.disconnect()
+        })
+        observer.observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] })
+      }
+    }, targetTestId)
     const entryResponse = page.waitForResponse(response => {
       const url = new URL(response.url())
       return response.request().method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages`
         && url.searchParams.get("entry") === "1" && url.searchParams.get("anchor") === channelMessageId
     })
-    const response = await page.goto(`/c/channels/${serverId}/${channelId}?msg=${channelMessageId}`)
+    const response = await page.goto(`/c/channels/${serverId}/${channelId}?msg=${channelMessageId}`, { waitUntil: "domcontentloaded" })
     expect(response?.ok()).toBe(true)
     const html = await response!.text()
     expectPublicCommunityDocument(html)
@@ -131,9 +152,22 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
     expect(explicitEntry.surfaceReceipt).toEqual({ channelId, surfaceKind: "channel" })
     expect(explicitEntry.messages).toEqual(expect.arrayContaining([expect.objectContaining({ id: channelMessageId })]))
     expect(explicitEntry.messages.some(message => message.id === readPointer)).toBe(false)
-    const target = page.getByTestId(tid.message(channelMessageId))
+    const target = page.getByTestId(targetTestId)
     await expect(target).toBeVisible()
-    await expect(target.locator(".group").first()).toHaveClass(/bg-primary\/10/)
+    await expect.poll(() => page.evaluate((messageTestId) => {
+      const observerState = (window as typeof window & {
+        __msgHighlightObserver?: { highlighted: boolean; className: string | null }
+      }).__msgHighlightObserver
+      const group = document.querySelector(`[data-testid="${messageTestId}"] .group`)
+      const liveClass = group instanceof HTMLElement ? group.className : null
+      return {
+        highlighted: Boolean(observerState?.highlighted || group?.classList.contains("bg-primary/10")),
+        className: observerState?.className ?? liveClass,
+      }
+    }, targetTestId)).toEqual({
+      highlighted: true,
+      className: expect.stringMatching(/(?:^|\s)bg-primary\/10(?:\s|$)/),
+    })
     const position = () => target.evaluate((node, scrollerId) => {
       const root = node.closest(`[data-testid="${scrollerId}"]`) as HTMLElement
       const rect = node.getBoundingClientRect()
