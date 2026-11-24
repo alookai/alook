@@ -49,23 +49,74 @@ export default function ReadmeCapturePage() {
 
           .feature-canvas {
             position: relative;
+            isolation: isolate;
+            transform: translateZ(0);
             width: 1280px;
             height: 720px;
             overflow: hidden;
             border-radius: 18px;
-            background: var(--background);
+            background-color: var(--tn-paper);
+            background-image:
+              var(--tn-grain),
+              linear-gradient(rgb(188 214 230 / 68%) 1px, transparent 1px),
+              linear-gradient(90deg, rgb(188 214 230 / 68%) 1px, transparent 1px);
+            background-size: 180px 180px, 28px 28px, 28px 28px;
+            box-shadow: inset 0 0 0 1px rgb(185 166 126 / 52%);
           }
 
           .feature-canvas + .feature-canvas {
             margin-top: 40px;
           }
 
-          .shell-card {
+          .tn-window {
             overflow: hidden;
-            border: 1px solid var(--border);
-            border-radius: 12px;
+            border: 1px solid rgb(185 166 126 / 68%);
+            border-radius: 14px;
             background: var(--background);
-            box-shadow: var(--shadow-sm);
+            box-shadow:
+              0 24px 52px rgb(31 26 21 / 14%),
+              0 6px 16px rgb(31 26 21 / 8%),
+              inset 0 1px 0 rgb(255 255 255 / 88%);
+          }
+
+          .tn-sticker {
+            border: 1px solid #d9cdb7;
+            border-radius: 14px;
+            background: var(--tn-paper-raised);
+            box-shadow:
+              0 22px 46px rgb(31 26 21 / 16%),
+              0 6px 14px rgb(31 26 21 / 9%),
+              0 0 0 4px rgb(255 253 248 / 92%);
+          }
+
+          .tn-room-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+            background: var(--tn-paper);
+            padding: 8px 14px;
+          }
+
+          .tn-room-server {
+            font-family: var(--font-caveat), cursive;
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1;
+            color: var(--tn-ink);
+          }
+
+          .tn-room-sep {
+            color: var(--tn-muted);
+            font-size: 13px;
+            opacity: 0.55;
+          }
+
+          .tn-room-channel {
+            font-family: var(--font-dm-sans), system-ui, sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--tn-ink);
           }
 
           .capture-static [data-testid="landing-motion-stage"] > div > div {

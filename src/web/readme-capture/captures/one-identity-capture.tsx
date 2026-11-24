@@ -1,8 +1,9 @@
 "use client"
 
-import { ChannelHeader } from "@/components/community/channels/channel-header"
 import { Message } from "@/components/community/messages/message"
+import { ServerIcon } from "@/components/community/server-icon"
 import { ProfileCard } from "@/components/community/social/profile-card"
+import { LANDING_HUMAN_AVATARS } from "@/components/home/landing-human-avatars"
 import { LANDING_PREVIEW_PROFILES } from "@/components/home/landing-shell-motion"
 import type { RenderMsg } from "@/lib/community/models/message"
 import type { CommunityProfile } from "@/lib/community/models/people"
@@ -11,7 +12,7 @@ import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview
 const PROFILE = {
   name: "Alli",
   userId: "alli",
-  avatar: "Alli",
+  avatar: "avatar:beam:Alli",
   contextLabel: "Agent",
   about: "I keep the same account, identity, and relationships across every room.",
   mutual: 0,
@@ -24,16 +25,20 @@ const IDENTITY_PROFILES = new Map<string, CommunityProfile>([
     ...LANDING_PREVIEW_PROFILES.get(PROFILE.userId),
     id: PROFILE.userId,
     name: PROFILE.name,
+    discriminator: "6011",
     avatar: PROFILE.avatar,
     aboutMe: PROFILE.about,
     presence: PROFILE.presence,
     statusText: "Free for dinner",
   }],
+  ["tracy", { id: "tracy", name: "Tracy", discriminator: "2048", avatar: LANDING_HUMAN_AVATARS.tracy, presence: "online" }],
+  ["shelly", { id: "shelly", name: "Shelly", discriminator: "3863", avatar: LANDING_HUMAN_AVATARS.shelly, presence: "online" }],
 ])
 
 type IdentityFrameData = {
   serverId: string
   serverName: string
+  serverInitial: string
   activeChannel: string
   messages: RenderMsg[]
 }
@@ -42,6 +47,7 @@ const IDENTITY_FRAMES: IdentityFrameData[] = [
   {
     serverId: "home",
     serverName: "Home",
+    serverInitial: "H",
     activeChannel: "family",
     messages: [
       {
@@ -49,7 +55,7 @@ const IDENTITY_FRAMES: IdentityFrameData[] = [
         type: "chat",
         authorId: "alli",
         authorName: "Alli",
-        authorAvatar: "avatar:beam:alli",
+        authorAvatar: "avatar:beam:Alli",
         content: "@Tracy#2048 Can we confirm the Saturday plan we discussed?",
         createdAt: "2026-08-07T08:32:00.000Z",
         grouped: false,
@@ -59,16 +65,20 @@ const IDENTITY_FRAMES: IdentityFrameData[] = [
         type: "chat",
         authorId: "tracy",
         authorName: "Tracy",
-        authorAvatar: "avatar:beam:tracy",
+        authorAvatar: LANDING_HUMAN_AVATARS.tracy,
         content: "Saturday at six works. I’ve added the address to our plan.",
         createdAt: "2026-08-07T08:32:04.000Z",
         grouped: false,
+        reactions: [
+          { emoji: "🎉", count: 2, me: true, userIds: ["alli", "tracy"] },
+        ],
       },
     ],
   },
   {
     serverId: "studio",
     serverName: "Studio",
+    serverInitial: "S",
     activeChannel: "frontend-design",
     messages: [
       {
@@ -76,7 +86,7 @@ const IDENTITY_FRAMES: IdentityFrameData[] = [
         type: "chat",
         authorId: "alli",
         authorName: "Alli",
-        authorAvatar: "avatar:beam:alli",
+        authorAvatar: "avatar:beam:Alli",
         content: "@Shelly#3863 Have you checked the updated page on your phone?",
         createdAt: "2026-08-07T08:31:00.000Z",
         grouped: false,
@@ -86,10 +96,13 @@ const IDENTITY_FRAMES: IdentityFrameData[] = [
         type: "chat",
         authorId: "shelly",
         authorName: "Shelly",
-        authorAvatar: "avatar:beam:shelly",
-        content: "Yes. The headline is clearer. The button text still needs an update.",
+        authorAvatar: LANDING_HUMAN_AVATARS.shelly,
+        content: "Yes. The headline is clearer — ready to merge.",
         createdAt: "2026-08-07T08:31:04.000Z",
         grouped: false,
+        reactions: [
+          { emoji: "👍", count: 2, me: true, userIds: ["alli", "shelly"] },
+        ],
       },
     ],
   },
@@ -98,17 +111,25 @@ const IDENTITY_FRAMES: IdentityFrameData[] = [
 function IdentityFrame({ frame }: { frame: IdentityFrameData }) {
   return (
     <div className="flex size-full flex-col bg-background">
-      <ChannelHeader
-        channel={frame.activeChannel}
-        kind="text"
-        rightPanel={null}
-        onToggle={() => undefined}
-        tools={{ members: false, threads: false, pinned: false }}
-      />
-      <div className="identity-message-pane flex-1 overflow-hidden px-5 py-5">
+      <div className="tn-room-bar">
+        <ServerIcon
+          id={frame.serverId}
+          name={frame.serverName}
+          initial={frame.serverInitial}
+          icon={null}
+          size={22}
+          className="rounded-md"
+        />
+        <span className="tn-room-server">{frame.serverName}</span>
+        <span className="tn-room-sep">/</span>
+        <span className="tn-room-channel">{frame.activeChannel}</span>
+      </div>
+      <div className="identity-message-pane flex-1 overflow-hidden px-5 py-3">
         <div className="identity-message-content">
           {frame.messages.map((entry) => (
-            <Message key={entry.id} m={entry} onOpenThread={() => undefined} />
+            <div key={entry.id} className="py-1">
+              <Message m={entry} onOpenThread={() => undefined} />
+            </div>
           ))}
         </div>
       </div>
@@ -121,7 +142,35 @@ export function OneIdentityCapture() {
     <>
       <CommunityPreviewProfileOwner profiles={IDENTITY_PROFILES}>
         <section id="capture-identity" className="feature-canvas identity-canvas capture-static">
-          <div className="identity-profile">
+          <svg
+            className="identity-connectors"
+            viewBox="0 0 1280 720"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M490 304 C540 304, 536 186, 586 186"
+              stroke="#5f8bcf"
+              strokeWidth="2.5"
+              strokeDasharray="6 6"
+              strokeLinecap="round"
+              opacity="0.72"
+            />
+            <path
+              d="M490 404 C538 404, 526 530, 566 530"
+              stroke="#5f8bcf"
+              strokeWidth="2.5"
+              strokeDasharray="6 6"
+              strokeLinecap="round"
+              opacity="0.72"
+            />
+            <circle cx="490" cy="304" r="5" fill="#5f8bcf" />
+            <circle cx="586" cy="186" r="5" fill="#5f8bcf" />
+            <circle cx="490" cy="404" r="5" fill="#5f8bcf" />
+            <circle cx="566" cy="530" r="5" fill="#5f8bcf" />
+          </svg>
+
+          <div className="tn-sticker identity-profile">
             <ProfileCard
               embedded
               data={PROFILE}
@@ -132,70 +181,76 @@ export function OneIdentityCapture() {
               initialStatusText="Free for dinner"
             />
           </div>
-          <div className="identity-stack">
-            {IDENTITY_FRAMES.map((frame) => (
-              <div key={frame.serverId} className="shell-card identity-frame">
-                <IdentityFrame frame={frame} />
-              </div>
-            ))}
+
+          <div className="tn-window identity-frame identity-frame-top">
+            <IdentityFrame frame={IDENTITY_FRAMES[0]} />
+          </div>
+
+          <div className="tn-window identity-frame identity-frame-bottom">
+            <IdentityFrame frame={IDENTITY_FRAMES[1]} />
           </div>
         </section>
       </CommunityPreviewProfileOwner>
 
       <style jsx global>{`
+        .identity-connectors {
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          pointer-events: none;
+        }
+
         .identity-profile {
           position: absolute;
-          top: 24px;
-          left: 24px;
-          width: 597.333px;
-          height: 672px;
-          transform-origin: top left;
+          z-index: 3;
+          top: 136px;
+          left: 44px;
+          width: 448px;
+          height: 432px;
+          padding: 0;
+          overflow: hidden;
+          transform: rotate(-1.8deg);
         }
 
         .identity-profile > div {
           width: 320px !important;
-          transform: scale(1.8666667);
-          transform-origin: top left;
-        }
-
-        .identity-stack {
-          position: absolute;
-          top: 24px;
-          left: 645.333px;
-          display: grid;
-          grid-template-rows: repeat(2, minmax(0, 1fr));
-          width: 610.667px;
-          height: 672px;
-          gap: 12px;
-        }
-
-        .identity-frame {
-          position: relative;
-          width: 610.667px;
-          height: 330px;
-        }
-
-        .identity-frame > div {
-          width: 100%;
-          height: 100%;
-        }
-
-        .identity-frame header > .ml-auto {
-          display: none;
-        }
-
-        .identity-message-content {
-          width: 71.4286%;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
           transform: scale(1.4);
           transform-origin: top left;
         }
 
-        .identity-message-pane {
-          padding-top: 0 !important;
+        .identity-profile > div [data-testid="profile-card"],
+        .identity-profile > div > div {
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
         }
 
-        .identity-message-content > .group:first-child {
-          margin-top: 0 !important;
+        .identity-frame {
+          position: absolute;
+          z-index: 2;
+          width: 660px;
+          height: 296px;
+        }
+
+        .identity-frame-top {
+          top: 40px;
+          right: 38px;
+          transform: rotate(1.1deg);
+        }
+
+        .identity-frame-bottom {
+          right: 60px;
+          bottom: 40px;
+          transform: rotate(-0.8deg);
+        }
+
+        .identity-message-content {
+          width: 83.3333%;
+          transform: scale(1.2);
+          transform-origin: top left;
         }
       `}</style>
     </>
