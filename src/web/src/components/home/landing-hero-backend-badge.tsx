@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ProviderLogo } from "@/components/provider-logo"
 import { Badge } from "@/components/ui/badge"
+import { useLandingBackendTrackWidth } from "@/hooks/home/use-landing-backend-track-width"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
 import { cn } from "@/lib/utils"
 import { LANDING_PROVIDERS } from "./landing-content"
@@ -39,33 +40,7 @@ export function LandingHeroBackendBadge() {
     }
   }, [isPlaying, reducedMotion])
 
-  useLayoutEffect(() => {
-    const track = trackRef.current
-    if (!track) return
-    if (reducedMotion) {
-      track.style.width = ""
-      return
-    }
-    const element = currentRef.current
-    if (!element) return
-    let active = true
-    const measure = () => {
-      if (!active || !currentRef.current || !trackRef.current) return
-      const target = currentRef.current
-      const width = Math.max(target.scrollWidth, target.offsetWidth, target.getBoundingClientRect().width)
-      if (width > 0) trackRef.current.style.width = `${Math.ceil(width)}px`
-    }
-    measure()
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null
-    observer?.observe(element)
-    window.addEventListener("resize", measure)
-    void document.fonts?.ready?.then(measure)
-    return () => {
-      active = false
-      observer?.disconnect()
-      window.removeEventListener("resize", measure)
-    }
-  }, [provider.id, reducedMotion])
+  useLandingBackendTrackWidth(trackRef, currentRef, provider.id, reducedMotion)
 
   return (
     <span className={styles.heroBackendSlot} ref={targetRef}>
