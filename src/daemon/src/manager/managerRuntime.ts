@@ -2030,6 +2030,9 @@ export class AgentProcessManager {
       return;
     }
     const sessionSuperseded = owner.superseded;
+    if (event.type === "session_activity" && !sessionSuperseded) {
+      this.dispatch({ type: "session_activity", agentId, sessionInstanceId: event.sessionInstanceId, observation: event.observation, nowMs: this.now() }, owner);
+    }
     const runtimeError = event.type === "session_failed"
       ? event.error
       : event.type === "turn_completed" && event.result.outcome === "failed"
@@ -2054,12 +2057,12 @@ export class AgentProcessManager {
       }
     }
     if (this.opts.onBotAuditEvent) {
-      if (event.type === "assistant_message_completed" && event.text.length > 0) {
+      if ((event.type === "assistant_message_completed" || event.type === "activity" && event.kind === "assistant_message_completed") && event.text && event.text.length > 0) {
         const { text, truncated, chars } = truncateAuditText(event.text);
         try {
           this.opts.onBotAuditEvent(agentId, {
             kind: "text",
-            payload: { text, truncated: truncated || event.truncated, chars },
+            payload: { text, truncated: truncated || event.truncated === true, chars },
           }, {
             sessionId: this.liveSessions.get(agentId) ?? null,
             launchId: this.launchIds.get(agentId) ?? null,

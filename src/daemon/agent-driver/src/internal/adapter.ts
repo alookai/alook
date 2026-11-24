@@ -15,6 +15,7 @@ import type {
   RuntimeSettingsUpdateResult,
   RecentContextDiscoveryData,
   RecentContextDiscoveryRequest,
+  SessionActivityObservation,
 } from "../contract.js";
 import type { ProviderQuotaObservation, TokenUsageDelta, TokenUsageIdentity } from "../contract.js";
 
@@ -62,6 +63,7 @@ export interface EncodeMessageOptions { mode?: InputMode; inputs?: readonly Inpu
 
 export type AdapterEvent = AdapterEventPayload & { readonly attribution?: EventAttribution };
 type AdapterEventPayload =
+  | { kind: "session_activity"; observation: SessionActivityObservation }
   | { kind: "model_observed"; observation: ModelObservation }
   | { kind: "session_init"; sessionId: string; acquisition?: SessionAcquisition }
   | { kind: "configuration_observed"; observation: RuntimeConfigurationObservation }

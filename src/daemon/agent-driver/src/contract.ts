@@ -211,8 +211,12 @@ export interface InputReference {
 
 export type InputReturnEvidence = "not_submitted" | "explicitly_rejected" | "unknown";
 export type ExecutionOutcome = "success" | "failed" | "interrupted" | "unknown";
+export interface SessionActivityObservation {
+  readonly status: "running" | "idle" | "unknown";
+  readonly source: string;
+}
 export interface EventAttribution {
-  readonly scope: "root" | "child" | "unknown";
+  readonly scope: "root" | "child" | "unknown" | "session";
   readonly agentId?: string;
   readonly parentCallId?: string;
   readonly nativeTurnId?: string;
@@ -423,12 +427,13 @@ export type ProviderQuotaObservation =
     };
 
 export type CoreAgentEventPayload =
+  | { readonly type: "session_activity"; readonly observation: SessionActivityObservation }
   | { readonly type: "model_observed"; readonly observation: ModelObservation; readonly attribution: EventAttribution; readonly turnId?: string }
   | { readonly type: "session_acquired"; readonly backendSessionId: string; readonly acquisition: SessionAcquisition }
   | { readonly type: "configuration_observed"; readonly observation: RuntimeConfigurationObservation }
   | { readonly type: "input_observed"; readonly input: InputReference; readonly evidence: "native_ack" | "user_message" | "conversation" }
   | { readonly type: "command_returned"; readonly input: InputReference; readonly message: AgentMessage; readonly ordinal: number; readonly evidence: InputReturnEvidence; readonly reason: string; readonly retryable: boolean }
-  | { readonly type: "activity"; readonly attribution: EventAttribution; readonly kind: string; readonly text?: string; readonly callId?: string; readonly name?: string; readonly outcome?: ExecutionOutcome; readonly output?: JsonValue }
+  | { readonly type: "activity"; readonly attribution: EventAttribution; readonly kind: string; readonly text?: string; readonly truncated?: boolean; readonly callId?: string; readonly name?: string; readonly input?: JsonValue; readonly outcome?: ExecutionOutcome; readonly output?: JsonValue }
   | { readonly type: "session_started"; readonly backendSessionId: string }
   | {
       readonly type: "command_queued";
@@ -540,6 +545,7 @@ export type AgentEvent<Specs, Id extends BackendId<Specs>> =
   AgentEventEnvelope & (CoreAgentEventPayload | ExtraEventOf<Specs, Id>);
 
 export interface AgentSessionSnapshot {
+  readonly activity?: SessionActivityObservation;
   readonly observedModel?: ModelObservation & { readonly observedAt: number };
   readonly acquisition?: SessionAcquisition;
   readonly configuration?: RuntimeConfigurationObservation;

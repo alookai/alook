@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { agyStateHome, NativeExecutionReader, openNativeExecutionDatabase, parseNativeExecution, queryExecutionRows } from "./execution.js";
+import { agyStateHome, NativeExecutionReader, NativeSessionActivityReader, openNativeExecutionDatabase, parseNativeExecution, queryExecutionRows } from "./execution.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -37,6 +37,27 @@ describe("agy persisted execution outcome", () => {
   it.each([[], [row(0, 4, "one"), row(1, 4, "two")], [row(2, 4, "gap")], [row(0, 4, "old")]].map(rows => ({ rows })))("rejects missing, multiple, skipped or reused execution identities", async ({ rows }) => {
     const reader = new NativeExecutionReader("/isolated", "native", async () => rows);
     await expect(reader.terminal({ index: -1, executionId: "old", lastStepIndex: -1 })).rejects.toThrow();
+  });
+
+  it("verifies a bounded contiguous continuation cohort only when enabled", async () => {
+    const continued = (index: number, reason = 4, id = `execution-${index}`, step = index * 2 + 1) => ({
+      idx: index, has_children: 0, data: Buffer.concat([payload(reason, id), Buffer.from([24, step])]).toString("hex"),
+    });
+    let rows = [continued(0), continued(1)];
+    const reader = new NativeExecutionReader("/isolated", "native", async () => rows, true);
+    const checkpoint = { index: -1, executionId: null, lastStepIndex: -1 };
+    expect(await reader.terminal(checkpoint)).toBe("success");
+    rows = [continued(0), continued(1, 1)];
+    expect(await reader.terminal(checkpoint)).toBe("failed");
+    for (const invalid of [
+      [continued(0), continued(2)],
+      [continued(0), continued(1, 4, "execution-0")],
+      [continued(0), continued(1, 4, "second", 1)],
+      Array.from({ length: 33 }, (_, index) => continued(index)),
+    ]) {
+      rows = invalid;
+      await expect(reader.terminal(checkpoint)).rejects.toThrow();
+    }
   });
 
   it.each([[1, "failed"], [2, "interrupted"], [3, "failed"], [4, "success"], [11, "failed"]] as const)("maps native reason %s without assistant-text or usage inference", async (reason, outcome) => {
@@ -78,5 +99,35 @@ describe("agy persisted execution outcome", () => {
     } finally { db.close(); }
     await expect(new NativeExecutionReader(root, "missing").checkpoint()).rejects.toThrow();
     await expect(queryExecutionRows(path, -2)).rejects.toThrow();
+  });
+});
+
+
+describe("agy native session activity", () => {
+  it("uses only the indexed selected session and distinguishes busy, idle, missing and malformed states", async () => {
+    const module = "node:sqlite";
+    const { DatabaseSync } = await import(module);
+    const root = mkdtempSync(join(tmpdir(), "agy-activity-")); roots.push(root);
+    const directory = join(root, "antigravity-cli"); mkdirSync(directory);
+    const db = new DatabaseSync(join(directory, "conversation_summaries.db"));
+    db.exec("CREATE TABLE conversation_summaries(conversation_id TEXT PRIMARY KEY,status TEXT,not_fully_idle INTEGER)");
+    db.prepare("INSERT INTO conversation_summaries VALUES(?,?,?)").run("other", "CASCADE_RUN_STATUS_RUNNING", 1);
+    const reader = new NativeSessionActivityReader(root, "selected", "1.5.16");
+    try {
+      expect(await reader.activity()).toBe("unknown");
+      db.prepare("INSERT INTO conversation_summaries VALUES(?,?,?)").run("selected", "CASCADE_RUN_STATUS_IDLE", 0);
+      expect(await reader.activity()).toBe("idle");
+      db.prepare("UPDATE conversation_summaries SET not_fully_idle=1 WHERE conversation_id=?").run("selected");
+      expect(await reader.activity()).toBe("running");
+      db.prepare("UPDATE conversation_summaries SET status=?,not_fully_idle=0 WHERE conversation_id=?").run("CASCADE_RUN_STATUS_RUNNING", "selected");
+      expect(await reader.activity()).toBe("running");
+      db.prepare("UPDATE conversation_summaries SET status=? WHERE conversation_id=?").run("UNRECOGNIZED", "selected");
+      expect(await reader.activity()).toBe("unknown");
+      const plan = db.prepare("EXPLAIN QUERY PLAN SELECT status,not_fully_idle FROM conversation_summaries WHERE conversation_id = ? LIMIT 1").all("selected");
+      expect(JSON.stringify(plan)).toContain("SEARCH");
+      expect(JSON.stringify(plan)).not.toContain("SCAN");
+    } finally { db.close(); }
+    expect(await new NativeSessionActivityReader(root, "selected", "future").activity()).toBe("unknown");
+    expect(() => new NativeSessionActivityReader(root, "../other", "1.5.16")).toThrow();
   });
 });

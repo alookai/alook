@@ -37,6 +37,7 @@ const EXPECTED_DELIVERY_PHASES = [
 ] as const;
 
 const EXPECTED_MANAGER_EVENTS = [
+  "session_activity",
   "register",
   "wake",
   "spawned",

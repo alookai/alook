@@ -237,7 +237,7 @@ For contract v2:
   ACP normal completion, refusal, execution limits and cancellation remain distinct;
   `AgentTurnResult.stopReason` preserves their native cause;
 - separate input/control errors from root failures and preserve off-root
-  attribution. Child/unknown events become public `activity` and cannot mutate
+  attribution. Child, session and unknown events become public `activity` and cannot mutate
   root text, tools, recovery or terminal ownership;
 - report acquisition using native API/protocol guarantees. A matching session ID
   alone is `unverified`; missing history requires explicit reset;
@@ -349,17 +349,44 @@ turns. A concurrent `session/prompt` steers the active native loop. The root
 stays active until every prompt response settles; an earlier response cannot
 close it. Only native invalid-params rejection returns a steer as rejected;
 other prompt failures remain loop failures. Native cancellation uses
-`session/cancel`; stop and reset retain the existing process authority.
+`session/cancel`; stop and reset use native `session/close` when advertised,
+then complete cleanup through the existing process authority. The close ACK is
+not a process-cleanup receipt, and a missing ACK consumes only the original
+stop budget.
 
 Native ACP can return `end_turn` after a provider failure, even with positive
 usage. The adapter therefore verifies the exact conversation's persisted
 `executor_metadata` terminal after all prompt responses settle. It checkpoints
-before each new root and accepts only one new executor identity. Missing,
+before each new root and normally accepts only one new executor identity.
+On verified CLI 1.5.16, an isolated prompt can span ordinary asynchronous
+continuations: at most 32 contiguous executions with distinct identities and
+increasing final step indices are verified together. Missing, repeated, gapped,
+overflowing or child-owned records cannot prove success. A prompt admitted after
+outside-turn work has begun has an unknown execution outcome unless its own RPC
+reports an explicit failure or cancellation; session records cannot attribute an
+old background failure to that new prompt. Missing,
 malformed, ambiguous or unreadable state cannot report success. Unverified
 subtrajectory ownership also fails explicitly. This uses Node's built-in
 SQLite where available and the packaged `better-sqlite3` runtime on Node20; startup reports an incompatible
 configuration when native state cannot be read. The selected `GEMINI_HOME`, or
 the native default `.gemini`, is shared with the launched CLI.
+
+Session-wide `session_activity` observations are independent of root terminals.
+CLI 1.5.16's exact conversation-summary row is polled once per second using
+read-only indexed access. Known unfinished tool calls override native idle and
+survive prompt boundaries. Native running keeps the Bot active and prevents
+idle hibernation; unknown activity prevents hibernation without claiming the
+Bot is running. Missing state, unsupported versions and read errors remain
+unknown, and a later verified idle observation restarts the idle timer.
+Explicit stop/reset still owns complete cleanup.
+
+Late tool results retain their call identity and appear once as session-scoped
+`activity`. Once outside-turn work makes model-output ownership ambiguous, that
+physical session keeps model text at session scope rather than assigning it to
+a later root. Text is bounded and assembled into complete activity records at
+prompt ends, observed idle and close, and is delivered through the existing
+Bot text-audit path (Activity and Thoughts). Live tool storage tracks only
+unfinished calls; a bounded 4,096-ID completion cache suppresses duplicates.
 
 Standing instructions use native `systemPrompt.append` metadata on both new and
 resumed sessions. The installed server must advertise that capability. Model

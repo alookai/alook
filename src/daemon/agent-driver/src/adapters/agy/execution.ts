@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 type Row = { idx: number; data: string; has_children: number };
-type Database = { prepare(sql: string): { all(): unknown[] }; close(): void };
+type Database = { prepare(sql: string): { all(...params: unknown[]): unknown[] }; close(): void };
 type Sqlite = { DatabaseSync: new(path: string, options: { readOnly: boolean }) => Database };
 type PortableSqlite = new(path: string, options: { readonly: boolean; fileMustExist: boolean; timeout: number }) => Database;
 type Checkpoint = { index: number; executionId: string | null; lastStepIndex: number };
@@ -57,7 +57,7 @@ export function parseNativeExecution(data: Uint8Array): Execution {
 
 export class NativeExecutionReader {
   private readonly path: string;
-  constructor(home: string, sessionId: string, private readonly readRows = queryExecutionRows) {
+  constructor(home: string, sessionId: string, private readonly readRows = queryExecutionRows, private readonly continuations = false) {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(sessionId)) throw new Error("Invalid native execution session identity");
     this.path = join(home, "antigravity-cli", "conversations", `${sessionId}.db`);
   }
@@ -70,15 +70,23 @@ export class NativeExecutionReader {
     return { index: row.idx, executionId: execution.executionId, lastStepIndex: execution.lastStepIndex };
   }
   async terminal(checkpoint: Checkpoint): Promise<"success" | "interrupted" | "failed"> {
-    const rows = await this.readRows(this.path, checkpoint.index, checkpoint.lastStepIndex);
-    if (rows.length !== 1) throw new Error("Native execution terminal unavailable or ambiguous");
-    const row = this.validate(rows[0]);
-    const execution = parseNativeExecution(Buffer.from(row.data, "hex"));
-    if (row.has_children !== 0) throw new Error("Native executor subtrajectory ownership cannot be verified");
-    if (row.idx !== checkpoint.index + 1 || execution.executionId === checkpoint.executionId) throw new Error("Native execution terminal does not belong to the new root");
-    if (execution.hasError || execution.reason === 1) return "failed";
-    if (execution.reason === 2) return "interrupted";
-    return execution.reason === 4 ? "success" : "failed";
+    const max = this.continuations ? 32 : 1;
+    const rows = await this.readRows(this.path, checkpoint.index, checkpoint.lastStepIndex, undefined, max + 1);
+    if (!rows.length || rows.length > max) throw new Error("Native execution terminal unavailable or ambiguous");
+    let lastStep = checkpoint.lastStepIndex;
+    const identities = new Set([checkpoint.executionId]);
+    let outcome: "success" | "interrupted" | "failed" = "success";
+    for (let index = 0; index < rows.length; index++) {
+      const row = this.validate(rows[index]);
+      const execution = parseNativeExecution(Buffer.from(row.data, "hex"));
+      if (row.has_children !== 0) throw new Error("Native executor subtrajectory ownership cannot be verified");
+      if (row.idx !== checkpoint.index + index + 1 || identities.has(execution.executionId) || this.continuations && execution.lastStepIndex <= lastStep) throw new Error("Native execution terminal does not belong to the new root");
+      identities.add(execution.executionId);
+      lastStep = execution.lastStepIndex;
+      if (execution.hasError || (execution.reason !== 2 && execution.reason !== 4)) outcome = "failed";
+      else if (execution.reason === 2 && outcome !== "failed") outcome = "interrupted";
+    }
+    return outcome;
   }
   private validate(row: Row): Row {
     if (!Number.isSafeInteger(row.idx) || row.idx < 0 || !/^(?:[a-f0-9]{2})+$/i.test(row.data) || row.data.length > 2 * 1024 * 1024) throw new Error("Invalid native execution row");
@@ -97,9 +105,29 @@ export async function openNativeExecutionDatabase(path: string, loadBuiltin: () 
   return new sqlite.DatabaseSync(path, { readOnly: true });
 }
 
-export async function queryExecutionRows(path: string, after?: number, afterStep = -1, openDatabase = openNativeExecutionDatabase): Promise<Row[]> {
+export async function queryExecutionRows(path: string, after?: number, afterStep = -1, openDatabase = openNativeExecutionDatabase, maxRows = 2): Promise<Row[]> {
   if ((after !== undefined && (!Number.isSafeInteger(after) || after < -1)) || !Number.isSafeInteger(afterStep) || afterStep < -1) throw new Error("Invalid native execution cursor");
-  const query = `SELECT idx,hex(substr(data,1,1048577)) AS data,${after === undefined ? "(SELECT EXISTS(SELECT 1 FROM steps WHERE idx<0 AND has_subtrajectory=1))" : `(SELECT EXISTS(SELECT 1 FROM steps WHERE idx>${afterStep} AND has_subtrajectory=1))`} AS has_children FROM executor_metadata ${after === undefined ? "ORDER BY idx DESC LIMIT 1" : `WHERE idx>${after} ORDER BY idx LIMIT 2`}`;
+  if (!Number.isSafeInteger(maxRows) || maxRows < 1 || maxRows > 33) throw new Error("Invalid native execution read limit");
+  const query = `SELECT idx,hex(substr(data,1,1048577)) AS data,${after === undefined ? "(SELECT EXISTS(SELECT 1 FROM steps WHERE idx<0 AND has_subtrajectory=1))" : `(SELECT EXISTS(SELECT 1 FROM steps WHERE idx>${afterStep} AND has_subtrajectory=1))`} AS has_children FROM executor_metadata ${after === undefined ? "ORDER BY idx DESC LIMIT 1" : `WHERE idx>${after} ORDER BY idx LIMIT ${maxRows}`}`;
   const db = await openDatabase(path);
   try { return db.prepare(query).all() as Row[]; } finally { db.close(); }
+}
+
+export class NativeSessionActivityReader {
+  private readonly path: string;
+  constructor(home: string, private readonly sessionId: string, private readonly version: string, private readonly openDatabase = openNativeExecutionDatabase) {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(sessionId)) throw new Error("Invalid native activity session identity");
+    this.path = join(home, "antigravity-cli", "conversation_summaries.db");
+  }
+  async activity(): Promise<"running" | "idle" | "unknown"> {
+    if (this.version !== "1.5.16") return "unknown";
+    const db = await this.openDatabase(this.path);
+    try {
+      const rows = db.prepare("SELECT status,not_fully_idle FROM conversation_summaries WHERE conversation_id = ? LIMIT 1").all(this.sessionId);
+      const row = rows[0] as { status?: unknown; not_fully_idle?: unknown } | undefined;
+      if (!row || (row.not_fully_idle !== 0 && row.not_fully_idle !== 1)) return "unknown";
+      if (row.status === "CASCADE_RUN_STATUS_RUNNING") return "running";
+      return row.status === "CASCADE_RUN_STATUS_IDLE" ? row.not_fully_idle ? "running" : "idle" : "unknown";
+    } finally { db.close(); }
+  }
 }
