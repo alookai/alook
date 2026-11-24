@@ -60,7 +60,7 @@ export function ThreadOpener({
   onJump?: () => void
 }) {
   const hoverCapable = useHoverCapable()
-  const { message: msg, isLoading, isError, refetch, isFetching } = useMessage(parentMessageId, {
+  const { message: msg, isLoading, refetch, isFetching } = useMessage(parentMessageId, {
     ...(parentChannelId ? { channelId: parentChannelId } : {}),
     serverId,
   })
@@ -80,9 +80,9 @@ export function ThreadOpener({
     },
   })
 
-  if (isLoading) return <ThreadOpenerSkeleton />
+  if (isLoading && !msg) return <ThreadOpenerSkeleton />
 
-  if (isError || !msg) {
+  if (!msg) {
     // The parent lives in the outer channel; if it was deleted (or the caller
     // lost access) we don't fail the thread view — just render a minimal
     // placeholder so the opener slot doesn't collapse the layout.
@@ -204,14 +204,14 @@ export function ThreadOpener({
 
 function ThreadOpenerSkeleton() {
   return (
-    <div className="flex flex-col gap-2">
-      <Skeleton className="h-3 w-32 rounded" />
+    <div data-thread-opener="loading" className="flex flex-col gap-2">
+      <Skeleton className="h-4 w-32 rounded" />
       <div className="flex gap-2">
         <Skeleton className="size-10 shrink-0 rounded-full" />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <Skeleton className="h-4 w-32 rounded" />
-          <Skeleton className="h-3.5 w-full max-w-80 rounded" />
-          <Skeleton className="h-3.5 w-48 rounded" />
+          <Skeleton className="h-5 w-32 rounded" />
+          <Skeleton className="h-4 w-full max-w-80 rounded" />
+          <Skeleton className="h-4 w-48 rounded" />
         </div>
       </div>
     </div>

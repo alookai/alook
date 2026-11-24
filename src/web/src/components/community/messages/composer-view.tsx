@@ -25,7 +25,7 @@ import {
   CommunityMentionList,
 } from "./composer-suggestion-popups"
 import type { ComposerReplyTarget, MentionCandidateSource } from "./composer-types"
-import { SendStrokeRoundedIcon } from "./send-stroke-rounded-icon"
+import { ComposerSendButton } from "./composer-send-button"
 import { useHydratedClient } from "@/components/community/shell/use-hydrated-client"
 
 const COMPOSER_OUTER_CLASS =
@@ -244,19 +244,11 @@ export function ComposerView({
           </EmojiPickerPopover>
         )}
         {showSend && (
-          <Button
-            type="button"
-            size="icon"
-            data-testid={tid.composerSend}
-            className="community-composer-send absolute right-2 bottom-2 size-8 rounded-full"
-            aria-label="Send message"
+          <ComposerSendButton
+            testId={tid.composerSend}
             disabled={sendDisabled}
             onClick={onSend}
-          >
-            <SendStrokeRoundedIcon
-              className="size-5 -translate-x-px translate-y-px"
-            />
-          </Button>
+          />
         )}
       </div>
     </div>

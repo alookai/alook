@@ -39,7 +39,7 @@ import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
 import { MobilePage } from "@/components/community/shell/mobile-page"
 import { ConversationActivityContext, ConversationPresentationContext, useConversationActivity, useConversationPresentation } from "@/contexts/view-activity"
-import { useRouteChannelProjection } from "@/lib/community-db/projections"
+import { useCanonicalMessagesById, useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import type { MessageHeaderTitleState } from "./message-header"
 
@@ -235,16 +235,27 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     isNotifyUnit,
   } = routeModel
   const titleIdentity = useRouteChannelProjection(channelId)
-  const forumTitleEnabled = presented && isForumPostChild && !resolvingParent && routeModel.routeHydrated
-    && routeModel.windowReady && !!currentChannelMeta?.parentMessageId
+  const forumTitleAuthorized = presented && isForumPostChild && !resolvingParent && routeModel.routeHydrated
+    && !!currentChannelMeta?.parentMessageId
+  const forumTitleEnabled = forumTitleAuthorized && routeModel.windowReady
+  const forumOpenerIds = useMemo(
+    () => (forumTitleAuthorized && currentChannelMeta?.parentMessageId ? [currentChannelMeta.parentMessageId] : []),
+    [currentChannelMeta?.parentMessageId, forumTitleAuthorized],
+  )
+  const cachedForumOpenerMessages = useCanonicalMessagesById(forumOpenerIds)
+  const cachedForumOpener = forumTitleAuthorized && currentChannelMeta?.parentMessageId
+    ? cachedForumOpenerMessages?.get(currentChannelMeta.parentMessageId)
+    : undefined
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
     forumTitleEnabled,
   )
+  const resolvedForumOpenerContent = forumPostOpener.data?.content
+    ?? (typeof cachedForumOpener?.content === "string" ? cachedForumOpener.content : null)
   const channelTitleState: MessageHeaderTitleState = (() => {
     if (isForumPostChild) {
-      if (forumPostOpener.data != null) return "ready"
+      if (resolvedForumOpenerContent != null) return "ready"
       if (!currentChannelMeta?.parentMessageId) return "unavailable"
       if (!forumTitleEnabled) return "pending"
       return forumPostOpener.isError || forumPostOpener.isSuccess ? "unavailable" : "pending"
@@ -253,13 +264,13 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     return name != null ? "ready" : titleIdentity ? "unavailable" : "pending"
   })()
   const channelName = useMemo(() => resolveChannelDisplayName({
-    forumPostTitle: isForumPostChild ? forumPostOpener.data?.content : null,
+    forumPostTitle: isForumPostChild ? resolvedForumOpenerContent : null,
     topLevelName: channelInServer?.name,
     childChannelName: isForumPostChild ? null : currentChannelMeta?.name,
     forumListName: null,
     threadListName: null,
     fallback: isForumPostChild ? "Post" : "channel",
-  }), [channelInServer, currentChannelMeta, forumPostOpener.data?.content, isForumPostChild])
+  }), [channelInServer, currentChannelMeta, resolvedForumOpenerContent, isForumPostChild])
   const memberViewModel = useChannelMemberViewModel({
     serverId,
     channelId,

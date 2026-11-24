@@ -173,6 +173,21 @@
   color: #f2f5ff;
 }
 
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="unread"],
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="unread"] {
+  --neon: 255 153 21;
+  --tn-neon-inner: 26%;
+  --tn-neon-edge: 72%;
+  --tn-neon-spill: 38%;
+  --tn-key-reflection: rgb(255 230 180 / 24%);
+  border-color: rgb(255 186 78 / 65%);
+  background:
+    radial-gradient(ellipse at 50% 50%, rgb(255 215 130 / 32%), transparent 80%),
+    linear-gradient(#ffa826, #ff9915 50%, #df7b00);
+  color: var(--inbox-unread-foreground);
+  text-shadow: none;
+}
+
 .theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="destructive"],
 [data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="destructive"] {
   border-color: #d29a8b;
@@ -297,6 +312,31 @@
     inset 0 2px 0 rgb(255 255 255 / 30%),
     inset 0 -1px 0 rgb(20 40 80 / 18%),
     0 0 0 var(--tn-blue-side);
+}
+
+.theme :is(button, a)[data-variant][data-variant="unread"] {
+  background: linear-gradient(rgb(255 255 255 / 24%), transparent 48%), linear-gradient(#ffb03a, #ff9915 55%, #e68200);
+  color: var(--inbox-unread-foreground);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 45%),
+    inset 0 -3px 0 rgb(135 65 0 / 22%),
+    0 var(--tn-key-depth) 0 #b56100;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 26%);
+}
+
+.theme :is(button, a)[data-variant][data-variant="unread"]:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--ring),
+    inset 0 2px 0 rgb(255 255 255 / 45%),
+    inset 0 -3px 0 rgb(135 65 0 / 22%),
+    0 var(--tn-key-depth) 0 #b56100;
+}
+
+.theme :is(button, a)[data-variant][data-variant="unread"]:not(:disabled):active {
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 30%),
+    inset 0 -1px 0 rgb(135 65 0 / 18%),
+    0 0 0 #b56100;
 }
 
 .theme :is(button, a)[data-variant][data-variant="destructive"] {
@@ -1495,11 +1535,6 @@
 .theme [data-slot="message-header-identity"] > span[title] {
   font-size: 15px !important;
   letter-spacing: -0.01em;
-}
-
-/* Unread count: a round sticker, never a blob */
-.theme [data-slot="inbox-unread-indicator"] [data-slot="inbox-unread-circle"] {
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%), 0 1px 2px rgb(60 45 20 / 25%);
 }
 
 /* Date divider label: muted tape */
@@ -2994,6 +3029,38 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .theme :is(label:has(> input[type="radio"])[class~="rounded-lg"][class~="border"], [data-slot="field-label"]:has(:is([data-slot="radio-group-item"], [data-slot="checkbox"]))) { transition: none !important; }
+}
+
+.theme[data-tn-mode="dark"] :is(button, a)[data-variant][data-variant="unread"]:not(:disabled, [aria-disabled="true"], [data-disabled]):focus-visible,
+[data-tn-mode="dark"] .theme :is(button, a)[data-variant][data-variant="unread"]:not(:disabled, [aria-disabled="true"], [data-disabled]):focus-visible {
+  box-shadow:
+    0 0 0 2px var(--ring),
+    inset 0 0 10px rgb(var(--neon) / var(--tn-neon-inner, 26%)),
+    0 var(--tn-key-depth) 0 rgb(var(--neon) / var(--tn-neon-edge, 72%)),
+    0 calc(var(--tn-key-depth) + 2px) 10px rgb(var(--neon) / var(--tn-neon-spill, 38%)) !important;
+}
+
+/* The composer send sits flush inside a 48px pill (with 2px mobile inset), so
+ * it keeps the primary keycap face & inner bevel without an outward bottom lip
+ * (--tn-key-depth) that would overhang the capsule edge. */
+.theme button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]) {
+  border-width: 0 !important;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 42%),
+    inset 0 -2px 0 rgb(20 40 80 / 24%) !important;
+}
+.theme button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]):active {
+  transform: scale(0.96);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 28%),
+    inset 0 -1px 0 rgb(20 40 80 / 20%) !important;
+}
+.theme[data-tn-mode="dark"] button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]),
+[data-tn-mode="dark"] .theme button[class~="community-composer-send"][data-variant="default"][data-slot="button"]:not(:disabled, [data-disabled]) {
+  border-width: 0 !important;
+  box-shadow:
+    inset 0 0 10px rgb(var(--neon) / var(--tn-neon-inner, 35%)),
+    inset 0 1px 0 rgb(180 200 255 / 22%) !important;
 }
 
 /* The composer send keeps its own disabled look: a quiet icon with no key

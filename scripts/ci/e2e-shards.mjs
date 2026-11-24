@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 export const E2E_SPEC_ROOT = "src/web/src/test/e2e-ui"
-export const E2E_TARGET_SHARDS = 14
+export const E2E_TARGET_SHARDS = 13
 export const E2E_TARGET_SECONDS = 240
 export const E2E_DEFAULT_CASE_TIMEOUT_MS = 60_000
 export const E2E_TIMEOUT_WEIGHT_FACTOR = 0.75

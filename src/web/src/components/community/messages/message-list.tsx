@@ -96,6 +96,7 @@ function MessageListOwner({ variant, initialScrollReady, renderer, ...props }: M
     if (!visibleMessages.some((m) => m.decisionCard)) return undefined
     const map = new Map<string, string[]>()
     for (const m of visibleMessages) {
+      if (m.failed) continue
       const targetId = m.replyTo?.id
       if (!targetId || !m.authorId) continue
       const list = map.get(targetId)

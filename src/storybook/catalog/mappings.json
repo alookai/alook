@@ -1862,6 +1862,24 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/community/channels/conversation-surface.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-conversation-surfaces--text-channel",
+        "region": "Unified conversation shell mounting text channel header, message list, and composer footer"
+      },
+      {
+        "story": "web-business-conversation-surfaces--thread",
+        "region": "Unified conversation shell mounting thread/forum-post surface"
+      },
+      {
+        "story": "web-pages-community-shell--direct-message",
+        "region": "Unified conversation shell mounting DM surface"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
   "src/web/src/components/community/channels/dm-header.tsx": {
     "kind": "composition",
     "examples": [
@@ -2178,6 +2196,16 @@
       {
         "story": "web-business-shell-details--channel-frame",
         "region": "Original reduced ComposerPreview view"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/community/messages/composer-send-button.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-conversation-surfaces--text-channel",
+        "region": "Original text conversation: message rows/menu/reactions, real composer and suggestion/accessory layers. Open the applicable menu/compose control; local command failures remain explicit."
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."

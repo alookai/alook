@@ -543,11 +543,14 @@ export function formatDecisionCardAnswerMessage(
   maxLength: number = MAX_MESSAGE_CONTENT_LENGTH,
 ): string {
   const single = card.questions.length === 1 && resolved.length === 1;
+  const singleSummary = card.summary?.replace(/\s+/gu, " ").trim() || undefined;
   const lines = resolved.map((entry, index) => {
     const parts = [...entry.selectedLabels];
-    if (entry.otherText) parts.push(`Other: ${entry.otherText}`);
+    if (entry.otherText) parts.push(entry.otherText);
     const answerText = parts.join(", ");
-    const label = entry.header ?? entry.question;
+    const label = single
+      ? (singleSummary ?? entry.header ?? entry.question)
+      : (entry.header ?? entry.question);
     return single ? `${label}: ${answerText}` : `${index + 1}. ${label}: ${answerText}`;
   });
   return truncateText(lines.join("\n"), maxLength);

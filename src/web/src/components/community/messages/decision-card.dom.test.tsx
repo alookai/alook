@@ -112,7 +112,7 @@ describe("DecisionCard", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1)
     const firstNonce = onSubmit.mock.calls[0]![2]
     expect(onSubmit.mock.calls[0]![1]).toContain("1. Timing: Today")
-    expect(onSubmit.mock.calls[0]![1]).toContain("2. Targets: Web, Other: Mobile")
+    expect(onSubmit.mock.calls[0]![1]).toContain("2. Targets: Web, Mobile")
 
     // Second submit returns dropped replyToId -> reuses nonce, does NOT show "Answer sent".
     await act(async () => {
@@ -178,6 +178,7 @@ describe("DecisionCard", () => {
     // IME composing Enter inside Other must NOT jump tabs; committed Enter advances.
     fireEvent.click(view.getByTestId(tid.decisionCardOtherToggle("first")))
     const otherInput = view.getByTestId(tid.decisionCardOtherInput("first"))
+    expect(otherInput).toHaveAttribute("enterkeyhint", "next")
     fireEvent.change(otherInput, { target: { value: "桌面" } })
     fireEvent.keyDown(otherInput, { key: "Enter", isComposing: true })
     expect(view.queryByTestId(tid.decisionCardOption("second", "now"))).toBeNull()
@@ -189,14 +190,17 @@ describe("DecisionCard", () => {
     view.unmount()
   })
 
-  it("renders single-question cards without tabs and gates Send answer until selected", () => {
+  it("renders single-question cards without tabs, gates Send answer until selected, and auto-submits on Enter in Other", async () => {
+    let resolveSubmit: ((value: { replyToId: string | null }) => void) | undefined
+    const onSubmit = vi.fn<
+      (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+    >(() => new Promise((resolve) => { resolveSubmit = resolve }))
     const input = DecisionCardInputSchema.parse({
       summary: "Confirm release today",
       questions: [
         {
           id: "only",
-          header: "Release",
-          question: "Ship today?",
+          question: "PR #1421 passed all checks. Should we ship the release to production today?",
           options: [
             { id: "yes", label: "Yes" },
             { id: "no", label: "No" },
@@ -211,7 +215,7 @@ describe("DecisionCard", () => {
         messageId="m_single"
         authorId="bot_evan"
         viewerUserId="u_gus"
-        onSubmit={vi.fn(async () => ({ replyToId: "m_single" }))}
+        onSubmit={onSubmit}
       />,
     )
 
@@ -220,6 +224,70 @@ describe("DecisionCard", () => {
 
     fireEvent.click(view.getByTestId(tid.decisionCardOption("only", "yes")))
     expect(view.getByTestId(tid.decisionCardSubmit)).toHaveTextContent("Send answer")
+
+    fireEvent.click(view.getByTestId(tid.decisionCardOtherToggle("only")))
+    const otherInput = view.getByTestId(tid.decisionCardOtherInput("only"))
+    expect(otherInput).toHaveAttribute("enterkeyhint", "send")
+
+    fireEvent.keyDown(otherInput, { key: "Enter", isComposing: false })
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    fireEvent.change(otherInput, { target: { value: "   " } })
+    fireEvent.keyDown(otherInput, { key: "Enter", isComposing: false })
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    fireEvent.change(otherInput, { target: { value: "Ship tomorrow" } })
+    fireEvent.keyDown(otherInput, { key: "a", isComposing: false })
+    fireEvent.keyDown(otherInput, { key: "Enter", isComposing: true })
+    fireEvent.keyDown(otherInput, { key: "Enter", shiftKey: true })
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(otherInput, { key: "Enter", isComposing: false })
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(otherInput, { key: "Enter", isComposing: false })
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveSubmit?.({ replyToId: "m_single" })
+    })
+    expect(onSubmit).toHaveBeenCalledWith(
+      "m_single",
+      "Confirm release today: Ship tomorrow",
+      expect.any(String),
+    )
+    expect(view.getByRole("status")).toHaveTextContent("Answer sent")
+    view.unmount()
+  })
+
+  it("auto-submits multi-question cards on Enter in Other once all questions are answered", async () => {
+    const onSubmit = vi.fn<
+      (messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null }>
+    >(async () => ({ replyToId: "m_multi_enter" }))
+    const view = render(
+      <DecisionCard
+        card={sampleCard()}
+        messageId="m_multi_enter"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        onSubmit={onSubmit}
+      />,
+    )
+
+    fireEvent.click(view.getByTestId(tid.decisionCardOption("timing", "today")))
+    fireEvent.click(view.getByTestId(tid.decisionCardOption("targets", "web")))
+    fireEvent.click(view.getByTestId(tid.decisionCardOtherToggle("targets")))
+    const otherInput = view.getByTestId(tid.decisionCardOtherInput("targets"))
+    expect(otherInput).toHaveAttribute("enterkeyhint", "send")
+    fireEvent.change(otherInput, { target: { value: "iOS" } })
+
+    await act(async () => {
+      fireEvent.keyDown(otherInput, { key: "Enter", isComposing: false })
+    })
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+      "m_multi_enter",
+      "1. Timing: Today\n2. Targets: Web, iOS",
+      expect.any(String),
+    )
     view.unmount()
   })
 
@@ -337,6 +405,87 @@ describe("DecisionCard", () => {
     view.unmount()
   })
 
+  it("clears manual expand override on submit, restores it on failure, omits Answer sent for queued sends, and re-expands if a queued reply later fails", async () => {
+    const singleCard = { ...sampleCard({ viewerDismissed: true }), questions: sampleCard().questions.slice(0, 1) }
+    const onSubmit = vi
+      .fn<(messageId: string, content: string, nonce: string) => Promise<{ replyToId: string | null; queued?: boolean }>>()
+      .mockRejectedValueOnce(new Error("Offline"))
+      .mockResolvedValueOnce({ replyToId: "m_q_reopen", queued: true })
+
+    const view = render(
+      <DecisionCard
+        card={singleCard}
+        messageId="m_q_reopen"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        onSubmit={onSubmit}
+      />,
+    )
+
+    // Dismissed card starts collapsed; user manually expands it.
+    expect(view.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    fireEvent.click(view.getByTestId(tid.decisionCardToggle))
+    expect(view.getByTestId(tid.decisionCard)).not.toHaveAttribute("data-collapsed")
+
+    // Select an option and submit -> first attempt fails -> stays expanded with inline error.
+    fireEvent.click(view.getByTestId(tid.decisionCardOption("timing", "today")))
+    await act(async () => {
+      fireEvent.click(view.getByTestId(tid.decisionCardSubmit))
+    })
+    expect(view.getByTestId(tid.decisionCard)).not.toHaveAttribute("data-collapsed")
+    expect(view.getByRole("alert")).toHaveTextContent("Offline")
+
+    // Retry succeeds as a queued optimistic send -> clears manual expand override and collapses without claiming "Answer sent".
+    await act(async () => {
+      fireEvent.click(view.getByTestId(tid.decisionCardSubmit))
+    })
+    expect(view.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    fireEvent.click(view.getByTestId(tid.decisionCardToggle))
+    expect(view.queryByRole("status")).toBeNull()
+
+    // For an unanswered active card, queued submit collapses once live responder arrives and re-expands if the queued reply fails (dropped from liveRespondedUserIds).
+    const activeCard = { ...sampleCard(), questions: sampleCard().questions.slice(0, 1) }
+    const activeSubmit = vi.fn(async () => ({ replyToId: "m_q_active", queued: true }))
+    view.rerender(
+      <DecisionCard
+        card={activeCard}
+        messageId="m_q_active"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        liveRespondedUserIds={[]}
+        onSubmit={activeSubmit}
+      />,
+    )
+    await act(async () => {
+      fireEvent.click(view.getByTestId(tid.decisionCardSubmit))
+    })
+    expect(view.queryByRole("status")).toBeNull()
+    view.rerender(
+      <DecisionCard
+        card={activeCard}
+        messageId="m_q_active"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        liveRespondedUserIds={["u_gus"]}
+        onSubmit={activeSubmit}
+      />,
+    )
+    expect(view.getByTestId(tid.decisionCard)).toHaveAttribute("data-collapsed", "true")
+    view.rerender(
+      <DecisionCard
+        card={activeCard}
+        messageId="m_q_active"
+        authorId="bot_evan"
+        viewerUserId="u_gus"
+        liveRespondedUserIds={[]}
+        onSubmit={activeSubmit}
+      />,
+    )
+    expect(view.getByTestId(tid.decisionCard)).not.toHaveAttribute("data-collapsed")
+    expect(view.getByTestId(tid.decisionCardOption("timing", "today"))).toHaveAttribute("data-selected", "true")
+    view.unmount()
+  })
+
   it("renders DecisionCard inside Message and suppresses plain summary body", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const card = sampleCard()
@@ -401,7 +550,7 @@ describe("DecisionCard", () => {
     })
     expect(onSubmitDecisionCard).toHaveBeenCalledExactlyOnceWith(
       message.id,
-      expect.stringContaining("Timing: Today"),
+      "Pick rollout details: Today",
       expect.any(String),
     )
     view.unmount()

@@ -5,8 +5,9 @@ import { buildDecisionCardEmbed, DecisionCardInputSchema } from "@alook/shared"
 import { BusinessFixtures } from "../../preview/business-fixtures"
 import { ProfileRunningBotsCardView } from "@/components/community/social/profile-running-bots-card"
 import { UserBarExtensionSlot } from "@/components/community/shell/user-bar-extension-slot"
+import { UserBar } from "@/components/community/shell/user-bar"
 import { InboxPopover, type InboxTab } from "@/components/community/shell/community-inbox-popover"
-import type { InboxTodo } from "@/lib/community/models/inbox"
+import type { InboxTodo, UnreadServer } from "@/lib/community/models/inbox"
 import { ComposerPreview } from "@/components/community/messages/composer-preview"
 import { ChannelHeader } from "@/components/community/channels/channel-header"
 import { MessageListSkeleton } from "@/components/community/messages/message-list-view"
@@ -101,8 +102,50 @@ function createSampleTodos(): InboxTodo[] {
   ]
 }
 
-function InteractiveTodoInbox({ surface }: { surface: "desktop" | "mobile" }) {
-  const [tab, setTab] = useState<InboxTab>("todo")
+const SAMPLE_UNREADS: UnreadServer[] = [
+  {
+    serverId: "srv-alook",
+    serverName: "Alook",
+    channels: [
+      {
+        channelId: "ch-gus-uiux",
+        channelName: "gus-uiux",
+        type: "text",
+        lastMessageAt: "2026-11-24T05:10:00.000Z",
+        lastUnreadSeq: 3781,
+        unreadCount: 1,
+        mentionCount: 0,
+        hasDirectUnread: true,
+        children: [],
+      },
+      {
+        channelId: "ch-gus-issues",
+        channelName: "gus-issues",
+        type: "text",
+        lastMessageAt: "2026-11-24T05:05:00.000Z",
+        lastUnreadSeq: 412,
+        unreadCount: 12,
+        mentionCount: 1,
+        hasDirectUnread: true,
+        children: [],
+      },
+      {
+        channelId: "ch-release-ops",
+        channelName: "release-ops",
+        type: "text",
+        lastMessageAt: "2026-11-24T04:55:00.000Z",
+        lastUnreadSeq: 920,
+        unreadCount: 128,
+        mentionCount: 0,
+        hasDirectUnread: true,
+        children: [],
+      },
+    ],
+  },
+]
+
+function InteractiveTodoInbox({ surface, initialTab = "todo" }: { surface: "desktop" | "mobile"; initialTab?: InboxTab }) {
+  const [tab, setTab] = useState<InboxTab>(initialTab)
   const [todos, setTodos] = useState<InboxTodo[]>(createSampleTodos)
   return (
     <div
@@ -114,14 +157,16 @@ function InteractiveTodoInbox({ surface }: { surface: "desktop" | "mobile" }) {
         surface={surface}
         activeTab={tab}
         onActiveTabChange={setTab}
-        unreads={[]}
+        unreads={SAMPLE_UNREADS}
         unreadDms={[]}
         mentions={[]}
         todos={todos}
         marked={[]}
         viewerUserId="viewer-1"
-        hasProjectedUnreads={todos.length > 0}
+        hasProjectedUnreads={true}
         hasProjectedMentions={false}
+        onOpenChannel={fn()}
+        onMarkChannelRead={fn()}
         onOpenTodo={fn()}
         onDismissTodo={(todo) => {
           setTodos((current) => current.filter((item) => item.messageId !== todo.messageId))
@@ -141,6 +186,9 @@ export default meta
 type Story = StoryObj<typeof meta>
 export const RunningBots: Story = { render: () => <div className="max-w-sm"><ProfileRunningBotsCardView runningBots={[{ id: "demo-alli", name: "Alli", image: "avatar:beam:demo-alli", activityEmoji: "💻", activityText: "Reviewing the project" }]} onOpenBotAudit={fn()} /></div> }
 export const UserBarInboxExtension: Story = { render: () => <div className="max-w-sm"><UserBarExtensionSlot active="inbox" inbox={<EmptyInbox />} update={null} eligibleMachines={[]} onDismiss={fn()} onRequestUpdate={fn()} animate={false} /></div> }
+export const UserBarUnread: Story = { render: () => <div className="max-w-72 p-4"><UserBar breakpoint="desktop" hasUnread user={{ id: "viewer-1", name: "Gus", avatar: "G", presence: "online" }} inbox={<EmptyInbox />} unreadCount={3} inboxOpen={false} onInboxOpenChange={fn()} onEditProfile={fn()} /></div> }
 export const InboxTodoDesktop: Story = { render: () => <div className="p-4"><InteractiveTodoInbox surface="desktop" /></div> }
 export const InboxTodoMobile: Story = { render: () => <div className="p-3"><InteractiveTodoInbox surface="mobile" /></div> }
+export const InboxUnreadsDesktop: Story = { render: () => <div className="p-4"><InteractiveTodoInbox surface="desktop" initialTab="unreads" /></div> }
+export const InboxUnreadsMobile: Story = { render: () => <div className="p-3"><InteractiveTodoInbox surface="mobile" initialTab="unreads" /></div> }
 export const ChannelFrame: Story = { render: () => <div className="flex h-128 flex-col"><ChannelHeader channel="general" kind="text" rightPanel={null} onToggle={fn()} /><div className="flex min-h-0 flex-1 flex-col"><MessageListSkeleton /><ComposerPreview /></div></div> }

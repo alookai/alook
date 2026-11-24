@@ -84,12 +84,14 @@ describe("Inbox channel cards", () => {
     const artwork = disclosure.querySelector('[data-slot="inbox-action-visual"]')!
     const chevron = disclosure.querySelector("svg")
     expect(disclosure).toHaveAccessibleDescription("2 unread messages")
+    expect(disclosure).toHaveAttribute("data-variant", "unread")
     expect(view.getByLabelText("2 unread messages")).toHaveTextContent("2")
     expect(artwork).toHaveAttribute("data-unread", "true")
     expect(renderUnreadMessages).not.toHaveBeenCalled()
     fireEvent.click(disclosure)
     expect(view.getByRole("button", { name: "Hide unread messages in Reply-only thread" })).toBe(disclosure)
     expect(disclosure).toHaveAttribute("aria-expanded", "true")
+    expect(disclosure).toHaveAttribute("data-variant", "ghost")
     expect(disclosure).toHaveAccessibleDescription("")
     expect(artwork).toHaveAttribute("data-unread", "false")
     expect(disclosure.querySelector("svg")).toBe(chevron)
@@ -102,6 +104,7 @@ describe("Inbox channel cards", () => {
     expect(view.queryByLabelText("4 unread messages")).toBeNull()
     fireEvent.click(disclosure)
     expect(disclosure).toHaveAccessibleDescription("4 unread messages")
+    expect(disclosure).toHaveAttribute("data-variant", "unread")
     expect(view.getByLabelText("4 unread messages")).toHaveTextContent("4")
     expect(view.queryByText("unread t1")).toBeNull()
     expect(onMarkChannelRead).not.toHaveBeenCalled()
@@ -194,7 +197,13 @@ describe("InboxPopover thread opener rows", () => {
     const disclosure = renderer.getByTestId(tid.inboxToggleChannel("dm1"))
     if (unreadCount) {
       expect(disclosure).toHaveAccessibleDescription(`${unreadCount} unread messages`)
+      expect(disclosure).toHaveAttribute("data-variant", "unread")
       expect(disclosure).toHaveTextContent(String(unreadCount))
+      if (unreadCount > 99) {
+        expect(disclosure.querySelector('[data-slot="inbox-unread-ellipsis"]')).not.toBeNull()
+      } else {
+        expect(disclosure.querySelector('[data-slot="inbox-unread-ellipsis"]')).toBeNull()
+      }
       expect(row).not.toHaveTextContent(String(unreadCount))
     } else {
       expect(disclosure).toHaveAccessibleDescription("")
@@ -215,7 +224,7 @@ describe("InboxPopover thread opener rows", () => {
     expect(unreads.querySelectorAll("button[aria-expanded=\"false\"]")).toHaveLength(3)
     const check = renderer.getByTestId(tid.inboxMarkChannelRead("f1"))
     const arrow = renderer.getByTestId(tid.inboxToggleChannel("f1"))
-    expect(check).toHaveAttribute("data-variant", "ghost")
+    expect(check).toHaveAttribute("data-variant", "secondary")
     expect(arrow).toHaveAttribute("data-variant", "ghost")
     expect(check).toHaveAttribute("data-size", "icon")
     expect(arrow).toHaveAttribute("data-size", "icon")
@@ -902,7 +911,7 @@ describe("InboxPopover Todo tab", () => {
     })
     expect(onSubmitTodo).toHaveBeenCalledWith(
       todo,
-      "When should we publish?: Today",
+      "Confirm release timing: Today",
       expect.any(String),
     )
     expect(onOpenTodo).not.toHaveBeenCalled()
@@ -1182,12 +1191,23 @@ describe("InboxPopover inline reply in Unreads", () => {
       expect(renderer.getByTestId(tid.inboxReplyInput("dm_1"))).toBeInTheDocument()
 
       fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("ch_text")))
-      const input = renderer.getByTestId(tid.inboxReplyInput("ch_text")) as HTMLTextAreaElement
+      const input = renderer.getByTestId(tid.inboxReplyInput("ch_text")) as HTMLInputElement
+      expect(input.tagName).toBe("INPUT")
+      expect(input.type).toBe("text")
+      expect(input.getAttribute("enterkeyhint")).toBe("send")
+      const sendButton = renderer.getByTestId(tid.inboxReplySend("ch_text")) as HTMLButtonElement
+      expect(sendButton).toHaveClass("community-composer-send")
+      expect(sendButton.getAttribute("data-variant")).toBe("default")
+      expect(sendButton).toBeDisabled()
       fireEvent.click(input)
       expect(onOpenChannel).not.toHaveBeenCalled()
       expect(onOpenDm).not.toHaveBeenCalled()
 
       fireEvent.change(input, { target: { value: "Looks good" } })
+      expect(sendButton).toBeEnabled()
+      fireEvent.keyDown(input, { key: "Enter", isComposing: true })
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: true })
+      expect(onReplyChannel).not.toHaveBeenCalled()
       fireEvent.keyDown(input, { key: "Enter" })
       await waitFor(() => {
         expect(renderer.getByRole("alert")).toHaveTextContent("Temporary outage")
@@ -1196,7 +1216,7 @@ describe("InboxPopover inline reply in Unreads", () => {
       const firstNonce = onReplyChannel.mock.calls[0]?.[2]
       expect(firstNonce).toEqual(expect.any(String))
 
-      fireEvent.click(renderer.getByTestId(tid.inboxReplySend("ch_text")))
+      fireEvent.click(sendButton)
       await waitFor(() => {
         expect(onReplyChannel).toHaveBeenCalledTimes(2)
         expect(input.value).toBe("")
@@ -1274,7 +1294,7 @@ describe("InboxPopover inline reply in Unreads", () => {
     await waitFor(() => {
       expect(onSubmitDecisionCard).toHaveBeenCalledTimes(1)
     })
-    expect(onSubmitDecisionCard).toHaveBeenCalledWith("ch_1", "m_dc_1", "Merge now?: Merge", expect.any(String))
+    expect(onSubmitDecisionCard).toHaveBeenCalledWith("ch_1", "m_dc_1", "Merge PR #1405?: Merge", expect.any(String))
     expect(onOpenChannel).not.toHaveBeenCalled()
   })
 
@@ -1307,7 +1327,7 @@ describe("InboxPopover inline reply in Unreads", () => {
     }))
 
     fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("dm_err")))
-    const input = renderer.getByTestId(tid.inboxReplyInput("dm_err")) as HTMLTextAreaElement
+    const input = renderer.getByTestId(tid.inboxReplyInput("dm_err")) as HTMLInputElement
     const send = renderer.getByTestId(tid.inboxReplySend("dm_err")) as HTMLButtonElement
 
     fireEvent.change(input, { target: { value: "First draft" } })

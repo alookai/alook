@@ -1,12 +1,15 @@
-import { channelResourceFixture, messageResourceFixture } from "@/test/community-resource-fixtures"
+import { channelResourceFixture, messageResourceFixture, profileResourceFixture } from "@/test/community-resource-fixtures"
+import { buildDecisionCardEmbed, DecisionCardInputSchema, extractDecisionCardFromEmbeds } from "@alook/shared"
 import "fake-indexeddb/auto"
 import { del, get, set } from "idb-keyval"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { dehydrate, QueryClient } from "@tanstack/react-query"
+import { dehydrate, hydrate, QueryClient } from "@tanstack/react-query"
 import { persistQueryClientRestore, type PersistedClient } from "@tanstack/react-query-persist-client"
 import { canonicalChannelRow } from "./community-db/schema"
 import { communityKeys } from "./query-keys"
 import * as persistence from "./query-persister"
+import { createCommunityDbRegistry } from "./community-db/collections"
+import { markDecisionCardRespondedOptimistically } from "./community-db/sync"
 
 const key = (user: string) => `${persistence.PERSIST_CACHE_PREFIX}:${user}:client`
 const accountKey = (user: string) => `${persistence.PERSIST_ACCOUNT_PREFIX}:${user}:account-epoch`
@@ -27,6 +30,38 @@ function messages(value: PersistedClient | undefined) {
 afterEach(() => vi.restoreAllMocks())
 
 describe("cold IDB snapshot processing", () => {
+  it("restores only a confirmed answer after the original tab closes while its request is pending", async () => {
+    const user = "cold-question-pending"
+    const client = new QueryClient()
+    hydrate(client, snapshot(user).clientState)
+    const card = buildDecisionCardEmbed(DecisionCardInputSchema.parse({
+      summary: "Confirm rollout",
+      questions: [{ question: "Roll out now?", options: [{ label: "Yes" }, { label: "No" }] }],
+    }), [])
+    client.setQueryData(communityKeys.communityDbCollection(user, "messages"), [
+      messageResourceFixture({ id: "pending-card", channelId: "a", authorId: "peer", authorName: "Peer", seq: 1, embeds: [card] }),
+    ])
+    client.setQueryData(communityKeys.communityDbCollection(user, "profiles"), [profileResourceFixture({ id: "peer", name: "Peer" })])
+    const registry = createCommunityDbRegistry(client, user)
+    await registry.preload()
+    expect(markDecisionCardRespondedOptimistically(registry, "pending-card", user)).toBeDefined()
+    expect(extractDecisionCardFromEmbeds(registry.collections.messages.get("pending-card")?.embeds).card?.respondedUserIds).toContain(user)
+    const writer = persistence.createIdbPersister(user)
+    await writer.persistClient({
+      timestamp: Date.now(),
+      buster: persistence.PERSIST_BUSTER,
+      clientState: dehydrate(client, { shouldDehydrateQuery: persistence.shouldDehydrateCommunityQuery }),
+    })
+    writer.stopPersisting()
+    await registry.cleanup()
+    client.clear()
+    const reader = persistence.createIdbPersister(user)
+    const restored = messages(await reader.restoreClient()) as { id: string; embeds?: unknown[] }[] | undefined
+    const restoredCard = extractDecisionCardFromEmbeds(restored?.find(message => message.id === "pending-card")?.embeds).card
+    expect(restoredCard).toBeDefined()
+    expect(restoredCard?.respondedUserIds ?? []).not.toContain(user)
+  })
+
   it("decodes unchanged qualified bytes once without a restore JSON round trip", async () => {
     const user = "cold-once", writer = persistence.createIdbPersister(user)
     await writer.persistClient(snapshot(user, "cached body".repeat(2000)))

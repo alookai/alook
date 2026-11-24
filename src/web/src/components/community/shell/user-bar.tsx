@@ -291,17 +291,25 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
             )} />
           </Button>
         )}
-        {inbox ? (
-          <Button variant="ghost" size="icon-sm"
+        {inbox ? (() => {
+          const effectiveUnreadCount = unreadCount ?? (hasUnread ? 1 : 0)
+          const showUnreadButton = effectiveUnreadCount > 0 && !inboxOpen
+          return (
+          <Button variant={showUnreadButton ? "unread" : "ghost"} size="icon-sm"
             ref={inboxTriggerRef}
             type="button"
             data-testid={tid.inboxTrigger}
             className={cn(
-              styles.target,
-              styles.squareButton,
-              styles.inbox,
-              "rounded-lg text-muted-foreground aria-expanded:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              mobile && "active:text-foreground",
+              showUnreadButton
+                ? "relative size-7 rounded-full max-sm:mx-2 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
+                : cn(
+                  styles.target,
+                  styles.squareButton,
+                  styles.inbox,
+                  "rounded-lg text-muted-foreground aria-expanded:text-foreground",
+                  mobile && "active:text-foreground",
+                ),
+              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             )}
             aria-label={mobile ? (inboxOpen || inboxOpening ? "Close Inbox" : "Open Inbox") : "Inbox"}
             aria-busy={inboxOpening || undefined}
@@ -317,12 +325,13 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
           >
             <InboxUnreadIndicator
               descriptionId={inboxDescriptionId}
-              count={unreadCount ?? (hasUnread ? 1 : 0)}
+              count={effectiveUnreadCount}
               partial={unreadCountPartial ?? (unreadCount === undefined && hasUnread)}
               open={Boolean(inboxOpen)}
             />
           </Button>
-        ) : null}
+          )
+        })() : null}
         <Button variant="ghost" size="icon-sm"
           onClick={() => {
             if (extension) extension.onDismiss()
