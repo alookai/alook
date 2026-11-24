@@ -46,6 +46,12 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false, pathname?: string 
 
   useEffect(() => {
     const native = isTauri()
+    if (syncGoogleConsent && native) {
+      Object.defineProperty(window, GA_DISABLE, {
+        configurable: true,
+        get: () => readAnalyticsConsent() !== "granted" || !isPublicAnalyticsPath(window.location.pathname),
+      })
+    }
     const refresh = (announce = false, initial = false) => {
       const next = readAnalyticsConsent()
       if (syncGoogleConsent && next === "denied") {
@@ -217,13 +223,6 @@ export function AnalyticsConsent() {
   useEffect(() => {
     if (!isTauri() && allowed) startGoogleAds()
   }, [allowed, pathname])
-  useEffect(() => {
-    if (!isTauri()) return
-    Object.defineProperty(window, GA_DISABLE, {
-      configurable: true,
-      get: () => readAnalyticsConsent() !== "granted" || !isPublicAnalyticsPath(window.location.pathname),
-    })
-  }, [])
   useEffect(() => {
     if (!isTauri() || decision !== "granted") return
     googleCommand("set", "page_referrer", publicAnalyticsReferrer(document.referrer, window.location.origin))
