@@ -62,14 +62,14 @@ export function renderMessageListView(
           data-pagination-enabled={controller.paginationEnabled ? "true" : "false"}
           aria-busy={showSkeleton}
           tabIndex={showSkeleton ? 0 : undefined}
-          className={`relative z-10 h-full overflow-x-clip overflow-y-auto thin-scrollbar ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
+          className={`relative z-10 h-full overflow-x-clip overflow-y-auto [overflow-anchor:none] thin-scrollbar ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
         >
           <div
             data-message-list-content
             data-initial-position-phase={controller.initialPosition.phase}
             data-read-position-ready={controller.readPositionReady ? "true" : "false"}
             aria-hidden="false"
-            className={showError ? "flex min-h-full flex-col" : `flex min-h-full flex-col justify-end ${props.messages.length === 0 ? "pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)`}
+            className={showError ? "flex min-h-full flex-col" : `flex min-h-full flex-col ${props.messages.length === 0 ? "pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end)`}
           >
           {showError ? (
             <ConversationResolutionErrorFrame as="div" retrying={!!props.retryingInitialLoad}
@@ -79,10 +79,10 @@ export function renderMessageListView(
           ) : (
             <>
               {props.messages.length === 0
-                ? <>
+                ? <div className="mt-auto flex flex-col">
                     {props.historyStartKnown && <div className="mb-6">{renderMessageListHero(props)}</div>}
                     <div aria-hidden="true" data-message-empty-tail className="shrink-0" style={{ height: capsuleHeight }} />
-                  </>
+                  </div>
                 : renderRows()}
             </>
           )}
@@ -105,11 +105,11 @@ export function MessageListSkeleton({ variant = "channel", capsuleHeight = 0 }: 
           data-testid={tid.messageScroller}
           data-composer-occlusion={capsuleHeight}
           data-pagination-enabled="false"
-          className={`relative z-10 h-full overflow-x-clip overflow-y-auto thin-scrollbar ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
+          className={`relative z-10 h-full overflow-x-clip overflow-y-auto [overflow-anchor:none] thin-scrollbar ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
         >
           <div
             data-message-list-content
-            className="flex min-h-full flex-col justify-end pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) pt-8"
+            className="flex min-h-full flex-col pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) pt-8"
           >
             <MessageListSkeletonContent variant={variant} capsuleHeight={capsuleHeight} />
           </div>
@@ -128,7 +128,7 @@ function MessageListSkeletonContent({ variant, capsuleHeight = 0 }: { variant: "
     [200],
   ]
   return (
-    <>
+    <div className="mt-auto flex flex-col">
       <div className="mb-6">
         {variant === "dm" ? (
           <>
@@ -166,6 +166,6 @@ function MessageListSkeletonContent({ variant, capsuleHeight = 0 }: { variant: "
         className="shrink-0"
         style={{ height: capsuleHeight }}
       />
-    </>
+    </div>
   )
 }

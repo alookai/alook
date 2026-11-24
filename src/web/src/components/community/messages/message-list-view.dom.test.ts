@@ -81,7 +81,7 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
     onEnterSelectId: vi.fn(),
     onToggleSelectId: vi.fn(),
     scrollRef: { current: null },
-    virtualizer: {} as MessageListController["virtualizer"],
+    tailPaddingEnd: 16,
     readPositionReady: true,
     jumpTo: vi.fn(),
     pillCount: 3,
@@ -364,12 +364,15 @@ describe("renderMessageListView", () => {
     const renderer = render(renderMessageListView(props({ hasMore: true, hasMoreNewer: true }), state, renderRows))
     const content = renderer.container.querySelector("[data-message-list-content]")!
     expect(content.children).toHaveLength(1)
-    expect(content).not.toHaveClass("pt-8", "justify-end", "min-h-full")
+    expect(content).toHaveClass("min-h-full")
+    expect(content).not.toHaveClass("pt-8", "justify-end")
     expect(content).toHaveAttribute("data-read-position-ready", "false")
     expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
     expect(renderer.container.querySelectorAll(".h-8")).toHaveLength(0)
     renderer.rerender(renderMessageListView(props({ messages: [], historyStartKnown: true }), state, renderRows))
-    expect(content).toHaveClass("pt-8", "justify-end", "min-h-full")
+    expect(content).toHaveClass("pt-8", "min-h-full")
+    expect(content).not.toHaveClass("justify-end")
+    expect(content.firstElementChild).toHaveClass("mt-auto")
     expect(renderer.getByText(/Beginning of the channel/)).toBeInTheDocument()
     renderer.rerender(renderMessageListView(props({ messages: [] }), state, renderRows))
     expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()

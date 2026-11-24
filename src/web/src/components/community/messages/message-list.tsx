@@ -11,7 +11,6 @@ import { useConversationFooterSlot } from "./conversation-footer-shell"
 import type { MessageListProps, ResolvedMessageListProps } from "./message-list-types"
 import { renderMessageListRow } from "./message-list-row"
 import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
-import { VirtualRows } from "./virtual-cursor-list"
 import { MessageUpdateMotionContext, useMessageArrivalMotion } from "./message-update-motion"
 import { ConversationPresentationContext, useConversationActivity } from "@/contexts/view-activity"
 
@@ -134,13 +133,17 @@ function MessageListOwner({ variant, initialScrollReady, renderer, ...props }: M
   })
   return renderMessageListView(resolvedProps, controller, () => (
     <MessageUpdateMotionContext.Provider value={motionActive ? renderer.revision : null}>
-      <VirtualRows
-        reactLayout
-        items={controller.items}
-        virtualizer={controller.virtualizer}
-        onLayoutCommit={controller.onRowsLayoutCommit}
-        renderItem={(item) => renderMessageListRow(item, resolvedProps, controller)}
-      />
+      <div
+        data-message-rows
+        className="mt-auto flex w-full flex-col"
+        style={{ paddingBottom: controller.tailPaddingEnd }}
+      >
+        {controller.items.map((item, index) => (
+          <div key={item.key} data-index={index} className="w-full">
+            {renderMessageListRow(item, resolvedProps, controller)}
+          </div>
+        ))}
+      </div>
     </MessageUpdateMotionContext.Provider>
   ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, capsuleHeight)
 }

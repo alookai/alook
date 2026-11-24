@@ -287,12 +287,15 @@ test("message area & forum stability before/after video capture across Text, DM,
   await setProbePhase(page, "reconcile-release", true)
   await alphaHold.release()
   await waitForSurfaceSettled(page, alphaId, alphaIds[alphaIds.length - 1]!)
+  await setProbePhase(page, "live-peer-pinned-follow", false)
   const liveTextId = await seed.seedMessage("alice", alphaId, `Live peer message in alpha (${stamp})`)
-  await expect(
-    page
-      .locator(`[data-slot="community-conversation-surface"][data-channel-id="${alphaId}"]`)
-      .getByTestId(tid.message(liveTextId)),
-  ).toBeVisible({ timeout: 15_000 })
+  const alphaSurface = page.locator(`[data-slot="community-conversation-surface"][data-channel-id="${alphaId}"]`)
+  await expect(alphaSurface.getByTestId(tid.message(liveTextId))).toBeVisible({ timeout: 15_000 })
+  const alphaScroller = alphaSurface.getByTestId(tid.messageScroller)
+  await expect.poll(async () => alphaScroller.evaluate((el) => Math.max(0, el.scrollHeight - el.clientHeight - el.scrollTop)), {
+    timeout: 10_000,
+    message: "live-peer-pinned-follow must remain pinned at bottom after peer append",
+  }).toBeLessThanOrEqual(1)
   await page.waitForTimeout(450)
   scenarios.push(await stopProbe(page))
 

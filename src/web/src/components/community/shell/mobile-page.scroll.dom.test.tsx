@@ -90,9 +90,10 @@ describe("first mobile Portal adoption with the native message virtualizer", () 
     }
     const h = mount({ items: Array.from({ length: 50 }, (_, i) => message(`m${i}`)), hasMoreOlder: false }, false, undefined, Wrapper)
     if (position === "reader") h.move(730)
-    const native = scrollFixture.latest.virtualizer
-    const fold = native.getVirtualItems().find(row => row.key.toString().startsWith("msg:") && row.end > h.root.scrollTop)!
-    const id = String(fold.key).slice(4)
+    const viewportRect = h.root.getBoundingClientRect()
+    const visibleBody = Array.from(h.root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find(el => el.getBoundingClientRect().bottom > viewportRect.top + 1)!
+    const id = visibleBody.dataset.msgId!
     const before = bodyTop(h.root, id)
     viewport.breakpoint = "mobile"
     scrollFixture.width = 390
@@ -111,7 +112,6 @@ describe("first mobile Portal adoption with the native message virtualizer", () 
       h.stage({})
       resize()
       expect(screen.getByTestId("scroll")).toBe(h.root)
-      expect(scrollFixture.latest.virtualizer).toBe(native)
       if (position === "reader") expect(bodyTop(h.root, id)).toBeCloseTo(before, 0)
       else expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
       expect(scrollFixture.latest.readPositionReady).toBe(true)

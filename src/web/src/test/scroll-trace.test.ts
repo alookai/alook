@@ -186,7 +186,7 @@ describe("scroll trace normalization", () => {
 describe("scroll trace writers and metrics", () => {
   it("coalesces one logical writer across adjacent microtask and RAF calls", () => {
     const calls = coalesceWriterCalls([
-      write({ frame: 4 }),
+      write({ frame: 4, stack: "use-conversation-scroll.ts" }),
       write({ frame: 5, method: "scrollTo" }),
       write({ frame: 8, fingerprint: "other", stack: "virtual-core/index.js" }),
     ])

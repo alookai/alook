@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { flattenMessageItems, estimateRowHeight, computeBelowCount, stabilizeFirstRowGrouping } from "./message-list-items"
+import { flattenMessageItems, computeBelowCount, stabilizeFirstRowGrouping } from "./message-list-items"
 import type { Msg } from "./models/message"
 
 function msg(overrides: Partial<Msg> & { id: string }): Msg {
@@ -283,67 +283,6 @@ describe("flattenMessageItems", () => {
     expect(keys[0]).not.toBe(keys[1])
     expect(keys[2]).toBe("msg:id:m3")
     expect(keys[3]).toBe("msg:id:m4")
-  })
-})
-
-describe("estimateRowHeight", () => {
-  it("estimates independent decorations without changing the message estimate", () => {
-    expect(estimateRowHeight({ kind: "divider", key: "date", messageId: "m1", dateLabel: "Today" })).toBe(32)
-    expect(estimateRowHeight({ kind: "divider", key: "new", messageId: "m1", newDivider: true })).toBe(24)
-    expect(estimateRowHeight({ kind: "divider", key: "both", messageId: "m1", dateLabel: "Today", newDivider: true })).toBe(32)
-    expect(estimateRowHeight({ kind: "leading", key: "leading" })).toBe(152)
-    expect(estimateRowHeight({ kind: "trailing", key: "trailing" })).toBe(56)
-  })
-
-  it("scales up with longer text content", () => {
-    const items = flattenMessageItems(
-      [
-        msg({ id: "m1", content: "short" }),
-        msg({ id: "m2", content: "a".repeat(500) }),
-      ],
-      undefined,
-    )
-    const messages = items.filter((i) => i.kind === "message")
-    expect(estimateRowHeight(messages[1])).toBeGreaterThan(estimateRowHeight(messages[0]))
-  })
-
-  it("adds height for an image attachment using its real aspect ratio when width/height are known", () => {
-    const wide = flattenMessageItems(
-      [msg({ id: "m1", content: "", attachments: [{ kind: "image", name: "a.png", url: "/a.png", width: 1600, height: 400 }] })],
-      undefined,
-    ).find((i) => i.kind === "message")!
-    const tall = flattenMessageItems(
-      [msg({ id: "m1", content: "", attachments: [{ kind: "image", name: "a.png", url: "/a.png", width: 400, height: 1600 }] })],
-      undefined,
-    ).find((i) => i.kind === "message")!
-    // A tall (narrow, high) image renders taller within the same max-width
-    // box than a wide (short) image — the estimate must reflect that, not
-    // treat every image attachment as the same fixed addend.
-    expect(estimateRowHeight(tall)).toBeGreaterThan(estimateRowHeight(wide))
-  })
-
-  it("adds a fallback addend for an image attachment with no known dimensions (pre-feature rows)", () => {
-    const withImage = flattenMessageItems(
-      [msg({ id: "m1", content: "", attachments: [{ kind: "image", name: "a.png", url: "/a.png" }] })],
-      undefined,
-    ).find((i) => i.kind === "message")!
-    const withoutImage = flattenMessageItems(
-      [msg({ id: "m1", content: "" })],
-      undefined,
-    ).find((i) => i.kind === "message")!
-    expect(estimateRowHeight(withImage)).toBeGreaterThan(estimateRowHeight(withoutImage))
-  })
-
-  it("reserves reply-header height before measurement", () => {
-    const withoutReply = flattenMessageItems([msg({ id: "m1" })], undefined)
-      .find((item) => item.kind === "message")!
-    const withReply = flattenMessageItems([
-      msg({
-        id: "m1",
-        replyTo: { id: "reply_1", authorName: "Bob", text: "preview" },
-      }),
-    ], undefined).find((item) => item.kind === "message")!
-    expect(estimateRowHeight(withReply) - estimateRowHeight(withoutReply)).toBe(28)
   })
 })
 

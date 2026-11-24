@@ -149,7 +149,7 @@ describe("MessageList loading-to-loaded mount identity", () => {
     expect(renderer.container.querySelectorAll('[data-index]')).toHaveLength(3)
     expect(renderer.container.querySelectorAll('[data-msg-id]')).toHaveLength(1)
     const rows = root.querySelector<HTMLElement>('[data-message-list-content] > div')!
-    expect(Number.parseFloat(rows.style.height)).toBeLessThan(root.clientHeight)
+    expect(rows.getBoundingClientRect().height).toBeLessThan(root.clientHeight)
     expect(rows.getBoundingClientRect().bottom).toBe(root.getBoundingClientRect().bottom)
     expect(root.querySelector<HTMLElement>('[data-msg-id="m1"]')!.getBoundingClientRect().bottom).toBe(root.clientHeight - 40)
     expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
