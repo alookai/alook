@@ -145,6 +145,7 @@ function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadi
       }
     }
   }, [activeTag, virtualizer])
+  const virtualItems = virtualizer.getVirtualItems()
   useLayoutEffect(() => {
     const root = scrollRef.current
     if (root && root.clientWidth > 0 && root.clientHeight > 0) {
@@ -154,8 +155,7 @@ function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadi
     }
     initializePosition(virtualizer)
     inspectPosition(virtualizer)
-  })
-  const virtualItems = virtualizer.getVirtualItems()
+  }, [initializePosition, inspectPosition, posts, virtualItems, virtualizer])
   const range = virtualizer.range
   const paginationItems = useMemo(() => {
     if (!range) return []

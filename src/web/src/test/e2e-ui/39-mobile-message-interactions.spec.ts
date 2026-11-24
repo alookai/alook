@@ -605,7 +605,7 @@ test("same message row recovers its action menu from mouse to touch", async ({ c
   ))).toHaveLength(messageCreatesBefore)
 })
 
-test("Lobe recovers after a swipe loses pointer capture before finger-up", async ({ caseActors }) => {
+test("Message row recovers after a swipe loses pointer capture before finger-up", async ({ caseActors }) => {
   const actors = await caseActors(["alice", "bob"])
   const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
   const serverId = await seedServer("alice", "Interrupted touch")
@@ -615,13 +615,12 @@ test("Lobe recovers after a swipe loses pointer capture before finger-up", async
   const messageId = await seedMessage("bob", channelId, body)
   const { context, page } = await actors.asUser("alice", { hasTouch: true, viewport: { width: 390, height: 844 } })
   await installInputCapability(page, false)
-  await page.addInitScript(key => localStorage.setItem(key, "lobe"), "alook-message-renderer-v1:" + encodeURIComponent(actors.userId("alice")))
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
 
   const row = page.getByTestId(tid.message(messageId)).locator("[data-page-swipe-reply-row]")
   const list = page.getByTestId(tid.messageScroller).locator("[data-message-list-content]")
   await expect(list).toHaveAttribute("data-read-position-ready", "true")
-  await expect(row.locator('[data-message-renderer="lobe"]')).toBeVisible()
+  await expect(row.locator('[data-message-renderer="current"]')).toBeVisible()
   await expect(row.getByText(body)).toBeInViewport()
   await expect(row).toHaveCSS("transform", "none")
   const [box, text] = await Promise.all([row.boundingBox(), row.getByText(body).boundingBox()])

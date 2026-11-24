@@ -31,7 +31,6 @@ import { AutomationSettings } from "./automation-settings"
 import { AccountDeletionFlow } from "./account-deletion-flow"
 import { Input } from "@/components/ui/input"
 import { AppearanceSettings } from "./appearance-settings"
-import { MessageRendererSettings } from "./message-renderer-settings"
 
 type UserSettingsTab = "profile" | "appearance" | "advanced" | "privacy" | "terms" | "billing" | "automation"
 
@@ -47,7 +46,7 @@ const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
 
 const CACHE_SIZE_QUERY_KEY = ["device", "cache", "size"] as const
 
-export function AdvancedSettings({ accountId }: { accountId?: string | null }) {
+export function AdvancedSettings() {
   const [confirmOpen, setConfirmOpen] = useAtom(useCreateAtom(false))
   const [clearError, setClearError] = useAtom(useCreateAtom<string | null>(null))
   const queryClient = useQueryClient()
@@ -98,7 +97,6 @@ export function AdvancedSettings({ accountId }: { accountId?: string | null }) {
         }}
       />
       <div className="flex min-h-full w-full flex-col">
-        <MessageRendererSettings accountId={accountId} />
         <section className="space-y-2">
           <h2 className="text-base font-medium tracking-tight">Clear local cache</h2>
           {clearError && <p role="alert" className="text-sm text-destructive">{clearError}</p>}
@@ -309,7 +307,7 @@ export function UserSettings({ titleId, initialTab = "profile", billingReturn = 
             <AppearanceSettings />
           </SettingsShellPanel>
           <SettingsShellPanel value="advanced" className="h-full">
-            <AdvancedSettings accountId={userId} />
+            <AdvancedSettings />
           </SettingsShellPanel>
           <SettingsShellPanel value="privacy">
             <div className="w-full pb-8">

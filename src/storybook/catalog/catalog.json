@@ -8,10 +8,10 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 371,
+    "composition": 369,
     "environment": 13,
     "nonvisual": 32,
-    "direct": 163
+    "direct": 161
   },
   "entries": [
     {
@@ -3727,9 +3727,7 @@
       "application": "Web",
       "candidates": [
         "MessageList",
-        "MessageListEntry",
-        "MessageListOwner",
-        "PendingMessageListSkeleton"
+        "MessageListOwner"
       ],
       "kind": "composition",
       "examples": [
@@ -3797,11 +3795,11 @@
       "kind": "composition",
       "examples": [
         {
-          "story": "web-business-message-renderer-trial--comparison",
-          "region": "Original Message reply quote in trialMessage rows where index % 10 is 2, shared by all three selected renderers"
+          "story": "web-business-message--reply",
+          "region": "Referenced-message reply quote rendered above the message body"
         }
       ],
-      "reason": "The existing trial mounts the original MessageList and Message reply slot with a real referenced-message fixture. This declares the shared quote composition only; pending/deleted branches, actual rendering, jump behavior, geometry and backend acceptance require separate runtime evidence."
+      "reason": "The story mounts the original Message component with a referenced-message reply fixture. Pending/deleted branches, jump behavior and backend acceptance require separate runtime evidence."
     },
     {
       "source": "src/web/src/components/community/messages/message-route.tsx",
@@ -3931,21 +3929,6 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
-      "source": "src/web/src/components/community/messages/renderers/chatscope-message-cell.tsx",
-      "application": "Web",
-      "candidates": [
-        "ChatscopeMessageCell"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "web-business-message-renderer-trial--comparison",
-          "region": "Native Chatscope Message cell after selecting Chatscope"
-        }
-      ],
-      "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
-    },
-    {
       "source": "src/web/src/components/community/messages/renderers/current-message-cell.tsx",
       "application": "Web",
       "candidates": [
@@ -3954,26 +3937,11 @@
       "kind": "composition",
       "examples": [
         {
-          "story": "web-business-message-renderer-trial--comparison",
-          "region": "Original message row after selecting Current"
+          "story": "web-business-message--text",
+          "region": "Message row rendered through the canonical Current message cell"
         }
       ],
-      "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
-    },
-    {
-      "source": "src/web/src/components/community/messages/renderers/lobe-message-cell.tsx",
-      "application": "Web",
-      "candidates": [
-        "LobeMessageCell"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "web-business-message-renderer-trial--comparison",
-          "region": "Native ChatItem using the canonical slots after selecting Lobe UI"
-        }
-      ],
-      "reason": "The story selects the actual lazy Lobe adapter inside the original MessageList. Native first-entry lifecycle and callbacks have finite DOM checks; this declaration does not qualify app geometry, reload, server actions or browser behavior."
+      "reason": "The story mounts the original Message component, which delegates its visual cell to CurrentMessageCell. Runtime layout, scroll anchoring and server writes require separate runtime evidence."
     },
     {
       "source": "src/web/src/components/community/messages/renderers/message-cell-layout.tsx",
@@ -3984,30 +3952,26 @@
       "kind": "composition",
       "examples": [
         {
-          "story": "web-business-message-renderer-trial--comparison",
-          "region": "Canonical action, quote, avatar and body host inside the actual Current, Chatscope and Lobe message cells"
+          "story": "web-business-message--text",
+          "region": "Canonical action, quote, avatar and body host inside CurrentMessageCell"
         }
       ],
-      "reason": "The existing comparison selects the real message cell inside the original MessageList. Each actual renderer mounts this shared Current host; the declaration does not establish rendered appearance, anchor behavior, native lifecycle or backend acceptance."
+      "reason": "The story mounts the original Message component and its canonical MessageCellLayout host. Actual runtime geometry and interactions require separate runtime evidence."
     },
     {
       "source": "src/web/src/components/community/messages/renderers/message-cell.tsx",
       "application": "Web",
       "candidates": [
-        "CellBoundary",
-        "MessageCell",
-        "MessageRendererContext",
-        "MessageRendererError",
-        "Renderer"
+        "MessageCell"
       ],
       "kind": "composition",
       "examples": [
         {
-          "story": "web-business-message-renderer-trial--comparison",
-          "region": "One selected visual cell inside the original MessageList"
+          "story": "web-business-message--text",
+          "region": "Message visual cell host inside the original Message row"
         }
       ],
-      "reason": "The comparison mounts the real local selector and original MessageList with canonical Message nodes. This is an authored exposure; actual rendering, lifecycle, geometry and application behavior require independent runtime evidence. Error branches are not represented as passing candidates."
+      "reason": "The story mounts the original Message component, which renders MessageCell directly through CurrentMessageCell. Runtime layout and interactions require separate runtime evidence."
     },
     {
       "source": "src/web/src/components/community/messages/send-stroke-rounded-icon.tsx",
@@ -4553,21 +4517,6 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-    },
-    {
-      "source": "src/web/src/components/community/settings/message-renderer-settings.tsx",
-      "application": "Web",
-      "candidates": [
-        "MessageRendererSettings"
-      ],
-      "kind": "direct",
-      "examples": [
-        {
-          "story": "web-business-message-renderer-trial--comparison",
-          "region": "Local account selector above the single original message list"
-        }
-      ],
-      "reason": "The comparison mounts the actual local preference control. It does not prove authenticated application routing, reload or a server write."
     },
     {
       "source": "src/web/src/components/community/settings/server-settings-channels.tsx",
@@ -8865,21 +8814,6 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
-      "source": "src/web/src/components/ui/line-clamp.tsx",
-      "application": "Web",
-      "candidates": [
-        "LineClamp"
-      ],
-      "kind": "direct",
-      "examples": [
-        {
-          "story": "web-foundations-line-clamp--end",
-          "region": "Line count/location controls and available width"
-        }
-      ],
-      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
-    },
-    {
       "source": "src/web/src/components/ui/native-back-layer.tsx",
       "application": "Web",
       "candidates": [
@@ -9719,18 +9653,6 @@
       "source": "src/storybook/stories/business/message-markdown.stories.tsx"
     },
     {
-      "id": "web-business-message-renderer-trial--comparison",
-      "title": "Web/Business/Message renderer trial",
-      "name": "Comparison",
-      "source": "src/storybook/stories/business/message-renderer-trial.stories.tsx"
-    },
-    {
-      "id": "web-business-message-renderer-trial--updates",
-      "title": "Web/Business/Message renderer trial",
-      "name": "Updates",
-      "source": "src/storybook/stories/business/message-renderer-trial.stories.tsx"
-    },
-    {
       "id": "web-business-message--text",
       "title": "Web/Business/Message",
       "name": "Text",
@@ -10149,30 +10071,6 @@
       "title": "Web/Foundations/Surface and loading",
       "name": "Shell",
       "source": "src/storybook/stories/foundations/layout.stories.tsx"
-    },
-    {
-      "id": "web-foundations-line-clamp--end",
-      "title": "Web/Foundations/Line clamp",
-      "name": "End",
-      "source": "src/storybook/stories/foundations/line-clamp.stories.tsx"
-    },
-    {
-      "id": "web-foundations-line-clamp--middle",
-      "title": "Web/Foundations/Line clamp",
-      "name": "Middle",
-      "source": "src/storybook/stories/foundations/line-clamp.stories.tsx"
-    },
-    {
-      "id": "web-foundations-line-clamp--single-line",
-      "title": "Web/Foundations/Line clamp",
-      "name": "Single Line",
-      "source": "src/storybook/stories/foundations/line-clamp.stories.tsx"
-    },
-    {
-      "id": "web-foundations-line-clamp--short",
-      "title": "Web/Foundations/Line clamp",
-      "name": "Short",
-      "source": "src/storybook/stories/foundations/line-clamp.stories.tsx"
     },
     {
       "id": "web-foundations-alook-loading--animated",

@@ -100,10 +100,16 @@ function firstChildRowKey(rowsContainer: HTMLElement): string {
 function computeNativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null | undefined) {
   let cursor = 0
   let childCount = 0
+  let tailSpacerHeight = 0
   const offsets = new Map<HTMLElement, { start: number; height: number }>()
   for (let child = rowsContainer.firstElementChild as HTMLElement | null; child; child = child.nextElementSibling as HTMLElement | null) {
     childCount += 1
-    const measured = child.hasAttribute("data-index") ? measureRowWrapper(child).total : 0
+    const measured = child.hasAttribute("data-index")
+      ? measureRowWrapper(child).total
+      : child.hasAttribute("data-message-list-tail")
+        ? (Number.parseFloat(child.style.height) || 0)
+        : 0
+    if (child.hasAttribute("data-message-list-tail")) tailSpacerHeight += measured
     offsets.set(child, { start: cursor, height: measured })
     cursor += measured
   }
@@ -121,11 +127,14 @@ function computeNativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement 
     lastChildCount: rowsContainer.lastElementChild?.childElementCount ?? -1,
     firstChildKey: firstChildRowKey(rowsContainer),
     paddingBottom,
+    tailSpacerHeight,
   }
 }
 function nativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null | undefined) {
   const clientHeight = root?.clientHeight ?? 0
   const paddingBottom = Number.parseFloat(rowsContainer.style.paddingBottom) || 0
+  const lastEl = rowsContainer.lastElementChild as HTMLElement | null
+  const tailSpacerHeight = lastEl?.hasAttribute("data-message-list-tail") ? (Number.parseFloat(lastEl.style.height) || 0) : 0
   const firstChildCount = rowsContainer.firstElementChild?.childElementCount ?? -1
   const lastChildCount = rowsContainer.lastElementChild?.childElementCount ?? -1
   const firstChildKey = firstChildRowKey(rowsContainer)
@@ -139,6 +148,7 @@ function nativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null 
     && cachedRowsMetrics.metrics.lastChildCount === lastChildCount
     && cachedRowsMetrics.metrics.firstChildKey === firstChildKey
     && cachedRowsMetrics.metrics.paddingBottom === paddingBottom
+    && cachedRowsMetrics.metrics.tailSpacerHeight === tailSpacerHeight
   ) {
     return cachedRowsMetrics.metrics
   }
@@ -228,7 +238,7 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
   return createElement("div", { "data-slot": "community-conversation-surface" },
     createElement("div", { key: input.scrollRootKey, ref: result.scrollRef, "data-testid": "scroll" },
       createElement("div", { "data-message-list-content": "", className: "flex min-h-full flex-col", "data-read-position-ready": String(result.readPositionReady) },
-        createElement("div", { "data-message-rows": "", className: "mt-auto flex w-full flex-col", style: { paddingBottom: tailPaddingEnd } },
+        createElement("div", { "data-message-rows": "", className: "mt-auto flex w-full flex-col" },
           items.map((item, index) => createElement("div", { key: item.key, "data-index": index, className: "w-full" },
             item.kind === "leading" && item.hidden ? null : createElement("div", {
               "data-message-row-key": item.key,
@@ -242,6 +252,7 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
               item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id, style: { overflowY: overflowModes.get(item.m.id) } }) : null,
             ),
           )),
+          createElement("div", { "aria-hidden": "true", "data-message-list-tail": "", className: "shrink-0", style: { height: tailPaddingEnd } }),
         ),
       ),
     ),

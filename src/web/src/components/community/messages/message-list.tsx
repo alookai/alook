@@ -10,14 +10,15 @@ import { useReducedMotion } from "@/hooks/use-reduced-motion"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
 import type { MessageListProps, ResolvedMessageListProps } from "./message-list-types"
 import { renderMessageListRow } from "./message-list-row"
-import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
+import { renderMessageListView } from "./message-list-view"
 import { MessageUpdateMotionContext, useMessageArrivalMotion } from "./message-update-motion"
 import { ConversationPresentationContext, useConversationActivity } from "@/contexts/view-activity"
 
-import { MessageRendererContext, MessageRendererError } from "./renderers/message-cell"
-import { failMessageRenderer, selectMessageRenderer, useMessageRendererSettings, type MessageRendererSettings } from "./renderers/message-renderer-settings"
-
-export function MessageList(props: MessageListProps) {
+export function MessageList({
+  variant = "channel",
+  initialScrollReady = true,
+  ...props
+}: MessageListProps) {
   const accountId = props.viewerUserId ?? props.positionScope?.proof.viewerId ?? null
   const resolvedChannelId = props.channelId ?? props.positionScope?.proof.channelId ?? null
   const [mountSlot, setMountSlot] = useState(() => ({
@@ -40,33 +41,7 @@ export function MessageList(props: MessageListProps) {
     nextMountSlot = { ...mountSlot, channelId: resolvedChannelId }
     setMountSlot(nextMountSlot)
   }
-  const renderer = useMessageRendererSettings(accountId ?? undefined)
-  const presentation = useMemo(() => ({ id: renderer.id, component: renderer.component, revision: renderer.revision,
-    onError: () => { if (accountId) failMessageRenderer(accountId, renderer.id) },
-    onReturnCurrent: () => { if (accountId) void selectMessageRenderer(accountId, "current") },
-  }), [accountId, renderer.id, renderer.component, renderer.revision])
-  return <MessageRendererContext.Provider value={presentation}>
-    <MessageListEntry key={nextMountSlot.generation} {...props} renderer={renderer} onReturnCurrent={presentation.onReturnCurrent} />
-  </MessageRendererContext.Provider>
-}
-
-function MessageListEntry({
-  variant = "channel",
-  initialScrollReady = true,
-  renderer,
-  onReturnCurrent,
-  ...props
-}: MessageListProps & { renderer: MessageRendererSettings; onReturnCurrent: () => void }) {
-  const [presentationAdmitted, setPresentationAdmitted] = useState(false)
-  if (renderer.ready && renderer.component && !presentationAdmitted) setPresentationAdmitted(true)
-  if (!renderer.ready) return <PendingMessageListSkeleton variant={variant} />
-  if (!presentationAdmitted && !renderer.component) return <MessageRendererError onReturnCurrent={onReturnCurrent} />
-  return <MessageListOwner {...props} variant={variant} initialScrollReady={initialScrollReady} renderer={renderer} />
-}
-
-function PendingMessageListSkeleton({ variant }: { variant: "channel" | "dm" }) {
-  const footerSlot = useConversationFooterSlot()
-  return <MessageListSkeleton variant={variant} capsuleHeight={footerSlot?.capsuleHeight ?? 0} />
+  return <MessageListOwner key={nextMountSlot.generation} {...props} variant={variant} initialScrollReady={initialScrollReady} />
 }
 
 function useImageGalleryPreview(messages: MessageListProps["messages"], onPreviewImage: MessageListProps["onPreviewImage"]) {
@@ -78,10 +53,9 @@ function useImageGalleryPreview(messages: MessageListProps["messages"], onPrevie
   }, [])
 }
 
-function MessageListOwner({ variant, initialScrollReady, renderer, ...props }: MessageListProps & {
+function MessageListOwner({ variant, initialScrollReady, ...props }: MessageListProps & {
   variant: "channel" | "dm"
   initialScrollReady: boolean
-  renderer: MessageRendererSettings
 }) {
   const previewImage = useImageGalleryPreview(props.messages, props.onPreviewImage)
   const hoverCapable = useHoverCapable()
@@ -121,29 +95,33 @@ function MessageListOwner({ variant, initialScrollReady, renderer, ...props }: M
   }
   const footerSlot = useConversationFooterSlot()
   const capsuleHeight = footerSlot?.capsuleHeight ?? 0
-  const controller = useMessageListController(resolvedProps, capsuleHeight, { revision: renderer.revision, available: !!renderer.component })
+  const controller = useMessageListController(resolvedProps, capsuleHeight)
   const reducedMotion = useReducedMotion()
   const motionActive = resolvedProps.active === true && controller.initialPosition.contentInteractive && !reducedMotion
   useMessageArrivalMotion(controller.items, controller.scrollRef, {
     active: motionActive,
     channel: props.channel,
     entry: props.positionEntry,
-    rendererRevision: renderer.revision,
     tailAttached: !props.hasMoreNewer && !props.isFetchingNewer && !props.presentPending,
     viewerId: props.viewerUserId ?? props.positionScope?.proof.viewerId,
   })
   return renderMessageListView(resolvedProps, controller, () => (
-    <MessageUpdateMotionContext.Provider value={motionActive ? renderer.revision : null}>
+    <MessageUpdateMotionContext.Provider value={motionActive}>
       <div
         data-message-rows
         className="mt-auto flex w-full flex-col"
-        style={{ paddingBottom: controller.tailPaddingEnd }}
       >
         {controller.items.map((item, index) => (
           <div key={item.key} data-index={index} className="w-full">
             {renderMessageListRow(item, resolvedProps, controller)}
           </div>
         ))}
+        <div
+          aria-hidden="true"
+          data-message-list-tail
+          className="shrink-0"
+          style={{ height: controller.tailPaddingEnd }}
+        />
       </div>
     </MessageUpdateMotionContext.Provider>
   ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null, capsuleHeight)

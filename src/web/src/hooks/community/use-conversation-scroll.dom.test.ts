@@ -229,15 +229,99 @@ describe("useConversationScroll", () => {
     h.view.unmount()
   })
 
-  it("gates read readiness across renderer presentationRevision switches until user input", () => {
-    const h = mount({ presentationRevision: 0, presentationAvailable: true })
-    expect(scrollFixture.latest.readPositionReady).toBe(true)
-    h.update({ presentationRevision: 1 })
-    expect(scrollFixture.latest.readPositionReady).toBe(false)
-    fireEvent.wheel(h.root, { deltaY: -20 })
-    runFrames()
-    expect(scrollFixture.latest.readPositionReady).toBe(true)
-    h.view.unmount()
+  it("keeps smooth tail-append scroll pinned across intermediate frames without self-cancelling", () => {
+    const matchMedia = window.matchMedia.bind(window)
+    const preference = vi.spyOn(window, "matchMedia").mockImplementation((query) => {
+      const result = matchMedia(query)
+      return query === "(prefers-reduced-motion: reduce)" ? { ...result, matches: false } : result
+    })
+    const h = mount()
+    try {
+      expect(scrollFixture.latest.followingTail).toBe(true)
+
+      const originalScrollTo = h.root.scrollTo
+      const smoothCalls: ScrollToOptions[] = []
+      Object.defineProperty(h.root, "scrollTo", {
+        configurable: true,
+        value(options: ScrollToOptions) {
+          smoothCalls.push(options)
+          if (options.behavior === "smooth") {
+            const target = Math.max(0, Math.min(options.top ?? this.scrollTop, this.scrollHeight - this.clientHeight))
+            this.scrollTop = Math.max(this.scrollTop, target - 120)
+            this.dispatchEvent(new Event("scroll"))
+            return
+          }
+          originalScrollTo.call(this, options)
+        },
+      })
+
+      scrollFixture.bodyHeights.set("tall-append", 260)
+      h.update({ items: [...h.input.items, message("tall-append")] })
+      expect(smoothCalls).toHaveLength(1)
+      expect(smoothCalls[0].behavior).toBe("smooth")
+      expect(scrollFixture.latest.followingTail).toBe(true)
+
+      act(() => {
+        h.root.scrollTop = h.root.scrollHeight - h.root.clientHeight - 50
+        h.root.dispatchEvent(new Event("scroll"))
+      })
+      expect(scrollFixture.latest.followingTail).toBe(true)
+
+      act(() => {
+        h.root.scrollTop = h.root.scrollHeight - h.root.clientHeight
+        h.root.dispatchEvent(new Event("scroll"))
+      })
+      runFrames()
+      expect(scrollFixture.latest.followingTail).toBe(true)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    } finally {
+      h.view.unmount()
+      preference.mockRestore()
+    }
+  })
+
+  it("does not restart smooth scrollToBottom on intermediate scroll frames", () => {
+    const matchMedia = window.matchMedia.bind(window)
+    const preference = vi.spyOn(window, "matchMedia").mockImplementation((query) => {
+      const result = matchMedia(query)
+      return query === "(prefers-reduced-motion: reduce)" ? { ...result, matches: false } : result
+    })
+    const h = mount()
+    try {
+      h.move(200)
+      expect(scrollFixture.latest.followingTail).toBe(false)
+
+      const smoothCalls: ScrollToOptions[] = []
+      Object.defineProperty(h.root, "scrollTo", {
+        configurable: true,
+        value(options: ScrollToOptions) {
+          smoothCalls.push(options)
+        },
+      })
+
+      act(() => { scrollFixture.latest.scrollToBottom() })
+      expect(smoothCalls).toHaveLength(1)
+      expect(smoothCalls[0].behavior).toBe("smooth")
+
+      const max = h.root.scrollHeight - h.root.clientHeight
+      act(() => {
+        h.root.scrollTop = Math.round((200 + max) / 2)
+        h.root.dispatchEvent(new Event("scroll"))
+      })
+      expect(smoothCalls).toHaveLength(1)
+
+      act(() => {
+        h.root.scrollTop = max
+        h.root.dispatchEvent(new Event("scroll"))
+      })
+      runFrames()
+      expect(smoothCalls).toHaveLength(1)
+      expect(scrollFixture.latest.followingTail).toBe(true)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    } finally {
+      h.view.unmount()
+      preference.mockRestore()
+    }
   })
 
   it("retains pinned follow after clamped click and downward inputs at bottom", () => {

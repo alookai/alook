@@ -4,7 +4,6 @@ import { memo, type ReactNode } from "react"
 import { MessagesSquare } from "@/components/icons/lucide"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { LineClamp } from "@/components/ui/line-clamp"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import type { ForumThread } from "@/lib/community/models/message"
@@ -77,19 +76,17 @@ const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { nam
       title={name}
       className="w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-tight"
     >
-      <LineClamp
-        text={name}
-        maxLines={1}
-        textTestId={tid.forumThreadTitleText(postId)}
-        after={seq === undefined ? undefined : (
+      <span className="flex min-w-0 max-w-full items-baseline">
+        <span data-testid={tid.forumThreadTitleText(postId)} className="min-w-0 truncate">{name}</span>
+        {seq === undefined ? null : (
           <span
             data-testid={tid.forumThreadSeq(postId)}
-            className="font-mono text-[13px] font-medium text-muted-foreground"
+            className="ml-1.5 shrink-0 whitespace-nowrap font-mono text-[13px] font-medium text-muted-foreground"
           >
             <span className="opacity-60">#</span>{seq}
           </span>
         )}
-      />
+      </span>
     </h3>
   )
 })

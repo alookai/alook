@@ -20,7 +20,7 @@ describe("DM page loading ownership", () => {
     expect(source).toContain("<ConversationSurface\n")
     expect(source).toContain("channelId={dmId}")
     expect(surfaceSource).toContain("<ConversationFooterShell")
-    expect(surfaceSource).toContain("<ConversationFooterSlotProvider>")
+    expect(surfaceSource).toContain("<ConversationFooterSlotProvider")
     expect(surfaceSource).toContain('data-slot="community-conversation-surface"')
     expect(surfaceSource).toContain("data-channel-id={channelId}")
     expect(source).not.toContain("composerOverlap")

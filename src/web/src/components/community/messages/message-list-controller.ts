@@ -1,6 +1,6 @@
 "use client"
 
-import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { createStore, useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems, stabilizeFirstRowGrouping, type FirstMessageGrouping } from "@/lib/community/message-list-items"
@@ -61,7 +61,7 @@ export function useMessageListController({
   onScrollRoot,
   onScrollTargetConsumed,
   onUserTakeover,
-}: ResolvedMessageListProps, capsuleHeight = 0, presentation = { revision: 0, available: true }) {
+}: ResolvedMessageListProps, capsuleHeight = 0) {
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
   const resolvedChannelId = channelId ?? positionScope?.proof.channelId ?? null
@@ -75,9 +75,31 @@ export function useMessageListController({
     initialized: newBoundary !== undefined || newDividerBefore !== undefined,
     target: newBoundary !== undefined ? newBoundary.target?.id ?? null : newDividerBefore ?? null,
     targetSeq: newBoundary !== undefined ? newBoundary.target?.seq : messages.find(message => message.id === newDividerBefore)?.seq,
-    used: false, pending: false, checking: false, throughSeq: observedSeq, checkedThrough: -1, error: null as Error | null })
-  const [lookback, setLookback] = useState(createLookback)
-  if (lookback.scopeKey !== scopeKey || lookback.entry !== positionEntry) setLookback(createLookback())
+    used: false, pending: false })
+  const [lookbackState, setLookback] = useState(createLookback)
+  let lookback = lookbackState
+  if (lookback.scopeKey !== scopeKey || lookback.entry !== positionEntry) {
+    lookback = createLookback()
+  } else if (!lookback.initialized && newBoundary !== undefined) {
+    lookback = {
+      ...lookback,
+      initialized: true,
+      target: newBoundary.target?.id ?? null,
+      targetSeq: newBoundary.target?.seq,
+    }
+  } else if (lookback.target && lookback.target === retiredNewTargetId) {
+    lookback = { ...lookback, target: null, targetSeq: undefined, used: true, pending: false }
+  }
+  if (lookback !== lookbackState) setLookback(lookback)
+  const [lookbackErrorStore] = useState(() => createStore<{ owner: object; error: Error | null; retryNonce: number }>({
+    owner: lookback.owner,
+    error: null,
+    retryNonce: 0,
+  }))
+  const lookbackErrorState = useSelector(lookbackErrorStore, state => state)
+  const lookbackError = lookbackErrorState.owner === lookback.owner ? lookbackErrorState.error : null
+  const lookbackRetryNonce = lookbackErrorState.owner === lookback.owner ? lookbackErrorState.retryNonce : 0
+  const lookbackSyncRef = useRef<{ owner: object; throughSeq: number; checking: boolean; checkedThrough: number } | null>(null)
   const dividerTarget = lookback.initialized ? lookback.target ?? undefined
     : newBoundary !== undefined ? newBoundary.target?.id : newDividerBefore
 
@@ -181,8 +203,6 @@ export function useMessageListController({
   } = useConversationScroll({
     items,
     messageRows: messages,
-    presentationRevision: presentation.revision,
-    presentationAvailable: presentation.available,
     newDividerBefore: dividerTarget,
     newDividerSeq: lookback.initialized ? lookback.targetSeq : newBoundary?.target?.seq,
     initialScrollReady,
@@ -222,8 +242,9 @@ export function useMessageListController({
   function consumeReachedNew(boundary: { id: string; entry: object | null | undefined; owner: object | undefined }): void {
     if (lookback.used || active === false || !readPositionReady || typeof document === "undefined" || document.visibilityState !== "visible"
       || boundary.owner !== lookback.owner || boundary.entry !== positionEntry) return
+    lookbackErrorStore.setState(current => current.owner === lookback.owner && current.error ? { ...current, error: null } : current)
     setLookback(current => current.owner === lookback.owner && current.target === boundary.id && !current.used
-      ? { ...current, used: true, error: null } : current)
+      ? { ...current, used: true } : current)
   }
   const readVisiblePeerSeq = useCallback(() => {
     const root = scrollRef.current
@@ -248,68 +269,120 @@ export function useMessageListController({
       readable: active !== false && readPositionReady, dividerVisibility: newDividerVisibility, visiblePeerSeq: readVisiblePeerSeq }
     return () => { if (lookbackView.current?.owner === lookback.owner) lookbackView.current = null }
   }, [active, readingTail, lookback.owner, observedSeq, readPositionReady, newDividerVisibility, readVisiblePeerSeq])
-  useLayoutEffect(() => {
-    if (!lookback.initialized && newBoundary !== undefined) {
-      setLookback(current => current.owner === lookback.owner ? { ...current, initialized: true, target: newBoundary.target?.id ?? null, targetSeq: newBoundary.target?.seq,
-        throughSeq: observedSeq } : current)
-    } else if (lookback.target && lookback.target === retiredNewTargetId) {
-      setLookback(current => current.owner === lookback.owner ? { ...current, target: null, targetSeq: undefined, used: true, pending: false } : current)
-    } else if (lookback.target && !lookback.used && observedSeq > lookback.throughSeq) {
-      setLookback(current => current.owner === lookback.owner ? { ...current, throughSeq: observedSeq } : current)
-    }
-  }, [lookback, newBoundary, observedSeq, retiredNewTargetId])
   useEffect(() => {
-    if (!lookback.initialized || lookback.target && !lookback.used || observedSeq <= lookback.throughSeq) return
-    if (active === false || !readPositionReady || lookback.pending || lookback.checking) return
+    let sync = lookbackSyncRef.current
+    if (!sync || sync.owner !== lookback.owner) {
+      sync = { owner: lookback.owner, throughSeq: observedSeq, checking: false, checkedThrough: -1 }
+      lookbackSyncRef.current = sync
+    }
+    if (lookback.target && !lookback.used && observedSeq > sync.throughSeq) {
+      sync.throughSeq = observedSeq
+    }
+    if (!lookback.initialized || lookback.target && !lookback.used || observedSeq <= sync.throughSeq) return
+    if (active === false || !readPositionReady || lookback.pending || sync.checking) return
     const visibleThrough = readingTail ? observedSeq : readVisiblePeerSeq()
-    if (visibleThrough > lookback.throughSeq) {
-      setLookback(current => current.owner === lookback.owner ? { ...current, throughSeq: visibleThrough, error: null } : current)
+    if (visibleThrough > sync.throughSeq) {
+      sync.throughSeq = visibleThrough
+      lookbackErrorStore.setState(current => current.owner === lookback.owner && current.error ? { ...current, error: null } : current)
       return
     }
     if (lookback.target && lookback.used && newDividerVisibility !== "above" && newDividerVisibility !== "below") return
-    if (lookback.checkedThrough >= observedSeq || !onReadNewBoundary
-      || !messages.some(message => message.authorId && message.authorId !== viewerUserId && (message.seq ?? 0) > lookback.throughSeq)) return
+    if (sync.checkedThrough >= observedSeq || !onReadNewBoundary
+      || !messages.some(message => message.authorId && message.authorId !== viewerUserId && (message.seq ?? 0) > sync.throughSeq)) return
     const owner = lookback.owner
-    setLookback(current => current.owner === owner ? { ...current, checking: true, checkedThrough: observedSeq, error: null } : current)
-    void onReadNewBoundary(lookback.throughSeq).then(result => {
+    const checkFromSeq = sync.throughSeq
+    sync.checking = true
+    sync.checkedThrough = observedSeq
+    lookbackErrorStore.setState(current => current.owner === owner && current.error ? { ...current, error: null } : current)
+    void onReadNewBoundary(checkFromSeq).then(result => {
       const view = lookbackView.current
-      if (!view || view.owner !== owner) return
-      const visibleThrough = view.visiblePeerSeq()
+      const currentSync = lookbackSyncRef.current
+      if (!view || view.owner !== owner || !currentSync || currentSync.owner !== owner) return
+      currentSync.checking = false
+      const visibleAfter = view.visiblePeerSeq()
+      if (!result) {
+        lookbackErrorStore.setState(current => ({ owner, error: new Error("Could not load New"), retryNonce: current.owner === owner ? current.retryNonce : 0 }))
+        return
+      }
+      if (view.readable && view.readingTail) {
+        currentSync.throughSeq = Math.max(currentSync.throughSeq, result.latestSeq, view.throughSeq)
+        return
+      }
+      if (!result.boundary.target) {
+        currentSync.throughSeq = Math.max(currentSync.throughSeq, result.latestSeq)
+        return
+      }
+      if (result.boundary.target.seq <= visibleAfter) {
+        currentSync.throughSeq = Math.max(currentSync.throughSeq, visibleAfter)
+        currentSync.checkedThrough = -1
+        lookbackErrorStore.setState(current => ({
+          owner,
+          error: null,
+          retryNonce: (current.owner === owner ? current.retryNonce : 0) + 1,
+        }))
+        return
+      }
+      let retryNeeded = false
       setLookback(current => {
         if (current.owner !== owner) return current
-        if (!result) return { ...current, checking: false, error: new Error("Could not load New") }
-        if (view.readable && view.readingTail) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq, view.throughSeq) }
-        if (!result.boundary.target) return { ...current, checking: false, throughSeq: Math.max(current.throughSeq, result.latestSeq) }
-        if (result.boundary.target.seq <= visibleThrough) return { ...current, checking: false,
-          throughSeq: Math.max(current.throughSeq, visibleThrough), checkedThrough: -1 }
-        if (current.target && current.used && view.dividerVisibility !== "above" && view.dividerVisibility !== "below") return { ...current, checking: false, checkedThrough: -1 }
-        return { ...current, checking: false, target: result.boundary.target.id, targetSeq: result.boundary.target.seq, used: false,
-          throughSeq: Math.max(current.throughSeq, result.latestSeq) }
+        if (current.target && current.used && view.dividerVisibility !== "above" && view.dividerVisibility !== "below") {
+          currentSync.checkedThrough = -1
+          retryNeeded = true
+          return current
+        }
+        currentSync.throughSeq = Math.max(currentSync.throughSeq, result.latestSeq)
+        return { ...current, target: result.boundary.target!.id, targetSeq: result.boundary.target!.seq, used: false }
       })
+      if (retryNeeded) {
+        lookbackErrorStore.setState(current => ({
+          owner,
+          error: null,
+          retryNonce: (current.owner === owner ? current.retryNonce : 0) + 1,
+        }))
+      }
     }, error => {
-      if (lookbackView.current?.owner === owner) setLookback(current => current.owner === owner
-        ? { ...current, checking: false, error: error instanceof Error ? error : new Error("Could not load New") } : current)
+      const currentSync = lookbackSyncRef.current
+      if (currentSync && currentSync.owner === owner) currentSync.checking = false
+      if (lookbackView.current?.owner === owner) {
+        lookbackErrorStore.setState(current => ({
+          owner,
+          error: error instanceof Error ? error : new Error("Could not load New"),
+          retryNonce: current.owner === owner ? current.retryNonce : 0,
+        }))
+      }
     })
-  }, [active, readingTail, lookback, messages, newDividerVisibility, observedSeq, onReadNewBoundary, readPositionReady, readVisiblePeerSeq, viewerUserId])
+  }, [active, readingTail, lookback, lookbackErrorStore, lookbackRetryNonce, messages, newDividerVisibility, observedSeq, onReadNewBoundary, readPositionReady, readVisiblePeerSeq, viewerUserId])
   const jumpToNew = useCallback(() => {
     const id = lookback.target, owner = lookback.owner
     if (!id || lookback.used || lookback.pending || lookbackView.current?.owner !== owner) return
     const request = requestNewPosition(id, onLoadNewTarget ? () => onLoadNewTarget(id) : undefined)
     if (!request.accepted) return
-    setLookback(current => current.owner === owner ? { ...current, pending: true, error: null } : current)
+    lookbackErrorStore.setState(current => current.owner === owner && current.error ? { ...current, error: null } : current)
+    setLookback(current => current.owner === owner ? { ...current, pending: true } : current)
     void request.completed.then(result => {
       if (lookbackView.current?.owner !== owner) return
+      if (result === "error") {
+        lookbackErrorStore.setState(current => ({ owner, error: new Error("Could not jump to New"), retryNonce: current.owner === owner ? current.retryNonce : 0 }))
+      } else {
+        lookbackErrorStore.setState(current => current.owner === owner && current.error ? { ...current, error: null } : current)
+      }
       setLookback(current => current.owner !== owner || current.target !== id ? current : { ...current, pending: false,
         used: result === "success" || result === "missing" || current.used,
         target: result === "missing" ? null : current.target,
-        targetSeq: result === "missing" ? undefined : current.targetSeq,
-        error: result === "error" ? new Error("Could not jump to New") : null })
+        targetSeq: result === "missing" ? undefined : current.targetSeq })
     })
-  }, [lookback, onLoadNewTarget, requestNewPosition])
+  }, [lookback, lookbackErrorStore, onLoadNewTarget, requestNewPosition])
   const retryNew = useCallback(() => {
     if (lookback.target && !lookback.used) jumpToNew()
-    else setLookback(current => ({ ...current, checkedThrough: -1, error: null }))
-  }, [jumpToNew, lookback.target, lookback.used])
+    else {
+      if (lookbackSyncRef.current?.owner === lookback.owner) lookbackSyncRef.current.checkedThrough = -1
+      lookbackErrorStore.setState(current => ({
+        owner: lookback.owner,
+        error: null,
+        retryNonce: (current.owner === lookback.owner ? current.retryNonce : 0) + 1,
+      }))
+    }
+  }, [jumpToNew, lookback.owner, lookback.target, lookback.used, lookbackErrorStore])
 
   useEffect(() => {
     if (!onScrollRoot) return
@@ -442,7 +515,7 @@ export function useMessageListController({
       && (!!onLoadNewTarget || messages.some(message => message.id === dividerTarget)),
     newJumpPending: lookback.pending,
     jumpToNew,
-    newLoadError: lookback.error,
+    newLoadError: lookbackError,
     retryNew,
   }
 }
