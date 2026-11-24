@@ -339,6 +339,33 @@ export function DecisionCard({
     }
   }
 
+  const handleOtherKeyDown = (
+    question: DecisionCardNormalizedQuestion,
+    entry: QuestionDraft,
+    event: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (
+      event.key !== "Enter"
+      || event.nativeEvent.isComposing
+      || event.shiftKey
+      || event.altKey
+      || event.ctrlKey
+      || event.metaKey
+    ) {
+      return
+    }
+    if (!isQuestionAnswered(question, entry)) return
+    if (isMultiQuestion && nextUnansweredId) {
+      event.preventDefault()
+      setActiveQuestionId(nextUnansweredId)
+      return
+    }
+    if (allAnswered && interactive && !submitting) {
+      event.preventDefault()
+      void handleSubmit()
+    }
+  }
+
   const optionRowClass =
     "flex min-h-11 w-full cursor-pointer items-start gap-3 rounded-lg border px-2.5 py-2 text-left transition-colors has-data-disabled:pointer-events-none has-data-disabled:opacity-60 sm:min-h-9"
 
@@ -347,15 +374,6 @@ export function DecisionCard({
     const singleValue = entry.otherSelected
       ? OTHER_RADIO_VALUE
       : (entry.selectedOptionIds[0] ?? "")
-
-    const handleOtherKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key !== "Enter" || event.nativeEvent.isComposing) return
-      if (!isQuestionAnswered(question, entry)) return
-      if (isMultiQuestion && nextUnansweredId) {
-        event.preventDefault()
-        setActiveQuestionId(nextUnansweredId)
-      }
-    }
 
     return (
       <div className="flex flex-col gap-2">
@@ -439,8 +457,9 @@ export function DecisionCard({
                     placeholder="Write your answer..."
                     aria-label={`Other answer for ${question.header ?? question.question}`}
                     data-testid={tid.decisionCardOtherInput(question.id)}
+                    enterKeyHint={isMultiQuestion && nextUnansweredId ? "next" : "send"}
                     onChange={(event) => updateOtherText(question.id, event.target.value)}
-                    onKeyDown={handleOtherKeyDown}
+                    onKeyDown={(event) => handleOtherKeyDown(question, entry, event)}
                     className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-medium leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground disabled:cursor-not-allowed"
                     autoFocus
                   />
@@ -520,8 +539,9 @@ export function DecisionCard({
                     placeholder="Write your answer..."
                     aria-label={`Other answer for ${question.header ?? question.question}`}
                     data-testid={tid.decisionCardOtherInput(question.id)}
+                    enterKeyHint={isMultiQuestion && nextUnansweredId ? "next" : "send"}
                     onChange={(event) => updateOtherText(question.id, event.target.value)}
-                    onKeyDown={handleOtherKeyDown}
+                    onKeyDown={(event) => handleOtherKeyDown(question, entry, event)}
                     className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-medium leading-snug text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground disabled:cursor-not-allowed"
                     autoFocus
                   />

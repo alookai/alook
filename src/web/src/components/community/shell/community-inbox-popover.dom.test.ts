@@ -902,7 +902,7 @@ describe("InboxPopover Todo tab", () => {
     })
     expect(onSubmitTodo).toHaveBeenCalledWith(
       todo,
-      "When should we publish?: Today",
+      "Confirm release timing: Today",
       expect.any(String),
     )
     expect(onOpenTodo).not.toHaveBeenCalled()
@@ -1274,7 +1274,7 @@ describe("InboxPopover inline reply in Unreads", () => {
     await waitFor(() => {
       expect(onSubmitDecisionCard).toHaveBeenCalledTimes(1)
     })
-    expect(onSubmitDecisionCard).toHaveBeenCalledWith("ch_1", "m_dc_1", "Merge now?: Merge", expect.any(String))
+    expect(onSubmitDecisionCard).toHaveBeenCalledWith("ch_1", "m_dc_1", "Merge PR #1405?: Merge", expect.any(String))
     expect(onOpenChannel).not.toHaveBeenCalled()
   })
 
