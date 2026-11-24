@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -24,6 +24,7 @@ import { ProfileCard } from "@/components/community/social/profile-card"
 import type { OpenProfile, Profile } from "@/components/community/social/profile-types"
 import { MemberList } from "@/components/community/members/member-list"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { useLandingAnnotationDismiss } from "@/hooks/home/use-landing-annotation-dismiss"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import type { Msg, SendAttachment } from "@/lib/community/models/message"
 import { applyMessageReaction } from "@/lib/community/models/message"
@@ -93,13 +94,8 @@ function InteractiveShell() {
   const [annotationRemoved, setAnnotationRemoved] = useState(false)
   const fileUrls = useRef<string[]>([])
   useEffect(() => () => { fileUrls.current.forEach((url) => URL.revokeObjectURL(url)) }, [])
-  useEffect(() => {
-    if (annotationDismissed) return
-    const dismiss = () => setAnnotationDismissed(true)
-    const events: (keyof WindowEventMap)[] = ["pointerdown", "touchstart", "wheel", "keydown"]
-    events.forEach((type) => window.addEventListener(type, dismiss, { capture: true, passive: type !== "keydown" }))
-    return () => events.forEach((type) => window.removeEventListener(type, dismiss, true))
-  }, [annotationDismissed])
+  const dismissAnnotation = useCallback(() => setAnnotationDismissed(true), [])
+  useLandingAnnotationDismiss(annotationDismissed, dismissAnnotation)
   const direct = homePage === "dm"
   const server = DEMO_SERVERS.find((item) => item.id === serverId)!
   const categories = DEMO_CHANNELS[serverId].map((group) => ({
