@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Logger } from "@alook/shared";
 
 let logSpy: ReturnType<typeof vi.spyOn>;
+let warnSpy: ReturnType<typeof vi.spyOn>;
 let errorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -13,16 +15,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function parseLine(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
-  return JSON.parse(spy.mock.calls[0][0] as string);
+function firstEntry(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
+  return spy.mock.calls[0][0] as Record<string, unknown>;
 }
 
 describe("Logger", () => {
-  it("outputs valid JSON with level, msg, ts fields", () => {
+  it("outputs a structured object with level, msg, ts fields", () => {
     const logger = new Logger({ service: "web" });
     logger.info("hello");
 
-    const entry = parseLine(logSpy);
+    const entry = firstEntry(logSpy);
     expect(entry.level).toBe("info");
     expect(entry.msg).toBe("hello");
     expect(entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -32,7 +34,7 @@ describe("Logger", () => {
     const logger = new Logger({ service: "web" });
     logger.info("task done", { taskId: "t1", duration: 42 });
 
-    const entry = parseLine(logSpy);
+    const entry = firstEntry(logSpy);
     expect(entry.taskId).toBe("t1");
     expect(entry.duration).toBe(42);
   });
@@ -44,17 +46,19 @@ describe("Logger", () => {
     logger.warn("visible");
     logger.error("visible");
 
-    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("writes error to console.error, others to console.log", () => {
+  it("writes error to console.error, warn to console.warn, and debug/info to console.log", () => {
     const logger = new Logger({ service: "web", level: "debug" });
     logger.debug("d");
     logger.info("i");
     logger.warn("w");
 
-    expect(logSpy).toHaveBeenCalledTimes(3);
+    expect(logSpy).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).not.toHaveBeenCalled();
 
     logger.error("e");
@@ -65,7 +69,7 @@ describe("Logger", () => {
     const logger = new Logger({ service: "web", level: "error" });
     logger.error("failed", { err: new Error("bad input") });
 
-    const entry = parseLine(errorSpy);
+    const entry = firstEntry(errorSpy);
     const serialized = entry.err as { message: string };
     expect(serialized.message).toBe("bad input");
   });
@@ -91,10 +95,14 @@ describe("Logger", () => {
     expect(line).toContain("status=200");
   });
 
-  it("pretty mode errors go to console.error", () => {
+  it("pretty mode warnings go to console.warn and errors go to console.error", () => {
     const logger = new Logger({ service: "web", pretty: true });
+    logger.warn("slow");
     logger.error("boom");
 
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain("WARN");
+    expect(warnSpy.mock.calls[0][0]).toContain("slow");
     expect(errorSpy).toHaveBeenCalledTimes(1);
     const line = errorSpy.mock.calls[0][0] as string;
     expect(line).toContain("ERROR");
@@ -109,6 +117,7 @@ describe("Logger", () => {
     logger.error("nope");
 
     expect(logSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });

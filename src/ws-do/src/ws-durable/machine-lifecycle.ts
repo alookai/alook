@@ -166,7 +166,7 @@ export async function handleCommunityMachineClose(
   state: CommunityMachineConnectionState,
   closingSocket: WebSocket,
 ): Promise<void> {
-  context.log.info("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
+  context.log.debug("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
   const identity = await context.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
   if (!identity) {
     await scheduleHeartbeatAlarm(context)

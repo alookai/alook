@@ -108,7 +108,12 @@ export async function isDuplicateBotMessage(input: {
       return false
     }
     const duplicate = answer.noul >= THRESHOLD
-    log.info("jev_send_dedup_decision", { channelId: input.channelId, probability: answer.noul, duplicate, model: response?.model })
+    const decision = { channelId: input.channelId, probability: answer.noul, duplicate, model: response?.model }
+    if (duplicate) {
+      log.info("jev_send_dedup_decision", decision)
+    } else {
+      log.debug("jev_send_dedup_decision", decision)
+    }
     return duplicate
   } catch {
     log.warn("jev_send_dedup_fail_open", { channelId: input.channelId, reason: "check_failed" })

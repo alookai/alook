@@ -134,13 +134,18 @@ async function sendChunk(
       if (!(error instanceof RetryableMessageDeliveryError) || attempt === maxAttempts) throw error
       continue
     }
-    log.info("message_delivery_attempt_complete", {
+    const attemptSummary = {
       messageId: initial.messageId,
       attempt,
       targetCount: allTargetUserIds(pending).length,
       failedCount: failed.length,
       durationMs: Date.now() - startedAt,
-    })
+    }
+    if (failed.length > 0) {
+      log.warn("message_delivery_attempt_complete", attemptSummary)
+    } else {
+      log.debug("message_delivery_attempt_complete", attemptSummary)
+    }
     if (failed.length === 0) return
     if (attempt === maxAttempts) {
       throw new Error(`message delivery exhausted for ${failed.length} user(s)`)

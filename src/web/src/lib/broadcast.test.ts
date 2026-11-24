@@ -422,7 +422,7 @@ describe("broadcastToUsers", () => {
     expect(bindingFetch).not.toHaveBeenCalled()
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockCtxWaitUntil).toHaveBeenCalledTimes(1)
-    expect(mockInfo).toHaveBeenCalledWith(
+    expect(mockDebug).toHaveBeenCalledWith(
       "broadcast_users_complete",
       expect.objectContaining({
         inputCount: 2,
@@ -464,7 +464,7 @@ describe("broadcastToUsers", () => {
       && call[1]?.method === "POST"
       && JSON.stringify(call[1]?.headers) === JSON.stringify({ "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) })
     ))).toBe(true)
-    expect(mockInfo).toHaveBeenCalledWith(
+    expect(mockDebug).toHaveBeenCalledWith(
       "broadcast_users_complete",
       expect.objectContaining({
         target: `users:${targetCount}`,
@@ -583,7 +583,7 @@ describe("broadcastToUsers", () => {
         durationMs: expect.any(Number),
       }),
     )
-    expect(mockInfo).toHaveBeenCalledWith(
+    expect(mockWarn).toHaveBeenCalledWith(
       "broadcast_users_complete",
       expect.objectContaining({
         transportSuccessChunkCount: 4,
@@ -608,7 +608,7 @@ describe("broadcastToUsers", () => {
       },
     )
 
-    const newLogCalls = [...mockInfo.mock.calls, ...mockWarn.mock.calls]
+    const newLogCalls = [...mockDebug.mock.calls, ...mockInfo.mock.calls, ...mockWarn.mock.calls]
       .filter(([message]) => String(message).startsWith("broadcast_users_"))
     const serialized = JSON.stringify(newLogCalls)
     expect(serialized).not.toContain("sensitive-user-id")

@@ -332,7 +332,7 @@ export async function handleWebSocketMessage(
         ? { communityDeliveryProgress: state.communityDeliveryProgress }
         : {}),
     } as ConnectionState)
-    context.log.info("websocket authenticated", { userId })
+    context.log.debug("websocket authenticated", { userId })
     ws.send(JSON.stringify({ type: "auth.ok", communityContract }))
     if (!wasOnline) {
       broadcastPresence(context, userId, true).catch(() => { })

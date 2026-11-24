@@ -81,23 +81,24 @@ export class Logger {
       }
     }
 
-    let line: string
-    if (this.pretty) {
-      const ts = (entry.ts as string).replace("T", " ").replace("Z", "")
-      const lvl = (entry.level as string).toUpperCase().padEnd(5)
-      const pairs = Object.entries(entry)
-        .filter(([k]) => k !== "level" && k !== "msg" && k !== "service" && k !== "ts")
-        .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
-        .join(" ")
-      line = `${ts} ${lvl} [${entry.service}] ${entry.msg}${pairs ? " " + pairs : ""}`
-    } else {
-      line = JSON.stringify(entry)
-    }
+    const output: string | Record<string, unknown> = this.pretty
+      ? (() => {
+          const ts = (entry.ts as string).replace("T", " ").replace("Z", "")
+          const lvl = (entry.level as string).toUpperCase().padEnd(5)
+          const pairs = Object.entries(entry)
+            .filter(([k]) => k !== "level" && k !== "msg" && k !== "service" && k !== "ts")
+            .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
+            .join(" ")
+          return `${ts} ${lvl} [${entry.service}] ${entry.msg}${pairs ? " " + pairs : ""}`
+        })()
+      : entry
 
     if (level === "error") {
-      console.error(line)
+      console.error(output)
+    } else if (level === "warn") {
+      console.warn(output)
     } else {
-      console.log(line)
+      console.log(output)
     }
   }
 }
