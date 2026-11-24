@@ -42,6 +42,7 @@ import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
   commitConfirmedAttentionScopeRead,
+  commitDecisionCardRespondedOptimistically,
   markDecisionCardDismissedOptimistically,
   markDecisionCardRespondedOptimistically,
   removeAttentionItemsOptimistically,
@@ -250,8 +251,16 @@ export function useSubmitInboxDecisionCard() {
         }
         return
       }
-      try { origin.assert(original) } catch { return }
+      try { origin.assert(original) } catch {
+        if (registry && context?.messageResponderSnapshot) {
+          commitDecisionCardRespondedOptimistically(registry, context.messageResponderSnapshot)
+        }
+        return
+      }
       if (registry) {
+        if (context?.messageResponderSnapshot) {
+          commitDecisionCardRespondedOptimistically(registry, context.messageResponderSnapshot)
+        }
         const snapshot = context?.attentionSnapshot ?? removeAttentionItemsOptimistically(
           registry,
           (item) => item.kind === "question" && item.messageId === messageId,

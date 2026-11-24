@@ -1005,6 +1005,10 @@ function ingestMessageResources(registry: CommunityDbRegistry, resources: readon
   const incomingById = new Map<string, CommunityMessageResource>()
   const rows = resources.map(resource => {
     const existing = registry.collections.messages.get(resource.id)
+    const incomingCard = extractDecisionCardFromEmbeds(resource.embeds).card
+    if (incomingCard?.respondedUserIds) {
+      confirmPendingDecisionCardResponders(registry, resource.id, incomingCard.respondedUserIds)
+    }
     const mergedEmbeds = mergeDecisionCardEmbeds(existing?.embeds, resource.embeds)
     const next: CommunityMessageResource = {
       ...resource,
@@ -1026,6 +1030,7 @@ function ingestMessageResources(registry: CommunityDbRegistry, resources: readon
       ?? incomingById.get(reply.replyToId)
       ?? registry.collections.messages.get(reply.replyToId)
     if (!target || target.channelId !== reply.channelId || target.authorId === reply.authorId) continue
+    confirmPendingDecisionCardResponders(registry, target.id, [reply.authorId])
     const updatedEmbeds = appendDecisionCardResponder(target.embeds, reply.authorId)
     if (!updatedEmbeds) continue
     const patched: CommunityMessageResource = { ...target, embeds: updatedEmbeds }
@@ -1623,6 +1628,37 @@ export function restoreDecisionCardDismissedOptimistically(
 export type DecisionCardResponderOptimisticSnapshot = {
   messageId: string
   responderUserId: string
+  confirmed?: boolean
+}
+
+const pendingDecisionCardResponders = new WeakMap<
+  CommunityDbRegistry,
+  Map<string, Set<DecisionCardResponderOptimisticSnapshot>>
+>()
+
+function confirmPendingDecisionCardResponders(
+  registry: CommunityDbRegistry,
+  messageId: string,
+  responderUserIds: readonly string[],
+) {
+  const entries = pendingDecisionCardResponders.get(registry)?.get(messageId)
+  if (!entries || entries.size === 0 || responderUserIds.length === 0) return
+  for (const snapshot of entries) {
+    if (responderUserIds.includes(snapshot.responderUserId)) {
+      snapshot.confirmed = true
+    }
+  }
+}
+
+export function commitDecisionCardRespondedOptimistically(
+  registry: CommunityDbRegistry,
+  snapshot: DecisionCardResponderOptimisticSnapshot,
+) {
+  const byMessage = pendingDecisionCardResponders.get(registry)
+  const entries = byMessage?.get(snapshot.messageId)
+  if (!entries) return
+  entries.delete(snapshot)
+  if (entries.size === 0) byMessage?.delete(snapshot.messageId)
 }
 
 export function markDecisionCardRespondedOptimistically(
@@ -1635,15 +1671,37 @@ export function markDecisionCardRespondedOptimistically(
   const updatedEmbeds = appendDecisionCardResponder(existing.embeds, responderUserId)
   if (!updatedEmbeds) return undefined
   upsertRows(registry, "messages", [{ ...existing, embeds: updatedEmbeds }])
-  return { messageId, responderUserId }
+  const snapshot: DecisionCardResponderOptimisticSnapshot = { messageId, responderUserId, confirmed: false }
+  let byMessage = pendingDecisionCardResponders.get(registry)
+  if (!byMessage) {
+    byMessage = new Map()
+    pendingDecisionCardResponders.set(registry, byMessage)
+  }
+  let entries = byMessage.get(messageId)
+  if (!entries) {
+    entries = new Set()
+    byMessage.set(messageId, entries)
+  }
+  entries.add(snapshot)
+  return snapshot
 }
 
 export function restoreDecisionCardRespondedOptimistically(
   registry: CommunityDbRegistry,
   snapshot: DecisionCardResponderOptimisticSnapshot,
 ) {
+  commitDecisionCardRespondedOptimistically(registry, snapshot)
+  if (snapshot.confirmed) return
   const current = registry.collections.messages.get(snapshot.messageId)
   if (!current) return
+  const hasConfirmedReply = collectionRows(registry, "messages").some(
+    (message) =>
+      message.channelId === current.channelId
+      && message.replyToId === snapshot.messageId
+      && message.authorId === snapshot.responderUserId
+      && message.seq > 0,
+  )
+  if (hasConfirmedReply) return
   const currentCard = extractDecisionCardFromEmbeds(current.embeds).card
   if (!currentCard?.respondedUserIds?.includes(snapshot.responderUserId)) return
   const nextResponders = currentCard.respondedUserIds.filter((id) => id !== snapshot.responderUserId)

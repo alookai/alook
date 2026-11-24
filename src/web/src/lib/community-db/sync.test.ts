@@ -3437,7 +3437,7 @@ describe("decision card responder preservation in community-db sync", () => {
     expect(markDecisionCardRespondedOptimistically(db, "missing_card", "u_bob")).toBeUndefined()
     expect(markDecisionCardRespondedOptimistically(db, "card_1", "bot_evan")).toBeUndefined()
     const responderSnapshot = markDecisionCardRespondedOptimistically(db, "card_1", "u_bob")
-    expect(responderSnapshot).toEqual({ messageId: "card_1", responderUserId: "u_bob" })
+    expect(responderSnapshot).toMatchObject({ messageId: "card_1", responderUserId: "u_bob" })
     expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_bob"])
     const carolProfile = profileResourceFixture({ id: "u_carol", name: "carol" })
     projectCommunityWsEventToDb(db.queryClient, {
@@ -3455,5 +3455,43 @@ describe("decision card responder preservation in community-db sync", () => {
     expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_bob", "u_carol"])
     restoreDecisionCardRespondedOptimistically(db, responderSnapshot!)
     expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_carol"])
+
+    // Same-account two-device race: Device A marks Bob optimistically, Device B's confirmed WS reply lands, then Device A fails and rolls back -> Bob stays responded.
+    const bobSecondDeviceSnapshot = markDecisionCardRespondedOptimistically(db, "card_1", "u_bob")
+    expect(bobSecondDeviceSnapshot).toMatchObject({ messageId: "card_1", responderUserId: "u_bob" })
+    const bobProfile = profileResourceFixture({ id: "u_bob", name: "bob" })
+    projectCommunityWsEventToDb(db.queryClient, {
+      type: "community:message.create",
+      channelId: "c1",
+      profiles: [bobProfile],
+      message: messageResourceFixture({
+        id: "reply_bob_device_b",
+        seq: 11,
+        channelId: "c1",
+        authorId: "u_bob",
+        authorName: "bob",
+        replyToId: "card_1",
+      }),
+    })
+    restoreDecisionCardRespondedOptimistically(db, bobSecondDeviceSnapshot!)
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_carol", "u_bob"])
+
+    // Authoritative server snapshot confirming a responder also protects against a stale pending rollback even without the reply row in local window.
+    const daveSnapshot = markDecisionCardRespondedOptimistically(db, "card_1", "u_dave")
+    expect(daveSnapshot).toMatchObject({ messageId: "card_1", responderUserId: "u_dave" })
+    const authoritativeWithDave = messageResourceFixture({
+      id: "card_1",
+      channelId: "c1",
+      authorId: "bot_evan",
+      embeds: [{ ...baseEmbed, respondedUserIds: ["u_gus", "u_alice", "u_carol", "u_bob", "u_dave"] }],
+    })
+    await publishCommunityResourceBundle(
+      db.queryClient,
+      fullResourceBundleFixture("viewer", [], [channel], [authoritativeWithDave]),
+      { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+      [{ id: authoritativeWithDave.id, channelId: channel.id }],
+    )
+    restoreDecisionCardRespondedOptimistically(db, daveSnapshot!)
+    expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_carol", "u_bob", "u_dave"])
   })
 })
