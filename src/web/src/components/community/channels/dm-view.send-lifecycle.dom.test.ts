@@ -162,6 +162,28 @@ describe("real DmView accepted send UI lifecycle", () => {
     view.unmount()
   })
 
+  it("keeps cached DM messages mounted on ConversationSurface when peer identity is absent while navigation is blocked", async () => {
+    const owner = await createDmOwner()
+    mocks.identity = false
+    mocks.windowBlocked = true
+    await act(async () => {
+      owner.registry.collections.profiles.utils.writeDelete("peer")
+      owner.registry.collections.channelMemberships.utils.writeDelete("dm_1:peer:access")
+    })
+    const wrapper = ({ children }: PropsWithChildren) => React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "u_me", retainOwner: true }, children)
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }), { wrapper })
+    const retained = screen.getByRole("button", { name: "Retry" })
+    expect(screen.getByTestId("pending-peer")).toBeInTheDocument()
+    expect(screen.getByTestId("composer-pending")).toBeInTheDocument()
+    expect(mocks.list.mock.lastCall?.[0].messages).toHaveLength(1)
+    mocks.windowBlocked = false
+    await act(async () => owner.registry.collections.channelMemberships.utils.writeUpsert({ id: "dm_1:peer:access", channelId: "dm_1", userId: "peer", relation: "access", source: "added" }))
+    view.rerender(React.createElement(DmView, { dmId: "dm_1" }))
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: "Retry" })).toBe(retained)
+    view.unmount()
+  })
+
   it("keeps a known blocked peer hidden even when its presentation profile is missing", async () => {
     const owner = await createDmOwner()
     mocks.identity = false

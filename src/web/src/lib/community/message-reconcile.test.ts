@@ -1488,4 +1488,39 @@ describe("focused message reconnect catch-up", () => {
     expect(queryClient.getQueryData(queryKey)).toBe(before)
     unsubscribe()
   })
+
+  it("defers initial WS newest reconcile on a restored tail window while its active conversation entry is still fetching", async () => {
+    const { client: queryClient } = await createCommunityQueryOwner("a")
+    const queryKey = communityKeys.dmMessages("dm_restored")
+    const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+    queryClient.setQueryData(queryKey, {
+      pages: [messageWindowPage({
+        messages: messageSeedFixture("dm_restored", [{ id: "m_1", seq: 1 }]),
+        hasMoreOlder: false,
+        hasMoreNewer: true,
+        newerCursor: "2026-08-15T00:00:01.000Z|m_1",
+        latestSeq: 1,
+      })],
+      pageParams: [{ mode: "newest" }],
+    })
+    let releaseEntry!: () => void
+    const entryKey = communityKeys.conversationEntry("dm_restored", { serverId: null })
+    const entryObserver = new QueryObserver(queryClient, {
+      queryKey: entryKey,
+      queryFn: () => new Promise<null>((resolve) => { releaseEntry = () => resolve(null) }),
+      retry: false,
+    })
+    const stopEntry = entryObserver.subscribe(() => undefined)
+    try {
+      await vi.waitFor(() => {
+        expect(queryClient.getQueryCache().find({ queryKey: entryKey, exact: true })?.state.fetchStatus).toBe("fetching")
+      })
+      await reconcileFocusedMessageQueries(queryClient, "dm", "dm_restored", undefined, "newest")
+      expect(apiFetchMock).not.toHaveBeenCalled()
+    } finally {
+      releaseEntry?.()
+      stopEntry()
+      unsubscribe()
+    }
+  })
 })

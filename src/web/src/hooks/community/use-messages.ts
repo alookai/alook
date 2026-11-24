@@ -197,7 +197,10 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const olderCursor = oldest?.olderCursor ?? oldest?.cursor
   const firstReference = oldest?.messages[0]
   const firstRow = firstReference && canonicalById.get(firstReference.id)
-  const underfillReady = serverId === null && initial.mode === "newest" && onlineAccount && presented && entry.displayWindowReady
+  const underfillWindowReady = serverId === null
+    ? entry.displayWindowReady
+    : entry.windowReady && entry.targetCovered && !hasMoreNewer
+  const underfillReady = initial.mode === "newest" && !tag && onlineAccount && presented && underfillWindowReady
     && !missingCanonical && !projectionFailed && query.hasNextPage && !query.isFetching && !repair.isFetching
     && !!firstRow?.createdAt && olderCursor === `${firstRow.createdAt}|${firstRow.id}`
   useLayoutEffect(() => { committedUnderfillReady.current = underfillReady }, [underfillReady])

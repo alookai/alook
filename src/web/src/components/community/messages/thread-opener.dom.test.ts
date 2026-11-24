@@ -38,6 +38,35 @@ describe("ThreadOpener image attachment layout", () => {
     expect(view.getByRole("button", { name: "Retry original message" })).toBeDisabled()
   })
 
+  it.each([
+    { label: "background loading", isLoading: true, isError: false },
+    { label: "transient refetch error", isLoading: false, isError: true },
+  ])("renders a ready canonical opener immediately during $label without reverting to skeleton or error", ({ isLoading, isError }) => {
+    useMessageMock.mockReturnValue({
+      isLoading,
+      isError,
+      isFetching: isLoading,
+      refetch: vi.fn(),
+      message: {
+        id: "opener_warm",
+        type: "chat",
+        authorId: "user_1",
+        authorName: "Alice",
+        createdAt: "2026-08-08T00:00:00.000Z",
+        content: "Warm canonical opener",
+      },
+    })
+    const view = render(React.createElement(ThreadOpener, {
+      parentMessageId: "opener_warm",
+      parentChannelId: "parent_1",
+      serverId: "server_1",
+      viewerUserId: "viewer_1",
+    }))
+    expect(view.getByText("Warm canonical opener")).toBeInTheDocument()
+    expect(view.queryByRole("button", { name: "Retry original message" })).toBeNull()
+    expect(view.container.querySelector('[data-thread-opener="loading"]')).toBeNull()
+  })
+
   afterEach(() => {
     profileState.name = "Alice"
     vi.useRealTimers()

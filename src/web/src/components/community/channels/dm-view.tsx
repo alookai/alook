@@ -16,13 +16,9 @@ import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame
 import { DmRouteErrorFrame } from "@/components/community/channels/dm-route-error-frame"
 import { DmHero } from "@/components/community/channels/dm-hero"
 import { Skeleton } from "@/components/ui/skeleton"
-import { MessageList } from "@/components/community/messages/message-list"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/messages/composer"
-import {
-  ConversationFooterShell,
-  ConversationFooterSlotProvider,
-} from "@/components/community/messages/conversation-footer-shell"
+import { ConversationSurface } from "./conversation-surface"
 import type { FileAttachment, ImagePreview, ReplyTarget } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
@@ -404,7 +400,8 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     channelId: dmId,
   }, routeCommitted && routeReady)
 
-  if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError && metadata.status !== "retryable-error") {
+  const hasDisplayableCache = historyAllowed && (messages.length > 0 || initialDisplayReady)
+  if (!dm && !hasDisplayableCache && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError && metadata.status !== "retryable-error") {
     return <DmLoadingFrame reserveBackSlot />
   }
 
@@ -419,9 +416,21 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     }
   }
 
+  const bodyOverride = dmBlocked
+    ? null
+    : readDenied
+      ? <div role="alert" className="flex min-h-0 flex-1 flex-col p-4"><EmptyState icon={Lock} label="You can no longer read this conversation." /></div>
+      : metadata.status === "retryable-error"
+        ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} />
+        : !historyAllowed && initialLoadError
+          ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} />
+          : undefined
+
   return (
-    <>
-      {dm ? <DmHeader
+    <ConversationSurface
+      channelId={dmId}
+      subtype="dm"
+      header={dm ? <DmHeader
         dm={dm}
         titleState={titleState}
         onBack={goBack}
@@ -432,121 +441,106 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
           onError: (error) => toastApiError(error, "Failed to update notification level"),
         })}
       /> : <DmHeaderSkeleton titleState={titleState === "unavailable" ? "unavailable" : "pending"} onBack={goBack} onRetryIdentity={() => { void dmsQuery.refetch({ cancelRefetch: false }) }} retryingIdentity={dmsQuery.isFetching} />}
-      <main
-        data-slot="community-conversation-surface"
-        data-channel-id={dmId}
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <ConversationFooterSlotProvider>
-          {dmBlocked ? null : readDenied ? <div role="alert" className="flex min-h-0 flex-1 flex-col p-4"><EmptyState icon={Lock} label="You can no longer read this conversation." /></div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && initialLoadError ? <ConversationResolutionErrorFrame as="div" onRetry={retryInitialLoad} retrying={retryingInitialLoad} /> : <MessageList
-            onOpenContextId={(id) => { setContextSheetSeq(null); setContextSheetId(id) }}
-            key={dmId}
-            channelId={dmId}
-            variant="dm"
-            channel={displayName}
-            messages={messages}
-            loading={!historyAllowed || loadingOwnership.messageBodyLoading}
-            initialLoadError={initialLoadError}
-            targetLoadError={targetLoadError}
-            retryingInitialLoad={retryingInitialLoad || messagesFetching}
-            onRetryInitialLoad={retryInitialLoad}
-            newDividerBefore={newDividerBefore}
-            newBoundary={newBoundary}
-            latestSeq={latestSeq}
-            retiredNewTargetId={retiredNewTargetId}
-            onLoadNewTarget={loadNewTarget}
-            onReadNewBoundary={readNewBoundary}
-            onOpenThread={() => { }}
-            onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
-            onReact={dmBlocked ? undefined : messageActions.onReact}
-            onReply={dmBlocked ? undefined : messageActions.onReply}
-            onSubmitDecisionCard={sendAllowed ? sendDmDecisionReply : undefined}
-            onCopy={messageActions.onCopy}
-            onMark={dmBlocked ? undefined : messageActions.onMark}
-            onRetry={sendAllowed ? messageActions.onRetry : undefined}
-            onDismiss={dmBlocked ? undefined : messageActions.onDismiss}
-            onPreviewImage={messageActions.onPreviewImage}
-            onPreviewAttachment={messageActions.onPreviewAttachment}
-            onOpenProfile={openProfile}
-            resolveUserName={resolveUserName}
-            onScrollRoot={setScrollRootEl}
-            viewerUserId={currentUser.id}
-            initialScrollReady={initialDisplayReady}
-            preserveInitialPresentation={preserveInitialPresentation}
-            onUserTakeover={onUserTakeover}
-            hasMore={hasMoreMessages}
-            historyStartKnown={historyStartKnown}
-            initialPositionMessageId={initialPositionMessageId}
-            positionEntry={positionEntry}
-            positionScope={positionScope}
-            positionDataState={positionDataState}
-            targetPositionDataState={targetPositionDataState}
-            messageWindow={messageWindow}
-            messageNeighborhood={messageNeighborhood}
-            onReadingMessage={onReadingMessage}
-            active={routeCommitted}
-            positioningActive
-            isFetching={messagesFetching}
-            isFetchingOlder={isFetchingOlderMessages}
-            onLoadOlder={fetchOlderMessages}
-            onFillHistory={fillHistory}
-            hasMoreNewer={hasMoreNewerMessages}
-            isFetchingNewer={isFetchingNewerMessages}
-            onLoadNewer={fetchNewerMessages}
-            onJumpToPresent={jumpToPresent}
-            presentVersion={presentVersion}
-            presentRequest={presentRequest}
-            olderLoadError={olderLoadError}
-            newerLoadError={newerLoadError}
-            presentPending={presentPending}
-            presentError={presentError}
-            localSubmitVersion={localSubmitVersion}
-            unreadCount={unreadCount}
-            typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
-            hero={
-              dm ? <DmHero dm={dm} onOpenProfile={openProfile} /> : <>
-                <Skeleton className="mb-3 size-16 rounded-full" />
-                <Skeleton className="h-8 w-48 rounded" />
-                <Skeleton className="mt-1 h-5 w-72 max-w-full rounded" />
-              </>
-            }
-          />}
-          <ConversationFooterShell
-            data-onboarding-target="dm-composer"
-            data-onboarding-name={displayName}
-          >
-            {dmBlocked ? (
-              <div
-                data-testid={tid.dmBlockedNotice}
-                className="flex min-h-15 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground"
-              >
-                You have blocked this user. Unblock to send messages.
-              </div>
-            ) : readDenied ? null : !sendAllowed ? <ComposerSkeleton /> : (
-              <Composer
-                sendContract="accepted"
-                channel={displayName}
-                channelType={metadata.data?.type}
-                context="dm"
-                // DM context short-circuits `rankMentionItems` to `[]` — no popup,
-                // no candidate pool needed. Passing [] keeps the Member[] typing
-                // honest without shimming friends into a member shape.
-                members={[]}
-                channelRefCandidates={channelRefCandidates}
-                channelRefCandidateSource={channelRefCandidateSource}
-                onChannelRefIntent={handleChannelRefIntent}
-                onAcceptSend={acceptDmSend}
-                onTyping={handleTyping}
-                replyingTo={replyTo ?? undefined}
-                onCancelReply={() => setReplyTo(null)}
-                autoFocus={bp === "desktop"}
-                draftKey={`dm/${dmId}`}
-              />
-            )}
-          </ConversationFooterShell>
-        </ConversationFooterSlotProvider>
-      </main>
-      {historyAllowed && <MessageContextSheet
+      bodyOverride={bodyOverride}
+      messageListProps={bodyOverride === undefined ? {
+        onOpenContextId: (id) => { setContextSheetSeq(null); setContextSheetId(id) },
+        variant: "dm",
+        channel: displayName,
+        messages,
+        loading: !historyAllowed || loadingOwnership.messageBodyLoading,
+        initialLoadError,
+        targetLoadError,
+        retryingInitialLoad: retryingInitialLoad || messagesFetching,
+        onRetryInitialLoad: retryInitialLoad,
+        newDividerBefore,
+        newBoundary,
+        latestSeq,
+        retiredNewTargetId,
+        onLoadNewTarget: loadNewTarget,
+        onReadNewBoundary: readNewBoundary,
+        onOpenThread: () => {},
+        onToggleReaction: dmBlocked ? undefined : messageActions.onToggleReaction,
+        onReact: dmBlocked ? undefined : messageActions.onReact,
+        onReply: dmBlocked ? undefined : messageActions.onReply,
+        onSubmitDecisionCard: sendAllowed ? sendDmDecisionReply : undefined,
+        onCopy: messageActions.onCopy,
+        onMark: dmBlocked ? undefined : messageActions.onMark,
+        onRetry: sendAllowed ? messageActions.onRetry : undefined,
+        onDismiss: dmBlocked ? undefined : messageActions.onDismiss,
+        onPreviewImage: messageActions.onPreviewImage,
+        onPreviewAttachment: messageActions.onPreviewAttachment,
+        onOpenProfile: openProfile,
+        resolveUserName,
+        onScrollRoot: setScrollRootEl,
+        viewerUserId: currentUser.id,
+        initialScrollReady: initialDisplayReady,
+        preserveInitialPresentation,
+        onUserTakeover,
+        hasMore: hasMoreMessages,
+        historyStartKnown,
+        initialPositionMessageId,
+        positionEntry,
+        positionScope,
+        positionDataState,
+        targetPositionDataState,
+        messageWindow,
+        messageNeighborhood,
+        onReadingMessage,
+        active: routeCommitted,
+        positioningActive: true,
+        isFetching: messagesFetching,
+        isFetchingOlder: isFetchingOlderMessages,
+        onLoadOlder: fetchOlderMessages,
+        onFillHistory: fillHistory,
+        hasMoreNewer: hasMoreNewerMessages,
+        isFetchingNewer: isFetchingNewerMessages,
+        onLoadNewer: fetchNewerMessages,
+        onJumpToPresent: jumpToPresent,
+        presentVersion,
+        presentRequest,
+        olderLoadError,
+        newerLoadError,
+        presentPending,
+        presentError,
+        localSubmitVersion,
+        unreadCount,
+        typingUsers: typingUsers.map((id) => typingNames[id] ?? resolveUserName(id)),
+        hero: dm ? <DmHero dm={dm} onOpenProfile={openProfile} /> : <>
+          <Skeleton className="mb-3 size-16 rounded-full" />
+          <Skeleton className="h-8 w-48 rounded" />
+          <Skeleton className="mt-1 h-5 w-72 max-w-full rounded" />
+        </>,
+      } : undefined}
+      footerProps={{
+        "data-onboarding-target": "dm-composer",
+        "data-onboarding-name": displayName,
+      }}
+      footer={dmBlocked ? (
+        <div
+          data-testid={tid.dmBlockedNotice}
+          className="flex min-h-15 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground"
+        >
+          You have blocked this user. Unblock to send messages.
+        </div>
+      ) : readDenied ? null : !sendAllowed ? <ComposerSkeleton /> : (
+        <Composer
+          sendContract="accepted"
+          channel={displayName}
+          channelType={metadata.data?.type}
+          context="dm"
+          members={[]}
+          channelRefCandidates={channelRefCandidates}
+          channelRefCandidateSource={channelRefCandidateSource}
+          onChannelRefIntent={handleChannelRefIntent}
+          onAcceptSend={acceptDmSend}
+          onTyping={handleTyping}
+          replyingTo={replyTo ?? undefined}
+          onCancelReply={() => setReplyTo(null)}
+          autoFocus={bp === "desktop"}
+          draftKey={`dm/${dmId}`}
+        />
+      )}
+      dialogs={historyAllowed && <MessageContextSheet
         open={contextSheetSeq !== null || contextSheetId !== null}
         onOpenChange={(v) => { if (!v) { setContextSheetSeq(null); setContextSheetId(null) } }}
         channelId={dmId}
@@ -561,6 +555,6 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
           setContextSheetId(null)
         }}
       />}
-    </>
+    />
   )
 }

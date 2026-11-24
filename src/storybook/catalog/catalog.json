@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 369,
+    "composition": 370,
     "environment": 13,
     "nonvisual": 32,
     "direct": 163
@@ -2498,6 +2498,30 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/community/channels/conversation-surface.tsx",
+      "application": "Web",
+      "candidates": [
+        "Body",
+        "ConversationSurface"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-conversation-surfaces--text-channel",
+          "region": "Unified conversation shell mounting text channel header, message list, and composer footer"
+        },
+        {
+          "story": "web-business-conversation-surfaces--thread",
+          "region": "Unified conversation shell mounting thread/forum-post surface"
+        },
+        {
+          "story": "web-pages-community-shell--direct-message",
+          "region": "Unified conversation shell mounting DM surface"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/community/channels/dm-header.tsx",
       "application": "Web",
       "candidates": [
@@ -2791,7 +2815,6 @@
       "source": "src/web/src/components/community/channels/text-channel-surface.tsx",
       "application": "Web",
       "candidates": [
-        "Body",
         "TextChannelSurface"
       ],
       "kind": "composition",
@@ -2807,7 +2830,6 @@
       "source": "src/web/src/components/community/channels/thread-channel-surface.tsx",
       "application": "Web",
       "candidates": [
-        "Body",
         "ThreadChannelSurface"
       ],
       "kind": "composition",

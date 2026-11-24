@@ -14,23 +14,19 @@ import { useToggleReactionApi } from "@/hooks/community/mutations"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import { Composer } from "@/components/community/messages/composer"
-import {
-  ConversationFooterShell,
-  ConversationFooterSlotProvider,
-} from "@/components/community/messages/conversation-footer-shell"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
-import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
 import { ThreadOpener } from "@/components/community/messages/thread-opener"
 import { ThreadPanelActions } from "@/components/community/channels/thread-panel-actions"
+import { ConversationSurface } from "./conversation-surface"
 import type { MessageHeaderTitleState } from "./message-header"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { tid } from "@/lib/community/testids"
-import { ConversationActivityContext, useConversationActivity } from "@/contexts/view-activity"
+import { useConversationActivity } from "@/contexts/view-activity"
 import {
   useClaimThreadOpenerReadHandoff,
   type ThreadOpenerReadHandoff,
@@ -141,7 +137,6 @@ export function ThreadChannelSurface({
   const displayName = channelName
   const routeActive = useConversationActivity()
   const inputActive = routeActive && feed.navigationBlocked === false
-  const Body = embedded ? "div" : "main"
   const compactActions = !!splitActions && !layoutPending
 
   useEffect(() => {
@@ -207,8 +202,13 @@ export function ThreadChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <>
-{(
+        <ConversationSurface
+          channelId={channelId}
+          subtype="thread"
+          embedded={embedded}
+          loadingPending={controller.feed.isLoading}
+          loadingPendingLabel="Loading thread"
+          header={(
             <ChannelHeader
               channel={displayName}
               titleState={channelTitleState}
@@ -233,105 +233,91 @@ export function ThreadChannelSurface({
               ) : undefined}
             />
           )}
-{(
-            <Body
-              data-slot="community-conversation-surface"
-              data-channel-id={channelId}
-              data-testid={!embedded && controller.feed.isLoading ? tid.conversationResolutionPending : undefined}
-              aria-busy={!embedded && controller.feed.isLoading ? true : undefined}
-              aria-label={!embedded && controller.feed.isLoading ? "Loading thread" : undefined}
-              data-community-conversation-subtype="thread"
-              className="flex min-h-0 min-w-0 flex-1 flex-col"
-            >
-              <ConversationFooterSlotProvider>
-                <MessageList
-                  onOpenContextId={controller.openContextId}
-                  key={channelId}
-                  channelId={channelId}
-                  channel={displayName}
-                  kind="thread"
-                  messages={controller.feed.messages}
-                  loading={controller.feed.isLoading}
-                  initialLoadError={controller.feed.initialLoadError}
-                  targetLoadError={controller.feed.targetLoadError}
-                  retryingInitialLoad={controller.feed.retryingInitialLoad}
-                  onRetryInitialLoad={controller.feed.retryInitialLoad}
-                  pinnedIds={controller.pinnedIds}
-                  newDividerBefore={controller.feed.newDividerBefore}
-                  newBoundary={controller.feed.newBoundary}
-                  latestSeq={controller.feed.latestSeq}
-                  retiredNewTargetId={controller.feed.retiredNewTargetId}
-                  onLoadNewTarget={controller.feed.loadNewTarget}
-                  onReadNewBoundary={controller.feed.readNewBoundary}
-                  onOpenThread={ignoreNestedThread}
-                  {...controller.threadActions}
-                  onSubmitDecisionCard={controller.sendDecisionReply}
-                  onPin={canManagePins ? controller.threadActions.onPin : undefined}
-                  onOpenProfile={onOpenProfile}
-                  resolveUserName={resolveUserName}
-                  resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
-                  onInsertMentionText={mentionInsertion.insertMentionText}
-                  scrollToMessageId={controller.scrollTargetId}
-                  hero={opener}
-                  onScrollRoot={controller.feed.setScrollRootEl}
-                  viewerUserId={viewer.id}
-                  initialScrollReady={controller.feed.initialDisplayReady}
-                  preserveInitialPresentation={controller.feed.preserveInitialPresentation}
-                  onUserTakeover={controller.feed.onUserTakeover}
-                  onScrollTargetConsumed={controller.consumeScrollTarget}
-                  hasMore={controller.feed.hasMoreOlder}
-                  historyStartKnown={controller.feed.historyStartKnown}
-                  initialPositionMessageId={controller.feed.initialPositionMessageId}
-                  positionEntry={controller.feed.positionEntry}
-                  positionScope={controller.feed.positionScope}
-                  positionDataState={controller.feed.positionDataState} targetPositionDataState={controller.feed.targetPositionDataState}
-                  messageWindow={controller.feed.messageWindow}
-                  messageNeighborhood={controller.feed.messageNeighborhood}
-                  onReadingMessage={controller.feed.onReadingMessage}
-                  isFetching={controller.feed.isFetching}
-                  isFetchingOlder={controller.feed.isFetchingOlder}
-                  onLoadOlder={controller.feed.fetchOlder}
-                  hasMoreNewer={controller.feed.hasMoreNewer}
-                  isFetchingNewer={controller.feed.isFetchingNewer}
-                  onLoadNewer={controller.feed.fetchNewer}
-                  onJumpToPresent={controller.feed.jumpToPresent}
-                  presentVersion={controller.feed.presentVersion}
-                  presentRequest={controller.feed.presentRequest}
-                  olderLoadError={controller.feed.olderLoadError}
-                  newerLoadError={controller.feed.newerLoadError}
-                  presentPending={controller.feed.presentPending}
-                  presentError={controller.feed.presentError}
-                  localSubmitVersion={controller.localSubmitVersion}
-                  unreadCount={controller.feed.unreadCount}
-                  typingUsers={controller.typingUsers}
-                />
-                <ConversationFooterShell
-                  data-onboarding-target="channel-composer"
-                  data-testid={tid.channelComposerShell}
-                  inert={!inputActive}
-                >
-                  <ConversationActivityContext value={inputActive}>
-                    <Composer
-                      ref={mentionInsertion.composerRef}
-                      channel={displayName}
-                      context="thread"
-                      members={composerMembers}
-                      mentionCandidates={composerMentionCandidates}
-                      channelRefCandidates={channelRefCandidates}
-                      sendContract="accepted"
-                      onAcceptSend={controller.acceptMessage}
-                      onTyping={controller.handleTyping}
-                      replyingTo={controller.replyTo ?? undefined}
-                      onCancelReply={() => controller.setReplyTo(null)}
-                      autoFocus={breakpoint === "desktop"}
-                      draftKey={`${serverId}/${channelId}`}
-                    />
-                  </ConversationActivityContext>
-                </ConversationFooterShell>
-              </ConversationFooterSlotProvider>
-            </Body>
+          messageListProps={{
+            onOpenContextId: controller.openContextId,
+            channel: displayName,
+            kind: "thread",
+            messages: controller.feed.messages,
+            loading: controller.feed.isLoading,
+            initialLoadError: controller.feed.initialLoadError,
+            targetLoadError: controller.feed.targetLoadError,
+            retryingInitialLoad: controller.feed.retryingInitialLoad,
+            onRetryInitialLoad: controller.feed.retryInitialLoad,
+            pinnedIds: controller.pinnedIds,
+            newDividerBefore: controller.feed.newDividerBefore,
+            newBoundary: controller.feed.newBoundary,
+            latestSeq: controller.feed.latestSeq,
+            retiredNewTargetId: controller.feed.retiredNewTargetId,
+            onLoadNewTarget: controller.feed.loadNewTarget,
+            onReadNewBoundary: controller.feed.readNewBoundary,
+            onOpenThread: ignoreNestedThread,
+            ...controller.threadActions,
+            onSubmitDecisionCard: controller.sendDecisionReply,
+            onPin: canManagePins ? controller.threadActions.onPin : undefined,
+            onOpenProfile,
+            resolveUserName,
+            resolveAuthorMentionText: mentionInsertion.resolveAuthorMentionText,
+            onInsertMentionText: mentionInsertion.insertMentionText,
+            scrollToMessageId: controller.scrollTargetId,
+            hero: opener,
+            onScrollRoot: controller.feed.setScrollRootEl,
+            viewerUserId: viewer.id,
+            initialScrollReady: controller.feed.initialDisplayReady,
+            preserveInitialPresentation: controller.feed.preserveInitialPresentation,
+            onUserTakeover: controller.feed.onUserTakeover,
+            onScrollTargetConsumed: controller.consumeScrollTarget,
+            hasMore: controller.feed.hasMoreOlder,
+            historyStartKnown: controller.feed.historyStartKnown,
+            initialPositionMessageId: controller.feed.initialPositionMessageId,
+            positionEntry: controller.feed.positionEntry,
+            positionScope: controller.feed.positionScope,
+            positionDataState: controller.feed.positionDataState,
+            targetPositionDataState: controller.feed.targetPositionDataState,
+            messageWindow: controller.feed.messageWindow,
+            messageNeighborhood: controller.feed.messageNeighborhood,
+            onReadingMessage: controller.feed.onReadingMessage,
+            isFetching: controller.feed.isFetching,
+            isFetchingOlder: controller.feed.isFetchingOlder,
+            onLoadOlder: controller.feed.fetchOlder,
+            onFillHistory: controller.feed.fillHistory,
+            hasMoreNewer: controller.feed.hasMoreNewer,
+            isFetchingNewer: controller.feed.isFetchingNewer,
+            onLoadNewer: controller.feed.fetchNewer,
+            onJumpToPresent: controller.feed.jumpToPresent,
+            presentVersion: controller.feed.presentVersion,
+            presentRequest: controller.feed.presentRequest,
+            olderLoadError: controller.feed.olderLoadError,
+            newerLoadError: controller.feed.newerLoadError,
+            presentPending: controller.feed.presentPending,
+            presentError: controller.feed.presentError,
+            localSubmitVersion: controller.localSubmitVersion,
+            unreadCount: controller.feed.unreadCount,
+            typingUsers: controller.typingUsers,
+          }}
+          footerProps={{
+            "data-onboarding-target": "channel-composer",
+            "data-testid": tid.channelComposerShell,
+            inert: !inputActive,
+          }}
+          inputActive={inputActive}
+          footer={(
+            <Composer
+              ref={mentionInsertion.composerRef}
+              channel={displayName}
+              context="thread"
+              members={composerMembers}
+              mentionCandidates={composerMentionCandidates}
+              channelRefCandidates={channelRefCandidates}
+              sendContract="accepted"
+              onAcceptSend={controller.acceptMessage}
+              onTyping={controller.handleTyping}
+              replyingTo={controller.replyTo ?? undefined}
+              onCancelReply={() => controller.setReplyTo(null)}
+              autoFocus={breakpoint === "desktop"}
+              draftKey={`${serverId}/${channelId}`}
+            />
           )}
-{(
+          sidePanel={(
             <CommunityPanel
               open={rightPanel !== null}
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -352,7 +338,7 @@ export function ThreadChannelSurface({
               onOpenProfile={onOpenProfile}
             />
           )}
-{(
+          dialogs={(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -372,7 +358,7 @@ export function ThreadChannelSurface({
               />
             </>
           )}
-</>
+        />
       )}
     </MessageChannelController>
   )

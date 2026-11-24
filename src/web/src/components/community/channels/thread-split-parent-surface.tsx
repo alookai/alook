@@ -90,9 +90,9 @@ export function ThreadSplitParentSurface({
       retrying={metadata.retrying} onRetry={() => { void metadata.retry() }} />
     return <>
       <ChannelHeaderSkeleton kind={isForum(channel.type) ? "forum" : "text"} />
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {isForum(channel.type) ? <ForumViewSkeleton /> : <MessageListSkeleton />}
-      </main>
+      </div>
     </>
   }
 
