@@ -1,6 +1,7 @@
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
-import { reconcileConversationLanding } from "@/lib/community/message-reconcile"
+import { isFailedMessageRepair, reconcileConversationLanding } from "@/lib/community/message-reconcile"
+import { messageScopeKey } from "@/stores/community/message-stream-store"
 import { hashKey, notifyManager, queryOptions, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { COMMUNITY_CONTRACT_HEADER, CommunityConversationEntryReadSchema, type CommunityConversationEntryRead, type CommunityReadStateResource, type CommunityMessageResources } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
@@ -231,6 +232,144 @@ export function findConversationDisplayWindow(client: QueryClient, target: Conve
   return conversationDisplayWindows(client, target, scope)?.[0]
 }
 
+export function findCachedMessageWindowContaining(
+  client: QueryClient,
+  target: ConversationEntryTarget,
+  scope: ConversationWindowScope,
+  messageId: string,
+): { window: ConversationDisplayWindow; data: MessageWindowData } | undefined {
+  const windows = conversationDisplayWindows(client, target, scope)
+  if (!windows) return
+  for (const window of windows) {
+    if (!messageWindowIdentity(window.key)) continue
+    const data = client.getQueryData<MessageWindowData>(window.key)
+    if (data?.pages.some(page => page.messages.some(message => message.id === messageId))) {
+      return { window, data }
+    }
+  }
+  return undefined
+}
+
+export type LocalConversationNewBoundary = {
+  boundary: CommunityConversationEntryRead["newBoundary"]
+  latestSeq: number
+  tailComplete: boolean
+}
+
+export function deriveLocalConversationNewBoundary(
+  client: QueryClient,
+  target: ConversationEntryTarget,
+  scope: ConversationWindowScope,
+  windowKey: QueryKey,
+  afterSeq: number,
+): LocalConversationNewBoundary | undefined {
+  if (!isChannelMetadataTokenCurrent(scope.proof) || scope.channelId !== target.channelId) return
+  if (target.tag || !Number.isSafeInteger(afterSeq) || afterSeq < 0) return
+  const viewerId = scope.proof.viewerId
+  const registry = scope.proof.registry
+  if (!viewerId || !registry) return
+  const channel = registry.collections.channels.get(target.channelId)
+  if (!channel || channel.serverId !== target.serverId || channel.archived || channel.type === "forum") return
+  const identity = messageWindowIdentity(windowKey)
+  if (!identity || identity.tag !== null || identity.initial.mode === "since") return
+  const data = client.getQueryData<MessageWindowData>(windowKey)
+  if (!Array.isArray(data?.pages) || !data.pages.length || !Array.isArray(data.pageParams) || data.pages.length !== data.pageParams.length) return
+  const newestPage = data.pages[0]
+  const oldestPage = data.pages.at(-1)!
+  if (newestPage.hasMoreNewer !== false) return
+  const repairQuery = client.getQueryCache().find({ queryKey: [...windowKey, "reconcile"], exact: true })
+  if (repairQuery?.state.fetchStatus === "fetching" || repairQuery && isFailedMessageRepair(client, repairQuery)) return
+  const messages = registry.collections.messages
+  const byId = new Map<string, { id: string; seq: number; authorId: string }>()
+  for (const page of data.pages) {
+    if (!Array.isArray(page?.messages)) return
+    for (const ref of page.messages) {
+      if (typeof ref?.id !== "string" || !ref.id) return
+      const row = messages.get(ref.id)
+      if (!row || row.channelId !== target.channelId || !Number.isSafeInteger(row.seq) || row.seq < 0
+        || (ref.seq !== undefined && row.seq !== ref.seq)) return
+      byId.set(row.id, { id: row.id, seq: row.seq, authorId: row.authorId })
+    }
+  }
+  const windowRows = [...byId.values()].sort((left, right) => left.seq - right.seq)
+  const historyStartKnown = (oldestPage.hasMoreOlder ?? oldestPage.hasMore) === false
+  const windowMinSeq = windowRows.length > 0 ? windowRows[0].seq : null
+  if (!historyStartKnown && (windowMinSeq === null || windowMinSeq > afterSeq)) return
+  const windowMaxSeq = Math.max(0, ...windowRows.map(row => row.seq), ...data.pages.map(page => page.latestSeq ?? 0))
+  const streamScope = target.serverId === null
+    ? { kind: "dm" as const, id: target.channelId }
+    : { kind: "channel" as const, id: target.channelId, serverId: target.serverId }
+  const liveIds = registry.runtime.messageStream.get().entries.get(messageScopeKey(streamScope))?.state.liveIds ?? []
+  const liveRows = liveIds.flatMap(id => {
+    if (byId.has(id)) return []
+    const row = messages.get(id)
+    return row && row.channelId === target.channelId && Number.isSafeInteger(row.seq) && row.seq > windowMaxSeq
+      ? [{ id: row.id, seq: row.seq, authorId: row.authorId }]
+      : []
+  }).sort((left, right) => left.seq - right.seq)
+  let contiguousSeq = windowMaxSeq
+  let liveGap = false
+  const contiguousRows = [...windowRows]
+  for (const row of liveRows) {
+    if (row.seq === contiguousSeq + 1) {
+      contiguousRows.push(row)
+      contiguousSeq = row.seq
+    } else if (row.seq > contiguousSeq + 1) {
+      liveGap = true
+      break
+    }
+  }
+  if (afterSeq > contiguousSeq) return
+  const firstPeer = contiguousRows.find(row => row.seq > afterSeq && row.authorId && row.authorId !== viewerId)
+  const repairTarget = client.getQueryData<number>([...windowKey, "reconcile-target"]) ?? 0
+  const tailComplete = !liveGap
+    && repairTarget <= contiguousSeq
+    && knownConversationLatestSeq(client, target.channelId) <= contiguousSeq
+  return {
+    boundary: {
+      afterSeq,
+      target: firstPeer ? { id: firstPeer.id, channelId: target.channelId, seq: firstPeer.seq, authorId: firstPeer.authorId } : null,
+    },
+    latestSeq: contiguousSeq,
+    tailComplete,
+  }
+}
+
+export function contiguousWindowLatestSeq(
+  client: QueryClient,
+  target: Pick<ConversationEntryTarget, "channelId" | "serverId">,
+  data: MessageWindowData | undefined,
+): { latestSeq: number; liveGap: boolean } {
+  if (!Array.isArray(data?.pages) || !data.pages.length) return { latestSeq: 0, liveGap: false }
+  const windowMaxSeq = Math.max(0, ...data.pages.flatMap(page => [
+    page.latestSeq ?? 0,
+    ...(Array.isArray(page?.messages) ? page.messages.map(message => message.seq ?? 0) : []),
+  ]))
+  if (data.pages[0]?.hasMoreNewer !== false) return { latestSeq: windowMaxSeq, liveGap: false }
+  const registry = getCommunityDbRegistry(client)
+  if (!registry) return { latestSeq: windowMaxSeq, liveGap: false }
+  const streamScope = target.serverId === null
+    ? { kind: "dm" as const, id: target.channelId }
+    : { kind: "channel" as const, id: target.channelId, serverId: target.serverId }
+  const liveIds = registry.runtime.messageStream.get().entries.get(messageScopeKey(streamScope))?.state.liveIds ?? []
+  const liveSeqs = liveIds.flatMap(id => {
+    const row = registry.collections.messages.get(id)
+    return row && row.channelId === target.channelId && Number.isSafeInteger(row.seq) && row.seq > windowMaxSeq
+      ? [row.seq]
+      : []
+  }).sort((left, right) => left - right)
+  let contiguousSeq = windowMaxSeq
+  let liveGap = false
+  for (const seq of liveSeqs) {
+    if (seq === contiguousSeq + 1) contiguousSeq = seq
+    else if (seq > contiguousSeq + 1) {
+      liveGap = true
+      break
+    }
+  }
+  return { latestSeq: contiguousSeq, liveGap }
+}
+
 export function findConversationEntryWindow(client: QueryClient, target: ConversationEntryTarget, resource: ConversationWindowScope, pointer: CommunityReadStateResource | undefined) {
   if (!pointer && !target.anchorMessageId) return
   const anchor = target.anchorMessageId ?? (target.preferTail !== false ? null : pointer?.lastReadMessageId)
@@ -239,7 +378,9 @@ export function findConversationEntryWindow(client: QueryClient, target: Convers
     const data = client.getQueryData<MessageWindowData>(window.key)!
     if (target.preferTail !== false && !target.anchorMessageId) {
       if (window.initial.mode !== "newest") return false
-      const latest = Math.max(0, ...data.pages.map(page => page.latestSeq ?? 0))
+      const latest = target.tag
+        ? Math.max(0, ...data.pages.map(page => page.latestSeq ?? 0))
+        : contiguousWindowLatestSeq(client, target, data).latestSeq
       if (pointer && pointer.lastReadSeq > latest && (resource.readStateAtEntry?.lastReadSeq ?? -1) < pointer.lastReadSeq) return false
     }
     const anchored = !!anchor && data.pages.some(page => page.messages.some(message => message.id === anchor))

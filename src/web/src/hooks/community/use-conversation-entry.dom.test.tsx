@@ -1584,3 +1584,468 @@ describe("first body frame after actual disk save and a fresh owner", () => {
     }
   })
 })
+
+describe("cache-first New boundary and jump", () => {
+  it("derives entry newBoundary immediately from continuous cache and contiguous WS rows while entry=1 is held, then retires on server deletion", async () => {
+    const owner = await setup()
+    const base = fixture()
+    base.messages = [
+      { ...base.messages[0], id: "m1", seq: 1, authorId: "viewer", createdAt: "2026-10-01T00:00:01.000Z" },
+      { ...base.messages[0], id: "m2", seq: 2, authorId: "peer", createdAt: "2026-10-01T00:00:02.000Z" },
+    ]
+    base.profiles = [...base.profiles, profileResourceFixture({ id: "viewer", name: "Viewer" })]
+    base.readState = { channelId: "c1", lastReadMessageId: "m1", lastReadSeq: 1, lastReadAt: base.messages[0].createdAt }
+    base.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 2 }
+    base.newBoundary = { afterSeq: 1, target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" } }
+    await owner.publish(base)
+    owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+
+    const held = deferred<typeof base>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" }), { wrapper: owner.wrapper })
+    try {
+      await waitFor(() => expect(load).toHaveBeenCalledOnce())
+      expect(hook.result.current.messages.map(message => message.id)).toEqual(["m1", "m2"])
+      expect(hook.result.current.newBoundary).toEqual({
+        afterSeq: 1,
+        target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" },
+      })
+      expect(hook.result.current.retiredNewTargetId).toBeUndefined()
+
+      const deletedOnServer = {
+        ...base,
+        messages: [base.messages[0]],
+        newBoundary: { afterSeq: 1, target: null },
+      }
+      await act(async () => held.resolve(deletedOnServer))
+      await waitFor(() => expect(hook.result.current.retiredNewTargetId).toBe("m2"))
+    } finally {
+      hook.unmount()
+      owner.client.clear()
+    }
+  })
+
+  it("keeps cross-page unread falling back to server entry=1 when afterSeq precedes the cached newest window", async () => {
+    const owner = await setup()
+    const base = fixture()
+    base.messages = Array.from({ length: 10 }, (_, index) => ({
+      ...base.messages[0],
+      id: `m${index + 51}`,
+      seq: index + 51,
+      authorId: "peer",
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 51)).toISOString(),
+    }))
+    base.readState = { channelId: "c1", lastReadMessageId: "m5", lastReadSeq: 5, lastReadAt: "2026-10-01T00:00:05.000Z" }
+    base.page = { olderCursor: `${base.messages[0].createdAt}|m51`, newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 60 }
+    base.newBoundary = { afterSeq: 5, target: { id: "m9", channelId: "c1", seq: 9, authorId: "peer" } }
+    await owner.publish(base)
+    owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+
+    const held = deferred<typeof base>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" }), { wrapper: owner.wrapper })
+    try {
+      await waitFor(() => expect(load).toHaveBeenCalledOnce())
+      expect(hook.result.current.newBoundary).toBeUndefined()
+      await act(async () => held.resolve(base))
+      await waitFor(() => expect(hook.result.current.newBoundary).toEqual(base.newBoundary))
+    } finally {
+      hook.unmount()
+      owner.client.clear()
+    }
+  })
+
+  it("computes readNewBoundary locally with 0 requests when continuous and falls back on gaps without forced staleTime=0", async () => {
+    const owner = await setup()
+    const base = fixture()
+    base.messages = [
+      { ...base.messages[0], id: "m1", seq: 1, authorId: "viewer", createdAt: "2026-10-01T00:00:01.000Z" },
+      { ...base.messages[0], id: "m2", seq: 2, authorId: "peer", createdAt: "2026-10-01T00:00:02.000Z" },
+    ]
+    base.profiles = [...base.profiles, profileResourceFixture({ id: "viewer", name: "Viewer" })]
+    base.readState = { channelId: "c1", lastReadMessageId: "m2", lastReadSeq: 2, lastReadAt: base.messages[1].createdAt }
+    base.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 2 }
+    base.newBoundary = { afterSeq: 2, target: null }
+    await owner.publish(base)
+
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" }), { wrapper: owner.wrapper })
+    try {
+      await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+      const live3 = { ...base.messages[0], id: "m3", seq: 3, authorId: "peer", createdAt: "2026-10-01T00:00:03.000Z" }
+      await act(async () => {
+        ingestMessages(owner.registry, "c1", [live3])
+        owner.runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, { type: "wsMessage", message: live3 })
+      })
+      const localResult = await hook.result.current.readNewBoundary(2)
+      expect(localResult).toEqual({
+        boundary: { afterSeq: 2, target: { id: "m3", channelId: "c1", seq: 3, authorId: "peer" } },
+        latestSeq: 3,
+      })
+      expect(load).not.toHaveBeenCalled()
+
+      await act(async () => owner.runtime.ws.actions.setConnectionStatus("reconnecting"))
+      const serverFallback = {
+        ...base,
+        messages: [...base.messages, live3],
+        page: { ...base.page, latestSeq: 3 },
+        newBoundary: { afterSeq: 2, target: { id: "m3", channelId: "c1", seq: 3, authorId: "peer" } },
+      }
+      load.mockResolvedValue(serverFallback)
+      const fallbackFirst = await hook.result.current.readNewBoundary(2)
+      expect(fallbackFirst).toEqual({ boundary: serverFallback.newBoundary, latestSeq: 3 })
+      expect(load).toHaveBeenCalledOnce()
+
+      const fallbackReused = await hook.result.current.readNewBoundary(2)
+      expect(fallbackReused).toEqual({ boundary: serverFallback.newBoundary, latestSeq: 3 })
+      expect(load).toHaveBeenCalledOnce()
+
+      const nullBoundaryEntry = {
+        ...base,
+        messages: [...base.messages, live3],
+        page: { ...base.page, latestSeq: 3 },
+        newBoundary: { afterSeq: 3, target: null },
+      }
+      load.mockResolvedValueOnce(nullBoundaryEntry)
+      const nullResult = await hook.result.current.readNewBoundary(3)
+      expect(nullResult).toEqual({ boundary: nullBoundaryEntry.newBoundary, latestSeq: 3 })
+      expect(load).toHaveBeenCalledTimes(2)
+
+      const live4 = { ...base.messages[0], id: "m4", seq: 4, authorId: "peer", createdAt: "2026-10-01T00:00:04.000Z" }
+      await act(async () => {
+        ingestMessages(owner.registry, "c1", [live4])
+        owner.runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, { type: "wsMessage", message: live4 })
+      })
+      const refreshedEntry = {
+        ...base,
+        messages: [...base.messages, live3, live4],
+        page: { ...base.page, latestSeq: 4 },
+        newBoundary: { afterSeq: 3, target: { id: "m4", channelId: "c1", seq: 4, authorId: "peer" } },
+      }
+      load.mockResolvedValueOnce(refreshedEntry)
+      const staleRefreshed = await hook.result.current.readNewBoundary(3)
+      expect(staleRefreshed).toEqual({ boundary: refreshedEntry.newBoundary, latestSeq: 4 })
+      expect(load).toHaveBeenCalledTimes(3)
+    } finally {
+      hook.unmount()
+      owner.client.clear()
+    }
+  })
+
+  it("switches loadNewTarget directly to another qualified cached window with 0 requests and falls back on miss or unqualified cache", async () => {
+    const owner = await setup()
+    const newest = fixture()
+    newest.messages = [
+      { ...newest.messages[0], id: "m50", seq: 50, authorId: "peer", createdAt: "2026-10-01T00:00:50.000Z" },
+    ]
+    newest.readState = { channelId: "c1", lastReadMessageId: "m5", lastReadSeq: 5, lastReadAt: "2026-10-01T00:00:05.000Z" }
+    newest.page = { olderCursor: "old50", newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 50 }
+    newest.newBoundary = { afterSeq: 5, target: { id: "m10", channelId: "c1", seq: 10, authorId: "peer" } }
+    await owner.publish(newest)
+
+    const anchorTarget = { ...target, anchorMessageId: "m10" }
+    const anchorPacket = {
+      ...newest,
+      selection: { reason: "explicit_anchor" as const, anchorMessageId: "m10" },
+      messages: [{ ...newest.messages[0], id: "m10", seq: 10, authorId: "peer", createdAt: "2026-10-01T00:00:10.000Z" }],
+      page: { olderCursor: "old10", newerCursor: "new10", hasMoreOlder: true, hasMoreNewer: true, latestSeq: 50 },
+    }
+    await publishConversationEntry(owner.client, anchorTarget, anchorPacket, { token: captureCommunityLiveSnapshotToken(owner.client, "c1") })
+
+    const brokenKey = communityKeys.channelMessagesWindow("c1", { mode: "anchor", anchor: "m20" })
+    owner.client.setQueryData(brokenKey, {
+      pages: [{ messages: [{ id: "m20", seq: 20 }], hasMoreOlder: true, hasMoreNewer: true, latestSeq: 50 }],
+      pageParams: [{ mode: "anchor", anchor: "m20" }],
+    })
+
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" }), { wrapper: owner.wrapper })
+    try {
+      await waitFor(() => expect(hook.result.current.positionDataState).toBe("ready"))
+      expect(hook.result.current.messages.map(message => message.id)).toEqual(["m50"])
+
+      let hitRequest!: ReturnType<typeof hook.result.current.loadNewTarget>
+      act(() => { hitRequest = hook.result.current.loadNewTarget("m10") })
+      expect(hitRequest.accepted).toBe(true)
+      if (!hitRequest.accepted) throw new Error("Expected cached loadNewTarget to be accepted")
+      expect((await hitRequest.completed).status).toBe("success")
+      await waitFor(() => expect(hook.result.current.messages.map(message => message.id)).toEqual(["m10"]))
+      expect(load).not.toHaveBeenCalled()
+
+      const m20 = { ...newest.messages[0], id: "m20", seq: 20, authorId: "peer", createdAt: "2026-10-01T00:00:20.000Z" }
+      load.mockResolvedValue({
+        messages: [m20],
+        profiles: newest.profiles,
+        hasMoreOlder: true,
+        hasMoreNewer: true,
+        olderCursor: "old20",
+        newerCursor: "new20",
+        latestSeq: 50,
+      })
+      let missRequest!: ReturnType<typeof hook.result.current.loadNewTarget>
+      act(() => { missRequest = hook.result.current.loadNewTarget("m20") })
+      expect(missRequest.accepted).toBe(true)
+      if (!missRequest.accepted) throw new Error("Expected unqualified cached loadNewTarget to refetch")
+      expect((await missRequest.completed).status).toBe("success")
+      await waitFor(() => expect(hook.result.current.messages.map(message => message.id)).toEqual(["m20"]))
+      expect(load).toHaveBeenCalledOnce()
+      expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?anchor=m20")
+
+      let backToNewest!: ReturnType<typeof hook.result.current.loadNewTarget>
+      act(() => { backToNewest = hook.result.current.loadNewTarget("m50") })
+      expect(backToNewest.accepted).toBe(true)
+      if (!backToNewest.accepted) throw new Error("Expected cached newest switch to be accepted")
+      expect((await backToNewest.completed).status).toBe("success")
+      await waitFor(() => expect(hook.result.current.messages.map(message => message.id)).toEqual(["m50"]))
+      expect(load).toHaveBeenCalledOnce()
+    } finally {
+      hook.unmount()
+      owner.client.clear()
+    }
+  })
+
+  it("derives provisional newBoundary on warm re-entry when input.newAfterSeq is null and retires it on cross-device read advance", async () => {
+    const owner = await setup()
+    const old = dmConversationEntryFixture()
+    old.messages = [
+      { ...old.messages[0], id: "m1", seq: 1, authorId: "viewer", createdAt: "2026-10-01T00:00:01.000Z" },
+      { ...old.messages[0], id: "m2", seq: 2, authorId: "peer", createdAt: "2026-10-01T00:00:02.000Z" },
+    ]
+    old.profiles = [...old.profiles, profileResourceFixture({ id: "viewer", name: "Viewer" })]
+    old.readState = { channelId: "c1", lastReadMessageId: "m1", lastReadSeq: 1, lastReadAt: old.messages[0].createdAt }
+    old.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 2 }
+    old.newBoundary = { afterSeq: 1, target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" } }
+    load.mockResolvedValue(old)
+
+    let showBody = true
+    let body: ReturnType<typeof useDmMessages> | undefined
+    const navigation = { entryIntent: { href: "/c/me/c1" } }
+    function Body() { body = useDmMessages("c1", { viewerUserId: "viewer" }); return null }
+    function Route() { useChannelMetadata(null, "c1"); return showBody ? createElement(Body) : null }
+    const tree = () => createElement(CommunityRouteContext, { value: { navigation } as never }, createElement(Route))
+    const view = render(tree(), { wrapper: owner.wrapper })
+    try {
+      await waitFor(() => expect(body?.newBoundary?.target?.id).toBe("m2"))
+      showBody = false
+      navigation.entryIntent = { href: "/c/me" }
+      view.rerender(tree())
+
+      const fresh = {
+        ...old,
+        readState: { ...old.readState, lastReadMessageId: "m2", lastReadSeq: 2, lastReadAt: old.messages[1].createdAt },
+        readStateRevision: 5,
+        newBoundary: { afterSeq: 2, target: null },
+      }
+      const held = deferred<typeof fresh>()
+      load.mockReturnValue(held.promise)
+      let refresh!: Promise<void>
+      act(() => { refresh = owner.client.invalidateQueries({ queryKey: communityKeys.conversationEntries("c1") }) })
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+      expect(new URL(load.mock.calls[1][0], "https://test.invalid").searchParams.has("newAfterSeq")).toBe(false)
+
+      showBody = true
+      navigation.entryIntent = { href: "/c/me/c1" }
+      view.rerender(tree())
+      expect(body?.messages.map(message => message.id)).toEqual(["m1", "m2"])
+      expect(body?.newBoundary).toEqual({
+        afterSeq: 1,
+        target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" },
+      })
+      expect(body?.retiredNewTargetId).toBeUndefined()
+
+      await act(async () => { held.resolve(fresh); await refresh })
+      await waitFor(() => expect(body?.isFetching).toBe(false))
+      expect(body?.newBoundary).toEqual({ afterSeq: 2, target: null })
+      expect(body?.retiredNewTargetId).toBe("m2")
+    } finally {
+      view.unmount()
+      owner.client.clear()
+    }
+  })
+
+  it("keeps readSnapshotFetching false while entry=1 is held when contiguous WS liveIds cover knownConversationLatestSeq, and pending on real gap", async () => {
+    const owner = await setup()
+    const base = fixture()
+    base.messages = Array.from({ length: 16 }, (_, index) => ({
+      ...base.messages[0],
+      id: `m${index + 1}`,
+      seq: index + 1,
+      authorId: "viewer",
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
+    }))
+    base.profiles = [...base.profiles, profileResourceFixture({ id: "viewer", name: "Viewer" })]
+    base.readState = { channelId: "c1", lastReadMessageId: "m16", lastReadSeq: 16, lastReadAt: base.messages[15].createdAt }
+    base.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 16 }
+    base.newBoundary = { afterSeq: 16, target: null }
+    await owner.publish(base)
+
+    const liveBatch = Array.from({ length: 12 }, (_, index) => ({
+      ...base.messages[0],
+      id: `m${index + 17}`,
+      seq: index + 17,
+      authorId: "peer",
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 17)).toISOString(),
+    }))
+    await act(async () => {
+      ingestMessages(owner.registry, "c1", liveBatch)
+      for (const message of liveBatch) {
+        owner.runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, { type: "wsMessage", message })
+      }
+      await publishAccountAttentionSnapshot(owner.client, {
+        snapshot: {
+          resources: resourceBundleFixture(),
+          scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
+            lastUnreadSeq: 28, lastAttentionSeq: null, attentionCount: 0 }],
+          items: [], limit: 100, truncated: false,
+          included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+        },
+        proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
+      })
+    })
+    owner.client.removeQueries({ queryKey: communityKeys.conversationEntries("c1") })
+
+    const held = deferred<typeof base>()
+    load.mockReturnValue(held.promise)
+    const hook = renderHook(() => useMessages("c1", { serverId: "s1", viewerUserId: "viewer" }), { wrapper: owner.wrapper })
+    try {
+      await waitFor(() => expect(load).toHaveBeenCalledOnce())
+      expect(hook.result.current.isFetching).toBe(true)
+      expect(hook.result.current.messages).toHaveLength(28)
+      expect(hook.result.current.latestSeq).toBe(28)
+      expect(hook.result.current.readSnapshotFetching).toBe(false)
+      expect(hook.result.current.positionDataState).toBe("ready")
+      expect(hook.result.current.newBoundary).toEqual({
+        afterSeq: 16,
+        target: { id: "m17", channelId: "c1", seq: 17, authorId: "peer" },
+      })
+
+      await act(async () => {
+        await publishAccountAttentionSnapshot(owner.client, {
+          snapshot: {
+            resources: resourceBundleFixture(),
+            scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
+              lastUnreadSeq: 30, lastAttentionSeq: null, attentionCount: 0 }],
+            items: [], limit: 100, truncated: false,
+            included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          },
+          proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
+        })
+      })
+      hook.rerender()
+      expect(hook.result.current.latestSeq).toBe(28)
+      expect(hook.result.current.readSnapshotFetching).toBe(true)
+      expect(hook.result.current.positionDataState).toBe("pending")
+
+      await act(async () => {
+        await publishAccountAttentionSnapshot(owner.client, {
+          snapshot: {
+            resources: resourceBundleFixture(),
+            scopes: [{ scopeId: "c1", channelId: "c1", serverId: "s1", ordinaryUnread: true,
+              lastUnreadSeq: 28, lastAttentionSeq: null, attentionCount: 0 }],
+            items: [], limit: 100, truncated: false,
+            included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          },
+          proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
+        })
+      })
+      hook.rerender()
+      expect(hook.result.current.readSnapshotFetching).toBe(false)
+      expect(hook.result.current.positionDataState).toBe("ready")
+
+      await act(async () => {
+        const gapped = {
+          ...base.messages[0],
+          id: "m30",
+          seq: 30,
+          authorId: "peer",
+          createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, 30)).toISOString(),
+        }
+        ingestMessages(owner.registry, "c1", [gapped])
+        owner.runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, { type: "wsMessage", message: gapped })
+      })
+      await waitFor(() => expect(hook.result.current.readSnapshotFetching).toBe(true))
+      expect(hook.result.current.positionDataState).toBe("pending")
+    } finally {
+      hook.unmount()
+      owner.client.clear()
+    }
+  })
+
+  it("covers warm DM re-entry with input.newAfterSeq === null when read pointer and unread message are in contiguous WS liveIds", async () => {
+    const owner = await setup()
+    const base = dmConversationEntryFixture()
+    base.messages = Array.from({ length: 16 }, (_, index) => ({
+      ...base.messages[0],
+      id: `m${index + 1}`,
+      seq: index + 1,
+      authorId: "peer",
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
+    }))
+    base.profiles = [...base.profiles, profileResourceFixture({ id: "viewer", name: "Viewer" })]
+    base.readState = { channelId: "c1", lastReadMessageId: "m16", lastReadSeq: 16, lastReadAt: base.messages[15].createdAt }
+    base.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 16 }
+    base.newBoundary = { afterSeq: 16, target: null }
+    load.mockResolvedValue(base)
+
+    let showBody = true
+    let body: ReturnType<typeof useDmMessages> | undefined
+    const navigation = { entryIntent: { href: "/c/me/c1" } }
+    function Body() { body = useDmMessages("c1", { viewerUserId: "viewer" }); return null }
+    function Route() { useChannelMetadata(null, "c1"); return showBody ? createElement(Body) : null }
+    const tree = () => createElement(CommunityRouteContext, { value: { navigation } as never }, createElement(Route))
+    const view = render(tree(), { wrapper: owner.wrapper })
+    try {
+      await waitFor(() => expect(body?.messages).toHaveLength(16))
+      const livePeer = [
+        { ...base.messages[0], id: "m17", seq: 17, authorId: "peer", createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, 17)).toISOString() },
+        { ...base.messages[0], id: "m18", seq: 18, authorId: "peer", createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, 18)).toISOString() },
+      ]
+      await act(async () => {
+        ingestMessages(owner.registry, "c1", livePeer)
+        for (const message of livePeer) {
+          owner.runtime.messageStream.actions.dispatch({ kind: "dm", id: "c1" }, { type: "wsMessage", message })
+        }
+        ingestReadStateSnapshot(owner.registry, {
+          revision: 5,
+          readStates: [{ channelId: "c1", lastReadMessageId: "m17", lastReadSeq: 17, lastReadAt: livePeer[0].createdAt }],
+        })
+      })
+      showBody = false
+      navigation.entryIntent = { href: "/c/me" }
+      view.rerender(tree())
+
+      const confirmed = {
+        ...base,
+        messages: [...base.messages, ...livePeer],
+        readState: { channelId: "c1", lastReadMessageId: "m17", lastReadSeq: 17, lastReadAt: livePeer[0].createdAt },
+        readStateRevision: 5,
+        page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 18 },
+        newBoundary: { afterSeq: 17, target: { id: "m18", channelId: "c1", seq: 18, authorId: "peer" } },
+      }
+      const held = deferred<typeof confirmed>()
+      load.mockReturnValue(held.promise)
+      let refresh!: Promise<void>
+      act(() => { refresh = owner.client.invalidateQueries({ queryKey: communityKeys.conversationEntries("c1") }) })
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+      expect(new URL(load.mock.calls[1][0], "https://test.invalid").searchParams.has("newAfterSeq")).toBe(false)
+
+      showBody = true
+      navigation.entryIntent = { href: "/c/me/c1" }
+      view.rerender(tree())
+      expect(body?.isFetching).toBe(true)
+      expect(body?.latestSeq).toBe(18)
+      expect(body?.readSnapshotFetching).toBe(false)
+      expect(body?.positionDataState).toBe("ready")
+      expect(body?.newBoundary).toEqual({
+        afterSeq: 17,
+        target: { id: "m18", channelId: "c1", seq: 18, authorId: "peer" },
+      })
+
+      await act(async () => { held.resolve(confirmed); await refresh })
+      await waitFor(() => expect(body?.isFetching).toBe(false))
+      expect(body?.newBoundary?.target?.id).toBe("m18")
+      expect(body?.retiredNewTargetId).toBeUndefined()
+    } finally {
+      view.unmount()
+      owner.client.clear()
+    }
+  })
+})

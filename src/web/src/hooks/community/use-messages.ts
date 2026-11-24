@@ -8,12 +8,13 @@ import { CancelledError, hashKey, useInfiniteQuery, useQuery, useQueryClient, ty
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import { useConversationEntry } from "./use-conversation-entry"
 import { useConversationTimeline } from "./use-conversation-timeline"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useMessageWindowProjection } from "@/lib/community-db/projections"
 import { useMessageOverlayIds } from "@/stores/community/message-stream"
 import type { MessageScope } from "@/lib/community/message-stream"
 import { mergeTimelinePages, type TimelineCanonicalPage } from "@/lib/community/conversation-timeline"
 import { messagePageForReading, messagePageNeighbors, messageWindowOptions, viewportFillFetchMeta, type InitialMessageWindow, type MessageWindowData } from "@/lib/community/message-window"
-import { conversationEntryOptions, knownConversationLatestSeq, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
+import { contiguousWindowLatestSeq, conversationEntryOptions, deriveLocalConversationNewBoundary, findCachedMessageWindowContaining, knownConversationLatestSeq, type ConversationEntryResource, type findConversationEntryWindow } from "@/lib/community/conversation-entry"
 import type { Msg } from "@/lib/community/models/message"
 import type { MessageNeighborhood, MessagePositionState, MessageRequest, MessageRequestResult } from "@/lib/community/message-position"
 import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
@@ -179,7 +180,11 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     targetLoadError,
   })
   const messages = timeline.messages
-  const latestSeq = Math.max(0, ...(query.data?.pages.map((page) => page.latestSeq ?? 0) ?? []))
+  const windowLatestSeq = Math.max(0, ...(query.data?.pages.map((page) => page.latestSeq ?? 0) ?? []))
+  const contiguousTail = channelId && !tag
+    ? contiguousWindowLatestSeq(client, { channelId, serverId }, query.data)
+    : { latestSeq: windowLatestSeq, liveGap: false }
+  const latestSeq = Math.max(windowLatestSeq, contiguousTail.latestSeq)
   const landingWindow = entry.resource ? client.getQueryData<MessageWindowData>(entry.resource.windowKey) : undefined
   const landingLatestSeq = Math.max(0, ...(landingWindow?.pages.map(page => page.latestSeq ?? 0) ?? []))
   const repairTarget = client.getQueryData<number>([...queryKey, "reconcile-target"]) ?? 0
@@ -187,7 +192,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const readSnapshotFetching = !entry.snapshot || !entry.targetCovered && !selection.window || entry.isPending || ids.some(id => !canonicalById.has(id))
     || repairTarget > coveredLatestSeq
     || !anchorMessageId && !tag && (landingLatestSeq > latestSeq
-      || entry.isFetching && !!channelId && knownConversationLatestSeq(client, channelId) > latestSeq)
+      || entry.isFetching && !!channelId && (contiguousTail.liveGap || knownConversationLatestSeq(client, channelId) > latestSeq))
   const pages = query.data?.pages ?? []
   const oldest = pages.at(-1)
   const newest = pages[0]
@@ -278,17 +283,27 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const loadNewTarget = useCallback((id: string): MessageRequest => {
     const original = committed.current
     if (!channelId || !original?.enabled || original !== owner || !committedNewReady.current || present.get().pending) return { accepted: false }
-    if (references.some(message => message.id === id) && query.data) return { accepted: true, completed: Promise.resolve({ status: "success", window: query.data }) }
+    if ((references.some(message => message.id === id) || messages.some(message => message.id === id)) && query.data) {
+      return { accepted: true, completed: Promise.resolve({ status: "success", window: query.data }) }
+    }
+    if (entry.scope) {
+      const cachedMatch = findCachedMessageWindowContaining(client, { channelId, serverId, tag }, entry.scope, id)
+      if (cachedMatch) {
+        present.setState(state => ({ ...state, attempt: state.attempt + 1, pending: false, error: null, window: cachedMatch.window }))
+        return { accepted: true, completed: Promise.resolve({ status: "success", window: cachedMatch.data }) }
+      }
+    }
     const token = captureChannelMetadataToken(client, channelId)
     const initial = { mode: "anchor" as const, anchor: id }
     const anchored = messageWindowOptions(client, channelId, initial, tag)
+    const unqualifiedCached = client.getQueryData(anchored.queryKey) !== undefined
     const captured = client.getQueryCache().build<unknown, Error, unknown>(client, { queryKey: anchored.queryKey })
     present.setState(state => ({ ...state, attempt: state.attempt + 1, pending: true, error: null }))
     const attempt = present.get().attempt
     let cancelled = false
     const isCurrent = () => !cancelled && present.get().attempt === attempt && committed.current === original && isChannelMetadataTokenCurrent(token)
       && client.getQueryCache().get(captured.queryHash) === captured
-    const completed = client.infiniteQuery({ ...anchored, staleTime: 0, select: undefined }).then((data): MessageRequestResult => {
+    const completed = client.infiniteQuery({ ...anchored, ...(unqualifiedCached ? { staleTime: 0 } : {}), select: undefined }).then((data): MessageRequestResult => {
       if (!isCurrent()) return { status: "retired" }
       if (!data.pages.some(page => page.messages.some(message => message.id === id))) {
         present.setState(state => ({ ...state, pending: false }))
@@ -305,15 +320,35 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
       cancelled = true
       if (committed.current === original && present.get().attempt === attempt) present.setState(state => ({ ...state, pending: false }))
     } }
-  }, [channelId, client, owner, present, query.data, references, tag])
+  }, [channelId, client, entry.scope, messages, owner, present, query.data, references, serverId, tag])
   const readNewBoundary = useCallback(async (afterSeq: number) => {
     const original = committed.current
     if (!channelId || !original?.enabled || original !== owner || !committedNewReady.current) return
     const token = captureChannelMetadataToken(client, channelId)
-    const resource = await client.query({ ...conversationEntryOptions(client, { channelId, serverId, tag, preferTail: true, newAfterSeq: afterSeq }), staleTime: 0 })
+    const registry = getCommunityDbRegistry(client)
+    const wsConnected = registry?.runtime.ws.get().connectionStatus === "connected"
+    if (wsConnected && entry.scope && original.query && !entry.isFetching && !query.isFetching && !repair.isFetching) {
+      const local = deriveLocalConversationNewBoundary(client, { channelId, serverId, tag }, entry.scope, original.query.queryKey, afterSeq)
+      if (local?.tailComplete) {
+        return { boundary: local.boundary, latestSeq: local.latestSeq }
+      }
+    }
+    const entryOpts = conversationEntryOptions(client, { channelId, serverId, tag, preferTail: true, newAfterSeq: afterSeq })
+    const initial = typeof entryOpts.initialData === "function" ? entryOpts.initialData() : entryOpts.initialData
+    const existing = client.getQueryData<ConversationEntryResource>(entryOpts.queryKey) ?? initial
+    const liveMaxSeq = Math.max(
+      latestSeq,
+      coveredLatestSeq,
+      ...overlay.liveIds.map(id => registry?.collections.messages.get(id)?.seq ?? 0),
+    )
+    const staleNullBoundary = !!existing
+      && isChannelMetadataTokenCurrent(existing.proof)
+      && existing.newBoundaryAtEntry.target === null
+      && liveMaxSeq > existing.latestSeqAtEntry
+    const resource = await client.query(staleNullBoundary ? { ...entryOpts, staleTime: 0 } : entryOpts)
     if (committed.current !== original || !isChannelMetadataTokenCurrent(token)) return
     return { boundary: resource.newBoundaryAtEntry, latestSeq: resource.latestSeqAtEntry }
-  }, [channelId, client, owner, serverId, tag])
+  }, [channelId, client, coveredLatestSeq, entry.isFetching, entry.scope, latestSeq, overlay.liveIds, owner, query.isFetching, repair.isFetching, serverId, tag])
   const loading = !!channelId && (windowAvailable ? projection.canonicalMessages === undefined : !initialLoadError && !entry.denied && !entry.anchorMissing)
   const entryWindow = entry.window, retryEntry = entry.retry, refetchWindow = query.refetch
   const retryInitialLoad = useCallback(() => {

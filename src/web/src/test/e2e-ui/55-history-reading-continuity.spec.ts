@@ -731,6 +731,11 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   await held.matched
   await expect(page.getByTestId(tid.message(unread))).toBeVisible()
   const before = await lateNewGeometry(root, unread)
+  expect(before.dividerFor).toBe(unread)
+  expect(before.divider).not.toBeNull()
+  expect(before.divider!.connected).toBe(true)
+  expect(before.divider!.width).toBeGreaterThan(0)
+  expect(before.divider!.height).toBeGreaterThan(0)
   expect(before.body).not.toBeNull()
   expect(before.body!.connected).toBe(true)
   expect(before.body!.width).toBeGreaterThan(0)
@@ -750,7 +755,7 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   const after = await lateNewGeometry(root, unread)
   expect(after.ids.at(-1)).toBe(before.ids.at(-1))
   expect(after.ids.at(-1)).toBe(unread)
-  expect(after.keys).not.toEqual(before.keys)
+  expect(after.keys).toEqual(before.keys)
   expect(after.dividerFor).toBe(unread)
   expect(after.divider).not.toBeNull()
   expect(after.divider!.connected).toBe(true)
@@ -869,6 +874,41 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
       readable: { top, bottom, left, right },
     }
   }, secondPeer)).toMatchObject({ away: true, oldNewMounted: true, oldNewMeasured: true, oldNewReadable: false })
+  await page.getByRole("link", { name: "Friends", exact: true }).click()
+  await expect(page).toHaveURL(/\/c\/me\/friends$/)
+  const gapBatch = await actors.seedHistory(dmId, Array.from({ length: 200 }, (_, index) => ({
+    author: "bob" as const,
+    content: `gap history batch ${index}`,
+  })))
+  await page.locator(`a[href="${path}"]`).first().click()
+  await expect(page).toHaveURL(new RegExp(`${dmId}$`))
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(warmDocument)
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  const jumpToGapNew = page.getByTestId(tid.scrollToNew)
+  await expect(jumpToGapNew).toBeVisible()
+  await jumpToGapNew.click()
+  await expect(root.locator(`[data-message-divider-for="${gapBatch[0]}"] [data-new-divider]`)).toBeInViewport()
+  await expect(jumpToGapNew).toBeHidden()
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  await root.hover()
+  const readGapDivider = () => root.evaluate((element, id) => {
+    const divider = element.querySelector<HTMLElement>(`[data-message-divider-for="${id}"] [data-new-divider]`)
+    const rect = divider?.getBoundingClientRect(), viewport = element.getBoundingClientRect()
+    const top = viewport.top + element.clientTop, left = viewport.left + element.clientLeft
+    const right = left + element.clientWidth
+    const bottom = top + element.clientHeight - Math.max(0, Number(element.dataset.composerOcclusion ?? 0))
+    return {
+      away: element.scrollHeight - element.clientHeight - element.scrollTop > 1,
+      oldNewReadable: !!rect && rect.width > 0 && rect.height > 0 && rect.bottom > top && rect.top < bottom && rect.right > left && rect.left < right,
+      oldNewMounted: !!divider?.isConnected,
+      oldNewMeasured: !!rect && rect.width > 0 && rect.height > 0,
+    }
+  }, gapBatch[0]!)
+  for (let step = 0; step < 8 && (await readGapDivider()).oldNewReadable; step++) {
+    await page.mouse.wheel(0, -250)
+  }
+  await expect.poll(readGapDivider).toMatchObject({ away: true, oldNewMounted: true, oldNewMeasured: true, oldNewReadable: false })
+  await expect(frame).toBeAttached()
   const oldLookup = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url => url.searchParams.has("newAfterSeq"))
   const retiredPeer = await actors.seed.seedMessage("bob", dmId, "retired New lookup")
   await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
