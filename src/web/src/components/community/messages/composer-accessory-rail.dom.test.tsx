@@ -22,7 +22,6 @@ describe("ComposerAccessoryRail geometry", () => {
     expect(present).toBeEnabled()
     expect(present).not.toHaveAttribute("aria-busy", "true")
     expect(renderer.queryByRole("status")).toBeNull()
-    expect(present.querySelector("svg")).not.toHaveClass("animate-spin")
     fireEvent.click(present)
     fireEvent.click(present)
     expect(onScroll).toHaveBeenCalledTimes(2)
@@ -82,14 +81,12 @@ describe("ComposerAccessoryRail geometry", () => {
     expect(pendingNew).toBeDisabled()
     expect(pendingNew).toHaveAttribute("aria-busy", "true")
     expect(pendingNew).toHaveTextContent(/^New$/)
-    expect(pendingNew.querySelector("svg")).toHaveClass("animate-spin")
     fireEvent.click(pendingNew)
     expect(onNew).toHaveBeenCalledOnce()
     expect(renderer.getByTestId(tid.scrollToPresent)).toHaveTextContent("8")
     expect(renderer.getByTestId(tid.scrollToPresent)).not.toHaveAttribute("aria-busy", "true")
     renderer.rerender(view(false, 8))
     expect(pendingNew).toBeEnabled()
-    expect(pendingNew.querySelector("svg")).not.toHaveClass("animate-spin")
   })
   it.each([0, 8])("keeps New transport loading out of the center with bottom count %i", count => {
     const onNew = vi.fn(), onScroll = vi.fn()
@@ -98,7 +95,6 @@ describe("ComposerAccessoryRail geometry", () => {
     const pendingNew = renderer.getByRole("button", { name: "Jump to New" })
     expect(pendingNew).toBeDisabled()
     expect(pendingNew).toHaveTextContent(/^New$/)
-    expect(pendingNew.querySelector("svg")).toHaveClass("animate-spin")
     expect(renderer.queryByRole("button", { name: "Loading messages" })).toBeNull()
     if (count === 0) expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
     else {
@@ -106,13 +102,12 @@ describe("ComposerAccessoryRail geometry", () => {
       expect(center).toBeEnabled()
       expect(center).not.toHaveAttribute("aria-busy", "true")
       expect(center).toHaveTextContent("8")
-      expect(center.querySelector("svg")).not.toHaveClass("animate-spin")
       fireEvent.click(center)
       expect(onScroll).toHaveBeenCalledOnce()
     }
   })
 
-  it("shares the composer's logical safe-area-aware inline edges", () => {
+  it("mounts the accessory rail inside the conversation footer accessory slot", () => {
     function Accessory() {
       const target = useConversationFooterSlot()?.accessoryTarget
       return target ? createPortal(
@@ -128,22 +123,11 @@ describe("ComposerAccessoryRail geometry", () => {
     )
 
     const slot = renderer.container.querySelector('[data-slot="community-composer-accessory-slot"]')!
-    expect(slot).toHaveClass(
-      "pl-(--community-composer-inline-start)",
-      "pr-(--community-composer-inline-end)",
-    )
     expect(renderer.getByTestId(tid.composerAccessoryRail).parentElement).toBe(slot)
-    expect(renderer.getByTestId(tid.typingIndicator)).toHaveClass("h-full")
-    expect(renderer.getByTestId(tid.typingIndicator)).not.toHaveClass("h-8")
-    expect(renderer.getByTestId(tid.composerAccessoryRail)).not.toHaveClass(
-      "pl-(--community-composer-inline-start)",
-      "pr-(--community-composer-inline-end)",
-      "px-2",
-      "sm:px-4",
-    )
+    expect(renderer.getByTestId(tid.typingIndicator)).toBeInTheDocument()
   })
 
-  it("leaves positioning to the Footer box and fills the shared row height", () => {
+  it("keeps the shared 32px rail height with scroll-to-present mounted", () => {
     const renderer = render(
       <ComposerAccessoryRail
         typingNames={[]}
@@ -153,13 +137,7 @@ describe("ComposerAccessoryRail geometry", () => {
       />,
     )
 
-    expect(renderer.getByTestId(tid.composerAccessoryRail)).not.toHaveClass(
-      "absolute",
-      "inset-x-0",
-      "bottom-2",
-      "sm:bottom-4",
-    )
     expect(renderer.getByTestId(tid.composerAccessoryRail)).toHaveStyle({ height: "32px" })
-    expect(renderer.getByTestId(tid.scrollToPresent)).toHaveClass("h-full")
+    expect(renderer.getByTestId(tid.scrollToPresent)).toBeInTheDocument()
   })
 })

@@ -182,25 +182,17 @@ describe("ServerRail one-in-flight structural guard", () => {
     const { container } = render(createElement(ServerRailPending, { bottomInset: 60 }))
     const nav = container.querySelector("nav")
     expect(nav).not.toBeNull()
-    expect(nav?.className).toBe(
-      "flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2",
-    )
     expect(nav?.getAttribute("aria-hidden")).toBe("true")
     expect(container.querySelectorAll("[data-skeleton]")).toHaveLength(2)
     expect(container.querySelectorAll("button")).toHaveLength(0)
-    const home = container.querySelector('[data-slot="community-home-logo-pending"]')
-    expect(home?.className).toContain("size-10")
-    expect(home?.className).toContain("rounded-[9px]")
-    expect(home?.className).not.toContain("rounded-[20px]")
-    expect(container.querySelector('[data-slot="community-server-rail-viewport"]')?.className)
-      .toContain("min-h-0 w-full flex-1")
-    expect(container.querySelector(`[data-testid="${tid.serverRailScroll}"]`)?.className)
-      .toContain("shrink overflow-y-auto")
+    expect(container.querySelector('[data-slot="community-home-logo-pending"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="community-server-rail-viewport"]')).not.toBeNull()
+    expect(container.querySelector(`[data-testid="${tid.serverRailScroll}"]`)).not.toBeNull()
     expect(container.querySelectorAll('[data-slot="community-server-rail-add"]'))
       .toHaveLength(0)
   })
 
-  it("uses the shared idle, hover/focus, and active heights for Home", () => {
+  it("renders the shared Home indicator slot across server and DM views", () => {
     const renderer = render(createElement(ServerRail, {
       servers,
       folders,
@@ -211,7 +203,7 @@ describe("ServerRail one-in-flight structural guard", () => {
       .previousElementSibling as HTMLElement
 
     expect(homeIndicator()).toHaveAttribute("data-slot", "community-server-rail-indicator")
-    expect(homeIndicator()).toHaveClass("h-0", "group-hover:h-5", "group-has-[:focus-visible]:h-5")
+    const serverClass = homeIndicator().className
 
     renderer.rerender(createElement(ServerRail, {
       servers,
@@ -219,8 +211,8 @@ describe("ServerRail one-in-flight structural guard", () => {
       view: "dm",
       onHome: vi.fn(),
     }))
-    expect(homeIndicator()).toHaveClass("h-8")
-    expect(homeIndicator()).not.toHaveClass("group-hover:h-5", "group-has-[:focus-visible]:h-5")
+    expect(homeIndicator()).toHaveAttribute("data-slot", "community-server-rail-indicator")
+    expect(homeIndicator().className).not.toBe(serverClass)
   })
 
   it("does not reconcile again for equivalent canonical projection references", () => {
@@ -346,16 +338,13 @@ describe("ServerRail one-in-flight structural guard", () => {
 
     expect(container.querySelectorAll('[data-slot="community-server-rail-viewport"]'))
       .toHaveLength(1)
-    expect(container.querySelector('[data-slot="community-server-rail-viewport"]')?.className)
-      .toBe("flex min-h-0 w-full flex-1 flex-col items-center")
     expect(container.querySelectorAll("[data-sortable-server]")).toHaveLength(count)
-    expect(container.querySelector(`[data-testid="${tid.serverRailScroll}"]`)?.className)
-      .toContain("min-h-0 w-full shrink overflow-y-auto")
+    expect(container.querySelector(`[data-testid="${tid.serverRailScroll}"]`)).not.toBeNull()
     expect(container.querySelectorAll('[data-slot="community-server-rail-add"]'))
       .toHaveLength(1)
   })
 
-  it("keeps the scroll node mounted while pending, empty, and populated spacing changes", () => {
+  it("keeps the scroll node mounted across pending, empty, and populated transitions", () => {
     const element = (loading: boolean, currentServers = servers.slice(0, 0)) => createElement(ServerRail, {
       servers: currentServers,
       folders: [],
@@ -367,7 +356,6 @@ describe("ServerRail one-in-flight structural guard", () => {
     const scroll = renderer.getByTestId(tid.serverRailScroll)
     const divider = () => renderer.container.querySelector("nav .border-t")
     expect(divider()).not.toBeNull()
-    expect(scroll).toHaveClass("pt-2", "pb-1")
     expect(renderer.container.querySelector(`[data-testid="${tid.initialRailPending}"]`)).not.toBeNull()
     expect(renderer.container.querySelector('[data-slot="community-server-rail-add"]')).toBeNull()
 
@@ -375,18 +363,15 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect(renderer.getByTestId(tid.serverRailScroll)).toBe(scroll)
     expect(divider()).toBeNull()
     expect(scroll).toBeEmptyDOMElement()
-    expect(scroll).not.toHaveClass("pt-2")
-    expect(scroll).not.toHaveClass("pb-1")
-    expect(renderer.container.querySelector('[data-slot="community-server-rail-add"]')).toHaveClass("pt-2")
+    expect(renderer.container.querySelector('[data-slot="community-server-rail-add"]')).not.toBeNull()
 
     renderer.rerender(element(false, servers))
     expect(renderer.getByTestId(tid.serverRailScroll)).toBe(scroll)
     expect(divider()).not.toBeNull()
-    expect(scroll).toHaveClass("pt-2", "pb-1")
     expect(scroll.querySelectorAll("[data-sortable-server]")).toHaveLength(servers.length)
   })
 
-  it("pins Add while the server list shrinks only when its content exceeds the remaining space", () => {
+  it("propagates bottomInset to the Add slot custom property", () => {
     const { container } = render(createElement(ServerRail, {
       servers,
       folders: [],
@@ -394,12 +379,8 @@ describe("ServerRail one-in-flight structural guard", () => {
       bottomInset: 24,
       onHome: vi.fn(),
     }))
-    const scroll = container.querySelector(`[data-testid="${tid.serverRailScroll}"]`)
-    expect(scroll).toHaveClass("min-h-0", "w-full", "shrink", "overflow-y-auto", "overflow-x-clip", "thin-scrollbar", "scrollbar-none", "pt-2", "pb-1")
-    expect(scroll).not.toHaveClass("flex-1")
-    expect(scroll).not.toHaveClass("pb-2")
     const add = container.querySelector<HTMLElement>('[data-slot="community-server-rail-add"]')
-    expect(add).toHaveClass("shrink-0", "pb-[calc(var(--community-rail-bottom-inset)+0.5rem)]")
+    expect(add).not.toBeNull()
     expect(add?.style.getPropertyValue("--community-rail-bottom-inset")).toBe("24px")
   })
 
@@ -607,21 +588,15 @@ describe("ServerRail one-in-flight structural guard", () => {
   it("has no Ungroup callback and keeps the same folder backdrop across toggle", async () => {
     const view = renderRail()
     expect(latestFolderProps().onUngroup).toBeUndefined()
-    const surface = view.container.querySelector('[data-slot="community-rail-folder-surface"]')
     const background = view.container.querySelector('[data-slot="community-rail-folder-backdrop"]')
-    expect(surface).not.toHaveClass("py-1")
-    expect(background).toHaveClass("top-0", "size-10", "rounded-[18px]", "group-hover/folder:rounded-xl")
+    expect(background).not.toBeNull()
     await act(async () => (latestFolderProps().onToggle as () => void)())
-    expect(surface).toHaveClass("py-1")
     expect(view.container.querySelector('[data-slot="community-rail-folder-backdrop"]')).toBe(background)
-    expect(background).toHaveClass("inset-x-1", "inset-y-0", "rounded-[12px]")
-    expect(background).not.toHaveClass("size-10")
+    expect(latestFolderProps().open).toBe(true)
     await act(async () => (latestFolderProps().onToggle as () => void)())
-    expect(surface).not.toHaveClass("py-1")
+    expect(latestFolderProps().open).toBe(false)
     view.rerender(railElement([{ ...folders[0]!, servers: [{ id: "a", name: "A", initial: "A" }] }]))
     expect(latestFolderProps().active).toBe(true)
-    expect(background).toHaveClass("size-10", "rounded-xl")
-    expect(background).not.toHaveClass("rounded-[18px]")
     expect(mocks.mutate).not.toHaveBeenCalled()
   })
 

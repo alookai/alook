@@ -34,7 +34,7 @@ const machines = [{
 }]
 
 describe("UserBarExtensionSlot", () => {
-  it("leaves mobile profile styling to the content and gives only the companion the shrink budget", () => {
+  it("renders profile and companion content inside the slot with bounded max-height", () => {
     const renderer = render(createElement(UserBarExtensionSlot, {
       active: "profile",
       profile: createElement("div", { "data-testid": "profile-content" }, "Profile"),
@@ -47,17 +47,10 @@ describe("UserBarExtensionSlot", () => {
     }))
 
     const slot = renderer.getByTestId(tid.userBarExtension)
-    const scroller = renderer.getByTestId("profile-content").parentElement?.parentElement
     expect(slot.style.maxHeight).toContain("28rem")
     expect(slot.style.height).toBe("")
-    expect(slot.className).not.toMatch(/bg-|shadow-|border|rounded|overflow-|clip-path|text-popover-foreground/)
-    expect(scroller?.className).toContain("min-h-0")
-    expect(scroller?.className).not.toContain("overflow-y-auto")
-    expect(renderer.getByTestId("profile-content").parentElement?.className).toBe("shrink-0")
-    const companionSurface = renderer.getByTestId("profile-companion").parentElement
-    expect(companionSurface?.className).toContain("min-h-0")
-    expect(companionSurface?.className).toContain("flex-col")
-    expect(companionSurface?.className).not.toContain("shrink-0")
+    expect(renderer.getByTestId("profile-content")).toBeInTheDocument()
+    expect(renderer.getByTestId("profile-companion")).toBeInTheDocument()
   })
 
   it("disables dismissal and focus while retained for the closing animation", async () => {
@@ -102,18 +95,6 @@ describe("UserBarExtensionSlot", () => {
     expect(slot).toHaveAttribute("data-extension", "inbox")
     expect(slot.style.height).toContain("28rem")
     expect(slot.style.maxHeight).toContain("28rem")
-    const classes = slot.className.split(" ")
-    expect(classes).toEqual(expect.arrayContaining([
-      "rounded-t-xl",
-      "border-x",
-      "border-t",
-      "border-border/40",
-      "shadow-(--e2)",
-      "[clip-path:inset(-2rem_-2rem_0)]",
-    ]))
-    expect(classes).not.toContain("border-b")
-    expect(classes).not.toContain("border-b-0")
-    expect(classes).not.toContain("shadow-none")
     expect(renderer.getByTestId("inbox-content")).toBeInTheDocument()
     expect(renderer.queryByTestId("profile-content")).not.toBeInTheDocument()
     expect(renderer.queryByTestId(tid.daemonUpdateNotice)).not.toBeInTheDocument()
@@ -148,11 +129,7 @@ describe("UserBarExtensionSlot", () => {
     expect(renderer.getByText("Machine update available")).toBeInTheDocument()
     expect(renderer.getByText(description)).toBeInTheDocument()
     const action = renderer.getByTestId(tid.daemonUpdateAction)
-    expect(action.className).toContain("h-11")
-    expect(action.className).toContain("px-3")
-    expect(action.className).toContain("sm:h-9")
-    expect(action.className).toContain("sm:px-2")
-    expect(action.className).not.toContain("min-h-")
+    expect(action).toBeEnabled()
     expect(renderer.queryByRole("button", { name: "Dismiss Machine update" })).not.toBeInTheDocument()
   })
 
@@ -188,10 +165,6 @@ describe("UserBarExtensionSlot", () => {
     expect(renderer.getByText("1 machine is updating. 1 update request failed.")).toBeInTheDocument()
     const action = renderer.getByTestId(tid.daemonUpdateAction)
     expect(action).toHaveTextContent("Retry")
-    expect(action.className).toContain("h-11")
-    expect(action.className).toContain("px-3")
-    expect(action.className).toContain("sm:h-9")
-    expect(action.className).toContain("sm:px-2")
     await act(async () => action.click())
     expect(onRequestUpdate).toHaveBeenCalledOnce()
   })

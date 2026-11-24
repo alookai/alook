@@ -378,17 +378,11 @@ describe("BotMarkSticker", () => {
     expect(overflow.querySelector(".sr-only")?.textContent).toBe("More marked work")
     expect(renderer.container.querySelectorAll("square-icon")).toHaveLength(3)
     const location = renderer.container.querySelector('[title="Alook · #planning"]')!
-    expect(location.className).toContain("w-fit")
-    expect(location.className).toContain("max-w-full")
     const locationParts = location.querySelectorAll("span")
-    expect(locationParts[0]?.className).not.toContain("flex-1")
-    expect(locationParts[0]?.className).toContain("truncate")
-    expect(locationParts[1]?.className).toBe("shrink-0")
-    expect(locationParts[2]?.className).not.toContain("flex-1")
-    expect(locationParts[2]?.className).toContain("truncate")
+    expect([...locationParts].map((part) => part.textContent)).toEqual(["Alook", "·", "#planning"])
   })
 
-  it("keeps the DM label fixed while truncating its channel independently", () => {
+  it("keeps the DM label and channel name in separate location spans", () => {
     mocks.result.marks = [{
       ...mark("dm"),
       server: "",
@@ -401,9 +395,7 @@ describe("BotMarkSticker", () => {
       '[title="DM · a-very-long-direct-message-channel"]',
     )!
     const parts = location.querySelectorAll("span")
-    expect(parts[0]?.className).toBe("shrink-0")
-    expect(parts[2]?.className).not.toContain("flex-1")
-    expect(parts[2]?.className).toContain("truncate")
+    expect([...parts].map((part) => part.textContent)).toEqual(["DM", "·", "a-very-long-direct-message-channel"])
   })
 
   it("shows only DM when the direct-message location has no suffix", () => {

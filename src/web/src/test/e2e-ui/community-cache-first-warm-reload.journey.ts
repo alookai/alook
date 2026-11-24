@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema, CommunityConversationEntryReadSchema, CommunityThreadsReadSchema } from "@alook/shared"
 import { HostCommandSchema } from "@alook/shared/community-cli-contract"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
-import type { APIResponse, Page, Request, Route, TestInfo } from "@playwright/test"
+import type { APIResponse, Frame, Page, Request, Route, TestInfo } from "@playwright/test"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { expectPublicCommunityDocument, expectUniqueSsrCommunityFrame } from "./_fixtures/community-ssr-frame"
 import { PERSIST_ACCOUNT_PREFIX, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
@@ -822,12 +822,23 @@ test.describe("mobile DM cold history", () => {
       const entry = await holdRoute(page, isEntry, caseResources)
       const cursors: Array<string | null> = []
       const readWrites: Request[] = []
+      let reloadCommitted = false
+      const onFrameNavigated = (frame: Frame) => {
+        if (frame === page.mainFrame()) reloadCommitted = true
+      }
+      page.on("framenavigated", onFrameNavigated)
       page.on("request", request => {
+        if (!reloadCommitted) return
         const url = new URL(request.url())
         if (isOlder(url)) cursors.push(url.searchParams.get("cursor"))
         if (request.method() === "PUT" && url.pathname === readPath) readWrites.push(request)
       })
-      await page.reload({ waitUntil: "commit" })
+      try {
+        await page.reload({ waitUntil: "commit" })
+      } finally {
+        page.off("framenavigated", onFrameNavigated)
+      }
+      expect(reloadCommitted).toBe(true)
       await expect.poll(entry.held).toBe(1)
       await expect.poll(older.held).toBe(2)
       expect(cursors).toEqual([cursor])

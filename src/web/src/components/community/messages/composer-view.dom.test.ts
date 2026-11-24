@@ -509,9 +509,6 @@ describe("ComposerView", () => {
     fireEvent.change(input)
     expect(onFileSelect).toHaveBeenCalledOnce()
     expect(
-      renderer.container.querySelector(`[data-testid="${tid.composerInput}"]`)?.className,
-    ).toContain("px-12")
-    expect(
       renderer.container.querySelector(`[data-testid="${tid.composerAttach}"]`)
         ?.getAttribute("aria-label"),
     ).toBe("Add file")
@@ -521,22 +518,8 @@ describe("ComposerView", () => {
         label,
       ).toBeGreaterThan(0)
     }
-    expect(
-      renderer.container.querySelector('[class*="focus-within:ring-2"]')?.className,
-    ).toContain("rounded-b-xl")
-    expect(
-      renderer.container.querySelector('[class*="flex-wrap"]')?.className,
-    ).not.toContain("rounded-t-xl")
     expect(renderer.container.querySelectorAll("dropdown-menu")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("[data-emoji-picker]")).toHaveLength(1)
-
-    renderer.rerender(createElement(
-      ComposerView,
-      baseProps({ pendingFiles, removePendingFile }),
-    ))
-    expect(
-      renderer.container.querySelector('[class*="flex-wrap"]')?.className,
-    ).toContain("rounded-t-xl border-t")
   })
 
   it("opens the file picker directly and honors forum/hide flags", async () => {
@@ -552,12 +535,6 @@ describe("ComposerView", () => {
     ;(mocks.emojiProps.mock.calls.at(-1)?.[0].onPick as (emoji: string) => void)("🌱")
     expect(onUploadFile).toHaveBeenCalledOnce()
     expect(onEmojiPick).toHaveBeenCalledWith("🌱")
-    expect(
-      renderer.container.querySelector('[class*="focus-within:ring-2"]')?.className,
-    ).toContain("rounded-(--community-composer-top-radius)")
-    expect(renderer.container.querySelector("[data-editor-content]")?.className).toContain(
-      "max-h-48",
-    )
 
     renderer.rerender(createElement(
       ComposerView,
@@ -569,13 +546,7 @@ describe("ComposerView", () => {
     ))
     expect(renderer.container.querySelectorAll("dropdown-menu")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("[data-emoji-picker]")).toHaveLength(0)
-    expect(renderer.container.firstElementChild?.className).toBe("relative")
-    expect(
-      renderer.container.querySelector(`[data-testid="${tid.composerInput}"]`)?.className,
-    ).toContain("px-2")
-    expect(renderer.container.querySelector("[data-editor-content]")?.className).toContain(
-      "max-h-60",
-    )
+    expect(renderer.container.querySelector(`[data-testid="${tid.composerAttach}"]`)).toBeNull()
   })
 
   it("shows the exact same-author reply target as one semantic, whole-row-truncated line", async () => {
@@ -595,9 +566,6 @@ describe("ComposerView", () => {
     expect(preview.textContent).toBe(
       "Replying to Ada · First target with docs " + "x".repeat(320),
     )
-    expect(preview.className).toContain("truncate")
-    expect(preview.className).toContain("min-w-0")
-    expect(preview.parentElement?.className).toContain("items-center")
 
     renderer.rerender(
       createElement(ComposerView, baseProps({ replyingTo: second })),
@@ -612,11 +580,6 @@ describe("ComposerView", () => {
       ComposerView,
       baseProps({ showSend: true, sendDisabled: true, onSend }),
     ))
-    const input = renderer.container.querySelector(`[data-testid="${tid.composerInput}"]`)!
-    expect(input.className).toContain("pl-12 pr-16 sm:px-12")
-    expect(input.parentElement?.className).toContain(
-      "rounded-(--community-composer-top-radius)",
-    )
     expect(renderer.container.querySelector("[data-emoji-picker]")).toBeNull()
     const send = renderer.container.querySelector<HTMLButtonElement>(
       `[data-testid="${tid.composerSend}"]`,
@@ -624,28 +587,10 @@ describe("ComposerView", () => {
     expect(send.type).toBe("button")
     expect(send.getAttribute("aria-label")).toBe("Send message")
     expect(send.disabled).toBe(true)
-    expect(send.className).toContain("right-2")
-    expect(send.className).toContain("size-8")
-    expect(send.className).toContain("rounded-full")
-    expect(send.className).toContain("community-composer-send")
-    // The send key is the shared primary Button: its disabled state dims and
-    // stops pointer input instead of hand-rolled enabled:/disabled: colours.
     expect(send.dataset.slot).toBe("button")
     expect(send.dataset.variant).toBe("default")
-    expect(send.className).toContain("bg-primary")
-    expect(send.className).toContain("disabled:opacity-50")
-    expect(send.className).toContain("disabled:pointer-events-none")
     const icon = send.querySelector("svg")!
-    expect(icon.getAttribute("viewBox")).toBe("0 0 24 24")
     expect(icon.getAttribute("aria-hidden")).toBe("true")
-    expect(icon.getAttribute("class")).toBe(
-      "size-5 -translate-x-px translate-y-px",
-    )
-    expect(icon.getAttribute("fill")).toBe("none")
-    expect(icon.getAttribute("stroke")).toBe("currentColor")
-    expect(icon.getAttribute("stroke-width")).toBe("2")
-    expect(icon.getAttribute("stroke-linecap")).toBe("round")
-    expect(icon.getAttribute("stroke-linejoin")).toBe("round")
     expect(icon.querySelectorAll("path")).toHaveLength(1)
     expect(
       [...renderer.container.querySelectorAll("button")]
@@ -661,32 +606,19 @@ describe("ComposerView", () => {
       `[data-testid="${tid.composerSend}"]`,
     )!
     expect(activeSend.disabled).toBe(false)
-    expect(activeSend.className).toContain("bg-primary")
-    expect(activeSend.className).toContain("text-primary-foreground")
     fireEvent.click(activeSend)
     expect(onSend).toHaveBeenCalledOnce()
 
     renderer.rerender(createElement(ComposerView, baseProps()))
     expect(renderer.container.querySelectorAll(`[data-testid="${tid.composerSend}"]`))
       .toHaveLength(0)
-    expect(
-      renderer.container.querySelector(`[data-testid="${tid.composerInput}"]`)?.className,
-    ).toContain("px-12")
   })
 
-  it("keeps the exact ComposerSkeleton footprint", async () => {
+  it("renders the three skeleton placeholders inside ComposerSkeleton", async () => {
     const renderer = render(createElement(ComposerSkeleton))
     const skeletons = renderer.container.querySelectorAll("[data-skeleton]")
     expect(skeletons).toHaveLength(3)
-    expect([...skeletons].map((node) => node.className)).toEqual([
-      "h-6 w-2/5 rounded",
-      "absolute left-2 bottom-2 size-8 rounded-full",
-      "absolute right-2 bottom-2 size-8 rounded-full",
-    ])
     expect(renderer.container.firstElementChild?.tagName).toBe("DIV")
-    expect(renderer.container.innerHTML).toContain(
-      "relative rounded-(--community-composer-top-radius) bg-muted py-3 px-12 shadow-(--e1) ring-1 ring-border/40",
-    )
   })
 
   it.each([

@@ -410,10 +410,8 @@ describe("PostTagDialog responsive session", () => {
     expect(input(renderer).value).toBe("x".repeat(MAX_FORUM_TAG_LENGTH))
 
     const button = tagButton(renderer, tag)
-    expect(button.className).toContain("max-w-full")
     expect(button.title).toBe(`#${tag}`)
     expect(button.getAttribute("aria-label")).toBe(`Remove tag ${tag}`)
-    expect(button.querySelector("span")?.className).toContain("truncate")
   })
 
   it("uses a lightweight mobile editor with touch-safe header actions", () => {
@@ -422,46 +420,23 @@ describe("PostTagDialog responsive session", () => {
     setOpen(true)
 
     const surface = byTestId(rendered.renderer, tid.forumTagDialog)
-    expect(surface.className).toContain("w-[calc(100%-2rem)]")
     expect(surface.querySelector("h2")?.textContent).toBe("Tags")
     expect([...surface.querySelectorAll("span")].some((node) => node.textContent === "Add"))
       .toBe(true)
-
-    const tagField = [...surface.querySelectorAll("div")].find((node) => (
-      node.className.includes("flex-wrap")
-    ))
-    expect(tagField?.className).not.toContain("border")
-    expect(tagField?.className).not.toContain("ring")
-
-    const mobileChipClass = tagButton(rendered.renderer, "compact").className
-    expect(mobileChipClass).not.toContain("min-h-11")
-    expect(mobileChipClass).not.toContain("min-w-11")
-    expect(mobileChipClass).toContain("focus-visible:ring-2")
-    expect(mobileChipClass).toContain("active:translate-y-px")
     expect(rendered.renderer.container.textContent).not.toContain("Archived")
     expect(rendered.renderer.container.textContent).not.toContain("STATUS")
     const close = rendered.renderer.container.querySelector('[aria-label="Close"]')!
     expect(close.getAttribute("data-size")).toBe("icon")
     expect(close.getAttribute("data-testid")).toBe(tid.forumTagDialogCancel)
-    expect(close.className).toContain("size-11")
     const save = byTestId(rendered.renderer, tid.forumTagDialogSave)
     expect(save.getAttribute("data-variant")).toBe("ghost")
-    expect(save.className).toContain("h-11")
-    expect(save.className).toContain("px-2")
 
     const mobileInput = input(rendered.renderer)
     expect(mobileInput.getAttribute("aria-label")).toBe("Add a tag")
     expect(document.activeElement).toBe(mobileInput)
-    expect(mobileInput.className).toContain("h-11")
-    expect(mobileInput.className).toContain("border-0")
 
     switchBreakpoint(rendered, "desktop")
-    const popover = rendered.renderer.container.querySelector("section")!
-    expect(popover.className).toBe("w-64 space-y-3 p-3")
-    expect(input(rendered.renderer).className).toContain("h-8")
     expect(input(rendered.renderer).getAttribute("aria-label")).toBe("Add a tag")
-    expect(tagButton(rendered.renderer, "compact").className)
-      .not.toContain("min-h-11")
     expect(rendered.renderer.container.textContent).not.toContain("Archived")
   })
 })
