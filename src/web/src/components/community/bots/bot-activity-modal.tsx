@@ -68,7 +68,7 @@ export function BotActivityModal({
     }
     setScrollRoot(element)
   }, [setScrollRoot])
-  const getItemKey = useCallback((index: number) => `${bot?.id ?? ""}:event:${chronological[index].id}`, [chronological, bot?.id])
+  const getItemKey = useCallback((index: number) => `${bot?.id ?? ""}:event:${chronological[index]?.id ?? index}`, [chronological, bot?.id])
   const estimateSize = useCallback((index: number) => 44 + (dateAfter[index] ? DAY_DIVIDER_HEIGHT : 0), [dateAfter])
   const visibleDateListener = useRef<(() => void) | undefined>(undefined)
   const notifyVisibleDate = useCallback(() => visibleDateListener.current?.(), [])

@@ -200,6 +200,8 @@ export function MemberList({
     // node registered under its old numeric index in direct-DOM mode.
     getItemKey,
     estimateSize,
+    paddingStart: 16,
+    paddingEnd: 16,
     overscan: 8,
   })
 
@@ -288,7 +290,7 @@ export function MemberList({
           </div>
         )}
         <ScrollArea className="min-h-0 flex-1" viewportRef={scrollRef}>
-          <div className="px-4 py-4">
+          <div className="px-4">
             <VirtualRows
               items={items}
               virtualizer={rowVirtualizer}

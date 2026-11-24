@@ -1,4 +1,4 @@
 export const COMMUNITY_VIRTUALIZER_REACT_OPTIONS = {
-  useFlushSync: true,
+  useFlushSync: false,
   directDomUpdates: true,
 } as const

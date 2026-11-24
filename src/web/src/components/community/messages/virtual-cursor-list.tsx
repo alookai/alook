@@ -28,6 +28,7 @@ export function VirtualRows<T>({
   const rows = virtualizer.getVirtualItems()
   return (
     <div
+      role={rowRole === "listitem" ? "list" : undefined}
       {...containerAttributes}
       ref={bindContainer}
       style={{

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { ForumPostList } from "./forum-post-list"
 import type { ForumThread } from "@/lib/community/models/message"
@@ -92,4 +92,33 @@ it("exposes only an unadmitted forum's initial loading and keeps an admitted emp
   expect(view.getByTestId("community-forum-post-list")).toBe(admitted)
   expect(view.queryByText("Loading actual forum")).toBeNull()
   expect(view.queryByLabelText("Loading forum")).toBeNull()
+})
+
+it("keeps subpixel row measurement precision and bounded overscan pagination without manual DOM re-measure loops", () => {
+  const shortPosts = posts.slice(0, 30)
+  for (const post of shortPosts) scrollFixture.bodyHeights.set(post.openerMessageId, 128.6)
+  const onLoadMore = vi.fn()
+  const view = render(
+    <ForumPostList
+      posts={shortPosts}
+      renderPost={renderPost}
+      loadingContent={<span>Loading</span>}
+      hasMore
+      onLoadMore={onLoadMore}
+    />,
+  )
+  resize()
+  const root = view.getByTestId("community-forum-post-list")
+  // Bounded overscan (OVERSCAN = 8) renders far fewer than all 30 posts at scrollTop=0
+  const initialRendered = root.querySelectorAll("[data-index]")
+  expect(initialRendered.length).toBeLessThan(20)
+  // Row 1 starts at the exact fractional height of row 0 (128.6px), not rounded to 129px
+  const row1 = root.querySelector<HTMLElement>('[data-index="1"]')
+  expect(row1?.style.top).toBe("128.6px")
+  // Scrolling near the end triggers cursor pagination through the virtualizer directly
+  expect(onLoadMore).not.toHaveBeenCalled()
+  act(() => root.scrollTo({ top: 3200 }))
+  runFrames()
+  resize()
+  expect(onLoadMore).toHaveBeenCalledTimes(1)
 })
