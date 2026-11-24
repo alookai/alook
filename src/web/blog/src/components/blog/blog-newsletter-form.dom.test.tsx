@@ -22,6 +22,7 @@ describe("BlogNewsletterForm", () => {
     const { container } = render(<BlogNewsletterForm placement="end" slug="test-post" />);
     const ids = [...container.querySelectorAll("[id]")].map((el) => el.id);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(container.textContent).toContain("Get monthly multi-agent engineering notes.");
     expect(ids).toContain("blog-newsletter-email-end");
   });
 
@@ -37,7 +38,7 @@ describe("BlogNewsletterForm", () => {
     fireEvent.submit(form);
 
     await waitFor(() => {
-      expect(container.querySelector('[role="status"]')?.textContent).toContain("Subscribed");
+      expect(container.querySelector('[role="status"]')?.textContent).toContain("Subscribed. Monthly notes are on the way.");
     });
     expect(fetch).toHaveBeenCalledWith(
       "/api/newsletter/subscribe",
