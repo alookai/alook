@@ -765,7 +765,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       const listTop = list.getBoundingClientRect().top
       return {
         cardInset: Math.round(header.getBoundingClientRect().top - listTop),
-        listInset: Math.round(listTop - list.parentElement!.getBoundingClientRect().top),
+        listInset: Math.round(listTop - list.closest('[role="tabpanel"]')!.getBoundingClientRect().top),
       }
     }, tid.inboxTabScroll("marked"))).toEqual({ cardInset: 0, listInset: 12 })
     await bob.page.setViewportSize({ width: 639, height: 844 })

@@ -4,6 +4,7 @@ import { EntityIcon } from "../entity-icon"
 import { ServerIcon } from "../server-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { CommunityNavigationLink } from "./community-navigation-link"
 import { InboxInlineReply } from "./inbox-inline-reply"
@@ -102,20 +103,23 @@ function InboxScrollBody({
     }
   }
   return (
-    <div
-      ref={ref}
-      data-testid={tid.inboxTabScroll(tab)}
-      // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
-      className="flex h-full flex-col overflow-x-hidden overflow-y-auto thin-scrollbar"
-      onScroll={onScroll}
-      onWheel={() => { transientScrollRef.current = true }}
-      onKeyDown={onKeyDown}
-      onPointerDown={() => { pointerScrollRef.current = true }}
-      onPointerUp={() => { pointerScrollRef.current = false }}
-      onPointerCancel={() => { pointerScrollRef.current = false }}
-    >
-      <div ref={contentRef} className="flex flex-1 flex-col px-3 pb-3">{children}</div>
-    </div>
+    <ScrollAreaRoot className="h-full">
+      <ScrollAreaViewport
+        ref={ref}
+        data-testid={tid.inboxTabScroll(tab)}
+        // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
+        className="flex h-full flex-col overflow-x-hidden overflow-y-auto"
+        onScroll={onScroll}
+        onWheel={() => { transientScrollRef.current = true }}
+        onKeyDown={onKeyDown}
+        onPointerDown={() => { pointerScrollRef.current = true }}
+        onPointerUp={() => { pointerScrollRef.current = false }}
+        onPointerCancel={() => { pointerScrollRef.current = false }}
+      >
+        <ScrollAreaContent ref={contentRef} className="flex min-h-full flex-1 flex-col px-3 pb-3">{children}</ScrollAreaContent>
+      </ScrollAreaViewport>
+      <ScrollBar orientation="vertical" />
+    </ScrollAreaRoot>
   )
 }
 

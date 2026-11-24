@@ -281,7 +281,7 @@ it("keeps a new Forum instance at the start through hidden mounting and positive
       Object.defineProperties(node, {
         clientWidth: { configurable: true, get: () => visible ? 390 : 0 },
         clientHeight: { configurable: true, get: () => visible ? 751 : 0 },
-        scrollHeight: { configurable: true, get: () => visible ? Math.max(node.clientHeight, Number.parseFloat((node.firstElementChild as HTMLElement)?.style.height ?? "0") || 0) : 0 },
+        scrollHeight: { configurable: true, get: () => visible ? Math.max(node.clientHeight, Number.parseFloat(node.querySelector<HTMLElement>("[data-message-list-content]")?.style.height ?? "0") || 0) : 0 },
         scrollTo: { configurable: true, value: ({ top = 0 }: ScrollToOptions) => {
           node.scrollTop = Math.max(0, Math.min(top, node.scrollHeight - node.clientHeight))
           writes.push(node.scrollTop)

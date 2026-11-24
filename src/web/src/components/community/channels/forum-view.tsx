@@ -5,6 +5,7 @@ import { useRef } from "react"
 import { ArchiveRestore, Archive, Plus, Tag, Trash2 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
 import { CreateForumThread, type NewForumThread } from "../messages/create-forum-thread"
 import type { ComposerProps } from "../messages/composer"
 import { PostTagDialog } from "./post-tag-dialog"
@@ -341,9 +342,17 @@ export function ForumViewSkeleton() {
           <Skeleton className="h-8 w-25 rounded-md" />
         </div>
       </div>
-      <main className={`flex-1 overflow-y-auto thin-scrollbar scroll-fade-y scroll-fade-4 ${FORUM_LIST_SPACING_CLASS}`}>
-        <ForumListSkeleton />
-      </main>
+      <ScrollAreaRoot className="relative flex min-h-0 flex-1 flex-col">
+        <ScrollAreaViewport
+          render={<main />}
+          className={`min-h-0 flex-1 overflow-x-clip overflow-y-auto scroll-fade-y scroll-fade-4 ${FORUM_LIST_SPACING_CLASS}`}
+        >
+          <ScrollAreaContent>
+            <ForumListSkeleton />
+          </ScrollAreaContent>
+        </ScrollAreaViewport>
+        <ScrollBar orientation="vertical" />
+      </ScrollAreaRoot>
     </>
   )
 }

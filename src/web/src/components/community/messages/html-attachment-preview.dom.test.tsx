@@ -8,6 +8,8 @@ import { HtmlAttachmentPreview } from "./html-attachment-preview"
 import { MessageBodyView } from "./message-body-view"
 import { tid } from "@/lib/community/testids"
 import { fileDownloadKey } from "@/lib/file-download"
+import { readHtmlPreviewMemoryHeight } from "@/lib/community/html-preview-height-cache"
+import { buildHtmlPreviewScrollFadeMask } from "@/hooks/community/use-html-preview-viewport"
 import { NATIVE_MOBILE_BACK_EVENT, useNativeMobileBack } from "@/hooks/community/use-native-mobile-back"
 
 const opener = vi.hoisted(() => ({ message: {} }))
@@ -42,26 +44,33 @@ describe("HTML attachment frame", () => {
     expect(view.getByTestId(tid.htmlPreview("a1"))).not.toHaveAttribute("aria-modal")
     expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAccessibleName(file.name)
   })
-  it("keeps one opaque-origin frame and clamps valid current-frame measurements", () => {
+  it("keeps one opaque-origin frame and clamps valid current-frame measurements to half viewport height", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "1.2.3")
-    const view = setup()
-    const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
-    expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.3`)
-    expect(frame.getAttribute("sandbox")).toContain("allow-scripts")
-    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin")
-    expect(frame).toHaveAttribute("referrerpolicy", "no-referrer")
-    frameMessage(frame, { type: "alook-html-height", height: 123 }, { source: window })
-    frameMessage(frame, { type: "alook-html-height", height: 123 }, { origin: "https://elsewhere.test" })
-    for (const height of [NaN, Infinity, -2, "123"]) frameMessage(frame, { type: "alook-html-height", height })
-    expect(frame.style.height).toBe("320px")
-    frameMessage(frame, { type: "alook-html-height", height: 123.4 })
-    expect(frame.style.height).toBe("124px")
-    frameMessage(frame, { type: "alook-html-height", height: 999999 })
-    expect(frame.style.height).toBe("2000px")
-    frameMessage(frame, { type: "alook-html-height", height: 1 })
-    expect(frame.style.height).toBe("80px")
-    frameMessage(frame, { type: "alook-html-ready" })
-    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "ready")
+    const originalInnerHeight = window.innerHeight
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 })
+    try {
+      const view = setup()
+      const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+      expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.3`)
+      expect(frame.getAttribute("sandbox")).toContain("allow-scripts")
+      expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin")
+      expect(frame).toHaveAttribute("referrerpolicy", "no-referrer")
+      frameMessage(frame, { type: "alook-html-height", height: 123 }, { source: window })
+      frameMessage(frame, { type: "alook-html-height", height: 123 }, { origin: "https://elsewhere.test" })
+      for (const height of [NaN, Infinity, -2, "123"]) frameMessage(frame, { type: "alook-html-height", height })
+      expect(frame.style.height).toBe("320px")
+      frameMessage(frame, { type: "alook-html-height", height: 123.4 })
+      expect(frame.style.height).toBe("124px")
+      frameMessage(frame, { type: "alook-html-height", height: 999999 })
+      expect(frame.style.height).toBe("450px")
+      expect(readHtmlPreviewMemoryHeight(view.owner.queryClient, "a1")).toBe(2000)
+      frameMessage(frame, { type: "alook-html-height", height: 1 })
+      expect(frame.style.height).toBe("80px")
+      frameMessage(frame, { type: "alook-html-ready" })
+      expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "ready")
+    } finally {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight })
+    }
   })
   it("changes only the preview URL with the existing application version", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "1.2.3")
@@ -167,17 +176,108 @@ describe("HTML attachment frame", () => {
     expect(view.container).toHaveTextContent("before")
     expect(view.container).toHaveTextContent("after")
   })
-  it("synchronously restores the cached height on remount without flashing 320px", () => {
-    const view = setup()
-    const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
-    expect(frame.style.height).toBe("320px")
-    frameMessage(frame, { type: "alook-html-height", height: 642 })
-    expect(frame.style.height).toBe("642px")
+  it("synchronously restores cached naturalHeight on remount and dynamically re-clamps on viewport resize", () => {
+    const originalInnerHeight = window.innerHeight
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 })
+    try {
+      const view = setup()
+      const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+      expect(frame.style.height).toBe("320px")
+      frameMessage(frame, { type: "alook-html-height", height: 642 })
+      expect(frame.style.height).toBe("400px")
+      expect(readHtmlPreviewMemoryHeight(view.owner.queryClient, "a1")).toBe(642)
 
-    view.rerender(view.tree(<div />))
-    view.rerender(view.tree(<HtmlAttachmentPreview attachment={file} />))
-    const remounted = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
-    expect(remounted.style.height).toBe("642px")
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 1600 })
+      fireEvent(window, new Event("resize"))
+      expect(frame.style.height).toBe("642px")
+
+      view.rerender(view.tree(<div />))
+      view.rerender(view.tree(<HtmlAttachmentPreview attachment={file} />))
+      const remounted = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+      expect(remounted.style.height).toBe("642px")
+    } finally {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight })
+    }
+  })
+
+  it("caps preview height from the nearest scroll-area viewport, applies dynamic scroll-fade, and drives scroll-to from the outer overlay scrollbar", () => {
+    vi.useFakeTimers()
+    const view = setup(
+      <div data-slot="scroll-area-viewport" data-testid="inbox-viewport">
+        <HtmlAttachmentPreview attachment={file} />
+      </div>,
+    )
+    const viewport = view.getByTestId("inbox-viewport")
+    Object.defineProperty(viewport, "clientHeight", { configurable: true, value: 600 })
+    fireEvent(window, new Event("resize"))
+
+    const preview = view.getByTestId(tid.htmlPreview("a1"))
+    const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+
+    frameMessage(frame, { type: "alook-html-height", height: 220 })
+    frameMessage(frame, { type: "alook-html-ready" })
+    expect(frame.style.height).toBe("220px")
+    expect(frame).toHaveAttribute("data-scroll-fade", "none")
+    expect(preview.querySelector('[data-slot="html-preview-scrollbar"]')).toBeNull()
+
+    frameMessage(frame, { type: "alook-html-height", height: 2000 })
+    frameMessage(frame, { type: "alook-html-scroll", scrollTop: 0, scrollHeight: 2400, clientHeight: 300 })
+    expect(frame.style.height).toBe("300px")
+    expect(frame).toHaveAttribute("data-scroll-fade", "bottom")
+    expect(buildHtmlPreviewScrollFadeMask("bottom")).toContain("calc(100% - 36px)")
+    expect(buildHtmlPreviewScrollFadeMask("bottom")).not.toContain("transparent 0px, black 28px")
+
+    const scrollbar = preview.querySelector<HTMLElement>('[data-slot="html-preview-scrollbar"]')!
+    expect(scrollbar).not.toBeNull()
+    expect(scrollbar).toHaveAttribute("aria-hidden", "true")
+    expect(scrollbar).toHaveAttribute("data-visible", "false")
+    expect(preview.querySelectorAll("button, a[download], [data-html-preview-actions]")).toHaveLength(0)
+
+    frameMessage(frame, { type: "alook-html-scroll", scrollTop: 400, scrollHeight: 2400, clientHeight: 300 })
+    expect(frame).toHaveAttribute("data-scroll-fade", "both")
+    expect(buildHtmlPreviewScrollFadeMask("both")).toContain("transparent 0px, black 28px")
+    expect(buildHtmlPreviewScrollFadeMask("both")).toContain("calc(100% - 36px)")
+    expect(scrollbar).toHaveAttribute("data-visible", "true")
+
+    act(() => { vi.advanceTimersByTime(800) })
+    expect(scrollbar).toHaveAttribute("data-visible", "false")
+
+    frameMessage(frame, { type: "alook-html-scroll", scrollTop: 2100, scrollHeight: 2400, clientHeight: 300 })
+    expect(frame).toHaveAttribute("data-scroll-fade", "top")
+    expect(buildHtmlPreviewScrollFadeMask("top")).toContain("transparent 0px, black 28px")
+    expect(buildHtmlPreviewScrollFadeMask("top")).not.toContain("calc(100% - 36px)")
+
+    fireEvent.pointerEnter(preview, { pointerType: "mouse" })
+    expect(scrollbar).toHaveAttribute("data-visible", "true")
+
+    vi.spyOn(scrollbar, "getBoundingClientRect").mockReturnValue({
+      top: 0, bottom: 300, left: 0, right: 10, width: 10, height: 300, x: 0, y: 0, toJSON: () => ({}),
+    })
+    fireEvent.pointerDown(scrollbar, { button: 0, clientY: 150, pointerId: 1 })
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "alook-html-scroll-to" }), "*")
+    fireEvent(window, new Event("pointerup"))
+  })
+  it("prioritizes scroll-area-viewport over message-list-content parentElement when nested inside ScrollAreaContent", () => {
+    const view = setup(
+      <div data-slot="scroll-area-viewport" data-testid="outer-viewport">
+        <div data-slot="scroll-area-content" data-testid="tall-content">
+          <div data-message-list-content>
+            <HtmlAttachmentPreview attachment={file} />
+          </div>
+        </div>
+      </div>,
+    )
+    const viewport = view.getByTestId("outer-viewport")
+    const content = view.getByTestId("tall-content")
+    Object.defineProperty(viewport, "clientHeight", { configurable: true, value: 500 })
+    Object.defineProperty(content, "clientHeight", { configurable: true, value: 2400 })
+    fireEvent(window, new Event("resize"))
+
+    const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    frameMessage(frame, { type: "alook-html-height", height: 1200 })
+    expect(frame.style.height).toBe("250px")
+    expect(readHtmlPreviewMemoryHeight(view.owner.queryClient, "a1")).toBe(1200)
   })
 })
 

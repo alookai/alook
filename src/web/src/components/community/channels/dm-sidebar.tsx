@@ -9,6 +9,7 @@ import { Users, Ban, Monitor, Bot, Shield, MessagesSquare } from "@/components/i
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollArea, ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
 import { tid } from "@/lib/community/testids"
 import type { DM } from "@/lib/community/models/people"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
@@ -87,48 +88,53 @@ export const DmSidebar = memo(function DmSidebar({
         </div>
         <div className="my-2 h-px bg-border" />
       </div>
-      <div data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar px-2 pb-4">
-        <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
-          Direct Messages
-        </div>
-        {loadError ? (
-          <ConversationResolutionErrorFrame as="div" title="Couldn't load direct messages" {...loadError} />
-        ) : loading && dms.length === 0 ? (
-          <DmRowsSkeleton />
-        ) : dms.length === 0 ? (
-          <EmptyState icon={MessagesSquare} label="Your direct messages will appear here." />
-        ) : null}
-        {dms.map((d) => {
-          const active = d.id === activeDm
-          const isBlocked = blockedUserIds?.has(d.userId)
-          const unread = selectUnreadPresentation({
-            accountUnread: d.unread === true,
-            active,
-            muted: isBlocked,
-          })
-          return (
-            <CommunityNavigationLink
-              key={d.id}
-              data-testid={tid.dmRow(d.id)}
-              href={dmHref(d.id)}
-              active={active}
-              onActivate={() => onPickDm(d.id)}
-              className={[
-                "flex w-full items-center gap-3 rounded-md px-2 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-              ].join(" ")}
-            >
-              <Avatar label={d.avatar} seed={d.userId} size={32} presence={isBlocked ? undefined : d.status} ringColor="var(--sidebar)" />
-              <div className="min-w-0 flex-1 text-left">
-                <div className="truncate text-sm leading-tight text-foreground">{d.name}</div>
-                <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>
-              </div>
-              {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
-              {unread.showDot && <span className="size-2 shrink-0 rounded-full bg-primary" />}
-            </CommunityNavigationLink>
-          )
-        })}
-      </div>
+      <ScrollAreaRoot className="flex min-h-0 flex-1 flex-col">
+        <ScrollAreaViewport data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto px-2 pb-4">
+          <ScrollAreaContent className="flex min-h-full flex-1 flex-col">
+            <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
+              Direct Messages
+            </div>
+            {loadError ? (
+              <ConversationResolutionErrorFrame as="div" title="Couldn't load direct messages" {...loadError} />
+            ) : loading && dms.length === 0 ? (
+              <DmRowsSkeleton />
+            ) : dms.length === 0 ? (
+              <EmptyState icon={MessagesSquare} label="Your direct messages will appear here." />
+            ) : null}
+            {dms.map((d) => {
+              const active = d.id === activeDm
+              const isBlocked = blockedUserIds?.has(d.userId)
+              const unread = selectUnreadPresentation({
+                accountUnread: d.unread === true,
+                active,
+                muted: isBlocked,
+              })
+              return (
+                <CommunityNavigationLink
+                  key={d.id}
+                  data-testid={tid.dmRow(d.id)}
+                  href={dmHref(d.id)}
+                  active={active}
+                  onActivate={() => onPickDm(d.id)}
+                  className={[
+                    "flex w-full items-center gap-3 rounded-md px-2 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                    active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                  ].join(" ")}
+                >
+                  <Avatar label={d.avatar} seed={d.userId} size={32} presence={isBlocked ? undefined : d.status} ringColor="var(--sidebar)" />
+                  <div className="min-w-0 flex-1 text-left">
+                    <div className="truncate text-sm leading-tight text-foreground">{d.name}</div>
+                    <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>
+                  </div>
+                  {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
+                  {unread.showDot && <span className="size-2 shrink-0 rounded-full bg-primary" />}
+                </CommunityNavigationLink>
+              )
+            })}
+          </ScrollAreaContent>
+        </ScrollAreaViewport>
+        <ScrollBar orientation="vertical" />
+      </ScrollAreaRoot>
     </aside>
   )
 })
@@ -150,10 +156,10 @@ export function DmSidebarSkeleton() {
         </div>
         <div className="my-2 h-px bg-border" />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
+      <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1 px-2 pb-4">
         <Skeleton className="mb-2 ml-2 h-3 w-24 rounded" />
         <DmRowsSkeleton />
-      </div>
+      </ScrollArea>
     </aside>
   )
 }
