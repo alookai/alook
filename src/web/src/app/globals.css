@@ -744,15 +744,6 @@
   color: oklch(0.18 0.01 60);
 }
 
-.usecase-demo-panel .thin-scrollbar,
-.usecase-demo-panel.thin-scrollbar {
-  scrollbar-color: oklch(0.915 0.008 80) transparent;
-}
-
-.usecase-layout .thin-scrollbar {
-  scrollbar-color: oklch(0.75 0.01 55 / 30%) transparent;
-}
-
 .usecase-anim-item {
   opacity: 0;
   transform: translateY(8px);
@@ -1615,30 +1606,6 @@
   scrollbar-width: none;
 }
 
-/* ── Utility: thin scrollbar ── */
-.thin-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-.thin-scrollbar::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-
-.thin-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.thin-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
-.thin-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
-}
-
 /* The yellow bot note owns its ink palette; app theme borders read muddy here. */
 .bot-note-scrollbar {
   scrollbar-color: #8a6116 transparent;
@@ -1662,8 +1629,7 @@
 }
 
 /* Preserve the thin-scrollbar overflow contract while allowing shell lists to
-   opt into a zero-gutter hidden scrollbar. This later, more-specific rule wins
-   over .thin-scrollbar's Firefox width without changing other thin scrollers. */
+   opt into a zero-gutter hidden scrollbar. */
 .thin-scrollbar.scrollbar-none {
   scrollbar-width: none;
 }
@@ -2276,45 +2242,6 @@
   margin: 0;
 }
 
-/* ── Thin scrollbar (code blocks, tool panels, chat scroll) ── */
-.markdown pre,
-[data-streamdown] pre,
-.task-stream-pre,
-.blog-content pre {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-.markdown pre::-webkit-scrollbar,
-[data-streamdown] pre::-webkit-scrollbar,
-.task-stream-pre::-webkit-scrollbar,
-.blog-content pre::-webkit-scrollbar {
-  height: 4px;
-  width: 4px;
-}
-
-.markdown pre::-webkit-scrollbar-track,
-[data-streamdown] pre::-webkit-scrollbar-track,
-.task-stream-pre::-webkit-scrollbar-track,
-.blog-content pre::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.markdown pre::-webkit-scrollbar-thumb,
-[data-streamdown] pre::-webkit-scrollbar-thumb,
-.task-stream-pre::-webkit-scrollbar-thumb,
-.blog-content pre::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
-.markdown pre::-webkit-scrollbar-thumb:hover,
-[data-streamdown] pre::-webkit-scrollbar-thumb:hover,
-.task-stream-pre::-webkit-scrollbar-thumb:hover,
-.blog-content pre::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
-}
-
 /* ── Blog: Editorial body text ── */
 .blog-content-editorial {
   font-family: var(--font-dm-sans);
@@ -2661,8 +2588,6 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   padding: 0 !important;
   background-color: transparent !important;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 /* Table element */
@@ -2715,24 +2640,6 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 }
 
 /* Table copy/download dropdown — covered by unified dropdown rule above */
-
-/* Thin scrollbar for table container */
-[data-streamdown="table-wrapper"]>div:has([data-streamdown="table"])::-webkit-scrollbar {
-  height: 4px;
-}
-
-[data-streamdown="table-wrapper"]>div:has([data-streamdown="table"])::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-[data-streamdown="table-wrapper"]>div:has([data-streamdown="table"])::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
-[data-streamdown="table-wrapper"]>div:has([data-streamdown="table"])::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
-}
 
 /* ── Streamdown fullscreen views: unified styling ── */
 /* Mermaid fullscreen (portaled to body): unified background */
@@ -3025,8 +2932,6 @@ body {
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   touch-action: manipulation;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 /* Chat text is intentionally copyable on iOS. Keep this scoped exception
@@ -3035,24 +2940,6 @@ body {
 [data-community-message-body] {
   -webkit-touch-callout: default;
   user-select: text;
-}
-
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
 }
 
 [data-keyboard-offset] {

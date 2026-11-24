@@ -171,6 +171,46 @@ describe("generated HTML bootstrap", () => {
       expect(dom.window.document.getElementById("alook-preview-theme")!.textContent).not.toContain("--bad")
       for (const [id, callback] of frames) { frames.delete(id); callback(0) }
       expect(post).toHaveBeenCalledWith({ type: "alook-html-height", height: 80 }, "*")
+      expect(post).toHaveBeenCalledWith({ type: "alook-html-scroll", scrollTop: 0, scrollHeight: 0, clientHeight: 768 }, "*")
+    } finally { frames.clear(); dom.window.close() }
+  })
+
+  it("hides native iframe scrollbars, enables overscroll chaining, and accepts scroll-to only from parent", async () => {
+    const post = vi.fn()
+    const scrollTo = vi.fn()
+    const frames = new Map<number, FrameRequestCallback>()
+    let frameId = 0
+    const prepared = prepareHtmlPreview("<!doctype html><html><body><p>Tall content</p></body></html>")
+    expect(prepared).toContain("overscroll-behavior:auto")
+    expect(prepared).toContain("scrollbar-width:none")
+    expect(prepared).toContain("-ms-overflow-style:none")
+    expect(prepared).toContain("::-webkit-scrollbar{display:none;width:0;height:0}")
+
+    const dom = new JSDOM(prepared, {
+      runScripts: "dangerously",
+      beforeParse(window) {
+        Object.defineProperty(window, "parent", { value: { postMessage: post } })
+        window.scrollTo = scrollTo
+        window.requestAnimationFrame = (callback) => { frames.set(++frameId, callback); return frameId }
+        window.cancelAnimationFrame = (id) => { frames.delete(id) }
+      },
+    })
+    try {
+      await new Promise<void>((resolve) => dom.window.document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }))
+      const root = dom.window.document.documentElement
+      Object.defineProperty(root, "scrollHeight", { configurable: true, value: 1200 })
+      Object.defineProperty(root, "clientHeight", { configurable: true, value: 400 })
+      for (const [id, callback] of [...frames]) { frames.delete(id); callback(0) }
+      expect(post).toHaveBeenCalledWith({ type: "alook-html-scroll", scrollTop: 0, scrollHeight: 1200, clientHeight: 400 }, "*")
+
+      dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: dom.window, data: { type: "alook-html-scroll-to", top: 250 } }))
+      expect(scrollTo).not.toHaveBeenCalled()
+
+      dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: dom.window.parent, data: { type: "alook-html-scroll-to", top: 250 } }))
+      expect(scrollTo).toHaveBeenCalledWith(0, 250)
+
+      dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: dom.window.parent, data: { type: "alook-html-scroll-to", top: 9999 } }))
+      expect(scrollTo).toHaveBeenLastCalledWith(0, 800)
     } finally { frames.clear(); dom.window.close() }
   })
 })

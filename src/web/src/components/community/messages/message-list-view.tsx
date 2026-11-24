@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
 import { tid } from "@/lib/community/testids"
 import { renderMessageListHero } from "./message-list-row"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
@@ -54,17 +55,17 @@ export function renderMessageListView(
           onClose={controller.closeShare}
         />
       )}
-      <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
-        <div
+      <ScrollAreaRoot data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
+        <ScrollAreaViewport
           ref={controller.scrollRef}
           data-testid={tid.messageScroller}
           data-composer-occlusion={capsuleHeight}
           data-pagination-enabled={controller.paginationEnabled ? "true" : "false"}
           aria-busy={showSkeleton}
           tabIndex={showSkeleton ? 0 : undefined}
-          className={`relative z-10 h-full overflow-x-clip overflow-y-auto [overflow-anchor:none] thin-scrollbar ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
+          className={`relative z-10 h-full overflow-x-clip overflow-y-auto [overflow-anchor:none] ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
         >
-          <div
+          <ScrollAreaContent
             data-message-list-content
             data-initial-position-phase={controller.initialPosition.phase}
             data-read-position-ready={controller.readPositionReady ? "true" : "false"}
@@ -86,9 +87,10 @@ export function renderMessageListView(
                 : renderRows()}
             </>
           )}
-          </div>
-        </div>
-      </div>
+          </ScrollAreaContent>
+        </ScrollAreaViewport>
+        <ScrollBar orientation="vertical" />
+      </ScrollAreaRoot>
     </div>
   )
 }
@@ -100,21 +102,22 @@ export function MessageListSkeleton({ variant = "channel", capsuleHeight = 0 }: 
       data-message-list-skeleton
       className="relative flex min-h-0 flex-1 flex-col"
     >
-      <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
-        <div
+      <ScrollAreaRoot data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
+        <ScrollAreaViewport
           data-testid={tid.messageScroller}
           data-composer-occlusion={capsuleHeight}
           data-pagination-enabled="false"
-          className={`relative z-10 h-full overflow-x-clip overflow-y-auto [overflow-anchor:none] thin-scrollbar ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
+          className={`relative z-10 h-full overflow-x-clip overflow-y-auto [overflow-anchor:none] ${capsuleHeight > 0 ? "scroll-fade-b" : "supports-[animation-timeline:scroll()]:scroll-fade-b"}`}
         >
-          <div
+          <ScrollAreaContent
             data-message-list-content
             className="flex min-h-full flex-col pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) pt-8"
           >
             <MessageListSkeletonContent variant={variant} capsuleHeight={capsuleHeight} />
-          </div>
-        </div>
-      </div>
+          </ScrollAreaContent>
+        </ScrollAreaViewport>
+        <ScrollBar orientation="vertical" />
+      </ScrollAreaRoot>
     </div>
   )
 }

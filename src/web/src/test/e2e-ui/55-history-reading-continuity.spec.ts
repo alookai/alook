@@ -203,6 +203,12 @@ async function bodyOffset(root: Locator, id: string) {
   }, tid.messageScroller)
 }
 
+async function expectedHtmlPreviewHeight(root: Locator, naturalHeight: number) {
+  const viewportHeight = await root.evaluate((element) => Math.round(element.clientHeight || window.innerHeight))
+  const cap = Math.max(80, Math.min(2000, Math.floor(viewportHeight * 0.5)))
+  return Math.max(80, Math.min(cap, naturalHeight))
+}
+
 async function settledPages(root: Locator, traffic: PageTraffic) {
   await expect(root).toHaveAttribute("data-pagination-enabled", "true")
   await expect.poll(() => traffic.requests.every(request => request.finished)).toBe(true)
@@ -357,7 +363,7 @@ for (const { kind, narrow, fast } of [
           const frame = page.getByTestId(tid.htmlPreviewFrame(html.attachmentId))
           await expect(page.getByTestId(tid.htmlPreview(html.attachmentId))).toHaveAttribute("data-html-preview-status", "ready")
           await frame.evaluate(element => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: 420 }, "*"))
-          await expect(frame).toHaveCSS("height", "420px")
+          await expect(frame).toHaveCSS("height", `${await expectedHtmlPreviewHeight(root, 420)}px`)
           await waitForStableTail(root, "real-html-growth")
           await root.hover()
           await page.mouse.wheel(0, -300)
@@ -639,7 +645,7 @@ test("history preserves real HTML body geometry while an older receipt is pendin
     await markScrollTrace(page, `html-above-fold-${height}-before`, { detail: await waitForCommittedGeometry(root) })
     const measurement = resizeFromMeasuredChild(height)
     void measurement.catch(() => undefined)
-    await expect(frame).toHaveCSS("height", `${height}px`)
+    await expect(frame).toHaveCSS("height", `${await expectedHtmlPreviewHeight(root, height)}px`)
     await measurement
     await expect.poll(async () => Math.abs(await bodyOffset(root, before.firstVisibleId!) - before.firstVisibleOffset!)).toBeLessThanOrEqual(1)
   }
@@ -653,7 +659,7 @@ test("history preserves real HTML body geometry while an older receipt is pendin
   const spanningTop = await bodyOffset(root, preview!.messageId)
   const spanningMeasurement = resizeFromMeasuredChild(1200)
   void spanningMeasurement.catch(() => undefined)
-  await expect(frame).toHaveCSS("height", "1200px")
+  await expect(frame).toHaveCSS("height", `${await expectedHtmlPreviewHeight(root, 1200)}px`)
   await spanningMeasurement
   await expect.poll(async () => Math.abs(await bodyOffset(root, preview!.messageId) - spanningTop)).toBeLessThanOrEqual(1)
   held.release()
@@ -757,7 +763,7 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   expect(after.body!.top).toBeGreaterThanOrEqual(after.divider!.bottom - 1)
   expect(Math.abs(after.body!.offset - before.body!.offset)).toBeLessThanOrEqual(1)
   await frame.evaluate(element => (element as HTMLIFrameElement).contentWindow?.postMessage({ type: "scroll-fixture-height", height: 420 }, "*"))
-  await expect(frame).toHaveCSS("height", "420px")
+  await expect(frame).toHaveCSS("height", `${await expectedHtmlPreviewHeight(root, 420)}px`)
   await waitForStableTail(root, "following-html-growth")
   const uploaded = await confirmCommunityFixtureApiResponse(page.request.post(`/api/community/channels/${dmId}/attachments`, {
     headers: CURRENT_COMMUNITY_FIXTURE_HEADERS,

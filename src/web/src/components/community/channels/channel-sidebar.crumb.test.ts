@@ -113,9 +113,11 @@ describe("ChannelSidebar header", () => {
   it("keeps the channel list scrollable without reserving scrollbar width", () => {
     const html = render()
     expect(html).toContain('data-testid="community-channel-sidebar-scroll"')
-    expect(html).toContain(
-      "min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none",
-    )
+    expect(html).toContain('data-slot="scroll-area"')
+    expect(html).toContain("base-ui-disable-scrollbar")
+    expect(html).toContain("scrollbar-none")
+    expect(html).toContain("overflow-y-auto")
+    expect(html).toContain("px-2 py-4")
     const css = rawContractInput0
     expect(css).toContain(".thin-scrollbar.scrollbar-none")
     expect(css).toContain("scrollbar-width: none")
@@ -124,9 +126,10 @@ describe("ChannelSidebar header", () => {
   it("keeps the same header action slot and scroll owner in the cold skeleton", () => {
     const html = renderLoading()
     expect(html).toContain("flex min-h-0 min-w-0 flex-1 flex-col")
-    expect(html).toContain(
-      "min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none",
-    )
+    expect(html).toContain('data-slot="scroll-area-viewport"')
+    expect(html).toContain("scrollbar-none")
+    expect(html).toContain("overflow-y-auto")
+    expect(html).toContain("px-2 py-4")
     expect(html).toContain("ml-auto size-7 shrink-0 rounded-md")
     expect(html).not.toContain("overflow-hidden")
   })

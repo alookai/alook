@@ -51,27 +51,52 @@ export async function readHtmlPreview(body: ReadableStream<Uint8Array>, signal?:
 const CSS_SOURCE = /<!--[\s\S]*?(?:-->|$)|<style\b[^>]*(?:>|$)([\s\S]*?)(?:<\/style\s*>|$)|\sstyle\s*=\s*(?:"([^"]*)(?:"|$)|'([^']*)(?:'|$)|([^\s>]+))/gi
 const VIEWPORT_HEIGHT = /(?<![\w.+/])(?:\d+(?:\.\d+)?|\.\d+)[sld]?vh(?![\w-])/i
 
-const BASE_CSS = "html{background:transparent;color:var(--foreground);font-family:var(--font-sans,system-ui);font-size:15px;line-height:1.6;color-scheme:light dark}body{margin:0;background:transparent}code,pre,kbd,samp{font-family:var(--font-mono,monospace)}:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}"
+const BASE_CSS = "html{background:transparent;color:var(--foreground);font-family:var(--font-sans,system-ui);font-size:15px;line-height:1.6;color-scheme:light dark;overscroll-behavior:auto;scrollbar-width:none;-ms-overflow-style:none}body{margin:0;background:transparent;scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}code,pre,kbd,samp{font-family:var(--font-mono,monospace)}:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}"
 const BOOTSTRAP = String.raw`(() => {
   const framed = window.parent !== window;
   const themeStyle = document.getElementById("alook-preview-theme");
   let lastHeight = 0;
+  let lastScrollTop = -1;
+  let lastScrollHeight = -1;
+  let lastClientHeight = -1;
   let pending = false;
+  let scrollPending = false;
   function send(type, fields) {
     if (framed) parent.postMessage({ type, ...fields }, "*");
+  }
+  function reportScroll() {
+    scrollPending = false;
+    const root = document.documentElement;
+    if (!root) return;
+    const scrollTop = Math.max(0, window.scrollY || root.scrollTop || 0);
+    const scrollHeight = Math.max(0, root.scrollHeight || 0);
+    const clientHeight = Math.max(0, root.clientHeight || window.innerHeight || 0);
+    if (scrollTop === lastScrollTop && scrollHeight === lastScrollHeight && clientHeight === lastClientHeight) return;
+    lastScrollTop = scrollTop;
+    lastScrollHeight = scrollHeight;
+    lastClientHeight = clientHeight;
+    send("alook-html-scroll", { scrollTop, scrollHeight, clientHeight });
+  }
+  function scheduleScroll() {
+    if (scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(reportScroll);
   }
   function measure() {
     pending = false;
     if (!document.body) return;
     const root = document.documentElement;
-    const measured = Math.ceil(root.scrollHeight > root.clientHeight ? root.scrollHeight : root.getBoundingClientRect().height);
+    const rootRect = root.getBoundingClientRect().height;
+    const measured = Math.ceil(root.scrollHeight > root.clientHeight ? Math.max(root.scrollHeight, rootRect) : Math.max(rootRect, document.body.scrollHeight));
     const height = Math.max(80, Math.min(2000, measured));
     if (height !== lastHeight) {
       lastHeight = height;
       send("alook-html-height", { height });
     }
+    reportScroll();
   }
   function schedule() {
+    if (typeof document === "undefined" || !document.documentElement) return;
     for (const element of [document.documentElement, document.body]) {
       if (element && (element.style.getPropertyValue("background") !== "transparent" || element.style.getPropertyPriority("background") !== "important")) {
         element.style.setProperty("background", "transparent", "important");
@@ -83,7 +108,19 @@ const BOOTSTRAP = String.raw`(() => {
   }
   window.addEventListener("message", (event) => {
     const data = event.data;
-    if (event.source !== parent || !data || data.type !== "alook-html-theme" || !data.variables || typeof data.variables !== "object") return;
+    if (event.source !== parent || !data || typeof data !== "object") return;
+    if (data.type === "alook-html-scroll-to") {
+      if (typeof data.top === "number" && Number.isFinite(data.top)) {
+        const root = document.documentElement;
+        const max = Math.max(0, (root ? root.scrollHeight : 0) - (root ? root.clientHeight : window.innerHeight || 0));
+        const target = Math.max(0, Math.min(max, data.top));
+        if (typeof window.scrollTo === "function") window.scrollTo(0, target);
+        else if (root) root.scrollTop = target;
+        scheduleScroll();
+      }
+      return;
+    }
+    if (data.type !== "alook-html-theme" || !data.variables || typeof data.variables !== "object") return;
     let css = ":root{color-scheme:" + (data.dark ? "dark" : "light") + ";";
     for (const key in data.variables) {
       const value = data.variables[key];
@@ -94,6 +131,8 @@ const BOOTSTRAP = String.raw`(() => {
     schedule();
   });
   if (window.MutationObserver) new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });
+  window.addEventListener("scroll", scheduleScroll, { passive: true });
+  window.addEventListener("resize", scheduleScroll, { passive: true });
   schedule();
   send("alook-html-theme-request");
   document.addEventListener("DOMContentLoaded", () => {

@@ -14,6 +14,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } 
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollArea, ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
 import { SortableCategory } from "./sortable-category"
 import { SortableChannel, PendingChannelRow } from "./sortable-channel"
 import { CreateChannelDialog } from "../settings/create-channel-dialog"
@@ -283,26 +284,29 @@ function ChannelSidebarContent({
         </header>
       )}
       <ForumPostCountsStatus />
-      <ContextMenu disabled={!isAdmin} actionsRef={menuActionsRef}>
-        <ContextMenuTrigger
-          onTouchStart={(event) => { if (isAdmin) event.preventBaseUIHandler() }}
-          render={(
-            <div
-              ref={scrollRef}
-              data-testid={tid.channelSidebarScroll}
-              className="min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none"
-            />
+      <ScrollAreaRoot className="flex min-h-0 flex-1 flex-col">
+        <ContextMenu disabled={!isAdmin} actionsRef={menuActionsRef}>
+          <ContextMenuTrigger
+            onTouchStart={(event) => { if (isAdmin) event.preventBaseUIHandler() }}
+            render={(
+              <ScrollAreaViewport
+                ref={scrollRef}
+                data-testid={tid.channelSidebarScroll}
+                className="min-h-0 flex-1 overflow-x-clip overflow-y-auto px-2 py-4"
+              />
+            )}
+          >
+            <ScrollAreaContent>{channelTree}</ScrollAreaContent>
+          </ContextMenuTrigger>
+          {isAdmin && (
+            <ContextMenuContent className="w-48">
+              <ContextMenuItem onClick={() => requestCreateChannel(noneCatId)}>Create channel</ContextMenuItem>
+              <ContextMenuItem onClick={() => setDialog({ kind: "create-category" })}>Create category</ContextMenuItem>
+            </ContextMenuContent>
           )}
-        >
-          {channelTree}
-        </ContextMenuTrigger>
-        {isAdmin && (
-          <ContextMenuContent className="w-48">
-            <ContextMenuItem onClick={() => requestCreateChannel(noneCatId)}>Create channel</ContextMenuItem>
-            <ContextMenuItem onClick={() => setDialog({ kind: "create-category" })}>Create category</ContextMenuItem>
-          </ContextMenuContent>
-        )}
-      </ContextMenu>
+        </ContextMenu>
+        <ScrollBar orientation="vertical" />
+      </ScrollAreaRoot>
 
       {dialog?.kind === "create-channel" && (
         <CreateChannelDialog
@@ -431,7 +435,7 @@ export function ChannelSidebarSkeleton({
           {showInviteAction && <Skeleton className="ml-auto size-7 shrink-0 rounded-md" />}
         </header>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none">
+      <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1 px-2 py-4">
         <div className="mb-4 space-y-1">
           <Skeleton className="h-7 w-full rounded-md" />
           <Skeleton className="h-7 w-11/12 rounded-md" />
@@ -449,7 +453,7 @@ export function ChannelSidebarSkeleton({
             </div>
           </div>
         ))}
-      </div>
+      </ScrollArea>
     </aside>
   )
 }

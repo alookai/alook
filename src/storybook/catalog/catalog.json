@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 370,
+    "composition": 371,
     "environment": 13,
     "nonvisual": 32,
     "direct": 161
@@ -8928,6 +8928,25 @@
         {
           "story": "web-foundations-resizable-panels--horizontal",
           "region": "Drag panel separator; vertical example"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/ui/scroll-area.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScrollArea",
+        "ScrollAreaContent",
+        "ScrollAreaRoot",
+        "ScrollAreaViewport",
+        "ScrollBar"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-product-compositions--friends-profiles-and-approvals",
+          "region": "DM sidebar specimen with overlay ScrollArea viewport and floating scrollbar"
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."

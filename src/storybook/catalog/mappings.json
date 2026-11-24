@@ -239,6 +239,16 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/ui/scroll-area.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-product-compositions--friends-profiles-and-approvals",
+        "region": "DM sidebar specimen with overlay ScrollArea viewport and floating scrollbar"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
   "src/web/src/components/ui/select.tsx": {
     "kind": "direct",
     "examples": [
