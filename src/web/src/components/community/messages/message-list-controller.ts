@@ -4,7 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems, stabilizeFirstRowGrouping, type FirstMessageGrouping } from "@/lib/community/message-list-items"
-import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
+import { useConversationScroll } from "@/hooks/community/use-conversation-scroll"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
@@ -159,10 +159,10 @@ export function useMessageListController({
 
   const isLoading = (!!loading || !!initialLoadError) && messages.length === 0
   const authoritativeEmpty = !loading && !initialLoadError && messages.length === 0
+  const tailPaddingEnd = messageRailTailPaddingEnd(items.at(-1), capsuleHeight)
   const {
     scrollRef,
-    virtualizer,
-    onRowsLayoutCommit,
+    paginationScroller,
     belowCount,
     scrollToBottom,
     requestPresentPosition,
@@ -178,7 +178,7 @@ export function useMessageListController({
     newDividerVisibility,
     readingTail,
     jumpToPresentVisible,
-  } = useScrollAnchor({
+  } = useConversationScroll({
     items,
     messageRows: messages,
     presentationRevision: presentation.revision,
@@ -209,7 +209,7 @@ export function useMessageListController({
     onJumpToPresent,
     localSubmitVersion,
     hasMoreOlder: hasMore,
-    tailPaddingEnd: messageRailTailPaddingEnd(items.at(-1), capsuleHeight),
+    tailPaddingEnd,
     viewportInsetEnd: capsuleHeight,
     newBoundaryOwner: lookback.owner,
     onNewBoundaryReached: consumeReachedNew,
@@ -318,7 +318,7 @@ export function useMessageListController({
   }, [onScrollRoot, scrollRef])
 
   const retryOlder = useVirtualCursorPagination({
-    virtualizer,
+    virtualizer: paginationScroller,
     count: items.length,
     enabled: paginationEnabled && !paginationRequestPending && !initialLoadError && !!messageNeighborhood,
     hasMore: messageNeighborhood?.older,
@@ -333,7 +333,7 @@ export function useMessageListController({
     loadWhenReady: true,
   })
   const retryNewer = useVirtualCursorPagination({
-    virtualizer,
+    virtualizer: paginationScroller,
     count: items.length,
     enabled: paginationEnabled && !paginationRequestPending && !initialLoadError && !!messageNeighborhood,
     hasMore: messageNeighborhood?.newer,
@@ -429,8 +429,7 @@ export function useMessageListController({
     onEnterSelectId,
     onToggleSelectId,
     scrollRef,
-    virtualizer,
-    onRowsLayoutCommit,
+    tailPaddingEnd,
     readPositionReady,
     paginationEnabled: paginationEnabled && !paginationRequestPending,
     jumpTo,

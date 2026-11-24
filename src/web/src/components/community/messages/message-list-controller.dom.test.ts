@@ -11,7 +11,7 @@ import { ConversationFooterShell, ConversationFooterSlotProvider, useConversatio
 import { renderMessageListView } from "./message-list-view"
 import { tid } from "@/lib/community/testids"
 
-type ScrollInput = Parameters<typeof import("@/hooks/community/use-scroll-anchor").useScrollAnchor>[0]
+type ScrollInput = Parameters<typeof import("@/hooks/community/use-conversation-scroll").useConversationScroll>[0]
 function notifyReached(input: ScrollInput, id: string) {
   input.onNewBoundaryReached?.({ id, entry: input.positionEntry, owner: input.newBoundaryOwner, epoch: 1 })
 }
@@ -35,7 +35,7 @@ const mocks = vi.hoisted(() => ({
   scrollInputs: [] as unknown[],
   paginationInputs: [] as unknown[],
   scrollRef: { current: null as HTMLDivElement | null },
-  virtualizer: { scrollToOffset: vi.fn(), containerRef: { current: null } },
+  paginationScroller: { getVirtualItems: () => [], scrollElement: null as HTMLDivElement | null },
   jumpToIndex: vi.fn(),
   scrollToBottom: vi.fn(),
   requestPresentPosition: vi.fn(),
@@ -45,8 +45,8 @@ const mocks = vi.hoisted(() => ({
   captureNewerPageAnchor: vi.fn(),
 }))
 
-vi.mock("@/hooks/community/use-scroll-anchor", () => ({
-  useScrollAnchor: (input: { tailPaddingEnd?: number; hasMoreNewer?: boolean; scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void }) => {
+vi.mock("@/hooks/community/use-conversation-scroll", () => ({
+  useConversationScroll: (input: { tailPaddingEnd?: number; hasMoreNewer?: boolean; scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void }) => {
     const [positionOutcome, setPositionOutcome] = React.useState<"pending" | "success">("pending")
     mocks.finishPosition = setPositionOutcome
     const consumed = React.useRef<string | null>(null)
@@ -61,7 +61,7 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
     mocks.scrollInputs.push({ ...input, tailPaddingEnd: input.tailPaddingEnd ?? MESSAGE_RAIL_TAIL_PADDING_END_PX })
     return {
       scrollRef: mocks.scrollRef,
-      virtualizer: mocks.virtualizer,
+      paginationScroller: mocks.paginationScroller,
       belowCount: 2,
       scrollToBottom: mocks.scrollToBottom,
       requestPresentPosition: mocks.requestPresentPosition,
@@ -247,7 +247,6 @@ describe("useMessageListController", () => {
     mocks.scrollRef.current = null
     mocks.jumpToIndex.mockClear()
     mocks.scrollToBottom.mockClear()
-    mocks.virtualizer.scrollToOffset.mockClear()
     nextFrameId = 0
     frameCallbacks = new Map()
     visibleMessageIds = ["m1"]
@@ -609,7 +608,7 @@ describe("useMessageListController", () => {
     expect((mocks.scrollInputs[0] as { items: unknown }).items).toBe(latest.items)
     expect(mocks.paginationInputs.slice(0, 2)).toEqual([
       expect.objectContaining({
-        virtualizer: mocks.virtualizer,
+        virtualizer: mocks.paginationScroller,
         count: latest.items.length,
         enabled: false,
         isError: false,
@@ -619,7 +618,7 @@ describe("useMessageListController", () => {
         requestKey: messageNeighborhood.page,
       }),
       expect.objectContaining({
-        virtualizer: mocks.virtualizer,
+        virtualizer: mocks.paginationScroller,
         count: latest.items.length,
         enabled: false,
         isError: false,
@@ -630,7 +629,7 @@ describe("useMessageListController", () => {
       }),
     ])
     expect(latest.scrollRef).toBe(mocks.scrollRef)
-    expect(latest.virtualizer).toBe(mocks.virtualizer)
+    expect(latest.tailPaddingEnd).toBeTypeOf("number")
     expect(latest.readPositionReady).toBe(false)
     expect(latest.pillCount).toBe(2)
     expect(latest.pillMode).toBe("scroll")
@@ -787,7 +786,7 @@ describe("useMessageListController", () => {
     })
     expect(mocks.paginationInputs.slice(-2)).toEqual([
       expect.objectContaining({
-        virtualizer: mocks.virtualizer,
+        virtualizer: mocks.paginationScroller,
         count: latest.items.length,
         enabled: false,
         hasMore: true,
@@ -800,7 +799,7 @@ describe("useMessageListController", () => {
         loadWhenReady: true,
       }),
       expect.objectContaining({
-        virtualizer: mocks.virtualizer,
+        virtualizer: mocks.paginationScroller,
         count: latest.items.length,
         enabled: false,
         hasMore: true,

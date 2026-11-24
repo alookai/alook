@@ -1,14 +1,14 @@
 import { createElement, StrictMode, useLayoutEffect, useMemo } from "react"
 import { vi } from "vitest"
 import { act, render, fireEvent, type RenderOptions } from "@/test/react-dom-harness"
-import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
 import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
-import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
+import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
+import { useConversationScroll } from "@/hooks/community/use-conversation-scroll"
 
 type FixtureMessage = Extract<FlatItem, { kind: "message" }> & { dateLabel?: string; newDivider?: boolean }
 export const message = (id: string, authorId = "peer"): FixtureMessage => ({ kind: "message", key: `msg:${id}`, m: { id, type: "chat", authorId, grouped: false } })
-type Input = Parameters<typeof useScrollAnchor>[0] & { scrollRootKey?: string }
-type Result = ReturnType<typeof useScrollAnchor>
+type Input = Parameters<typeof useConversationScroll>[0] & { scrollRootKey?: string }
+type Result = ReturnType<typeof useConversationScroll>
 let latest: Result
 let height: number
 let width: number
@@ -27,6 +27,7 @@ let scrollbarWidth: number
 let scrollCalls: number[]
 let pendingScrollEvents: Set<HTMLElement>
 let scrollDescriptor: PropertyDescriptor | undefined
+let domMetricsObserver: MutationObserver | null = null
 
 const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"], [data-testid="community-forum-post-list"]'
 function isScrollRoot(node: HTMLElement) { return node.matches(ROOT_SELECTOR) }
@@ -37,16 +38,11 @@ function deliverScrollEvents() {
   }
   pendingScrollEvents.clear()
 }
-function listOffset(container: HTMLElement | null, root: HTMLElement | null | undefined) {
-  return container?.parentElement?.matches('[data-message-list-content].justify-end')
-    ? Math.max(0, (root?.clientHeight ?? 0) - (Number.parseFloat(container.style.height) || 0)) : 0
-}
-function rowGeometry(node: HTMLElement) {
-  const wrapper = node.matches('[data-index]') ? node : node.closest<HTMLElement>('[data-index]')
-  const root = rootFor(node)
-  const content = wrapper?.querySelector<HTMLElement>('[data-msg-id]')
+function measureRowWrapper(wrapper: HTMLElement) {
+  const content = wrapper.querySelector<HTMLElement>("[data-msg-id]")
+  const actualRow = wrapper.querySelector<HTMLElement>("[data-message-row-key]")
+  if (!content && !actualRow) return { size: 0, decoration: 0, topPadding: 0, bottomPadding: 0, total: 0 }
   const size = content ? bodyHeights.get(content.dataset.msgId!) ?? 100 : 0
-  const actualRow = wrapper?.querySelector<HTMLElement>("[data-message-row-key]")
   const key = actualRow?.dataset.messageRowKey
   const kind = actualRow?.dataset.fixtureKind ?? (key === "rail:leading" ? "leading" : key === "rail:trailing" ? "trailing"
     : key?.startsWith("date:") || key?.startsWith("new:") ? "divider" : "message")
@@ -56,16 +52,109 @@ function rowGeometry(node: HTMLElement) {
   const padding = kind === "message" ? (actualRow?.style.paddingBlock ?? "").split(/\s+/).map(Number.parseFloat) : [0]
   const topPadding = padding[0] || (actualRow?.classList.contains("py-2") ? 8 : 0)
   const bottomPadding = padding.length > 1 ? padding[1] : topPadding
+  return { size, decoration, topPadding, bottomPadding, total: size + decoration + topPadding + bottomPadding }
+}
+let metricsCacheVersion = 0
+let cachedRowsMetrics: { version: number; container: HTMLElement; clientHeight: number; metrics: ReturnType<typeof computeNativeRowsMetrics> } | null = null
+function computeNativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null | undefined) {
+  let cursor = 0
+  const offsets = new Map<HTMLElement, { start: number; height: number }>()
+  for (const child of Array.from(rowsContainer.children) as HTMLElement[]) {
+    const measured = child.matches("[data-index]") ? measureRowWrapper(child).total : 0
+    offsets.set(child, { start: cursor, height: measured })
+    cursor += measured
+  }
+  const paddingBottom = Number.parseFloat(rowsContainer.style.paddingBottom) || 0
+  const totalHeight = cursor + paddingBottom
+  const topOffset = rowsContainer.classList.contains("mt-auto")
+    ? Math.max(0, (root?.clientHeight ?? 0) - totalHeight)
+    : 0
+  return {
+    offsets,
+    totalHeight,
+    topOffset,
+    childCount: rowsContainer.children.length,
+    firstChildCount: rowsContainer.firstElementChild?.childElementCount ?? -1,
+    lastChildCount: rowsContainer.lastElementChild?.childElementCount ?? -1,
+    firstChildKey: rowsContainer.firstElementChild?.querySelector<HTMLElement>("[data-message-row-key]")?.dataset.messageRowKey ?? "",
+    paddingBottom,
+  }
+}
+function nativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null | undefined) {
+  const clientHeight = root?.clientHeight ?? 0
+  const paddingBottom = Number.parseFloat(rowsContainer.style.paddingBottom) || 0
+  const firstChildCount = rowsContainer.firstElementChild?.childElementCount ?? -1
+  const lastChildCount = rowsContainer.lastElementChild?.childElementCount ?? -1
+  const firstChildKey = rowsContainer.firstElementChild?.querySelector<HTMLElement>("[data-message-row-key]")?.dataset.messageRowKey ?? ""
+  if (
+    cachedRowsMetrics
+    && cachedRowsMetrics.version === metricsCacheVersion
+    && cachedRowsMetrics.container === rowsContainer
+    && cachedRowsMetrics.clientHeight === clientHeight
+    && cachedRowsMetrics.metrics.childCount === rowsContainer.children.length
+    && cachedRowsMetrics.metrics.firstChildCount === firstChildCount
+    && cachedRowsMetrics.metrics.lastChildCount === lastChildCount
+    && cachedRowsMetrics.metrics.firstChildKey === firstChildKey
+    && cachedRowsMetrics.metrics.paddingBottom === paddingBottom
+  ) {
+    return cachedRowsMetrics.metrics
+  }
+  const metrics = computeNativeRowsMetrics(rowsContainer, root)
+  cachedRowsMetrics = { version: metricsCacheVersion, container: rowsContainer, clientHeight, metrics }
+  return metrics
+}
+function invalidateMetricsCache() {
+  metricsCacheVersion += 1
+  cachedRowsMetrics = null
+}
+function fastNodeHeight(node: HTMLElement): number {
+  if (node.matches("[data-message-rows]")) {
+    return nativeRowsMetrics(node, rootFor(node)).totalHeight
+  }
+  const wrapper = node.matches("[data-index]") ? node : node.closest<HTMLElement>("[data-index]")
+  if (wrapper) {
+    const measured = measureRowWrapper(wrapper)
+    if (node.matches("[data-msg-id]")) return measured.size
+    if (node.matches("[data-new-divider]")) return measured.decoration
+    return measured.total
+  }
+  return rowGeometry(node).height
+}
+function listOffset(container: HTMLElement | null, root: HTMLElement | null | undefined) {
+  return container?.parentElement?.matches("[data-message-list-content].justify-end")
+    ? Math.max(0, (root?.clientHeight ?? 0) - (Number.parseFloat(container.style.height) || 0)) : 0
+}
+function rowGeometry(node: HTMLElement) {
+  const root = rootFor(node)
+  if (node.matches("[data-message-rows]")) {
+    const metrics = nativeRowsMetrics(node, root)
+    return DOMRect.fromRect({ y: metrics.topOffset + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0), width, height: metrics.totalHeight })
+  }
+  const wrapper = node.matches("[data-index]") ? node : node.closest<HTMLElement>("[data-index]")
+  const rowsContainer = wrapper?.parentElement?.matches("[data-message-rows]") ? wrapper.parentElement : null
+  if (wrapper && rowsContainer) {
+    const metrics = nativeRowsMetrics(rowsContainer, root)
+    const entry = metrics.offsets.get(wrapper)
+    const measured = measureRowWrapper(wrapper)
+    const y = (entry?.start ?? 0) + metrics.topOffset + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0)
+    if (node.matches("[data-msg-id]")) return DOMRect.fromRect({ y: y + measured.topPadding, width, height: measured.size })
+    if (node.matches("[data-new-divider]")) return DOMRect.fromRect({ y, width, height: measured.decoration })
+    return DOMRect.fromRect({ y, width, height: measured.total })
+  }
+  const measured = wrapper ? measureRowWrapper(wrapper) : { size: 0, decoration: 0, topPadding: 0, bottomPadding: 0, total: 0 }
   const translation = wrapper?.style.transform.match(/translate3d\(0,\s*(-?[\d.]+)px/)
   const start = Number.parseFloat(translation?.[1] ?? wrapper?.style.top ?? "0") || 0
   const y = start + listOffset(wrapper?.parentElement ?? null, root) + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0)
-  if (node.style.position === "relative" && node.parentElement?.matches('[data-message-list-content]')) {
-    return DOMRect.fromRect({ y: listOffset(node, root) + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0), width,
-      height: Number.parseFloat(node.style.height) || 0 })
+  if (node.style.position === "relative" && node.parentElement?.matches("[data-message-list-content]")) {
+    return DOMRect.fromRect({
+      y: listOffset(node, root) + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0),
+      width,
+      height: Number.parseFloat(node.style.height) || 0,
+    })
   }
-  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + topPadding, width, height: size })
-  if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y, width, height: decoration })
-  return DOMRect.fromRect({ y, width, height: size + decoration + topPadding + bottomPadding })
+  if (node.matches("[data-msg-id]")) return DOMRect.fromRect({ y: y + measured.topPadding, width, height: measured.size })
+  if (node.matches("[data-new-divider]")) return DOMRect.fromRect({ y, width, height: measured.decoration })
+  return DOMRect.fromRect({ y, width, height: measured.total })
 }
 function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) => void }) {
   const items = useMemo<FlatItem[]>(() => {
@@ -73,41 +162,42 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
     return [
       { kind: "leading", key: "rail:leading" },
       ...input.items.flatMap(item => {
-        const message = item as FixtureMessage
+        const msg = item as FixtureMessage
         return [
-          ...(message.dateLabel || message.newDivider ? [{
+          ...(msg.dateLabel || msg.newDivider ? [{
             kind: "divider" as const,
-            key: `divider:${message.key}`,
-            messageId: message.m.id,
-            dateLabel: message.dateLabel,
-            newDivider: message.newDivider,
+            key: `divider:${msg.key}`,
+            messageId: msg.m.id,
+            dateLabel: msg.dateLabel,
+            newDivider: msg.newDivider,
           }] : []),
-          message,
+          msg,
         ]
       }),
       ...(input.hasMoreNewer ? [{ kind: "trailing" as const, key: "rail:trailing" }] : []),
     ]
   }, [input.items, input.hasMoreNewer])
-  const result = useScrollAnchor({ ...input, items })
+  const result = useConversationScroll({ ...input, items })
   useLayoutEffect(() => { latest = result; onLayout?.(result) })
+  const tailPaddingEnd = input.tailPaddingEnd ?? MESSAGE_RAIL_TAIL_PADDING_END_PX
   return createElement("div", { "data-slot": "community-conversation-surface" },
     createElement("div", { key: input.scrollRootKey, ref: result.scrollRef, "data-testid": "scroll" },
-      createElement("div", { "data-message-list-content": "", "className": "flex min-h-full flex-col justify-end", "data-read-position-ready": String(result.readPositionReady) },
-        createElement(VirtualRows<FlatItem>, {
-          items, virtualizer: result.virtualizer, reactLayout: true,
-          onLayoutCommit: result.onRowsLayoutCommit,
-          renderItem: (item) => createElement("div", {
-            "data-message-row-key": item.key,
-            "data-fixture-kind": item.kind,
-            "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
-            "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
-            style: item.kind === "message" && (item.paddingTop !== undefined || item.paddingBottom !== undefined)
-              ? { paddingBlock: `${item.paddingTop ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px ${item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px` } : undefined,
-          },
-            item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null,
-            item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id, style: { overflowY: overflowModes.get(item.m.id) } }) : null,
-          ),
-        }),
+      createElement("div", { "data-message-list-content": "", className: "flex min-h-full flex-col", "data-read-position-ready": String(result.readPositionReady) },
+        createElement("div", { "data-message-rows": "", className: "mt-auto flex w-full flex-col", style: { paddingBottom: tailPaddingEnd } },
+          items.map((item, index) => createElement("div", { key: item.key, "data-index": index, className: "w-full" },
+            item.kind === "leading" && item.hidden ? null : createElement("div", {
+              "data-message-row-key": item.key,
+              "data-fixture-kind": item.kind,
+              "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
+              "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
+              style: item.kind === "message" && (item.paddingTop !== undefined || item.paddingBottom !== undefined)
+                ? { paddingBlock: `${item.paddingTop ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px ${item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px` } : undefined,
+            },
+              item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null,
+              item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id, style: { overflowY: overflowModes.get(item.m.id) } }) : null,
+            ),
+          )),
+        ),
       ),
     ),
     createElement("div", { "data-slot": "community-conversation-footer" }),
@@ -116,6 +206,7 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
 export function runFrames(count = 26) {
   for (let i = 0; i < count; i++) {
     act(() => {
+      invalidateMetricsCache()
       vi.advanceTimersByTime(16)
       for (const root of document.querySelectorAll<HTMLElement>(ROOT_SELECTOR)) {
         const clamped = Math.max(0, Math.min(root.scrollTop, root.scrollHeight - root.clientHeight))
@@ -163,6 +254,7 @@ function measureResizeObservers() {
 }
 export function resize(frameCount = 26) {
   act(() => {
+    invalidateMetricsCache()
     deliverScrollEvents()
     measureResizeObservers()
   })
@@ -170,6 +262,7 @@ export function resize(frameCount = 26) {
 }
 export function resizeMeasureBeforeScroll(frameCount = 26, onMeasured?: (pending: number) => void) {
   act(() => {
+    invalidateMetricsCache()
     measureResizeObservers()
     onMeasured?.(pendingScrollEvents.size)
   })
@@ -198,6 +291,20 @@ export function installMessageScrollFixture() {
   width = 320
   firstPrefix = 88
   bodyHeights = new Map()
+  const originalBodySet = bodyHeights.set.bind(bodyHeights)
+  bodyHeights.set = (key: string, value: number) => {
+    invalidateMetricsCache()
+    return originalBodySet(key, value)
+  }
+  const originalBodyDelete = bodyHeights.delete.bind(bodyHeights)
+  bodyHeights.delete = (key: string) => {
+    invalidateMetricsCache()
+    return originalBodyDelete(key)
+  }
+  invalidateMetricsCache()
+  domMetricsObserver?.disconnect()
+  domMetricsObserver = new MutationObserver(() => { invalidateMetricsCache() })
+  domMetricsObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "data-index", "data-msg-id", "data-message-row-key"] })
   overflowHeights = new Map()
   overflowModes = new Map()
   frames = new Map()
@@ -221,7 +328,7 @@ export function installMessageScrollFixture() {
     disconnect() { this.record.elements.clear() }
   })
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
-    return isScrollRoot(this) ? Math.max(0, height - (Number.parseFloat(this.style.borderTopWidth) || 0) - (Number.parseFloat(this.style.borderBottomWidth) || 0)) : rowGeometry(this).height
+    return isScrollRoot(this) ? Math.max(0, height - (Number.parseFloat(this.style.borderTopWidth) || 0) - (Number.parseFloat(this.style.borderBottomWidth) || 0)) : fastNodeHeight(this)
   })
   vi.spyOn(HTMLElement.prototype, "clientTop", "get").mockImplementation(function (this: HTMLElement) {
     return isScrollRoot(this) ? Number.parseFloat(this.style.borderTopWidth) || 0 : 0
@@ -232,11 +339,16 @@ export function installMessageScrollFixture() {
     return isScrollRoot(this) ? Math.max(0, width - scrollbarWidth - (Number.parseFloat(this.style.borderLeftWidth) || 0) - (Number.parseFloat(this.style.borderRightWidth) || 0)) : width
   })
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
-    return isScrollRoot(this)
-      ? Math.max(this.clientHeight, Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content]')?.style.height
-        || this.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height || "0") || 0)
-      : Math.max(rowGeometry(this).height, this.matches('[data-index], [data-msg-id]')
-        ? overflowHeights.get(this.dataset.msgId ?? this.querySelector<HTMLElement>('[data-msg-id]')?.dataset.msgId ?? "") ?? 0 : 0)
+    if (isScrollRoot(this)) {
+      const nativeRows = this.querySelector<HTMLElement>("[data-message-rows]")
+      if (nativeRows) {
+        return Math.max(this.clientHeight, nativeRowsMetrics(nativeRows, this).totalHeight)
+      }
+      return Math.max(this.clientHeight, Number.parseFloat(this.querySelector<HTMLElement>("[data-message-list-content]")?.style.height
+        || this.querySelector<HTMLElement>("[data-message-list-content] > div")?.style.height || "0") || 0)
+    }
+    return Math.max(fastNodeHeight(this), this.matches("[data-index], [data-msg-id]")
+      ? overflowHeights.get(this.dataset.msgId ?? this.querySelector<HTMLElement>("[data-msg-id]")?.dataset.msgId ?? "") ?? 0 : 0)
   })
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     return isScrollRoot(this) ? DOMRect.fromRect({ width, height }) : rowGeometry(this)
@@ -250,6 +362,9 @@ export function installMessageScrollFixture() {
   } })
 }
 export function restoreMessageScrollFixture() {
+  domMetricsObserver?.disconnect()
+  domMetricsObserver = null
+  invalidateMetricsCache()
   pendingScrollEvents.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()

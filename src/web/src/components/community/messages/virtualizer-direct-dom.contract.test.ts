@@ -1,21 +1,17 @@
-import scrollAnchorSource from "../../../hooks/community/use-scroll-anchor.ts?raw"
+import conversationScrollSource from "../../../hooks/community/use-conversation-scroll.ts?raw"
 import reactOptionsSource from "../../../hooks/community/virtualizer-react-options.ts?raw"
 import contractText0 from "../channels/forum-post-list.tsx?raw"
 import contractText1 from "../members/member-list.tsx?raw"
 import contractText2 from "../settings/server-settings.tsx?raw"
 import contractText3 from "./message-list.tsx?raw"
 import contractText4 from "./virtual-cursor-list.tsx?raw"
+import messageListViewSource from "./message-list-view.tsx?raw"
 import { describe, expect, it, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { ReactVirtualizer } from "@tanstack/react-virtual"
 import { VirtualRows } from "./virtual-cursor-list"
-import fs from "node:fs"
-import path from "node:path"
-import { fileURLToPath } from "node:url"
 
-const componentDirectory = path.dirname(fileURLToPath(import.meta.url))
-const hooksDirectory = path.resolve(componentDirectory, "../../../hooks/community")
 const contractSources: Record<string, string> = {
   "../channels/forum-post-list.tsx": contractText0,
   "../members/member-list.tsx": contractText1,
@@ -31,52 +27,43 @@ const readComponent = (path: string) => {
 describe("community virtualizer direct DOM contract", () => {
   const virtualRows = readComponent("virtual-cursor-list.tsx")
 
-  it("gives MessageList one React geometry writer with native direct updates disabled", () => {
+  it("renders MessageList with a native bottom-anchored flex scroller and no VirtualRows loop", () => {
     const messageList = readComponent("message-list.tsx")
-    const scrollAnchor = scrollAnchorSource
 
-    expect(messageList).toContain("<VirtualRows")
-    expect(scrollAnchor).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
-    expect(virtualRows).toContain("ref={bindContainer}")
-    expect(virtualRows).toContain("virtualizer.containerRef(node)")
-    expect(virtualRows).toContain("ref={virtualizer.measureElement}")
-    expect(messageList).toMatch(/<VirtualRows\s+reactLayout/)
-    expect(scrollAnchor).toMatch(/\.\.\.COMMUNITY_VIRTUALIZER_REACT_OPTIONS,\s+directDomUpdates: false/)
-    expect(scrollAnchor).toContain("initialRect:")
+    expect(messageList).not.toContain("<VirtualRows")
+    expect(messageList).not.toContain("reactLayout")
+    expect(messageList).toContain("data-message-rows")
+    expect(messageList).toContain("mt-auto flex w-full flex-col")
+    expect(messageListViewSource).not.toContain("justify-end")
+    expect(conversationScrollSource).not.toContain("useVirtualizer")
+    expect(conversationScrollSource).toContain("pinned-to-bottom")
+    expect(conversationScrollSource).toContain("reading-history")
+    expect(conversationScrollSource).toContain("jumping-to-target")
     expect(reactOptionsSource).toContain("directDomUpdates: true")
   })
 
-  it.each([false, true])("writes SSR height and transforms only for React layout=%s", (reactLayout) => {
+  it("keeps VirtualRows strictly on direct DOM updates without SSR height or transform writers", () => {
     const getTotalSize = vi.fn(() => {
-      if (!reactLayout) throw new Error("Direct layout cannot read total size")
-      return 120
+      throw new Error("Direct layout cannot read total size")
     })
     const start = vi.fn(() => {
-      if (!reactLayout) throw new Error("Direct layout cannot read row position")
-      return 40
+      throw new Error("Direct layout cannot read row position")
     })
     const virtualizer = {
       containerRef: vi.fn(),
       measureElement: vi.fn(),
-      options: { directDomUpdates: !reactLayout, scrollMargin: 10 },
+      options: { directDomUpdates: true, scrollMargin: 10 },
       getTotalSize,
       getVirtualItems: () => [{ key: "row", index: 0, get start() { return start() } }],
     } as unknown as ReactVirtualizer<HTMLDivElement, Element>
     const html = renderToStaticMarkup(createElement(VirtualRows<string>, {
-      items: ["Body"], virtualizer, reactLayout, renderItem: item => item,
+      items: ["Body"], virtualizer, renderItem: item => item,
     }))
     expect(html).toContain("Body")
-    if (reactLayout) {
-      expect(getTotalSize).toHaveBeenCalledOnce()
-      expect(start).toHaveBeenCalledOnce()
-      expect(html).toContain("height:120px")
-      expect(html).toContain("translate3d(0, 30px, 0)")
-    } else {
-      expect(getTotalSize).not.toHaveBeenCalled()
-      expect(start).not.toHaveBeenCalled()
-      expect(html).not.toContain("height:")
-      expect(html).not.toContain("transform:")
-    }
+    expect(getTotalSize).not.toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
+    expect(html).not.toContain("height:")
+    expect(html).not.toContain("transform:")
   })
 
   it("keeps ForumView on the shared direct DOM row contract", () => {

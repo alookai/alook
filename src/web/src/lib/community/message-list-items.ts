@@ -118,60 +118,6 @@ export function flattenMessageItems(
   return items
 }
 
-const DATE_DIVIDER_ESTIMATE_PX = 32
-const NEW_DIVIDER_ESTIMATE_PX = 24
-const MESSAGE_BASE_ESTIMATE_PX = 8
-const CHARS_PER_LINE_ESTIMATE = 55
-const LINE_HEIGHT_ESTIMATE_PX = 20
-const MAX_TEXT_ESTIMATE_PX = 400
-const ATTACHMENT_FALLBACK_ESTIMATE_PX = 200
-const ATTACHMENT_MAX_HEIGHT_ESTIMATE_PX = 300
-const ATTACHMENT_TYPICAL_WIDTH_ESTIMATE_PX = 320
-const EMBED_ESTIMATE_PX = 120
-const REACTIONS_ESTIMATE_PX = 32
-const THREAD_PREVIEW_ESTIMATE_PX = 36
-const REPLY_HEADER_ESTIMATE_PX = 28
-
-function estimateTextHeight(content: string | undefined): number {
-  if (!content) return 0
-  const lines = Math.max(1, Math.ceil(content.length / CHARS_PER_LINE_ESTIMATE))
-  return Math.min(lines * LINE_HEIGHT_ESTIMATE_PX, MAX_TEXT_ESTIMATE_PX)
-}
-
-function estimateAttachmentsHeight(m: Msg): number {
-  if (!m.attachments?.length) return 0
-  let total = 0
-  for (const a of m.attachments) {
-    if (a.kind !== "image") continue
-    total += a.width && a.height
-      ? Math.min(
-          ATTACHMENT_MAX_HEIGHT_ESTIMATE_PX,
-          Math.round((ATTACHMENT_TYPICAL_WIDTH_ESTIMATE_PX * a.height) / a.width),
-        )
-      : ATTACHMENT_FALLBACK_ESTIMATE_PX
-  }
-  return total
-}
-
-export function estimateRowHeight(item: FlatItem): number {
-  // Confirming a boundary must not resize an unmeasured row with the same key.
-  if (item.kind === "leading") return 152
-  if (item.kind === "trailing") return 56
-  if (item.kind === "divider") return item.dateLabel ? DATE_DIVIDER_ESTIMATE_PX : NEW_DIVIDER_ESTIMATE_PX
-  const m = item.m
-  let height = MESSAGE_BASE_ESTIMATE_PX + (item.paddingTop ?? MESSAGE_ROW_VERTICAL_PADDING_PX)
-    + (item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX)
-    + (m.decisionCard
-      ? 140 + (m.decisionCard.questions.length > 1 ? 44 : 0) + Math.max(2, m.decisionCard.questions[0]?.options.length ?? 2) * 48
-      : estimateTextHeight(m.content))
-    + estimateAttachmentsHeight(m)
-  if (m.replyTo) height += REPLY_HEADER_ESTIMATE_PX
-  if (m.embeds?.length) height += EMBED_ESTIMATE_PX * m.embeds.length
-  if (m.reactions?.length) height += REACTIONS_ESTIMATE_PX
-  if (m.thread) height += THREAD_PREVIEW_ESTIMATE_PX
-  return height
-}
-
 export function computeBelowCount(items: FlatItem[], lastVisibleIndex: number): number {
   return items.slice(Math.max(0, lastVisibleIndex + 1)).filter((item) => item.kind === "message").length
 }

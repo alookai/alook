@@ -154,7 +154,7 @@ export function retryFailedMessageRepairs(queryClient: QueryClient) {
     }))
 }
 
-export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, landing?: { page: MessagesReadPage; param: MessagesPageParam }, owner?: MessageRepairOwner) {
+export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, landing?: { page: MessagesReadPage; param: MessagesPageParam }, owner?: MessageRepairOwner, awaitOlder = false) {
   const scopeId = scope.scopeId
   const token = captureCommunityLiveSnapshotToken(queryClient, scopeId), registry = getCommunityDbRegistry(queryClient)
   const channel = registry?.collections.channels.get(scopeId)
@@ -162,7 +162,9 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   const originalQuery = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   const receipt: MessageRepairReceipt = { token, window: originalQuery, scope, key, owner }
   const fetchMeta = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta : null
-  const pendingDirection = fetchMeta === viewportFillFetchMeta ? undefined : fetchMeta?.fetchMore?.direction
+  let pendingDirection = fetchMeta === viewportFillFetchMeta ? undefined : fetchMeta?.fetchMore?.direction
+  const pendingOlderPromise = awaitOlder && fetchMeta !== viewportFillFetchMeta && fetchMeta?.fetchMore?.direction === "forward"
+    ? originalQuery?.promise : undefined
   let paginationReplayed = false
   let landingPage = landing
   let prefetched: { param: MessagesPageParam; page: MessagesReadPage } | undefined
@@ -181,6 +183,26 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
         assert()
         const data = originalQuery?.state.data
         if (!isMessageCache(data) || !data.pageParams[0]) return { latestSeq: 0 }
+        if (pendingOlderPromise) {
+          let onAbort: (() => void) | undefined
+          try {
+            await Promise.race([
+              pendingOlderPromise.catch(() => undefined),
+              new Promise<void>((resolve) => {
+                if (signal.aborted) resolve()
+                else {
+                  onAbort = () => resolve()
+                  signal.addEventListener("abort", onAbort, { once: true })
+                }
+              }),
+            ])
+          } finally {
+            if (onAbort) signal.removeEventListener("abort", onAbort)
+          }
+          assert()
+          const currentMeta = originalQuery?.state.fetchStatus === "fetching" ? originalQuery.state.fetchMeta : null
+          pendingDirection = currentMeta === viewportFillFetchMeta ? undefined : currentMeta?.fetchMore?.direction
+        }
         await queryClient.cancelQueries({ queryKey: key, exact: true }, { revert: true, silent: true })
         assert()
         const tag = messageWindowIdentity(key)?.tag ?? null
@@ -266,7 +288,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
   })
 }
 
-export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, target = 0, landing?: { page: MessagesReadPage; param: MessagesPageParam }, owner?: MessageRepairOwner) {
+export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope, key: QueryKey, target = 0, landing?: { page: MessagesReadPage; param: MessagesPageParam }, owner?: MessageRepairOwner, awaitOlder = false) {
   const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   if (!query) return Promise.resolve()
   queryClient.setQueryData<number>(targetKey(key), (current) => Math.max(current ?? 0, target))
@@ -284,7 +306,7 @@ export function reconcileWindow(queryClient: QueryClient, scope: GapRepairScope,
       })
     }
   }
-  const options = messageReconcileOptions(queryClient, scope, key, landing, owner)
+  const options = messageReconcileOptions(queryClient, scope, key, landing, owner, awaitOlder)
   const cancelRetiredOwner = () => {
     const current = queryClient.getQueryCache().find({ queryKey: repairKey, exact: true })
     if (current?.meta?.communityMessageRepair === options.meta?.communityMessageRepair && !query.isActive()) {
@@ -318,7 +340,7 @@ export function reconcileConversationLanding(queryClient: QueryClient, scope: Ga
 
 function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0, initialMode?: "newest") {
   const queries = queryClient.getQueryCache().findAll({ queryKey: messagesKey(scope), type: "active" }).filter((query) => isWindowKey(query.queryKey, initialMode))
-  return Promise.all(queries.map(query => reconcileWindow(queryClient, scope, query.queryKey, target))).then(() => undefined)
+  return Promise.all(queries.map(query => reconcileWindow(queryClient, scope, query.queryKey, target, undefined, undefined, initialMode === "newest"))).then(() => undefined)
 }
 
 export function scheduleFocusedMessageGapRepair(queryClient: QueryClient, scope: GapRepairScope, incomingSeq: number): Promise<void> | null {
