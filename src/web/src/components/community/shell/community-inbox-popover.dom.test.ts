@@ -224,7 +224,7 @@ describe("InboxPopover thread opener rows", () => {
     expect(unreads.querySelectorAll("button[aria-expanded=\"false\"]")).toHaveLength(3)
     const check = renderer.getByTestId(tid.inboxMarkChannelRead("f1"))
     const arrow = renderer.getByTestId(tid.inboxToggleChannel("f1"))
-    expect(check).toHaveAttribute("data-variant", "ghost")
+    expect(check).toHaveAttribute("data-variant", "secondary")
     expect(arrow).toHaveAttribute("data-variant", "ghost")
     expect(check).toHaveAttribute("data-size", "icon")
     expect(arrow).toHaveAttribute("data-size", "icon")

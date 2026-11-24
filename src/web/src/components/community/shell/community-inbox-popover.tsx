@@ -133,16 +133,13 @@ function InboxCountBadge({ count, shown, descriptionId }: { count: number; shown
 const identityActionClassName = "group/inbox-identity flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg text-left text-sm transition-[color,background-color,transform] duration-150 active:scale-[0.99] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
 const expandedIdentityActionClassName = "-mx-1.5 px-1.5 py-0.5 hover:bg-foreground/5"
 const cardActionClassName = "size-11 shrink-0 sm:size-8"
-const unreadChannelActionClassName = "text-muted-foreground hover:text-foreground"
 
-function InboxIconAction({ children, className, compact, restingTint, ...props }:
-  Omit<ComponentProps<typeof Button>, "className" | "size" | "variant"> & { className?: string; compact?: boolean; restingTint?: boolean }
+function InboxIconAction({ children, className, compact, ...props }:
+  Omit<ComponentProps<typeof Button>, "className" | "size" | "variant"> & { className?: string; compact?: boolean }
 ) {
   return (
     <Button {...props} variant="ghost" size="icon" className={cn(
-      compact ? "size-11 shrink-0 bg-transparent!" : `${cardActionClassName} rounded-full max-sm:bg-transparent!`,
-      restingTint && !compact && styles.readActionButton,
-      !restingTint && !compact && "hover:bg-foreground/7 dark:hover:bg-foreground/9",
+      compact ? "size-11 shrink-0 bg-transparent!" : `${cardActionClassName} rounded-full max-sm:bg-transparent! hover:bg-foreground/7 dark:hover:bg-foreground/9`,
       "focus-visible:ring-inset",
       className,
     )}>
@@ -319,12 +316,13 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
   return (
     <InboxCard testId={tid.inboxUnreadCard(channelId)} identity={identity} animatePreview
       actions={<div className="-me-1.5 flex shrink-0 items-center gap-0.5 sm:-me-1 sm:gap-1.5">
-        <InboxIconAction restingTint className={unreadChannelActionClassName}
+        <Button variant="secondary" size="icon"
+          className="relative size-7 shrink-0 rounded-full max-sm:mx-2 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-[''] focus-visible:ring-inset sm:size-8"
           data-testid={tid.inboxMarkChannelRead(channelId)}
           aria-label={`Mark ${name} read`} disabled={!onMarkChannelRead || throughSeq <= 0 || pending}
           onClick={() => mark(throughSeq)}>
           {pending ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
-        </InboxIconAction>
+        </Button>
         <Button variant={showCount ? "unread" : "ghost"} size="icon"
           className={cn(
             showCount

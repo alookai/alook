@@ -19,26 +19,6 @@
   background-color: color-mix(in oklab, var(--popover), var(--popover-foreground) 7%);
 }
 
-.readActionButton {
-  background-color: color-mix(in oklab, var(--popover-foreground) 7%, transparent);
-}
-
-@media (hover: hover) {
-  .readActionButton:hover:not(:disabled) {
-    background-color: color-mix(in oklab, var(--popover-foreground) 13%, transparent);
-  }
-}
-
-@media (max-width: 639.98px) {
-  .readActionButton {
-    background-color: transparent;
-  }
-
-  .readActionButton:enabled [data-slot="inbox-action-visual"] {
-    background-color: color-mix(in oklab, var(--popover-foreground) 7%, transparent);
-  }
-}
-
 @keyframes revealInboxPreview {
   from {
     opacity: 0;
