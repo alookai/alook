@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@alook/agent-driver";
+import type { AgentMessage, SessionActivityObservation } from "@alook/agent-driver";
 
 export type AgentStatus = "idle" | "starting" | "running" | "stopping";
 
@@ -78,6 +78,7 @@ export type ExecutionEpoch =
   | { sessionInstanceId: string; lease: Exclude<RootLease, { state: "detached" }> };
 
 export interface AgentState {
+  sessionActivity?: SessionActivityObservation;
   agentId: string;
   status: AgentStatus;
   inbox: AgentMsg[];
@@ -103,7 +104,11 @@ export interface AgentState {
 
 export function isActivelyWorking(agent: AgentState): boolean {
   return agent.status === "running"
-    && (leaseIsWorking(agent.execution.lease) || agent.pendingAdmissions.length > 0 || agent.inbox.length > 0);
+    && (agent.sessionActivity?.status === "running" || leaseIsWorking(agent.execution.lease) || agent.pendingAdmissions.length > 0 || agent.inbox.length > 0);
+}
+
+function sessionBlocksIdleCleanup(agent: AgentState): boolean {
+  return agent.sessionActivity !== undefined && agent.sessionActivity.status !== "idle";
 }
 
 export interface ManagerState {
@@ -116,6 +121,7 @@ export interface ManagerState {
 }
 
 export type ManagerEvent =
+  | { type: "session_activity"; agentId: string; sessionInstanceId: string; observation: SessionActivityObservation; nowMs: number }
   | { type: "register"; agentId: string }
   | { type: "wake"; agentId: string; message: AgentMsg; nowMs: number }
   | { type: "spawned"; agentId: string; nowMs: number }
@@ -260,6 +266,16 @@ export function createInitialManagerState(
 
 export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceResult {
   switch (event.type) {
+    case "session_activity": {
+      const current = state.agents[event.agentId];
+      if (!current || !matchesSession(current, event.sessionInstanceId) || current.status === "stopping") return { state, effects: [] };
+      const agent = clone(current);
+      const changed = agent.sessionActivity?.status !== event.observation.status;
+      agent.sessionActivity = event.observation;
+      if (sessionBlocksIdleCleanup(agent)) agent.idleSince = null;
+      else if (changed && !leaseIsWorking(agent.execution.lease) && agent.pendingAdmissions.length === 0 && agent.inbox.length === 0) agent.idleSince = event.nowMs;
+      return commit(state, agent, []);
+    }
     case "register":
       return withAgent(state, event.agentId, (a) => a ?? freshAgent(event.agentId), []);
 
@@ -310,6 +326,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       {
         const a = agent;
         a.execution = { sessionInstanceId: event.sessionInstanceId, lease: { state: "none", lastTerminal: null } };
+        a.sessionActivity = undefined;
         a.turnSilence = event.turnSilence ?? {
           ...DEFAULT_TURN_SILENCE_POLICY,
           nativeIdleTimeoutMs: state.staleThresholdMs,
@@ -534,6 +551,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         const closing = agent.pendingAdmissions.filter((entry) => entry.sessionInstanceId === event.sessionInstanceId);
         agent.pendingAdmissions = agent.pendingAdmissions.filter((entry) => entry.sessionInstanceId !== event.sessionInstanceId);
         agent.execution = { sessionInstanceId: null, lease: { state: "detached" } };
+        agent.sessionActivity = undefined;
         syncExecutionProjection(agent);
         return commit(state, agent, recoveryEffects(agent, closing));
       }
@@ -675,7 +693,7 @@ function onTurnCompleted(
     ]);
   }
 
-  agent.idleSince = agent.status === "running" && !agent.resetting ? nowMs : null;
+  agent.idleSince = agent.status === "running" && !agent.resetting && !sessionBlocksIdleCleanup(agent) ? nowMs : null;
   return commit(state, agent, clearEffects);
 }
 
@@ -856,6 +874,7 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     }
 
     const idleResetEligible =
+      !sessionBlocksIdleCleanup(a) &&
       a.idleSince !== null &&
       a.sessionId !== null &&
       a.inbox.length === 0 &&
@@ -874,6 +893,7 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     }
 
     const idleEligible =
+      !sessionBlocksIdleCleanup(a) &&
       a.status === "running" &&
       lease.state === "none" &&
       a.pendingAdmissions.length === 0 &&
@@ -918,6 +938,7 @@ function freshAgent(agentId: string): AgentState {
 
 function enterStable(agent: AgentState, status: "running" | "idle"): void {
   agent.status = status;
+  if (status === "idle") agent.sessionActivity = undefined;
   agent.resetting = false;
   agent.resettingSince = null;
   agent.stoppingSince = null;

@@ -23,7 +23,7 @@ import { killProcessTree, SESSION_STOP_GRACE_MS } from "../../internal/killTree.
 import { SettledUsageProjector } from "../../internal/token-usage.js";
 import type { InputReference, RuntimeSettingsUpdate, RuntimeSettingsUpdateResult } from "../../contract.js";
 
-import { agyStateHome, NativeExecutionReader } from "./execution.js";
+import { agyStateHome, NativeExecutionReader, NativeSessionActivityReader } from "./execution.js";
 
 const ACP_PROTOCOL_VERSION = 1;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
@@ -76,6 +76,8 @@ interface AgyAcpLaneOptions {
   readonly onRawStdoutLine?: (line: string) => void;
   readonly handshakeTimeoutMs?: number;
   readonly executionReader?: Pick<NativeExecutionReader, "checkpoint" | "terminal">;
+  readonly activityReader?: Pick<NativeSessionActivityReader, "activity">;
+  readonly activityPollMs?: number;
 }
 
 class AgyAcpResetRequiredError extends Error {}
@@ -120,7 +122,19 @@ function isMissingSessionError(error: unknown): boolean {
 export class AgyAcpLane implements RuntimeLane {
   private readonly events = new EventEmitter();
   private readonly pending = new Map<number, PendingRequest>();
-  private readonly toolCalls = new Map<string, string | null>();
+  private readonly toolCalls = new Map<string, { name: string; owner?: string }>();
+  private readonly completedTools = new Set<string>();
+  private unownedContent = false;
+  private activityReader?: Pick<NativeSessionActivityReader, "activity">;
+  private activityRead?: Promise<void>;
+  private activityTimer?: ReturnType<typeof setTimeout>;
+  private nativeActivity: "running" | "idle" | "unknown" = "unknown";
+  private publishedActivity?: "running" | "idle" | "unknown";
+  private activityRevision = 0;
+  private nativeVersion = "";
+  private contentOwner?: string;
+  private executionIsolated = true;
+  private nativeClose = false;
   private process: SpawnedProcessHandle | null = null;
   private requestSequence = 0;
   private started = false;
@@ -201,10 +215,13 @@ export class AgyAcpLane implements RuntimeLane {
       }
       const sessionId = this.sessionId;
       if (!sessionId) throw new Error("Agy ACP handshake completed without a session id");
-      this.executionReader = this.options.executionReader ?? new NativeExecutionReader(this.stateHome, sessionId);
+      this.executionReader = this.options.executionReader ?? new NativeExecutionReader(this.stateHome, sessionId, undefined, this.nativeVersion === "1.5.16");
       this.processActivated = true;
       this.ready = true;
       this.events.emit("runtime_event", { kind: "session_init", sessionId, acquisition: { status: input.sessionId ? "resumed" : "created", evidence: "native_api" } } satisfies AdapterEvent);
+      this.activityReader = this.options.activityReader ?? new NativeSessionActivityReader(this.stateHome, sessionId, this.nativeVersion);
+      await this.refreshActivity();
+      this.scheduleActivity();
       const admission = await this.admitRoot(input.text, input.inputs);
       if (!admission.ok) throw new AgyAcpIncompatibleError(admission.error ?? "Native execution state unavailable");
       return admission;
@@ -248,6 +265,7 @@ export class AgyAcpLane implements RuntimeLane {
   stop(input: LaneStopInput = {}): Promise<void> {
     this.requestedStopReason ??= input.reason ?? "requested_stop";
     this.ready = false;
+    if (this.activityTimer) clearTimeout(this.activityTimer);
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
     this.toolCalls.clear();
@@ -262,15 +280,24 @@ export class AgyAcpLane implements RuntimeLane {
   }
 
   private async stopPhysicalOnce(input: LaneStopInput): Promise<void> {
+    const deadline = Date.now() + (input.forceAfterMs ?? SESSION_STOP_GRACE_MS);
     await this.spawnPromise?.catch(() => undefined);
     const proc = this.process;
     if (!proc) return;
+    let closeAcknowledged = false;
+    if (this.nativeClose && this.sessionId && !this.isClosed() && deadline > Date.now()) {
+      try {
+        await this.request("session/close", { sessionId: this.sessionId }, Math.max(1, deadline - Date.now())).promise;
+        closeAcknowledged = true;
+      } catch {}
+    }
     if (proc.pid) {
-      await killProcessTree(proc.pid, { graceMs: input.forceAfterMs ?? SESSION_STOP_GRACE_MS });
+      await killProcessTree(proc.pid, { graceMs: closeAcknowledged ? 0 : Math.max(0, deadline - Date.now()) });
     } else if (!this.isClosed()) {
       proc.kill(input.signal ?? "SIGTERM");
     }
     await this.executionRead?.catch(() => undefined);
+    await this.activityRead;
   }
 
   private async handshake(ctx: AdapterLaunchContext): Promise<void> {
@@ -286,6 +313,7 @@ export class AgyAcpLane implements RuntimeLane {
       throw new AgyAcpIncompatibleError("Installed Agy ACP does not support protocol version 1");
     }
     const capabilities = record(initialize.agentCapabilities);
+    this.nativeClose = record(record(capabilities?.sessionCapabilities)?.close) !== null;
     if (capabilities?.loadSession !== true) {
       throw new AgyAcpIncompatibleError("Installed Agy ACP does not support persistent session loading");
     }
@@ -293,6 +321,7 @@ export class AgyAcpLane implements RuntimeLane {
       throw new AgyAcpIncompatibleError("Expected the native Antigravity CLI ACP server");
     }
     const version = record(initialize.agentInfo)?.version;
+    this.nativeVersion = typeof version === "string" ? version : "";
     this.usageProfile = version === "1.4.12" ? { inputIncludesCache: true, outputIncludesReasoning: false }
       : version === "1.5.9" ? { inputIncludesCache: false, outputIncludesReasoning: true } : undefined;
     if (!record(record(initialize.agentCapabilities)?.sessionCapabilities)?.resume) {
@@ -478,6 +507,7 @@ export class AgyAcpLane implements RuntimeLane {
       const checkpoint = await read;
       if (!this.ready || this.requestedStopReason || this.isClosed()) return { ok: false, reason: "closed" };
       this.executionCheckpoint = checkpoint;
+      this.executionIsolated = !this.unownedContent && !this.hasPendingTools();
       return this.admitPrompt(text, "prompt", inputs);
     } catch {
       return { ok: false, reason: "runtime_error", error: "Antigravity CLI native execution state cannot be verified. A readable native conversation database and the packaged SQLite runtime are required." };
@@ -498,7 +528,7 @@ export class AgyAcpLane implements RuntimeLane {
     if (delivery === "prompt") this.terminalOwner = prompt.receipt;
     this.currentPromptRequestId = requestId;
     if (delivery === "prompt") {
-      this.toolCalls.clear();
+      this.contentOwner = !this.unownedContent && !this.hasPendingTools() ? prompt.receipt : undefined;
       this.promptOutcomes.clear();
       this.observedPrompts.clear();
       this.loopStartedAt = new Date().toISOString();
@@ -557,16 +587,23 @@ export class AgyAcpLane implements RuntimeLane {
   }
 
   private async verifyLoop(owner: string): Promise<void> {
-    let nativeOutcome: "success" | "interrupted" | "failed" = "failed";
+    let nativeOutcome: "success" | "interrupted" | "failed" | "unknown" = "failed";
     let verificationError: Error | undefined;
     try {
       if (!this.executionReader || !this.executionCheckpoint) throw new Error("Native execution checkpoint missing");
       const read = this.executionReader.terminal(this.executionCheckpoint);
       this.executionRead = read;
       nativeOutcome = await read;
-    } catch { verificationError = new Error("Antigravity CLI native execution terminal could not be verified"); }
+      if (!this.executionIsolated) nativeOutcome = "unknown";
+    } catch {
+      if (this.executionIsolated) verificationError = new Error("Antigravity CLI native execution terminal could not be verified");
+      else nativeOutcome = "unknown";
+    }
     finally { this.executionRead = undefined; }
     if (this.terminalOwner !== owner || this.requestedStopReason || this.processTerminal) return;
+    if (this.hasPendingTools()) this.unownedContent = true;
+    this.observeOutsideWork();
+    void this.refreshActivity();
     this.finishing = false;
     const outcomes = [...this.promptOutcomes].sort(([a], [b]) => b - a);
     let latest = outcomes.find(([, outcome]) => outcome.error)?.[1] ?? outcomes[0]?.[1];
@@ -589,7 +626,7 @@ export class AgyAcpLane implements RuntimeLane {
     this.usage.reset();
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
-    this.toolCalls.clear();
+    this.contentOwner = undefined;
     this.promptOutcomes.clear();
     this.observedPrompts.clear();
     if (!latest) {
@@ -599,7 +636,7 @@ export class AgyAcpLane implements RuntimeLane {
     }
     this.events.emit("runtime_event", {
       kind: "turn_end", sessionId: this.sessionId ?? undefined, turnOwner: terminalOwner,
-      outcome: latest?.stopReason === "cancelled" ? "interrupted" : latest?.stopReason === "end_turn" ? "success" : "failed",
+      outcome: latest?.stopReason === "cancelled" ? "interrupted" : latest?.stopReason === "end_turn" ? nativeOutcome === "unknown" ? "unknown" : "success" : "failed",
       stopReason: latest?.stopReason,
       ...(latest?.stopReason === "cancelled" ? { pendingContent: "discard" as const } : {}),
     } satisfies AdapterEvent);
@@ -844,24 +881,27 @@ export class AgyAcpLane implements RuntimeLane {
       this.rememberConfig(configuration, true);
       return;
     }
-    if (!this.ready || this.currentPromptRequestId === null) {
-      this.diagnostic("warning", "Agy ACP emitted a session update without an active prompt");
-      return;
-    }
+    if (!this.ready || this.requestedStopReason || this.processTerminal) return;
     const update = record(payload.update) ?? {};
     const updateType = update?.sessionUpdate;
     switch (updateType) {
       case "agent_message_chunk": {
         const content = record(update.content);
         if (content?.type === "text" && typeof content.text === "string") {
-          this.events.emit("runtime_event", { kind: "assistant_message_delta", text: content.text } satisfies AdapterEvent);
+          if (!this.contentOwner || this.contentOwner !== this.terminalOwner) { this.unownedContent = true; this.observeOutsideWork(); }
+          this.events.emit("runtime_event", { kind: "assistant_message_delta", text: content.text,
+            ...(!this.contentOwner || this.contentOwner !== this.terminalOwner ? { attribution: { scope: "session" as const } } : {}),
+          } satisfies AdapterEvent);
         }
         return;
       }
       case "agent_thought_chunk": {
         const content = record(update.content);
         if (content?.type === "text" && typeof content.text === "string") {
-          this.events.emit("runtime_event", { kind: "assistant_reasoning_delta", text: content.text } satisfies AdapterEvent);
+          if (!this.contentOwner || this.contentOwner !== this.terminalOwner) { this.unownedContent = true; this.observeOutsideWork(); }
+          this.events.emit("runtime_event", { kind: "assistant_reasoning_delta", text: content.text,
+            ...(!this.contentOwner || this.contentOwner !== this.terminalOwner ? { attribution: { scope: "session" as const } } : {}),
+          } satisfies AdapterEvent);
         }
         return;
       }
@@ -884,38 +924,26 @@ export class AgyAcpLane implements RuntimeLane {
           this.diagnostic("warning", "Agy ACP emitted a malformed tool_call update");
           return;
         }
-        if (!this.toolCalls.has(update.toolCallId)) {
-          const name = typeof update.name === "string" ? update.name : update.title;
-          this.toolCalls.set(update.toolCallId, name);
+        if (this.completedTools.has(update.toolCallId)) return;
+        let tool = this.toolCalls.get(update.toolCallId);
+        if (!tool) {
+          tool = { name: typeof update.name === "string" ? update.name : update.title,
+            owner: this.contentOwner };
+          this.toolCalls.set(update.toolCallId, tool);
           this.events.emit("runtime_event", {
-            kind: "tool_call", callId: update.toolCallId, name, input: update.rawInput,
+            kind: "tool_call", callId: update.toolCallId, name: tool.name, input: update.rawInput,
+            ...(tool.owner && tool.owner === this.terminalOwner ? {} : { attribution: { scope: "session" as const } }),
           } satisfies AdapterEvent);
         }
-        if ((update.status === "completed" || update.status === "failed") && this.toolCalls.get(update.toolCallId) !== null) {
-          const name = this.toolCalls.get(update.toolCallId) ?? update.title;
-          this.toolCalls.set(update.toolCallId, null);
-          this.events.emit("runtime_event", {
-            kind: "tool_output", callId: update.toolCallId, name,
-            outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput,
-          } satisfies AdapterEvent);
-        }
+        this.observeOutsideWork();
+        if (update.status === "completed" || update.status === "failed") this.finishTool(update, tool);
         return;
       }
       case "tool_call_update": {
-        if (
-          typeof update.toolCallId === "string"
-          && (update.status === "completed" || update.status === "failed")
-        ) {
-          const name = this.toolCalls.get(update.toolCallId);
-          if (name === undefined || name === null) return;
-          this.toolCalls.set(update.toolCallId, null);
-          this.events.emit("runtime_event", {
-            kind: "tool_output",
-            callId: update.toolCallId,
-            outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput,
-            name,
-          } satisfies AdapterEvent);
-        }
+        if (typeof update.toolCallId !== "string") return;
+        const tool = this.toolCalls.get(update.toolCallId);
+        if (!tool) return;
+        if (update.status === "completed" || update.status === "failed") this.finishTool(update, tool);
         return;
       }
       case "plan":
@@ -923,11 +951,25 @@ export class AgyAcpLane implements RuntimeLane {
           kind: "internal_progress",
           source: "agy.acp",
           itemType: "plan",
+          ...(!this.contentOwner || this.contentOwner !== this.terminalOwner ? { attribution: { scope: "session" as const } } : {}),
         } satisfies AdapterEvent);
         return;
       default:
         this.diagnostic("warning", `Unsupported Agy ACP session update: ${safeLabel(updateType)}`);
     }
+  }
+
+  private finishTool(update: JsonRecord, tool: { name: string; owner?: string }): void {
+    this.toolCalls.delete(update.toolCallId as string);
+    this.completedTools.add(update.toolCallId as string);
+    if (this.completedTools.size > 4096) this.completedTools.delete(this.completedTools.values().next().value!);
+    if (!tool.owner || tool.owner !== this.terminalOwner) this.unownedContent = true;
+    this.observeOutsideWork();
+    this.events.emit("runtime_event", {
+      kind: "tool_output", callId: update.toolCallId as string, name: tool.name,
+      outcome: update.status === "failed" ? "failed" : "success", output: update.rawOutput ?? update.content,
+      ...(tool.owner && tool.owner === this.terminalOwner ? {} : { attribution: { scope: "session" as const } }),
+    } satisfies AdapterEvent);
   }
 
   private diagnostic(severity: "error" | "warning", message: string): void {
@@ -937,6 +979,50 @@ export class AgyAcpLane implements RuntimeLane {
       source: "agy.acp",
       message,
     } satisfies AdapterEvent);
+  }
+
+  private hasPendingTools(): boolean {
+    return this.toolCalls.size > 0;
+  }
+
+  private publishActivity(): void {
+    if (!this.ready || this.requestedStopReason || this.processTerminal) return;
+    const status = this.hasPendingTools() ? "running" : this.nativeActivity;
+    if (status === this.publishedActivity) return;
+    this.publishedActivity = status;
+    this.events.emit("runtime_event", { kind: "session_activity", observation: { status, source: "agy.native" } } satisfies AdapterEvent);
+  }
+
+  private observeOutsideWork(): void {
+    this.activityRevision += 1;
+    this.nativeActivity = "unknown";
+    this.publishActivity();
+  }
+
+  private refreshActivity(): Promise<void> {
+    if (this.activityRead) return this.activityRead;
+    if (!this.ready || !this.activityReader || this.requestedStopReason || this.processTerminal) return Promise.resolve();
+    const revision = this.activityRevision;
+    const reading = (async () => {
+      let status: "running" | "idle" | "unknown" = "unknown";
+      try { status = await this.activityReader!.activity(); } catch {}
+      if (!this.ready || this.requestedStopReason || this.processTerminal) return;
+      if (revision === this.activityRevision) this.nativeActivity = status;
+      if (status === "running" && this.currentPromptRequestId === null) this.unownedContent = true;
+      this.publishActivity();
+    })();
+    this.activityRead = reading;
+    void reading.finally(() => { if (this.activityRead === reading) this.activityRead = undefined; });
+    return reading;
+  }
+
+  private scheduleActivity(): void {
+    if (!this.ready || this.requestedStopReason || this.processTerminal) return;
+    this.activityTimer = setTimeout(() => {
+      this.activityTimer = undefined;
+      void this.refreshActivity().then(() => this.scheduleActivity());
+    }, this.options.activityPollMs ?? 1_000);
+    this.activityTimer.unref?.();
   }
 
   private protocolFailure(message: string): void {

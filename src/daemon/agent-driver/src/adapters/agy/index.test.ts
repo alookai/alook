@@ -1,4 +1,4 @@
-import { NativeExecutionReader } from "./execution.js";
+import { NativeExecutionReader, NativeSessionActivityReader } from "./execution.js";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,12 +16,13 @@ type Message = { id?: number; method?: string; params?: Record<string, unknown> 
 beforeEach(() => {
   vi.spyOn(NativeExecutionReader.prototype, "checkpoint").mockResolvedValue({ index: -1, executionId: null, lastStepIndex: -1 });
   vi.spyOn(NativeExecutionReader.prototype, "terminal").mockResolvedValue("success");
+  vi.spyOn(NativeSessionActivityReader.prototype, "activity").mockResolvedValue("idle");
 });
 
 const roots: string[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function fixture(options: { resume?: string; listedCwd?: string; confirm?: boolean; auth?: boolean; version?: string } = {}) {
+function fixture(options: { resume?: string; listedCwd?: string; confirm?: boolean; auth?: boolean; version?: string; pollMs?: number; hangClose?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "agy-acp-"));
   roots.push(directory);
   const child = Object.assign(new EventEmitter(), {
@@ -69,6 +70,7 @@ function fixture(options: { resume?: string; listedCwd?: string; confirm?: boole
         }
         case "session/prompt": prompts.push(message); break;
         case "session/cancel": break;
+        case "session/close": if (!options.hangClose) respond(message, {}); break;
         default: if (message.id !== undefined) respond(message, {});
       }
     }
@@ -77,7 +79,7 @@ function fixture(options: { resume?: string; listedCwd?: string; confirm?: boole
     standingPrompt: "standing instructions", prompt: "first",
     config: { runtimeConfig: { model: { kind: "default" } } },
   });
-  const lane = new AgyAcpLane({ spawn: async () => ({ process }) }, ctx, { handshakeTimeoutMs: 100 });
+  const lane = new AgyAcpLane({ spawn: async () => ({ process }) }, ctx, { handshakeTimeoutMs: 100, activityPollMs: options.pollMs });
   const events: AdapterEvent[] = [];
   lane.on("runtime_event", (event) => events.push(event));
   return { directory, child, process, requests, prompts, respond, fail, update, ctx, lane, events };
@@ -372,6 +374,130 @@ describe("Antigravity CLI native ACP", () => {
       expect(endings(f.events)).toMatchObject([{ outcome: "interrupted", pendingContent: "discard" }]);
       expect(await f.lane.interrupt({ requestId: "idle", reason: "user" })).toBe(false);
     } finally { await f.lane.stop(); }
+  });
+
+  it("keeps late tools alive across roots and emits their result only as session activity", async () => {
+    vi.mocked(NativeSessionActivityReader.prototype.activity).mockResolvedValue("idle");
+    const f = fixture();
+    try {
+      await f.lane.start({ text: "first" });
+      f.update({ sessionUpdate: "tool_call", toolCallId: "background", title: "run_command", status: "in_progress", rawInput: { IsDaemon: true } });
+      await f.respond(f.prompts[0]!, { stopReason: "end_turn" });
+      await vi.waitFor(() => expect(endings(f.events)).toHaveLength(1));
+      expect(f.events.filter(event => event.kind === "session_activity").at(-1)).toMatchObject({ observation: { status: "running" } });
+      await f.lane.send({ text: "second", mode: "idle" });
+      const offset = f.events.length;
+      f.update({ sessionUpdate: "tool_call_update", toolCallId: "background", status: "completed", content: [{ type: "text", text: "OLD_RESULT" }] });
+      f.update({ sessionUpdate: "tool_call_update", toolCallId: "background", status: "completed" });
+      f.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "AMBIGUOUS_REPLY" } });
+      expect(f.events.slice(offset).filter(event => event.kind === "tool_output")).toEqual([
+        expect.objectContaining({ callId: "background", attribution: { scope: "session" }, output: [{ type: "text", text: "OLD_RESULT" }] }),
+      ]);
+      expect(f.events.at(-1)).toMatchObject({ kind: "assistant_message_delta", text: "AMBIGUOUS_REPLY", attribution: { scope: "session" } });
+      await f.respond(f.prompts[1]!, { stopReason: "end_turn" });
+      await vi.waitFor(() => expect(endings(f.events)).toHaveLength(2));
+      expect(f.events.filter(event => event.kind === "session_activity").at(-1)).toMatchObject({ observation: { status: "idle" } });
+    } finally { await f.lane.stop(); }
+  });
+
+  it("keeps old text at session scope even after its tool completes and a fresh idle sample precedes the next prompt", async () => {
+    const f = fixture({ pollMs: 5 });
+    try {
+      await f.lane.start({ text: "first" });
+      f.update({ sessionUpdate: "tool_call", toolCallId: "old", title: "run_command", status: "in_progress" });
+      await f.respond(f.prompts[0]!, { stopReason: "end_turn" });
+      f.update({ sessionUpdate: "tool_call_update", toolCallId: "old", status: "completed" });
+      await vi.waitFor(() => expect(f.events.filter(event => event.kind === "session_activity").at(-1)).toMatchObject({ observation: { status: "idle" } }));
+      await f.lane.send({ text: "next", mode: "idle" });
+      f.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "OLD_MODEL_REPLY" } });
+      expect(f.events.at(-1)).toMatchObject({ kind: "assistant_message_delta", text: "OLD_MODEL_REPLY", attribution: { scope: "session" } });
+    } finally { await f.lane.stop(); }
+  });
+
+  it("keeps two ordinary rounds usable when a supported older version has unknown native activity", async () => {
+    vi.mocked(NativeSessionActivityReader.prototype.activity).mockResolvedValue("unknown");
+    const f = fixture({ version: "1.5.9" });
+    vi.spyOn(AgyDriver.prototype, "spawn").mockResolvedValue({ process: f.process, stateHome: f.directory });
+    const opened = await createAgentDriverSdk({ host: createFakeAgentDriverHost() }).open({ backend: "agy", config: { model: { kind: "default" } },
+      launch: { workingDirectory: f.directory, instructions: { format: "markdown", content: "" }, launchId: "older-activity" } });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const session = opened.session;
+    const events: { type: string; text?: string }[] = [];
+    const collect = (async () => { for await (const event of session.events) events.push(event); })();
+    try {
+      await session.start({ id: "first", kind: "user", text: "first" });
+      for (let round = 0; round < 2; round++) {
+        if (round) expect(await session.send({ id: "next", kind: "user", text: "next" })).toMatchObject({ status: "accepted" });
+        f.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `REPLY_${round}` } });
+        await f.respond(f.prompts[round]!, { stopReason: "end_turn" });
+        await vi.waitFor(() => expect(events.filter(event => event.type === "turn_completed")).toHaveLength(round + 1));
+        expect(session.snapshot()).toMatchObject({ state: "idle", activity: { status: "unknown" }, activeTurn: undefined });
+      }
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 0 }); await collect; }
+    expect(events.filter(event => event.type === "assistant_message_completed").map(event => event.text)).toEqual(["REPLY_0", "REPLY_1"]);
+  });
+
+  it("does not assign an old background failure to a successful new prompt", async () => {
+    const f = fixture();
+    try {
+      await f.lane.start({ text: "first" });
+      f.update({ sessionUpdate: "tool_call", toolCallId: "old", title: "run_command", status: "in_progress" });
+      await f.respond(f.prompts[0]!, { stopReason: "end_turn" });
+      await vi.waitFor(() => expect(endings(f.events)).toHaveLength(1));
+      await f.lane.send({ text: "new request", mode: "idle" });
+      vi.mocked(NativeExecutionReader.prototype.terminal).mockResolvedValue("failed");
+      f.update({ sessionUpdate: "tool_call_update", toolCallId: "old", status: "failed" });
+      await f.respond(f.prompts[1]!, { stopReason: "end_turn" });
+      await vi.waitFor(() => expect(endings(f.events)).toHaveLength(2));
+      expect(endings(f.events)[1]).toMatchObject({ outcome: "unknown", stopReason: "end_turn" });
+      expect(f.events.filter(event => event.kind === "error")).toHaveLength(0);
+    } finally { await f.lane.stop(); }
+  });
+
+  it("polls native own work, retains unknown on read failure and fences a read during stop", async () => {
+    const f = fixture();
+    const read = vi.fn<() => Promise<"idle" | "running" | "unknown">>().mockResolvedValue("idle");
+    const lane = new AgyAcpLane({ spawn: async () => ({ process: f.process }) }, f.ctx, { activityReader: { activity: read }, activityPollMs: 5 });
+    const events: AdapterEvent[] = [];
+    lane.on("runtime_event", event => events.push(event));
+    try {
+      await lane.start({ text: "first" });
+      await f.respond(f.prompts[0]!, { stopReason: "end_turn" });
+      await vi.waitFor(() => expect(endings(events)).toHaveLength(1));
+      read.mockResolvedValue("running");
+      await vi.waitFor(() => expect(events.filter(event => event.kind === "session_activity").at(-1)).toMatchObject({ observation: { status: "running" } }));
+      read.mockRejectedValue(new Error("private read failure"));
+      await vi.waitFor(() => expect(events.filter(event => event.kind === "session_activity").at(-1)).toMatchObject({ observation: { status: "unknown" } }));
+      read.mockResolvedValue("idle");
+      await vi.waitFor(() => expect(events.filter(event => event.kind === "session_activity").at(-1)).toMatchObject({ observation: { status: "idle" } }));
+      let release!: (status: "running") => void;
+      read.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+      await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+      const stop = lane.stop();
+      const before = events.length;
+      release("running");
+      await stop;
+      expect(events).toHaveLength(before);
+      expect(JSON.stringify(events)).not.toContain("private read failure");
+    } finally { await lane.stop(); }
+  });
+
+  it("does not extend the stop deadline when an advertised native close never answers", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ hangClose: true });
+    try {
+      await f.lane.start({ text: "first" });
+      const began = Date.now();
+      const stopped = f.lane.stop({ forceAfterMs: 40 });
+      expect(f.lane.stop({ forceAfterMs: 4000 })).toBe(stopped);
+      await vi.advanceTimersByTimeAsync(39);
+      expect(f.child.kill).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await stopped;
+      expect(Date.now() - began).toBe(40);
+      expect(f.child.kill).toHaveBeenCalledOnce();
+      expect(f.requests.filter(request => request.method === "session/close")).toHaveLength(1);
+    } finally { await f.lane.stop(); vi.useRealTimers(); }
   });
 
   it("runs busy steering and the next idle turn through the public SDK with one process", async () => {

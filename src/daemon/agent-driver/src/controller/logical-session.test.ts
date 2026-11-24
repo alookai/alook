@@ -2562,3 +2562,86 @@ it.each(["negative", "reject"] as const)("cleans a late %s physical admission af
   expect(observed.some(event => event.type === "command_accepted")).toBe(false);
   expect(await session.send({ id: "new", kind: "user", text: "later" })).toMatchObject({ status: "rejected", reason: "closed" });
 });
+
+
+describe("session activity independent of root execution", () => {
+  it("keeps a working snapshot without creating a root and accepts the next input normally", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "agy:test:1" };
+    lane.sendAdmission = { ok: true, acceptedAs: "prompt", receipt: "agy:test:2" };
+    const { session } = makeSession("agy", { lane });
+    const events: AgentEvent<BuiltinBackendSpecs, "agy">[] = [];
+    const collect = (async () => { for await (const event of session.events) events.push(event); })();
+    try {
+      await session.start({ id: "first", kind: "user", text: "first" });
+      lane.emit({ kind: "session_activity", observation: { status: "running", source: "native" } });
+      lane.emit({ kind: "turn_end", turnOwner: "agy:test:1", outcome: "success" });
+      expect(session.snapshot()).toMatchObject({ state: "working", activeTurn: undefined, activity: { status: "running" } });
+      await session.send({ id: "second", kind: "user", text: "second" });
+      const active = session.snapshot().activeTurn;
+      lane.emit({ kind: "tool_output", callId: "old", name: "background", output: "OLD_RESULT", attribution: { scope: "session" } });
+      lane.emit({ kind: "assistant_message_delta", text: "SESSION_REPLY", attribution: { scope: "session" } });
+      expect(session.snapshot().activeTurn).toEqual(active);
+      lane.emit({ kind: "session_activity", observation: { status: "unknown", source: "native" } });
+      lane.emit({ kind: "turn_end", turnOwner: "agy:test:2", outcome: "success" });
+      expect(session.snapshot()).toMatchObject({ state: "idle", activeTurn: undefined, activity: { status: "unknown" } });
+      lane.emit({ kind: "session_activity", observation: { status: "idle", source: "native" } });
+      expect(session.snapshot().state).toBe("idle");
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 0 }); await collect; }
+    expect(events.filter(event => event.type === "turn_started")).toHaveLength(2);
+    expect(events.filter(event => event.type === "turn_completed")).toHaveLength(2);
+    expect(events.filter(event => event.type === "tool_finished")).toHaveLength(0);
+    expect(events.filter(event => event.type === "activity")).toMatchObject([{ kind: "tool_output", output: "OLD_RESULT" }, { kind: "assistant_message_completed", text: "SESSION_REPLY" }]);
+    const count = events.length;
+    lane.emit({ kind: "session_activity", observation: { status: "running", source: "stale" } });
+    expect(events).toHaveLength(count);
+    expect(session.snapshot().state).toBe("closed");
+  });
+});
+
+describe("session content delivery without an idle observation", () => {
+  it("publishes late text within a bounded window while unknown and without opening another turn", async () => {
+    vi.useFakeTimers();
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const events: AgentEvent<BuiltinBackendSpecs, "claude">[] = [];
+    const collect = (async () => { for await (const event of session.events) events.push(event); })();
+    try {
+      await session.start({ id: "first", kind: "user", text: "first" });
+      lane.emit({ kind: "session_activity", observation: { status: "unknown", source: "native" } });
+      lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", outcome: "success" });
+      lane.emit({ kind: "assistant_message_delta", text: "LATE_REPLY", attribution: { scope: "session" } });
+      await vi.advanceTimersByTimeAsync(250);
+      lane.emit({ kind: "assistant_message_delta", text: "\nSECOND_LINE", attribution: { scope: "session" } });
+      await vi.advanceTimersByTimeAsync(249);
+      expect(events.filter(event => event.type === "activity")).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(events.filter(event => event.type === "activity")).toMatchObject([{ kind: "assistant_message_completed", text: "LATE_REPLY\nSECOND_LINE" }]);
+      expect(events.filter(event => event.type === "turn_started")).toHaveLength(1);
+      expect(events.filter(event => event.type === "turn_completed")).toHaveLength(1);
+      expect(events.filter(event => event.type === "session_activity")).toHaveLength(1);
+      expect(session.snapshot()).toMatchObject({ state: "idle", activeTurn: undefined, activity: { status: "unknown" } });
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 0 }); await collect; vi.useRealTimers(); }
+    expect(events.filter(event => event.type === "activity")).toHaveLength(1);
+  });
+});
+
+
+it("flushes a pending session fragment once when close arrives before its delivery window", async () => {
+  vi.useFakeTimers();
+  const lane = new ControlledRuntimeLane();
+  const { session } = makeSession("claude", { lane });
+  const events: AgentEvent<BuiltinBackendSpecs, "claude">[] = [];
+  const collect = (async () => { for await (const event of session.events) events.push(event); })();
+  try {
+    await session.start({ id: "one", kind: "user", text: "one" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", outcome: "success" });
+    lane.emit({ kind: "assistant_message_delta", text: "LAST_FRAGMENT", attribution: { scope: "session" } });
+    await vi.advanceTimersByTimeAsync(499);
+    await session.stop({ reason: "shutdown", forceAfterMs: 0 });
+    await collect;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(events.filter(event => event.type === "activity")).toMatchObject([{ text: "LAST_FRAGMENT" }]);
+    expect(events.filter(event => event.type === "session_closed")).toHaveLength(1);
+  } finally { await session.stop({ reason: "shutdown", forceAfterMs: 0 }); vi.useRealTimers(); }
+});

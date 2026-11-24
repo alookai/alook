@@ -167,6 +167,7 @@ export function projectDaemonLogRow(value: unknown, targetAgentId: string): Reco
 }
 
 const CURRENT_MANAGER_EVENTS = {
+  session_activity: "include",
   register: "include",
   wake: "include",
   spawned: "include",

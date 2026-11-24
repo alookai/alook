@@ -217,6 +217,10 @@ implements AgentSession<Specs, Id> {
   readonly closed: Promise<AgentSessionResult>;
 
   private state: SessionState = "new";
+  private activity?: import("../contract.js").SessionActivityObservation;
+  private sessionMessage = emptySemanticAssembler();
+  private sessionReasoning = emptySemanticAssembler();
+  private sessionContentTimer?: ReturnType<typeof setTimeout>;
   private backendSessionId?: string;
   private acquisition?: SessionAcquisition;
   private configuration?: RuntimeConfigurationObservation;
@@ -447,11 +451,12 @@ implements AgentSession<Specs, Id> {
 
   snapshot(): AgentSessionSnapshot {
     return {
+      ...(this.activity ? { activity: this.activity } : {}),
       ...(this.acquisition ? { acquisition: this.acquisition } : {}),
       ...(this.configuration ? { configuration: this.configuration } : {}),
       ...(this.observedModel ? { observedModel: { ...this.observedModel } } : {}),
       sessionInstanceId: this.sessionInstanceId,
-      state: this.state,
+      state: this.state === "idle" && this.activity && this.activity.status === "running" ? "working" : this.state,
       backendSessionId: this.backendSessionId,
       activeTurn: this.activeTurn
         ? { turnId: this.activeTurn.turnId, commandIds: this.activeTurn.commandIds }
@@ -809,6 +814,12 @@ implements AgentSession<Specs, Id> {
   ): void {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
     if (this.isClosedPerTurnLaneTail(physicalOwner, generation)) return;
+    if (event.kind === "session_activity") {
+      if (event.observation.status === "idle") this.flushSessionContent();
+      this.activity = event.observation;
+      this.emit({ type: "session_activity", observation: event.observation });
+      return;
+    }
     const observation = event.kind === "model_observed"
       ? modelObservation(event.observation.model, event.observation.source, event.observation.provider, event.observation.responseId)
       : event.kind === "configuration_observed" && event.observation.evidence === "observed" && event.observation.effective === "current"
@@ -818,12 +829,24 @@ implements AgentSession<Specs, Id> {
       ...(this.activeTurn ? { turnId: this.activeTurn.turnId } : {}),
     });
     if (event.kind === "model_observed") return;
-    if (event.attribution?.scope === "child" || event.attribution?.scope === "unknown") {
+    if (event.attribution?.scope === "session" && (event.kind === "assistant_message_delta" || event.kind === "assistant_reasoning_delta")) {
+      appendSemanticFragment(event.kind === "assistant_message_delta" ? this.sessionMessage : this.sessionReasoning, event.text);
+      if (event.text && !this.sessionContentTimer) {
+        this.sessionContentTimer = setTimeout(() => {
+          this.sessionContentTimer = undefined;
+          if (this.state !== "closed" && this.state !== "stopping") this.flushSessionContent();
+        }, 500);
+        this.sessionContentTimer.unref?.();
+      }
+      return;
+    }
+    if (event.attribution?.scope === "child" || event.attribution?.scope === "unknown" || event.attribution?.scope === "session") {
       this.emit({
         type: "activity", attribution: event.attribution, kind: event.kind === "internal_progress" ? event.itemType ?? event.kind : event.kind,
         ...("text" in event ? { text: boundedSemanticCompletion(event.text).text } : {}),
         ...("callId" in event ? { callId: event.callId } : {}),
         ...("name" in event ? { name: event.name } : {}),
+        ...("input" in event ? { input: jsonValue(event.input) } : {}),
         ...("outcome" in event ? { outcome: event.outcome } : {}),
         ...("output" in event ? { output: jsonValue(event.output) } : {}),
       });
@@ -1037,9 +1060,21 @@ implements AgentSession<Specs, Id> {
             this.emit({ type: "assistant_message_completed", turnId, ...message });
           }
         }
+        this.flushSessionContent();
         this.completeTurn(event.sessionId, physicalOwner, generation, event.turnOwner);
         return;
     }
+  }
+
+  private flushSessionContent(): void {
+    if (this.sessionContentTimer) clearTimeout(this.sessionContentTimer);
+    this.sessionContentTimer = undefined;
+    for (const [kind, buffer] of [["assistant_reasoning_completed", this.sessionReasoning], ["assistant_message_completed", this.sessionMessage]] as const) {
+      const completion = finishSemanticAssembler(buffer);
+      if (completion.text) this.emit({ type: "activity", attribution: { scope: "session" }, kind, ...completion });
+    }
+    this.sessionMessage = emptySemanticAssembler();
+    this.sessionReasoning = emptySemanticAssembler();
   }
 
   private isClosedPerTurnLaneTail(
@@ -1680,6 +1715,7 @@ implements AgentSession<Specs, Id> {
           : this.laneCleanupFailure ?? hostCleanup;
         const result = buildResult(cleanup);
         this.terminalResult = result;
+        this.flushSessionContent();
         this.state = "closed";
         this.emit({ type: "session_closed", result });
         this.eventQueue.close();

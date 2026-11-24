@@ -1586,3 +1586,34 @@ describe("root execution lease — session epoch fences", () => {
     });
   });
 });
+
+
+describe("native session activity without a root lease", () => {
+  it("cancels an existing idle deadline, survives unknown and starts a fresh idle clock after recovery", () => {
+    let state = register(createInitialManagerState(10_000, 100, 150), "a", PERSISTENT_GATED);
+    state = reduceManager(state, { type: "wake", agentId: "a", message: { text: "start" }, nowMs: 0 }).state;
+    state = spawnRoot(state, 0);
+    state = completeRoot(state, "turn-a", 10).state;
+    const observe = (status: "running" | "idle" | "unknown", nowMs: number, epoch = SESSION_INSTANCE) => {
+      state = reduceManager(state, { type: "session_activity", agentId: "a", sessionInstanceId: epoch, observation: { status, source: "native" }, nowMs }).state;
+    };
+    observe("running", 50);
+    expect(state.agents.a).toMatchObject({ turnActive: false, idleSince: null });
+    expect(isActivelyWorking(state.agents.a!)).toBe(true);
+    expect(reduceManager(state, { type: "tick", nowMs: 500 }).effects).toEqual([]);
+    observe("unknown", 600);
+    expect(isActivelyWorking(state.agents.a!)).toBe(false);
+    expect(reduceManager(state, { type: "tick", nowMs: 5_000 }).effects).toEqual([]);
+    observe("idle", 5_001);
+    expect(isActivelyWorking(state.agents.a!)).toBe(false);
+    expect(state.agents.a?.idleSince).toBe(5_001);
+    expect(reduceManager(state, { type: "tick", nowMs: 5_050 }).effects).toEqual([]);
+    expect(reduceManager(state, { type: "tick", nowMs: 5_102 }).effects).toEqual([{ type: "stop", agentId: "a", reason: "idle_timeout" }]);
+    const before = state;
+    observe("running", 5_200, "old-session");
+    expect(state).toBe(before);
+    state = reduceManager(state, { type: "session_closed", agentId: "a", sessionInstanceId: SESSION_INSTANCE }).state;
+    observe("running", 5_201);
+    expect(state.agents.a?.sessionActivity).toBeUndefined();
+  });
+});

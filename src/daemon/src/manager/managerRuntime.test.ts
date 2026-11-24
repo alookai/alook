@@ -6542,3 +6542,31 @@ describe("local commit reset authority", () => {
     await mgr.stopAll();
   });
 });
+
+describe("native background session activity", () => {
+  it("protects a completed root from idle stop and publishes complete session replies through the existing audit hook", async () => {
+    const audit = vi.fn();
+    const { mgr, session } = makeManager({ tickIntervalMs: 5, idleTimeoutMs: 20, onBotAuditEvent: audit });
+    const stop = vi.spyOn(session, "stop");
+    mgr.start();
+    try {
+      mgr.deliver("a1", { id: "first", text: "first" });
+      session.startResolver?.();
+      await vi.waitFor(() => expect(mgr.snapshot().agents.a1.turnActive).toBe(true));
+      await session.pushAgentEvent({ type: "session_activity", observation: { status: "running", source: "native" } });
+      await session.fire("runtime_event", { kind: "turn_end" });
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(mgr.agentActivity("a1")).toBe("running");
+      expect(mgr.snapshot().agents.a1.turnActive).toBe(false);
+      expect(stop).not.toHaveBeenCalled();
+      await session.pushAgentEvent({ type: "activity", attribution: { scope: "session" }, kind: "assistant_message_completed", text: "COMPLETE_REPLY\nSECOND_LINE", truncated: false });
+      expect(audit.mock.calls.filter(([, event]) => event.kind === "text").map(([, event]) => event.payload.text)).toEqual(["COMPLETE_REPLY\nSECOND_LINE"]);
+      await session.pushAgentEvent({ type: "session_activity", observation: { status: "unknown", source: "native" } });
+      expect(mgr.agentActivity("a1")).toBe("idle");
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(stop).not.toHaveBeenCalled();
+      await session.pushAgentEvent({ type: "session_activity", observation: { status: "idle", source: "native" } });
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    } finally { await mgr.stopAll(); }
+  });
+});
