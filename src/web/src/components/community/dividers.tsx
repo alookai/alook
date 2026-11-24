@@ -12,10 +12,9 @@ export function DateDivider({ label }: { label: string }) {
 }
 
 export function NewDivider({ dateLabel }: { dateLabel?: string }) {
-  // `data-new-divider` lets `useScrollAnchor`'s mount effect center on this
-  // element itself via `querySelector`, instead of the whole message row
-  // (date divider + full message content) that used to be the only
-  // `[data-msg-id]`-selectable target — see use-scroll-anchor.ts.
+  // `data-new-divider` lets `useConversationScroll` locate this element via
+  // `querySelector` instead of relying on `[data-msg-id]` — see
+  // use-conversation-scroll.ts.
   // When the unread boundary lands on the first message of a new day, the
   // date label merges onto the same red line (centered) instead of rendering
   // a separate date-divider row above it.

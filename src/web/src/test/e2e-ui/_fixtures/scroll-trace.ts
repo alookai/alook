@@ -440,7 +440,7 @@ export function validateScrollTrace(result: ScrollTraceResult): string[] {
 export function inferWriterOwner(write: ScrollTraceWrite): string {
   const stack = write.stack.toLowerCase()
   if (stack.includes("virtual-core") || stack.includes("tanstack")) return "tanstack-virtual"
-  if (stack.includes("use-scroll-anchor")) return "scroll-anchor"
+  if (stack.includes("use-scroll-anchor") || stack.includes("use-conversation-scroll")) return "scroll-anchor"
   if (stack.includes("message-list-controller")) return "selection-clearance"
   if (stack.includes("scroll-trace")) return "test-stimulus"
   return `unknown:${write.fingerprint}`

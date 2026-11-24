@@ -9,7 +9,7 @@ export const GOOGLE_ADS_SIGNUP_FRAME_ID = "alook-ads-signup"
 
 export type AnalyticsConsentDecision = "granted" | "denied"
 
-export const isPublicAnalyticsPath = (path: string) => /^\/(?:download|pricing|contact|privacy|terms|tutorials(?:\/[^/]+)?|usecases(?:\/[^/]+)?|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
+export const isPublicAnalyticsPath = (path: string) => /^\/(?:download|pricing|contact|privacy|terms|compare(?:\/[^/]+)?|agents(?:\/[^/]+)?|tutorials(?:\/[^/]+)?|usecases(?:\/[^/]+)?|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
 
 const adsScriptId = "alook-google-ads"
 const clickKeys = ["gclid", "gbraid", "wbraid", "gad_source"]

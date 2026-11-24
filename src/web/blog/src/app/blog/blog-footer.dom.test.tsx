@@ -13,7 +13,7 @@ describe("Blog footer", () => {
     expect(doc.querySelectorAll("footer")).toHaveLength(1);
     expect(doc.querySelector("main footer")).toBeNull();
     expect(doc.querySelector("main")?.nextElementSibling?.tagName).toBe("FOOTER");
-    expect([...doc.querySelectorAll("footer nav a")].map((a) => a.getAttribute("href"))).toEqual(["/download", "/pricing", "/blog", "/contact", "/usecases"]);
+    expect([...doc.querySelectorAll("footer nav a")].map((a) => a.getAttribute("href"))).toEqual(["/usecases", "/download", "/pricing", "/blog", "/compare", "/contact"]);
     expect(doc.querySelector("footer")?.textContent).toContain("MEMODB PTE. LTD.");
     expect(doc.querySelector("a[aria-label=Discord]")?.getAttribute("href")).toBe("https://discord.com/invite/24PHyEHU3M");
     expect(doc.querySelectorAll('[aria-label="Alook social links"] a')).toHaveLength(3);

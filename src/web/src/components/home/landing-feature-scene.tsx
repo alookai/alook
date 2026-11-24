@@ -1,7 +1,9 @@
 "use client"
 
+import Link from "next/link"
 import { lazy, useRef, type PointerEvent as ReactPointerEvent } from "react"
 import { RuntimeBadge } from "@/components/community/machines/machine-runtimes"
+import { AGENT_RUNTIME_PAGES } from "@/lib/agents"
 import { tid } from "@/lib/community/testids"
 import { LandingReachMotion } from "./landing-reach-motion"
 const LandingShellMotion = lazy(() => import("./landing-shell-motion").then(module => ({ default: module.LandingShellMotion })))
@@ -44,7 +46,22 @@ function RuntimeBadges() {
       aria-label="Supported local runtimes"
       data-testid="landing-runtime-badges"
     >
-      {LANDING_PROVIDERS.map((provider) => <RuntimeBadge key={provider.id} id={provider.id} label={provider.label} />)}
+      {LANDING_PROVIDERS.map((provider) => {
+        const agentPage = AGENT_RUNTIME_PAGES.find((page) => page.providerId === provider.id)
+        if (!agentPage) {
+          return <RuntimeBadge key={provider.id} id={provider.id} label={provider.label} />
+        }
+        return (
+          <Link
+            key={provider.id}
+            href={`/agents/${agentPage.slug}`}
+            className={galleryStyles.runtimeBadgeLink}
+            aria-label={`${provider.label} agent integration`}
+          >
+            <RuntimeBadge id={provider.id} label={provider.label} />
+          </Link>
+        )
+      })}
     </div>
   )
 }

@@ -77,11 +77,35 @@
   font-size: 16px;
   line-height: 1.5;
 }
-.copy .cta {
+.copyActions {
   margin-top: 24px;
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  padding: 12px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.secondaryLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  color: var(--gallery-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: color-mix(in oklab, var(--gallery-ink) 45%, transparent);
+  transition: opacity 150ms ease, text-decoration-color 150ms ease;
+}
+.secondaryLink:hover {
+  opacity: 0.8;
+  text-decoration-color: var(--gallery-ink);
+}
+.secondaryLink:focus-visible {
+  outline: 2px solid var(--gallery-ink);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 .stage {
   min-width: 0;
@@ -115,6 +139,20 @@
   flex-wrap: wrap;
   gap: 10px;
 }
+.runtimeBadgeLink {
+  display: inline-flex;
+  border-radius: 9999px;
+  text-decoration: none;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+.runtimeBadgeLink:hover {
+  transform: translateY(-1px);
+  opacity: 0.92;
+}
+.runtimeBadgeLink:focus-visible {
+  outline: 2px solid var(--gallery-ink);
+  outline-offset: 2px;
+}
 @media (max-width: 639px) {
   .section {
     padding: var(--landing-section-space, 96px) 24px;
@@ -141,7 +179,7 @@
     max-width: 100%;
     font-size: 14px;
   }
-  .copy .cta {
+  .copyActions {
     margin-top: 16px;
   }
 }

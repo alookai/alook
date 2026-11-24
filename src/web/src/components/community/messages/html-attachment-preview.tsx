@@ -47,9 +47,10 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
   useEffect(() => {
     const element = root.current
     if (mounted || !element || !window.IntersectionObserver) return
+    const scrollRoot = element.closest("[data-message-list-content]")?.parentElement ?? null
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) { setMounted(true); observer.disconnect() }
-    }, { rootMargin: "200px" })
+    }, { root: scrollRoot, rootMargin: "200px" })
     observer.observe(element)
     return () => observer.disconnect()
   }, [mounted])

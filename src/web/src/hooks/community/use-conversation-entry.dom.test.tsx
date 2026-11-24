@@ -28,9 +28,7 @@ import { useChannelMetadata } from "./use-channel-metadata"
 import { useDmMessages, useMessages } from "./use-messages"
 import { useForumFeed } from "./use-forum-feed"
 import { useMessageListController } from "@/components/community/messages/message-list-controller"
-import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
-import type { FlatItem } from "@/lib/community/message-list-items"
 import { renderMessageListRow } from "@/components/community/messages/message-list-row"
 import { confirmReadSurface, disposeReadCoordinator, getReadCoordinator, registerReadSurface, releaseReadSurface, submitReadIntentGeneration } from "./read-coordinator"
 import { disposeAccountReadStateReconciliation } from "./community-ws/read-state-reconciliation"
@@ -875,17 +873,17 @@ describe("conversation entry return during accepted reading", () => {
       latest = { feed, controller, newDividerBefore }
       return createElement("div", { "data-slot": "community-conversation-surface" },
         createElement("div", { ref: controller.scrollRef, "data-testid": "community-message-scroller" },
-          createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(controller.readPositionReady) },
-            createElement(VirtualRows<FlatItem>, {
-              items: controller.items, virtualizer: controller.virtualizer, reactLayout: true,
-              onLayoutCommit: controller.onRowsLayoutCommit,
-              renderItem: (item) => item.kind === "leading" ? renderMessageListRow(item, props, controller) : createElement("div", {
-                "data-message-row-key": item.key, "data-fixture-kind": item.kind,
-                "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
-                "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
-              }, item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id }) :
-                item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null),
-            }))),
+          createElement("div", { "data-message-list-content": "", className: "flex min-h-full flex-col", "data-read-position-ready": String(controller.readPositionReady) },
+            createElement("div", { "data-message-rows": "", className: "mt-auto flex w-full flex-col", style: { paddingBottom: controller.tailPaddingEnd } },
+              controller.items.map((item, index) => createElement("div", { key: item.key, "data-index": index, className: "w-full" },
+                item.kind === "leading" ? renderMessageListRow(item, props, controller) : createElement("div", {
+                  "data-message-row-key": item.key, "data-fixture-kind": item.kind,
+                  "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
+                  "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
+                }, item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id }) :
+                  item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null),
+              )),
+            ))),
         createElement("div", { "data-slot": "community-conversation-footer" }))
     }
     const view = render(createElement(EntryList), { wrapper: owner.wrapper })
@@ -1030,18 +1028,14 @@ describe("conversation entry return during accepted reading", () => {
     const capture = () => {
       if (!view) return
       const { feed, controller } = view.latest
-      const native = controller.virtualizer, root = view.root
+      const root = view.root
       const body = root.querySelector<HTMLElement>('[data-msg-id="m42"]')?.getBoundingClientRect()
       phases.push({ phase, scrollTop: root.scrollTop, scrollHeight: root.scrollHeight, clientHeight: root.clientHeight,
-        nativeOffset: native.scrollOffset, total: native.getTotalSize(), anchorTo: native.options.anchorTo,
-        followOnAppend: native.options.followOnAppend,
         readReady: controller.readPositionReady, contentVisible: controller.initialPosition.contentVisible,
         positionDataState: feed.positionDataState, initialDisplayReady: feed.initialDisplayReady,
         initialPositionKnown: feed.initialPositionKnown, initialTarget: feed.initialPositionMessageId,
         first: feed.messages[0]?.id, last: feed.messages.at(-1)?.id, hasMoreOlder: feed.hasMoreOlder, hasMoreNewer: feed.hasMoreNewer,
-        visibleTail: view.visible("m42"), tailRect: body ? { top: body.top, bottom: body.bottom, height: body.height } : null,
-        leading: { ...native.measurementsCache[0] }, leadingCachedSize: native.itemSizeCache.get(native.options.getItemKey(0)) ?? null,
-        virtualFirst: native.getVirtualItems()[0], virtualLast: native.getVirtualItems().at(-1) })
+        visibleTail: view.visible("m42"), tailRect: body ? { top: body.top, bottom: body.bottom, height: body.height } : null })
     }
     try {
       const originalScrollTo = HTMLElement.prototype.scrollTo
@@ -1061,14 +1055,6 @@ describe("conversation entry return during accepted reading", () => {
       load.mockImplementation((url: string, options: unknown) => url.includes("/messages?entry=1") ? entryRead.promise : originalLoad(url, options))
       view = mountReadingEntry(owner)
       capture()
-      const native = view.latest.controller.virtualizer
-      const setOptions = native.setOptions
-      vi.spyOn(native, "setOptions").mockImplementation(options => {
-        const before = { count: native.options.count, lastKey: native.options.getItemKey(native.options.count - 1), offset: native.scrollOffset }
-        setOptions(options)
-        optionsTimeline.push({ phase, before, nextCount: options.count, nextLastKey: native.options.getItemKey(native.options.count - 1),
-          anchorTo: options.anchorTo, followOnAppend: options.followOnAppend, afterOffset: native.scrollOffset })
-      })
       expect(view.latest.feed.initialPositionKnown).toBe(false)
       expect(view.latest.feed.initialPositionMessageId).toBeNull()
       expect(view.latest.controller.readPositionReady).toBe(false)

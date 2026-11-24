@@ -347,6 +347,55 @@ describe("focused message reconnect catch-up", () => {
     }
   })
 
+  it("lets an in-flight older page settle during initial authentication reconcile without aborting or replaying it", async () => {
+    const { client } = await createCommunityQueryOwner("a")
+    const key = communityKeys.dmMessages("dm_initial_older")
+    let olderCalls = 0
+    const olderSignals: AbortSignal[] = []
+    let releaseOlder!: (page: ReturnType<typeof messageReadPageFixture>) => void
+    const newest = messageReadPageFixture({
+      messages: messageSeedFixture("dm_initial_older", [{ id: "m_2", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }]),
+      latestSeq: 2,
+      hasMore: true,
+      cursor: "older-2",
+    })
+    const observer = new InfiniteQueryObserver(client, {
+      queryKey: key,
+      queryFn: async ({ pageParam, signal }) => {
+        if (pageParam.mode === "newest") return newest
+        olderCalls += 1
+        olderSignals.push(signal)
+        return new Promise<ReturnType<typeof messageReadPageFixture>>((resolve) => {
+          releaseOlder = resolve
+        })
+      },
+      initialPageParam: { mode: "newest" as const },
+      getNextPageParam: (last) => last.hasMore ? { mode: "older" as const } : undefined,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    try {
+      await vi.waitFor(() => expect(observer.getCurrentResult().isSuccess).toBe(true))
+      const pendingOlder = observer.fetchNextPage()
+      await vi.waitFor(() => expect(olderCalls).toBe(1))
+      apiFetchMock.mockResolvedValueOnce(newest)
+      const initialAuth = reconcileFocusedMessageQueries(client, "dm", "dm_initial_older", undefined, "newest")
+      await Promise.resolve()
+      expect(olderSignals[0]?.aborted).toBe(false)
+      releaseOlder(messageReadPageFixture({
+        messages: messageSeedFixture("dm_initial_older", [{ id: "m_1", seq: 1, createdAt: "2026-08-15T00:00:01.000Z" }]),
+        latestSeq: 2,
+        hasMore: false,
+      }))
+      await Promise.all([pendingOlder, initialAuth])
+      expect(olderSignals[0]?.aborted).toBe(false)
+      expect(olderCalls).toBe(1)
+      expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages.flatMap((page) => page.messages.map((message) => message.id))).toEqual(["m_2", "m_1"])
+    } finally {
+      unsubscribe()
+      client.clear()
+    }
+  })
+
   it("propagates one shared non-cancellation failure to both callers and retains a usable retry", async () => {
     const { client, registry } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("shared-failure")

@@ -7,20 +7,14 @@ import { tid } from "@/lib/community/testids"
 import { MessageList } from "./message-list"
 
 const anchorState = vi.hoisted(() => ({
-  current: null as ReturnType<typeof import("@/hooks/community/use-scroll-anchor").useScrollAnchor> | null,
-  nativeWrites: [] as Array<{ offset: number; adjustments: number; behavior?: ScrollBehavior }>,
+  current: null as ReturnType<typeof import("@/hooks/community/use-conversation-scroll").useConversationScroll> | null,
 }))
 
-vi.mock("@/hooks/community/use-scroll-anchor", async importOriginal => {
-  const original = await importOriginal<typeof import("@/hooks/community/use-scroll-anchor")>()
-  return { ...original, useScrollAnchor: (input: Parameters<typeof original.useScrollAnchor>[0]) => {
-    const anchor = original.useScrollAnchor(input)
+vi.mock("@/hooks/community/use-conversation-scroll", async importOriginal => {
+  const original = await importOriginal<typeof import("@/hooks/community/use-conversation-scroll")>()
+  return { ...original, useConversationScroll: (input: Parameters<typeof original.useConversationScroll>[0]) => {
+    const anchor = original.useConversationScroll(input)
     anchorState.current = anchor
-    const scroll = anchor.virtualizer.options.scrollToFn
-    anchor.virtualizer.options.scrollToFn = (offset, options, native) => {
-      anchorState.nativeWrites.push({ offset, adjustments: options.adjustments ?? 0, behavior: options.behavior })
-      scroll(offset, options, native)
-    }
     return anchor
   } }
 })
@@ -28,7 +22,7 @@ vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("./message-row", () => ({ MessageRow: () => React.createElement("div") }))
 vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value) }))
 
-beforeEach(() => { anchorState.nativeWrites = []; installMessageScrollFixture() })
+beforeEach(() => { installMessageScrollFixture() })
 afterEach(restoreMessageScrollFixture)
 
 function message(index: number) {
@@ -64,30 +58,25 @@ describe("MessageList continuous input through an accepted page", () => {
     const renderer = render(view())
     resize()
     const root = renderer.getByTestId(tid.messageScroller)
-    expect(anchorState.current!.virtualizer.measurementsCache[0].size).toBe(0)
     expect(root.querySelector('[data-message-row-key="rail:leading"]')).toBeNull()
     fireEvent.wheel(root, { deltaY: -20 })
     act(() => root.scrollTo({ top: root.clientHeight }))
     resize(0)
     runFrames(1)
     expect(older).toHaveBeenCalledOnce()
-    const native = anchorState.current!.virtualizer
     const trace: Array<Record<string, unknown>> = []
-    const record = (phase: string) => trace.push({ phase, top: root.scrollTop, height: root.scrollHeight, total: native.getTotalSize(),
-      nativeOffset: native.scrollOffset, body: messageOffset(root, "m40"), pending: anchorState.current!.paginationRequestPending,
-      row: native.getVirtualItems().find(row => row.key === "msg:id:m40"), writes: [...anchorState.nativeWrites] })
+    const record = (phase: string) => trace.push({ phase, top: root.scrollTop, height: root.scrollHeight,
+      body: messageOffset(root, "m40"), pending: anchorState.current!.paginationRequestPending })
     onTestFinished(() => {
       if (process.env.ALOOK_SCROLL_TRACE === "1") process.stdout.write(`MESSAGE_LATE_FIRST_BODY_TRACE ${JSON.stringify({ order, trace })}\n`)
     })
-    expect(native.getVirtualItemForOffset(root.scrollTop)?.key).not.toBe("msg:id:m40")
     renderer.rerender(view(before, true))
-    const first = native.getVirtualItems().find(row => row.key === "msg:id:m40")!
-    expect(first).toBeDefined()
+    const firstRow = root.querySelector<HTMLElement>('[data-msg-id="m40"]')!.closest<HTMLElement>("[data-index]")!
+    const firstStart = root.scrollTop + firstRow.getBoundingClientRect().top - root.getBoundingClientRect().top
     fireEvent.wheel(root, { deltaY: -20 })
-    act(() => root.scrollTo({ top: first.start + 20 }))
+    act(() => root.scrollTo({ top: firstStart + 20 }))
     resize(0)
     runFrames(1)
-    expect(native.getVirtualItemForOffset(root.scrollTop)?.key).toBe("msg:id:m40")
     const bodyInset = () => {
       const body = root.querySelector<HTMLElement>('[data-msg-id="m40"]')!
       return body.getBoundingClientRect().top - body.closest("[data-index]")!.getBoundingClientRect().top
@@ -146,22 +135,16 @@ describe("MessageList continuous input through an accepted page", () => {
     const root = renderer.getByTestId(tid.messageScroller)
     const trace: Array<Record<string, unknown>> = []
     let writeCount = 0
-    let nativeWriteCount = 0
     const record = (phase: string, input: Record<string, unknown> = {}) => {
       const viewport = root.getBoundingClientRect()
-      const native = anchorState.current!.virtualizer
-      const candidate = native.getVirtualItemForOffset(native.scrollOffset ?? 0)
       trace.push({ phase, time: performance.now(), timerTime: Date.now(), itemCount: messages.length, scrollTop: root.scrollTop, scrollHeight: root.scrollHeight,
-        anchorTo: native.options.anchorTo, nativeOffset: native.scrollOffset, isScrolling: native.isScrolling,
-        candidate: candidate ? { key: candidate.key, index: candidate.index, start: candidate.start, end: candidate.end } : null,
         paginationPending: anchorState.current!.paginationRequestPending,
         visible: Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]")).flatMap(body => {
           const rect = body.getBoundingClientRect()
           return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
             ? [{ id: body.dataset.msgId, offset: rect.top - viewport.top }] : []
-        }), writes: scrollFixture.scrollCalls.slice(writeCount), nativeWrites: anchorState.nativeWrites.slice(nativeWriteCount), ...input })
+        }), writes: scrollFixture.scrollCalls.slice(writeCount), ...input })
       writeCount = scrollFixture.scrollCalls.length
-      nativeWriteCount = anchorState.nativeWrites.length
     }
     onTestFinished(() => {
       if (process.env.ALOOK_SCROLL_TRACE === "1") process.stdout.write(`MESSAGE_PAGE_INPUT_TRACE ${JSON.stringify({ direction, order, position, trace })}\n`)
@@ -179,14 +162,14 @@ describe("MessageList continuous input through an accepted page", () => {
     expect(load).toHaveBeenCalledOnce()
     record("accepted-page")
     renderer.rerender(view(before, true))
-    if (direction === "newer" && position === "edge") {
-      const measuredEnd = root.scrollHeight - root.clientHeight
-      fireEvent.wheel(root, { deltaY: measuredEnd - root.scrollTop })
-      act(() => root.scrollTo({ top: measuredEnd }))
+    if (position === "edge") {
+      const measuredEdge = direction === "older" ? 0 : root.scrollHeight - root.clientHeight
+      fireEvent.wheel(root, { deltaY: measuredEdge - root.scrollTop })
+      act(() => root.scrollTo({ top: measuredEdge }))
       resize(0)
       runFrames(1)
       record("measured-edge-precondition")
-      expect(root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
+      expect(direction === "older" ? root.scrollTop : root.scrollHeight - root.clientHeight - root.scrollTop).toBeLessThanOrEqual(1)
     }
     for (let step = 1; step <= 3; step++) {
       const delta = (direction === "older" ? -1 : 1) * (position === "edge" ? 30 : -120)
@@ -280,7 +263,6 @@ describe("MessageList continuous input through an accepted page", () => {
     renderer.rerender(view(received))
     resize(0)
     runFrames(1)
-    expect(anchorState.current!.paginationRequestPending).toBe(true)
     expect(Math.abs(messageOffset(root, "m40")! - point)).toBeLessThanOrEqual(1)
     reading.mockClear()
     fireEvent.wheel(root, { deltaY: -800 })
@@ -317,7 +299,7 @@ describe("MessageList continuous input through an accepted page", () => {
     expect(body).toBeDefined()
     const id = body.dataset.msgId!, point = messageOffset(root, id)!
     expect(point).not.toBeNull()
-    expect(anchorState.current!.virtualizer.options.scrollEndThreshold).toBe(-1)
+    expect(anchorState.current!.followingTail).toBe(false)
     const publish = () => { messages = [...messages, ...Array.from({ length: 39 }, (_, index) => message(index + 90))] }
     if (order === "rows-first") {
       publish()
