@@ -30,8 +30,31 @@ let scrollDescriptor: PropertyDescriptor | undefined
 let domMetricsObserver: MutationObserver | null = null
 
 const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"], [data-testid="community-forum-post-list"]'
-function isScrollRoot(node: HTMLElement) { return node.matches(ROOT_SELECTOR) }
-function rootFor(node: HTMLElement) { return node.closest<HTMLElement>(ROOT_SELECTOR) }
+function isScrollRoot(node: HTMLElement) {
+  const testId = node.getAttribute("data-testid")
+  return testId === "scroll" || testId === "community-message-scroller" || testId === "community-forum-post-list"
+}
+function findNativeRows(root: HTMLElement): HTMLElement | null {
+  const content = root.firstElementChild as HTMLElement | null
+  const rows = content?.firstElementChild as HTMLElement | null
+  if (rows?.hasAttribute("data-message-rows")) return rows
+  return root.querySelector<HTMLElement>("[data-message-rows]")
+}
+let cachedRootsVersion = -1
+let cachedScrollRoots: HTMLElement[] = []
+function currentScrollRoots(): HTMLElement[] {
+  if (cachedRootsVersion !== metricsCacheVersion) {
+    cachedScrollRoots = Array.from(document.querySelectorAll<HTMLElement>(ROOT_SELECTOR))
+    cachedRootsVersion = metricsCacheVersion
+  }
+  return cachedScrollRoots
+}
+function rootFor(node: HTMLElement) {
+  for (let cur: HTMLElement | null = node; cur; cur = cur.parentElement) {
+    if (isScrollRoot(cur)) return cur
+  }
+  return null
+}
 function deliverScrollEvents() {
   for (const root of pendingScrollEvents) {
     if (root.isConnected) root.dispatchEvent(new Event("scroll"))
@@ -39,14 +62,26 @@ function deliverScrollEvents() {
   pendingScrollEvents.clear()
 }
 function measureRowWrapper(wrapper: HTMLElement) {
-  const content = wrapper.querySelector<HTMLElement>("[data-msg-id]")
-  const actualRow = wrapper.querySelector<HTMLElement>("[data-message-row-key]")
+  const first = wrapper.firstElementChild as HTMLElement | null
+  const actualRow = first?.hasAttribute("data-message-row-key")
+    ? first
+    : wrapper.querySelector<HTMLElement>("[data-message-row-key]")
+  const inner = actualRow?.firstElementChild as HTMLElement | null
+  const content = inner?.hasAttribute("data-msg-id")
+    ? inner
+    : actualRow
+      ? (actualRow.dataset.fixtureKind === "message" || !actualRow.dataset.fixtureKind
+        ? (actualRow.dataset.messageRowKey?.startsWith("rail:") || actualRow.dataset.messageRowKey?.startsWith("date:") || actualRow.dataset.messageRowKey?.startsWith("new:") || actualRow.dataset.messageRowKey?.startsWith("divider:")
+          ? null
+          : wrapper.querySelector<HTMLElement>("[data-msg-id]"))
+        : null)
+      : wrapper.querySelector<HTMLElement>("[data-msg-id]")
   if (!content && !actualRow) return { size: 0, decoration: 0, topPadding: 0, bottomPadding: 0, total: 0 }
   const size = content ? bodyHeights.get(content.dataset.msgId!) ?? 100 : 0
   const key = actualRow?.dataset.messageRowKey
   const kind = actualRow?.dataset.fixtureKind ?? (key === "rail:leading" ? "leading" : key === "rail:trailing" ? "trailing"
     : key?.startsWith("date:") || key?.startsWith("new:") ? "divider" : "message")
-  const hasDate = actualRow?.dataset.fixtureDate === "true" || !!actualRow?.querySelector("span.text-xs")
+  const hasDate = kind === "divider" && (actualRow?.dataset.fixtureDate === "true" || !!actualRow?.querySelector("span.text-xs"))
   const decoration = kind === "leading" ? firstPrefix : kind === "trailing" ? 56
     : kind === "divider" ? hasDate ? 32 : 24 : 0
   const padding = kind === "message" ? (actualRow?.style.paddingBlock ?? "").split(/\s+/).map(Number.parseFloat) : [0]
@@ -56,11 +91,19 @@ function measureRowWrapper(wrapper: HTMLElement) {
 }
 let metricsCacheVersion = 0
 let cachedRowsMetrics: { version: number; container: HTMLElement; clientHeight: number; metrics: ReturnType<typeof computeNativeRowsMetrics> } | null = null
+function firstChildRowKey(rowsContainer: HTMLElement): string {
+  const first = rowsContainer.firstElementChild as HTMLElement | null
+  const row = first?.firstElementChild as HTMLElement | null
+  if (row?.hasAttribute("data-message-row-key")) return row.dataset.messageRowKey ?? ""
+  return first?.querySelector<HTMLElement>("[data-message-row-key]")?.dataset.messageRowKey ?? ""
+}
 function computeNativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null | undefined) {
   let cursor = 0
+  let childCount = 0
   const offsets = new Map<HTMLElement, { start: number; height: number }>()
-  for (const child of Array.from(rowsContainer.children) as HTMLElement[]) {
-    const measured = child.matches("[data-index]") ? measureRowWrapper(child).total : 0
+  for (let child = rowsContainer.firstElementChild as HTMLElement | null; child; child = child.nextElementSibling as HTMLElement | null) {
+    childCount += 1
+    const measured = child.hasAttribute("data-index") ? measureRowWrapper(child).total : 0
     offsets.set(child, { start: cursor, height: measured })
     cursor += measured
   }
@@ -73,10 +116,10 @@ function computeNativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement 
     offsets,
     totalHeight,
     topOffset,
-    childCount: rowsContainer.children.length,
+    childCount,
     firstChildCount: rowsContainer.firstElementChild?.childElementCount ?? -1,
     lastChildCount: rowsContainer.lastElementChild?.childElementCount ?? -1,
-    firstChildKey: rowsContainer.firstElementChild?.querySelector<HTMLElement>("[data-message-row-key]")?.dataset.messageRowKey ?? "",
+    firstChildKey: firstChildRowKey(rowsContainer),
     paddingBottom,
   }
 }
@@ -85,7 +128,7 @@ function nativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null 
   const paddingBottom = Number.parseFloat(rowsContainer.style.paddingBottom) || 0
   const firstChildCount = rowsContainer.firstElementChild?.childElementCount ?? -1
   const lastChildCount = rowsContainer.lastElementChild?.childElementCount ?? -1
-  const firstChildKey = rowsContainer.firstElementChild?.querySelector<HTMLElement>("[data-message-row-key]")?.dataset.messageRowKey ?? ""
+  const firstChildKey = firstChildRowKey(rowsContainer)
   if (
     cachedRowsMetrics
     && cachedRowsMetrics.version === metricsCacheVersion
@@ -106,54 +149,56 @@ function nativeRowsMetrics(rowsContainer: HTMLElement, root: HTMLElement | null 
 function invalidateMetricsCache() {
   metricsCacheVersion += 1
   cachedRowsMetrics = null
+  cachedRootsVersion = -1
+  cachedScrollRoots = []
 }
 function fastNodeHeight(node: HTMLElement): number {
-  if (node.matches("[data-message-rows]")) {
+  if (node.hasAttribute("data-message-rows")) {
     return nativeRowsMetrics(node, rootFor(node)).totalHeight
   }
-  const wrapper = node.matches("[data-index]") ? node : node.closest<HTMLElement>("[data-index]")
+  const wrapper = node.hasAttribute("data-index") ? node : node.closest<HTMLElement>("[data-index]")
   if (wrapper) {
     const measured = measureRowWrapper(wrapper)
-    if (node.matches("[data-msg-id]")) return measured.size
-    if (node.matches("[data-new-divider]")) return measured.decoration
+    if (node.hasAttribute("data-msg-id")) return measured.size
+    if (node.hasAttribute("data-new-divider")) return measured.decoration
     return measured.total
   }
   return rowGeometry(node).height
 }
 function listOffset(container: HTMLElement | null, root: HTMLElement | null | undefined) {
-  return container?.parentElement?.matches("[data-message-list-content].justify-end")
+  return container?.parentElement?.hasAttribute("data-message-list-content") && container.parentElement.classList.contains("justify-end")
     ? Math.max(0, (root?.clientHeight ?? 0) - (Number.parseFloat(container.style.height) || 0)) : 0
 }
 function rowGeometry(node: HTMLElement) {
   const root = rootFor(node)
-  if (node.matches("[data-message-rows]")) {
+  if (node.hasAttribute("data-message-rows")) {
     const metrics = nativeRowsMetrics(node, root)
     return DOMRect.fromRect({ y: metrics.topOffset + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0), width, height: metrics.totalHeight })
   }
-  const wrapper = node.matches("[data-index]") ? node : node.closest<HTMLElement>("[data-index]")
-  const rowsContainer = wrapper?.parentElement?.matches("[data-message-rows]") ? wrapper.parentElement : null
+  const wrapper = node.hasAttribute("data-index") ? node : node.closest<HTMLElement>("[data-index]")
+  const rowsContainer = wrapper?.parentElement?.hasAttribute("data-message-rows") ? wrapper.parentElement : null
   if (wrapper && rowsContainer) {
     const metrics = nativeRowsMetrics(rowsContainer, root)
     const entry = metrics.offsets.get(wrapper)
     const measured = measureRowWrapper(wrapper)
     const y = (entry?.start ?? 0) + metrics.topOffset + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0)
-    if (node.matches("[data-msg-id]")) return DOMRect.fromRect({ y: y + measured.topPadding, width, height: measured.size })
-    if (node.matches("[data-new-divider]")) return DOMRect.fromRect({ y, width, height: measured.decoration })
+    if (node.hasAttribute("data-msg-id")) return DOMRect.fromRect({ y: y + measured.topPadding, width, height: measured.size })
+    if (node.hasAttribute("data-new-divider")) return DOMRect.fromRect({ y, width, height: measured.decoration })
     return DOMRect.fromRect({ y, width, height: measured.total })
   }
   const measured = wrapper ? measureRowWrapper(wrapper) : { size: 0, decoration: 0, topPadding: 0, bottomPadding: 0, total: 0 }
   const translation = wrapper?.style.transform.match(/translate3d\(0,\s*(-?[\d.]+)px/)
   const start = Number.parseFloat(translation?.[1] ?? wrapper?.style.top ?? "0") || 0
   const y = start + listOffset(wrapper?.parentElement ?? null, root) + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0)
-  if (node.style.position === "relative" && node.parentElement?.matches("[data-message-list-content]")) {
+  if (node.style.position === "relative" && node.parentElement?.hasAttribute("data-message-list-content")) {
     return DOMRect.fromRect({
       y: listOffset(node, root) + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0),
       width,
       height: Number.parseFloat(node.style.height) || 0,
     })
   }
-  if (node.matches("[data-msg-id]")) return DOMRect.fromRect({ y: y + measured.topPadding, width, height: measured.size })
-  if (node.matches("[data-new-divider]")) return DOMRect.fromRect({ y, width, height: measured.decoration })
+  if (node.hasAttribute("data-msg-id")) return DOMRect.fromRect({ y: y + measured.topPadding, width, height: measured.size })
+  if (node.hasAttribute("data-new-divider")) return DOMRect.fromRect({ y, width, height: measured.decoration })
   return DOMRect.fromRect({ y, width, height: measured.total })
 }
 function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) => void }) {
@@ -206,9 +251,9 @@ function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) 
 export function runFrames(count = 26) {
   for (let i = 0; i < count; i++) {
     act(() => {
-      invalidateMetricsCache()
       vi.advanceTimersByTime(16)
-      for (const root of document.querySelectorAll<HTMLElement>(ROOT_SELECTOR)) {
+      for (const root of currentScrollRoots()) {
+        if (!root.isConnected) continue
         const clamped = Math.max(0, Math.min(root.scrollTop, root.scrollHeight - root.clientHeight))
         if (root.scrollTop !== clamped) {
           root.scrollTop = clamped
@@ -340,14 +385,14 @@ export function installMessageScrollFixture() {
   })
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
     if (isScrollRoot(this)) {
-      const nativeRows = this.querySelector<HTMLElement>("[data-message-rows]")
+      const nativeRows = findNativeRows(this)
       if (nativeRows) {
         return Math.max(this.clientHeight, nativeRowsMetrics(nativeRows, this).totalHeight)
       }
       return Math.max(this.clientHeight, Number.parseFloat(this.querySelector<HTMLElement>("[data-message-list-content]")?.style.height
         || this.querySelector<HTMLElement>("[data-message-list-content] > div")?.style.height || "0") || 0)
     }
-    return Math.max(fastNodeHeight(this), this.matches("[data-index], [data-msg-id]")
+    return Math.max(fastNodeHeight(this), this.hasAttribute("data-index") || this.hasAttribute("data-msg-id")
       ? overflowHeights.get(this.dataset.msgId ?? this.querySelector<HTMLElement>("[data-msg-id]")?.dataset.msgId ?? "") ?? 0 : 0)
   })
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
@@ -376,12 +421,12 @@ export function restoreMessageScrollFixture() {
 export const scrollFixture = {
   get latest() { return latest },
   get width() { return width },
-  set width(value: number) { width = value },
+  set width(value: number) { width = value; invalidateMetricsCache() },
   get height() { return height },
-  set height(value: number) { height = value },
-  set scrollbarWidth(value: number) { scrollbarWidth = value },
+  set height(value: number) { height = value; invalidateMetricsCache() },
+  set scrollbarWidth(value: number) { scrollbarWidth = value; invalidateMetricsCache() },
   get firstPrefix() { return firstPrefix },
-  set firstPrefix(value: number) { firstPrefix = value },
+  set firstPrefix(value: number) { firstPrefix = value; invalidateMetricsCache() },
   get bodyHeights() { return bodyHeights },
   get overflowHeights() { return overflowHeights },
   get overflowModes() { return overflowModes },

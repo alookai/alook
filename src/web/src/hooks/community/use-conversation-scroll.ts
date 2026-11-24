@@ -85,27 +85,41 @@ function distanceFromEnd(root: HTMLElement): number {
   return Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop)
 }
 
+const EMPTY_VIRTUAL_ITEMS: VirtualItem[] = []
+
+function escapeAttrValue(value: string): string {
+  return value.replace(/["\\\n\r\f]/g, "\\$&")
+}
+
 function findMessageBody(root: HTMLElement, messageId: string): HTMLElement | null {
-  for (const node of root.querySelectorAll<HTMLElement>("[data-msg-id]")) {
-    if (node.dataset.msgId === messageId) return node
-  }
-  return null
+  return root.querySelector<HTMLElement>(`[data-msg-id="${escapeAttrValue(messageId)}"]`)
 }
 
 function findRowByKey(root: HTMLElement, key: string): HTMLElement | null {
-  for (const node of root.querySelectorAll<HTMLElement>("[data-message-row-key]")) {
-    if (node.dataset.messageRowKey === key) return node
-  }
-  return null
+  return root.querySelector<HTMLElement>(`[data-message-row-key="${escapeAttrValue(key)}"]`)
 }
 
 function findNewDivider(root: HTMLElement, messageId: string): HTMLElement | null {
-  for (const node of root.querySelectorAll<HTMLElement>("[data-message-divider-for]")) {
-    if (node.dataset.messageDividerFor === messageId) {
-      return node.querySelector<HTMLElement>("[data-new-divider]")
-    }
+  return root.querySelector<HTMLElement>(`[data-message-divider-for="${escapeAttrValue(messageId)}"] [data-new-divider]`)
+}
+
+function findMessageRowsContainer(root: HTMLElement): HTMLElement | null {
+  const content = root.firstElementChild as HTMLElement | null
+  const rows = content?.firstElementChild as HTMLElement | null
+  if (rows?.hasAttribute("data-message-rows")) return rows
+  return root.querySelector<HTMLElement>("[data-message-rows]")
+}
+
+function rowMessageBody(wrapper: HTMLElement): HTMLElement | null {
+  const row = wrapper.firstElementChild as HTMLElement | null
+  if (!row) return null
+  const candidate = row.firstElementChild as HTMLElement | null
+  if (candidate?.hasAttribute("data-msg-id")) return candidate
+  const key = row.dataset.messageRowKey
+  if (key && (key.startsWith("rail:") || key.startsWith("date:") || key.startsWith("new:") || key.startsWith("divider:"))) {
+    return null
   }
-  return null
+  return wrapper.querySelector<HTMLElement>("[data-msg-id]")
 }
 
 function messageContentBounds(element: HTMLElement | null) {
@@ -121,6 +135,34 @@ function computeLoadedBelowCount(items: FlatItem[], root: HTMLDivElement | null,
   if (!root || root.clientHeight <= 0 || items.length === 0) return 0
   if (distanceFromEnd(root) <= CONVERSATION_TAIL_SPACE_PX) return 0
   const viewportBottom = root.getBoundingClientRect().bottom - viewportInsetEnd
+  const rowsEl = findMessageRowsContainer(root)
+  if (rowsEl && rowsEl.children.length > 0) {
+    const children = rowsEl.children
+    let lo = 0
+    let hi = children.length - 1
+    let lastIndex = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1
+      const wrapper = children[mid] as HTMLElement
+      const rect = wrapper.getBoundingClientRect()
+      if (rect.top < viewportBottom - 0.5) {
+        lastIndex = mid
+        lo = mid + 1
+      } else {
+        hi = mid - 1
+      }
+    }
+    while (lastIndex >= 0) {
+      const wrapper = children[lastIndex] as HTMLElement
+      const rect = wrapper.getBoundingClientRect()
+      if (rect.height > 0 && rect.top < viewportBottom - 0.5) {
+        const idx = Number(wrapper.dataset.index)
+        return computeBelowCount(items, Number.isInteger(idx) ? idx : lastIndex)
+      }
+      lastIndex -= 1
+    }
+    return computeBelowCount(items, -1)
+  }
   let lastVisibleIndex = -1
   for (const wrapper of root.querySelectorAll<HTMLElement>("[data-index]")) {
     const rect = wrapper.getBoundingClientRect()
@@ -137,6 +179,62 @@ function captureVisibleAnchor(root: HTMLDivElement | null, items: FlatItem[], vi
   if (!root || root.clientHeight <= 0) return null
   const viewport = root.getBoundingClientRect()
   const firstMessageKey = firstMessageKeyOf(items)
+  const rowsEl = findMessageRowsContainer(root)
+  if (rowsEl && rowsEl.children.length > 0) {
+    const children = rowsEl.children
+    let lo = 0
+    let hi = children.length - 1
+    let firstCandidate = children.length
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1
+      const wrapper = children[mid] as HTMLElement
+      if (wrapper.getBoundingClientRect().bottom > viewport.top) {
+        firstCandidate = mid
+        hi = mid - 1
+      } else {
+        lo = mid + 1
+      }
+    }
+    const startIndex = Math.max(0, firstCandidate - 2)
+    let fallback: {
+      anchorId: string
+      anchorKey: string | null
+      viewportOffset: number
+      firstMessageKey: string | null
+    } | null = null
+    for (let i = startIndex; i < children.length; i++) {
+      const wrapper = children[i] as HTMLElement
+      const body = rowMessageBody(wrapper)
+      const id = body?.dataset.msgId
+      if (!id) continue
+      const bounds = messageContentBounds(body)
+      if (!bounds) continue
+      const rawIdx = Number(wrapper.dataset.index)
+      const idx = Number.isInteger(rawIdx) && items[rawIdx]?.kind === "message" && items[rawIdx].m.id === id
+        ? rawIdx
+        : findMessageIndex(items, id)
+      if (bounds.bottom > viewport.top + 1 && bounds.top < viewport.bottom - viewportInsetEnd - 1) {
+        return {
+          anchorId: id,
+          anchorKey: idx !== null ? items[idx].key : null,
+          viewportOffset: bounds.top - viewport.top,
+          firstMessageKey,
+        }
+      }
+      if (!fallback && bounds.bottom > viewport.top) {
+        fallback = {
+          anchorId: id,
+          anchorKey: idx !== null ? items[idx].key : null,
+          viewportOffset: bounds.top - viewport.top,
+          firstMessageKey,
+        }
+      }
+      if (bounds.top >= viewport.bottom - viewportInsetEnd - 1) {
+        break
+      }
+    }
+    return fallback
+  }
   for (const body of root.querySelectorAll<HTMLElement>("[data-msg-id]")) {
     const id = body.dataset.msgId
     if (!id) continue
@@ -564,7 +662,7 @@ export function useConversationScroll({
     })
   }, [uiStore, presentationRevision, tailMessageKey, positionEntry, scrollToMessageId, localSubmitVersion, presentVersion, presentationBlocked])
 
-  const syncUiSnapshot = useCallback((incrementRevision = false) => {
+  const syncUiSnapshot = useCallback((incrementRevision = false, knownBelowCount?: number) => {
     const ctx = propsRef.current
     const nextMode = stateRef.current.mode
     const nextPendingReadReady = pendingReadReadyRef.current
@@ -572,7 +670,7 @@ export function useConversationScroll({
     const nextFollowSuspended = followSuspendedRef.current
     const nextFollowingTail = followingTailRef.current
     const nextReadingTail = readingTailRef.current
-    const nextBelowCount = computeLoadedBelowCount(ctx.items, scrollRef.current, ctx.viewportInsetEnd)
+    const nextBelowCount = knownBelowCount ?? computeLoadedBelowCount(ctx.items, scrollRef.current, ctx.viewportInsetEnd)
     uiStore.setState((current) => {
       if (
         !incrementRevision
@@ -691,14 +789,14 @@ export function useConversationScroll({
     }
   }, [])
 
-  const reportReadingMessage = useCallback((automatic = false) => {
+  const reportReadingMessage = useCallback((automatic = false, knownAnchor?: ReturnType<typeof captureVisibleAnchor>) => {
     const ctx = propsRef.current
     const root = scrollRef.current
     if (!ctx.onReadingMessage || !root || !ctx.visible || !ctx.active || !ctx.readEligible
       || ctx.dataState !== "ready" || !readReadyRef.current || stateRef.current.mode === "jumping-to-target") return
     const content = root.querySelector<HTMLElement>("[data-message-list-content]")
     if (content && content.getAttribute("data-read-position-ready") === "false") return
-    const anchor = captureVisibleAnchor(root, ctx.items, ctx.viewportInsetEnd)
+    const anchor = knownAnchor !== undefined ? knownAnchor : captureVisibleAnchor(root, ctx.items, ctx.viewportInsetEnd)
     if (!anchor?.anchorId) return
     if (automatic) automaticReadingEpochRef.current = epochRef.current
     const last = lastReportedReadingRef.current
@@ -769,7 +867,7 @@ export function useConversationScroll({
     const pinned = stateRef.current.mode === "pinned-to-bottom" && !ctx.hasMoreNewer && !followSuspendedRef.current
     followingTailRef.current = pinned
     readingTailRef.current = pinned && dist <= CONVERSATION_TAIL_SPACE_PX && below === 0
-    syncUiSnapshot(false)
+    syncUiSnapshot(false, below)
   }, [syncUiSnapshot])
 
   const transitionToReadingHistory = useCallback((userHandover: boolean, outcome: PositionOutcome = userHandover ? "user-cancelled" : "cancelled") => {
@@ -1466,6 +1564,7 @@ export function useConversationScroll({
       if (stateRef.current.mode === "reading-history" && anchor) {
         stateRef.current = { mode: "reading-history", ...anchor }
       }
+      return anchor
     }
 
     const tryRestorePinnedOnDownward = (fromRelease = false) => {
@@ -1520,7 +1619,6 @@ export function useConversationScroll({
         compensateAnchor(true)
         syncTailFlags(root)
         updateNewDividerVisibility(true)
-        bumpState()
         return
       }
       const prog = programmaticScrollRef.current
@@ -1537,6 +1635,7 @@ export function useConversationScroll({
       const prevTop = prevGeo?.scrollTop ?? root.scrollTop
       const delta = root.scrollTop - prevTop
       const dist = distanceFromEnd(root)
+      let capturedAnchor: ReturnType<typeof captureVisibleAnchor> | undefined
 
       if (stateRef.current.mode === "pinned-to-bottom" && !isOwnProgrammaticScroll) {
         if (dist > CONVERSATION_TAIL_SPACE_PX && (delta < -0.5 || !prevGeo || prevGeo.scrollHeight === root.scrollHeight)) {
@@ -1550,7 +1649,7 @@ export function useConversationScroll({
         } else if (delta < -0.5) {
           upwardIntentRef.current = true
         }
-        captureCurrentAnchor()
+        capturedAnchor = captureCurrentAnchor()
       } else if (stateRef.current.mode === "jumping-to-target") {
         settleJumpIfLanded(true)
       }
@@ -1564,8 +1663,7 @@ export function useConversationScroll({
       }
       syncTailFlags(root)
       updateNewDividerVisibility(true)
-      if (!isOwnProgrammaticScroll) reportReadingMessage(false)
-      bumpState()
+      if (!isOwnProgrammaticScroll) reportReadingMessage(false, capturedAnchor)
     }
 
     const onWheel = (event: WheelEvent) => {
@@ -1612,17 +1710,31 @@ export function useConversationScroll({
     const ro = new ResizeObserver(() => {
       compensateAnchor(true)
       updateNewDividerVisibility(false)
-      bumpState()
+      if (!entryResolvedRef.current || stateRef.current.mode === "jumping-to-target") {
+        bumpState()
+      } else {
+        syncUiSnapshot(false)
+      }
     })
     ro.observe(root)
-    const rowsEl = root.querySelector<HTMLElement>("[data-message-rows]")
-    if (rowsEl) ro.observe(rowsEl)
+    let observedRowsEl: HTMLElement | null = root.querySelector<HTMLElement>("[data-message-rows]")
+    if (observedRowsEl) ro.observe(observedRowsEl)
+    let observedContentEl: HTMLElement | null = root.querySelector<HTMLElement>("[data-message-list-content]")
 
     const mo = new MutationObserver(() => {
+      const nextContent = root.querySelector<HTMLElement>("[data-message-list-content]")
+      if (nextContent && nextContent !== observedContentEl) {
+        observedContentEl = nextContent
+        mo.observe(nextContent, { childList: true })
+      }
       const nextRows = root.querySelector<HTMLElement>("[data-message-rows]")
-      if (nextRows) ro.observe(nextRows)
+      if (nextRows === observedRowsEl) return
+      if (observedRowsEl) ro.unobserve(observedRowsEl)
+      observedRowsEl = nextRows
+      if (observedRowsEl) ro.observe(observedRowsEl)
     })
-    mo.observe(root, { childList: true, subtree: true })
+    mo.observe(root, { childList: true })
+    if (observedContentEl) mo.observe(observedContentEl, { childList: true })
 
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
@@ -1634,7 +1746,11 @@ export function useConversationScroll({
           || prevGeo.tailPaddingEnd !== propsRef.current.tailPaddingEnd) {
           compensateAnchor(true)
           updateNewDividerVisibility(false)
-          bumpState()
+          if (!entryResolvedRef.current || stateRef.current.mode === "jumping-to-target") {
+            bumpState()
+          } else {
+            syncUiSnapshot(false)
+          }
         }
       })
       : null
@@ -1661,7 +1777,7 @@ export function useConversationScroll({
         rafRef.current = null
       }
     }
-  }, [allowPresentationRead, bumpState, compensateAnchor, reportReadingMessage, settleJumpIfLanded, syncTailFlags, transitionToReadingHistory, updateNewDividerVisibility])
+  }, [allowPresentationRead, bumpState, compensateAnchor, reportReadingMessage, settleJumpIfLanded, syncTailFlags, syncUiSnapshot, transitionToReadingHistory, updateNewDividerVisibility])
 
   useEffect(() => () => {
     finishNewOp("retired")
@@ -1835,11 +1951,14 @@ export function useConversationScroll({
   const captureOlderPageAnchor = useCallback((fillingViewport?: boolean) => capturePageAnchor("older", fillingViewport), [capturePageAnchor])
   const captureNewerPageAnchor = useCallback(() => capturePageAnchor("newer"), [capturePageAnchor])
 
+  const cachedVirtualItemsRef = useRef<{ items: FlatItem[]; virtual: VirtualItem[] } | null>(null)
   const paginationScroller = useMemo(() => ({
     getVirtualItems: (): VirtualItem[] => {
       const current = propsRef.current.items
-      if (current.length === 0) return []
-      return current.map((item, index) => ({
+      if (current.length === 0) return EMPTY_VIRTUAL_ITEMS
+      const cached = cachedVirtualItemsRef.current
+      if (cached && cached.items === current) return cached.virtual
+      const virtual = current.map((item, index) => ({
         index,
         key: item.key,
         start: 0,
@@ -1847,6 +1966,8 @@ export function useConversationScroll({
         size: 0,
         lane: 0,
       }))
+      cachedVirtualItemsRef.current = { items: current, virtual }
+      return virtual
     },
     get scrollElement() {
       return scrollRef.current

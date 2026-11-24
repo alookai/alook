@@ -402,4 +402,37 @@ describe("useConversationScroll", () => {
     expect(onPositioned).toHaveBeenCalledWith("m10")
     h.view.unmount()
   })
+
+  it("avoids redundant React re-renders on steady-state history scrolls and keeps paginationScroller items stable on 150 rows", () => {
+    const rows = Array.from({ length: 150 }, (_, i) => message(`m${i}`))
+    let renders = 0
+    const h = mount({ items: rows }, false, () => { renders += 1 })
+    const initialVirtual = scrollFixture.latest.paginationScroller.getVirtualItems()
+    expect(initialVirtual).toHaveLength(151)
+    expect(scrollFixture.latest.paginationScroller.getVirtualItems()).toBe(initialVirtual)
+
+    h.move(5000)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    const belowAt5000 = scrollFixture.latest.belowCount
+    expect(belowAt5000).toBeGreaterThan(50)
+
+    const rendersBeforeMicroScroll = renders
+    act(() => {
+      h.root.scrollTop = 5010
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames(4)
+    expect(scrollFixture.latest.belowCount).toBe(belowAt5000)
+    expect(renders).toBe(rendersBeforeMicroScroll)
+    expect(scrollFixture.latest.paginationScroller.getVirtualItems()).toBe(initialVirtual)
+
+    const visible = Array.from(h.root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find((el) => el.getBoundingClientRect().bottom > 1)!
+    const anchorId = visible.dataset.msgId!
+    const beforeTop = bodyTop(h.root, anchorId)
+    h.update({ items: [message("old-a"), message("old-b"), ...rows] })
+    expect(Math.abs(bodyTop(h.root, anchorId) - beforeTop)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.paginationScroller.getVirtualItems()).not.toBe(initialVirtual)
+    h.view.unmount()
+  })
 })
