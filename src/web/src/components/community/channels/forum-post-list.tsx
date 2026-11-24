@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { defaultRangeExtractor, measureElement, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual"
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual"
 import { ListChevronsUpDown } from "@/components/icons/lucide";
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
@@ -15,9 +15,8 @@ import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from
 import { VirtualRows } from "../messages/virtual-cursor-list"
 import { useInitialPositionTransition } from "../messages/initial-position-transition"
 
-const OVERSCAN = 5
+const OVERSCAN = 8
 export const FORUM_LIST_SPACING_CLASS = "p-0"
-const forumRangeExtractor = (range: Range) => defaultRangeExtractor({ ...range, overscan: range.overscan + range.endIndex - range.startIndex + 1 })
 type Props = {
   forumChannelId?: string
   tag?: string
@@ -124,15 +123,22 @@ function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadi
     measureElement: (element, entry, instance) => {
       const index = instance.indexFromElement(element)
       const cached = instance.itemSizeCache.get(instance.options.getItemKey(index))
-      const size = instance.options.useCachedMeasurements || (!entry && cached !== undefined)
-        ? measureElement(element, entry, instance)
-        : entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height
+      if (instance.options.useCachedMeasurements) {
+        return cached ?? instance.options.estimateSize(index)
+      }
+      const observed = entry?.borderBoxSize?.[0]?.blockSize
+      if (observed !== undefined) {
+        return observed > 0 ? observed : cached && cached > 0 ? cached : instance.options.estimateSize(index)
+      }
+      if (!entry && cached !== undefined && cached > 0) {
+        return cached
+      }
+      const size = element.getBoundingClientRect().height
       if (size > 0) return size
       return cached && cached > 0 ? cached : instance.options.estimateSize(index)
     },
     getItemKey,
     overscan: OVERSCAN,
-    rangeExtractor: forumRangeExtractor,
     initialRect: { width: 0, height: 800 },
     onChange: native => { initializePosition(native); inspectPosition(native) },
   })
@@ -148,23 +154,11 @@ function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadi
   }, [activeTag, virtualizer])
   const virtualItems = virtualizer.getVirtualItems()
   useLayoutEffect(() => {
-    const root = scrollRef.current
-    if (root && root.clientWidth > 0 && root.clientHeight > 0) {
-      for (const node of root.querySelectorAll<HTMLElement>("[data-index]")) {
-        virtualizer.measureElement(node)
-      }
-    }
     initializePosition(virtualizer)
     inspectPosition(virtualizer)
   }, [initializePosition, inspectPosition, posts, virtualItems, virtualizer])
-  const range = virtualizer.range
-  const paginationItems = useMemo(() => {
-    if (!range) return []
-    const indexes = new Set(defaultRangeExtractor({ ...range, count: posts.length, overscan: OVERSCAN }))
-    return virtualItems.filter(item => indexes.has(item.index))
-  }, [posts.length, range, virtualItems])
   useVirtualCursorPagination({
-    virtualizer: { getVirtualItems: () => paginationItems }, count: posts.length, enabled: !loading,
+    virtualizer, count: posts.length, enabled: !loading,
     hasMore, isFetching: isFetching || loadingMore, isError, onLoad: onLoadMore, edge: "end",
   })
   return <ScrollAreaRoot className="relative flex min-h-0 flex-1 flex-col">

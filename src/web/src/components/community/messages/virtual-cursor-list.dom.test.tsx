@@ -7,9 +7,13 @@ import { VirtualRows } from "./virtual-cursor-list"
 
 const items = Array.from({ length: 100 }, (_, index) => `row-${index}`)
 
-function List({ mode, ready }: {
+function List({ mode, ready, rowRole, paddingStart = 32, paddingEnd = 0, itemList = items }: {
   mode: "transform" | "position"
-  ready: (virtualizer: ReactVirtualizer<HTMLDivElement, Element>) => void
+  ready?: (virtualizer: ReactVirtualizer<HTMLDivElement, Element>) => void
+  rowRole?: "listitem"
+  paddingStart?: number
+  paddingEnd?: number
+  itemList?: string[]
 }) {
   const root = useRef<HTMLDivElement>(null)
   const bind = useCallback((node: HTMLDivElement | null) => {
@@ -28,19 +32,21 @@ function List({ mode, ready }: {
   const virtualizer = useVirtualizer<HTMLDivElement, Element>({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     directDomUpdatesMode: mode,
-    count: items.length,
+    count: itemList.length,
     getScrollElement: () => root.current,
-    getItemKey: (index) => items[index],
+    getItemKey: (index) => itemList[index],
     estimateSize: () => 40,
-    paddingStart: 32,
+    paddingStart,
+    paddingEnd,
     overscan: 5,
     initialRect: { width: 320, height: 120 },
   })
-  useLayoutEffect(() => { ready(virtualizer) }, [ready, virtualizer])
+  useLayoutEffect(() => { ready?.(virtualizer) }, [ready, virtualizer])
   return createElement("div", { ref: bind, "data-testid": "viewport" },
     createElement(VirtualRows<string>, {
-      items,
+      items: itemList,
       virtualizer,
+      rowRole,
       directDomUpdatesMode: mode,
       getRowAttributes: (item) => ({ "data-row-id": item }),
       renderItem: (item) => item,
@@ -67,16 +73,16 @@ describe.each([
     act(() => {
       root.scrollTop = 800
       root.dispatchEvent(new Event("scroll"))
-      const row = root.querySelector<HTMLElement>('[data-row-id="row-25"]')
-      expect(row).not.toBeNull()
-      expect(row!.dataset.index).toBe("25")
-      if (mode === "position") {
-        expect(row!.style.transform).toBe("")
-        expect(row!.style.top).toBe("1032px")
-      } else {
-        expect(row!.style.transform).toBe("translate3d(0, 1032px, 0)")
-      }
     })
+    const scrolledRow = root.querySelector<HTMLElement>('[data-row-id="row-25"]')
+    expect(scrolledRow).not.toBeNull()
+    expect(scrolledRow!.dataset.index).toBe("25")
+    if (mode === "position") {
+      expect(scrolledRow!.style.transform).toBe("")
+      expect(scrolledRow!.style.top).toBe("1032px")
+    } else {
+      expect(scrolledRow!.style.transform).toBe("translate3d(0, 1032px, 0)")
+    }
     expect(root.firstElementChild).toHaveStyle({ height: "4032px" })
     const row = root.querySelector<HTMLElement>('[data-row-id="row-26"]')!
     act(() => { native.resizeItem(25, 80) })
@@ -88,5 +94,23 @@ describe.each([
       expect(row.style.transform).toBe("translate3d(0, 1112px, 0)")
     }
     expect(root.firstElementChild).toHaveStyle({ height: "4072px" })
+  })
+})
+
+describe("VirtualRows list ARIA and padding geometry", () => {
+  it("adds role=list when rowRole=listitem and reflects paddingStart/paddingEnd in row geometry", () => {
+    const view = render(createElement(List, {
+      mode: "transform",
+      rowRole: "listitem",
+      paddingStart: 16,
+      paddingEnd: 16,
+      itemList: ["Alice", "Bob", "Cara"],
+    }))
+    const list = view.getByRole("list")
+    const listItems = view.getAllByRole("listitem")
+    expect(listItems).toHaveLength(3)
+    expect(list).toHaveStyle({ height: "152px" })
+    expect(listItems[0].style.transform).toBe("translate3d(0, 16px, 0)")
+    expect(listItems[1].style.transform).toBe("translate3d(0, 56px, 0)")
   })
 })

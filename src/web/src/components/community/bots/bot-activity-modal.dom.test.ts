@@ -668,7 +668,10 @@ describe("BotActivityModal CommunitySheet contract", () => {
     act(() => vi.advanceTimersByTime(500))
     for (const [index, target] of [offset, 80].entries()) {
       const root = scrollBody(renderer, target)
-      expect(root.scrollTop).toBe(target)
+      // On the second pass, prepended rows 0..1 (start 33, 77 < 80) are measured for the first time
+      // after scroll settles, so TanStack Virtual shifts scrollTop by 2 * (measuredHeight - 44).
+      const expectedTop = index === 1 && measuredHeight !== 44 ? target - 2 * (44 - measuredHeight) : target
+      expect(root.scrollTop).toBe(expectedTop)
       const anchor = [...renderer.container.querySelectorAll<HTMLElement>("activity-row")].find(row => {
         const rect = row.getBoundingClientRect()
         return rect.top >= 33 && rect.bottom <= root.clientHeight

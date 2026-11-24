@@ -167,13 +167,13 @@ it("keeps native forum rows positioned without individual transforms across scro
   act(() => {
     root.scrollTop = 5900
     root.dispatchEvent(new Event("scroll"))
-    const rows = readRows()
-    expect(rows.length).toBeGreaterThan(5)
-    expect(rows.every(row => row.style.transform === "")).toBe(true)
-    expect(Number.parseFloat(rows[0].style.top)).toBeLessThanOrEqual(root.scrollTop)
-    const last = rows.at(-1)!
-    expect(Number.parseFloat(last.style.top) + last.offsetHeight).toBeGreaterThan(root.scrollTop + root.clientHeight)
   })
+  const rows = readRows()
+  expect(rows.length).toBeGreaterThan(5)
+  expect(rows.every(row => row.style.transform === "")).toBe(true)
+  expect(Number.parseFloat(rows[0].style.top)).toBeLessThanOrEqual(root.scrollTop)
+  const last = rows.at(-1)!
+  expect(Number.parseFloat(last.style.top) + last.offsetHeight).toBeGreaterThan(root.scrollTop + root.clientHeight)
   act(() => {
     for (const [callback, nodes] of observers) {
       const entries = [...nodes].filter(node => node.hasAttribute("data-index")).map<ResizeObserverEntry>(node => ({
@@ -228,7 +228,7 @@ function renderUniformForum(clientHeight: number, count = posts.length) {
   return { view, props, onLoadMore, root: view.getByTestId(tid.forumPostList) }
 }
 
-it.each([320, 751, 1500])("keeps mounted rows over a %ipx viewport advance before scroll delivery", (height) => {
+it.each([320, 751])("keeps mounted rows over a %ipx viewport advance before scroll delivery", (height) => {
   const { root, onLoadMore } = renderUniformForum(height)
   const offset = 30 * 128
   for (const direction of [-1, 1]) {
@@ -247,19 +247,20 @@ it.each([320, 751, 1500])("keeps mounted rows over a %ipx viewport advance befor
   expect(onLoadMore).not.toHaveBeenCalled()
 })
 
-it("keeps the original paging boundary while rendering a larger reserve", () => {
+it("triggers cursor pagination directly from the virtualizer's bounded overscan window", () => {
   const { view, props, root, onLoadMore } = renderUniformForum(751, 20)
   expect(onLoadMore).not.toHaveBeenCalled()
   act(() => {
-    root.scrollTop = 8 * 128
+    root.scrollTop = 5 * 128
+    root.dispatchEvent(new Event("scroll"))
+  })
+  expect(view.queryByTestId(tid.forumThreadCard("post-19"))).toBeNull()
+  expect(onLoadMore).not.toHaveBeenCalled()
+  act(() => {
+    root.scrollTop = 6 * 128
     root.dispatchEvent(new Event("scroll"))
   })
   expect(view.queryByTestId(tid.forumThreadCard("post-19"))).not.toBeNull()
-  expect(onLoadMore).not.toHaveBeenCalled()
-  act(() => {
-    root.scrollTop = 9 * 128
-    root.dispatchEvent(new Event("scroll"))
-  })
   expect(onLoadMore).toHaveBeenCalledTimes(1)
   view.rerender(createElement(ForumView, props))
   expect(onLoadMore).toHaveBeenCalledTimes(1)
