@@ -64,25 +64,133 @@
 .demoHeading { scroll-margin-top: 88px; max-width: 1080px; margin: 32px auto 48px; color: var(--landing-text); font-family: var(--font-crt); font-size: clamp(3rem, 4.6vw, 5rem); font-weight: 400; letter-spacing: -0.025em; line-height: 0.98; text-wrap: balance; }
 @media (max-width: 639px) { .demoHeading { margin: 24px 12px 32px; font-size: 2.75rem; } }
 
-.botAnnotation { --bot-ink: var(--tn-blue, #4f7fc7); position: fixed; inset: 0; z-index: 20; pointer-events: none; user-select: none; color: var(--bot-ink); transition: opacity 280ms ease-out, transform 320ms cubic-bezier(0.22, 1, 0.36, 1), filter 280ms ease-out; }
-:global(.dark) .botAnnotation, :global([data-tn-mode="dark"]) .botAnnotation { --bot-ink: #7ca3ff; filter: drop-shadow(0 0 8px rgb(91 124 255 / 26%)); }
-.botAnnotation[data-state="idle"] { opacity: 0; }
-.botAnnotation[data-state="exiting"] { opacity: 0; transform: translateY(-6px) scale(0.97); filter: blur(2px); }
-.botAnnotationSvg { position: absolute; inset: 0; overflow: visible; }
-.botAnnotationCircle, .botAnnotationArrow, .botAnnotationArrowHead { stroke: currentColor; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
-.botAnnotation[data-state="visible"] .botAnnotationCircle, .botAnnotation[data-state="exiting"] .botAnnotationCircle { animation: bot-annotation-draw 560ms cubic-bezier(0.22, 1, 0.36, 1) 120ms forwards; }
-.botAnnotation[data-state="visible"] .botAnnotationArrow, .botAnnotation[data-state="exiting"] .botAnnotationArrow { animation: bot-annotation-draw 460ms cubic-bezier(0.22, 1, 0.36, 1) 300ms forwards; }
-.botAnnotation[data-state="visible"] .botAnnotationArrowHead, .botAnnotation[data-state="exiting"] .botAnnotationArrowHead { animation: bot-annotation-draw 180ms ease-out 680ms forwards; }
-.botAnnotationLabel { position: absolute; display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; white-space: nowrap; transform: rotate(-3deg); transform-origin: 0 70%; opacity: 0; }
-.botAnnotation[data-state="visible"] .botAnnotationLabel, .botAnnotation[data-state="exiting"] .botAnnotationLabel { animation: bot-annotation-label-in 380ms cubic-bezier(0.22, 1, 0.36, 1) 360ms forwards; }
-.botAnnotationTitle { font-family: var(--font-caveat), cursive; font-size: 35px; font-weight: 700; line-height: 0.92; letter-spacing: 0.005em; }
-.botAnnotationHint { padding-inline-start: 4px; font-family: var(--font-caveat), cursive; font-size: 19px; font-weight: 600; line-height: 1; opacity: 0.8; }
-.botAnnotation[data-compact="true"] .botAnnotationTitle { font-size: 27px; }
-.botAnnotation[data-compact="true"] .botAnnotationHint { font-size: 16px; }
-@keyframes bot-annotation-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
-@keyframes bot-annotation-label-in { from { opacity: 0; transform: rotate(-3deg) translateY(6px); } to { opacity: 1; transform: rotate(-3deg) translateY(0); } }
-@media (prefers-reduced-motion: reduce) {
-  .botAnnotation { transition: none; }
-  .botAnnotationCircle, .botAnnotationArrow, .botAnnotationArrowHead { animation: none; stroke-dashoffset: 0; }
-  .botAnnotationLabel { animation: none; opacity: 1; }
+.botAnnotation {
+  --bot-ink: var(--tn-blue, #4f7fc7);
+
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  user-select: none;
+  color: var(--bot-ink);
+}
+
+:global(.dark) .botAnnotation,
+:global([data-tn-mode="dark"]) .botAnnotation {
+  --bot-ink: #7ca3ff;
+  filter: drop-shadow(0 0 8px rgb(91 124 255 / 26%));
+}
+
+.botAnnotation[data-state="idle"] {
+  opacity: 0;
+}
+
+.botAnnotation[data-state="exiting"] {
+  opacity: 0;
+}
+
+.botAnnotationSvg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.botAnnotationCircle,
+.botAnnotationArrow,
+.botAnnotationArrowHead {
+  stroke: currentColor;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.botAnnotationLabel {
+  position: absolute;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  white-space: nowrap;
+  transform: rotate(-3deg);
+  transform-origin: 0 70%;
+}
+
+.botAnnotationTitle {
+  font-family: var(--font-caveat), cursive;
+  font-size: 35px;
+  font-weight: 700;
+  line-height: 0.92;
+  letter-spacing: 0.005em;
+}
+
+.botAnnotationHint {
+  padding-inline-start: 4px;
+  font-family: var(--font-caveat), cursive;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.botAnnotation[data-compact="true"] .botAnnotationTitle {
+  font-size: 27px;
+}
+
+.botAnnotation[data-compact="true"] .botAnnotationHint {
+  font-size: 16px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .botAnnotation {
+    transition:
+      opacity 280ms ease-out,
+      transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 280ms ease-out;
+  }
+
+  .botAnnotation[data-state="exiting"] {
+    transform: translateY(-6px) scale(0.97);
+    filter: blur(2px);
+  }
+
+  .botAnnotationCircle,
+  .botAnnotationArrow,
+  .botAnnotationArrowHead {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+
+  .botAnnotation[data-state="visible"] .botAnnotationCircle,
+  .botAnnotation[data-state="exiting"] .botAnnotationCircle {
+    animation: bot-annotation-draw 560ms cubic-bezier(0.22, 1, 0.36, 1) 120ms forwards;
+  }
+
+  .botAnnotation[data-state="visible"] .botAnnotationArrow,
+  .botAnnotation[data-state="exiting"] .botAnnotationArrow {
+    animation: bot-annotation-draw 460ms cubic-bezier(0.22, 1, 0.36, 1) 300ms forwards;
+  }
+
+  .botAnnotation[data-state="visible"] .botAnnotationArrowHead,
+  .botAnnotation[data-state="exiting"] .botAnnotationArrowHead {
+    animation: bot-annotation-draw 180ms ease-out 680ms forwards;
+  }
+
+  .botAnnotationLabel {
+    opacity: 0;
+  }
+
+  .botAnnotation[data-state="visible"] .botAnnotationLabel,
+  .botAnnotation[data-state="exiting"] .botAnnotationLabel {
+    animation: bot-annotation-label-in 380ms cubic-bezier(0.22, 1, 0.36, 1) 360ms forwards;
+  }
+}
+
+@keyframes bot-annotation-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes bot-annotation-label-in {
+  from { opacity: 0; transform: rotate(-3deg) translateY(6px); }
+  to { opacity: 1; transform: rotate(-3deg) translateY(0); }
 }
