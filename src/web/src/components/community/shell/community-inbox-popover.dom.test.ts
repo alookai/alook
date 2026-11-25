@@ -1416,8 +1416,12 @@ describe("InboxPopover inline reply in Unreads", () => {
       const inputScrollIntoView = vi.fn()
       footer.scrollIntoView = footerScrollIntoView
       input.scrollIntoView = inputScrollIntoView
+      const footerContentTop = 290 + 140
       scrollViewport.getBoundingClientRect = () => ({ top: 100, bottom: 300, height: 200, left: 0, right: 400, width: 400, x: 0, y: 100, toJSON: () => ({}) })
-      footer.getBoundingClientRect = () => ({ top: 290, bottom: 350, height: 60, left: 0, right: 400, width: 400, x: 0, y: 290, toJSON: () => ({}) })
+      footer.getBoundingClientRect = () => {
+        const top = footerContentTop - scrollViewport.scrollTop
+        return { top, bottom: top + 60, height: 60, left: 0, right: 400, width: 400, x: 0, y: top, toJSON: () => ({}) }
+      }
 
       scrollViewport.scrollTop = 140
       input.focus()
@@ -1431,6 +1435,12 @@ describe("InboxPopover inline reply in Unreads", () => {
       expect(onScrollOffsetChange).toHaveBeenCalledWith("unreads", 202)
       expect(footerScrollIntoView).not.toHaveBeenCalled()
       expect(inputScrollIntoView).not.toHaveBeenCalled()
+
+      // Repeated resizes/frames while already revealed must remain idempotent.
+      await act(async () => {
+        for (const cb of callbacks) cb([], {} as ResizeObserver)
+      })
+      expect(scrollViewport.scrollTop).toBe(202)
 
       // After blurring (e.g. keyboard dismissed), resize restores the saved scroll offset.
       input.blur()
