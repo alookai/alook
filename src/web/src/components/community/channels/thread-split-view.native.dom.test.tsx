@@ -332,4 +332,70 @@ describe("ThreadSplitView actual native persistence", () => {
       vi.restoreAllMocks()
     }
   })
+
+  it("overrides panel inner overflow:auto to hidden and decouples steady-state messages from inline-size containment", () => {
+    nativeGeometry(1225)
+    const css = staticContractInput0
+    expect(css).not.toMatch(/\.layout\s*\{[^}]*container\s*:/s)
+    expect(css).toMatch(/\.pendingLayout\s*\{[^}]*container:\s*thread-split\s*\/\s*inline-size/s)
+    expect(css).toMatch(/\.modeProbe\s*\{[^}]*container:\s*thread-split-probe\s*\/\s*inline-size/s)
+    expect(css).toMatch(/@container\s+thread-split-probe\s*\(min-width:\s*880px\)\s*\{[^}]*\.modeMarker\s*\{[^}]*--thread-split-mode:\s*split/s)
+
+    const markerNodes: Array<HTMLElement | null> = []
+    const modeMarkerRef = (node: HTMLElement | null) => { markerNodes.push(node) }
+    const renderMode = (mode: "pending" | "split" | "full") => createElement(ThreadSplitView, {
+      split: mode === "split",
+      layoutPending: mode === "pending",
+      modeMarkerRef,
+      parent: createElement("div", { "data-testid": "parent-body" }, "Parent"),
+      thread: createElement("div", { "data-testid": "thread-body" }, "Thread"),
+    })
+
+    const browser = window
+    let ssrHtml: string
+    try {
+      vi.stubGlobal("window", undefined)
+      ssrHtml = renderToString(renderMode("pending"))
+    } finally { vi.stubGlobal("window", browser) }
+    const ssr = document.createElement("div")
+    ssr.innerHTML = ssrHtml
+    for (const id of ["parent", "thread"] as const) {
+      const inner = ssr.querySelector(`#${id}`)?.firstElementChild as HTMLElement | null
+      expect(inner?.style.overflow).toBe("hidden")
+    }
+    expect(ssr.querySelector("main")).toHaveClass(styles.pendingLayout)
+
+    const view = render(renderMode("pending"))
+    try {
+      const main = view.container.querySelector("main")!
+      const group = view.container.querySelector("[data-group]")!
+      const probe = view.container.querySelector("[data-thread-split-probe]") as HTMLElement
+      const marker = markerNodes.at(-1)!
+      expect(probe).toBeInstanceOf(HTMLElement)
+      expect(probe).toHaveClass(styles.modeProbe)
+      expect(probe.parentElement).toBe(main)
+      expect(probe.contains(group)).toBe(false)
+      expect(marker.parentElement).toBe(probe)
+      expect(marker).toHaveClass(styles.modeMarker)
+      expect(main).toHaveClass(styles.pendingLayout)
+
+      for (const mode of ["split", "full", "split"] as const) {
+        view.rerender(renderMode(mode))
+        expect(view.container.querySelector("main")).toBe(main)
+        expect(main).not.toHaveClass(styles.pendingLayout)
+        expect(main).not.toHaveAttribute("data-layout-pending")
+        expect(view.container.querySelector("[data-thread-split-probe]")).toBe(probe)
+        expect(marker.parentElement).toBe(probe)
+        for (const id of ["parent", "thread"] as const) {
+          const panel = view.container.querySelector(`#${id}`) as HTMLElement
+          const inner = panel.firstElementChild as HTMLElement
+          expect(inner.style.overflow).toBe("hidden")
+        }
+      }
+    } finally {
+      view.unmount()
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    }
+  })
 })

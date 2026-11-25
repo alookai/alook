@@ -47,11 +47,13 @@ vi.mock("@/components/ui/resizable", () => ({
     defaultSize,
     minSize,
     maxSize,
+    style,
   }: PropsWithChildren<Record<string, unknown>>) => createElement("div", {
     "data-testid": `panel-${id}`,
     "data-default-size": defaultSize,
     "data-min-size": minSize,
     "data-max-size": maxSize,
+    "data-overflow": (style as { overflow?: string } | undefined)?.overflow,
   }, children),
   ResizableHandle: (props: Record<string, unknown>) => createElement("div", props),
 }))
@@ -149,7 +151,9 @@ describe("ThreadSplitView", () => {
     expect(group).toHaveAttribute("data-persists-layout", "true")
     expect(screen.getByTestId("panel-parent")).toHaveAttribute("data-default-size", "56%")
     expect(screen.getByTestId("panel-parent")).toHaveAttribute("data-min-size", "320")
+    expect(screen.getByTestId("panel-parent")).toHaveAttribute("data-overflow", "hidden")
     expect(screen.getByTestId("panel-thread")).toHaveAttribute("data-default-size", "44%")
+    expect(screen.getByTestId("panel-thread")).toHaveAttribute("data-overflow", "hidden")
     expect(screen.getByTestId("panel-thread"))
       .toHaveAttribute("data-min-size", String(THREAD_SPLIT_PANEL_MIN_WIDTH))
     expect(screen.getByTestId("panel-thread"))
