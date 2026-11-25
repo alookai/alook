@@ -65,7 +65,6 @@
   },
   "pnpm": {
     "patchedDependencies": {
-      "@opennextjs/cloudflare@1.20.10": "patches/@opennextjs__cloudflare@1.20.10.patch",
       "@base-ui/react@1.9.0": "patches/@base-ui__react@1.9.0.patch"
     },
     "onlyBuiltDependencies": [
