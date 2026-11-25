@@ -902,37 +902,61 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     })
 
     await expect.poll(async () => {
-      return card.evaluate((el, inputId) => {
+      return card.evaluate((el, ids) => {
         const bounds = document.querySelector<HTMLElement>('[data-slot="app-safe-bounds"]')!.getBoundingClientRect()
-        const input = document.querySelector<HTMLElement>(`[data-testid="${inputId}"]`)!
+        const scroll = document.querySelector<HTMLElement>(`[data-testid="${ids.scroll}"]`)!.getBoundingClientRect()
+        const input = document.querySelector<HTMLElement>(`[data-testid="${ids.input}"]`)!
+        const composer = input.closest<HTMLElement>('[data-slot="inbox-reply-composer"]')!.getBoundingClientRect()
+        const send = document.querySelector<HTMLElement>(`[data-testid="${ids.send}"]`)!.getBoundingClientRect()
         const c = el.getBoundingClientRect()
-        const i = input.getBoundingClientRect()
         return bounds.top === 10
           && bounds.bottom === 410
-          && c.top >= bounds.top - 1
-          && c.bottom <= bounds.bottom + 1
-          && i.top >= c.top - 1
-          && i.bottom <= c.bottom + 1
-      }, tid.inboxReplyInput(unreadId))
+          && document.documentElement.scrollTop === 0
+          && c.top >= bounds.top - 0.5
+          && c.bottom <= bounds.bottom + 0.5
+          && composer.top >= scroll.top - 0.5
+          && composer.bottom <= scroll.bottom + 0.5
+          && send.top >= scroll.top - 0.5
+          && send.bottom <= scroll.bottom + 0.5
+      }, {
+        scroll: tid.inboxTabScroll("unreads"),
+        input: tid.inboxReplyInput(unreadId),
+        send: tid.inboxReplySend(unreadId),
+      })
     }).toBe(true)
 
-    const after = await card.evaluate((el, inputId) => {
+    const after = await card.evaluate((el, ids) => {
       const bounds = document.querySelector<HTMLElement>('[data-slot="app-safe-bounds"]')!.getBoundingClientRect()
-      const input = document.querySelector<HTMLElement>(`[data-testid="${inputId}"]`)!
+      const scroll = document.querySelector<HTMLElement>(`[data-testid="${ids.scroll}"]`)!.getBoundingClientRect()
+      const input = document.querySelector<HTMLElement>(`[data-testid="${ids.input}"]`)!
+      const composer = input.closest<HTMLElement>('[data-slot="inbox-reply-composer"]')!.getBoundingClientRect()
+      const send = document.querySelector<HTMLElement>(`[data-testid="${ids.send}"]`)!.getBoundingClientRect()
       const c = el.getBoundingClientRect()
-      const i = input.getBoundingClientRect()
       return {
+        docScrollTop: document.documentElement.scrollTop,
         card: { left: c.left, top: c.top, bottom: c.bottom, height: c.height },
         bounds: { top: bounds.top, bottom: bounds.bottom },
-        input: { top: i.top, bottom: i.bottom },
+        scroll: { top: scroll.top, bottom: scroll.bottom },
+        composer: { top: composer.top, bottom: composer.bottom, height: composer.height },
+        send: { top: send.top, bottom: send.bottom, height: send.height },
       }
-    }, tid.inboxReplyInput(unreadId))
+    }, {
+      scroll: tid.inboxTabScroll("unreads"),
+      input: tid.inboxReplyInput(unreadId),
+      send: tid.inboxReplySend(unreadId),
+    })
+    expect(after.docScrollTop).toBe(0)
     expect(Math.abs(after.card.left - before.card.left)).toBeLessThanOrEqual(4)
     expect(after.card.top).toBeGreaterThanOrEqual(after.bounds.top - GEOMETRY_EPSILON)
     expect(after.card.bottom).toBeLessThanOrEqual(after.bounds.bottom + GEOMETRY_EPSILON)
-    expect(after.input.top).toBeGreaterThanOrEqual(after.card.top - GEOMETRY_EPSILON)
-    expect(after.input.bottom).toBeLessThanOrEqual(after.card.bottom + GEOMETRY_EPSILON)
-    expect(after.input.bottom).toBeLessThanOrEqual(410 + GEOMETRY_EPSILON)
+    expect(after.composer.height).toBeGreaterThanOrEqual(44)
+    expect(after.composer.top).toBeGreaterThanOrEqual(after.scroll.top - GEOMETRY_EPSILON)
+    expect(after.composer.bottom).toBeLessThanOrEqual(after.scroll.bottom + GEOMETRY_EPSILON)
+    expect(after.composer.bottom).toBeLessThanOrEqual(after.card.bottom + GEOMETRY_EPSILON)
+    expect(after.composer.bottom).toBeLessThanOrEqual(410 + GEOMETRY_EPSILON)
+    expect(after.send.top).toBeGreaterThanOrEqual(after.scroll.top - GEOMETRY_EPSILON)
+    expect(after.send.bottom).toBeLessThanOrEqual(after.scroll.bottom + GEOMETRY_EPSILON)
+    expect(after.send.bottom).toBeLessThanOrEqual(410 + GEOMETRY_EPSILON)
     await testInfo.attach("inbox-expanded-951x410-keyboard-open", {
       body: await bob.page.screenshot(),
       contentType: "image/png",
@@ -944,14 +968,44 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       && response.url().includes(`/api/community/channels/${unreadId}/messages`)
     ))
     await replyInput.fill(replyText)
-    await replyInput.press("Enter")
+    await bob.page.getByTestId(tid.inboxReplySend(unreadId)).click()
     expect((await replyPost).status()).toBe(201)
     await expect(bob.page.getByTestId(tid.inboxUnreadCard(unreadId))).toHaveCount(0)
+
+    // Dismiss the native keyboard while Inbox remains open and verify it returns cleanly above UserBar.
+    await bob.page.setViewportSize({ width: 951, height: 669 })
+    await bob.page.evaluate(() => {
+      const root = document.documentElement
+      root.style.setProperty("--app-safe-area-bottom", "20px")
+      window.dispatchEvent(new Event("resize"))
+    })
+    await expect.poll(async () => {
+      return card.evaluate((el, userBarId) => {
+        const userBar = document.querySelector<HTMLElement>(`[data-testid="${userBarId}"] [data-slot="community-user-bar-base"]`)!.getBoundingClientRect()
+        const c = el.getBoundingClientRect()
+        return c.top >= 10 - 1 && c.bottom <= userBar.top + 1
+      }, tid.userBar)
+    }).toBe(true)
+    const restored = await card.evaluate((el, userBarId) => {
+      const userBar = document.querySelector<HTMLElement>(`[data-testid="${userBarId}"] [data-slot="community-user-bar-base"]`)!.getBoundingClientRect()
+      const c = el.getBoundingClientRect()
+      return {
+        card: { left: c.left, top: c.top, bottom: c.bottom, height: c.height },
+        userBar: { left: userBar.left, top: userBar.top, bottom: userBar.bottom },
+      }
+    }, tid.userBar)
+    expect(Math.abs(restored.card.left - before.card.left)).toBeLessThanOrEqual(4)
+    expect(restored.card.top).toBeGreaterThanOrEqual(10 - GEOMETRY_EPSILON)
+    expect(restored.card.bottom).toBeLessThanOrEqual(restored.userBar.top + GEOMETRY_EPSILON)
+    await testInfo.attach("inbox-expanded-951x669-after-keyboard-close", {
+      body: await bob.page.screenshot(),
+      contentType: "image/png",
+    })
+
     await bob.page.keyboard.press("Escape")
     await expect(card).toHaveCount(0)
 
-    // Restore full height and verify clicking/pressing a real Sonner toast does not stretch its ::before sticker face.
-    await bob.page.setViewportSize({ width: 951, height: 669 })
+    // Verify clicking/pressing a real Sonner toast does not stretch its ::before sticker face.
     await bob.page.evaluate(() => {
       const root = document.documentElement
       delete root.dataset.alookNativeResize
