@@ -8,7 +8,6 @@ const cloudflare = defineCloudflareConfig({
 	incrementalCache: staticAssetsIncrementalCache,
 	enableCacheInterception: true,
 	tagCache: "dummy",
-	queue: "direct",
 });
 
 export default {

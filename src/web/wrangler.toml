@@ -44,11 +44,6 @@ service = "alook-web"
 binding = "NEXT_INC_CACHE_R2_BUCKET"
 bucket_name = "alook-next-cache"
 
-[[d1_databases]]
-binding = "NEXT_TAG_CACHE_D1"
-database_id = "f15ea77a-d5e9-460e-926b-532948e3ad1b"
-database_name = "alook-next-tags"
-
 [[durable_objects.bindings]]
 name = "NEXT_CACHE_DO_QUEUE"
 class_name = "DOQueueHandler"

@@ -22,6 +22,7 @@ enabled = true
 directory = ".open-next/assets"
 binding = "ASSETS"
 html_handling = "none"
+not_found_handling = "none"
 run_worker_first = true
 
 [[routes]]

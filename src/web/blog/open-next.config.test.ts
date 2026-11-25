@@ -27,11 +27,11 @@ describe("Blog OpenNext configuration", () => {
 		if (typeof serverCache !== "function") throw new Error("Static cache loader is missing");
 		expect(await serverCache()).toBe(staticAssetsIncrementalCache);
 		expect(config.default.override?.tagCache).toBe("dummy");
-		expect(config.default.override?.queue).toBe("direct");
+		expect(config.default.override?.queue).toBe("dummy");
 		const middlewareCache = config.middleware?.override?.incrementalCache;
 		if (typeof middlewareCache !== "function") throw new Error("Static middleware cache loader is missing");
 		expect(await middlewareCache()).toBe(staticAssetsIncrementalCache);
 		expect(config.middleware?.override?.tagCache).toBe("dummy");
-		expect(config.middleware?.override?.queue).toBe("direct");
+		expect(config.middleware?.override?.queue).toBe("dummy");
 	});
 });

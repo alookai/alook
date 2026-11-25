@@ -49,7 +49,7 @@ describe("OpenNext and Wrangler refresh", () => {
     expect(dependency("src/web/package.json", "wrangler-e2e")).toBeUndefined()
   })
 
-  it("binds selected OpenNext resolutions to their declared patches and keeps one Workers types range", () => {
+  it("tracks OpenNext resolutions without adapter patches and keeps one Workers types range", () => {
     const lock = parsePnpmLock(readRepositoryFile("pnpm-lock.yaml"))
     const selected = lockedDependency(lock, "src/web", "@opennextjs/cloudflare")
     expect(selected.specifier).toBe(dependency("src/web/package.json", "@opennextjs/cloudflare"))
@@ -63,11 +63,9 @@ describe("OpenNext and Wrangler refresh", () => {
     expect(Object.keys(projection)).toContain(`package:@opennextjs/aws@${aws.version}`)
     expect(installed.dependencies["@opennextjs/aws"]).toBeTruthy()
     const rootManifest = readPackage("package.json")
-    const patches = rootManifest.pnpm?.patchedDependencies
-    expect(patches).toBeDefined()
-    const selectedPatch = patches?.[`@opennextjs/cloudflare@${installed.version}`]
-    expect(selectedPatch).toBeTruthy()
-    for (const [identity, path] of Object.entries(patches ?? {})) {
+    const patches = rootManifest.pnpm?.patchedDependencies ?? {}
+    expect(Object.keys(patches).filter((identity) => identity.startsWith("@opennextjs/cloudflare@"))).toEqual([])
+    for (const [identity, path] of Object.entries(patches)) {
       expect(lock.packages.has(identity), identity).toBe(true)
       expect(lock.patches.get(identity), identity).toContain(`path: ${path}`)
       expect(existsSync(new URL(path, repositoryRoot)), path).toBe(true)
@@ -115,6 +113,7 @@ describe("OpenNext and Wrangler refresh", () => {
     expect(webToml).toContain('binding = "WORKER_SELF_REFERENCE"')
     expect(webToml).toContain('binding = "WS_DO_WORKER"')
     expect(webToml).toContain('binding = "BLOG_WORKER"')
+    expect(webToml).not.toContain("NEXT_TAG_CACHE_D1")
 
     const blogToml = readRepositoryFile("src/web/blog/wrangler.toml")
     expect(bindingNames(blogToml)).toEqual(["ASSETS"])
@@ -122,6 +121,7 @@ describe("OpenNext and Wrangler refresh", () => {
       expect(blogToml).toContain(`pattern = "alook.ai/${path}*"`)
     }
     expect(blogToml).toContain('html_handling = "none"')
+    expect(blogToml).toContain('not_found_handling = "none"')
     expect(blogToml).toContain("run_worker_first = true")
     for (const forbidden of [
       "NEXT_CACHE_DO_QUEUE",
