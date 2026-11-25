@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { CalendarDays, ChevronLeft, ChevronRight, Pause } from "@/components/icons/lucide"
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Pause } from "@/components/icons/lucide"
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { HOME_TAB_COLUMN_CLASS } from "@/components/community/home-tab-layout"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import { CalendarActorAvatar } from "./calendar-actor"
 import { CalendarAgendaView } from "./calendar-agenda-view"
 import {
@@ -21,7 +22,11 @@ import {
 } from "./calendar-date"
 import { CalendarDetailSheet } from "./calendar-detail-sheet"
 import { CalendarMobileHeader, CalendarPageSkeleton } from "./calendar-skeleton"
-import { CalendarRecurrenceBadge, CalendarSourceStatusBadge } from "./calendar-status"
+import {
+  CalendarRecurrenceBadge,
+  CalendarSourceStatusBadge,
+  CalendarStatusDot,
+} from "./calendar-status"
 import type {
   CalendarActor,
   CalendarEventEditDraft,
@@ -129,22 +134,25 @@ export function CalendarWorkspace({
     [creators],
   )
 
+  const jumpToToday = () => onAnchorDateChange(startOfLocalDay(new Date()))
+  const stepDays = view === "week" ? 7 : 14
+
   if (loading && occurrences.length === 0 && pausedEvents.length === 0) {
     return <CalendarPageSkeleton onBack={onBack} />
   }
 
   return (
     <div data-testid={tid.calendarPage} className="flex min-h-0 flex-1 flex-col">
-      <CalendarMobileHeader onBack={onBack} />
+      <CalendarMobileHeader onBack={onBack} onToday={jumpToToday} />
       <ScrollArea
         render={<section aria-labelledby="calendar-heading" />}
         className="@container flex min-h-0 flex-1 flex-col"
         viewportClassName="min-h-0 flex-1"
-        contentClassName="flex min-h-full flex-col p-4 sm:p-8"
+        contentClassName="flex min-h-full flex-col p-4 sm:p-6"
       >
-        <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col gap-6 sm:gap-8`}>
-          <div className="flex flex-col gap-4">
-            <header className="flex flex-col gap-1 max-sm:sr-only">
+        <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col gap-5 sm:gap-6`}>
+          <div className="flex flex-col gap-3 sm:gap-4">
+            <header className="flex flex-col gap-0.5 max-sm:sr-only">
               <h1 id="calendar-heading" className="text-xl font-medium text-foreground">
                 Calendar
               </h1>
@@ -153,70 +161,76 @@ export function CalendarWorkspace({
               </p>
             </header>
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex items-center rounded-md border border-border/80 bg-card p-0.5">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <button
+                  type="button"
+                  onClick={jumpToToday}
+                  className={cn(
+                    "inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors duration-150 hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                    onBack ? "hidden sm:inline-flex" : "inline-flex h-10 sm:h-9",
+                  )}
+                >
+                  Today
+                </button>
+
+                <div className="flex min-w-0 flex-1 items-center justify-between gap-1 sm:flex-none sm:justify-start sm:gap-0.5">
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-10 w-10 sm:h-8 sm:w-8"
+                    className="size-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground sm:size-8"
                     aria-label={view === "week" ? "Previous week" : "Previous range"}
-                    onClick={() => onAnchorDateChange(addLocalDays(anchorDate, view === "week" ? -7 : -14))}
+                    onClick={() => onAnchorDateChange(addLocalDays(anchorDate, -stepDays))}
                   >
                     <ChevronLeft className="size-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-10 px-3 text-xs font-medium sm:h-8"
-                    onClick={() => onAnchorDateChange(startOfLocalDay(new Date()))}
-                  >
-                    Today
-                  </Button>
+
+                  <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
+                    <PopoverTrigger
+                      render={
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2.5 text-sm font-semibold tracking-tight text-foreground transition-colors duration-150 hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none sm:order-3 sm:ml-1 sm:h-9 sm:flex-none sm:px-2.5 sm:text-[15px]",
+                            datePopoverOpen && "bg-muted/80",
+                          )}
+                        />
+                      }
+                    >
+                      <CalendarDays className="hidden size-4 shrink-0 text-muted-foreground sm:block" aria-hidden />
+                      <span className="truncate tabular-nums">{weekRangeLabel}</span>
+                      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto p-1">
+                      <Calendar
+                        mode="single"
+                        weekStartsOn={1}
+                        selected={anchorDate}
+                        onSelect={(picked) => {
+                          if (picked) {
+                            onAnchorDateChange(startOfLocalDay(picked))
+                            setDatePopoverOpen(false)
+                          }
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-10 w-10 sm:h-8 sm:w-8"
+                    className="size-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground sm:order-2 sm:size-8"
                     aria-label={view === "week" ? "Next week" : "Next range"}
-                    onClick={() => onAnchorDateChange(addLocalDays(anchorDate, view === "week" ? 7 : 14))}
+                    onClick={() => onAnchorDateChange(addLocalDays(anchorDate, stepDays))}
                   >
                     <ChevronRight className="size-4" />
                   </Button>
                 </div>
-
-                <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
-                  <PopoverTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11 gap-2 bg-card px-3 font-mono text-xs font-medium tabular-nums sm:h-9"
-                      />
-                    }
-                  >
-                    <CalendarDays className="size-4 text-muted-foreground" aria-hidden />
-                    <span>{weekRangeLabel}</span>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-1">
-                    <Calendar
-                      mode="single"
-                      weekStartsOn={1}
-                      selected={anchorDate}
-                      onSelect={(picked) => {
-                        if (picked) {
-                          onAnchorDateChange(startOfLocalDay(picked))
-                          setDatePopoverOpen(false)
-                        }
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center justify-between gap-2 sm:justify-end">
                 {creators.length > 0 ? (
                   <Select
                     value={selectedCreatorId ?? ALL_CREATORS_VALUE}
@@ -227,7 +241,7 @@ export function CalendarWorkspace({
                   >
                     <SelectTrigger
                       aria-label="Filter by creator"
-                      className="h-11 min-w-36 bg-card sm:h-9"
+                      className="h-10 min-w-0 flex-1 sm:h-9 sm:w-40 sm:flex-none"
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -252,10 +266,11 @@ export function CalendarWorkspace({
                   onValueChange={(next) => {
                     if (next === "week" || next === "agenda") onViewChange(next)
                   }}
+                  className="shrink-0"
                 >
-                  <TabsList aria-label="Calendar view" className="h-11 sm:h-9">
-                    <TabsTrigger value="week" className="px-3">Week</TabsTrigger>
-                    <TabsTrigger value="agenda" className="px-3">Agenda</TabsTrigger>
+                  <TabsList aria-label="Calendar view">
+                    <TabsTrigger value="week">Week</TabsTrigger>
+                    <TabsTrigger value="agenda">Agenda</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
@@ -287,8 +302,8 @@ export function CalendarWorkspace({
           )}
 
           {pausedAsOccurrences.length > 0 ? (
-            <section aria-label="Paused schedules" className="flex flex-col gap-3 border-t border-border/60 pt-6">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <section aria-label="Paused schedules" className="flex flex-col gap-3 border-t border-border/60 pt-5">
+              <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 <Pause className="size-3.5" aria-hidden />
                 <span>Paused schedules ({pausedAsOccurrences.length})</span>
               </div>
@@ -299,13 +314,20 @@ export function CalendarWorkspace({
                     type="button"
                     data-testid={tid.calendarEvent(item.event.id)}
                     onClick={() => setSelectedOccurrenceKey(item.occurrenceKey)}
-                    className="flex min-h-11 flex-col gap-2 rounded-lg border border-border/70 border-l-2 border-l-muted-foreground/50 bg-card/80 p-4 text-left opacity-85 transition-colors duration-150 hover:bg-accent/50 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none"
+                    className="flex min-h-11 flex-col gap-2 rounded-xl border border-dashed border-border/80 bg-card/70 p-3.5 text-left transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-foreground">{item.event.title}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <CalendarStatusDot paused />
+                        <span className="truncate text-sm font-medium text-foreground/90">{item.event.title}</span>
+                      </span>
                       <div className="flex shrink-0 items-center gap-1.5">
                         <CalendarRecurrenceBadge recurrence={item.event.recurrence} compact />
-                        <CalendarSourceStatusBadge source={item.event.sourceMessage} compact />
+                        <CalendarSourceStatusBadge
+                          source={item.event.sourceMessage}
+                          runStatus={item.runStatus}
+                          compact
+                        />
                       </div>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">

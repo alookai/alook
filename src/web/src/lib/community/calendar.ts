@@ -24,7 +24,7 @@ export type CalendarSourceMessage = {
   unavailableReason?: string | null
 }
 
-type CalendarRunStatus = "pending" | "dispatched" | "blocked_access"
+type CalendarRunStatus = "pending" | "dispatched" | "completed" | "blocked_access"
 
 export type CalendarOccurrenceRunStatus = "scheduled" | CalendarRunStatus
 
@@ -32,6 +32,7 @@ type CalendarExecutionSummary = {
   status: CalendarRunStatus
   scheduledAt?: string | null
   updatedAt?: string | null
+  ackedAt?: string | null
   lastError?: string | null
 }
 
@@ -99,6 +100,7 @@ type CalendarLastExecutionDto = {
   scheduledAt: string
   status: CalendarRunStatus
   lastError: string | null
+  ackedAt?: string | null
   updatedAt: string
 }
 
@@ -151,6 +153,7 @@ export type CalendarUpdateRequestDto = {
   timeZone?: string
   recurrence?: CalendarRecurrenceRule | null
   paused?: boolean
+  ack?: boolean
 }
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
@@ -261,6 +264,7 @@ function mapCalendarEventDto(
           status: dto.lastExecution.status,
           scheduledAt: dto.lastExecution.scheduledAt,
           updatedAt: dto.lastExecution.updatedAt,
+          ackedAt: dto.lastExecution.ackedAt ?? null,
           lastError: dto.lastExecution.lastError,
         }
       : null,

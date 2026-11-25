@@ -63,9 +63,10 @@ describe("calendar client mapping", () => {
           },
           lastExecution: {
             scheduledAt: "2026-11-26T01:00:00.000Z",
-            status: "dispatched",
+            status: "completed",
+            ackedAt: "2026-11-26T01:04:00.000Z",
             lastError: null,
-            updatedAt: "2026-11-26T01:00:01.000Z",
+            updatedAt: "2026-11-26T01:04:00.000Z",
           },
           createdAt: "2026-11-25T04:00:00.000Z",
           updatedAt: "2026-11-25T04:00:00.000Z",
@@ -106,7 +107,7 @@ describe("calendar client mapping", () => {
           occurrenceKey: "cal_1:2026-11-26T01:00:00.000Z",
           startAt: "2026-11-26T01:00:00.000Z",
           endAt: "2026-11-26T01:30:00.000Z",
-          runStatus: "dispatched",
+          runStatus: "completed",
         },
       ],
     }
@@ -118,7 +119,8 @@ describe("calendar client mapping", () => {
     expect(mapped.creators).toHaveLength(2)
     expect(mapped.creators[0]?.avatarUrl).toBe("/avatars/alli.png")
     expect(mapped.occurrences).toHaveLength(1)
-    expect(mapped.occurrences[0]?.runStatus).toBe("dispatched")
+    expect(mapped.occurrences[0]?.runStatus).toBe("completed")
+    expect(mapped.occurrences[0]?.event.lastExecution?.ackedAt).toBe("2026-11-26T01:04:00.000Z")
     expect(mapped.occurrences[0]?.event.sourceMessage.excerpt).toBe("Share daily update here")
 
     expect(mapped.pausedEvents).toHaveLength(1)

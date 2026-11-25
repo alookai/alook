@@ -2,7 +2,7 @@ import type { CalendarOccurrenceItem } from "./calendar-types"
 
 const DEFAULT_WEEK_STARTS_ON = 1
 export const DEFAULT_OCCURRENCE_DURATION_MINUTES = 30
-export const WEEK_HOUR_HEIGHT_PX = 56
+export const WEEK_HOUR_HEIGHT_PX = 60
 export const WEEK_HOURS = Array.from({ length: 24 }, (_, hour) => hour)
 
 export function startOfLocalDay(date: Date): Date {
@@ -89,11 +89,34 @@ export function formatWeekdayShort(date: Date): string {
   return new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date)
 }
 
+export function formatLocalTimeZoneShort(date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZoneName: "shortOffset" }).formatToParts(date)
+    const offset = parts.find((part) => part.type === "timeZoneName")?.value
+    if (offset) return offset.replace("GMT", "UTC")
+  } catch {
+    // Fall back to resolved timezone tail below.
+  }
+  return "Local"
+}
+
+export function formatLocalTimeZoneFull(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "Local"
+}
+
+export function formatMobileDayHeading(date: Date, now: Date): string {
+  const heading = formatAgendaDayLabel(date, now)
+  if (heading.isToday || heading.primary === "Tomorrow" || heading.primary === "Yesterday") {
+    return `${heading.primary} · ${heading.secondary}`
+  }
+  return `${heading.primary}, ${heading.secondary}`
+}
+
 export function formatHourLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
 }
 
-export function formatTimeShort(iso: string): string {
+function formatTimeShort(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ""
   return new Intl.DateTimeFormat(undefined, {

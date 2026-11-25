@@ -15,6 +15,7 @@ import {
   CalendarRecurrenceBadge,
   CalendarRunStatusBadge,
   CalendarSourceStatusBadge,
+  CalendarStatusDot,
 } from "./calendar-status"
 import type { CalendarOccurrenceItem } from "./calendar-types"
 
@@ -36,7 +37,7 @@ export function CalendarAgendaView({
     return (
       <div
         data-testid={tid.calendarAgenda}
-        className="flex flex-1 flex-col items-center justify-center rounded-xl border border-border/60 bg-card/50 py-16"
+        className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-border/70 bg-card/60 py-16"
       >
         <EmptyState icon={CalendarDays} label={emptyLabel} />
       </div>
@@ -44,16 +45,16 @@ export function CalendarAgendaView({
   }
 
   return (
-    <div data-testid={tid.calendarAgenda} className="flex flex-col gap-8">
+    <div data-testid={tid.calendarAgenda} className="flex flex-col gap-6 sm:gap-7">
       {groups.map((group) => {
         const heading = formatAgendaDayLabel(group.date, now)
         return (
           <section
             key={group.dayKey}
             aria-label={`${heading.primary} ${heading.secondary}`}
-            className="grid min-w-0 gap-4 sm:grid-cols-[11rem_minmax(0,1fr)]"
+            className="grid min-w-0 gap-3 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-5"
           >
-            <div className="flex items-baseline gap-2 sm:flex-col sm:gap-1 sm:pt-2">
+            <div className="flex items-baseline gap-2 sm:flex-col sm:gap-0.5 sm:pt-3">
               <h2
                 className={cn(
                   "text-sm font-semibold",
@@ -67,7 +68,7 @@ export function CalendarAgendaView({
               </span>
             </div>
 
-            <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex min-w-0 flex-col gap-2.5">
               {group.items.map((occurrence) => {
                 const { event } = occurrence
                 const runStatus = occurrence.runStatus ?? event.lastExecution?.status ?? null
@@ -79,28 +80,29 @@ export function CalendarAgendaView({
                     data-testid={tid.calendarEvent(event.id)}
                     onClick={() => onSelectOccurrence(occurrence)}
                     className={cn(
-                      "flex min-h-11 w-full flex-col gap-3 rounded-lg border border-border/70 border-l-2 bg-card p-4 text-left shadow-(--e1) transition-colors duration-150 hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                      "flex min-h-11 w-full flex-col gap-2.5 rounded-xl border bg-card p-3.5 text-left transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none sm:p-4",
                       degraded
-                        ? "border-l-warning"
+                        ? "border-warning/35 bg-warning/6 hover:bg-warning/10"
                         : event.paused
-                          ? "border-l-muted-foreground/50 opacity-80"
-                          : "border-l-primary",
+                          ? "border-dashed border-border/80 opacity-80"
+                          : "border-border/80",
                       selectedOccurrenceKey === occurrence.occurrenceKey && "ring-2 ring-ring",
                     )}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                        {formatTimeRange(occurrence.startAt, occurrence.endAt)}
+                      <span className="flex items-center gap-2 font-mono text-xs font-medium tabular-nums text-muted-foreground">
+                        <CalendarStatusDot status={runStatus} paused={event.paused} degraded={degraded} />
+                        <span>{formatTimeRange(occurrence.startAt, occurrence.endAt)}</span>
                       </span>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <CalendarRecurrenceBadge recurrence={event.recurrence} />
-                        <CalendarSourceStatusBadge source={event.sourceMessage} />
+                        <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
                         <CalendarRunStatusBadge status={runStatus} paused={event.paused} />
                       </div>
                     </div>
 
                     <div className="flex min-w-0 flex-col gap-1">
-                      <div className="text-sm font-medium text-foreground">{event.title}</div>
+                      <div className="text-sm font-medium leading-snug text-foreground">{event.title}</div>
                       {event.description ? (
                         <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                           {event.description}
@@ -108,7 +110,7 @@ export function CalendarAgendaView({
                       ) : null}
                     </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs text-muted-foreground">
                       <span className="flex min-w-0 items-center gap-2">
                         <CalendarActorAvatar actor={event.creator} size={20} />
                         <span className="truncate font-medium text-foreground/85">

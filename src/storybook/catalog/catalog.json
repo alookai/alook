@@ -2382,7 +2382,8 @@
       "candidates": [
         "CalendarRecurrenceBadge",
         "CalendarRunStatusBadge",
-        "CalendarSourceStatusBadge"
+        "CalendarSourceStatusBadge",
+        "CalendarStatusDot"
       ],
       "kind": "composition",
       "examples": [

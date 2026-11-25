@@ -158,6 +158,40 @@ describe("CalendarWorkspace", () => {
     expect(view.queryByTestId(tid.calendarSourceLink)).toBeNull()
   })
 
+  it("renders completed execution state and acknowledged timestamp from --ack", async () => {
+    const user = setupUser()
+    const ackedAt = new Date(2026, 10, 25, 9, 34).toISOString()
+    const completedOccurrence: CalendarOccurrenceItem = {
+      ...makeFixtureOccurrences()[0]!,
+      runStatus: "completed",
+      event: {
+        ...makeFixtureOccurrences()[0]!.event,
+        lastExecution: {
+          status: "completed",
+          scheduledAt: makeFixtureOccurrences()[0]!.startAt,
+          ackedAt,
+          updatedAt: ackedAt,
+        },
+      },
+    }
+    const view = render(
+      <CalendarWorkspace
+        view="agenda"
+        onViewChange={vi.fn()}
+        anchorDate={ANCHOR}
+        onAnchorDateChange={vi.fn()}
+        selectedCreatorId={null}
+        onSelectedCreatorIdChange={vi.fn()}
+        creators={[ALLI]}
+        occurrences={[completedOccurrence]}
+        onOpenSourceMessage={vi.fn()}
+      />,
+    )
+    expect(view.getByText("Completed")).toBeInTheDocument()
+    await user.click(view.getByTestId(tid.calendarEvent("cal_1")))
+    expect(view.getByText(/Acknowledged by bot/i)).toBeInTheDocument()
+  })
+
   it("keeps paused schedules reachable for resuming or editing", async () => {
     const user = setupUser()
     const view = render(<Harness initialView="agenda" pausedEvents={[PAUSED_EVENT]} />)

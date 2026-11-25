@@ -8,7 +8,6 @@ import {
   Trash2,
   TriangleAlertIcon,
 } from "@/components/icons/lucide"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -78,6 +77,17 @@ function formatFullDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+  }).format(date)
+}
+
+function formatDateOnly(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   }).format(date)
 }
 
@@ -211,15 +221,14 @@ export function CalendarDetailSheet({
               <SheetHeader className="pr-12">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <CalendarRecurrenceBadge recurrence={event.recurrence} />
-                  <CalendarSourceStatusBadge source={event.sourceMessage} />
+                  <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
                   <CalendarRunStatusBadge status={runStatus} paused={event.paused} />
                 </div>
                 <SheetTitle className="mt-1">
                   {editing ? "Edit event" : event.title}
                 </SheetTitle>
                 <SheetDescription className="font-mono text-xs tabular-nums">
-                  {formatFullDateTime(occurrence.startAt)}
-                  {occurrence.endAt ? ` (${formatTimeRange(occurrence.startAt, occurrence.endAt)})` : ""}
+                  {formatDateOnly(occurrence.startAt)} · {formatTimeRange(occurrence.startAt, occurrence.endAt)}
                   {event.timeZone ? ` · ${event.timeZone}` : ""}
                 </SheetDescription>
               </SheetHeader>
@@ -245,15 +254,14 @@ export function CalendarDetailSheet({
                         <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                           <PopoverTrigger
                             render={
-                              <Button
+                              <button
                                 type="button"
-                                variant="outline"
-                                className="h-11 w-full justify-start gap-2 font-normal sm:h-9"
+                                className="flex h-11 w-full items-center gap-2 rounded-lg border border-input bg-card px-3 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-9"
                               />
                             }
                           >
-                            <CalendarDays className="size-4 text-muted-foreground" aria-hidden />
-                            <span className="truncate font-mono text-xs tabular-nums">
+                            <CalendarDays className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                            <span className="truncate font-mono text-xs tabular-nums text-foreground">
                               {formatDateButtonLabel(startDate)}
                             </span>
                           </PopoverTrigger>
@@ -344,7 +352,7 @@ export function CalendarDetailSheet({
                     </div>
 
                     {recurrenceFreq !== "none" ? (
-                      <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-secondary/35 p-4">
+                      <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/50 p-4">
                         <div className="flex items-center gap-3">
                           <Label htmlFor="calendar-edit-interval" className="shrink-0 text-xs">
                             Every
@@ -406,7 +414,7 @@ export function CalendarDetailSheet({
                       />
                     </div>
 
-                    <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-secondary/40 p-4">
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-border/70 bg-muted/50 p-4">
                       <div className="flex flex-col gap-0.5">
                         <Label htmlFor="calendar-edit-paused" className="text-sm font-medium">
                           Pause schedule
@@ -434,7 +442,7 @@ export function CalendarDetailSheet({
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Creator
                       </h3>
-                      <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-card p-3">
+                      <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card p-3">
                         <CalendarActorAvatar actor={event.creator} size={32} />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium text-foreground">
@@ -446,9 +454,9 @@ export function CalendarDetailSheet({
                             </div>
                           ) : null}
                         </div>
-                        <Badge variant="outline" className="border-border/80 bg-secondary/50 text-muted-foreground">
+                        <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                           {event.creator.kind === "human" ? "Owner" : "Bot"}
-                        </Badge>
+                        </span>
                       </div>
                     </section>
 
@@ -457,7 +465,7 @@ export function CalendarDetailSheet({
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Notes
                         </h3>
-                        <p className="rounded-lg border border-border/60 bg-secondary/35 p-4 text-sm leading-relaxed whitespace-pre-wrap text-foreground">
+                        <p className="rounded-xl border border-border/60 bg-muted/50 p-4 text-sm leading-relaxed whitespace-pre-wrap text-foreground">
                           {event.description}
                         </p>
                       </section>
@@ -468,7 +476,7 @@ export function CalendarDetailSheet({
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Recurrence
                         </h3>
-                        <div className="flex flex-col gap-1 rounded-lg border border-border/60 bg-card p-4 text-sm">
+                        <div className="flex flex-col gap-1 rounded-xl border border-border/60 bg-card p-4 text-sm">
                           <div className="font-medium text-foreground">{event.recurrence.label}</div>
                           {event.recurrence.ruleText ? (
                             <div className="font-mono text-xs text-muted-foreground">
@@ -489,7 +497,7 @@ export function CalendarDetailSheet({
                         Bound message
                       </h3>
                       {event.sourceMessage.accessible ? (
-                        <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-card p-4">
+                        <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-4">
                           {event.sourceMessage.channelLabel ? (
                             <div className="text-xs font-medium text-muted-foreground">
                               {event.sourceMessage.channelLabel}
@@ -507,13 +515,13 @@ export function CalendarDetailSheet({
                           <div>
                             <Button
                               type="button"
-                              variant="outline"
+                              variant="secondary"
                               size="sm"
                               data-testid={tid.calendarSourceLink}
-                              className="h-11 gap-2 sm:h-9"
+                              className="h-10 gap-2 sm:h-8"
                               onClick={() => onOpenSourceMessage(event.sourceMessage.messageId)}
                             >
-                              <ExternalLink className="size-4" aria-hidden />
+                              <ExternalLink className="size-3.5" aria-hidden />
                               <span>Open original message</span>
                             </Button>
                           </div>
@@ -521,7 +529,7 @@ export function CalendarDetailSheet({
                       ) : (
                         <div
                           role="status"
-                          className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm"
+                          className="flex items-start gap-3 rounded-xl border border-warning/35 bg-warning/10 p-4 text-sm"
                         >
                           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
                           <div className="flex flex-col gap-1">
@@ -542,15 +550,22 @@ export function CalendarDetailSheet({
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Last run
                         </h3>
-                        <div className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-card p-4 text-xs">
+                        <div className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-card p-4 text-xs">
                           <div className="flex items-center justify-between gap-2">
                             <CalendarRunStatusBadge status={event.lastExecution.status} paused={event.paused} />
-                            {event.lastExecution.updatedAt ?? event.lastExecution.scheduledAt ? (
+                            {event.lastExecution.ackedAt ?? event.lastExecution.updatedAt ?? event.lastExecution.scheduledAt ? (
                               <span className="font-mono tabular-nums text-muted-foreground">
-                                {formatFullDateTime((event.lastExecution.updatedAt ?? event.lastExecution.scheduledAt)!)}
+                                {formatFullDateTime(
+                                  (event.lastExecution.ackedAt ?? event.lastExecution.updatedAt ?? event.lastExecution.scheduledAt)!,
+                                )}
                               </span>
                             ) : null}
                           </div>
+                          {event.lastExecution.ackedAt ? (
+                            <p className="text-muted-foreground">
+                              Acknowledged by bot at {formatFullDateTime(event.lastExecution.ackedAt)}.
+                            </p>
+                          ) : null}
                           {event.lastExecution.lastError ? (
                             <p className="text-warning">{event.lastExecution.lastError}</p>
                           ) : null}
@@ -574,7 +589,7 @@ export function CalendarDetailSheet({
                       <Button
                         key="calendar-edit-cancel"
                         type="button"
-                        variant="outline"
+                        variant="ghost"
                         className="h-11 sm:h-9"
                         disabled={saving}
                         onClick={() => setEditing(false)}
@@ -610,7 +625,7 @@ export function CalendarDetailSheet({
                         <Button
                           key="calendar-view-edit"
                           type="button"
-                          variant="outline"
+                          variant="secondary"
                           className="h-11 gap-2 sm:h-9"
                           onClick={beginEditing}
                         >
