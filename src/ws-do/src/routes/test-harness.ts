@@ -8,6 +8,9 @@ vi.mock("../ws-durable", () => ({
 vi.mock("../rate-limit-do", () => ({
   RateLimitDurableObject: class { },
 }))
+vi.mock("../owner-calendar-do", () => ({
+  OwnerCalendarDurableObject: class { },
+}))
 
 const sharedMocks = vi.hoisted(() => {
   const hashCredential = vi.fn(async (bearer: string) => `sha256:${bearer}`)
@@ -61,7 +64,12 @@ vi.mock("@alook/shared", async () => {
 export interface RouterTestContext {
   doMock: ReturnType<typeof createMockDONamespace>
   rateLimitMock: ReturnType<typeof createMockDONamespace>
-  env: { WS_DO: DurableObjectNamespace; RATE_LIMIT_DO: DurableObjectNamespace }
+  ownerCalendarMock: ReturnType<typeof createMockDONamespace>
+  env: {
+    WS_DO: DurableObjectNamespace
+    RATE_LIMIT_DO: DurableObjectNamespace
+    OWNER_CALENDAR_DO: DurableObjectNamespace
+  }
 }
 
 export type RouterHandler = (typeof import("../index"))["default"]
@@ -73,11 +81,13 @@ export function getSharedMocks(): typeof sharedMocks {
 export function createRouterTestContext(): RouterTestContext {
   const doMock = createMockDONamespace()
   const rateLimitMock = createMockDONamespace()
+  const ownerCalendarMock = createMockDONamespace()
   const env = {
     WS_DO: doMock.namespace,
     RATE_LIMIT_DO: rateLimitMock.namespace,
+    OWNER_CALENDAR_DO: ownerCalendarMock.namespace,
   } as unknown as RouterTestContext["env"]
-  return { doMock, rateLimitMock, env }
+  return { doMock, rateLimitMock, ownerCalendarMock, env }
 }
 
 export function loadRouter(): RouterHandler {

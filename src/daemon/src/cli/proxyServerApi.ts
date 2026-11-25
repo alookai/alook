@@ -1,7 +1,15 @@
 import { LOCAL_MEMORY_COMMIT_PATH } from "../memory/commit.js";
 import { communityProxyRoutes } from "../credentials/route-policy.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
-import { type BotFeedbackInput, type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
+import {
+  type BotFeedbackInput,
+  type CalendarCreateRequest,
+  type CalendarEvent,
+  type CalendarListResponse,
+  type CalendarUpdateRequest,
+  type PlatformMachineRequest,
+  type PlatformBotRequest,
+} from "@alook/shared";
 /**
  * Proxy-routed `ServerApi` client — the agent's REAL data-plane path.
  *
@@ -627,10 +635,66 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return platformCall("/bots/creation-requests", "POST", { requestId: req.requestId, bots: req.bots });
   }
 
+  async function callCalendarList(req: {
+    from?: string;
+    to?: string;
+    creatorHandle?: string;
+    includePaused?: boolean;
+  }): Promise<CalendarListResponse> {
+    const params = new URLSearchParams();
+    if (req.from) params.set("from", req.from);
+    if (req.to) params.set("to", req.to);
+    if (req.creatorHandle) params.set("creatorHandle", req.creatorHandle);
+    if (req.includePaused === false) params.set("includePaused", "false");
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    const res = await fetchImpl(`${base}/api/community/calendar/events${suffix}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    return parseJsonResponse<CalendarListResponse>(res, "calendarList");
+  }
+
+  async function callCalendarCreate(req: CalendarCreateRequest): Promise<{ event: CalendarEvent }> {
+    const res = await fetchImpl(`${base}/api/community/calendar/events`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(req),
+    });
+    return parseJsonResponse<{ event: CalendarEvent }>(res, "calendarCreate");
+  }
+
+  async function callCalendarUpdate(req: { id: string; patch: CalendarUpdateRequest }): Promise<{ event: CalendarEvent }> {
+    const res = await fetchImpl(`${base}/api/community/calendar/events/${encodeURIComponent(req.id)}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(req.patch),
+    });
+    return parseJsonResponse<{ event: CalendarEvent }>(res, "calendarUpdate");
+  }
+
+  async function callCalendarDelete(req: { id: string }): Promise<{ deleted: true }> {
+    const res = await fetchImpl(`${base}/api/community/calendar/events/${encodeURIComponent(req.id)}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    await parseJsonResponse<void>(res, "calendarDelete");
+    return { deleted: true };
+  }
+
   return {
     platformFeedback: (req: BotFeedbackInput) => platformCall("/platform/feedback", "POST", req),
     platformMachine: callPlatformMachine,
     platformBot: callPlatformBot,
+    calendarList: callCalendarList,
+    calendarCreate: callCalendarCreate,
+    calendarUpdate: callCalendarUpdate,
+    calendarDelete: callCalendarDelete,
     listServers: (_r: { agentId: AgentId }) => callListServers(),
     joinServer: callJoinServer,
     leaveServer: callLeaveServer,

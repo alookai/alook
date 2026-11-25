@@ -70,9 +70,9 @@ function worstEscapingTarget(index: number) {
 }
 
 describe("community browser event ingress", () => {
-  it("normalizes all 46 current versioned wire fixtures", () => {
+  it("normalizes all 47 current versioned wire fixtures", () => {
     const fixtures = Object.values(communityWsEventFixtures)
-    expect(fixtures).toHaveLength(46)
+    expect(fixtures).toHaveLength(47)
     for (const fixture of fixtures) {
       const encoded = encodeCommunityBrowserEvent(fixture)
       if (!encoded.ok) throw new Error("invalid current fixture")

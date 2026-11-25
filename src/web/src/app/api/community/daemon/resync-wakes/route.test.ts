@@ -196,13 +196,28 @@ describe("resync wake transport", () => {
     expect(await res.json()).toEqual({ attempted: 1 });
     const init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(command) };
     expect(mockBindingFetch).toHaveBeenCalledWith(`http://internal${path}`, init);
-    expect(mockHttpFetch).toHaveBeenCalledExactlyOnceWith(`http://localhost:8789${path}`, init);
+    expect(mockHttpFetch).toHaveBeenCalledWith(`http://localhost:8789${path}`, init);
   });
 
   it("successful binding stays binding-only", async () => {
-    mockBindingFetch.mockResolvedValue(receipt());
+    mockBindingFetch.mockImplementation(async (input: string) => {
+      if (input.includes("/owner-calendar/")) {
+        return Response.json({ attempted: 0, dispatched: 0, blocked: 0 });
+      }
+      return receipt();
+    });
     expect(await (await POST(req({ Authorization: "Bearer cmk_ok" }))).json()).toEqual({ attempted: 1 });
     expect(mockHttpFetch).not.toHaveBeenCalled();
+  });
+
+  it("counts pending calendar runs flushed during resync-wakes", async () => {
+    mockGetLatestUnreadMessageForAgent.mockResolvedValue(null);
+    mockBindingFetch.mockResolvedValue(Response.json({ attempted: 2, dispatched: 2, blocked: 0 }));
+    expect(await (await POST(req({ Authorization: "Bearer cmk_ok" }))).json()).toEqual({ attempted: 2 });
+    expect(mockBindingFetch).toHaveBeenCalledWith(
+      "http://internal/owner-calendar/u_1/resync-bots",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("development preserves a binding 4xx without HTTP fallback", async () => {

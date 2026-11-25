@@ -14,6 +14,9 @@ export function resolveProxyCapability(method: string, pathname: string): string
   if (pathname.startsWith("/api/community/machines")) return "read";
   if (pathname === "/api/community/bots" && method === "GET") return "read";
   if (pathname === "/api/community/bots/creation-requests" && method === "POST") return "send";
+  if (/^\/api\/community\/calendar\/events(\/[^/]+)?$/.test(pathname)) {
+    return method === "GET" ? "read" : "send";
+  }
   if (
     ((method === "GET" || method === "PATCH") && pathname === communityProxyRoutes.profile)
     || (method === "POST" && pathname === communityProxyRoutes.avatar)
@@ -78,6 +81,17 @@ export function resolveProxyAuditOperation(pathname: string, method?: string): s
   if (method === "POST" && canonical === communityProxyRoutes.avatar) return "profileAvatarUpdate";
 
   if (/^\/api\/community\/bots\/me\/nap(\/|$|\?)/.test(canonical)) return "nap";
+  if (/^\/api\/community\/calendar\/events$/.test(canonical)) {
+    if (method === "GET") return "calendarList";
+    if (method === "POST") return "calendarCreate";
+    return null;
+  }
+  if (/^\/api\/community\/calendar\/events\/[^/]+$/.test(canonical)) {
+    if (method === "GET") return "calendarGet";
+    if (method === "PATCH") return "calendarUpdate";
+    if (method === "DELETE") return "calendarDelete";
+    return null;
+  }
 
   return null;
 }

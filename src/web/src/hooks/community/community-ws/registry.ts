@@ -107,6 +107,16 @@ export const communityWsRegistry = {
   "community:bot.pii": { handler: handleBotPii, reconnectPolicies: ["machines"] },
   "community:runtime.models": { handler: handleRuntimeModels, reconnectPolicies: ["machines"] },
   "community:bot.audit_event": { handler: handleBotAuditEvent, reconnectPolicies: ["bot-audits"] },
+  "community:calendar.changed": {
+    handler: (_event, context) => {
+      void context.queryClient.invalidateQueries({
+        queryKey: ["community", "calendar"],
+        exact: false,
+        refetchType: "active",
+      })
+    },
+    reconnectPolicies: ["calendar"],
+  },
 } satisfies CommunityWsRegistry
 
 export function dispatchCommunityWsEvent(

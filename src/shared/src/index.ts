@@ -431,6 +431,7 @@ export type {
   CommunityMachineUpdated,
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
+  CommunityCalendarChanged,
   CommunityWsEvent,
   CommunityResourceWsEvent,
   CommunityBrowserEventEnvelope,
@@ -643,3 +644,4 @@ export type { MessagePreviewInput } from "./lib/message-preview";
 export * from "./community-feedback";
 export * from "./community-decision-card";
 export * from "./model-observation";
+export * from "./calendar";

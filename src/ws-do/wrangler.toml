@@ -38,6 +38,10 @@ class_name = "WebSocketDurableObject"
 name = "RATE_LIMIT_DO"
 class_name = "RateLimitDurableObject"
 
+[[durable_objects.bindings]]
+name = "OWNER_CALENDAR_DO"
+class_name = "OwnerCalendarDurableObject"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["WebSocketDurableObject"]
@@ -45,3 +49,7 @@ new_sqlite_classes = ["WebSocketDurableObject"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["RateLimitDurableObject"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["OwnerCalendarDurableObject"]

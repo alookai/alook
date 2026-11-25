@@ -88,7 +88,7 @@ describe("community WebSocket registry", () => {
   it("has exactly one entry for each runtime event type", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(46)
+    expect(eventTypes).toHaveLength(47)
     expect(eventTypes).not.toContain("community:channel.member_add")
     expect(eventTypes).not.toContain("community:channel.member_remove")
     expect(registryTypes).toEqual(eventTypes)
@@ -101,8 +101,8 @@ describe("community WebSocket registry", () => {
   })
 
   it("deduplicates the complete policy set", () => {
-    expect(communityWsReconnectPolicies).toHaveLength(15)
-    expect(new Set(communityWsReconnectPolicies).size).toBe(15)
+    expect(communityWsReconnectPolicies).toHaveLength(16)
+    expect(new Set(communityWsReconnectPolicies).size).toBe(16)
   })
 
   it.each([
