@@ -23,19 +23,9 @@ function ScrollAreaViewport({
   ref,
   ...props
 }: ScrollAreaPrimitive.Viewport.Props & { ref?: React.Ref<HTMLDivElement> }) {
-  const attachViewport = React.useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node && typeof node.getAnimations !== "function") {
-        node.getAnimations = () => []
-      }
-      if (typeof ref === "function") ref(node)
-      else if (ref) ref.current = node
-    },
-    [ref],
-  )
   return (
     <ScrollAreaPrimitive.Viewport
-      ref={attachViewport}
+      ref={ref}
       data-slot="scroll-area-viewport"
       className={cn("size-full rounded-[inherit] scrollbar-none", className)}
       style={{ overflow: undefined, ...style }}

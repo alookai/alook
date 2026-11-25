@@ -108,3 +108,249 @@ index e30194f7cbd0d0760df06f4e2893c0830f595fb4..b7a92f62266ba8b19226ad5ee3f327ee
    /**
     * A parent element to render the portal element into.
     */
+diff --git a/scroll-area/viewport/ScrollAreaViewport.js b/scroll-area/viewport/ScrollAreaViewport.js
+index 602ff90fc833c6a94389e6a487279f8ec030715c..f963db3f0241131c047676ec84e215f7a8d1b2c9 100644
+--- a/scroll-area/viewport/ScrollAreaViewport.js
++++ b/scroll-area/viewport/ScrollAreaViewport.js
+@@ -9,10 +9,8 @@ exports.ScrollAreaViewport = void 0;
+ var React = _interopRequireWildcard(require("react"));
+ var _useStableCallback = require("@base-ui/utils/useStableCallback");
+ var _useIsoLayoutEffect = require("@base-ui/utils/useIsoLayoutEffect");
+-var _platform = require("@base-ui/utils/platform");
+ var _useTimeout = require("@base-ui/utils/useTimeout");
+ var _clamp = require("@base-ui/utils/clamp");
+-var _empty = require("@base-ui/utils/empty");
+ var _ScrollAreaRootContext = require("../root/ScrollAreaRootContext");
+ var _ScrollAreaViewportContext = require("./ScrollAreaViewportContext");
+ var _useRenderElement = require("../../internals/useRenderElement");
+@@ -22,48 +20,8 @@ var _constants = require("../constants");
+ var _styles = require("../../utils/styles");
+ var _stateAttributes = require("../root/stateAttributes");
+ var _scrollEdges = require("../../utils/scrollEdges");
+-var _getFiniteAnimations = require("../../utils/getFiniteAnimations");
+-var ScrollAreaViewportCssVars = _interopRequireWildcard(require("./ScrollAreaViewportCssVars"));
+ var ScrollAreaScrollbarCssVars = _interopRequireWildcard(require("../scrollbar/ScrollAreaScrollbarCssVars"));
+ var _jsxRuntime = require("react/jsx-runtime");
+-const OVERFLOW_EDGE_VARS = [ScrollAreaViewportCssVars.scrollAreaOverflowXStart, ScrollAreaViewportCssVars.scrollAreaOverflowXEnd, ScrollAreaViewportCssVars.scrollAreaOverflowYStart, ScrollAreaViewportCssVars.scrollAreaOverflowYEnd];
+-
+-// Module-level flag to ensure we only register the CSS properties once,
+-// regardless of how many Scroll Area components are mounted.
+-let scrollAreaOverflowVarsRegistered = false;
+-
+-/**
+- * Removes inheritance of the scroll area overflow CSS variables, which
+- * improves rendering performance in complex scroll areas with deep subtrees.
+- * Instead, each child must manually opt-in to using these properties by
+- * specifying `inherit`.
+- * See https://motion.dev/blog/web-animation-performance-tier-list
+- * under the "Improving CSS variable performance" section.
+- */
+-function removeCSSVariableInheritance() {
+-  if (scrollAreaOverflowVarsRegistered ||
+-  // When `inherits: false`, specifying `inherit` on child elements doesn't work
+-  // in Safari. To let CSS features work correctly, this optimization must be skipped.
+-  _platform.platform.engine.webkit) {
+-    return;
+-  }
+-  if (typeof CSS !== 'undefined' && 'registerProperty' in CSS) {
+-    OVERFLOW_EDGE_VARS.forEach(name => {
+-      try {
+-        CSS.registerProperty({
+-          name,
+-          syntax: '<length>',
+-          inherits: false,
+-          initialValue: '0px'
+-        });
+-      } catch {
+-        /* ignore already-registered */
+-      }
+-    });
+-  }
+-  scrollAreaOverflowVarsRegistered = true;
+-}
+-
+ /**
+  * The actual scrollable container of the scroll area.
+  * Renders a `<div>` element.
+@@ -102,7 +60,6 @@ const ScrollAreaViewport = exports.ScrollAreaViewport = /*#__PURE__*/React.forwa
+   const programmaticScrollRef = React.useRef(true);
+   const lastMeasuredViewportMetricsRef = React.useRef([NaN, NaN, NaN, NaN]);
+   const scrollEndTimeout = (0, _useTimeout.useTimeout)();
+-  const waitForAnimationsTimeout = (0, _useTimeout.useTimeout)();
+   const computeThumbPosition = (0, _useStableCallback.useStableCallback)(() => {
+     const viewportEl = viewportRef.current;
+     const scrollbarYEl = scrollbarYRef.current;
+@@ -192,10 +149,6 @@ const ScrollAreaViewport = exports.ScrollAreaViewport = /*#__PURE__*/React.forwa
+       const offsetX = applyOverscrollThumb(thumbXEl, ScrollAreaScrollbarCssVars.scrollAreaThumbWidth, scrollFromStart, maxScrollLeft, scrollableContentWidth, clampedNextWidth, maxThumbOffsetX);
+       thumbXEl.style.transform = `translate3d(${direction === 'rtl' ? -offsetX : offsetX}px,0,0)`;
+     }
+-    const overflowMetricsPx = [scrollLeftFromStart, scrollLeftFromEnd, scrollTopFromStart, scrollTopFromEnd];
+-    OVERFLOW_EDGE_VARS.forEach((cssVar, index) => {
+-      viewportEl.style.setProperty(cssVar, `${overflowMetricsPx[index]}px`);
+-    });
+     if (cornerEl) {
+       // Bail when the size is unchanged (like `setThumbSize` above); otherwise a
+       // fresh object literal on every scroll frame rebuilds the root context and
+@@ -215,9 +168,6 @@ const ScrollAreaViewport = exports.ScrollAreaViewport = /*#__PURE__*/React.forwa
+     };
+     setOverflowEdges(prev => pickState(prev, nextOverflowEdges));
+   });
+-  (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
+-    removeCSSVariableInheritance();
+-  }, []);
+   (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
+     // Wait for scrollbar and thumb refs after hidden-state toggles, refresh math on direction
+     // flips, and re-evaluate overflow edges when the threshold changes.
+@@ -250,28 +200,10 @@ const ScrollAreaViewport = exports.ScrollAreaViewport = /*#__PURE__*/React.forwa
+       computeThumbPosition();
+     });
+     resizeObserver.observe(viewport);
+-
+-    // Wait for subtree animations to finish, then recompute thumb geometry that
+-    // may have been affected by transform-based animations.
+-    waitForAnimationsTimeout.start(0, () => {
+-      const animations = (0, _getFiniteAnimations.getFiniteAnimations)(viewport, {
+-        subtree: true
+-      });
+-      if (animations.length === 0) {
+-        return;
+-      }
+-
+-      // `allSettled` never rejects, but `computeThumbPosition` can still run against a
+-      // torn-down tree once the animations resolve. Swallow instead of leaking an unhandled
+-      // rejection; `void` alone would only silence the floating-promise lint.
+-      // Discard fulfilled Animation values so unfinished animations cannot retain their targets.
+-      Promise.allSettled(animations.map(animation => animation.finished.then(_empty.NOOP))).then(computeThumbPosition).catch(() => {});
+-    });
+     return () => {
+       resizeObserver.disconnect();
+-      waitForAnimationsTimeout.clear();
+     };
+-  }, [computeThumbPosition, viewportRef, waitForAnimationsTimeout]);
++  }, [computeThumbPosition, viewportRef]);
+   function handleUserInteraction() {
+     programmaticScrollRef.current = false;
+   }
+diff --git a/scroll-area/viewport/ScrollAreaViewport.mjs b/scroll-area/viewport/ScrollAreaViewport.mjs
+index f36ef1908b597c07125b25548fa893769e0f9d34..e5de482c151545d2ae237db52efabd56352c8e2b 100644
+--- a/scroll-area/viewport/ScrollAreaViewport.mjs
++++ b/scroll-area/viewport/ScrollAreaViewport.mjs
+@@ -3,10 +3,8 @@
+ import * as React from 'react';
+ import { useStableCallback } from '@base-ui/utils/useStableCallback';
+ import { useIsoLayoutEffect } from '@base-ui/utils/useIsoLayoutEffect';
+-import { platform } from '@base-ui/utils/platform';
+ import { useTimeout } from '@base-ui/utils/useTimeout';
+ import { clamp } from '@base-ui/utils/clamp';
+-import { NOOP } from '@base-ui/utils/empty';
+ import { useScrollAreaRootContext } from "../root/ScrollAreaRootContext.mjs";
+ import { ScrollAreaViewportContext } from "./ScrollAreaViewportContext.mjs";
+ import { useRenderElement } from "../../internals/useRenderElement.mjs";
+@@ -16,48 +14,8 @@ import { MIN_THUMB_SIZE } from "../constants.mjs";
+ import { styleDisableScrollbar } from "../../utils/styles.mjs";
+ import { scrollAreaStateAttributesMapping } from "../root/stateAttributes.mjs";
+ import { normalizeScrollOffset } from "../../utils/scrollEdges.mjs";
+-import { getFiniteAnimations } from "../../utils/getFiniteAnimations.mjs";
+-import * as ScrollAreaViewportCssVars from "./ScrollAreaViewportCssVars.mjs";
+ import * as ScrollAreaScrollbarCssVars from "../scrollbar/ScrollAreaScrollbarCssVars.mjs";
+ import { jsx as _jsx } from "react/jsx-runtime";
+-const OVERFLOW_EDGE_VARS = [ScrollAreaViewportCssVars.scrollAreaOverflowXStart, ScrollAreaViewportCssVars.scrollAreaOverflowXEnd, ScrollAreaViewportCssVars.scrollAreaOverflowYStart, ScrollAreaViewportCssVars.scrollAreaOverflowYEnd];
+-
+-// Module-level flag to ensure we only register the CSS properties once,
+-// regardless of how many Scroll Area components are mounted.
+-let scrollAreaOverflowVarsRegistered = false;
+-
+-/**
+- * Removes inheritance of the scroll area overflow CSS variables, which
+- * improves rendering performance in complex scroll areas with deep subtrees.
+- * Instead, each child must manually opt-in to using these properties by
+- * specifying `inherit`.
+- * See https://motion.dev/blog/web-animation-performance-tier-list
+- * under the "Improving CSS variable performance" section.
+- */
+-function removeCSSVariableInheritance() {
+-  if (scrollAreaOverflowVarsRegistered ||
+-  // When `inherits: false`, specifying `inherit` on child elements doesn't work
+-  // in Safari. To let CSS features work correctly, this optimization must be skipped.
+-  platform.engine.webkit) {
+-    return;
+-  }
+-  if (typeof CSS !== 'undefined' && 'registerProperty' in CSS) {
+-    OVERFLOW_EDGE_VARS.forEach(name => {
+-      try {
+-        CSS.registerProperty({
+-          name,
+-          syntax: '<length>',
+-          inherits: false,
+-          initialValue: '0px'
+-        });
+-      } catch {
+-        /* ignore already-registered */
+-      }
+-    });
+-  }
+-  scrollAreaOverflowVarsRegistered = true;
+-}
+-
+ /**
+  * The actual scrollable container of the scroll area.
+  * Renders a `<div>` element.
+@@ -96,7 +54,6 @@ export const ScrollAreaViewport = /*#__PURE__*/React.forwardRef(function ScrollA
+   const programmaticScrollRef = React.useRef(true);
+   const lastMeasuredViewportMetricsRef = React.useRef([NaN, NaN, NaN, NaN]);
+   const scrollEndTimeout = useTimeout();
+-  const waitForAnimationsTimeout = useTimeout();
+   const computeThumbPosition = useStableCallback(() => {
+     const viewportEl = viewportRef.current;
+     const scrollbarYEl = scrollbarYRef.current;
+@@ -186,10 +143,6 @@ export const ScrollAreaViewport = /*#__PURE__*/React.forwardRef(function ScrollA
+       const offsetX = applyOverscrollThumb(thumbXEl, ScrollAreaScrollbarCssVars.scrollAreaThumbWidth, scrollFromStart, maxScrollLeft, scrollableContentWidth, clampedNextWidth, maxThumbOffsetX);
+       thumbXEl.style.transform = `translate3d(${direction === 'rtl' ? -offsetX : offsetX}px,0,0)`;
+     }
+-    const overflowMetricsPx = [scrollLeftFromStart, scrollLeftFromEnd, scrollTopFromStart, scrollTopFromEnd];
+-    OVERFLOW_EDGE_VARS.forEach((cssVar, index) => {
+-      viewportEl.style.setProperty(cssVar, `${overflowMetricsPx[index]}px`);
+-    });
+     if (cornerEl) {
+       // Bail when the size is unchanged (like `setThumbSize` above); otherwise a
+       // fresh object literal on every scroll frame rebuilds the root context and
+@@ -209,9 +162,6 @@ export const ScrollAreaViewport = /*#__PURE__*/React.forwardRef(function ScrollA
+     };
+     setOverflowEdges(prev => pickState(prev, nextOverflowEdges));
+   });
+-  useIsoLayoutEffect(() => {
+-    removeCSSVariableInheritance();
+-  }, []);
+   useIsoLayoutEffect(() => {
+     // Wait for scrollbar and thumb refs after hidden-state toggles, refresh math on direction
+     // flips, and re-evaluate overflow edges when the threshold changes.
+@@ -244,28 +194,10 @@ export const ScrollAreaViewport = /*#__PURE__*/React.forwardRef(function ScrollA
+       computeThumbPosition();
+     });
+     resizeObserver.observe(viewport);
+-
+-    // Wait for subtree animations to finish, then recompute thumb geometry that
+-    // may have been affected by transform-based animations.
+-    waitForAnimationsTimeout.start(0, () => {
+-      const animations = getFiniteAnimations(viewport, {
+-        subtree: true
+-      });
+-      if (animations.length === 0) {
+-        return;
+-      }
+-
+-      // `allSettled` never rejects, but `computeThumbPosition` can still run against a
+-      // torn-down tree once the animations resolve. Swallow instead of leaking an unhandled
+-      // rejection; `void` alone would only silence the floating-promise lint.
+-      // Discard fulfilled Animation values so unfinished animations cannot retain their targets.
+-      Promise.allSettled(animations.map(animation => animation.finished.then(NOOP))).then(computeThumbPosition).catch(() => {});
+-    });
+     return () => {
+       resizeObserver.disconnect();
+-      waitForAnimationsTimeout.clear();
+     };
+-  }, [computeThumbPosition, viewportRef, waitForAnimationsTimeout]);
++  }, [computeThumbPosition, viewportRef]);
+   function handleUserInteraction() {
+     programmaticScrollRef.current = false;
+   }

@@ -8,7 +8,7 @@ packageExtensionsChecksum: sha256-Ph53qMyUHyiTWYCcIV+mpOLzmW7rKOsFqWY+WsM0Uj0=
 
 patchedDependencies:
   '@base-ui/react@1.9.0':
-    hash: 51d33f6e4f128a90fe02d40ba5c0f2cd5614eabbab780845f28186dc473cab0a
+    hash: 5d889238a799ec8a8284dc08a5c36b92dd99e62d11e636ade1b32fe97f76b007
     path: patches/@base-ui__react@1.9.0.patch
 
 importers:
@@ -403,7 +403,7 @@ importers:
         version: link:../shared
       '@base-ui/react':
         specifier: ^1.9.0
-        version: 1.9.0(patch_hash=51d33f6e4f128a90fe02d40ba5c0f2cd5614eabbab780845f28186dc473cab0a)(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        version: 1.9.0(patch_hash=5d889238a799ec8a8284dc08a5c36b92dd99e62d11e636ade1b32fe97f76b007)(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@emoji-mart/data':
         specifier: ^1.2.1
         version: 1.2.1
@@ -11497,7 +11497,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@base-ui/react@1.9.0(patch_hash=51d33f6e4f128a90fe02d40ba5c0f2cd5614eabbab780845f28186dc473cab0a)(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@base-ui/react@1.9.0(patch_hash=5d889238a799ec8a8284dc08a5c36b92dd99e62d11e636ade1b32fe97f76b007)(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@babel/runtime': 8.0.7
       '@base-ui/utils': 0.5.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
