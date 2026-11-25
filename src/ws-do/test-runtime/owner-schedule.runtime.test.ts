@@ -18,7 +18,7 @@ import {
 
 const runtimeEnv = env as unknown as {
   DB: D1Database
-  OWNER_CALENDAR_DO: DurableObjectNamespace
+  OWNER_SCHEDULE_DO: DurableObjectNamespace
   WS_DO: DurableObjectNamespace
 }
 
@@ -188,7 +188,7 @@ async function seedHouseholdAndMessage(opts: {
 }
 
 async function syncAlarm(ownerId: string, change?: { eventId: string; reason: "created" | "updated" | "deleted" | "run_updated" }) {
-  const res = await worker.fetch(new Request(`https://worker.test/owner-calendar/${ownerId}/sync-alarm`, {
+  const res = await worker.fetch(new Request(`https://worker.test/owner-schedule/${ownerId}/sync-alarm`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ownerUserId: ownerId, ...change }),
@@ -197,12 +197,12 @@ async function syncAlarm(ownerId: string, change?: { eventId: string; reason: "c
   return (await res.json()) as { nextAlarmMs: number | null }
 }
 
-describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)", () => {
+describe("OwnerScheduleDurableObject workerd runtime (D1 + stateless DO timer)", () => {
   it("dispatches recurring event via agent:event with --ack guidance, advances D1, and supports --ack completion", async () => {
     const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "text" })
     try {
       const startAtMs = Date.now() - 1000
-      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
         ownerUserId: fx.ownerId,
         createdByUserId: fx.botId,
         title: "Hourly standup",
@@ -220,8 +220,8 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       const synced = await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
       expect(synced.nextAlarmMs).toBe(startAtMs)
 
-      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
-        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
       )
 
       const ran = await runDurableObjectAlarm(stub)
@@ -232,23 +232,21 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       const frame = fx.receivedFrames[0] as { type: string; agentId: string; launchId: string; prompt: string }
       expect(frame.type).toBe("agent:event")
       expect(frame.agentId).toBe(fx.botId)
-      expect(frame.launchId).toMatch(/^calrun_crun_/)
+      expect(frame.launchId).toMatch(/^schrun_srun_/)
       expect(frame.prompt).toContain("Hourly standup")
       expect(frame.prompt).toContain('--reply "#7"')
-      expect(frame.prompt).toContain(`$ALOOK_CLI calendar update ${created.event.id} --ack`)
+      expect(frame.prompt).toContain(`$ALOOK_CLI schedule update ${created.event.id} --ack`)
 
-      const fetched = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      const fetched = await queries.communitySchedule.getScheduleEventById(fx.db, fx.ownerId, created.event.id)
       expect(fetched?.latestRun?.status).toBe("dispatched")
       expect(fetched?.event.nextRunAtMs).toBeGreaterThan(Date.now())
 
-      // Duplicate alarm call before next occurrence is a safe no-op
       const ranAgain = await runDurableObjectAlarm(stub)
       expect(ranAgain).toBe(true)
       await new Promise((r) => setTimeout(r, 20))
       expect(fx.receivedFrames).toHaveLength(1)
 
-      // Bot acknowledges completion with --ack
-      const acked = await queries.communityCalendar.updateCalendarEvent(fx.db, fx.ownerId, created.event.id, {
+      const acked = await queries.communitySchedule.updateScheduleEvent(fx.db, fx.ownerId, created.event.id, {
         ack: true,
       })
       expect(acked.ok).toBe(true)
@@ -264,7 +262,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
     const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "text" })
     try {
       const startAtMs = Date.now() - 1000
-      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
         ownerUserId: fx.ownerId,
         createdByUserId: fx.botId,
         title: "One-off check",
@@ -278,8 +276,8 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       if (!created.ok) return
 
       await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
-      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
-        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
       )
 
       await runDurableObjectAlarm(stub)
@@ -303,7 +301,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
     let reconnectClient: WebSocket | null = null
     try {
       const startAtMs = Date.now() - 1000
-      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
         ownerUserId: fx.ownerId,
         createdByUserId: fx.botId,
         title: "Offline reminder",
@@ -317,12 +315,12 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       if (!created.ok) return
 
       await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
-      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
-        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
 
-      const afterOffline = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      const afterOffline = await queries.communitySchedule.getScheduleEventById(fx.db, fx.ownerId, created.event.id)
       expect(afterOffline?.latestRun?.status).toBe("pending")
       expect(afterOffline?.latestRun?.lastError).toBe("machine_offline")
 
@@ -338,7 +336,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       reconnectClient.accept()
       reconnectClient.addEventListener("message", (event) => frames.push(JSON.parse(String(event.data))))
 
-      const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/resync-bots`, {
+      const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-schedule/${fx.ownerId}/resync-bots`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ownerUserId: fx.ownerId, botIds: [fx.botId] }),
@@ -349,7 +347,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       await new Promise((r) => setTimeout(r, 30))
       expect(frames).toHaveLength(1)
 
-      const afterResync = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      const afterResync = await queries.communitySchedule.getScheduleEventById(fx.db, fx.ownerId, created.event.id)
       expect(afterResync?.latestRun?.status).toBe("dispatched")
     } finally {
       try { reconnectClient?.close(1000, "done") } catch {}
@@ -361,7 +359,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
     const fx = await seedHouseholdAndMessage({ machineConnected: true, botIsChannelMember: false })
     try {
       const startAtMs = Date.now() - 1000
-      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
         ownerUserId: fx.ownerId,
         createdByUserId: fx.botId,
         title: "No access task",
@@ -375,12 +373,12 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       if (!created.ok) return
 
       await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
-      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
-        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
 
-      const fetched = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      const fetched = await queries.communitySchedule.getScheduleEventById(fx.db, fx.ownerId, created.event.id)
       expect(fetched?.latestRun?.status).toBe("blocked_access")
       expect(fetched?.latestRun?.lastError).toBe("source_message_inaccessible")
       expect(fx.receivedFrames).toHaveLength(0)
@@ -393,7 +391,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
     const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "forum" })
     try {
       const startAtMs = Date.now() - 1000
-      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
         ownerUserId: fx.ownerId,
         createdByUserId: fx.botId,
         title: "Forum post check-in",
@@ -407,8 +405,8 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       if (!created.ok) return
 
       await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
-      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
-        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
       await new Promise((r) => setTimeout(r, 30))
@@ -450,7 +448,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       })
 
       const startAtMs = Date.now() - 1000
-      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
         ownerUserId: fx.ownerId,
         createdByUserId: fx.botId,
         title: "Thread check-in",
@@ -464,8 +462,8 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       if (!created.ok) return
 
       await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
-      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
-        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
       await new Promise((r) => setTimeout(r, 30))
@@ -484,7 +482,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
     let reconnectClient: WebSocket | null = null
     try {
       const startAtMs = Date.now() - 1000
-      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
         ownerUserId: fx.ownerId,
         createdByUserId: fx.botId,
         title: "Original title",
@@ -499,15 +497,15 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       if (!created.ok) return
 
       await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
-      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
-        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
 
-      const beforeEdit = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      const beforeEdit = await queries.communitySchedule.getScheduleEventById(fx.db, fx.ownerId, created.event.id)
       expect(beforeEdit?.latestRun?.status).toBe("pending")
 
-      const edited = await queries.communityCalendar.updateCalendarEvent(fx.db, fx.ownerId, created.event.id, {
+      const edited = await queries.communitySchedule.updateScheduleEvent(fx.db, fx.ownerId, created.event.id, {
         title: "Updated title",
         description: "Updated body",
       })
@@ -526,7 +524,7 @@ describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)",
       reconnectClient.accept()
       reconnectClient.addEventListener("message", (event) => frames.push(JSON.parse(String(event.data))))
 
-      const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/resync-bots`, {
+      const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-schedule/${fx.ownerId}/resync-bots`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ownerUserId: fx.ownerId, botIds: [fx.botId] }),

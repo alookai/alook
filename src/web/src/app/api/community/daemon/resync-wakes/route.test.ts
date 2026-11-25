@@ -38,7 +38,7 @@ vi.mock("@alook/shared", async () => {
         getLatestUnreadMessageForAgent: (...a: unknown[]) =>
           mockGetLatestUnreadMessageForAgent(...a),
       },
-      communityCalendar: {
+      communitySchedule: {
         listPendingRunsForOwner: (...a: unknown[]) =>
           mockListPendingRunsForOwner(...a),
       },
@@ -209,7 +209,7 @@ describe("resync wake transport", () => {
 
   it("successful binding stays binding-only", async () => {
     mockBindingFetch.mockImplementation(async (input: string) => {
-      if (input.includes("/owner-calendar/")) {
+      if (input.includes("/owner-schedule/")) {
         return Response.json({ attempted: 0, dispatched: 0, blocked: 0 });
       }
       return receipt();
@@ -218,13 +218,13 @@ describe("resync wake transport", () => {
     expect(mockHttpFetch).not.toHaveBeenCalled();
   });
 
-  it("counts pending calendar runs flushed during resync-wakes", async () => {
+  it("counts pending schedule runs flushed during resync-wakes", async () => {
     mockGetLatestUnreadMessageForAgent.mockResolvedValue(null);
-    mockListPendingRunsForOwner.mockResolvedValue([{ id: "crun_1", botUserId: "bot_1" }]);
+    mockListPendingRunsForOwner.mockResolvedValue([{ id: "srun_1", botUserId: "bot_1" }]);
     mockBindingFetch.mockResolvedValue(Response.json({ attempted: 2, dispatched: 2, blocked: 0 }));
     expect(await (await POST(req({ Authorization: "Bearer cmk_ok" }))).json()).toEqual({ attempted: 2 });
     expect(mockBindingFetch).toHaveBeenCalledWith(
-      "http://internal/owner-calendar/u_1/resync-bots",
+      "http://internal/owner-schedule/u_1/resync-bots",
       expect.objectContaining({ method: "POST" }),
     );
   });

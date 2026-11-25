@@ -1,12 +1,12 @@
 import type { Command } from "commander";
 import {
-  CalendarCreateRequestSchema,
-  CalendarRecurrenceFreqSchema,
-  CalendarUpdateRequestSchema,
   isValidIanaTimeZone,
-  type CalendarEvent,
-  type CalendarOccurrence,
-  type CalendarRecurrence,
+  ScheduleCreateRequestSchema,
+  ScheduleRecurrenceFreqSchema,
+  ScheduleUpdateRequestSchema,
+  type ScheduleEvent,
+  type ScheduleOccurrence,
+  type ScheduleRecurrence,
 } from "@alook/shared";
 import type { ServerApi } from "../server/contract.js";
 import { toLocalISO } from "../util/localTime.js";
@@ -54,7 +54,7 @@ function parseRecurrenceOptions(opts: {
   weekdays?: string;
   until?: string;
   count?: string;
-}): CalendarRecurrence | null | undefined {
+}): ScheduleRecurrence | null | undefined {
   const hasRecurrenceFlags =
     opts.repeat !== undefined
     || opts.interval !== undefined
@@ -68,7 +68,7 @@ function parseRecurrenceOptions(opts: {
     throw new Error("--repeat <hourly|daily|weekly|monthly> is required when using --interval, --weekdays, --until, or --count");
   }
 
-  const freq = CalendarRecurrenceFreqSchema.safeParse(opts.repeat.trim().toLowerCase());
+  const freq = ScheduleRecurrenceFreqSchema.safeParse(opts.repeat.trim().toLowerCase());
   if (!freq.success) {
     throw new Error("--repeat must be one of hourly, daily, weekly, monthly, or none");
   }
@@ -96,11 +96,11 @@ function defaultLocalTimeZone(): string {
 }
 
 /**
- * Strip internal database IDs before presenting calendar state to an agent;
- * bots address events by public `cal_*` id, creators by `@handle`, and bound
+ * Strip internal database IDs before presenting schedule state to an agent;
+ * bots address events by public `sch_*` id, creators by `@handle`, and bound
  * messages by channel ref.
  */
-function presentCalendarEventForAgent(event: CalendarEvent) {
+function presentScheduleEventForAgent(event: ScheduleEvent) {
   return {
     id: event.id,
     title: event.title,
@@ -138,7 +138,7 @@ function presentCalendarEventForAgent(event: CalendarEvent) {
   };
 }
 
-function presentOccurrenceForAgent(occ: CalendarOccurrence) {
+function presentOccurrenceForAgent(occ: ScheduleOccurrence) {
   return {
     eventId: occ.eventId,
     startAt: toLocalISO(occ.startAt),
@@ -147,20 +147,20 @@ function presentOccurrenceForAgent(occ: CalendarOccurrence) {
   };
 }
 
-export function registerCalendarCommands(
+export function registerScheduleCommands(
   program: Command,
   getApi: () => ServerApi,
   output: (value: { success: unknown }) => void,
 ): void {
-  const calendar = program
-    .command("calendar")
-    .description("manage the household shared calendar (owner and bots)")
+  const schedule = program
+    .command("schedule")
+    .description("manage the household shared schedule (owner and bots)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} });
 
-  calendar
+  schedule
     .command("list")
-    .description("list shared calendar events and optional expanded occurrences")
+    .description("list shared schedule events and optional expanded occurrences")
     .option("--from <iso>", "window start (ISO-8601, pair with --to)")
     .option("--to <iso>", "window end (ISO-8601, pair with --from)")
     .option("--creator <handle>", "filter by creator handle (e.g. @Elwira#8700)")
@@ -173,26 +173,26 @@ export function registerCalendarCommands(
         creator?: string;
       };
       const api = getApi();
-      if (!api.calendarList) throw new Error("Calendar commands are unavailable");
+      if (!api.scheduleList) throw new Error("Schedule commands are unavailable");
       const from = opts.from ? parseIsoOption(opts.from, "--from") : undefined;
       const to = opts.to ? parseIsoOption(opts.to, "--to") : undefined;
-      const res = await api.calendarList({
+      const res = await api.scheduleList({
         ...(from ? { from } : {}),
         ...(to ? { to } : {}),
         ...(opts.creator ? { creatorHandle: opts.creator } : {}),
       });
       output({
         success: {
-          events: res.events.map(presentCalendarEventForAgent),
+          events: res.events.map(presentScheduleEventForAgent),
           ...(res.occurrences.length > 0 ? { occurrences: res.occurrences.map(presentOccurrenceForAgent) } : {}),
           creators: res.creators.map((c) => c.handle),
         },
       });
     });
 
-  calendar
+  schedule
     .command("create")
-    .description("create a shared calendar event bound to a concrete message")
+    .description("create a shared schedule event bound to a concrete message")
     .requiredOption("--title <text>", "event title (1-160 chars)")
     .requiredOption("--at <iso>", "first scheduled trigger time (ISO-8601)")
     .requiredOption("--message <ref>", "full message ref bound for reply context (e.g. /Server#1234/chan#42)")
@@ -221,11 +221,11 @@ export function registerCalendarCommands(
         count?: string;
       };
       const api = getApi();
-      if (!api.calendarCreate) throw new Error("Calendar commands are unavailable");
+      if (!api.scheduleCreate) throw new Error("Schedule commands are unavailable");
       const timeZone = opts.tz?.trim() || defaultLocalTimeZone();
       if (!isValidIanaTimeZone(timeZone)) throw new Error(`invalid IANA timezone: ${timeZone}`);
       const recurrence = parseRecurrenceOptions(opts);
-      const payload = CalendarCreateRequestSchema.parse({
+      const payload = ScheduleCreateRequestSchema.parse({
         title: opts.title,
         ...(opts.description !== undefined ? { description: opts.description } : {}),
         startAt: parseIsoOption(opts.at, "--at"),
@@ -234,14 +234,14 @@ export function registerCalendarCommands(
         ...(recurrence !== undefined ? { recurrence } : {}),
         sourceMessageRef: opts.message,
       });
-      const res = await api.calendarCreate(payload);
-      output({ success: { event: presentCalendarEventForAgent(res.event) } });
+      const res = await api.scheduleCreate(payload);
+      output({ success: { event: presentScheduleEventForAgent(res.event) } });
     });
 
-  calendar
+  schedule
     .command("update")
-    .argument("<id>", "calendar event id (cal_...)")
-    .description("update a shared calendar event")
+    .argument("<id>", "schedule event id (sch_...)")
+    .description("update a shared schedule event")
     .option("--title <text>", "new title")
     .option("--description <text>", "new instructions/context")
     .option("--at <iso>", "new start time (ISO-8601)")
@@ -272,12 +272,12 @@ export function registerCalendarCommands(
         ack?: boolean;
       };
       const api = getApi();
-      if (!api.calendarUpdate) throw new Error("Calendar commands are unavailable");
+      if (!api.scheduleUpdate) throw new Error("Schedule commands are unavailable");
       if (opts.tz !== undefined && !isValidIanaTimeZone(opts.tz.trim())) {
         throw new Error(`invalid IANA timezone: ${opts.tz}`);
       }
       const recurrence = parseRecurrenceOptions(opts);
-      const patch = CalendarUpdateRequestSchema.parse({
+      const patch = ScheduleUpdateRequestSchema.parse({
         ...(opts.title !== undefined ? { title: opts.title } : {}),
         ...(opts.description !== undefined ? { description: opts.description } : {}),
         ...(opts.at !== undefined ? { startAt: parseIsoOption(opts.at, "--at") } : {}),
@@ -290,20 +290,20 @@ export function registerCalendarCommands(
       if (Object.keys(patch).length === 0) {
         throw new Error("provide at least one field to update");
       }
-      const res = await api.calendarUpdate({ id, patch });
-      output({ success: { event: presentCalendarEventForAgent(res.event) } });
+      const res = await api.scheduleUpdate({ id, patch });
+      output({ success: { event: presentScheduleEventForAgent(res.event) } });
     });
 
-  calendar
+  schedule
     .command("delete")
-    .argument("<id>", "calendar event id (cal_...)")
-    .description("delete a shared calendar event")
+    .argument("<id>", "schedule event id (sch_...)")
+    .description("delete a shared schedule event")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async (id: string) => {
       const api = getApi();
-      if (!api.calendarDelete) throw new Error("Calendar commands are unavailable");
-      await api.calendarDelete({ id });
+      if (!api.scheduleDelete) throw new Error("Schedule commands are unavailable");
+      await api.scheduleDelete({ id });
       output({ success: { deleted: true, id } });
     });
 }

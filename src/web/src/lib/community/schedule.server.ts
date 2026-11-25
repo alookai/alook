@@ -1,43 +1,43 @@
 import {
-  CALENDAR_DEFAULT_DURATION_MINUTES,
-  CALENDAR_MAX_RANGE_MS,
-  expandCalendarOccurrences,
+  expandScheduleOccurrences,
   formatHandle,
   isValidIanaTimeZone,
   normalizeRecurrence,
   parseRef,
   queries,
+  SCHEDULE_DEFAULT_DURATION_MINUTES,
+  SCHEDULE_MAX_RANGE_MS,
   withD1Retry,
-  type CalendarActorSummary,
-  type CalendarEvent,
-  type CalendarLastExecution,
-  type CalendarOccurrence,
-  type CalendarRecurrence,
-  type CalendarRunStatus,
-  type CalendarSourceMessage,
   type Database,
-  type StoredCalendarEvent,
-  type StoredCalendarRun,
+  type ScheduleActorSummary,
+  type ScheduleEvent,
+  type ScheduleLastExecution,
+  type ScheduleOccurrence,
+  type ScheduleRecurrence,
+  type ScheduleRunStatus,
+  type ScheduleSourceMessage,
+  type StoredScheduleEvent,
+  type StoredScheduleRun,
 } from "@alook/shared"
 import { wsDoFetch } from "@/lib/broadcast"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import type { CommunityActor } from "@/lib/middleware/community-actor"
 
-export function calendarOwnerUserId(actor: CommunityActor): string {
+export function scheduleOwnerUserId(actor: CommunityActor): string {
   return actor.kind === "human" ? actor.userId : actor.ownerUserId
 }
 
-function ownerCalendarFetch(
+function ownerScheduleFetch(
   env: Env,
   ownerUserId: string,
   innerPath: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const path = `/owner-calendar/${encodeURIComponent(ownerUserId)}${innerPath}`
-  return wsDoFetch(env, path, init, { label: ownerUserId, type: "owner-calendar" })
+  const path = `/owner-schedule/${encodeURIComponent(ownerUserId)}${innerPath}`
+  return wsDoFetch(env, path, init, { label: ownerUserId, type: "owner-schedule" })
 }
 
-export async function syncOwnerCalendarAlarm(
+export async function syncOwnerScheduleAlarm(
   env: Env,
   ownerUserId: string,
   change?: {
@@ -46,7 +46,7 @@ export async function syncOwnerCalendarAlarm(
   },
 ): Promise<void> {
   try {
-    await ownerCalendarFetch(env, ownerUserId, "/sync-alarm", {
+    await ownerScheduleFetch(env, ownerUserId, "/sync-alarm", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -76,7 +76,7 @@ export function parseFullMessageRef(rawRef: string): { channelRef: string; seq: 
   }
 }
 
-export function parseCalendarRange(fromParam: string | null, toParam: string | null):
+export function parseScheduleRange(fromParam: string | null, toParam: string | null):
   | { ok: true; fromMs: number | null; toMs: number | null }
   | { ok: false; error: string } {
   if (fromParam === null && toParam === null) {
@@ -93,7 +93,7 @@ export function parseCalendarRange(fromParam: string | null, toParam: string | n
   if (toMs <= fromMs) {
     return { ok: false, error: "to must be after from" }
   }
-  if (toMs - fromMs > CALENDAR_MAX_RANGE_MS) {
+  if (toMs - fromMs > SCHEDULE_MAX_RANGE_MS) {
     return { ok: false, error: "date range cannot exceed 62 days" }
   }
   return { ok: true, fromMs, toMs }
@@ -107,36 +107,22 @@ export function normalizeHandleInput(handle: string): string {
 export async function listHouseholdCreators(
   db: Database,
   ownerUserId: string,
-): Promise<CalendarActorSummary[]> {
-  const [ownerRows, botRows] = await Promise.all([
-    withD1Retry(() => queries.user.getUsersByIds(db, [ownerUserId]), { route: "calendar:owner-profile" }),
-    withD1Retry(() => queries.communityBot.listBotsForOwner(db, ownerUserId), { route: "calendar:owner-bots" }),
-  ])
+): Promise<ScheduleActorSummary[]> {
+  const botRows = await withD1Retry(
+    () => queries.communityBot.listBotsForOwner(db, ownerUserId),
+    { route: "schedule:owner-bots" },
+  )
 
-  const creators: CalendarActorSummary[] = []
-  for (const bot of botRows) {
-    creators.push({
-      id: bot.id,
-      handle: `@${formatHandle(bot.name, bot.discriminator)}`,
-      name: bot.name,
-      avatarVersion: bot.avatarVersion,
-      isBot: true,
-    })
-  }
-  const owner = ownerRows[0]
-  if (owner) {
-    creators.push({
-      id: owner.id,
-      handle: `@${formatHandle(owner.name, owner.discriminator)}`,
-      name: owner.name,
-      avatarVersion: owner.avatarVersion,
-      isBot: false,
-    })
-  }
-  return creators
+  return botRows.map((bot) => ({
+    id: bot.id,
+    handle: `@${formatHandle(bot.name, bot.discriminator)}`,
+    name: bot.name,
+    avatarVersion: bot.avatarVersion,
+    isBot: true,
+  }))
 }
 
-function toLastExecution(run: StoredCalendarRun | null | undefined): CalendarLastExecution | null {
+function toLastExecution(run: StoredScheduleRun | null | undefined): ScheduleLastExecution | null {
   if (!run) return null
   return {
     scheduledAt: new Date(run.scheduledAtMs).toISOString(),
@@ -154,17 +140,17 @@ function summarizeMessagePreview(content: string | null | undefined): string | n
   return compact.length > 140 ? `${compact.slice(0, 140)}…` : compact
 }
 
-export async function hydrateCalendarEvents(
+export async function hydrateScheduleEvents(
   db: Database,
   ownerUserId: string,
   callerUserId: string,
-  storedEvents: readonly StoredCalendarEvent[],
-  latestRunByEvent: Readonly<Record<string, StoredCalendarRun | null>>,
-  knownCreators: readonly CalendarActorSummary[],
-): Promise<CalendarEvent[]> {
+  storedEvents: readonly StoredScheduleEvent[],
+  latestRunByEvent: Readonly<Record<string, StoredScheduleRun | null>>,
+  knownCreators: readonly ScheduleActorSummary[],
+): Promise<ScheduleEvent[]> {
   if (storedEvents.length === 0) return []
 
-  const creatorMap = new Map<string, CalendarActorSummary>(
+  const creatorMap = new Map<string, ScheduleActorSummary>(
     knownCreators.map((creator) => [creator.id, creator]),
   )
   const missingCreatorIds = [...new Set(
@@ -175,7 +161,7 @@ export async function hydrateCalendarEvents(
   if (missingCreatorIds.length > 0) {
     const extraUsers = await withD1Retry(
       () => queries.user.getUsersByIds(db, missingCreatorIds),
-      { route: "calendar:extra-creators" },
+      { route: "schedule:extra-creators" },
     )
     for (const u of extraUsers) {
       creatorMap.set(u.id, {
@@ -196,7 +182,7 @@ export async function hydrateCalendarEvents(
     distinctChannelIds.map(async (channelId) => {
       const channelType = await withD1Retry(
         () => queries.communityChannel.getChannelType(db, channelId),
-        { route: "calendar:channel-type" },
+        { route: "schedule:channel-type" },
       )
       if (!channelType) {
         channelAccessMap.set(channelId, { accessible: false, channelRef: null })
@@ -211,7 +197,7 @@ export async function hydrateCalendarEvents(
       }
       const channelRef = await withD1Retry(
         () => queries.communityAgentInbox.resolveUnreadNoticeChannel(db, { channelId }, callerUserId),
-        { route: "calendar:channel-ref" },
+        { route: "schedule:channel-ref" },
       )
       channelAccessMap.set(channelId, { accessible: true, channelRef })
     }),
@@ -222,7 +208,7 @@ export async function hydrateCalendarEvents(
   if (accessibleChannelIds.length > 0) {
     const msgRows = await withD1Retry(
       () => queries.communityMessage.getMessagesByIdsInChannels(db, distinctMessageIds, accessibleChannelIds),
-      { route: "calendar:source-messages" },
+      { route: "schedule:source-messages" },
     )
     for (const row of msgRows) {
       messageMap.set(row.id, row)
@@ -239,7 +225,7 @@ export async function hydrateCalendarEvents(
     }
 
     const access = channelAccessMap.get(event.sourceChannelId)
-    let sourceMessage: CalendarSourceMessage
+    let sourceMessage: ScheduleSourceMessage
     if (!access?.accessible) {
       sourceMessage = {
         id: event.sourceMessageId,
@@ -294,21 +280,21 @@ export async function hydrateCalendarEvents(
   })
 }
 
-export function buildCalendarOccurrences(
-  storedEvents: readonly StoredCalendarEvent[],
-  runsByEvent: Readonly<Record<string, StoredCalendarRun[]>>,
+export function buildScheduleOccurrences(
+  storedEvents: readonly StoredScheduleEvent[],
+  runsByEvent: Readonly<Record<string, StoredScheduleRun[]>>,
   fromMs: number | null,
   toMs: number | null,
-): CalendarOccurrence[] {
+): ScheduleOccurrence[] {
   if (fromMs === null || toMs === null) return []
-  const all: CalendarOccurrence[] = []
+  const all: ScheduleOccurrence[] = []
   for (const event of storedEvents) {
     const runs = runsByEvent[event.id] ?? []
-    const statusMap = new Map<number, CalendarRunStatus>()
+    const statusMap = new Map<number, ScheduleRunStatus>()
     for (const run of runs) {
       statusMap.set(run.scheduledAtMs, run.status)
     }
-    const expanded = expandCalendarOccurrences(
+    const expanded = expandScheduleOccurrences(
       {
         id: event.id,
         startAtMs: event.startAtMs,
@@ -326,12 +312,12 @@ export function buildCalendarOccurrences(
   return all
 }
 
-export function validateCalendarScheduleFields(input: {
+export function validateScheduleFields(input: {
   timeZone?: string
   startAt?: string
   durationMinutes?: number
-  recurrence?: CalendarRecurrence | null
-}): { ok: true; startAtMs?: number; recurrence?: CalendarRecurrence | null; durationMinutes?: number } | { ok: false; error: string } {
+  recurrence?: ScheduleRecurrence | null
+}): { ok: true; startAtMs?: number; recurrence?: ScheduleRecurrence | null; durationMinutes?: number } | { ok: false; error: string } {
   if (input.timeZone !== undefined && !isValidIanaTimeZone(input.timeZone)) {
     return { ok: false, error: `invalid IANA timeZone: ${input.timeZone}` }
   }
@@ -342,11 +328,11 @@ export function validateCalendarScheduleFields(input: {
     startAtMs = parsed
   }
   const recurrence = input.recurrence === undefined ? undefined : normalizeRecurrence(input.recurrence)
-  const durationMinutes = input.durationMinutes ?? CALENDAR_DEFAULT_DURATION_MINUTES
+  const durationMinutes = input.durationMinutes ?? SCHEDULE_DEFAULT_DURATION_MINUTES
   return { ok: true, startAtMs, recurrence, durationMinutes }
 }
 
-export async function resyncOwnerCalendarForBots(
+export async function resyncOwnerScheduleForBots(
   db: Database,
   env: Env,
   ownerUserId: string,
@@ -355,14 +341,14 @@ export async function resyncOwnerCalendarForBots(
   if (botIds.length === 0) return { attempted: 0, dispatched: 0, blocked: 0 }
   try {
     const pendingRuns = await withD1Retry(
-      () => queries.communityCalendar.listPendingRunsForOwner(db, ownerUserId, 50),
-      { route: "calendar:resync-check-pending" },
+      () => queries.communitySchedule.listPendingRunsForOwner(db, ownerUserId, 50),
+      { route: "schedule:resync-check-pending" },
     )
     const botIdSet = new Set(botIds)
     if (!pendingRuns.some((run) => botIdSet.has(run.botUserId))) {
       return { attempted: 0, dispatched: 0, blocked: 0 }
     }
-    const res = await ownerCalendarFetch(env, ownerUserId, "/resync-bots", {
+    const res = await ownerScheduleFetch(env, ownerUserId, "/resync-bots", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ownerUserId, botIds }),

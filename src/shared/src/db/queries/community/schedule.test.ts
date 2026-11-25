@@ -6,23 +6,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import * as coreSchema from "../../schema"
 import * as communitySchema from "../../community-schema"
 import * as machineSchema from "../../community-machine-schema"
-import * as calendarSchema from "../../community-calendar-schema"
+import * as scheduleSchema from "../../community-schedule-schema"
 import type { Database } from "../../index"
 import {
   claimDueEventOccurrence,
-  createCalendarEvent,
-  deleteCalendarEvent,
-  getCalendarEventById,
-  getCalendarRunById,
+  createScheduleEvent,
+  deleteScheduleEvent,
   getEarliestNextRunMs,
+  getScheduleEventById,
+  getScheduleRunById,
   listDueEventsForOwner,
-  listOwnerCalendarEvents,
+  listOwnerScheduleEvents,
   listPendingRunsForOwner,
-  updateCalendarEvent,
   updatePendingRunStatus,
-} from "./calendar"
+  updateScheduleEvent,
+} from "./schedule"
 
-const schema = { ...coreSchema, ...communitySchema, ...machineSchema, ...calendarSchema }
+const schema = { ...coreSchema, ...communitySchema, ...machineSchema, ...scheduleSchema }
 const migrationsDir = resolve(import.meta.dirname, "../../../../../web/migrations")
 
 function createMigratedSqlite(): Sqlite.Database {
@@ -35,7 +35,7 @@ function createMigratedSqlite(): Sqlite.Database {
   return sqlite
 }
 
-describe("community calendar D1 queries", () => {
+describe("community schedule D1 queries", () => {
   let sqlite: Sqlite.Database
   let db: Database
 
@@ -61,7 +61,7 @@ describe("community calendar D1 queries", () => {
 
   it("supports create, list, get, update metadata/schedule, claim, status transition, ack, delete, and owner isolation", async () => {
     const baseMs = Date.parse("2026-11-26T01:00:00.000Z")
-    const created = await createCalendarEvent(db, {
+    const created = await createScheduleEvent(db, {
       ownerUserId: "owner_1",
       createdByUserId: "bot_1",
       title: "Daily check",
@@ -76,27 +76,24 @@ describe("community calendar D1 queries", () => {
     })
     expect(created.ok).toBe(true)
     if (!created.ok) return
+    expect(created.event.id).toMatch(/^sch_/)
 
-    // Cross-owner isolation
-    expect(await getCalendarEventById(db, "owner_2", created.event.id)).toBeNull()
-    expect(await deleteCalendarEvent(db, "owner_2", created.event.id)).toBe(false)
+    expect(await getScheduleEventById(db, "owner_2", created.event.id)).toBeNull()
+    expect(await deleteScheduleEvent(db, "owner_2", created.event.id)).toBe(false)
 
-    // Earliest alarm & due query
     expect(await getEarliestNextRunMs(db, "owner_1")).toBe(baseMs)
     expect(await listDueEventsForOwner(db, "owner_1", baseMs - 1)).toEqual([])
     const due = await listDueEventsForOwner(db, "owner_1", baseMs)
     expect(due.map((e) => e.id)).toEqual([created.event.id])
 
-    // Claiming due occurrence creates a pending run and advances nextRunAtMs
     const claimedRun = await claimDueEventOccurrence(db, due[0]!, baseMs)
     expect(claimedRun).not.toBeNull()
+    expect(claimedRun!.id).toMatch(/^srun_/)
     expect(claimedRun!.status).toBe("pending")
-    expect(await getCalendarRunById(db, claimedRun!.id)).toMatchObject({ id: claimedRun!.id, status: "pending" })
-    // Duplicate claim with stale version is a safe no-op
+    expect(await getScheduleRunById(db, claimedRun!.id)).toMatchObject({ id: claimedRun!.id, status: "pending" })
     expect(await claimDueEventOccurrence(db, due[0]!, baseMs)).toBeNull()
 
-    // Metadata-only edit keeps nextRunAtMs and refreshes pending run snapshot
-    const metaUpdated = await updateCalendarEvent(db, "owner_1", created.event.id, {
+    const metaUpdated = await updateScheduleEvent(db, "owner_1", created.event.id, {
       title: "Daily check v2",
       description: "Updated instructions",
       nowMs: baseMs + 1000,
@@ -106,7 +103,6 @@ describe("community calendar D1 queries", () => {
     expect(metaUpdated.event.nextRunAtMs).toBe(baseMs + 86_400_000)
     expect(metaUpdated.latestRun?.titleSnapshot).toBe("Daily check v2")
 
-    // List pending runs for owner & mark dispatched
     const pending = await listPendingRunsForOwner(db, "owner_1")
     expect(pending.map((r) => r.id)).toEqual([claimedRun!.id])
     expect(await updatePendingRunStatus(db, claimedRun!.id, {
@@ -116,8 +112,7 @@ describe("community calendar D1 queries", () => {
     })).toBe(true)
     expect(await listPendingRunsForOwner(db, "owner_1")).toEqual([])
 
-    // Ack transitions dispatched run to completed with ackedAtMs and preserves next recurring run
-    const acked = await updateCalendarEvent(db, "owner_1", created.event.id, {
+    const acked = await updateScheduleEvent(db, "owner_1", created.event.id, {
       ack: true,
       nowMs: baseMs + 5000,
     })
@@ -127,8 +122,7 @@ describe("community calendar D1 queries", () => {
     expect(acked.latestRun?.ackedAtMs).toBe(baseMs + 5000)
     expect(acked.event.nextRunAtMs).toBe(baseMs + 86_400_000)
 
-    // Idempotent re-ack keeps original ackedAtMs
-    const reAcked = await updateCalendarEvent(db, "owner_1", created.event.id, {
+    const reAcked = await updateScheduleEvent(db, "owner_1", created.event.id, {
       ack: true,
       nowMs: baseMs + 9000,
     })
@@ -136,8 +130,7 @@ describe("community calendar D1 queries", () => {
     if (!reAcked.ok) return
     expect(reAcked.latestRun?.ackedAtMs).toBe(baseMs + 5000)
 
-    // List with range returns runsByEvent & latestRunByEvent
-    const listed = await listOwnerCalendarEvents(db, "owner_1", {
+    const listed = await listOwnerScheduleEvents(db, "owner_1", {
       creatorId: "bot_1",
       fromMs: baseMs - 3600_000,
       toMs: baseMs + 2 * 86_400_000,
@@ -146,8 +139,7 @@ describe("community calendar D1 queries", () => {
     expect(listed.runsByEvent[created.event.id]).toHaveLength(1)
     expect(listed.latestRunByEvent[created.event.id]?.status).toBe("completed")
 
-    // Rescheduling back to a previously claimed timestamp hits ON CONFLICT DO NOTHING and returns existing run
-    const rescheduled = await updateCalendarEvent(db, "owner_1", created.event.id, {
+    const rescheduled = await updateScheduleEvent(db, "owner_1", created.event.id, {
       startAtMs: baseMs,
       recurrence: null,
       hasRecurrence: true,
@@ -159,13 +151,13 @@ describe("community calendar D1 queries", () => {
     expect(conflictClaim?.id).toBe(claimedRun!.id)
     expect(await getEarliestNextRunMs(db, "owner_1")).toBeNull()
 
-    expect(await deleteCalendarEvent(db, "owner_1", created.event.id)).toBe(true)
-    expect(await getCalendarEventById(db, "owner_1", created.event.id)).toBeNull()
+    expect(await deleteScheduleEvent(db, "owner_1", created.event.id)).toBe(true)
+    expect(await getScheduleEventById(db, "owner_1", created.event.id)).toBeNull()
   })
 
   it("handles early ack on one-time events, rejects unfired recurring ack, and cascades on user delete", async () => {
     const futureMs = Date.parse("2026-11-27T01:00:00.000Z")
-    const oneTime = await createCalendarEvent(db, {
+    const oneTime = await createScheduleEvent(db, {
       ownerUserId: "owner_1",
       createdByUserId: "bot_1",
       title: "One-off reminder",
@@ -179,8 +171,7 @@ describe("community calendar D1 queries", () => {
     expect(oneTime.ok).toBe(true)
     if (!oneTime.ok) return
 
-    // Early ack on one-time event cancels nextRunAtMs and records completed run
-    const earlyAck = await updateCalendarEvent(db, "owner_1", oneTime.event.id, {
+    const earlyAck = await updateScheduleEvent(db, "owner_1", oneTime.event.id, {
       ack: true,
       nowMs: futureMs - 1000,
     })
@@ -190,8 +181,7 @@ describe("community calendar D1 queries", () => {
     expect(earlyAck.latestRun?.status).toBe("completed")
     expect(earlyAck.latestRun?.ackedAtMs).toBe(futureMs - 1000)
 
-    // Unfired recurring event rejects --ack with conflict
-    const recurring = await createCalendarEvent(db, {
+    const recurring = await createScheduleEvent(db, {
       ownerUserId: "owner_1",
       createdByUserId: "bot_1",
       title: "Unfired weekly",
@@ -205,15 +195,14 @@ describe("community calendar D1 queries", () => {
     expect(recurring.ok).toBe(true)
     if (!recurring.ok) return
 
-    const rejectedAck = await updateCalendarEvent(db, "owner_1", recurring.event.id, {
+    const rejectedAck = await updateScheduleEvent(db, "owner_1", recurring.event.id, {
       ack: true,
       nowMs: futureMs - 500,
     })
     expect(rejectedAck).toMatchObject({ ok: false, code: "conflict" })
 
-    // Deleting bot cascades its events and runs via FK
     sqlite.prepare("DELETE FROM user WHERE id = ?").run("bot_1")
-    const remaining = await listOwnerCalendarEvents(db, "owner_1")
+    const remaining = await listOwnerScheduleEvents(db, "owner_1")
     expect(remaining.events).toEqual([])
   })
 })

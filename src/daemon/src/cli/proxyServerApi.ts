@@ -3,12 +3,12 @@ import { communityProxyRoutes } from "../credentials/route-policy.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import {
   type BotFeedbackInput,
-  type CalendarCreateRequest,
-  type CalendarEvent,
-  type CalendarListResponse,
-  type CalendarUpdateRequest,
-  type PlatformMachineRequest,
   type PlatformBotRequest,
+  type PlatformMachineRequest,
+  type ScheduleCreateRequest,
+  type ScheduleEvent,
+  type ScheduleListResponse,
+  type ScheduleUpdateRequest,
 } from "@alook/shared";
 /**
  * Proxy-routed `ServerApi` client — the agent's REAL data-plane path.
@@ -635,25 +635,25 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return platformCall("/bots/creation-requests", "POST", { requestId: req.requestId, bots: req.bots });
   }
 
-  async function callCalendarList(req: {
+  async function callScheduleList(req: {
     from?: string;
     to?: string;
     creatorHandle?: string;
-  }): Promise<CalendarListResponse> {
+  }): Promise<ScheduleListResponse> {
     const params = new URLSearchParams();
     if (req.from) params.set("from", req.from);
     if (req.to) params.set("to", req.to);
     if (req.creatorHandle) params.set("creatorHandle", req.creatorHandle);
     const suffix = params.size > 0 ? `?${params.toString()}` : "";
-    const res = await fetchImpl(`${base}/api/community/calendar/events${suffix}`, {
+    const res = await fetchImpl(`${base}/api/community/schedule/events${suffix}`, {
       method: "GET",
       headers: { authorization: `Bearer ${config.voucher}` },
     });
-    return parseJsonResponse<CalendarListResponse>(res, "calendarList");
+    return parseJsonResponse<ScheduleListResponse>(res, "scheduleList");
   }
 
-  async function callCalendarCreate(req: CalendarCreateRequest): Promise<{ event: CalendarEvent }> {
-    const res = await fetchImpl(`${base}/api/community/calendar/events`, {
+  async function callScheduleCreate(req: ScheduleCreateRequest): Promise<{ event: ScheduleEvent }> {
+    const res = await fetchImpl(`${base}/api/community/schedule/events`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -661,11 +661,11 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       },
       body: JSON.stringify(req),
     });
-    return parseJsonResponse<{ event: CalendarEvent }>(res, "calendarCreate");
+    return parseJsonResponse<{ event: ScheduleEvent }>(res, "scheduleCreate");
   }
 
-  async function callCalendarUpdate(req: { id: string; patch: CalendarUpdateRequest }): Promise<{ event: CalendarEvent }> {
-    const res = await fetchImpl(`${base}/api/community/calendar/events/${encodeURIComponent(req.id)}`, {
+  async function callScheduleUpdate(req: { id: string; patch: ScheduleUpdateRequest }): Promise<{ event: ScheduleEvent }> {
+    const res = await fetchImpl(`${base}/api/community/schedule/events/${encodeURIComponent(req.id)}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
@@ -673,15 +673,15 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       },
       body: JSON.stringify(req.patch),
     });
-    return parseJsonResponse<{ event: CalendarEvent }>(res, "calendarUpdate");
+    return parseJsonResponse<{ event: ScheduleEvent }>(res, "scheduleUpdate");
   }
 
-  async function callCalendarDelete(req: { id: string }): Promise<{ deleted: true }> {
-    const res = await fetchImpl(`${base}/api/community/calendar/events/${encodeURIComponent(req.id)}`, {
+  async function callScheduleDelete(req: { id: string }): Promise<{ deleted: true }> {
+    const res = await fetchImpl(`${base}/api/community/schedule/events/${encodeURIComponent(req.id)}`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${config.voucher}` },
     });
-    await parseJsonResponse<void>(res, "calendarDelete");
+    await parseJsonResponse<void>(res, "scheduleDelete");
     return { deleted: true };
   }
 
@@ -689,10 +689,10 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     platformFeedback: (req: BotFeedbackInput) => platformCall("/platform/feedback", "POST", req),
     platformMachine: callPlatformMachine,
     platformBot: callPlatformBot,
-    calendarList: callCalendarList,
-    calendarCreate: callCalendarCreate,
-    calendarUpdate: callCalendarUpdate,
-    calendarDelete: callCalendarDelete,
+    scheduleList: callScheduleList,
+    scheduleCreate: callScheduleCreate,
+    scheduleUpdate: callScheduleUpdate,
+    scheduleDelete: callScheduleDelete,
     listServers: (_r: { agentId: AgentId }) => callListServers(),
     joinServer: callJoinServer,
     leaveServer: callLeaveServer,

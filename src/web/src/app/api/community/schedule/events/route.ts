@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server"
 import {
-  CALENDAR_DEFAULT_DURATION_MINUTES,
-  CALENDAR_MAX_EVENTS_PER_OWNER,
-  CalendarCreateRequestSchema,
   queries,
+  SCHEDULE_DEFAULT_DURATION_MINUTES,
+  SCHEDULE_MAX_EVENTS_PER_OWNER,
+  ScheduleCreateRequestSchema,
   withD1Retry,
 } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth-policy"
@@ -12,23 +12,23 @@ import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 import {
-  buildCalendarOccurrences,
-  calendarOwnerUserId,
-  hydrateCalendarEvents,
+  buildScheduleOccurrences,
+  hydrateScheduleEvents,
   listHouseholdCreators,
   normalizeHandleInput,
-  parseCalendarRange,
   parseFullMessageRef,
-  syncOwnerCalendarAlarm,
-  validateCalendarScheduleFields,
-} from "@/lib/community/calendar.server"
+  parseScheduleRange,
+  scheduleOwnerUserId,
+  syncOwnerScheduleAlarm,
+  validateScheduleFields,
+} from "@/lib/community/schedule.server"
 
 export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-  const ownerUserId = calendarOwnerUserId(ctx.actor)
+  const ownerUserId = scheduleOwnerUserId(ctx.actor)
   const params = req.nextUrl.searchParams
 
-  const range = parseCalendarRange(params.get("from"), params.get("to"))
+  const range = parseScheduleRange(params.get("from"), params.get("to"))
   if (!range.ok) return writeError(range.error, 400)
 
   const creators = await listHouseholdCreators(db, ownerUserId)
@@ -45,15 +45,15 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
   }
 
   const payload = await withD1Retry(
-    () => queries.communityCalendar.listOwnerCalendarEvents(db, ownerUserId, {
+    () => queries.communitySchedule.listOwnerScheduleEvents(db, ownerUserId, {
       creatorId,
       fromMs: range.fromMs,
       toMs: range.toMs,
     }),
-    { route: "calendar:list" },
+    { route: "schedule:list" },
   )
 
-  const events = await hydrateCalendarEvents(
+  const events = await hydrateScheduleEvents(
     db,
     ownerUserId,
     ctx.actor.userId,
@@ -61,7 +61,7 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
     payload.latestRunByEvent,
     creators,
   )
-  const occurrences = buildCalendarOccurrences(
+  const occurrences = buildScheduleOccurrences(
     payload.events,
     payload.runsByEvent,
     range.fromMs,
@@ -83,15 +83,15 @@ export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ct
     return writeError("invalid JSON body", 400)
   }
 
-  const parsed = CalendarCreateRequestSchema.safeParse(rawBody)
+  const parsed = ScheduleCreateRequestSchema.safeParse(rawBody)
   if (!parsed.success) {
-    return writeError(parsed.error.issues[0]?.message ?? "invalid calendar event payload", 400)
+    return writeError(parsed.error.issues[0]?.message ?? "invalid schedule event payload", 400)
   }
 
-  const scheduleCheck = validateCalendarScheduleFields({
+  const scheduleCheck = validateScheduleFields({
     timeZone: parsed.data.timeZone,
     startAt: parsed.data.startAt,
-    durationMinutes: parsed.data.durationMinutes ?? CALENDAR_DEFAULT_DURATION_MINUTES,
+    durationMinutes: parsed.data.durationMinutes ?? SCHEDULE_DEFAULT_DURATION_MINUTES,
     recurrence: parsed.data.recurrence ?? null,
   })
   if (!scheduleCheck.ok || scheduleCheck.startAtMs === undefined) {
@@ -115,32 +115,32 @@ export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ct
   }
 
   const created = await withD1Retry(
-    () => queries.communityCalendar.createCalendarEvent(db, {
+    () => queries.communitySchedule.createScheduleEvent(db, {
       ownerUserId: bot.ownerUserId,
       createdByUserId: bot.userId,
       title: parsed.data.title,
       description: parsed.data.description ?? "",
       startAtMs: scheduleCheck.startAtMs!,
-      durationMinutes: parsed.data.durationMinutes ?? CALENDAR_DEFAULT_DURATION_MINUTES,
+      durationMinutes: parsed.data.durationMinutes ?? SCHEDULE_DEFAULT_DURATION_MINUTES,
       timeZone: parsed.data.timeZone,
       recurrence: scheduleCheck.recurrence ?? null,
       sourceMessageId: resolvedMessage.messageId,
       sourceChannelId: resolvedMessage.channelId,
     }),
-    { route: "calendar:create" },
+    { route: "schedule:create" },
   )
 
   if (!created.ok) {
-    return writeError(`calendar event limit reached (${CALENDAR_MAX_EVENTS_PER_OWNER})`, 409)
+    return writeError(`schedule event limit reached (${SCHEDULE_MAX_EVENTS_PER_OWNER})`, 409)
   }
 
-  await syncOwnerCalendarAlarm(ctx.env, bot.ownerUserId, {
+  await syncOwnerScheduleAlarm(ctx.env, bot.ownerUserId, {
     eventId: created.event.id,
     reason: "created",
   })
 
   const creators = await listHouseholdCreators(db, bot.ownerUserId)
-  const [event] = await hydrateCalendarEvents(
+  const [event] = await hydrateScheduleEvents(
     db,
     bot.ownerUserId,
     bot.userId,

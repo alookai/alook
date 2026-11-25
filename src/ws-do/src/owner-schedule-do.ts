@@ -11,19 +11,19 @@ import {
   WS_EVENTS,
   type Database,
   type HostCommand,
-  type StoredCalendarRun,
+  type StoredScheduleRun,
 } from "@alook/shared"
 import { createInternalBrowserBroadcastRequest } from "./internal-user-broadcast"
 
-const log = createLogger({ service: "owner-calendar-do" })
+const log = createLogger({ service: "owner-schedule-do" })
 
 const OWNER_USER_ID_KEY = "ownerUserId"
 const ALARM_EVENT_BATCH_LIMIT = 25
 const RESYNC_RUN_BATCH_LIMIT = 50
 
-type CalendarChangeReason = "created" | "updated" | "deleted" | "run_updated"
+type ScheduleChangeReason = "created" | "updated" | "deleted" | "run_updated"
 
-function buildCalendarEventPrompt(input: {
+function buildScheduleEventPrompt(input: {
   eventId: string
   title: string
   description: string
@@ -42,8 +42,8 @@ function buildCalendarEventPrompt(input: {
     : `$ALOOK_CLI channel history --channel "${input.channelRef}" --around ${input.seq} --limit 5`
 
   const lines = [
-    "[Scheduled Calendar Event — Execute Now]",
-    `Event: ${input.title} (${input.eventId})`,
+    "[Scheduled Task — Execute Now]",
+    `Task: ${input.title} (${input.eventId})`,
     `Scheduled time (UTC): ${new Date(input.scheduledAtMs).toISOString()}`,
     `Bound message: ${input.channelRef}#${input.seq}`,
   ]
@@ -54,7 +54,7 @@ function buildCalendarEventPrompt(input: {
     "Execute this scheduled task now. Do not merely check whether the schedule exists.",
     `Inspect context if needed: ${historyCommand}`,
     `Reply to the bound conversation with: ${replyCommand}`,
-    `After finishing this scheduled task, mark it done with: $ALOOK_CLI calendar update ${input.eventId} --ack`,
+    `After finishing this scheduled task, mark it done with: $ALOOK_CLI schedule update ${input.eventId} --ack`,
   )
   return lines.join("\n")
 }
@@ -69,41 +69,41 @@ async function canBotAccessMessageSurface(
   if (visibilityIsDmParticipant(channelType)) {
     const dm = await withD1Retry(
       () => queries.communityDm.getDM(db, channelId),
-      { route: "owner-calendar:dm-surface" },
+      { route: "owner-schedule:dm-surface" },
     )
     if (!dm) return false
     const peer = await withD1Retry(
       () => queries.communityDm.getDMPeer(db, channelId, botUserId),
-      { route: "owner-calendar:dm-peer" },
+      { route: "owner-schedule:dm-peer" },
     )
     if (!peer) return false
     const blocked = await withD1Retry(
       () => queries.communityFriendship.isBlocked(db, botUserId, peer.otherUserId),
-      { route: "owner-calendar:dm-block" },
+      { route: "owner-schedule:dm-block" },
     )
     return !blocked
   }
   const channel = await withD1Retry(
     () => queries.communityChannel.getChannelForMember(db, channelId, botUserId),
-    { route: "owner-calendar:channel-member" },
+    { route: "owner-schedule:channel-member" },
   )
   return channel !== null
 }
 
 /**
  * Stateless per-owner alarm timer and dispatch coordinator.
- * All calendar events and runs are persisted in D1; this DO holds only
+ * All schedule events and runs are persisted in D1; this DO holds only
  * the ownerUserId key while an alarm is active and wipes itself via
  * `deleteAll()` once no future occurrences remain.
  */
-export class OwnerCalendarDurableObject extends DurableObject<Env> {
+export class OwnerScheduleDurableObject extends DurableObject<Env> {
   private readonly inFlightRuns = new Set<string>()
 
   private async syncAlarmFromD1(ownerUserId: string, nowMs: number): Promise<number | null> {
     const db = createDb(this.env.DB)
     const nextAlarmMs = await withD1Retry(
-      () => queries.communityCalendar.getEarliestNextRunMs(db, ownerUserId),
-      { route: "owner-calendar:earliest-next-run" },
+      () => queries.communitySchedule.getEarliestNextRunMs(db, ownerUserId),
+      { route: "owner-schedule:earliest-next-run" },
     )
     if (nextAlarmMs !== null) {
       await this.ctx.storage.put(OWNER_USER_ID_KEY, ownerUserId)
@@ -118,20 +118,20 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
   private async notifyOwnerChanged(
     ownerUserId: string,
     eventId: string,
-    reason: CalendarChangeReason,
+    reason: ScheduleChangeReason,
   ): Promise<void> {
     try {
       const doId = this.env.WS_DO.idFromName("user:" + ownerUserId)
       const stub = this.env.WS_DO.get(doId)
       await stub.fetch(
         createInternalBrowserBroadcastRequest(ownerUserId, {
-          type: WS_EVENTS.CALENDAR_CHANGED,
+          type: WS_EVENTS.SCHEDULE_CHANGED,
           eventId,
           reason,
         }),
       )
     } catch (err) {
-      log.warn("calendar_owner_broadcast_failed", { ownerUserId, eventId, reason, err: String(err) })
+      log.warn("schedule_owner_broadcast_failed", { ownerUserId, eventId, reason, err: String(err) })
     }
   }
 
@@ -142,7 +142,7 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
     const db = createDb(this.env.DB)
     const doNames = await withD1Retry(
       () => queries.communityMachine.getActiveDoNamesForMachine(db, machineId),
-      { route: "owner-calendar:machine-do-names" },
+      { route: "owner-schedule:machine-do-names" },
     )
     if (doNames.length === 0) return { sent: 0 }
 
@@ -165,14 +165,14 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
           sent += receipt.sent
         }
       } catch (err) {
-        log.warn("calendar_machine_push_failed", { machineId, doName, err: String(err) })
+        log.warn("schedule_machine_push_failed", { machineId, doName, err: String(err) })
       }
     }
     return { sent }
   }
 
   private async dispatchPendingRun(
-    run: StoredCalendarRun,
+    run: StoredScheduleRun,
     ownerUserId: string,
   ): Promise<"dispatched" | "pending" | "blocked_access" | "skipped"> {
     if (this.inFlightRuns.has(run.id)) return "skipped"
@@ -180,8 +180,8 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
     try {
       const db = createDb(this.env.DB)
       const current = await withD1Retry(
-        () => queries.communityCalendar.getCalendarRunById(db, run.id),
-        { route: "owner-calendar:get-run" },
+        () => queries.communitySchedule.getScheduleRunById(db, run.id),
+        { route: "owner-schedule:get-run" },
       )
       if (!current || current.status !== "pending") return "skipped"
 
@@ -189,12 +189,12 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
 
       const markBlocked = async (reason: string): Promise<"blocked_access"> => {
         await withD1Retry(
-          () => queries.communityCalendar.updatePendingRunStatus(db, run.id, {
+          () => queries.communitySchedule.updatePendingRunStatus(db, run.id, {
             status: "blocked_access",
             lastError: reason,
             updatedAtMs: nowMs,
           }),
-          { route: "owner-calendar:mark-blocked" },
+          { route: "owner-schedule:mark-blocked" },
         )
         await this.notifyOwnerChanged(ownerUserId, run.eventId, "run_updated")
         return "blocked_access"
@@ -202,12 +202,12 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
 
       const markPendingError = async (reason: string): Promise<"pending"> => {
         await withD1Retry(
-          () => queries.communityCalendar.updatePendingRunStatus(db, run.id, {
+          () => queries.communitySchedule.updatePendingRunStatus(db, run.id, {
             status: "pending",
             lastError: reason,
             updatedAtMs: nowMs,
           }),
-          { route: "owner-calendar:mark-pending-error" },
+          { route: "owner-schedule:mark-pending-error" },
         )
         await this.notifyOwnerChanged(ownerUserId, run.eventId, "run_updated")
         return "pending"
@@ -215,7 +215,7 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
 
       const botCtx = await withD1Retry(
         () => queries.communityBot.getBotWakeContext(db, current.botUserId),
-        { route: "owner-calendar:bot-wake-context" },
+        { route: "owner-schedule:bot-wake-context" },
       )
       if (botCtx.state !== "ready") {
         if (botCtx.state === "bot_unbound") return await markPendingError("bot_unbound")
@@ -227,24 +227,24 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
 
       const msg = await withD1Retry(
         () => queries.communityMessage.getWakeMessageScopeById(db, current.sourceMessageId),
-        { route: "owner-calendar:source-message" },
+        { route: "owner-schedule:source-message" },
       )
       if (!msg) return await markBlocked("source_message_deleted")
 
       const channelType = await withD1Retry(
         () => queries.communityChannel.getChannelType(db, msg.channelId),
-        { route: "owner-calendar:source-channel-type" },
+        { route: "owner-schedule:source-channel-type" },
       )
       const canRead = await canBotAccessMessageSurface(db, msg.channelId, current.botUserId, channelType)
       if (!canRead) return await markBlocked("source_message_inaccessible")
 
       const channelRef = await withD1Retry(
         () => queries.communityAgentInbox.resolveUnreadNoticeChannel(db, { channelId: msg.channelId }, current.botUserId),
-        { route: "owner-calendar:source-channel-ref" },
+        { route: "owner-schedule:source-channel-ref" },
       )
       if (!channelRef) return await markBlocked("source_channel_unresolvable")
 
-      const prompt = buildCalendarEventPrompt({
+      const prompt = buildScheduleEventPrompt({
         eventId: current.eventId,
         title: current.titleSnapshot,
         description: current.descriptionSnapshot,
@@ -265,19 +265,19 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
           agentName: botCtx.name,
           agentHandle: `@${formatHandle(botCtx.name, botCtx.discriminator)}`,
         }),
-        launchId: `calrun_${current.id}`,
+        launchId: `schrun_${current.id}`,
         prompt,
       }
 
       const { sent } = await this.pushAgentEventToMachine(botCtx.machineId, command)
       if (sent > 0) {
         await withD1Retry(
-          () => queries.communityCalendar.updatePendingRunStatus(db, run.id, {
+          () => queries.communitySchedule.updatePendingRunStatus(db, run.id, {
             status: "dispatched",
             lastError: null,
             updatedAtMs: Date.now(),
           }),
-          { route: "owner-calendar:mark-dispatched" },
+          { route: "owner-schedule:mark-dispatched" },
         )
         await this.notifyOwnerChanged(ownerUserId, current.eventId, "run_updated")
         return "dispatched"
@@ -285,7 +285,7 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
 
       return await markPendingError("machine_offline")
     } catch (err) {
-      log.warn("calendar_run_dispatch_failed", { runId: run.id, eventId: run.eventId, err: String(err) })
+      log.warn("schedule_run_dispatch_failed", { runId: run.id, eventId: run.eventId, err: String(err) })
       return "pending"
     } finally {
       this.inFlightRuns.delete(run.id)
@@ -302,15 +302,15 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
     const db = createDb(this.env.DB)
     const nowMs = Date.now()
     const dueEvents = await withD1Retry(
-      () => queries.communityCalendar.listDueEventsForOwner(db, ownerUserId, nowMs, ALARM_EVENT_BATCH_LIMIT),
-      { route: "owner-calendar:list-due" },
+      () => queries.communitySchedule.listDueEventsForOwner(db, ownerUserId, nowMs, ALARM_EVENT_BATCH_LIMIT),
+      { route: "owner-schedule:list-due" },
     )
 
-    const runsToDispatch: StoredCalendarRun[] = []
+    const runsToDispatch: StoredScheduleRun[] = []
     for (const event of dueEvents) {
       const claimed = await withD1Retry(
-        () => queries.communityCalendar.claimDueEventOccurrence(db, event, nowMs),
-        { route: "owner-calendar:claim-due" },
+        () => queries.communitySchedule.claimDueEventOccurrence(db, event, nowMs),
+        { route: "owner-schedule:claim-due" },
       )
       if (claimed && claimed.status === "pending") {
         runsToDispatch.push(claimed)
@@ -340,7 +340,7 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
     let body: {
       ownerUserId?: string
       eventId?: string
-      reason?: CalendarChangeReason
+      reason?: ScheduleChangeReason
     }
     try {
       body = (await request.json()) as typeof body
@@ -378,8 +378,8 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
     const db = createDb(this.env.DB)
     await this.syncAlarmFromD1(ownerUserId, Date.now())
     const pendingRuns = await withD1Retry(
-      () => queries.communityCalendar.listPendingRunsForOwner(db, ownerUserId, RESYNC_RUN_BATCH_LIMIT),
-      { route: "owner-calendar:list-pending-resync" },
+      () => queries.communitySchedule.listPendingRunsForOwner(db, ownerUserId, RESYNC_RUN_BATCH_LIMIT),
+      { route: "owner-schedule:list-pending-resync" },
     )
 
     let attempted = 0

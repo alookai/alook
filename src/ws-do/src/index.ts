@@ -23,7 +23,7 @@ import {
   handleMachineRuntimeConfigUpdate,
 } from "./routes/community-machine-switch"
 import { handleHealth } from "./routes/health"
-import { handleOwnerCalendar } from "./routes/owner-calendar"
+import { handleOwnerSchedule } from "./routes/owner-schedule"
 import { handleBatchPresence, handleSinglePresence } from "./routes/presence"
 import { handleRateLimit } from "./routes/rate-limit"
 import { log, type RouterContext } from "./router-context"
@@ -31,7 +31,7 @@ import { handleUpgrade } from "./routes/upgrade"
 
 export { WebSocketDurableObject } from "./ws-durable"
 export { RateLimitDurableObject } from "./rate-limit-do"
-export { OwnerCalendarDurableObject } from "./owner-calendar-do"
+export { OwnerScheduleDurableObject } from "./owner-schedule-do"
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -93,7 +93,7 @@ export default {
     if (response) return response
     response = await handleMachineForceClose(context)
     if (response) return response
-    response = await handleOwnerCalendar(context)
+    response = await handleOwnerSchedule(context)
     if (response) return response
 
     return handleUpgrade(context)

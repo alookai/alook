@@ -9,7 +9,7 @@ import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
 import { registerPlatformCommands } from "./platform.js";
-import { registerCalendarCommands } from "./calendar.js";
+import { registerScheduleCommands } from "./schedule.js";
 import { registerUseCommands } from "./use.js";
 /**
  * `alook` — the agent-facing CLI.
@@ -805,7 +805,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .option("--agent <id>", "agent identity (or ALOOK_AGENT_ID env)");
 
   registerPlatformCommands(program, getApi, printEnvelope, () => readLiteralInput({ command: "platform feedback", stdinSelected: true, stdin, maxBytes: BOT_FEEDBACK_MAX_BYTES }));
-  registerCalendarCommands(program, getApi, printEnvelope);
+  registerScheduleCommands(program, getApi, printEnvelope);
   registerUseCommands(program, printEnvelope);
 
   registerPiiCommands(program, printEnvelope);

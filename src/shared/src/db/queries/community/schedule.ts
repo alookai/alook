@@ -1,19 +1,19 @@
 import { and, asc, desc, eq, gt, isNotNull, lt, lte } from "drizzle-orm"
 import type { Database } from "../../index"
-import { communityCalendarEvent, communityCalendarRun } from "../../community-calendar-schema"
+import { communityScheduleEvent, communityScheduleRun } from "../../community-schedule-schema"
 import {
   advanceNextRunAfterFire,
-  CALENDAR_DEFAULT_DURATION_MINUTES,
-  CALENDAR_MAX_EVENTS_PER_OWNER,
   computeInitialNextRun,
   normalizeRecurrence,
-  type CalendarRecurrence,
-  type CalendarRunStatus,
-} from "../../../calendar"
+  SCHEDULE_DEFAULT_DURATION_MINUTES,
+  SCHEDULE_MAX_EVENTS_PER_OWNER,
+  type ScheduleRecurrence,
+  type ScheduleRunStatus,
+} from "../../../schedule"
 
 const RUNS_PER_EVENT_LIMIT = 200
 
-export interface StoredCalendarEvent {
+export interface StoredScheduleEvent {
   id: string
   ownerUserId: string
   createdByUserId: string
@@ -22,7 +22,7 @@ export interface StoredCalendarEvent {
   startAtMs: number
   durationMinutes: number
   timeZone: string
-  recurrence: CalendarRecurrence | null
+  recurrence: ScheduleRecurrence | null
   occurrenceCount: number
   nextRunAtMs: number | null
   sourceMessageId: string
@@ -32,7 +32,7 @@ export interface StoredCalendarEvent {
   updatedAtMs: number
 }
 
-export interface StoredCalendarRun {
+export interface StoredScheduleRun {
   id: string
   ownerUserId: string
   eventId: string
@@ -43,18 +43,18 @@ export interface StoredCalendarRun {
   sourceChannelId: string
   titleSnapshot: string
   descriptionSnapshot: string
-  status: CalendarRunStatus
+  status: ScheduleRunStatus
   lastError: string | null
   ackedAtMs: number | null
   createdAtMs: number
   updatedAtMs: number
 }
 
-function mapEventRow(row: typeof communityCalendarEvent.$inferSelect): StoredCalendarEvent {
-  let recurrence: CalendarRecurrence | null = null
+function mapEventRow(row: typeof communityScheduleEvent.$inferSelect): StoredScheduleEvent {
+  let recurrence: ScheduleRecurrence | null = null
   if (row.recurrenceJson) {
     try {
-      recurrence = normalizeRecurrence(JSON.parse(row.recurrenceJson) as CalendarRecurrence)
+      recurrence = normalizeRecurrence(JSON.parse(row.recurrenceJson) as ScheduleRecurrence)
     } catch {
       recurrence = null
     }
@@ -79,8 +79,8 @@ function mapEventRow(row: typeof communityCalendarEvent.$inferSelect): StoredCal
   }
 }
 
-function mapRunRow(row: typeof communityCalendarRun.$inferSelect): StoredCalendarRun {
-  const status: CalendarRunStatus =
+function mapRunRow(row: typeof communityScheduleRun.$inferSelect): StoredScheduleRun {
+  const status: ScheduleRunStatus =
     row.status === "dispatched" || row.status === "completed" || row.status === "blocked_access"
       ? row.status
       : "pending"
@@ -106,12 +106,12 @@ function mapRunRow(row: typeof communityCalendarRun.$inferSelect): StoredCalenda
 export async function getLatestRunForEvent(
   db: Database,
   eventId: string,
-): Promise<StoredCalendarRun | null> {
+): Promise<StoredScheduleRun | null> {
   const rows = await db
     .select()
-    .from(communityCalendarRun)
-    .where(eq(communityCalendarRun.eventId, eventId))
-    .orderBy(desc(communityCalendarRun.scheduledAtMs))
+    .from(communityScheduleRun)
+    .where(eq(communityScheduleRun.eventId, eventId))
+    .orderBy(desc(communityScheduleRun.scheduledAtMs))
     .limit(1)
   return rows[0] ? mapRunRow(rows[0]) : null
 }
@@ -122,23 +122,23 @@ export async function listRunsForEventInRange(
   minScheduledMsExclusive: number,
   maxScheduledMsExclusive: number,
   limit = RUNS_PER_EVENT_LIMIT,
-): Promise<StoredCalendarRun[]> {
+): Promise<StoredScheduleRun[]> {
   const rows = await db
     .select()
-    .from(communityCalendarRun)
+    .from(communityScheduleRun)
     .where(
       and(
-        eq(communityCalendarRun.eventId, eventId),
-        gt(communityCalendarRun.scheduledAtMs, minScheduledMsExclusive),
-        lt(communityCalendarRun.scheduledAtMs, maxScheduledMsExclusive),
+        eq(communityScheduleRun.eventId, eventId),
+        gt(communityScheduleRun.scheduledAtMs, minScheduledMsExclusive),
+        lt(communityScheduleRun.scheduledAtMs, maxScheduledMsExclusive),
       ),
     )
-    .orderBy(asc(communityCalendarRun.scheduledAtMs))
+    .orderBy(asc(communityScheduleRun.scheduledAtMs))
     .limit(limit)
   return rows.map(mapRunRow)
 }
 
-export async function listOwnerCalendarEvents(
+export async function listOwnerScheduleEvents(
   db: Database,
   ownerUserId: string,
   opts: {
@@ -147,16 +147,16 @@ export async function listOwnerCalendarEvents(
     toMs?: number | null
   } = {},
 ): Promise<{
-  events: StoredCalendarEvent[]
-  runsByEvent: Record<string, StoredCalendarRun[]>
-  latestRunByEvent: Record<string, StoredCalendarRun | null>
+  events: StoredScheduleEvent[]
+  runsByEvent: Record<string, StoredScheduleRun[]>
+  latestRunByEvent: Record<string, StoredScheduleRun | null>
 }> {
   const rows = await db
     .select()
-    .from(communityCalendarEvent)
-    .where(eq(communityCalendarEvent.ownerUserId, ownerUserId))
-    .orderBy(asc(communityCalendarEvent.createdAtMs))
-    .limit(CALENDAR_MAX_EVENTS_PER_OWNER)
+    .from(communityScheduleEvent)
+    .where(eq(communityScheduleEvent.ownerUserId, ownerUserId))
+    .orderBy(asc(communityScheduleEvent.createdAtMs))
+    .limit(SCHEDULE_MAX_EVENTS_PER_OWNER)
 
   const creatorId = opts.creatorId ?? null
   const events = rows
@@ -168,8 +168,8 @@ export async function listOwnerCalendarEvents(
       return aKey - bKey || b.createdAtMs - a.createdAtMs
     })
 
-  const runsByEvent: Record<string, StoredCalendarRun[]> = {}
-  const latestRunByEvent: Record<string, StoredCalendarRun | null> = {}
+  const runsByEvent: Record<string, StoredScheduleRun[]> = {}
+  const latestRunByEvent: Record<string, StoredScheduleRun | null> = {}
 
   const hasRange =
     opts.fromMs !== undefined
@@ -198,18 +198,18 @@ export async function listOwnerCalendarEvents(
   return { events, runsByEvent, latestRunByEvent }
 }
 
-export async function getCalendarEventById(
+export async function getScheduleEventById(
   db: Database,
   ownerUserId: string,
   eventId: string,
-): Promise<{ event: StoredCalendarEvent; latestRun: StoredCalendarRun | null } | null> {
+): Promise<{ event: StoredScheduleEvent; latestRun: StoredScheduleRun | null } | null> {
   const rows = await db
     .select()
-    .from(communityCalendarEvent)
+    .from(communityScheduleEvent)
     .where(
       and(
-        eq(communityCalendarEvent.id, eventId),
-        eq(communityCalendarEvent.ownerUserId, ownerUserId),
+        eq(communityScheduleEvent.id, eventId),
+        eq(communityScheduleEvent.ownerUserId, ownerUserId),
       ),
     )
     .limit(1)
@@ -219,7 +219,7 @@ export async function getCalendarEventById(
   return { event: mapEventRow(row), latestRun }
 }
 
-export async function createCalendarEvent(
+export async function createScheduleEvent(
   db: Database,
   input: {
     ownerUserId: string
@@ -229,36 +229,36 @@ export async function createCalendarEvent(
     startAtMs: number
     durationMinutes?: number
     timeZone: string
-    recurrence?: CalendarRecurrence | null
+    recurrence?: ScheduleRecurrence | null
     sourceMessageId: string
     sourceChannelId: string
     nowMs?: number
   },
 ): Promise<
-  | { ok: true; event: StoredCalendarEvent; latestRun: null }
+  | { ok: true; event: StoredScheduleEvent; latestRun: null }
   | { ok: false; code: "limit_exceeded" }
 > {
   const existingIds = await db
-    .select({ id: communityCalendarEvent.id })
-    .from(communityCalendarEvent)
-    .where(eq(communityCalendarEvent.ownerUserId, input.ownerUserId))
-    .limit(CALENDAR_MAX_EVENTS_PER_OWNER)
+    .select({ id: communityScheduleEvent.id })
+    .from(communityScheduleEvent)
+    .where(eq(communityScheduleEvent.ownerUserId, input.ownerUserId))
+    .limit(SCHEDULE_MAX_EVENTS_PER_OWNER)
 
-  if (existingIds.length >= CALENDAR_MAX_EVENTS_PER_OWNER) {
+  if (existingIds.length >= SCHEDULE_MAX_EVENTS_PER_OWNER) {
     return { ok: false, code: "limit_exceeded" }
   }
 
   const nowMs = input.nowMs ?? Date.now()
   const recurrence = normalizeRecurrence(input.recurrence ?? null)
-  const durationMinutes = input.durationMinutes ?? CALENDAR_DEFAULT_DURATION_MINUTES
+  const durationMinutes = input.durationMinutes ?? SCHEDULE_DEFAULT_DURATION_MINUTES
   const initial = computeInitialNextRun(
     { startAtMs: input.startAtMs, timeZone: input.timeZone, recurrence },
     nowMs,
   )
-  const id = `cal_${crypto.randomUUID()}`
+  const id = `sch_${crypto.randomUUID()}`
 
   const inserted = await db
-    .insert(communityCalendarEvent)
+    .insert(communityScheduleEvent)
     .values({
       id,
       ownerUserId: input.ownerUserId,
@@ -282,7 +282,7 @@ export async function createCalendarEvent(
   return { ok: true, event: mapEventRow(inserted[0]!), latestRun: null }
 }
 
-export async function updateCalendarEvent(
+export async function updateScheduleEvent(
   db: Database,
   ownerUserId: string,
   eventId: string,
@@ -293,19 +293,19 @@ export async function updateCalendarEvent(
     durationMinutes?: number
     timeZone?: string
     hasRecurrence?: boolean
-    recurrence?: CalendarRecurrence | null
+    recurrence?: ScheduleRecurrence | null
     sourceMessageId?: string
     sourceChannelId?: string
     ack?: true
     nowMs?: number
   },
 ): Promise<
-  | { ok: true; event: StoredCalendarEvent; latestRun: StoredCalendarRun | null }
+  | { ok: true; event: StoredScheduleEvent; latestRun: StoredScheduleRun | null }
   | { ok: false; code: "not_found" | "conflict"; error: string }
 > {
-  const existingFound = await getCalendarEventById(db, ownerUserId, eventId)
+  const existingFound = await getScheduleEventById(db, ownerUserId, eventId)
   if (!existingFound) {
-    return { ok: false, code: "not_found", error: "calendar event not found" }
+    return { ok: false, code: "not_found", error: "schedule event not found" }
   }
 
   const existing = existingFound.event
@@ -346,11 +346,11 @@ export async function updateCalendarEvent(
     nextRunAtMs = recomputed.nextRunAtMs
     occurrenceCount = recomputed.occurrenceCount
     await db
-      .delete(communityCalendarRun)
+      .delete(communityScheduleRun)
       .where(
         and(
-          eq(communityCalendarRun.eventId, eventId),
-          eq(communityCalendarRun.status, "pending"),
+          eq(communityScheduleRun.eventId, eventId),
+          eq(communityScheduleRun.status, "pending"),
         ),
       )
     if (latestRun?.status === "pending") {
@@ -358,7 +358,7 @@ export async function updateCalendarEvent(
     }
   } else if (snapshotChanged) {
     await db
-      .update(communityCalendarRun)
+      .update(communityScheduleRun)
       .set({
         titleSnapshot: title,
         descriptionSnapshot: description,
@@ -369,8 +369,8 @@ export async function updateCalendarEvent(
       })
       .where(
         and(
-          eq(communityCalendarRun.eventId, eventId),
-          eq(communityCalendarRun.status, "pending"),
+          eq(communityScheduleRun.eventId, eventId),
+          eq(communityScheduleRun.status, "pending"),
         ),
       )
     if (latestRun?.status === "pending") {
@@ -382,14 +382,14 @@ export async function updateCalendarEvent(
     if (latestRun) {
       if (latestRun.status !== "completed") {
         const ackedRows = await db
-          .update(communityCalendarRun)
+          .update(communityScheduleRun)
           .set({
             status: "completed",
             lastError: null,
             ackedAtMs: nowMs,
             updatedAtMs: nowMs,
           })
-          .where(eq(communityCalendarRun.id, latestRun.id))
+          .where(eq(communityScheduleRun.id, latestRun.id))
           .returning()
         if (ackedRows[0]) latestRun = mapRunRow(ackedRows[0])
       }
@@ -402,9 +402,9 @@ export async function updateCalendarEvent(
       nextRunAtMs = null
       occurrenceCount = Math.max(occurrenceCount, 1)
       const insertedRuns = await db
-        .insert(communityCalendarRun)
+        .insert(communityScheduleRun)
         .values({
-          id: `crun_${crypto.randomUUID()}`,
+          id: `srun_${crypto.randomUUID()}`,
           ownerUserId,
           eventId,
           eventVersion: nextVersion,
@@ -421,7 +421,7 @@ export async function updateCalendarEvent(
           updatedAtMs: nowMs,
         })
         .onConflictDoNothing({
-          target: [communityCalendarRun.eventId, communityCalendarRun.scheduledAtMs],
+          target: [communityScheduleRun.eventId, communityScheduleRun.scheduledAtMs],
         })
         .returning()
       latestRun = insertedRuns[0] ? mapRunRow(insertedRuns[0]) : await getLatestRunForEvent(db, eventId)
@@ -429,13 +429,13 @@ export async function updateCalendarEvent(
       return {
         ok: false,
         code: "conflict",
-        error: "cannot acknowledge a recurring event before it has triggered",
+        error: "cannot acknowledge a recurring schedule event before it has triggered",
       }
     }
   }
 
   const updatedRows = await db
-    .update(communityCalendarEvent)
+    .update(communityScheduleEvent)
     .set({
       title,
       description,
@@ -452,34 +452,34 @@ export async function updateCalendarEvent(
     })
     .where(
       and(
-        eq(communityCalendarEvent.id, eventId),
-        eq(communityCalendarEvent.ownerUserId, ownerUserId),
+        eq(communityScheduleEvent.id, eventId),
+        eq(communityScheduleEvent.ownerUserId, ownerUserId),
       ),
     )
     .returning()
 
   if (!updatedRows[0]) {
-    return { ok: false, code: "not_found", error: "calendar event not found" }
+    return { ok: false, code: "not_found", error: "schedule event not found" }
   }
 
   const finalLatest = latestRun ?? await getLatestRunForEvent(db, eventId)
   return { ok: true, event: mapEventRow(updatedRows[0]), latestRun: finalLatest }
 }
 
-export async function deleteCalendarEvent(
+export async function deleteScheduleEvent(
   db: Database,
   ownerUserId: string,
   eventId: string,
 ): Promise<boolean> {
   const deleted = await db
-    .delete(communityCalendarEvent)
+    .delete(communityScheduleEvent)
     .where(
       and(
-        eq(communityCalendarEvent.id, eventId),
-        eq(communityCalendarEvent.ownerUserId, ownerUserId),
+        eq(communityScheduleEvent.id, eventId),
+        eq(communityScheduleEvent.ownerUserId, ownerUserId),
       ),
     )
-    .returning({ id: communityCalendarEvent.id })
+    .returning({ id: communityScheduleEvent.id })
   return deleted.length > 0
 }
 
@@ -488,15 +488,15 @@ export async function getEarliestNextRunMs(
   ownerUserId: string,
 ): Promise<number | null> {
   const rows = await db
-    .select({ nextRunAtMs: communityCalendarEvent.nextRunAtMs })
-    .from(communityCalendarEvent)
+    .select({ nextRunAtMs: communityScheduleEvent.nextRunAtMs })
+    .from(communityScheduleEvent)
     .where(
       and(
-        eq(communityCalendarEvent.ownerUserId, ownerUserId),
-        isNotNull(communityCalendarEvent.nextRunAtMs),
+        eq(communityScheduleEvent.ownerUserId, ownerUserId),
+        isNotNull(communityScheduleEvent.nextRunAtMs),
       ),
     )
-    .orderBy(asc(communityCalendarEvent.nextRunAtMs))
+    .orderBy(asc(communityScheduleEvent.nextRunAtMs))
     .limit(1)
   return rows[0]?.nextRunAtMs ?? null
 }
@@ -506,27 +506,27 @@ export async function listDueEventsForOwner(
   ownerUserId: string,
   nowMs: number,
   limit = 25,
-): Promise<StoredCalendarEvent[]> {
+): Promise<StoredScheduleEvent[]> {
   const rows = await db
     .select()
-    .from(communityCalendarEvent)
+    .from(communityScheduleEvent)
     .where(
       and(
-        eq(communityCalendarEvent.ownerUserId, ownerUserId),
-        isNotNull(communityCalendarEvent.nextRunAtMs),
-        lte(communityCalendarEvent.nextRunAtMs, nowMs),
+        eq(communityScheduleEvent.ownerUserId, ownerUserId),
+        isNotNull(communityScheduleEvent.nextRunAtMs),
+        lte(communityScheduleEvent.nextRunAtMs, nowMs),
       ),
     )
-    .orderBy(asc(communityCalendarEvent.nextRunAtMs))
+    .orderBy(asc(communityScheduleEvent.nextRunAtMs))
     .limit(limit)
   return rows.map(mapEventRow)
 }
 
 export async function claimDueEventOccurrence(
   db: Database,
-  event: StoredCalendarEvent,
+  event: StoredScheduleEvent,
   nowMs: number,
-): Promise<StoredCalendarRun | null> {
+): Promise<StoredScheduleRun | null> {
   const scheduledAtMs = event.nextRunAtMs
   if (scheduledAtMs === null) return null
 
@@ -538,7 +538,7 @@ export async function claimDueEventOccurrence(
   )
 
   const claimed = await db
-    .update(communityCalendarEvent)
+    .update(communityScheduleEvent)
     .set({
       nextRunAtMs: advanced.nextRunAtMs,
       occurrenceCount: advanced.occurrenceCount,
@@ -547,20 +547,20 @@ export async function claimDueEventOccurrence(
     })
     .where(
       and(
-        eq(communityCalendarEvent.id, event.id),
-        eq(communityCalendarEvent.ownerUserId, event.ownerUserId),
-        eq(communityCalendarEvent.version, event.version),
-        eq(communityCalendarEvent.nextRunAtMs, scheduledAtMs),
+        eq(communityScheduleEvent.id, event.id),
+        eq(communityScheduleEvent.ownerUserId, event.ownerUserId),
+        eq(communityScheduleEvent.version, event.version),
+        eq(communityScheduleEvent.nextRunAtMs, scheduledAtMs),
       ),
     )
-    .returning({ id: communityCalendarEvent.id })
+    .returning({ id: communityScheduleEvent.id })
 
   if (claimed.length === 0) return null
 
   const inserted = await db
-    .insert(communityCalendarRun)
+    .insert(communityScheduleRun)
     .values({
-      id: `crun_${crypto.randomUUID()}`,
+      id: `srun_${crypto.randomUUID()}`,
       ownerUserId: event.ownerUserId,
       eventId: event.id,
       eventVersion: event.version,
@@ -577,7 +577,7 @@ export async function claimDueEventOccurrence(
       updatedAtMs: nowMs,
     })
     .onConflictDoNothing({
-      target: [communityCalendarRun.eventId, communityCalendarRun.scheduledAtMs],
+      target: [communityScheduleRun.eventId, communityScheduleRun.scheduledAtMs],
     })
     .returning()
 
@@ -585,25 +585,25 @@ export async function claimDueEventOccurrence(
 
   const existing = await db
     .select()
-    .from(communityCalendarRun)
+    .from(communityScheduleRun)
     .where(
       and(
-        eq(communityCalendarRun.eventId, event.id),
-        eq(communityCalendarRun.scheduledAtMs, scheduledAtMs),
+        eq(communityScheduleRun.eventId, event.id),
+        eq(communityScheduleRun.scheduledAtMs, scheduledAtMs),
       ),
     )
     .limit(1)
   return existing[0] ? mapRunRow(existing[0]) : null
 }
 
-export async function getCalendarRunById(
+export async function getScheduleRunById(
   db: Database,
   runId: string,
-): Promise<StoredCalendarRun | null> {
+): Promise<StoredScheduleRun | null> {
   const rows = await db
     .select()
-    .from(communityCalendarRun)
-    .where(eq(communityCalendarRun.id, runId))
+    .from(communityScheduleRun)
+    .where(eq(communityScheduleRun.id, runId))
     .limit(1)
   return rows[0] ? mapRunRow(rows[0]) : null
 }
@@ -612,17 +612,17 @@ export async function listPendingRunsForOwner(
   db: Database,
   ownerUserId: string,
   limit = 50,
-): Promise<StoredCalendarRun[]> {
+): Promise<StoredScheduleRun[]> {
   const rows = await db
     .select()
-    .from(communityCalendarRun)
+    .from(communityScheduleRun)
     .where(
       and(
-        eq(communityCalendarRun.ownerUserId, ownerUserId),
-        eq(communityCalendarRun.status, "pending"),
+        eq(communityScheduleRun.ownerUserId, ownerUserId),
+        eq(communityScheduleRun.status, "pending"),
       ),
     )
-    .orderBy(asc(communityCalendarRun.scheduledAtMs))
+    .orderBy(asc(communityScheduleRun.scheduledAtMs))
     .limit(limit)
   return rows.map(mapRunRow)
 }
@@ -637,7 +637,7 @@ export async function updatePendingRunStatus(
   },
 ): Promise<boolean> {
   const updated = await db
-    .update(communityCalendarRun)
+    .update(communityScheduleRun)
     .set({
       status: next.status,
       lastError: next.lastError,
@@ -645,10 +645,10 @@ export async function updatePendingRunStatus(
     })
     .where(
       and(
-        eq(communityCalendarRun.id, runId),
-        eq(communityCalendarRun.status, "pending"),
+        eq(communityScheduleRun.id, runId),
+        eq(communityScheduleRun.status, "pending"),
       ),
     )
-    .returning({ id: communityCalendarRun.id })
+    .returning({ id: communityScheduleRun.id })
   return updated.length > 0
 }

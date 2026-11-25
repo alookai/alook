@@ -4,11 +4,11 @@ import type { BotFeedbackInput } from "./community-feedback";
 import type { DecisionCardAgentPayload, DecisionCardInput } from "./community-decision-card";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 import type {
-  CalendarCreateRequest,
-  CalendarEvent,
-  CalendarListResponse,
-  CalendarUpdateRequest,
-} from "./calendar";
+  ScheduleCreateRequest,
+  ScheduleEvent,
+  ScheduleListResponse,
+  ScheduleUpdateRequest,
+} from "./schedule";
 /**
  * Server API contract — the agent ⇄ server boundary.
  *
@@ -667,10 +667,10 @@ export interface ServerApi {
   platformMachine?(req: PlatformMachineRequest): Promise<Record<string, unknown>>;
   platformFeedback?(req: BotFeedbackInput): Promise<Record<string, unknown>>;
   platformBot?(req: PlatformBotRequest): Promise<Record<string, unknown>>;
-  calendarList?(req: { from?: string; to?: string; creatorHandle?: string }): Promise<CalendarListResponse>;
-  calendarCreate?(req: CalendarCreateRequest): Promise<{ event: CalendarEvent }>;
-  calendarUpdate?(req: { id: string; patch: CalendarUpdateRequest }): Promise<{ event: CalendarEvent }>;
-  calendarDelete?(req: { id: string }): Promise<{ deleted: true }>;
+  scheduleList?(req: { from?: string; to?: string; creatorHandle?: string }): Promise<ScheduleListResponse>;
+  scheduleCreate?(req: ScheduleCreateRequest): Promise<{ event: ScheduleEvent }>;
+  scheduleUpdate?(req: { id: string; patch: ScheduleUpdateRequest }): Promise<{ event: ScheduleEvent }>;
+  scheduleDelete?(req: { id: string }): Promise<{ deleted: true }>;
   /** Which servers/workspaces this agent participates in. */
   listServers(req: { agentId: AgentId }): Promise<{ servers: Server[] }>;
 

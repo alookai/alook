@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { Command } from "commander";
-import { makeRuntimeConfig, type CalendarEvent, type HostCommand } from "@alook/shared";
-import { registerCalendarCommands } from "./calendar.js";
+import { makeRuntimeConfig, type HostCommand, type ScheduleEvent } from "@alook/shared";
+import { registerScheduleCommands } from "./schedule.js";
 import { createProxyServerApi } from "./proxyServerApi.js";
-import { resolveProxyCapability, resolveProxyAuditOperation } from "../credentials/route-policy.js";
+import { resolveProxyAuditOperation, resolveProxyCapability } from "../credentials/route-policy.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { AgentRouter } from "../manager/agentRouter.js";
 
-const sampleEvent: CalendarEvent = {
-  id: "cal_test_1",
+const sampleEvent: ScheduleEvent = {
+  id: "sch_test_1",
   title: "Weekly retro",
   description: "Collect updates",
   createdBy: {
@@ -43,29 +43,30 @@ const sampleEvent: CalendarEvent = {
   updatedAt: "2026-11-25T04:00:00.000Z",
 };
 
-describe("calendar CLI & proxy route policy", () => {
-  it("whitelists calendar routes with read/send capabilities and audit ops", () => {
-    expect(resolveProxyCapability("GET", "/api/community/calendar/events")).toBe("read");
-    expect(resolveProxyCapability("POST", "/api/community/calendar/events")).toBe("send");
-    expect(resolveProxyCapability("PATCH", "/api/community/calendar/events/cal_1")).toBe("send");
-    expect(resolveProxyCapability("DELETE", "/api/community/calendar/events/cal_1")).toBe("send");
-    expect(resolveProxyAuditOperation("/api/community/calendar/events", "GET")).toBe("calendarList");
-    expect(resolveProxyAuditOperation("/api/community/calendar/events", "POST")).toBe("calendarCreate");
-    expect(resolveProxyAuditOperation("/api/community/calendar/events/cal_1", "PATCH")).toBe("calendarUpdate");
-    expect(resolveProxyAuditOperation("/api/community/calendar/events/cal_1", "DELETE")).toBe("calendarDelete");
+describe("schedule CLI & proxy route policy", () => {
+  it("whitelists schedule routes with read/send capabilities and audit ops", () => {
+    expect(resolveProxyCapability("GET", "/api/community/schedule/events")).toBe("read");
+    expect(resolveProxyCapability("POST", "/api/community/schedule/events")).toBe("send");
+    expect(resolveProxyCapability("PATCH", "/api/community/schedule/events/sch_1")).toBe("send");
+    expect(resolveProxyCapability("DELETE", "/api/community/schedule/events/sch_1")).toBe("send");
+    expect(resolveProxyAuditOperation("/api/community/schedule/events", "GET")).toBe("scheduleList");
+    expect(resolveProxyAuditOperation("/api/community/schedule/events", "POST")).toBe("scheduleCreate");
+    expect(resolveProxyAuditOperation("/api/community/schedule/events/sch_1", "GET")).toBe("scheduleGet");
+    expect(resolveProxyAuditOperation("/api/community/schedule/events/sch_1", "PATCH")).toBe("scheduleUpdate");
+    expect(resolveProxyAuditOperation("/api/community/schedule/events/sch_1", "DELETE")).toBe("scheduleDelete");
   });
 
   it("strips internal DB IDs in agent-facing CLI output for list/create/update/delete", async () => {
     const outputs: unknown[] = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (init?.method === "GET" && url.includes("/api/community/calendar/events")) {
+      if (init?.method === "GET" && url.includes("/api/community/schedule/events")) {
         return Response.json({
           events: [sampleEvent],
           occurrences: [
             {
-              eventId: "cal_test_1",
-              occurrenceKey: "cal_test_1:2026-11-26T01:00:00.000Z",
+              eventId: "sch_test_1",
+              occurrenceKey: "sch_test_1:2026-11-26T01:00:00.000Z",
               startAt: "2026-11-26T01:00:00.000Z",
               endAt: "2026-11-26T01:30:00.000Z",
               runStatus: "dispatched",
@@ -107,19 +108,19 @@ describe("calendar CLI & proxy route policy", () => {
     const runCli = async (argv: string[]) => {
       outputs.length = 0;
       const program = new Command().exitOverride();
-      registerCalendarCommands(program, () => api, (v) => outputs.push(v));
+      registerScheduleCommands(program, () => api, (v) => outputs.push(v));
       await program.parseAsync(argv, { from: "user" });
       return outputs[0] as { success: Record<string, unknown> };
     };
 
-    const listed = await runCli(["calendar", "list", "--creator", "@Elwira#8700"]);
+    const listed = await runCli(["schedule", "list", "--creator", "@Elwira#8700"]);
     const rawListed = JSON.stringify(listed);
     expect(rawListed).not.toContain("u_bot_internal_1");
     expect(rawListed).not.toContain("msg_internal_99");
     expect(listed.success.creators).toEqual(["@Elwira#8700"]);
 
     const created = await runCli([
-      "calendar",
+      "schedule",
       "create",
       "--title", "Weekly retro",
       "--at", "2026-11-26T09:00:00+08:00",
@@ -131,18 +132,18 @@ describe("calendar CLI & proxy route policy", () => {
     expect(JSON.stringify(created)).not.toContain("msg_internal_99");
     expect((created.success.event as { id: string; createdBy: string }).createdBy).toBe("@Elwira#8700");
 
-    const updated = await runCli(["calendar", "update", "cal_test_1", "--title", "Weekly retro v2"]);
+    const updated = await runCli(["schedule", "update", "sch_test_1", "--title", "Weekly retro v2"]);
     expect((updated.success.event as { title: string }).title).toBe("Weekly retro v2");
 
-    const acked = await runCli(["calendar", "update", "cal_test_1", "--ack"]);
+    const acked = await runCli(["schedule", "update", "sch_test_1", "--ack"]);
     expect((acked.success.event as { lastExecution: { status: string; ackedAt?: string } }).lastExecution.status).toBe("completed");
     expect((acked.success.event as { lastExecution: { status: string; ackedAt?: string } }).lastExecution.ackedAt).toBeTruthy();
 
-    const deleted = await runCli(["calendar", "delete", "cal_test_1"]);
-    expect(deleted.success).toEqual({ deleted: true, id: "cal_test_1" });
+    const deleted = await runCli(["schedule", "delete", "sch_test_1"]);
+    expect(deleted.success).toEqual({ deleted: true, id: "sch_test_1" });
   });
 
-  it("delivers two recurring agent:event calendar triggers on the same bound message without WakeCoordinator suppression", async () => {
+  it("delivers two recurring agent:event schedule triggers on the same bound message without WakeCoordinator suppression", async () => {
     const delivered: Array<{ agentId: string; id?: string; text: string }> = [];
     const manager = {
       register: vi.fn(),
@@ -186,20 +187,20 @@ describe("calendar CLI & proxy route policy", () => {
       type: "agent:event",
       agentId: "bot_1",
       config: makeRuntimeConfig({ runtime: "codex" }),
-      launchId: `calrun_${runId}`,
-      prompt: `[Scheduled Calendar Event — Execute Now]\nBound message: /Alook#5620/gus-infra#1801\nRun: ${runId}`,
+      launchId: `schrun_${runId}`,
+      prompt: `[Scheduled Task — Execute Now]\nBound message: /Alook#5620/gus-infra#1801\nRun: ${runId}`,
     });
 
     for (const cb of socketListeners.message ?? []) {
-      cb(JSON.stringify(makeTrigger("crun_occ_1")));
-      cb(JSON.stringify(makeTrigger("crun_occ_2")));
+      cb(JSON.stringify(makeTrigger("srun_occ_1")));
+      cb(JSON.stringify(makeTrigger("srun_occ_2")));
     }
 
     await new Promise((r) => setTimeout(r, 20));
     expect(delivered).toHaveLength(2);
     expect(delivered.map((d) => d.id)).toEqual([
-      "bot_1:event:calrun_crun_occ_1",
-      "bot_1:event:calrun_crun_occ_2",
+      "bot_1:event:schrun_srun_occ_1",
+      "bot_1:event:schrun_srun_occ_2",
     ]);
     channel.close();
   });

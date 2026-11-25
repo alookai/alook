@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { queries, dispatchOneUnreadWake, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { wsDoFetch } from "@/lib/broadcast"
-import { resyncOwnerCalendarForBots } from "@/lib/community/calendar.server"
+import { resyncOwnerScheduleForBots } from "@/lib/community/schedule.server"
 import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth"
 
 /**
@@ -55,13 +55,13 @@ export const POST = withAuth(machineAuthPolicy, async (_req, ctx) => {
   }
 
   if (bots.length > 0) {
-    const calendarResync = await resyncOwnerCalendarForBots(
+    const scheduleResync = await resyncOwnerScheduleForBots(
       db,
       ctx.env,
       ctx.userId,
       bots.map((bot) => bot.id),
     )
-    attempted += calendarResync.dispatched
+    attempted += scheduleResync.dispatched
   }
 
   return NextResponse.json({ attempted })

@@ -431,7 +431,7 @@ export type {
   CommunityMachineUpdated,
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
-  CommunityCalendarChanged,
+  CommunityScheduleChanged,
   CommunityWsEvent,
   CommunityResourceWsEvent,
   CommunityBrowserEventEnvelope,
@@ -645,5 +645,5 @@ export type { MessagePreviewInput } from "./lib/message-preview";
 export * from "./community-feedback";
 export * from "./community-decision-card";
 export * from "./model-observation";
-export * from "./calendar";
-export type { StoredCalendarEvent, StoredCalendarRun } from "./db/queries/community/calendar";
+export * from "./schedule";
+export type { StoredScheduleEvent, StoredScheduleRun } from "./db/queries/community/schedule";

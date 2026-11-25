@@ -14,7 +14,7 @@ export function resolveProxyCapability(method: string, pathname: string): string
   if (pathname.startsWith("/api/community/machines")) return "read";
   if (pathname === "/api/community/bots" && method === "GET") return "read";
   if (pathname === "/api/community/bots/creation-requests" && method === "POST") return "send";
-  if (/^\/api\/community\/calendar\/events(\/[^/]+)?$/.test(pathname)) {
+  if (/^\/api\/community\/schedule\/events(\/[^/]+)?$/.test(pathname)) {
     return method === "GET" ? "read" : "send";
   }
   if (
@@ -81,15 +81,15 @@ export function resolveProxyAuditOperation(pathname: string, method?: string): s
   if (method === "POST" && canonical === communityProxyRoutes.avatar) return "profileAvatarUpdate";
 
   if (/^\/api\/community\/bots\/me\/nap(\/|$|\?)/.test(canonical)) return "nap";
-  if (/^\/api\/community\/calendar\/events$/.test(canonical)) {
-    if (method === "GET") return "calendarList";
-    if (method === "POST") return "calendarCreate";
+  if (/^\/api\/community\/schedule\/events$/.test(canonical)) {
+    if (method === "GET") return "scheduleList";
+    if (method === "POST") return "scheduleCreate";
     return null;
   }
-  if (/^\/api\/community\/calendar\/events\/[^/]+$/.test(canonical)) {
-    if (method === "GET") return "calendarGet";
-    if (method === "PATCH") return "calendarUpdate";
-    if (method === "DELETE") return "calendarDelete";
+  if (/^\/api\/community\/schedule\/events\/[^/]+$/.test(canonical)) {
+    if (method === "GET") return "scheduleGet";
+    if (method === "PATCH") return "scheduleUpdate";
+    if (method === "DELETE") return "scheduleDelete";
     return null;
   }
 

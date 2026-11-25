@@ -1,19 +1,19 @@
 import { z } from "zod"
 
-export const CALENDAR_TITLE_MAX_LENGTH = 160
-export const CALENDAR_DESCRIPTION_MAX_LENGTH = 4000
-export const CALENDAR_DEFAULT_DURATION_MINUTES = 30
-export const CALENDAR_MIN_DURATION_MINUTES = 5
-export const CALENDAR_MAX_DURATION_MINUTES = 1440
-export const CALENDAR_MAX_RANGE_MS = 62 * 24 * 60 * 60 * 1000
-export const CALENDAR_MAX_OCCURRENCES_PER_EVENT = 200
-export const CALENDAR_MAX_EVENTS_PER_OWNER = 200
+export const SCHEDULE_TITLE_MAX_LENGTH = 160
+export const SCHEDULE_DESCRIPTION_MAX_LENGTH = 4000
+export const SCHEDULE_DEFAULT_DURATION_MINUTES = 30
+export const SCHEDULE_MIN_DURATION_MINUTES = 5
+export const SCHEDULE_MAX_DURATION_MINUTES = 1440
+export const SCHEDULE_MAX_RANGE_MS = 62 * 24 * 60 * 60 * 1000
+export const SCHEDULE_MAX_OCCURRENCES_PER_EVENT = 200
+export const SCHEDULE_MAX_EVENTS_PER_OWNER = 200
 
-export const CalendarRecurrenceFreqSchema = z.enum(["hourly", "daily", "weekly", "monthly"])
-export type CalendarRecurrenceFreq = z.infer<typeof CalendarRecurrenceFreqSchema>
+export const ScheduleRecurrenceFreqSchema = z.enum(["hourly", "daily", "weekly", "monthly"])
+export type ScheduleRecurrenceFreq = z.infer<typeof ScheduleRecurrenceFreqSchema>
 
-export const CalendarRecurrenceSchema = z.strictObject({
-  freq: CalendarRecurrenceFreqSchema,
+export const ScheduleRecurrenceSchema = z.strictObject({
+  freq: ScheduleRecurrenceFreqSchema,
   interval: z.number().int().min(1).max(365),
   byWeekday: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
   untilAt: z.iso.datetime({ offset: true }).nullable().optional(),
@@ -27,118 +27,118 @@ export const CalendarRecurrenceSchema = z.strictObject({
     })
   }
 })
-export type CalendarRecurrence = z.infer<typeof CalendarRecurrenceSchema>
+export type ScheduleRecurrence = z.infer<typeof ScheduleRecurrenceSchema>
 
-export const CalendarRunStatusSchema = z.enum([
+export const ScheduleRunStatusSchema = z.enum([
   "pending",
   "dispatched",
   "completed",
   "blocked_access",
 ])
-export type CalendarRunStatus = z.infer<typeof CalendarRunStatusSchema>
+export type ScheduleRunStatus = z.infer<typeof ScheduleRunStatusSchema>
 
-export const CalendarOccurrenceStatusSchema = z.enum([
+export const ScheduleOccurrenceStatusSchema = z.enum([
   "scheduled",
   "pending",
   "dispatched",
   "completed",
   "blocked_access",
 ])
-export type CalendarOccurrenceStatus = z.infer<typeof CalendarOccurrenceStatusSchema>
+export type ScheduleOccurrenceStatus = z.infer<typeof ScheduleOccurrenceStatusSchema>
 
-export const CalendarSourceMessageStatusSchema = z.enum([
+export const ScheduleSourceMessageStatusSchema = z.enum([
   "accessible",
   "inaccessible",
   "deleted",
 ])
-export type CalendarSourceMessageStatus = z.infer<typeof CalendarSourceMessageStatusSchema>
+export type ScheduleSourceMessageStatus = z.infer<typeof ScheduleSourceMessageStatusSchema>
 
-export const CalendarActorSummarySchema = z.strictObject({
+export const ScheduleActorSummarySchema = z.strictObject({
   id: z.string().min(1),
   handle: z.string().min(1),
   name: z.string().min(1),
   avatarVersion: z.number().int().nonnegative(),
   isBot: z.boolean(),
 })
-export type CalendarActorSummary = z.infer<typeof CalendarActorSummarySchema>
+export type ScheduleActorSummary = z.infer<typeof ScheduleActorSummarySchema>
 
-export const CalendarLastExecutionSchema = z.strictObject({
+export const ScheduleLastExecutionSchema = z.strictObject({
   scheduledAt: z.iso.datetime(),
-  status: CalendarRunStatusSchema,
+  status: ScheduleRunStatusSchema,
   lastError: z.string().nullable(),
   ackedAt: z.iso.datetime().nullable(),
   updatedAt: z.iso.datetime(),
 })
-export type CalendarLastExecution = z.infer<typeof CalendarLastExecutionSchema>
+export type ScheduleLastExecution = z.infer<typeof ScheduleLastExecutionSchema>
 
-export const CalendarSourceMessageSchema = z.strictObject({
+export const ScheduleSourceMessageSchema = z.strictObject({
   id: z.string().min(1),
   accessible: z.boolean(),
-  status: CalendarSourceMessageStatusSchema,
+  status: ScheduleSourceMessageStatusSchema,
   ref: z.string().nullable(),
   channelRef: z.string().nullable(),
   seq: z.number().int().positive().nullable(),
   preview: z.string().nullable(),
 })
-export type CalendarSourceMessage = z.infer<typeof CalendarSourceMessageSchema>
+export type ScheduleSourceMessage = z.infer<typeof ScheduleSourceMessageSchema>
 
-export const CalendarEventSchema = z.strictObject({
+export const ScheduleEventSchema = z.strictObject({
   id: z.string().min(1),
   title: z.string().min(1),
   description: z.string(),
-  createdBy: CalendarActorSummarySchema,
+  createdBy: ScheduleActorSummarySchema,
   startAt: z.iso.datetime(),
-  durationMinutes: z.number().int().min(CALENDAR_MIN_DURATION_MINUTES).max(CALENDAR_MAX_DURATION_MINUTES),
+  durationMinutes: z.number().int().min(SCHEDULE_MIN_DURATION_MINUTES).max(SCHEDULE_MAX_DURATION_MINUTES),
   timeZone: z.string().min(1),
-  recurrence: CalendarRecurrenceSchema.nullable(),
+  recurrence: ScheduleRecurrenceSchema.nullable(),
   nextRunAt: z.iso.datetime().nullable(),
-  sourceMessage: CalendarSourceMessageSchema,
-  lastExecution: CalendarLastExecutionSchema.nullable(),
+  sourceMessage: ScheduleSourceMessageSchema,
+  lastExecution: ScheduleLastExecutionSchema.nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 })
-export type CalendarEvent = z.infer<typeof CalendarEventSchema>
+export type ScheduleEvent = z.infer<typeof ScheduleEventSchema>
 
-export const CalendarOccurrenceSchema = z.strictObject({
+export const ScheduleOccurrenceSchema = z.strictObject({
   eventId: z.string().min(1),
   occurrenceKey: z.string().min(1),
   startAt: z.iso.datetime(),
   endAt: z.iso.datetime(),
-  runStatus: CalendarOccurrenceStatusSchema,
+  runStatus: ScheduleOccurrenceStatusSchema,
 })
-export type CalendarOccurrence = z.infer<typeof CalendarOccurrenceSchema>
+export type ScheduleOccurrence = z.infer<typeof ScheduleOccurrenceSchema>
 
-export const CalendarListResponseSchema = z.strictObject({
-  events: z.array(CalendarEventSchema),
-  occurrences: z.array(CalendarOccurrenceSchema),
-  creators: z.array(CalendarActorSummarySchema),
+export const ScheduleListResponseSchema = z.strictObject({
+  events: z.array(ScheduleEventSchema),
+  occurrences: z.array(ScheduleOccurrenceSchema),
+  creators: z.array(ScheduleActorSummarySchema),
 })
-export type CalendarListResponse = z.infer<typeof CalendarListResponseSchema>
+export type ScheduleListResponse = z.infer<typeof ScheduleListResponseSchema>
 
-export const CalendarCreateRequestSchema = z.strictObject({
-  title: z.string().trim().min(1).max(CALENDAR_TITLE_MAX_LENGTH),
-  description: z.string().max(CALENDAR_DESCRIPTION_MAX_LENGTH).optional(),
+export const ScheduleCreateRequestSchema = z.strictObject({
+  title: z.string().trim().min(1).max(SCHEDULE_TITLE_MAX_LENGTH),
+  description: z.string().max(SCHEDULE_DESCRIPTION_MAX_LENGTH).optional(),
   startAt: z.iso.datetime({ offset: true }),
-  durationMinutes: z.number().int().min(CALENDAR_MIN_DURATION_MINUTES).max(CALENDAR_MAX_DURATION_MINUTES).optional(),
+  durationMinutes: z.number().int().min(SCHEDULE_MIN_DURATION_MINUTES).max(SCHEDULE_MAX_DURATION_MINUTES).optional(),
   timeZone: z.string().trim().min(1).max(128),
-  recurrence: CalendarRecurrenceSchema.nullable().optional(),
+  recurrence: ScheduleRecurrenceSchema.nullable().optional(),
   sourceMessageRef: z.string().trim().min(1).max(512),
 })
-export type CalendarCreateRequest = z.infer<typeof CalendarCreateRequestSchema>
+export type ScheduleCreateRequest = z.infer<typeof ScheduleCreateRequestSchema>
 
-export const CalendarUpdateRequestSchema = z.strictObject({
-  title: z.string().trim().min(1).max(CALENDAR_TITLE_MAX_LENGTH).optional(),
-  description: z.string().max(CALENDAR_DESCRIPTION_MAX_LENGTH).optional(),
+export const ScheduleUpdateRequestSchema = z.strictObject({
+  title: z.string().trim().min(1).max(SCHEDULE_TITLE_MAX_LENGTH).optional(),
+  description: z.string().max(SCHEDULE_DESCRIPTION_MAX_LENGTH).optional(),
   startAt: z.iso.datetime({ offset: true }).optional(),
-  durationMinutes: z.number().int().min(CALENDAR_MIN_DURATION_MINUTES).max(CALENDAR_MAX_DURATION_MINUTES).optional(),
+  durationMinutes: z.number().int().min(SCHEDULE_MIN_DURATION_MINUTES).max(SCHEDULE_MAX_DURATION_MINUTES).optional(),
   timeZone: z.string().trim().min(1).max(128).optional(),
-  recurrence: CalendarRecurrenceSchema.nullable().optional(),
+  recurrence: ScheduleRecurrenceSchema.nullable().optional(),
   sourceMessageRef: z.string().trim().min(1).max(512).optional(),
   ack: z.literal(true).optional(),
 })
-export type CalendarUpdateRequest = z.infer<typeof CalendarUpdateRequestSchema>
+export type ScheduleUpdateRequest = z.infer<typeof ScheduleUpdateRequestSchema>
 
-export function normalizeRecurrence(recurrence: CalendarRecurrence | null | undefined): CalendarRecurrence | null {
+export function normalizeRecurrence(recurrence: ScheduleRecurrence | null | undefined): ScheduleRecurrence | null {
   if (!recurrence) return null
   const byWeekday = recurrence.freq === "weekly" && recurrence.byWeekday
     ? [...new Set(recurrence.byWeekday)].sort((a, b) => a - b)
@@ -237,7 +237,7 @@ export function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate()
 }
 
-export function addCalendarDays(year: number, month: number, day: number, deltaDays: number): { year: number; month: number; day: number } {
+export function addUtcDays(year: number, month: number, day: number, deltaDays: number): { year: number; month: number; day: number } {
   const date = new Date(Date.UTC(year, month - 1, day + deltaDays))
   return {
     year: date.getUTCFullYear(),
@@ -246,7 +246,7 @@ export function addCalendarDays(year: number, month: number, day: number, deltaD
   }
 }
 
-export function calendarDaySerial(year: number, month: number, day: number): number {
+export function utcDaySerial(year: number, month: number, day: number): number {
   return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
 }
 
@@ -276,26 +276,26 @@ export function zonedDateTimeToUtcMs(
   return guess
 }
 
-export interface CalendarScheduleSpec {
+export interface ScheduleSpec {
   startAtMs: number
   timeZone: string
-  recurrence: CalendarRecurrence | null
+  recurrence: ScheduleRecurrence | null
 }
 
-function effectiveWeekdays(recurrence: CalendarRecurrence, anchorWeekday: number): number[] {
+function effectiveWeekdays(recurrence: ScheduleRecurrence, anchorWeekday: number): number[] {
   if (recurrence.byWeekday && recurrence.byWeekday.length > 0) {
     return [...new Set(recurrence.byWeekday)].sort((a, b) => a - b)
   }
   return [anchorWeekday]
 }
 
-function untilLimitMs(recurrence: CalendarRecurrence | null): number | null {
+function untilLimitMs(recurrence: ScheduleRecurrence | null): number | null {
   if (!recurrence?.untilAt) return null
   const ms = Date.parse(recurrence.untilAt)
   return Number.isFinite(ms) ? ms : null
 }
 
-export function computeFirstOccurrenceMs(spec: CalendarScheduleSpec): number | null {
+export function computeFirstOccurrenceMs(spec: ScheduleSpec): number | null {
   const recurrence = normalizeRecurrence(spec.recurrence)
   if (!recurrence) return spec.startAtMs
 
@@ -312,13 +312,13 @@ export function computeFirstOccurrenceMs(spec: CalendarScheduleSpec): number | n
 
   if (sameWeekDay !== undefined) {
     const delta = sameWeekDay - anchor.weekday
-    const targetDate = addCalendarDays(anchor.year, anchor.month, anchor.day, delta)
+    const targetDate = addUtcDays(anchor.year, anchor.month, anchor.day, delta)
     candidateMs = delta === 0
       ? spec.startAtMs
       : zonedDateTimeToUtcMs({ ...targetDate, hour: anchor.hour, minute: anchor.minute, second: anchor.second }, spec.timeZone)
   } else {
     const delta = -anchor.weekday + recurrence.interval * 7 + weekdays[0]!
-    const targetDate = addCalendarDays(anchor.year, anchor.month, anchor.day, delta)
+    const targetDate = addUtcDays(anchor.year, anchor.month, anchor.day, delta)
     candidateMs = zonedDateTimeToUtcMs({ ...targetDate, hour: anchor.hour, minute: anchor.minute, second: anchor.second }, spec.timeZone)
   }
 
@@ -327,7 +327,7 @@ export function computeFirstOccurrenceMs(spec: CalendarScheduleSpec): number | n
 }
 
 export function computeNextOccurrenceAfter(
-  spec: CalendarScheduleSpec,
+  spec: ScheduleSpec,
   currentOccurrenceMs: number,
   occurrenceCountAfterCurrent: number,
 ): number | null {
@@ -343,13 +343,13 @@ export function computeNextOccurrenceAfter(
   } else if (recurrence.freq === "daily") {
     const anchor = getZonedParts(spec.startAtMs, spec.timeZone)
     const current = getZonedParts(currentOccurrenceMs, spec.timeZone)
-    const targetDate = addCalendarDays(current.year, current.month, current.day, recurrence.interval)
+    const targetDate = addUtcDays(current.year, current.month, current.day, recurrence.interval)
     nextMs = zonedDateTimeToUtcMs(
       { ...targetDate, hour: anchor.hour, minute: anchor.minute, second: anchor.second },
       spec.timeZone,
     )
     if (nextMs <= currentOccurrenceMs) {
-      const fallback = addCalendarDays(targetDate.year, targetDate.month, targetDate.day, recurrence.interval)
+      const fallback = addUtcDays(targetDate.year, targetDate.month, targetDate.day, recurrence.interval)
       nextMs = zonedDateTimeToUtcMs(
         { ...fallback, hour: anchor.hour, minute: anchor.minute, second: anchor.second },
         spec.timeZone,
@@ -363,7 +363,7 @@ export function computeNextOccurrenceAfter(
     const deltaDays = laterInWeek !== undefined
       ? laterInWeek - current.weekday
       : -current.weekday + recurrence.interval * 7 + weekdays[0]!
-    const targetDate = addCalendarDays(current.year, current.month, current.day, deltaDays)
+    const targetDate = addUtcDays(current.year, current.month, current.day, deltaDays)
     nextMs = zonedDateTimeToUtcMs(
       { ...targetDate, hour: anchor.hour, minute: anchor.minute, second: anchor.second },
       spec.timeZone,
@@ -389,7 +389,7 @@ export function computeNextOccurrenceAfter(
 }
 
 export function advanceNextRunAfterFire(
-  spec: CalendarScheduleSpec,
+  spec: ScheduleSpec,
   firedAtMs: number,
   occurrenceCountAfterFire: number,
   nowMs: number,
@@ -413,7 +413,7 @@ export function advanceNextRunAfterFire(
 }
 
 function fastForwardToOrAfter(
-  spec: CalendarScheduleSpec,
+  spec: ScheduleSpec,
   firstCandidateMs: number,
   priorCountAtFirst: number,
   targetMs: number,
@@ -439,14 +439,14 @@ function fastForwardToOrAfter(
     } else if (recurrence.freq === "daily") {
       const curParts = getZonedParts(current, spec.timeZone)
       const targetParts = getZonedParts(targetMs, spec.timeZone)
-      const dayDelta = calendarDaySerial(targetParts.year, targetParts.month, targetParts.day)
-        - calendarDaySerial(curParts.year, curParts.month, curParts.day)
+      const dayDelta = utcDaySerial(targetParts.year, targetParts.month, targetParts.day)
+        - utcDaySerial(curParts.year, curParts.month, curParts.day)
       const skip = Math.max(0, Math.floor(dayDelta / recurrence.interval) - 1)
       if (skip > 0) {
         if (recurrence.count != null && priorCount + skip >= recurrence.count) {
           return { occurrenceMs: null, priorCount: recurrence.count }
         }
-        const jumpedDate = addCalendarDays(curParts.year, curParts.month, curParts.day, skip * recurrence.interval)
+        const jumpedDate = addUtcDays(curParts.year, curParts.month, curParts.day, skip * recurrence.interval)
         current = zonedDateTimeToUtcMs(
           { ...jumpedDate, hour: anchor.hour, minute: anchor.minute, second: anchor.second },
           spec.timeZone,
@@ -457,8 +457,8 @@ function fastForwardToOrAfter(
       const curParts = getZonedParts(current, spec.timeZone)
       const targetParts = getZonedParts(targetMs, spec.timeZone)
       const weekdays = effectiveWeekdays(recurrence, anchor.weekday)
-      const curWeekStartSerial = calendarDaySerial(curParts.year, curParts.month, curParts.day) - curParts.weekday
-      const targetWeekStartSerial = calendarDaySerial(targetParts.year, targetParts.month, targetParts.day) - targetParts.weekday
+      const curWeekStartSerial = utcDaySerial(curParts.year, curParts.month, curParts.day) - curParts.weekday
+      const targetWeekStartSerial = utcDaySerial(targetParts.year, targetParts.month, targetParts.day) - targetParts.weekday
       const weekStepDays = recurrence.interval * 7
       const fullBlocks = Math.max(0, Math.floor((targetWeekStartSerial - curWeekStartSerial) / weekStepDays) - 1)
       if (fullBlocks > 0) {
@@ -466,7 +466,7 @@ function fastForwardToOrAfter(
         if (recurrence.count != null && priorCount + skippedOccurrences >= recurrence.count) {
           return { occurrenceMs: null, priorCount: recurrence.count }
         }
-        const jumpedDate = addCalendarDays(curParts.year, curParts.month, curParts.day, fullBlocks * weekStepDays)
+        const jumpedDate = addUtcDays(curParts.year, curParts.month, curParts.day, fullBlocks * weekStepDays)
         current = zonedDateTimeToUtcMs(
           { ...jumpedDate, hour: anchor.hour, minute: anchor.minute, second: anchor.second },
           spec.timeZone,
@@ -515,7 +515,7 @@ function fastForwardToOrAfter(
 }
 
 export function computeInitialNextRun(
-  spec: CalendarScheduleSpec,
+  spec: ScheduleSpec,
   nowMs: number,
 ): { nextRunAtMs: number | null; occurrenceCount: number } {
   const first = computeFirstOccurrenceMs(spec)
@@ -526,25 +526,25 @@ export function computeInitialNextRun(
   return advanceNextRunAfterFire(spec, first, 1, nowMs)
 }
 
-export interface ExpandCalendarEventInput {
+export interface ExpandScheduleEventInput {
   id: string
   startAtMs: number
   durationMinutes: number
   timeZone: string
-  recurrence: CalendarRecurrence | null
+  recurrence: ScheduleRecurrence | null
 }
 
-export function expandCalendarOccurrences(
-  event: ExpandCalendarEventInput,
+export function expandScheduleOccurrences(
+  event: ExpandScheduleEventInput,
   rangeStartMs: number,
   rangeEndMs: number,
-  runStatusByScheduledMs: ReadonlyMap<number, CalendarRunStatus> = new Map(),
-): CalendarOccurrence[] {
-  const results: CalendarOccurrence[] = []
+  runStatusByScheduledMs: ReadonlyMap<number, ScheduleRunStatus> = new Map(),
+): ScheduleOccurrence[] {
+  const results: ScheduleOccurrence[] = []
   const seenMs = new Set<number>()
   const durationMs = event.durationMinutes * 60_000
 
-  const addOccurrence = (startMs: number, status: CalendarOccurrenceStatus) => {
+  const addOccurrence = (startMs: number, status: ScheduleOccurrenceStatus) => {
     if (seenMs.has(startMs)) return
     seenMs.add(startMs)
     const startAt = new Date(startMs).toISOString()
@@ -570,7 +570,7 @@ export function expandCalendarOccurrences(
     let current = start.occurrenceMs
     let priorCount = start.priorCount
     let generated = 0
-    while (current !== null && current < rangeEndMs && generated < CALENDAR_MAX_OCCURRENCES_PER_EVENT) {
+    while (current !== null && current < rangeEndMs && generated < SCHEDULE_MAX_OCCURRENCES_PER_EVENT) {
       if (current + durationMs > rangeStartMs) {
         addOccurrence(current, runStatusByScheduledMs.get(current) ?? "scheduled")
         generated += 1

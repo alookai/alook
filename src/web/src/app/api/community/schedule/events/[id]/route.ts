@@ -1,34 +1,34 @@
 import { NextRequest } from "next/server"
-import { CalendarUpdateRequestSchema, queries, withD1Retry } from "@alook/shared"
+import { queries, ScheduleUpdateRequestSchema, withD1Retry } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth-policy"
-import { communityActorPolicy } from "@/lib/middleware/community-actor"
+import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 import {
-  calendarOwnerUserId,
-  hydrateCalendarEvents,
+  hydrateScheduleEvents,
   listHouseholdCreators,
   parseFullMessageRef,
-  syncOwnerCalendarAlarm,
-  validateCalendarScheduleFields,
-} from "@/lib/community/calendar.server"
+  scheduleOwnerUserId,
+  syncOwnerScheduleAlarm,
+  validateScheduleFields,
+} from "@/lib/community/schedule.server"
 
 export const GET = withAuth(communityActorPolicy(), async (_req: NextRequest, ctx) => {
   const eventId = ctx.params?.id?.trim()
   if (!eventId) return writeError("missing event id", 400)
 
   const db = getDb(ctx.env.DB)
-  const ownerUserId = calendarOwnerUserId(ctx.actor)
+  const ownerUserId = scheduleOwnerUserId(ctx.actor)
   const payload = await withD1Retry(
-    () => queries.communityCalendar.getCalendarEventById(db, ownerUserId, eventId),
-    { route: "calendar:get-one" },
+    () => queries.communitySchedule.getScheduleEventById(db, ownerUserId, eventId),
+    { route: "schedule:get-one" },
   )
-  if (!payload) return writeError("calendar event not found", 404)
+  if (!payload) return writeError("schedule event not found", 404)
 
   const creators = await listHouseholdCreators(db, ownerUserId)
-  const [event] = await hydrateCalendarEvents(
+  const [event] = await hydrateScheduleEvents(
     db,
     ownerUserId,
     ctx.actor.userId,
@@ -40,6 +40,10 @@ export const GET = withAuth(communityActorPolicy(), async (_req: NextRequest, ct
 })
 
 export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
+  const gate = requireBot(ctx.actor)
+  if (!gate.ok) return gate.response
+  const bot = gate.bot
+
   const eventId = ctx.params?.id?.trim()
   if (!eventId) return writeError("missing event id", 400)
 
@@ -50,12 +54,12 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
     return writeError("invalid JSON body", 400)
   }
 
-  const parsed = CalendarUpdateRequestSchema.safeParse(rawBody)
+  const parsed = ScheduleUpdateRequestSchema.safeParse(rawBody)
   if (!parsed.success) {
-    return writeError(parsed.error.issues[0]?.message ?? "invalid calendar update payload", 400)
+    return writeError(parsed.error.issues[0]?.message ?? "invalid schedule update payload", 400)
   }
 
-  const scheduleCheck = validateCalendarScheduleFields({
+  const scheduleCheck = validateScheduleFields({
     timeZone: parsed.data.timeZone,
     startAt: parsed.data.startAt,
     durationMinutes: parsed.data.durationMinutes,
@@ -64,21 +68,18 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
   if (!scheduleCheck.ok) return writeError(scheduleCheck.error, 400)
 
   const db = getDb(ctx.env.DB)
-  const ownerUserId = calendarOwnerUserId(ctx.actor)
+  const ownerUserId = bot.ownerUserId
 
   let sourceMessageId: string | undefined
   let sourceChannelId: string | undefined
   if (parsed.data.sourceMessageRef !== undefined) {
-    if (ctx.actor.kind !== "bot") {
-      return writeError("re-binding sourceMessageRef is only supported via bot CLI", 400)
-    }
     const refParts = parseFullMessageRef(parsed.data.sourceMessageRef)
     if (!refParts) {
       return writeError("sourceMessageRef must be a full message ref such as /Server#1234/channel#42 or /.dm/peer#12", 400)
     }
     const resolvedMessage = await resolveMessageRefForBot(
       db,
-      ctx.actor.userId,
+      bot.userId,
       { channel: refParts.channelRef, seq: refParts.seq },
       { requireSurfaceAccess: true },
     )
@@ -86,11 +87,11 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
       return writeError(resolvedMessage.error, resolvedMessage.status)
     }
     const current = await withD1Retry(
-      () => queries.communityCalendar.getCalendarEventById(db, ownerUserId, eventId),
-      { route: "calendar:verify-event" },
+      () => queries.communitySchedule.getScheduleEventById(db, ownerUserId, eventId),
+      { route: "schedule:verify-event" },
     )
-    if (!current) return writeError("calendar event not found", 404)
-    if (current.event.createdByUserId !== ctx.actor.userId) {
+    if (!current) return writeError("schedule event not found", 404)
+    if (current.event.createdByUserId !== bot.userId) {
       const creatorAccess = await requireMessageSurfaceAccess(
         db,
         resolvedMessage.channelId,
@@ -106,7 +107,7 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
 
   const hasRecurrence = Object.prototype.hasOwnProperty.call(rawBody as Record<string, unknown>, "recurrence")
   const updated = await withD1Retry(
-    () => queries.communityCalendar.updateCalendarEvent(db, ownerUserId, eventId, {
+    () => queries.communitySchedule.updateScheduleEvent(db, ownerUserId, eventId, {
       ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
       ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
       ...(scheduleCheck.startAtMs !== undefined ? { startAtMs: scheduleCheck.startAtMs } : {}),
@@ -116,23 +117,23 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
       ...(sourceMessageId !== undefined ? { sourceMessageId, sourceChannelId } : {}),
       ...(parsed.data.ack === true ? { ack: true } : {}),
     }),
-    { route: "calendar:update" },
+    { route: "schedule:update" },
   )
 
   if (!updated.ok) {
     return writeError(updated.error, updated.code === "not_found" ? 404 : 409)
   }
 
-  await syncOwnerCalendarAlarm(ctx.env, ownerUserId, {
+  await syncOwnerScheduleAlarm(ctx.env, ownerUserId, {
     eventId,
     reason: parsed.data.ack === true ? "run_updated" : "updated",
   })
 
   const creators = await listHouseholdCreators(db, ownerUserId)
-  const [event] = await hydrateCalendarEvents(
+  const [event] = await hydrateScheduleEvents(
     db,
     ownerUserId,
-    ctx.actor.userId,
+    bot.userId,
     [updated.event],
     { [updated.event.id]: updated.latestRun },
     creators,
@@ -141,18 +142,22 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
 })
 
 export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest, ctx) => {
+  const gate = requireBot(ctx.actor)
+  if (!gate.ok) return gate.response
+  const bot = gate.bot
+
   const eventId = ctx.params?.id?.trim()
   if (!eventId) return writeError("missing event id", 400)
 
   const db = getDb(ctx.env.DB)
-  const ownerUserId = calendarOwnerUserId(ctx.actor)
+  const ownerUserId = bot.ownerUserId
   const deleted = await withD1Retry(
-    () => queries.communityCalendar.deleteCalendarEvent(db, ownerUserId, eventId),
-    { route: "calendar:delete" },
+    () => queries.communitySchedule.deleteScheduleEvent(db, ownerUserId, eventId),
+    { route: "schedule:delete" },
   )
-  if (!deleted) return writeError("calendar event not found", 404)
+  if (!deleted) return writeError("schedule event not found", 404)
 
-  await syncOwnerCalendarAlarm(ctx.env, ownerUserId, {
+  await syncOwnerScheduleAlarm(ctx.env, ownerUserId, {
     eventId,
     reason: "deleted",
   })

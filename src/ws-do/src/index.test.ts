@@ -48,7 +48,7 @@ describe("ws-do router", () => {
       const routerModule = await import("./index")
 
       expect(Object.keys(routerModule).sort()).toEqual([
-        "OwnerCalendarDurableObject",
+        "OwnerScheduleDurableObject",
         "RateLimitDurableObject",
         "WebSocketDurableObject",
         "default",

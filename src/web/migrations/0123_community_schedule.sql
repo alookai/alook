@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS community_calendar_event (
+CREATE TABLE IF NOT EXISTS community_schedule_event (
   id TEXT PRIMARY KEY NOT NULL,
   owner_user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
   created_by_user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
@@ -17,20 +17,20 @@ CREATE TABLE IF NOT EXISTS community_calendar_event (
   updated_at_ms INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_community_calendar_event_owner_created
-  ON community_calendar_event (owner_user_id, created_at_ms);
+CREATE INDEX IF NOT EXISTS idx_community_schedule_event_owner_created
+  ON community_schedule_event (owner_user_id, created_at_ms);
 
-CREATE INDEX IF NOT EXISTS idx_community_calendar_event_owner_next_run
-  ON community_calendar_event (owner_user_id, next_run_at_ms)
+CREATE INDEX IF NOT EXISTS idx_community_schedule_event_owner_next_run
+  ON community_schedule_event (owner_user_id, next_run_at_ms)
   WHERE next_run_at_ms IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_community_calendar_event_creator_id_lookup
-  ON community_calendar_event (created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_community_schedule_event_creator_id_lookup
+  ON community_schedule_event (created_by_user_id);
 
-CREATE TABLE IF NOT EXISTS community_calendar_run (
+CREATE TABLE IF NOT EXISTS community_schedule_run (
   id TEXT PRIMARY KEY NOT NULL,
   owner_user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-  event_id TEXT NOT NULL REFERENCES community_calendar_event(id) ON DELETE CASCADE,
+  event_id TEXT NOT NULL REFERENCES community_schedule_event(id) ON DELETE CASCADE,
   event_version INTEGER NOT NULL,
   bot_user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
   scheduled_at_ms INTEGER NOT NULL,
@@ -45,11 +45,11 @@ CREATE TABLE IF NOT EXISTS community_calendar_run (
   updated_at_ms INTEGER NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_community_calendar_run_event_scheduled
-  ON community_calendar_run (event_id, scheduled_at_ms);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_community_schedule_run_event_scheduled
+  ON community_schedule_run (event_id, scheduled_at_ms);
 
-CREATE INDEX IF NOT EXISTS idx_community_calendar_run_owner_status_scheduled
-  ON community_calendar_run (owner_user_id, status, scheduled_at_ms);
+CREATE INDEX IF NOT EXISTS idx_community_schedule_run_owner_status_scheduled
+  ON community_schedule_run (owner_user_id, status, scheduled_at_ms);
 
-CREATE INDEX IF NOT EXISTS idx_community_calendar_run_bot_id_lookup
-  ON community_calendar_run (bot_user_id);
+CREATE INDEX IF NOT EXISTS idx_community_schedule_run_bot_id_lookup
+  ON community_schedule_run (bot_user_id);

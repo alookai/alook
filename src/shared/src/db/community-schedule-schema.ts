@@ -1,10 +1,10 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { sql } from "drizzle-orm"
 import { user } from "./schema"
-import type { CalendarRunStatus } from "../calendar"
+import type { ScheduleRunStatus } from "../schedule"
 
-export const communityCalendarEvent = sqliteTable(
-  "community_calendar_event",
+export const communityScheduleEvent = sqliteTable(
+  "community_schedule_event",
   {
     id: text("id").primaryKey(),
     ownerUserId: text("owner_user_id")
@@ -28,16 +28,16 @@ export const communityCalendarEvent = sqliteTable(
     updatedAtMs: integer("updated_at_ms").notNull(),
   },
   (t) => [
-    index("idx_community_calendar_event_owner_created").on(t.ownerUserId, t.createdAtMs),
-    index("idx_community_calendar_event_owner_next_run")
+    index("idx_community_schedule_event_owner_created").on(t.ownerUserId, t.createdAtMs),
+    index("idx_community_schedule_event_owner_next_run")
       .on(t.ownerUserId, t.nextRunAtMs)
       .where(sql`${t.nextRunAtMs} IS NOT NULL`),
-    index("idx_community_calendar_event_creator_id_lookup").on(t.createdByUserId),
+    index("idx_community_schedule_event_creator_id_lookup").on(t.createdByUserId),
   ],
 )
 
-export const communityCalendarRun = sqliteTable(
-  "community_calendar_run",
+export const communityScheduleRun = sqliteTable(
+  "community_schedule_run",
   {
     id: text("id").primaryKey(),
     ownerUserId: text("owner_user_id")
@@ -45,7 +45,7 @@ export const communityCalendarRun = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     eventId: text("event_id")
       .notNull()
-      .references(() => communityCalendarEvent.id, { onDelete: "cascade" }),
+      .references(() => communityScheduleEvent.id, { onDelete: "cascade" }),
     eventVersion: integer("event_version").notNull(),
     botUserId: text("bot_user_id")
       .notNull()
@@ -55,15 +55,15 @@ export const communityCalendarRun = sqliteTable(
     sourceChannelId: text("source_channel_id").notNull(),
     titleSnapshot: text("title_snapshot").notNull(),
     descriptionSnapshot: text("description_snapshot").notNull(),
-    status: text("status").$type<CalendarRunStatus>().notNull(),
+    status: text("status").$type<ScheduleRunStatus>().notNull(),
     lastError: text("last_error"),
     ackedAtMs: integer("acked_at_ms"),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
   },
   (t) => [
-    uniqueIndex("uq_community_calendar_run_event_scheduled").on(t.eventId, t.scheduledAtMs),
-    index("idx_community_calendar_run_owner_status_scheduled").on(t.ownerUserId, t.status, t.scheduledAtMs),
-    index("idx_community_calendar_run_bot_id_lookup").on(t.botUserId),
+    uniqueIndex("uq_community_schedule_run_event_scheduled").on(t.eventId, t.scheduledAtMs),
+    index("idx_community_schedule_run_owner_status_scheduled").on(t.ownerUserId, t.status, t.scheduledAtMs),
+    index("idx_community_schedule_run_bot_id_lookup").on(t.botUserId),
   ],
 )
