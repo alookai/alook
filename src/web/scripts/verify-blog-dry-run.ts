@@ -12,6 +12,55 @@ const FORBIDDEN_BINDINGS = [
   "BLOG_WORKER",
 ]
 
+const WORKER_FIRST_ROUTES = [
+  "/blog",
+  "/blog/introducing-alook",
+  "/blog/ai-team-vs-ai-tools",
+  "/blog/feed.xml",
+  "/tutorials",
+  "/tutorials/codex-and-claude-code",
+  "/usecases",
+  "/usecases/ask-teammates-seo-bot",
+  "/guides",
+  "/og/blog/ai-agent-identity",
+  "/internal/blog-discovery",
+] as const
+
+const STATIC_ASSET_BYPASS_PATHS = [
+  "/blog-static/_next/static/chunks/app.js",
+  "/_next/static/chunks/app.js",
+  "/blog/_generated/hash-480.webp",
+  "/blog/introducing-alook/hero.webp",
+  "/usecases/ask-teammates-seo-bot/hero.webp",
+  "/fonts/dm-sans-600.ttf",
+  "/alook.svg",
+  "/favicon.ico",
+] as const
+
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .split("*")
+    .map((segment) => segment.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*")
+  return new RegExp(`^${escaped}$`)
+}
+
+export function parseRunWorkerFirstRules(wranglerToml: string): string[] | null {
+  const match = wranglerToml.match(/^run_worker_first\s*=\s*\[([\s\S]*?)\]/m)
+  if (!match) return null
+  const body = match[1].replace(/#[^\n]*/g, "")
+  return [...body.matchAll(/"([^"]+)"/g)].map((entry) => entry[1])
+}
+
+export function matchesWorkerFirst(rules: readonly string[], pathname: string): boolean {
+  for (const rule of rules) {
+    if (rule.startsWith("!") && globToRegExp(rule.slice(1)).test(pathname)) {
+      return false
+    }
+  }
+  return rules.some((rule) => !rule.startsWith("!") && globToRegExp(rule).test(pathname))
+}
+
 export function stripAnsi(value: string): string {
   return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "")
 }
@@ -34,11 +83,25 @@ export function verifyBlogDryRunEvidence(args: {
     throw new Error("Wrangler did not complete a dry-run")
   }
   expectExactBindings(parseWranglerBindings(output))
-  if (!/^run_worker_first\s*=\s*true\s*$/m.test(args.wranglerToml)) {
-    throw new Error("Blog assets must run the Worker first to avoid directory redirect loops")
+  const runWorkerFirstRules = parseRunWorkerFirstRules(args.wranglerToml)
+  if (!runWorkerFirstRules || !runWorkerFirstRules.includes("/*") || !runWorkerFirstRules.some((rule) => rule.startsWith("!/"))) {
+    throw new Error("Blog assets must configure narrowed run_worker_first rules with static asset exclusions")
+  }
+  for (const route of WORKER_FIRST_ROUTES) {
+    if (!matchesWorkerFirst(runWorkerFirstRules, route)) {
+      throw new Error(`Blog Worker must run first for ${route}`)
+    }
+  }
+  for (const assetPath of STATIC_ASSET_BYPASS_PATHS) {
+    if (matchesWorkerFirst(runWorkerFirstRules, assetPath)) {
+      throw new Error(`Blog static asset must bypass Worker to apply _headers: ${assetPath}`)
+    }
   }
   if (!/^html_handling\s*=\s*"none"\s*$/m.test(args.wranglerToml)) {
     throw new Error("Blog assets must disable HTML redirects so OpenNext owns /blog routes")
+  }
+  if (!/^not_found_handling\s*=\s*"none"\s*$/m.test(args.wranglerToml)) {
+    throw new Error('Blog assets must set not_found_handling = "none" alongside run_worker_first')
   }
 
   for (const name of FORBIDDEN_BINDINGS) {

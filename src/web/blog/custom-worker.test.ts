@@ -89,6 +89,17 @@ describe("Blog Worker entrypoint", () => {
 		expect(response.headers.get("CDN-Cache-Control")).toBeNull();
 	});
 
+	it.each(["/blog-static/_next/static/chunks/app.js", "/_next/static/chunks/app.js"])("applies immutable Cache-Control fallback to 200 %s responses missing Cache-Control", async (pathname) => {
+		mocks.openNextFetch.mockResolvedValueOnce(new Response("chunk", { status: 200, headers: { "Content-Type": "application/javascript" } }));
+		const response = await worker.fetch(new Request(`https://alook.ai${pathname}`));
+		expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+		expect(response.headers.get("CDN-Cache-Control")).toBeNull();
+
+		mocks.openNextFetch.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+		const missing = await worker.fetch(new Request(`https://alook.ai${pathname}`));
+		expect(missing.headers.get("Cache-Control")).toBeNull();
+	});
+
 	it("preserves a public article's existing revalidation policy", async () => {
 		const response = new Response("article", { headers: { "Content-Type": "text/html", "Cache-Control": "public, max-age=0, must-revalidate" } });
 		mocks.openNextFetch.mockResolvedValueOnce(response);

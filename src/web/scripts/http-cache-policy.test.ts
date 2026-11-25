@@ -6,6 +6,7 @@ import { getImageProps } from "next/image"
 vi.mock("@opennextjs/cloudflare", () => ({ initOpenNextCloudflareForDev: vi.fn() }))
 
 import config from "../next.config"
+import { matchesWorkerFirst, parseRunWorkerFirstRules } from "./verify-blog-dry-run"
 
 const root = path.resolve(import.meta.dirname, "..")
 
@@ -43,10 +44,36 @@ describe("HTTP cache configuration", () => {
     ["public/_headers", "/favicon.ico"],
     ["public/_headers", "/social/readme-card-5bd18df22853.png"],
     ["blog/public/_headers", "/blog/article/hero.webp"],
+    ["blog/public/_headers", "/blog/_generated/abcd1234-480.webp"],
+    ["blog/public/_headers", "/usecases/ask-teammates-seo-bot/hero-20261117-comic.webp"],
+    ["blog/public/_headers", "/fonts/dm-sans-600.ttf"],
     ["blog/public/_headers", "/alook.svg"],
+    ["blog/public/_headers", "/apple-touch-icon.png"],
+    ["blog/public/_headers", "/icon-192.png"],
+    ["blog/public/_headers", "/favicon.ico"],
     ["blog/public/_headers", "/manifest.json"],
   ])("keeps non-versioned public resources on a short policy: %s %s", (filename, pathname) => {
     expect(matchingPolicies(filename, pathname)).toEqual(["public, max-age=300, must-revalidate"])
+  })
+
+  it.each([
+    "/_next/static/chunks/content-hash.js",
+    "/blog-static/_next/static/chunks/content-hash.js",
+    "/blog/_generated/abcd1234-480.webp",
+    "/blog/article/hero.webp",
+    "/blog/claude-code-memory/test-record.md",
+    "/usecases/ask-teammates-seo-bot/hero-20261117-comic.webp",
+    "/fonts/dm-sans-600.ttf",
+    "/alook.svg",
+    "/apple-touch-icon.png",
+    "/icon-192.png",
+    "/favicon.ico",
+    "/manifest.json",
+  ])("bypasses Blog run_worker_first so Workers Static Assets applies _headers for %s", (pathname) => {
+    const rules = parseRunWorkerFirstRules(readFileSync(path.join(root, "blog/wrangler.toml"), "utf8"))
+    expect(rules).not.toBeNull()
+    expect(matchesWorkerFirst(rules!, pathname)).toBe(false)
+    expect(matchingPolicies("blog/public/_headers", pathname)).toHaveLength(1)
   })
 
   it.each(["/c", "/c/me", "/c/channels/server/channel", "/c/invite/token", "/api/community/users/me/profile"])("does not declare a static public document policy for %s", (pathname) => {

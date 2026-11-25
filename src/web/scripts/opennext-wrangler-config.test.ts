@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { lockedDependency, parsePnpmLock, projectDependencies } from "../../../scripts/ci/pnpm-lock.mjs"
+import { matchesWorkerFirst, parseRunWorkerFirstRules } from "./verify-blog-dry-run"
 
 type PackageJson = {
   dependencies?: Record<string, string>
@@ -122,7 +123,47 @@ describe("OpenNext and Wrangler refresh", () => {
     }
     expect(blogToml).toContain('html_handling = "none"')
     expect(blogToml).toContain('not_found_handling = "none"')
-    expect(blogToml).toContain("run_worker_first = true")
+    expect(blogToml).not.toMatch(/^run_worker_first\s*=\s*true\s*$/m)
+    const runWorkerFirst = parseRunWorkerFirstRules(blogToml)
+    expect(runWorkerFirst).not.toBeNull()
+    expect(runWorkerFirst!).toContain("/*")
+    for (const rule of runWorkerFirst!) {
+      expect(rule.match(/\*/g)?.length ?? 0, rule).toBeLessThanOrEqual(1)
+    }
+    for (const workerRoute of [
+      "/blog",
+      "/blog/",
+      "/blog/introducing-alook",
+      "/blog/ai-team-vs-ai-tools",
+      "/blog/ai-agent-team",
+      "/blog/feed.xml",
+      "/tutorials",
+      "/tutorials/codex-and-claude-code",
+      "/usecases",
+      "/usecases/ask-teammates-seo-bot",
+      "/guides",
+      "/og/blog/ai-agent-identity",
+      "/internal/blog-discovery",
+      "/cdn-cgi/_next_cache/build-id/blog.cache",
+    ]) {
+      expect(matchesWorkerFirst(runWorkerFirst!, workerRoute), workerRoute).toBe(true)
+    }
+    for (const staticAsset of [
+      "/_next/static/chunks/app.js",
+      "/blog-static/_next/static/chunks/app.js",
+      "/blog/_generated/abcd1234-480.webp",
+      "/blog/introducing-alook/hero.webp",
+      "/blog/claude-code-memory/test-record.md",
+      "/usecases/ask-teammates-seo-bot/hero-20261117-comic.webp",
+      "/fonts/dm-sans-600.ttf",
+      "/alook.svg",
+      "/apple-touch-icon.png",
+      "/icon-192.png",
+      "/favicon.ico",
+      "/manifest.json",
+    ]) {
+      expect(matchesWorkerFirst(runWorkerFirst!, staticAsset), staticAsset).toBe(false)
+    }
     for (const forbidden of [
       "NEXT_CACHE_DO_QUEUE",
       "NEXT_TAG_CACHE_D1",

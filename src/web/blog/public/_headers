@@ -7,6 +7,12 @@
 /blog/*
   Cache-Control: public, max-age=300, must-revalidate
 
+/usecases/*
+  Cache-Control: public, max-age=300, must-revalidate
+
+/fonts/*
+  Cache-Control: public, max-age=300, must-revalidate
+
 /alook.svg
   Cache-Control: public, max-age=300, must-revalidate
 

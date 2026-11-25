@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { stageBlogCacheAssets } from "./stage-cache-assets";
+import { stageBlogCacheAssets, stageBlogPrefixedStaticAssets } from "./stage-cache-assets";
 
 const roots: string[] = [];
 function fixture() {
@@ -32,5 +32,22 @@ describe("Blog static cache packaging", () => {
 		expect(() => stageBlogCacheAssets(root)).toThrow("no prerendered cache");
 		mkdirSync(join(root, "cache"));
 		expect(() => stageBlogCacheAssets(root)).toThrow("no prerendered cache");
+	});
+	it("mirrors _next/static under /blog-static/_next/static and removes stale prefixed files", () => {
+		const root = fixture();
+		mkdirSync(join(root, "assets/_next/static/chunks"), { recursive: true });
+		writeFileSync(join(root, "assets/_next/static/chunks/app-123.js"), "console.log('blog')");
+		mkdirSync(join(root, "assets/blog-static/_next/static/chunks"), { recursive: true });
+		writeFileSync(join(root, "assets/blog-static/_next/static/chunks/stale.js"), "old");
+		stageBlogPrefixedStaticAssets(root);
+		expect(readFileSync(join(root, "assets/blog-static/_next/static/chunks/app-123.js"), "utf8"))
+			.toBe("console.log('blog')");
+		expect(existsSync(join(root, "assets/blog-static/_next/static/chunks/stale.js"))).toBe(false);
+	});
+	it("fails the build if _next/static assets are missing or empty", () => {
+		const root = fixture();
+		expect(() => stageBlogPrefixedStaticAssets(root)).toThrow("no Next static assets");
+		mkdirSync(join(root, "assets/_next/static"), { recursive: true });
+		expect(() => stageBlogPrefixedStaticAssets(root)).toThrow("no Next static assets");
 	});
 });
