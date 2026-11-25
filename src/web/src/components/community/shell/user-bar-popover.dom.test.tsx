@@ -3,10 +3,15 @@ import { describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
 
+const positionerPropsSpy = vi.fn()
+
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children: ReactNode }) => createElement("div", null, children),
   PopoverPortal: ({ children }: { children: ReactNode }) => createElement("div", null, children),
-  PopoverPositioner: ({ children }: { children: ReactNode }) => createElement("div", null, children),
+  PopoverPositioner: ({ children, ...props }: { children: ReactNode } & Record<string, unknown>) => {
+    positionerPropsSpy(props)
+    return createElement("div", null, children)
+  },
   PopoverPopup: forwardRef<HTMLDivElement, { children: ReactNode; className?: string }>(
     function MockPopoverPopup({ children, className }, ref) {
       return createElement("div", { ref, className }, children)
@@ -47,5 +52,25 @@ describe("UserBarPopover", () => {
     expect(dock.style.left).toBe("328px")
     expect(dock.style.height).toBe("260px")
     expect(renderer.getByTestId("companion")).toBeInTheDocument()
+  })
+
+  it("pins the popover above the user bar and shifts inside safe bounds without flipping sideways", () => {
+    positionerPropsSpy.mockClear()
+    const anchor = { current: document.createElement("div") }
+    render(
+      <UserBarPopover anchor={anchor} inbox onDismiss={vi.fn()} onEscape={vi.fn()}>
+        <div data-testid="inbox-body">Inbox</div>
+      </UserBarPopover>,
+    )
+
+    expect(positionerPropsSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      anchor,
+      side: "top",
+      align: "start",
+      sideOffset: 8,
+      collisionPadding: 8,
+      sticky: true,
+      collisionAvoidance: { side: "shift", align: "shift", fallbackAxisSide: "none" },
+    }))
   })
 })

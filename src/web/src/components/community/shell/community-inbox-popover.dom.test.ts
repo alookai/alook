@@ -1362,4 +1362,62 @@ describe("InboxPopover inline reply in Unreads", () => {
       expect(input.value).toBe("")
     })
   })
+
+  it("keeps a focused inline reply input scrolled into view instead of resetting scrollTop on resize", async () => {
+    const callbacks: ResizeObserverCallback[] = []
+    const originalResizeObserver = window.ResizeObserver
+    class MockResizeObserver {
+      callback: ResizeObserverCallback
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        callbacks.push(callback)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    window.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
+    try {
+      const getScrollOffset = vi.fn(() => 0)
+      const renderer = render(React.createElement(InboxPopover, {
+        unreads: [],
+        unreadDms: [{
+          channelId: "dm_kb",
+          otherUserId: "u_peer",
+          otherUserName: "Peer",
+          otherUserDiscriminator: "0001",
+          otherUserAvatar: "P",
+          otherUserAvatarVersion: 0,
+          lastMessageAt: "2026-11-23T03:00:00.000Z",
+          lastUnreadSeq: 2,
+          unreadCount: 1,
+        }],
+        mentions: [],
+        marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
+        getScrollOffset,
+        onReplyChannel: vi.fn().mockResolvedValue({ id: "m_ok", seq: 3 }),
+      }))
+
+      fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("dm_kb")))
+      const scrollViewport = renderer.getByTestId(tid.inboxTabScroll("unreads"))
+      const input = renderer.getByTestId(tid.inboxReplyInput("dm_kb")) as HTMLInputElement
+      const scrollIntoView = vi.fn()
+      input.scrollIntoView = scrollIntoView
+
+      scrollViewport.scrollTop = 140
+      input.focus()
+      expect(document.activeElement).toBe(input)
+
+      await act(async () => {
+        for (const cb of callbacks) cb([], {} as ResizeObserver)
+      })
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" })
+      expect(scrollViewport.scrollTop).toBe(140)
+    } finally {
+      window.ResizeObserver = originalResizeObserver
+    }
+  })
 })

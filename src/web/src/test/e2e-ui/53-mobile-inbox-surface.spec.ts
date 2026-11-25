@@ -833,4 +833,165 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     expect(ws.frames).toHaveLength(wsBefore)
     writes.stop()
   })
+
+  test("keeps expanded-viewport Inbox above the native keyboard without jumping and preserves Sonner toast surface on press", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const stamp = Date.now()
+    const serverId = await actors.seed.seedServer("alice", `Tablet Inbox ${stamp}`)
+    const landingId = await actors.seed.seedChannel("alice", serverId, `landing-${stamp}`)
+    const unreadId = await actors.seed.seedChannel("alice", serverId, `unread-${stamp}`)
+    await actors.seed.seedJoinServer("alice", "bob", serverId)
+    for (let i = 1; i <= 4; i++) {
+      await actors.seed.seedMessage("alice", unreadId, `Tablet unread line ${stamp} #${i}`)
+    }
+    await actors.seed.seedMessage("alice", landingId, `Pin target ${stamp}`)
+
+    const bob = await actors.asUser("bob", { viewport: { width: 951, height: 669 } })
+    await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${landingId}`)
+    await ignoreNextDevToolsPointerCapture(bob.page)
+    await expect(bob.page.getByText(`Pin target ${stamp}`, { exact: true })).toBeVisible()
+
+    // Simulate native mobile WebView full-window geometry before keyboard opens.
+    await bob.page.evaluate(() => {
+      const root = document.documentElement
+      root.dataset.alookNativeResize = "true"
+      root.style.setProperty("--app-safe-area-top", "10px")
+      root.style.setProperty("--app-safe-area-bottom", "20px")
+      root.style.setProperty("--app-native-window-height", "669px")
+      root.style.setProperty("--app-native-window-safe-bottom", "20px")
+      window.dispatchEvent(new Event("resize"))
+    })
+
+    const trigger = bob.page.getByTestId(tid.inboxTrigger)
+    await expect(trigger).toBeVisible()
+    await trigger.click()
+    const card = bob.page.getByTestId(tid.userBarExtension)
+    await expect(card).toBeVisible()
+    await expect(card).toHaveAttribute("data-presentation", "popup")
+    await waitForElementMotion(card)
+
+    const before = await card.evaluate((el, userBarId) => {
+      const userBar = document.querySelector<HTMLElement>(`[data-testid="${userBarId}"] [data-slot="community-user-bar-base"]`)!
+      const c = el.getBoundingClientRect()
+      const u = userBar.getBoundingClientRect()
+      return {
+        card: { left: c.left, top: c.top, bottom: c.bottom, width: c.width, height: c.height },
+        userBar: { left: u.left, top: u.top, bottom: u.bottom },
+      }
+    }, tid.userBar)
+    expect(Math.abs(before.card.left - before.userBar.left)).toBeLessThanOrEqual(4)
+    expect(before.card.top).toBeGreaterThanOrEqual(10 - GEOMETRY_EPSILON)
+    expect(before.card.bottom).toBeLessThanOrEqual(before.userBar.top + GEOMETRY_EPSILON)
+
+    await bob.page.getByTestId(tid.inboxToggleChannel(unreadId)).click()
+    const replyInput = bob.page.getByTestId(tid.inboxReplyInput(unreadId))
+    await expect(replyInput).toBeVisible()
+    await replyInput.click()
+    await expect(replyInput).toBeFocused()
+    await testInfo.attach("inbox-expanded-951x669-before-keyboard", {
+      body: await bob.page.screenshot(),
+      contentType: "image/png",
+    })
+
+    // Simulate native keyboard resizing WebView to 951x410 while UserBar stays at full-window bottom.
+    await bob.page.setViewportSize({ width: 951, height: 410 })
+    await bob.page.evaluate(() => {
+      const root = document.documentElement
+      root.style.setProperty("--app-safe-area-bottom", "0px")
+      window.dispatchEvent(new Event("resize"))
+    })
+
+    await expect.poll(async () => {
+      return card.evaluate((el, inputId) => {
+        const bounds = document.querySelector<HTMLElement>('[data-slot="app-safe-bounds"]')!.getBoundingClientRect()
+        const input = document.querySelector<HTMLElement>(`[data-testid="${inputId}"]`)!
+        const c = el.getBoundingClientRect()
+        const i = input.getBoundingClientRect()
+        return bounds.top === 10
+          && bounds.bottom === 410
+          && c.top >= bounds.top - 1
+          && c.bottom <= bounds.bottom + 1
+          && i.top >= c.top - 1
+          && i.bottom <= c.bottom + 1
+      }, tid.inboxReplyInput(unreadId))
+    }).toBe(true)
+
+    const after = await card.evaluate((el, inputId) => {
+      const bounds = document.querySelector<HTMLElement>('[data-slot="app-safe-bounds"]')!.getBoundingClientRect()
+      const input = document.querySelector<HTMLElement>(`[data-testid="${inputId}"]`)!
+      const c = el.getBoundingClientRect()
+      const i = input.getBoundingClientRect()
+      return {
+        card: { left: c.left, top: c.top, bottom: c.bottom, height: c.height },
+        bounds: { top: bounds.top, bottom: bounds.bottom },
+        input: { top: i.top, bottom: i.bottom },
+      }
+    }, tid.inboxReplyInput(unreadId))
+    expect(Math.abs(after.card.left - before.card.left)).toBeLessThanOrEqual(4)
+    expect(after.card.top).toBeGreaterThanOrEqual(after.bounds.top - GEOMETRY_EPSILON)
+    expect(after.card.bottom).toBeLessThanOrEqual(after.bounds.bottom + GEOMETRY_EPSILON)
+    expect(after.input.top).toBeGreaterThanOrEqual(after.card.top - GEOMETRY_EPSILON)
+    expect(after.input.bottom).toBeLessThanOrEqual(after.card.bottom + GEOMETRY_EPSILON)
+    expect(after.input.bottom).toBeLessThanOrEqual(410 + GEOMETRY_EPSILON)
+    await testInfo.attach("inbox-expanded-951x410-keyboard-open", {
+      body: await bob.page.screenshot(),
+      contentType: "image/png",
+    })
+
+    const replyText = `Inline keyboard reply ${stamp}`
+    const replyPost = bob.page.waitForResponse((response) => (
+      response.request().method() === "POST"
+      && response.url().includes(`/api/community/channels/${unreadId}/messages`)
+    ))
+    await replyInput.fill(replyText)
+    await replyInput.press("Enter")
+    expect((await replyPost).status()).toBe(201)
+    await expect(bob.page.getByTestId(tid.inboxUnreadCard(unreadId))).toHaveCount(0)
+    await bob.page.keyboard.press("Escape")
+    await expect(card).toHaveCount(0)
+
+    // Restore full height and verify clicking/pressing a real Sonner toast does not stretch its ::before sticker face.
+    await bob.page.setViewportSize({ width: 951, height: 669 })
+    await bob.page.evaluate(() => {
+      const root = document.documentElement
+      delete root.dataset.alookNativeResize
+      root.style.removeProperty("--app-safe-area-top")
+      root.style.removeProperty("--app-safe-area-bottom")
+      root.style.removeProperty("--app-native-window-height")
+      root.style.removeProperty("--app-native-window-safe-bottom")
+      window.dispatchEvent(new Event("resize"))
+    })
+    await bob.context.grantPermissions(["clipboard-write"])
+    const pinMessage = bob.page.getByText(`Pin target ${stamp}`, { exact: true })
+    await pinMessage.click({ button: "right" })
+    await bob.page.getByRole("menuitem", { name: "Copy Text" }).click()
+    const sonnerToast = bob.page.locator('[data-sonner-toast][data-styled="true"]').first()
+    await expect(sonnerToast).toBeVisible()
+    const toastBox = await sonnerToast.boundingBox()
+    expect(toastBox).not.toBeNull()
+    await bob.page.mouse.move(toastBox!.x + toastBox!.width / 2, toastBox!.y + toastBox!.height / 2)
+    await bob.page.mouse.down()
+    await expect(sonnerToast).toHaveAttribute("data-swiping", "true")
+    const pseudoState = await sonnerToast.evaluate((el) => {
+      const rect = el.getBoundingClientRect()
+      const beforeStyle = getComputedStyle(el, "::before")
+      const afterStyle = getComputedStyle(el, "::after")
+      return {
+        toastHeight: Math.round(rect.height),
+        beforeTransform: beforeStyle.transform,
+        afterTransform: afterStyle.transform,
+        beforeHeight: Math.round(parseFloat(beforeStyle.height)),
+        afterHeight: Math.round(parseFloat(afterStyle.height)),
+      }
+    })
+    expect(pseudoState.beforeTransform).toBe("none")
+    expect(pseudoState.afterTransform).toBe("none")
+    expect(Math.abs(pseudoState.beforeHeight - pseudoState.toastHeight)).toBeLessThanOrEqual(1)
+    expect(Math.abs(pseudoState.afterHeight - pseudoState.toastHeight)).toBeLessThanOrEqual(1)
+    await testInfo.attach("sonner-toast-pressed", {
+      body: await bob.page.screenshot(),
+      contentType: "image/png",
+    })
+    await bob.page.mouse.up()
+  })
 })

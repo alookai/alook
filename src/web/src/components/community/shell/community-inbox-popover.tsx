@@ -45,6 +45,13 @@ type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
 export type InboxTab = "unreads" | "todo" | "marked"
 
+function focusedEditableInside(container: HTMLElement): HTMLElement | null {
+  const active = container.ownerDocument.activeElement
+  if (!(active instanceof HTMLElement) || !container.contains(active)) return null
+  if (active.matches("input, textarea, [contenteditable='true']")) return active
+  return null
+}
+
 function InboxScrollBody({
   tab,
   getScrollOffset,
@@ -62,11 +69,17 @@ function InboxScrollBody({
   const transientScrollRef = useRef(false)
   useLayoutEffect(() => {
     const element = ref.current
-    if (!element || !getScrollOffset) return
+    if (!element) return
     const restore = () => {
-      element.scrollTop = getScrollOffset(tab)
+      const focused = focusedEditableInside(element)
+      if (focused) {
+        transientScrollRef.current = true
+        focused.scrollIntoView?.({ block: "nearest" })
+        return
+      }
+      if (getScrollOffset) element.scrollTop = getScrollOffset(tab)
     }
-    restore()
+    if (getScrollOffset) element.scrollTop = getScrollOffset(tab)
     const window = element.ownerDocument.defaultView
     const ResizeObserverConstructor = window?.ResizeObserver
     const observer = ResizeObserverConstructor
@@ -75,10 +88,12 @@ function InboxScrollBody({
     observer?.observe(element)
     if (contentRef.current) observer?.observe(contentRef.current)
     let secondFrame: number | null = null
-    const firstFrame = window?.requestAnimationFrame(() => {
-      restore()
-      secondFrame = window.requestAnimationFrame(restore)
-    }) ?? null
+    const firstFrame = getScrollOffset
+      ? window?.requestAnimationFrame(() => {
+        restore()
+        secondFrame = window.requestAnimationFrame(restore)
+      }) ?? null
+      : null
     return () => {
       observer?.disconnect()
       if (firstFrame !== null) window?.cancelAnimationFrame(firstFrame)

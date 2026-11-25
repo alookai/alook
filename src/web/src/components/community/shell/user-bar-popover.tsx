@@ -35,7 +35,15 @@ export function UserBarPopover({ anchor, children, companion, inbox, onDismiss, 
       else onDismiss()
     }}>
       <PopoverPortal>
-        <PopoverPositioner anchor={anchor} side="top" align="start" sideOffset={8}>
+        <PopoverPositioner
+          anchor={anchor}
+          side="top"
+          align="start"
+          sideOffset={8}
+          collisionPadding={8}
+          sticky
+          collisionAvoidance={{ side: "shift", align: "shift", fallbackAxisSide: "none" }}
+        >
           <PopoverPopup
             ref={popoverRef}
             role="presentation"
