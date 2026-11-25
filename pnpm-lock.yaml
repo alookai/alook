@@ -491,9 +491,6 @@ importers:
       '@tiptap/extension-mention':
         specifier: ^3.35.0
         version: 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/suggestion@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))
-      '@tiptap/extension-placeholder':
-        specifier: ^3.35.0
-        version: 3.35.0(@tiptap/extensions@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))
       '@tiptap/pm':
         specifier: ^3.35.0
         version: 3.35.0
@@ -4728,11 +4725,6 @@ packages:
     resolution: {integrity: sha512-3ep6HPJIipkPNSN49CylCeq59uQzfzrxZXEiad1Nk35CBHnICBSwawYz+h8L+FVh9Tn+XBQDZAU4NLEBRH0EIg==}
     peerDependencies:
       '@tiptap/core': 3.35.0
-
-  '@tiptap/extension-placeholder@3.35.0':
-    resolution: {integrity: sha512-chFdNgE8vb6gLWcjFaeZU2J0USRUhtKA0Fmk6sA5iS+sN3mwMPLkCg9tcGcFG41poiST8UTiFDjrRDcKrDLEvA==}
-    peerDependencies:
-      '@tiptap/extensions': 3.35.0
 
   '@tiptap/extension-strike@3.35.0':
     resolution: {integrity: sha512-xOLLgRO0yD9gYxMdp5fD4sJw4DJNTGrox4zLOSO99J6Pf8+8GdCPZAb9HBu4aHbCjt+16vu1i2uWmmkNnmbD1A==}
@@ -13426,11 +13418,11 @@ snapshots:
 
   '@sentry/node@11.13.0(rollup@4.67.4)':
     dependencies:
-      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/api': 1.10.0
       '@sentry/bundler-plugins': 11.13.0(rollup@4.67.4)
       '@sentry/conventions': 0.33.0
       '@sentry/core': 11.13.0
-      '@sentry/opentelemetry': 11.13.0(@opentelemetry/api@1.9.1)
+      '@sentry/opentelemetry': 11.13.0(@opentelemetry/api@1.10.0)
       '@sentry/server-runtime-injection': 11.13.0
       '@sentry/server-utils': 11.13.0
     transitivePeerDependencies:
@@ -13445,9 +13437,9 @@ snapshots:
       '@sentry/conventions': 0.16.0
       '@sentry/core': 10.78.0
 
-  '@sentry/opentelemetry@11.13.0(@opentelemetry/api@1.9.1)':
+  '@sentry/opentelemetry@11.13.0(@opentelemetry/api@1.10.0)':
     dependencies:
-      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/api': 1.10.0
       '@sentry/conventions': 0.33.0
       '@sentry/core': 11.13.0
 
@@ -14433,10 +14425,6 @@ snapshots:
   '@tiptap/extension-paragraph@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))':
     dependencies:
       '@tiptap/core': 3.35.0(@tiptap/pm@3.35.0)
-
-  '@tiptap/extension-placeholder@3.35.0(@tiptap/extensions@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))':
-    dependencies:
-      '@tiptap/extensions': 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)
 
   '@tiptap/extension-strike@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))':
     dependencies:

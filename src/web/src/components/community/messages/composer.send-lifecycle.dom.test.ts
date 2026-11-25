@@ -22,10 +22,6 @@ vi.mock("@tiptap/starter-kit", () => ({
   default: { configure: vi.fn(() => ({})) },
 }))
 
-vi.mock("@tiptap/extension-placeholder", () => ({
-  default: { configure: vi.fn(() => ({})) },
-}))
-
 vi.mock("@tiptap/pm/model", () => ({
   DOMParser: { fromSchema: vi.fn() },
 }))
