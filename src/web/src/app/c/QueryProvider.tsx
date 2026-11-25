@@ -33,6 +33,9 @@ import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { discardCommunityRestoreReplacements, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { restoreConversationDisplayWindows } from "@/lib/community/restored-conversation-window"
+import { cacheTransaction } from "@/lib/query-cache-store"
+import { warmHtmlPreviewMemoryHeights } from "@/lib/community/html-preview-height-cache"
+import { warmVideoMemoryDimensions } from "@/lib/community/video-preview-cache"
 
 function createRestoreGate() {
   let release!: () => void
@@ -174,13 +177,28 @@ function ScopedQueryProvider({
   usePersistedAccountLifecycle(persister, onRetired)
   const hydrated = useHydratedClient()
   const showDevtools = process.env.NODE_ENV !== "production" && hydrated && new URLSearchParams(window.location.search).get("query-devtools") === "1"
-  const settleRestoredAccount = async (input: CommunityRestoredCollections) => {
+  const settleRestoredAccount = async (input: CommunityRestoredCollections, warmPreviews: boolean) => {
     try {
       if (!communityDb.runtime.lifecycle.get().active) { queryClient.clear(); return }
       await restoreCommunityCollections(communityDb, input)
       communityDb.captureRestoredCollections(input)
       const profiles = communityDb.runtime.ws.get()
       if (profiles.profileViewerId !== userId) communityDb.runtime.ws.actions.activateProfileAccount(userId)
+      if (warmPreviews && userId && communityDb.runtime.lifecycle.get().active) {
+        const generation = communityDb.runtime.lifecycle.get().generation
+        const isCurrent = () => {
+          const state = communityDb.runtime.lifecycle.get()
+          return state.active && state.generation === generation
+        }
+        try {
+          await cacheTransaction("readonly", async (store) => {
+            await Promise.all([
+              warmHtmlPreviewMemoryHeights(queryClient, userId, { store, isCurrent }),
+              warmVideoMemoryDimensions(communityDb, userId, { store, isCurrent }),
+            ])
+          })
+        } catch {}
+      }
     } finally {
       discardCommunityRestoreReplacements(communityDb)
       restoreGate.release()
@@ -198,9 +216,10 @@ function ScopedQueryProvider({
       client={queryClient}
       onSuccess={async () => {
         const input = restore.takeCollections()
-        await settleRestoredAccount(await persister.isCurrent() ? input : {})
+        const current = await persister.isCurrent()
+        await settleRestoredAccount(current ? input : {}, current)
       }}
-      onError={async () => { restore.takeCollections(); await settleRestoredAccount({}) }}
+      onError={async () => { restore.takeCollections(); await settleRestoredAccount({}, false) }}
       persistOptions={{
         persister: restore.persister,
         maxAge: PERSIST_MAX_AGE_MS,
