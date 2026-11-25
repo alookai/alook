@@ -78,7 +78,7 @@ it.each([{ kind: "short", name: "Short title" }, { kind: "long", name: "Long tit
   expect(remove).not.toHaveBeenCalled()
 })
 
-it("activates the highlighted item from prefix or separator and opens content only once", () => {
+it("keeps separators outside the hover highlight box, activates from symmetric card padding once, and ignores separator clicks", () => {
   const open = vi.fn()
   const cards = posts.slice(0, 3)
   const view = render(createElement(ForumView, {
@@ -88,9 +88,28 @@ it("activates the highlighted item from prefix or separator and opens content on
       if (root) mockElementGeometry(root, { clientHeight: 751, clientWidth: 390 })
     },
   }))
-  const items = view.getByTestId(tid.forumPostList).querySelectorAll('[data-slot="community-forum-list-item"]')
-  fireEvent.click(items[0])
-  fireEvent.click(items[1].querySelector('[data-slot="separator"]')!)
+  const items = Array.from(view.getByTestId(tid.forumPostList).querySelectorAll('[data-slot="community-forum-list-item"]'))
+  expect(items).toHaveLength(3)
+  for (const [index, item] of items.entries()) {
+    const card = item.querySelector(':scope > [data-slot="community-forum-list-card"]') as HTMLElement | null
+    const separator = item.querySelector(':scope > [data-slot="separator"]') as HTMLElement | null
+    expect(item).not.toHaveClass("has-data-page-swipe-navigation-row:hover:bg-accent/45")
+    expect(card).not.toBeNull()
+    expect(card).toHaveClass("group/card", "py-[6.6px]", "has-data-page-swipe-navigation-row:hover:bg-accent/45")
+    expect(card!.querySelector('[data-slot="separator"]')).toBeNull()
+    if (index === 0) {
+      expect(separator).toBeNull()
+    } else {
+      expect(separator).not.toBeNull()
+      expect(separator!.nextElementSibling).toBe(card)
+    }
+  }
+  const firstCard = items[0]!.querySelector('[data-slot="community-forum-list-card"]')!
+  const secondSeparator = items[1]!.querySelector('[data-slot="separator"]')!
+  const secondCard = items[1]!.querySelector('[data-slot="community-forum-list-card"]')!
+  fireEvent.click(firstCard)
+  fireEvent.click(secondSeparator)
+  fireEvent.click(secondCard)
   fireEvent.click(view.getByTestId(tid.forumThreadCard(cards[1].id)))
   expect(open.mock.calls).toEqual([[cards[0].id], [cards[1].id], [cards[1].id]])
 })

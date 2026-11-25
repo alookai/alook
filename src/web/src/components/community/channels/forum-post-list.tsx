@@ -8,7 +8,6 @@ import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
-import { cn } from "@/lib/utils"
 import { EmptyState } from "../empty-state"
 import { Separator } from "@/components/ui/separator"
 import { ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
@@ -35,15 +34,20 @@ type Props = {
 }
 
 export function ForumPostListItem({ first, children, onActivate }: { first: boolean; children: ReactNode; onActivate?: () => void }) {
-  return <div data-slot="community-forum-list-item" className={cn("group/card flow-root rounded transition-colors has-data-page-swipe-navigation-row:cursor-pointer has-data-page-swipe-navigation-row:hover:bg-accent/45", first && "pt-[6.6px]")}
-    role={onActivate ? "presentation" : undefined}
-    onClick={onActivate ? event => {
-      const post = event.currentTarget.querySelector(":scope > [data-page-swipe-navigation-row]")
-      if (!post || (event.target instanceof Node && post.contains(event.target))) return
-      onActivate()
-    } : undefined}>
-    {!first && <Separator aria-hidden="true" className="my-[6.6px] bg-border/50" />}
-    {children}
+  return <div data-slot="community-forum-list-item" className="flow-root">
+    {!first && <Separator aria-hidden="true" className="bg-border/50" />}
+    <div
+      data-slot="community-forum-list-card"
+      className="group/card flow-root rounded py-[6.6px] transition-colors has-data-page-swipe-navigation-row:cursor-pointer has-data-page-swipe-navigation-row:hover:bg-accent/45"
+      role={onActivate ? "presentation" : undefined}
+      onClick={onActivate ? event => {
+        const post = event.currentTarget.querySelector(":scope > [data-page-swipe-navigation-row]")
+        if (!post || (event.target instanceof Node && post.contains(event.target))) return
+        onActivate()
+      } : undefined}
+    >
+      {children}
+    </div>
   </div>
 }
 

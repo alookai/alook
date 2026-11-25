@@ -271,8 +271,10 @@ describe("read-only Inbox channel messages", () => {
       expect(status).toHaveClass("-mx-1", "pb-1")
       const listItem = status.querySelector('[data-slot="community-forum-list-item"]')
       expect(listItem).not.toBeNull()
-      expect(listItem).toHaveClass("pt-[6.6px]")
-      expect(listItem?.querySelector('[data-slot="community-forum-post-skeleton"]')).not.toBeNull()
+      const card = listItem?.querySelector(':scope > [data-slot="community-forum-list-card"]')
+      expect(card).not.toBeNull()
+      expect(card).toHaveClass("py-[6.6px]")
+      expect(card?.querySelector('[data-slot="community-forum-post-skeleton"]')).not.toBeNull()
 
       forumView.rerender(createElement(InboxUnreadMessages, { channelId: "forum", throughSeq: 3, mentions: [], continuation: true }))
       expect(forumView.container.querySelector('[data-slot="community-forum-post-skeleton"]')).toBeNull()

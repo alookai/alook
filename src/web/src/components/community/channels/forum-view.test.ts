@@ -168,17 +168,23 @@ describe("ForumView post card header", () => {
     expect(rowMarkup).not.toContain("rounded-lg border")
   })
 
-  it.each([0, 1, 3])("renders only between-post separators for %i posts", count => {
+  it.each([0, 1, 3])("renders only between-post separators outside the symmetric hover card for %i posts", count => {
     const html = render(Array.from({ length: count }, (_, index) => makePost({ id: `p${index}` })))
     const [actual, positioning] = html.split("data-forum-positioning-skeleton")
     expect(actual.match(/data-slot="separator"/g) ?? []).toHaveLength(Math.max(0, count - 1))
     expect(actual.match(/data-slot="community-forum-list-item"/g) ?? []).toHaveLength(count)
+    expect(actual.match(/data-slot="community-forum-list-card"/g) ?? []).toHaveLength(count)
     if (positioning) {
       expect(positioning.match(/data-slot="separator"/g)).toHaveLength(2)
       expect(positioning.match(/data-slot="community-forum-list-item"/g)).toHaveLength(3)
+      expect(positioning.match(/data-slot="community-forum-list-card"/g)).toHaveLength(3)
     }
-    if (count > 0) expect(actual.match(/data-slot="community-forum-list-item" class="[^"]*pt-\[6\.6px\]/g)).toHaveLength(1)
-    if (count > 1) expect(html).toContain("my-[6.6px] bg-border/50")
+    expect(actual.match(/data-slot="community-forum-list-item" class="[^"]*hover:bg-accent/g) ?? []).toHaveLength(0)
+    expect(actual.match(/data-slot="community-forum-list-card" class="[^"]*py-\[6\.6px\][^"]*has-data-page-swipe-navigation-row:hover:bg-accent\/45/g) ?? []).toHaveLength(count)
+    if (count > 1) {
+      expect(actual).toMatch(/data-slot="separator"[^>]*><\/div><div data-slot="community-forum-list-card"/)
+      expect(actual).not.toContain("my-[6.6px]")
+    }
   })
 
   it.each(["Alice", "VeryLongAuthorName".repeat(8), "界".repeat(12)])("preserves the full author name behind its single-line width limit: %s", authorName => {
