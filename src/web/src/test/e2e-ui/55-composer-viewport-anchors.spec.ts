@@ -1,7 +1,8 @@
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
-import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
+import { composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, installInputCapability, sendMessage } from "./_fixtures/actions"
+import { DEFAULT_KEYBOARD_OPEN_HEIGHT, DEFAULT_MOBILE_VIEWPORT, installMobileKeyboard } from "./_fixtures/mobile-keyboard"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import {
   beginScrollTraceAnalysis,
@@ -511,5 +512,239 @@ test.describe("composer and viewport scroll anchors", () => {
     }
     await alice.page.setViewportSize(VIEWPORT)
     await waitForStableTail(scroller, "dm-keyboard-profile-closed-after-send")
+  })
+
+  test("mobile 390x844 virtual keyboard dismissal on Send keeps post-submit scroll pinned to bottom without pill flash", async ({ caseActors }) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { serverId, composerChannelId } = await seedScrollCase(actors)
+    const alice = await actors.asUser("alice")
+
+    await installInputCapability(alice.page, false)
+    const keyboard = await installMobileKeyboard(alice.page, {
+      mode: "viewport",
+      width: DEFAULT_MOBILE_VIEWPORT.width,
+      closedHeight: DEFAULT_MOBILE_VIEWPORT.height,
+      openHeight: DEFAULT_KEYBOARD_OPEN_HEIGHT,
+      steps: 5,
+      stepDelayMs: 16,
+      initialDelayMs: 16,
+    })
+
+    try {
+      await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+      const scroller = alice.page.getByTestId(tid.messageScroller)
+      const editable = composerEditable(alice.page)
+      const sendButton = alice.page.getByTestId(tid.composerSend)
+      await expect(editable).toBeVisible()
+      await waitForStableTail(scroller, "mobile-kb-initial-tail")
+      await ignoreNextDevToolsPointerCapture(alice.page)
+
+      const startPillWatch = async (testId: string) => {
+        await alice.page.evaluate((pillTestId) => {
+          const win = window as unknown as {
+            __pillWatch?: {
+              stop: () => { visibleCount: number; sawHidden: boolean; reappearedAfterHide: boolean }
+            }
+          }
+          win.__pillWatch?.stop()
+          let active = true
+          let visibleCount = 0
+          let sawHidden = false
+          let reappearedAfterHide = false
+          const isVisible = () => {
+            const el = document.querySelector<HTMLElement>(`[data-testid="${pillTestId}"]`)
+            if (!el) return false
+            const style = window.getComputedStyle(el)
+            const rect = el.getBoundingClientRect()
+            return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0 && rect.height > 0 && rect.width > 0
+          }
+          const sample = () => {
+            if (!active) return
+            if (isVisible()) {
+              visibleCount += 1
+              if (sawHidden) reappearedAfterHide = true
+            } else {
+              sawHidden = true
+            }
+          }
+          const observer = new MutationObserver(sample)
+          observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+          const tick = () => {
+            if (!active) return
+            sample()
+            window.requestAnimationFrame(tick)
+          }
+          window.requestAnimationFrame(tick)
+          win.__pillWatch = {
+            stop: () => {
+              active = false
+              observer.disconnect()
+              sample()
+              return { visibleCount, sawHidden, reappearedAfterHide }
+            },
+          }
+        }, testId)
+      }
+
+      const stopPillWatch = async () => (
+        alice.page.evaluate(() => {
+          const win = window as unknown as {
+            __pillWatch?: {
+              stop: () => { visibleCount: number; sawHidden: boolean; reappearedAfterHide: boolean }
+            }
+          }
+          return win.__pillWatch?.stop() ?? { visibleCount: 0, sawHidden: true, reappearedAfterHide: false }
+        })
+      )
+
+      const expectMessageVisibleAtTail = async (messageId: string, label: string) => {
+        await waitForStableTail(scroller, label)
+        const geometry = await scroller.evaluate((element, id) => {
+          const scrollerRect = element.getBoundingClientRect()
+          const msg = element.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
+          const msgRect = msg?.getBoundingClientRect() ?? null
+          const occlusion = Number((element as HTMLElement).dataset.composerOcclusion ?? 0)
+          return {
+            tailGap: element.scrollHeight - element.clientHeight - element.scrollTop,
+            clientHeight: element.clientHeight,
+            msgFound: !!msgRect,
+            msgBottom: msgRect?.bottom ?? null,
+            readableBottom: scrollerRect.bottom - occlusion,
+          }
+        }, messageId)
+        expect(geometry.tailGap, `${label} tailGap`).toBeLessThanOrEqual(1)
+        expect(geometry.msgFound, `${label} msgFound`).toBe(true)
+        expect(geometry.msgBottom!, `${label} msgBottom`).toBeLessThanOrEqual(geometry.readableBottom + 2)
+      }
+
+      await editable.click()
+      await keyboard.waitForState("open")
+      expect(alice.page.viewportSize()).toEqual({
+        width: DEFAULT_MOBILE_VIEWPORT.width,
+        height: DEFAULT_KEYBOARD_OPEN_HEIGHT,
+      })
+      await waitForStableTail(scroller, "mobile-kb-open-at-bottom")
+
+      const bottomContent = [
+        `mobile bottom submit ${Date.now()}`,
+        "line two ensures message height exceeds CONVERSATION_TAIL_SPACE_PX",
+        "line three verifies keyboard dismiss resize never locks above the new message",
+        "line four confirms full bottom visibility",
+      ].join("\n")
+      await editable.fill(bottomContent)
+      await expect(sendButton).toBeVisible()
+      await expect(sendButton).toBeEnabled()
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+
+      await startPillWatch(tid.scrollToPresent)
+      const bottomPost = alice.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${composerChannelId}/messages`
+      ))
+      await sendButton.click()
+      const bottomResponse = await bottomPost
+      expect(bottomResponse.status()).toBe(201)
+      const bottomResult = await bottomResponse.json() as { message: PostedMessageIdentity }
+      await keyboard.waitForState("closed")
+      expect(alice.page.viewportSize()).toEqual(DEFAULT_MOBILE_VIEWPORT)
+      await expectMessageVisibleAtTail(bottomResult.message.id, "mobile-kb-bottom-after-close")
+      const bottomPill = await stopPillWatch()
+      expect(bottomPill.visibleCount).toBe(0)
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+
+      await establishScrollDistancePrecondition(scroller, "mobile-kb-history", 360)
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+      await editable.click()
+      await keyboard.waitForState("open")
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+
+      const historyContent = [
+        `mobile history submit ${Date.now()}`,
+        "line two verifies jumping-to-target/present survives concurrent keyboard dismissal",
+        "line three ensures new message lands fully at bottom without pill re-flash",
+      ].join("\n")
+      await editable.fill(historyContent)
+      await expect(sendButton).toBeEnabled()
+
+      await startPillWatch(tid.scrollToPresent)
+      const historyPost = alice.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${composerChannelId}/messages`
+      ))
+      await sendButton.click()
+      const historyResponse = await historyPost
+      expect(historyResponse.status()).toBe(201)
+      const historyResult = await historyResponse.json() as { message: PostedMessageIdentity }
+      await keyboard.waitForState("closed")
+      expect(alice.page.viewportSize()).toEqual(DEFAULT_MOBILE_VIEWPORT)
+      await expectMessageVisibleAtTail(historyResult.message.id, "mobile-kb-history-after-close")
+      const historyPill = await stopPillWatch()
+      expect(historyPill.sawHidden).toBe(true)
+      expect(historyPill.reappearedAfterHide).toBe(false)
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+    } finally {
+      await keyboard.dispose()
+    }
+  })
+
+  test("mobile keyboard inset mode drives alook:keyboard-change CSS variables across focus and Send", async ({ caseActors }) => {
+    test.setTimeout(90_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { serverId, composerChannelId } = await seedScrollCase(actors)
+    const alice = await actors.asUser("alice")
+
+    await installInputCapability(alice.page, false)
+    const keyboard = await installMobileKeyboard(alice.page, {
+      mode: "inset",
+      width: DEFAULT_MOBILE_VIEWPORT.width,
+      closedHeight: DEFAULT_MOBILE_VIEWPORT.height,
+      insetHeight: 324,
+      steps: 4,
+      initialDelayMs: 16,
+    })
+
+    try {
+      await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+      const scroller = alice.page.getByTestId(tid.messageScroller)
+      const editable = composerEditable(alice.page)
+      const sendButton = alice.page.getByTestId(tid.composerSend)
+      await expect(editable).toBeVisible()
+      await waitForStableTail(scroller, "mobile-inset-initial-tail")
+      await ignoreNextDevToolsPointerCapture(alice.page)
+
+      await editable.click()
+      await keyboard.waitForState("open")
+      const openVars = await alice.page.evaluate(() => ({
+        bottom: document.documentElement.style.getPropertyValue("--alook-keyboard-bottom"),
+        progress: document.documentElement.style.getPropertyValue("--alook-keyboard-progress"),
+      }))
+      expect(openVars.bottom).toMatch(/vw$/)
+      expect(openVars.bottom).not.toBe("0vw")
+      expect(openVars.progress).toContain("calc(")
+
+      const content = `mobile inset submit ${Date.now()}\nsecond line for inset close verification`
+      await editable.fill(content)
+      const post = alice.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${composerChannelId}/messages`
+      ))
+      await sendButton.click()
+      const response = await post
+      expect(response.status()).toBe(201)
+      const result = await response.json() as { message: PostedMessageIdentity }
+      await keyboard.waitForState("closed")
+      const closedVars = await alice.page.evaluate(() => ({
+        bottom: document.documentElement.style.getPropertyValue("--alook-keyboard-bottom"),
+        progress: document.documentElement.style.getPropertyValue("--alook-keyboard-progress"),
+      }))
+      expect(closedVars.bottom).toBe("0vw")
+      expect(closedVars.progress).toBe("")
+      await waitForStableTail(scroller, "mobile-inset-after-close")
+      await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+    } finally {
+      await keyboard.dispose()
+    }
   })
 })

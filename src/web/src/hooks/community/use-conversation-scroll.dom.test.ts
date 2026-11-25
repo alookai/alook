@@ -716,4 +716,161 @@ describe("useConversationScroll", () => {
     expect(scrollFixture.latest.followingTail).toBe(true)
     h.view.unmount()
   })
+
+  it("keeps bottom-pinned local submit snapped to true maxScroll across keyboard close, keyboard open, and tailPaddingEnd resize during async smooth scroll", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList)
+    const smoothTargets: number[] = []
+    const originalScrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object" && options?.behavior === "smooth") {
+        smoothTargets.push(options.top ?? this.scrollTop)
+        return
+      }
+      return Reflect.apply(originalScrollTo, this, [options])
+    })
+
+    const observedBelowCounts: number[] = []
+    let recording = false
+    const h = mount(undefined, false, () => {
+      if (recording) observedBelowCounts.push(scrollFixture.latest.belowCount)
+    })
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    recording = true
+
+    const initialBeforeHeight = scrollFixture.height
+    const tallSent1 = message("local-mobile-kb-close", 120)
+    h.update({ items: [...h.input.items, tallSent1], localSubmitVersion: 1 })
+    expect(smoothTargets.at(-1)).toBe(h.root.scrollHeight - h.root.clientHeight)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    scrollFixture.height = initialBeforeHeight + 240
+    resize()
+    runFrames()
+    const maxAfterKbClose = h.root.scrollHeight - h.root.clientHeight
+    expect(Math.abs(h.root.scrollTop - maxAfterKbClose)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.readingTail).toBe(true)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    act(() => {
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(Math.abs(h.root.scrollTop - maxAfterKbClose)).toBeLessThanOrEqual(1)
+
+    const tallSent2 = message("local-mobile-kb-open", 120)
+    h.update({ items: [...h.input.items, tallSent2], localSubmitVersion: 2 })
+    expect(smoothTargets.at(-1)).toBe(h.root.scrollHeight - h.root.clientHeight)
+    scrollFixture.height = initialBeforeHeight - 80
+    resize()
+    runFrames()
+    const maxAfterKbOpen = h.root.scrollHeight - h.root.clientHeight
+    expect(Math.abs(h.root.scrollTop - maxAfterKbOpen)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    const tallSent3 = message("local-mobile-tail-pad", 120)
+    h.update({ items: [...h.input.items, tallSent3], localSubmitVersion: 3 })
+    h.update({ tailPaddingEnd: 64 })
+    resize()
+    runFrames()
+    const maxAfterTailPad = h.root.scrollHeight - h.root.clientHeight
+    expect(Math.abs(h.root.scrollTop - maxAfterTailPad)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    const tallSent4 = message("local-mobile-clamp-scroll", 120)
+    h.update({ items: [...h.input.items, tallSent4], localSubmitVersion: 4 })
+    scrollFixture.height = initialBeforeHeight + 280
+    act(() => {
+      h.root.scrollTop = Math.max(0, h.root.scrollHeight - h.root.clientHeight)
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    const maxAfterClamp = h.root.scrollHeight - h.root.clientHeight
+    expect(Math.abs(h.root.scrollTop - maxAfterClamp)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    expect(observedBelowCounts.every((count) => count === 0)).toBe(true)
+    h.view.unmount()
+  })
+
+  it("keeps reading-history local submit reaching true maxScroll across concurrent clientHeight resizes", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList)
+    const smoothTargets: number[] = []
+    const originalScrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object" && options?.behavior === "smooth") {
+        smoothTargets.push(options.top ?? this.scrollTop)
+        return
+      }
+      return Reflect.apply(originalScrollTo, this, [options])
+    })
+
+    const onReadingMessage = vi.fn()
+    const h = mount({ onReadingMessage })
+    const baseHeight = scrollFixture.height
+    h.move(200)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    onReadingMessage.mockClear()
+
+    smoothTargets.length = 0
+    h.update({ items: [...h.input.items, message("history-resize-1", 120)], localSubmitVersion: 1 })
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    expect(smoothTargets.at(-1)).toBe(h.root.scrollHeight - h.root.clientHeight)
+
+    scrollFixture.height = baseHeight + 140
+    resize()
+    const retargetedAfterGrow = h.root.scrollHeight - h.root.clientHeight
+    expect(smoothTargets.at(-1)).toBe(retargetedAfterGrow)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    scrollFixture.height = baseHeight - 60
+    resize()
+    const retargetedAfterShrink = h.root.scrollHeight - h.root.clientHeight
+    expect(smoothTargets.at(-1)).toBe(retargetedAfterShrink)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    act(() => {
+      h.root.scrollTop = retargetedAfterShrink
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(Math.abs(h.root.scrollTop - retargetedAfterShrink)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    h.move(h.root.scrollHeight - h.root.clientHeight - 160)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    h.update({ items: [...h.input.items, message("history-resize-clamp", 120)], localSubmitVersion: 2 })
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    scrollFixture.height = baseHeight + 240
+    const clampedMax = Math.max(0, h.root.scrollHeight - h.root.clientHeight)
+    act(() => {
+      h.root.scrollTop = clampedMax
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(Math.abs(h.root.scrollTop - clampedMax)).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.readingTail).toBe(true)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    h.view.unmount()
+  })
 })
