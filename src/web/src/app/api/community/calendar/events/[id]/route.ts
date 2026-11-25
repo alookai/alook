@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server"
-import { CalendarUpdateRequestSchema, queries, withD1Retry } from "@alook/shared"
+import { CalendarUpdateRequestSchema } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
+import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 import {
   calendarOwnerUserId,
@@ -97,13 +98,12 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
     if (!currentRes.ok) return writeError("failed to verify calendar event", 502)
     const current = (await currentRes.json()) as { event: StoredCalendarEvent }
     if (current.event.createdByUserId !== ctx.actor.userId) {
-      const creatorCanRead = await withD1Retry(
-        () => queries.communityMember.canBotReadWakeScope(db, current.event.createdByUserId, {
-          channelId: resolvedMessage.channelId,
-        }),
-        { route: "calendar:rebind-creator-access" },
+      const creatorAccess = await requireMessageSurfaceAccess(
+        db,
+        resolvedMessage.channelId,
+        current.event.createdByUserId,
       )
-      if (!creatorCanRead) {
+      if (!creatorAccess.ok) {
         return writeError("event creator bot cannot access the target message", 403)
       }
     }

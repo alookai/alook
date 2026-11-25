@@ -11,10 +11,12 @@ import {
   normalizeRecurrence,
   queries,
   resolveModelConfig,
+  visibilityIsDmParticipant,
   withD1Retry,
   WS_EVENTS,
   type CalendarRecurrence,
   type CalendarRunStatus,
+  type Database,
   type HostCommand,
 } from "@alook/shared"
 import { createInternalBrowserBroadcastRequest } from "./internal-user-broadcast"
@@ -194,6 +196,37 @@ function buildCalendarEventPrompt(input: {
     `Reply to the bound conversation with: ${replyCommand}`,
   )
   return lines.join("\n")
+}
+
+async function canBotAccessMessageSurface(
+  db: Database,
+  channelId: string,
+  botUserId: string,
+  channelType: string | null,
+): Promise<boolean> {
+  if (!channelType) return false
+  if (visibilityIsDmParticipant(channelType)) {
+    const dm = await withD1Retry(
+      () => queries.communityDm.getDM(db, channelId),
+      { route: "owner-calendar:dm-surface" },
+    )
+    if (!dm) return false
+    const peer = await withD1Retry(
+      () => queries.communityDm.getDMPeer(db, channelId, botUserId),
+      { route: "owner-calendar:dm-peer" },
+    )
+    if (!peer) return false
+    const blocked = await withD1Retry(
+      () => queries.communityFriendship.isBlocked(db, botUserId, peer.otherUserId),
+      { route: "owner-calendar:dm-block" },
+    )
+    return !blocked
+  }
+  const channel = await withD1Retry(
+    () => queries.communityChannel.getChannelForMember(db, channelId, botUserId),
+    { route: "owner-calendar:channel-member" },
+  )
+  return channel !== null
 }
 
 export class OwnerCalendarDurableObject extends DurableObject<Env> {
@@ -376,10 +409,11 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
       )
       if (!msg) return await markBlocked("source_message_deleted")
 
-      const canRead = await withD1Retry(
-        () => queries.communityMember.canBotReadWakeScope(db, run.botUserId, { channelId: msg.channelId }),
-        { route: "owner-calendar:source-message-access" },
+      const channelType = await withD1Retry(
+        () => queries.communityChannel.getChannelType(db, msg.channelId),
+        { route: "owner-calendar:source-channel-type" },
       )
+      const canRead = await canBotAccessMessageSurface(db, msg.channelId, run.botUserId, channelType)
       if (!canRead) return await markBlocked("source_message_inaccessible")
 
       const channelRef = await withD1Retry(
@@ -387,11 +421,6 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
         { route: "owner-calendar:source-channel-ref" },
       )
       if (!channelRef) return await markBlocked("source_channel_unresolvable")
-
-      const channelType = await withD1Retry(
-        () => queries.communityChannel.getChannelType(db, msg.channelId),
-        { route: "owner-calendar:source-channel-type" },
-      )
 
       const prompt = buildCalendarEventPrompt({
         eventId: run.eventId,
@@ -736,11 +765,18 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
       const sourceChannelId = body.sourceChannelId ?? existing.sourceChannelId
 
       const scheduleChanged =
-        body.startAtMs !== undefined
-        || body.timeZone !== undefined
-        || body.hasRecurrence === true
-        || body.paused !== undefined
+        startAtMs !== existing.startAtMs
+        || timeZone !== existing.timeZone
+        || JSON.stringify(recurrence) !== JSON.stringify(existing.recurrence)
+        || paused !== existing.paused
 
+      const snapshotChanged =
+        title !== existing.title
+        || description !== existing.description
+        || sourceMessageId !== existing.sourceMessageId
+        || sourceChannelId !== existing.sourceChannelId
+
+      const nextVersion = existing.version + 1
       let nextRunAtMs = existing.nextRunAtMs
       let occurrenceCount = existing.occurrenceCount
       if (scheduleChanged) {
@@ -756,6 +792,21 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
           "DELETE FROM calendar_runs WHERE event_id = ? AND status = 'pending'",
           eventId,
         )
+      } else if (snapshotChanged) {
+        this.ctx.storage.sql.exec(
+          `UPDATE calendar_runs SET
+            title_snapshot = ?, description_snapshot = ?,
+            source_message_id = ?, source_channel_id = ?,
+            event_version = ?, updated_at_ms = ?
+          WHERE event_id = ? AND status = 'pending'`,
+          title,
+          description,
+          sourceMessageId,
+          sourceChannelId,
+          nextVersion,
+          nowMs,
+          eventId,
+        )
       }
 
       this.ctx.storage.sql.exec(
@@ -763,7 +814,7 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
           title = ?, description = ?, start_at_ms = ?, duration_minutes = ?,
           time_zone = ?, recurrence_json = ?, occurrence_count = ?, next_run_at_ms = ?,
           paused = ?, source_message_id = ?, source_channel_id = ?,
-          version = version + 1, updated_at_ms = ?
+          version = ?, updated_at_ms = ?
         WHERE id = ?`,
         title,
         description,
@@ -776,6 +827,7 @@ export class OwnerCalendarDurableObject extends DurableObject<Env> {
         paused ? 1 : 0,
         sourceMessageId,
         sourceChannelId,
+        nextVersion,
         nowMs,
         eventId,
       )

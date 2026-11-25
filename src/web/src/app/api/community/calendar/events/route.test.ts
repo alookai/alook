@@ -7,12 +7,12 @@ const mocks = vi.hoisted(() => ({
   resolveMessageRefForBot: vi.fn(),
   requireDMAccess: vi.fn(),
   requireChannelMember: vi.fn(),
+  requireMessageSurfaceAccess: vi.fn(),
   getUsersByIds: vi.fn(),
   listBotsForOwner: vi.fn(),
   getChannelType: vi.fn(),
   resolveUnreadNoticeChannel: vi.fn(),
   getMessagesByIdsInChannels: vi.fn(),
-  canBotReadWakeScope: vi.fn(),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -23,6 +23,7 @@ vi.mock("@/lib/community/resolve-message-ref", () => ({
 vi.mock("@/lib/community/permissions", () => ({
   requireDMAccess: (...args: unknown[]) => mocks.requireDMAccess(...args),
   requireChannelMember: (...args: unknown[]) => mocks.requireChannelMember(...args),
+  requireMessageSurfaceAccess: (...args: unknown[]) => mocks.requireMessageSurfaceAccess(...args),
 }))
 vi.mock("@/lib/middleware/auth-policy", () => ({
   withAuth: (_policy: unknown, handler: any) => (req: NextRequest, routeCtx?: { params?: Promise<Record<string, string>> }) =>
@@ -61,10 +62,6 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         ...actual.queries.communityMessage,
         getMessagesByIdsInChannels: (...args: unknown[]) => mocks.getMessagesByIdsInChannels(...args),
-      },
-      communityMember: {
-        ...actual.queries.communityMember,
-        canBotReadWakeScope: (...args: unknown[]) => mocks.canBotReadWakeScope(...args),
       },
     },
   }
@@ -110,7 +107,7 @@ describe("calendar events API routes", () => {
       { id: "msg_1", channelId: "ch_1", seq: 42, content: "Track daily blockers here" },
     ])
     mocks.resolveMessageRefForBot.mockResolvedValue({ ok: true, messageId: "msg_1", channelId: "ch_1" })
-    mocks.canBotReadWakeScope.mockResolvedValue(true)
+    mocks.requireMessageSurfaceAccess.mockResolvedValue({ ok: true, value: { surface: "channel", channel: { id: "ch_1" } } })
   })
 
   it("allows bot POST with mandatory sourceMessageRef and rejects human POST (403)", async () => {
@@ -216,5 +213,23 @@ describe("calendar events API routes", () => {
     expect(patchRes.status).toBe(200)
     const patched = (await patchRes.json()) as { event: { title: string; paused: boolean } }
     expect(patched.event).toMatchObject({ title: "Updated summary", paused: true })
+  })
+
+  it("checks creator bot surface access via requireMessageSurfaceAccess on sibling bot rebind", async () => {
+    mocks.actor = { kind: "bot", userId: "bot_2", ownerUserId: "owner_1", machineId: "cm_1", isActive: true }
+    mocks.resolveMessageRefForBot.mockResolvedValue({ ok: true, messageId: "msg_thread", channelId: "thr_1" })
+    mocks.wsDoFetch.mockResolvedValueOnce(Response.json({ event: baseStoredEvent, latestRun: null }))
+    mocks.requireMessageSurfaceAccess.mockResolvedValueOnce({ ok: false, status: 403, error: "forbidden" })
+
+    const denied = await PATCH(
+      new NextRequest("http://localhost/api/community/calendar/events/cal_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sourceMessageRef: "/Alook#5620/gus-infra/#10#2" }),
+      }),
+      { params: Promise.resolve({ id: "cal_1" }) },
+    )
+    expect(denied.status).toBe(403)
+    expect(mocks.requireMessageSurfaceAccess).toHaveBeenCalledWith(expect.anything(), "thr_1", "bot_1")
   })
 })
