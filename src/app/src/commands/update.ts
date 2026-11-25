@@ -6,7 +6,7 @@ import { DEFAULT_PORTS } from "../lib/constants.js";
 export function updateCommand(): Command {
   return new Command("update")
     .description("Update Alook to the latest version")
-    .action(() => {
+    .action(async () => {
       console.log("Updating Alook...\n");
 
       const servicesWereRunning = isRunning();
@@ -19,7 +19,7 @@ export function updateCommand(): Command {
 
       if (servicesWereRunning) {
         console.log("Restarting services...");
-        startServices(DEFAULT_PORTS);
+        await startServices(DEFAULT_PORTS);
       }
 
       console.log("\n✓ Update complete.");
