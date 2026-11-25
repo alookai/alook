@@ -279,6 +279,9 @@
     "key": "src/shared/src/db/queries/community/channel.ts:listServerChannelDirectoryForAdmin:inArray:2"
   },
   {
+    "key": "src/shared/src/db/queries/community/channel.ts:resolveTopLevelChannelsForRefBatch:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:1"
   },
   {
@@ -454,6 +457,9 @@
   },
   {
     "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:4"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:listMessagesByChannelAndSeqs:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/message.ts:listMessagesReferencingFriendship:inArray:1"
