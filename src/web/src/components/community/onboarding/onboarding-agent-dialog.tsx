@@ -140,7 +140,7 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
         <DialogHeader className="gap-3 text-left">
           <ProviderLogo provider={harness} className="size-8" />
           <DialogTitle className="text-2xl font-semibold tracking-tight">{waiting ? "Waiting for your computer to connect" : `Set up with ${harnessLabel}`}</DialogTitle>
-          <DialogDescription>{waiting ? `Paste the copied prompt into ${harnessLabel}. We’ll take you right in once your computer connects.` : `Copy and paste this into ${harnessLabel}. It connects this computer and asks before creating your first room and bot.`}</DialogDescription>
+          <DialogDescription>{waiting ? `Paste the copied prompt into ${harnessLabel}. We’ll take you right in once your computer connects.` : `Copy and paste this into ${harnessLabel}. It only lets your local agent send and receive Alook messages, and asks before creating your first room.`}</DialogDescription>
         </DialogHeader>
         <p className="rounded-lg bg-muted/40 px-3.5 py-2.5 text-sm leading-relaxed text-muted-foreground sm:hidden">
           On your phone? Open <span className="font-medium text-foreground">alook.ai</span> on the computer where {harnessLabel} is installed to connect it — you can still explore Alook here.
@@ -151,17 +151,17 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
         </div> : <div className="space-y-3">
           {ready ? <>
             <PromptCopyPreview value={prompt} label={`Prompt for ${harnessLabel}`} testId="onboarding-agent-prompt" onCopy={handleCopy} onManualCopy={handleManualCopy} />
-            <div className="flex items-start justify-between gap-2 text-xs leading-relaxed text-muted-foreground">
-              <p>Your files stay on your computer — nothing is uploaded automatically. This temporary setup code expires in 1 hour (up to 3 bots).</p>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs leading-relaxed text-muted-foreground">
+              <p>Your files stay on your computer — nothing is uploaded automatically.</p>
               <Popover>
                 <PopoverTrigger
                   openOnHover
                   delay={150}
-                  aria-label="How does this stay private?"
-                  render={<Button variant="ghost" size="icon-xs" type="button" />}
-                  className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+                  render={<Button variant="ghost" size="sm" type="button" />}
+                  className="-mx-2 h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <CircleHelp aria-hidden className="size-4" />
+                  <CircleHelp aria-hidden className="size-3.5 shrink-0" />
+                  Why do I need to run this command?
                 </PopoverTrigger>
                 <PopoverContent
                   side="bottom"
@@ -174,13 +174,13 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
                     contentClassName="flex flex-col gap-4 p-4 sm:p-6"
                   >
                     <div className="flex flex-col gap-2">
-                      <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">How setup works</PopoverTitle>
-                      <p className="text-sm leading-relaxed text-muted-foreground">Your AI tool stays on your computer. The prompt connects it to Alook and asks before creating your first room and bot.</p>
+                      <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why do I need to run this command?</PopoverTitle>
+                      <p className="text-sm leading-relaxed text-muted-foreground">Your AI tool runs on your computer. This only lets your local agent send and receive Alook messages using your existing setup.</p>
                     </div>
                     <MachinePairMessageDiagram />
                     <div className="flex flex-col gap-2">
                       <h4 className="text-base font-semibold leading-tight">Your files stay on your computer</h4>
-                      <p className="text-sm leading-relaxed text-muted-foreground">Alook never automatically uploads your local files. During the 1-hour window, the temporary setup code lets your agent read your machines, friends, and servers, create up to 3 bots and a server, invite bots, and send messages as you or your bots.</p>
+                      <p className="text-sm leading-relaxed text-muted-foreground">Alook never automatically uploads your local files.</p>
                     </div>
                   </ScrollArea>
                 </PopoverContent>

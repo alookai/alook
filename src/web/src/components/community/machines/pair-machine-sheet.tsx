@@ -317,7 +317,7 @@ function Step1({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <header className="flex items-center gap-2">
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Marker n={1} done={!generating} />
         <Heading className="font-heading text-sm font-medium leading-tight tracking-[-0.015em] text-foreground">
           {concise ? "Run one command" : "Run this on your machine"}
@@ -327,11 +327,11 @@ function Step1({
             openOnHover
             delay={150}
             data-testid={tid.machinePairHelp}
-            aria-label="Why run a terminal command?"
             render={<Button variant="ghost" size="sm" type="button" />}
-            className="grid size-11 shrink-0 place-items-center rounded-md text-foreground hover:bg-accent active:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-8"
+            className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
           >
-            <CircleHelp aria-hidden className="size-5" />
+            <CircleHelp aria-hidden className="size-3.5 shrink-0" />
+            Why do I need to run this command?
           </PopoverTrigger>
           <PopoverContent
             data-testid={tid.machinePairHelpContent}
@@ -345,8 +345,8 @@ function Step1({
               contentClassName="flex flex-col gap-4 p-4 sm:p-6"
             >
               <div className="flex flex-col gap-2">
-                <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why run a terminal command?</PopoverTitle>
-                <p className="text-sm leading-relaxed text-muted-foreground">Your AI tools run on your computer. This command starts a lightweight local connector so they can chat in Alook using your existing setup.</p>
+                <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why do I need to run this command?</PopoverTitle>
+                <p className="text-sm leading-relaxed text-muted-foreground">Your AI tool runs on your computer. This command only lets your local agent send and receive Alook messages using your existing setup.</p>
               </div>
               <MachinePairMessageDiagram />
               <div className="flex flex-col gap-2">

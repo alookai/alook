@@ -162,14 +162,14 @@ describe("Agent Setup", () => {
     expect(input.onConnected).not.toHaveBeenCalled()
   })
 
-  it("shows accurate temporary-code scope, writes the full multiline prompt on manual copy, ignores partial copy, and offers Copy again while waiting", async () => {
+  it("keeps privacy reassurance simple, writes the full multiline prompt on manual copy, ignores partial copy, and offers Copy again while waiting", async () => {
     const input = props()
     const view = render(<OnboardingAgentDialog {...input} />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
-    expect(screen.getByText(/Your files stay on your computer/)).toBeInTheDocument()
-    expect(screen.getByText(/temporary setup code expires in 1 hour/)).toBeInTheDocument()
-    expect(screen.queryByText(/one-time code/i)).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "How does this stay private?" })).toBeInTheDocument()
+    expect(screen.getByText("Your files stay on your computer — nothing is uploaded automatically.")).toBeInTheDocument()
+    expect(screen.queryByText(/1 hour/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/one-time/i)).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Why do I need to run this command?" })).toBeInTheDocument()
 
     const promptEl = screen.getByTestId("onboarding-agent-prompt")
     const expectedPrompt = [

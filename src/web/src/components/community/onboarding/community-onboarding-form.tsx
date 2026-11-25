@@ -173,8 +173,6 @@ function CommunityOnboardingSteps() {
         onValueChange={setHarness}
         advanceOnSelect
         submitLabel="Continue"
-        secondaryLabel="Skip for now"
-        onSecondaryAction={() => skipCommunityOnboarding(communityRuntime)}
         onSubmit={(value) => {
           advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: supportsAgentSetup(value) ? "agent" : "manual" })
         }}
