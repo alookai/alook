@@ -32,6 +32,7 @@ export type CalendarRecurrence = z.infer<typeof CalendarRecurrenceSchema>
 export const CalendarRunStatusSchema = z.enum([
   "pending",
   "dispatched",
+  "completed",
   "blocked_access",
 ])
 export type CalendarRunStatus = z.infer<typeof CalendarRunStatusSchema>
@@ -40,6 +41,7 @@ export const CalendarOccurrenceStatusSchema = z.enum([
   "scheduled",
   "pending",
   "dispatched",
+  "completed",
   "blocked_access",
 ])
 export type CalendarOccurrenceStatus = z.infer<typeof CalendarOccurrenceStatusSchema>
@@ -64,6 +66,7 @@ export const CalendarLastExecutionSchema = z.strictObject({
   scheduledAt: z.iso.datetime(),
   status: CalendarRunStatusSchema,
   lastError: z.string().nullable(),
+  ackedAt: z.iso.datetime().nullable(),
   updatedAt: z.iso.datetime(),
 })
 export type CalendarLastExecution = z.infer<typeof CalendarLastExecutionSchema>
@@ -133,6 +136,7 @@ export const CalendarUpdateRequestSchema = z.strictObject({
   recurrence: CalendarRecurrenceSchema.nullable().optional(),
   sourceMessageRef: z.string().trim().min(1).max(512).optional(),
   paused: z.boolean().optional(),
+  ack: z.literal(true).optional(),
 })
 export type CalendarUpdateRequest = z.infer<typeof CalendarUpdateRequestSchema>
 
@@ -510,6 +514,20 @@ function fastForwardToOrAfter(
 
   if (current < targetMs) return { occurrenceMs: null, priorCount }
   return { occurrenceMs: current, priorCount }
+}
+
+export function computeInitialNextRun(
+  spec: CalendarScheduleSpec,
+  paused: boolean,
+  nowMs: number,
+): { nextRunAtMs: number | null; occurrenceCount: number } {
+  if (paused) return { nextRunAtMs: null, occurrenceCount: 0 }
+  const first = computeFirstOccurrenceMs(spec)
+  if (first === null) return { nextRunAtMs: null, occurrenceCount: 0 }
+  if (!spec.recurrence || first >= nowMs - 60_000) {
+    return { nextRunAtMs: first, occurrenceCount: 0 }
+  }
+  return advanceNextRunAfterFire(spec, first, 1, nowMs)
 }
 
 export interface ExpandCalendarEventInput {

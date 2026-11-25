@@ -13,6 +13,11 @@ const mocks = vi.hoisted(() => ({
   getChannelType: vi.fn(),
   resolveUnreadNoticeChannel: vi.fn(),
   getMessagesByIdsInChannels: vi.fn(),
+  listOwnerCalendarEvents: vi.fn(),
+  getCalendarEventById: vi.fn(),
+  createCalendarEvent: vi.fn(),
+  updateCalendarEvent: vi.fn(),
+  deleteCalendarEvent: vi.fn(),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -63,6 +68,14 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityMessage,
         getMessagesByIdsInChannels: (...args: unknown[]) => mocks.getMessagesByIdsInChannels(...args),
       },
+      communityCalendar: {
+        ...actual.queries.communityCalendar,
+        listOwnerCalendarEvents: (...args: unknown[]) => mocks.listOwnerCalendarEvents(...args),
+        getCalendarEventById: (...args: unknown[]) => mocks.getCalendarEventById(...args),
+        createCalendarEvent: (...args: unknown[]) => mocks.createCalendarEvent(...args),
+        updateCalendarEvent: (...args: unknown[]) => mocks.updateCalendarEvent(...args),
+        deleteCalendarEvent: (...args: unknown[]) => mocks.deleteCalendarEvent(...args),
+      },
     },
   }
 })
@@ -70,7 +83,7 @@ vi.mock("@alook/shared", async () => {
 import { GET, POST } from "./route"
 import { DELETE, PATCH } from "./[id]/route"
 
-describe("calendar events API routes", () => {
+describe("calendar events API routes (D1 + DO sync-alarm)", () => {
   const baseStoredEvent = {
     id: "cal_1",
     ownerUserId: "owner_1",
@@ -80,7 +93,7 @@ describe("calendar events API routes", () => {
     startAtMs: Date.parse("2026-11-26T01:00:00.000Z"),
     durationMinutes: 30,
     timeZone: "Asia/Shanghai",
-    recurrence: { freq: "daily", interval: 1 },
+    recurrence: { freq: "daily" as const, interval: 1 },
     occurrenceCount: 1,
     nextRunAtMs: Date.parse("2026-11-27T01:00:00.000Z"),
     paused: false,
@@ -94,6 +107,7 @@ describe("calendar events API routes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.actor = { kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "cm_1", isActive: true }
+    mocks.wsDoFetch.mockResolvedValue(Response.json({ nextAlarmMs: baseStoredEvent.nextRunAtMs }))
     mocks.getUsersByIds.mockResolvedValue([
       { id: "owner_1", name: "gus", discriminator: "1813", avatarVersion: 1, isBot: false },
     ])
@@ -110,8 +124,8 @@ describe("calendar events API routes", () => {
     mocks.requireMessageSurfaceAccess.mockResolvedValue({ ok: true, value: { surface: "channel", channel: { id: "ch_1" } } })
   })
 
-  it("allows bot POST with mandatory sourceMessageRef and rejects human POST (403)", async () => {
-    mocks.wsDoFetch.mockResolvedValue(Response.json({ event: baseStoredEvent, latestRun: null }, { status: 201 }))
+  it("allows bot POST to write D1 and sync DO alarm, and rejects human POST (403)", async () => {
+    mocks.createCalendarEvent.mockResolvedValue({ ok: true, event: baseStoredEvent, latestRun: null })
 
     const botRes = await POST(new NextRequest("http://localhost/api/community/calendar/events", {
       method: "POST",
@@ -136,8 +150,13 @@ describe("calendar events API routes", () => {
       ref: "/Alook#5620/gus-infra#42",
       seq: 42,
     })
+    expect(mocks.wsDoFetch).toHaveBeenCalledWith(
+      expect.anything(),
+      "/owner-calendar/owner_1/sync-alarm",
+      expect.objectContaining({ method: "POST" }),
+      expect.anything(),
+    )
 
-    // Human POST is forbidden in v1
     mocks.actor = { kind: "human", userId: "owner_1", email: "gus@test.local" }
     const humanRes = await POST(new NextRequest("http://localhost/api/community/calendar/events", {
       method: "POST",
@@ -152,19 +171,20 @@ describe("calendar events API routes", () => {
     expect(humanRes.status).toBe(403)
   })
 
-  it("redacts ref, channelRef, seq, and preview when caller loses access to source message", async () => {
+  it("reads D1 directly on GET and redacts inaccessible source message fields", async () => {
     mocks.actor = { kind: "human", userId: "owner_1", email: "gus@test.local" }
     mocks.requireChannelMember.mockResolvedValue({ ok: false, status: 403, error: "forbidden" })
-    mocks.wsDoFetch.mockResolvedValue(Response.json({
+    mocks.listOwnerCalendarEvents.mockResolvedValue({
       events: [baseStoredEvent],
       runsByEvent: { cal_1: [] },
       latestRunByEvent: { cal_1: null },
-    }))
+    })
 
     const res = await GET(new NextRequest(
       "http://localhost/api/community/calendar/events?from=2026-11-25T00:00:00.000Z&to=2026-11-28T00:00:00.000Z",
     ))
     expect(res.status).toBe(200)
+    expect(mocks.wsDoFetch).not.toHaveBeenCalled()
     const data = (await res.json()) as { events: any[]; occurrences: any[]; creators: any[] }
     expect(data.events).toHaveLength(1)
     expect(data.events[0].sourceMessage).toEqual({
@@ -180,45 +200,69 @@ describe("calendar events API routes", () => {
     expect(data.creators.map((c) => c.handle)).toContain("@Elwira#8700")
   })
 
-  it("scopes DO routing to the authenticated owner (cross-household isolation) and supports human PATCH/DELETE", async () => {
+  it("enforces owner scoping on DELETE and supports PATCH --ack with completed status & ackedAt", async () => {
     mocks.actor = { kind: "human", userId: "owner_other", email: "other@test.local" }
-    mocks.wsDoFetch.mockResolvedValue(Response.json({ error: "event not found" }, { status: 404 }))
+    mocks.deleteCalendarEvent.mockResolvedValue(false)
 
     const crossDel = await DELETE(
       new NextRequest("http://localhost/api/community/calendar/events/cal_1", { method: "DELETE" }),
       { params: Promise.resolve({ id: "cal_1" }) },
     )
     expect(crossDel.status).toBe(404)
-    expect(mocks.wsDoFetch).toHaveBeenCalledWith(
-      expect.anything(),
-      "/owner-calendar/owner_other/events/cal_1",
-      expect.anything(),
-      expect.anything(),
-    )
+    expect(mocks.deleteCalendarEvent).toHaveBeenCalledWith(expect.anything(), "owner_other", "cal_1")
+    expect(mocks.wsDoFetch).not.toHaveBeenCalled()
 
-    // Owner PATCH updates event
-    mocks.actor = { kind: "human", userId: "owner_1", email: "gus@test.local" }
-    mocks.wsDoFetch.mockResolvedValue(Response.json({
-      event: { ...baseStoredEvent, title: "Updated summary", paused: true },
-      latestRun: null,
-    }))
-    const patchRes = await PATCH(
+    const ackedAtMs = Date.parse("2026-11-26T01:05:00.000Z")
+    mocks.actor = { kind: "bot", userId: "bot_1", ownerUserId: "owner_1", machineId: "cm_1", isActive: true }
+    mocks.updateCalendarEvent.mockResolvedValue({
+      ok: true,
+      event: baseStoredEvent,
+      latestRun: {
+        id: "crun_1",
+        ownerUserId: "owner_1",
+        eventId: "cal_1",
+        eventVersion: 1,
+        botUserId: "bot_1",
+        scheduledAtMs: Date.parse("2026-11-26T01:00:00.000Z"),
+        sourceMessageId: "msg_1",
+        sourceChannelId: "ch_1",
+        titleSnapshot: "Daily summary",
+        descriptionSnapshot: "Summarize open items",
+        status: "completed",
+        lastError: null,
+        ackedAtMs,
+        createdAtMs: Date.parse("2026-11-26T01:00:00.000Z"),
+        updatedAtMs: ackedAtMs,
+      },
+    })
+    const ackRes = await PATCH(
       new NextRequest("http://localhost/api/community/calendar/events/cal_1", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "Updated summary", paused: true }),
+        body: JSON.stringify({ ack: true }),
       }),
       { params: Promise.resolve({ id: "cal_1" }) },
     )
-    expect(patchRes.status).toBe(200)
-    const patched = (await patchRes.json()) as { event: { title: string; paused: boolean } }
-    expect(patched.event).toMatchObject({ title: "Updated summary", paused: true })
+    expect(ackRes.status).toBe(200)
+    const ackBody = (await ackRes.json()) as { event: { lastExecution: { status: string; ackedAt: string | null } } }
+    expect(ackBody.event.lastExecution).toMatchObject({
+      status: "completed",
+      ackedAt: "2026-11-26T01:05:00.000Z",
+    })
+    expect(mocks.wsDoFetch).toHaveBeenCalledWith(
+      expect.anything(),
+      "/owner-calendar/owner_1/sync-alarm",
+      expect.objectContaining({
+        body: JSON.stringify({ ownerUserId: "owner_1", eventId: "cal_1", reason: "run_updated" }),
+      }),
+      expect.anything(),
+    )
   })
 
   it("checks creator bot surface access via requireMessageSurfaceAccess on sibling bot rebind", async () => {
     mocks.actor = { kind: "bot", userId: "bot_2", ownerUserId: "owner_1", machineId: "cm_1", isActive: true }
     mocks.resolveMessageRefForBot.mockResolvedValue({ ok: true, messageId: "msg_thread", channelId: "thr_1" })
-    mocks.wsDoFetch.mockResolvedValueOnce(Response.json({ event: baseStoredEvent, latestRun: null }))
+    mocks.getCalendarEventById.mockResolvedValueOnce({ event: baseStoredEvent, latestRun: null })
     mocks.requireMessageSurfaceAccess.mockResolvedValueOnce({ ok: false, status: 403, error: "forbidden" })
 
     const denied = await PATCH(

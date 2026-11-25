@@ -20,6 +20,7 @@ const mockFindCred = vi.fn();
 const mockListBotsForMachine = vi.fn();
 const mockGetLatestUnreadMessageForAgent = vi.fn();
 const mockDispatchOneUnreadWake = vi.fn();
+const mockListPendingRunsForOwner = vi.fn();
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<any>("@alook/shared");
@@ -36,6 +37,10 @@ vi.mock("@alook/shared", async () => {
       communityAgentInbox: {
         getLatestUnreadMessageForAgent: (...a: unknown[]) =>
           mockGetLatestUnreadMessageForAgent(...a),
+      },
+      communityCalendar: {
+        listPendingRunsForOwner: (...a: unknown[]) =>
+          mockListPendingRunsForOwner(...a),
       },
     },
   };
@@ -60,6 +65,8 @@ describe("POST /api/community/daemon/resync-wakes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDispatchOneUnreadWake.mockReset();
+    mockListPendingRunsForOwner.mockReset();
+    mockListPendingRunsForOwner.mockResolvedValue([]);
     mockBindingFetch.mockReset();
     mockHttpFetch.mockReset();
     mockFindCred.mockResolvedValue({
@@ -179,6 +186,7 @@ describe("resync wake transport", () => {
     vi.stubGlobal("fetch", mockHttpFetch);
     mockFindCred.mockResolvedValue({ credentialId: "cmk_ok", userId: "u_1", machineId: "cm_1" });
     mockListBotsForMachine.mockResolvedValue([{ id: "bot_1" }]);
+    mockListPendingRunsForOwner.mockResolvedValue([]);
     mockGetLatestUnreadMessageForAgent.mockResolvedValue({ messageId: "msg_1" });
     mockDispatchOneUnreadWake.mockImplementation(async (_db, env) => {
       const { attempted } = await sendWakeToMachine(env, "cm_1", command);
@@ -212,6 +220,7 @@ describe("resync wake transport", () => {
 
   it("counts pending calendar runs flushed during resync-wakes", async () => {
     mockGetLatestUnreadMessageForAgent.mockResolvedValue(null);
+    mockListPendingRunsForOwner.mockResolvedValue([{ id: "crun_1", botUserId: "bot_1" }]);
     mockBindingFetch.mockResolvedValue(Response.json({ attempted: 2, dispatched: 2, blocked: 0 }));
     expect(await (await POST(req({ Authorization: "Bearer cmk_ok" }))).json()).toEqual({ attempted: 2 });
     expect(mockBindingFetch).toHaveBeenCalledWith(

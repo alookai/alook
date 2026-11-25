@@ -56,6 +56,7 @@ export const POST = withAuth(machineAuthPolicy, async (_req, ctx) => {
 
   if (bots.length > 0) {
     const calendarResync = await resyncOwnerCalendarForBots(
+      db,
       ctx.env,
       ctx.userId,
       bots.map((bot) => bot.id),
