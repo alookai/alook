@@ -5,6 +5,7 @@ import { MessagesSquare } from "@/components/icons/lucide"
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { avatarInitial } from "@/lib/community/avatar"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import type { ForumThread } from "@/lib/community/models/message"
 import type { CommunityProfile } from "@/lib/community/models/people"
@@ -138,12 +139,12 @@ export function ForumPostItem({ post: p, profilesByUserId, onOpen, actions }: {
           {others.length > 0 && (
             <AvatarGroup className="-space-x-1.25" data-testid={tid.forumThreadAvatars(p.id)}>
               {shown.map((member) => {
-                const profile = readCommunityProfile(
-                  profilesByUserId.get(member.id),
-                  member.id,
-                )
+                const canonical = profilesByUserId.get(member.id)
+                const avatar = canonical
+                  ? readCommunityProfile(canonical, member.id).avatar
+                  : (member.avatar || avatarInitial(member.name))
                 return (
-                  <Avatar key={member.id} label={profile.avatar} seed={member.id} size={19} ringColor="var(--background)" />
+                  <Avatar key={member.id} label={avatar} seed={member.id} size={19} ringColor="var(--background)" />
                 )
               })}
               {overflow > 0 && <AvatarGroupCount className="size-4.75 text-[10px]">+{overflow}</AvatarGroupCount>}

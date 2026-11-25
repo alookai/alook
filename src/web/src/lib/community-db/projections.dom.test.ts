@@ -28,7 +28,7 @@ import {
 } from "./projections"
 import { ingestMessages, ingestServerDetail, ingestServers, restoreCommunityCollections } from "./sync"
 import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
-import { profileSchema } from "./schema"
+import { canonicalChannelRow, profileSchema } from "./schema"
 import { writeCommunityCollectionRows } from "./write"
 
 describe("community DB projections", () => {
@@ -601,5 +601,71 @@ describe("community DB projections", () => {
     registry.runtime.ws.actions.reset()
     expect(registry.hasRestoredCollection("channels")).toBe(true)
     await registry["cleanup"]()
+  })
+
+  it("preserves thread participants when joining a child channel onto a forum opener message", async () => {
+    const client = new QueryClient()
+    const registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+    const participants = [
+      { id: "usr_alice", name: "Alice", avatar: null, avatarVersion: 1 },
+      { id: "usr_bob", name: "Bob", avatar: "https://cdn.example.com/bob.png", avatarVersion: 2 },
+    ]
+    await writeCommunityCollectionRows(registry, "channels", [
+      canonicalChannelRow(channelResourceFixture({ id: "forum", type: "forum", creatorId: "usr_alice" })),
+      canonicalChannelRow({
+        ...channelResourceFixture({
+          id: "post-1",
+          type: "thread",
+          name: "Post Title",
+          parentChannelId: "forum",
+          parentMessageId: "opener-1",
+          messageCount: 3,
+          creatorId: "usr_alice",
+        }),
+        tags: ["bug"],
+        firstMessageId: "reply-1",
+        participantCount: 4,
+      }),
+    ], row => row.id)
+    ingestMessages(registry, "forum", messageSeedFixture("forum", [{
+      id: "opener-1",
+      seq: 1,
+      type: "chat",
+      authorId: "usr_alice",
+      content: "Post Title",
+      thread: {
+        id: "post-1",
+        name: "Post Title",
+        messageCount: 3,
+        tags: ["bug"],
+        firstMessageId: "reply-1",
+        participants,
+        participantCount: 4,
+      },
+    }]))
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const view = renderHook(() => ({
+      window: useMessageWindowProjection("forum", ["opener-1"], []),
+      byId: useCanonicalMessagesById(["opener-1"]),
+    }), { wrapper })
+    try {
+      await waitFor(() => expect(view.result.current.window.canonicalMessages).toHaveLength(1))
+      expect(view.result.current.window.canonicalMessages?.[0]?.thread).toMatchObject({
+        id: "post-1",
+        messageCount: 3,
+        tags: ["bug"],
+        firstMessageId: "reply-1",
+        participantCount: 4,
+        participants,
+      })
+      expect(view.result.current.byId?.get("opener-1")?.thread?.participants).toEqual([
+        { id: "usr_alice", name: "Alice", avatar: "A", avatarVersion: 1 },
+        { id: "usr_bob", name: "Bob", avatar: "https://cdn.example.com/bob.png", avatarVersion: 2 },
+      ])
+    } finally {
+      view.unmount()
+      await registry.cleanup()
+    }
   })
 })
