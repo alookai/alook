@@ -200,11 +200,13 @@ test("anchored channel jumps to the newest tail with one request and follows the
 
   let newestGets = 0
   let anchorGets = 0
+  const isNewestMessagesUrl = (url: URL) =>
+    !url.searchParams.has("entry") && !url.searchParams.has("cursor") && !url.searchParams.has("since") && !url.searchParams.has("anchor")
   page.on("request", (request) => {
     if (request.method() !== "GET") return
     const url = new URL(request.url())
     if (url.pathname !== `/api/community/channels/${channelId}/messages`) return
-    if (url.search === "") newestGets += 1
+    if (isNewestMessagesUrl(url)) newestGets += 1
     if (url.searchParams.has("anchor")) anchorGets += 1
   })
 
