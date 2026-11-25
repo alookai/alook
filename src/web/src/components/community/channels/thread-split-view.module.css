@@ -1,5 +1,15 @@
-.layout {
+.pendingLayout {
   container: thread-split / inline-size;
+}
+
+.modeProbe {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+  container: thread-split-probe / inline-size;
 }
 
 .modeMarker {
@@ -32,11 +42,13 @@
   display: none;
 }
 
-@container thread-split (min-width: 880px) {
+@container thread-split-probe (min-width: 880px) {
   .modeMarker {
     --thread-split-mode: split;
   }
+}
 
+@container thread-split (min-width: 880px) {
   .layout[data-layout-pending] > [data-group] > [data-panel][id="parent"] {
     flex: 1 0 0px !important;
     width: auto !important;

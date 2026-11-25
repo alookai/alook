@@ -1362,4 +1362,95 @@ describe("InboxPopover inline reply in Unreads", () => {
       expect(input.value).toBe("")
     })
   })
+
+  it("keeps the full focused inline reply composer visible inside the scroll container without resetting scrollTop or leaking document scroll on resize", async () => {
+    const callbacks: ResizeObserverCallback[] = []
+    const originalResizeObserver = window.ResizeObserver
+    class MockResizeObserver {
+      callback: ResizeObserverCallback
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        callbacks.push(callback)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    window.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
+    try {
+      let savedOffset = 0
+      const getScrollOffset = vi.fn(() => savedOffset)
+      const onScrollOffsetChange = vi.fn((_tab: string, next: number) => {
+        savedOffset = next
+      })
+      const renderer = render(React.createElement(InboxPopover, {
+        unreads: [],
+        unreadDms: [{
+          channelId: "dm_kb",
+          otherUserId: "u_peer",
+          otherUserName: "Peer",
+          otherUserDiscriminator: "0001",
+          otherUserAvatar: "P",
+          otherUserAvatarVersion: 0,
+          lastMessageAt: "2026-11-23T03:00:00.000Z",
+          lastUnreadSeq: 2,
+          unreadCount: 1,
+        }],
+        mentions: [],
+        marked: [],
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
+        getScrollOffset,
+        onScrollOffsetChange,
+        onReplyChannel: vi.fn().mockResolvedValue({ id: "m_ok", seq: 3 }),
+      }))
+
+      fireEvent.click(renderer.getByTestId(tid.inboxToggleChannel("dm_kb")))
+      const scrollViewport = renderer.getByTestId(tid.inboxTabScroll("unreads"))
+      const input = renderer.getByTestId(tid.inboxReplyInput("dm_kb")) as HTMLInputElement
+      const footer = input.closest<HTMLElement>('[data-slot="inbox-card-footer"]')!
+      expect(footer).not.toBeNull()
+      expect(footer.querySelector('[data-slot="inbox-reply-composer"]')).not.toBeNull()
+      expect(footer.querySelector(`[data-testid="${tid.inboxReplySend("dm_kb")}"]`)).not.toBeNull()
+      const footerScrollIntoView = vi.fn()
+      const inputScrollIntoView = vi.fn()
+      footer.scrollIntoView = footerScrollIntoView
+      input.scrollIntoView = inputScrollIntoView
+      const footerContentTop = 290 + 140
+      scrollViewport.getBoundingClientRect = () => ({ top: 100, bottom: 300, height: 200, left: 0, right: 400, width: 400, x: 0, y: 100, toJSON: () => ({}) })
+      footer.getBoundingClientRect = () => {
+        const top = footerContentTop - scrollViewport.scrollTop
+        return { top, bottom: top + 60, height: 60, left: 0, right: 400, width: 400, x: 0, y: top, toJSON: () => ({}) }
+      }
+
+      scrollViewport.scrollTop = 140
+      input.focus()
+      expect(document.activeElement).toBe(input)
+
+      await act(async () => {
+        for (const cb of callbacks) cb([], {} as ResizeObserver)
+      })
+
+      expect(scrollViewport.scrollTop).toBe(202)
+      expect(onScrollOffsetChange).toHaveBeenCalledWith("unreads", 202)
+      expect(footerScrollIntoView).not.toHaveBeenCalled()
+      expect(inputScrollIntoView).not.toHaveBeenCalled()
+
+      // Repeated resizes/frames while already revealed must remain idempotent.
+      await act(async () => {
+        for (const cb of callbacks) cb([], {} as ResizeObserver)
+      })
+      expect(scrollViewport.scrollTop).toBe(202)
+
+      // After blurring (e.g. keyboard dismissed), resize restores the saved scroll offset.
+      input.blur()
+      scrollViewport.scrollTop = 0
+      await act(async () => {
+        for (const cb of callbacks) cb([], {} as ResizeObserver)
+      })
+      expect(scrollViewport.scrollTop).toBe(202)
+    } finally {
+      window.ResizeObserver = originalResizeObserver
+    }
+  })
 })

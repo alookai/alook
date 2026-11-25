@@ -307,7 +307,7 @@ describe("conversation entry canonical publication", () => {
     load.mockResolvedValue(entry())
     const resource = await client.query({ ...conversationEntryOptions(client, target), select: undefined })
     expect(load).toHaveBeenCalledOnce()
-    expect(load).toHaveBeenCalledWith("/api/community/channels/c1/messages?entry=1&window=tail", expect.objectContaining({
+    expect(load).toHaveBeenCalledWith("/api/community/channels/c1/messages?entry=1&window=tail&includeRefs=1", expect.objectContaining({
       authenticationAccount: "viewer", signal: expect.any(AbortSignal), headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
     }))
     expect(registry.collections.channels.get("c1")).toMatchObject({ name: "Channel" })

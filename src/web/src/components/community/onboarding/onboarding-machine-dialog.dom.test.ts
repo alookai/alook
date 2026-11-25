@@ -117,11 +117,11 @@ describe("OnboardingMachineDialog", () => {
     expect(input.onConnected).not.toHaveBeenCalled()
     expect(view.getByText("Computer is connected")).toBeInTheDocument()
     expect(view.getByRole("heading", { name: "Codex isn’t ready", hidden: true })).toBeInTheDocument()
-    expect(view.getByTestId(tid.onboardingRuntimeUnavailable)).toHaveTextContent("restart the Alook daemon")
+    expect(view.getByTestId(tid.onboardingRuntimeUnavailable)).toHaveTextContent("run the connect command again")
     const support = view.getByTestId(tid.onboardingJoinSupport)
     expect(support).toHaveAccessibleName("Need Help")
     expect(view.getByTestId(tid.onboardingRuntimeUnavailable)).toHaveTextContent(
-      availableRuntimes.find((runtime) => runtime.id === "codex")?.lastError || "The selected agent wasn’t detected as available.",
+      availableRuntimes.find((runtime) => runtime.id === "codex")?.lastError || "We couldn’t find this tool on your computer yet.",
     )
     expect(mockedSteps).not.toHaveBeenCalled()
     expect(mocks.apiFetch).not.toHaveBeenCalled()
@@ -272,11 +272,11 @@ describe("OnboardingMachineDialog", () => {
       await vi.advanceTimersByTimeAsync(0)
     })
 
-    expect(view.getByRole("alert", { hidden: true })).toHaveTextContent("Machine limit reached")
+    expect(view.getByRole("alert", { hidden: true })).toHaveTextContent("Computer limit reached")
     expect(view.getByRole("alert", { hidden: true })).not.toHaveTextContent("Couldn’t prepare the command")
     expect(mocks.refetch).toHaveBeenCalledOnce()
 
-    fireEvent.click(view.getByRole("button", { name: "Choose another harness", hidden: true }))
+    fireEvent.click(view.getByRole("button", { name: "Choose another tool", hidden: true }))
     fireEvent.click(view.getByRole("button", { name: "Manage machines", hidden: true }))
     expect(onChooseAnotherHarness).toHaveBeenCalledOnce()
     expect(onManageMachines).toHaveBeenCalledOnce()

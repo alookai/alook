@@ -152,14 +152,14 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(mocks.initialize).not.toHaveBeenCalled()
   })
 
-  it("defaults to Agent Setup and supports Manual and exit without creating a team", async () => {
+  it("defaults to Agent Setup and supports Terminal and exit without creating a team", async () => {
     mocks.state = { status: "active", stage: "harness" }
     render(createElement(CommunityOnboardingForm))
-    expect(screen.getByText("Pick your local agent")).toBeInTheDocument()
+    expect(screen.getByText("Set up your first bot")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("select-harness"))
     expect(screen.getByText("Agent Setup")).toBeInTheDocument()
     expect(mocks.initialize).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("tab", { name: "Manual" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Terminal" }))
     expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Exit manual" }))
     expect(owner.runtime.ui.get().onboardingState).toBeNull()

@@ -285,7 +285,7 @@ export function ForumView({
   )
 }
 
-function ForumPostSkeleton({ postId }: { postId?: string }) {
+export function ForumPostSkeleton({ postId }: { postId?: string }) {
   return (
     <div
       data-slot="community-forum-post-skeleton"

@@ -536,4 +536,184 @@ describe("useConversationScroll", () => {
     fireEvent.pointerUp(document, { pointerId: 9 })
     h.view.unmount()
   })
+
+  it("keeps belowCount at 0 without flashing through async smooth scroll on bottom-pinned local submit", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList)
+    const smoothCalls: Array<{ top: number; behavior?: ScrollBehavior }> = []
+    const originalScrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object" && options?.behavior === "smooth") {
+        smoothCalls.push({ top: options.top ?? this.scrollTop, behavior: options.behavior })
+        return
+      }
+      return Reflect.apply(originalScrollTo, this, [options])
+    })
+
+    const observedBelowCounts: number[] = []
+    const observedPagination: boolean[] = []
+    const h = mount(undefined, false, () => {
+      observedBelowCounts.push(scrollFixture.latest.belowCount)
+      observedPagination.push(scrollFixture.latest.paginationEnabled)
+    })
+    observedBelowCounts.length = 0
+    observedPagination.length = 0
+    smoothCalls.length = 0
+
+    const beforeTop = h.root.scrollTop
+    h.update({ items: [...h.input.items, message("local-bottom-1")], localSubmitVersion: 1 })
+    const expectedTarget = h.root.scrollHeight - h.root.clientHeight
+    expect(expectedTarget).toBeGreaterThan(beforeTop)
+    expect(smoothCalls).toEqual([{ top: expectedTarget, behavior: "smooth" }])
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+
+    const midpoint = Math.round((beforeTop + expectedTarget) / 2)
+    act(() => {
+      h.root.scrollTop = midpoint
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+
+    act(() => {
+      h.root.scrollTop = expectedTarget
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(scrollFixture.latest.readingTail).toBe(true)
+    expect(observedBelowCounts.every((count) => count === 0)).toBe(true)
+    expect(observedPagination.every(Boolean)).toBe(true)
+    h.view.unmount()
+  })
+
+  it("suppresses belowCount immediately during async smooth return from history on local submit and restores it on upward interrupt", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList)
+    const smoothTargets: number[] = []
+    const originalScrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object" && options?.behavior === "smooth") {
+        smoothTargets.push(options.top ?? this.scrollTop)
+        return
+      }
+      return Reflect.apply(originalScrollTo, this, [options])
+    })
+
+    const observedAfterSubmit: number[] = []
+    let recording = false
+    const h = mount(undefined, false, () => {
+      if (recording) observedAfterSubmit.push(scrollFixture.latest.belowCount)
+    })
+    h.move(200)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    expect(scrollFixture.latest.belowCount).toBeGreaterThan(0)
+
+    smoothTargets.length = 0
+    h.update({ items: [...h.input.items, message("local-history-1")], localSubmitVersion: 1 })
+    const expectedTarget = h.root.scrollHeight - h.root.clientHeight
+    expect(smoothTargets.at(-1)).toBe(expectedTarget)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    recording = true
+    act(() => {
+      h.root.scrollTop = Math.round((200 + expectedTarget) / 2)
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    act(() => {
+      h.root.scrollTop = expectedTarget
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    expect(observedAfterSubmit.length).toBeGreaterThan(0)
+    expect(observedAfterSubmit.every((count) => count === 0)).toBe(true)
+
+    recording = false
+    h.move(200)
+    expect(scrollFixture.latest.belowCount).toBeGreaterThan(0)
+    h.update({ items: [...h.input.items, message("local-history-2")], localSubmitVersion: 2 })
+    expect(scrollFixture.latest.belowCount).toBe(0)
+
+    fireEvent.wheel(h.root, { deltaY: -40 })
+    runFrames()
+    expect(scrollFixture.latest.followingTail).toBe(false)
+    expect(scrollFixture.latest.belowCount).toBeGreaterThan(0)
+    h.view.unmount()
+  })
+
+  it("preserves detached jumpToPresentVisible error retry and lands without belowCount flash once newest window arrives", async () => {
+    const originalScrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object" && options?.behavior === "smooth") return
+      return Reflect.apply(originalScrollTo, this, [options])
+    })
+
+    const beforeWindow = { tag: "older" }
+    const newestWindow = { tag: "newest" }
+    let resolveFail!: (result: MessageRequestResult) => void
+    const failing = new Promise<MessageRequestResult>((resolve) => { resolveFail = resolve })
+    const h = mount({ hasMoreNewer: true, messageWindow: beforeWindow, presentPending: true })
+    h.move(200)
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(true)
+
+    h.update({
+      localSubmitVersion: 1,
+      presentRequest: { accepted: true, completed: failing },
+    })
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(true)
+
+    await act(async () => {
+      resolveFail({ status: "error" })
+      await failing
+    })
+    runFrames()
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(true)
+    expect(scrollFixture.latest.followingTail).toBe(false)
+
+    let resolveOk!: (result: MessageRequestResult) => void
+    const succeeding = new Promise<MessageRequestResult>((resolve) => { resolveOk = resolve })
+    h.update({
+      localSubmitVersion: 2,
+      presentRequest: { accepted: true, completed: succeeding },
+    })
+    await act(async () => {
+      resolveOk({ status: "success", window: newestWindow })
+      await succeeding
+    })
+    h.update({
+      hasMoreNewer: false,
+      presentPending: false,
+      messageWindow: newestWindow,
+      items: [...h.input.items, message("local-detached-2")],
+    })
+    expect(scrollFixture.latest.jumpToPresentVisible).toBe(false)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    act(() => {
+      h.root.scrollTop = h.root.scrollHeight - h.root.clientHeight
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(scrollFixture.latest.belowCount).toBe(0)
+    expect(scrollFixture.latest.followingTail).toBe(true)
+    h.view.unmount()
+  })
 })

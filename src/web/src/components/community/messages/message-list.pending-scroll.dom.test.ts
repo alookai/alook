@@ -4,6 +4,7 @@ import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 import type { MessageRequestResult } from "@/lib/community/message-position"
 import { tid } from "@/lib/community/testids"
+import { ConversationFooterShell, ConversationFooterSlotProvider } from "./conversation-footer-shell"
 import { MessageList } from "./message-list"
 
 const anchorState = vi.hoisted(() => ({
@@ -320,4 +321,84 @@ describe("MessageList continuous input through an accepted page", () => {
     expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
   })
 
+  it("never flashes scroll-to-present in ComposerAccessoryRail during async smooth scroll after local submit", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList)
+    const originalScrollTo = HTMLElement.prototype.scrollTo
+    vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object" && options?.behavior === "smooth") return
+      return Reflect.apply(originalScrollTo, this, [options])
+    })
+
+    const baseMessages = Array.from({ length: 30 }, (_, index) => message(index + 1))
+    const view = (messages = baseMessages, localSubmitVersion = 0) => React.createElement(
+      ConversationFooterSlotProvider,
+      { reserveAccessorySlot: true },
+      React.createElement(MessageList, {
+        channel: "general",
+        messages,
+        initialScrollReady: true,
+        positionDataState: "ready",
+        hasMore: false,
+        hasMoreNewer: false,
+        localSubmitVersion,
+        onOpenThread: vi.fn(),
+      }),
+      React.createElement(ConversationFooterShell, null, React.createElement("div")),
+    )
+
+    const renderer = render(view())
+    resize()
+    const root = renderer.getByTestId(tid.messageScroller)
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+
+    const afterFirstSubmit = [...baseMessages, message(31)]
+    renderer.rerender(view(afterFirstSubmit, 1))
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+
+    const maxAfterFirst = root.scrollHeight - root.clientHeight
+    act(() => {
+      root.scrollTop = Math.max(0, maxAfterFirst - 40)
+      root.dispatchEvent(new Event("scroll"))
+    })
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+    act(() => {
+      root.scrollTop = maxAfterFirst
+      root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+
+    fireEvent.wheel(root, { deltaY: -400 })
+    act(() => {
+      root.scrollTop = 100
+      root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(renderer.getByTestId(tid.scrollToPresent)).toBeVisible()
+
+    const afterHistorySubmit = [...afterFirstSubmit, message(32)]
+    renderer.rerender(view(afterHistorySubmit, 2))
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+
+    const maxAfterSecond = root.scrollHeight - root.clientHeight
+    act(() => {
+      root.scrollTop = Math.round((100 + maxAfterSecond) / 2)
+      root.dispatchEvent(new Event("scroll"))
+    })
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+    act(() => {
+      root.scrollTop = maxAfterSecond
+      root.dispatchEvent(new Event("scroll"))
+    })
+    runFrames()
+    expect(renderer.queryByTestId(tid.scrollToPresent)).toBeNull()
+    renderer.unmount()
+  })
 })

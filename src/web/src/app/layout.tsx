@@ -1,6 +1,7 @@
 import "./globals.css";
 import technostalgia from "@/components/brand/technostalgia.module.css";
 import type { Metadata, Viewport } from "next";
+import { CSPProvider } from "@base-ui/react/csp-provider";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToasterProvider } from "@/components/toaster-provider";
@@ -59,15 +60,17 @@ export default function RootLayout({
           />
         ))}
         <ThemeProvider attribute={["class", "data-tn-mode"]} defaultTheme="system" enableSystem>
-          <ThemeColorSync />
-          <TauriThemeSync />
-          <NativeKeyboardSync />
-          <MessageNotificationToaster />
-          <TooltipProvider>
-            {children}
-          </TooltipProvider>
-          <ToasterProvider />
-        <AnalyticsConsent />
+          <CSPProvider disableStyleElements>
+            <ThemeColorSync />
+            <TauriThemeSync />
+            <NativeKeyboardSync />
+            <MessageNotificationToaster />
+            <TooltipProvider>
+              {children}
+            </TooltipProvider>
+            <ToasterProvider />
+            <AnalyticsConsent />
+          </CSPProvider>
         </ThemeProvider>
       </body>
     </html>

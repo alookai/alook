@@ -1649,6 +1649,7 @@
   width: auto !important;
   content: "" !important;
   pointer-events: none !important;
+  transform: none !important;
 }
 .theme [data-sonner-toast][data-styled="true"]::after {
   z-index: -2 !important;

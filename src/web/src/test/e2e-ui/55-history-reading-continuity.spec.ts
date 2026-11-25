@@ -552,9 +552,11 @@ test("DM newer and present recovery keep readable rows and retire a late present
   await expect.poll(async () => Math.abs(await bodyOffset(root, before.firstVisibleId!) - before.firstVisibleOffset!)).toBeLessThanOrEqual(1)
   let failPresent = true
   let presentGets = 0
-  page.on("request", request => { const url = new URL(request.url()); if (request.method() === "GET" && url.pathname === endpoint && url.search === "") presentGets++ })
-  await page.route(`**${endpoint}`, async route => {
-    if (route.request().method() === "GET" && new URL(route.request().url()).search === "") {
+  const isNewestMessagesUrl = (url: URL) =>
+    url.pathname === endpoint && !url.searchParams.has("entry") && !url.searchParams.has("cursor") && !url.searchParams.has("since") && !url.searchParams.has("anchor")
+  page.on("request", request => { const url = new URL(request.url()); if (request.method() === "GET" && isNewestMessagesUrl(url)) presentGets++ })
+  await page.route(`**${endpoint}**`, async route => {
+    if (route.request().method() === "GET" && isNewestMessagesUrl(new URL(route.request().url()))) {
       if (failPresent) { await route.fulfill(currentCommunityFixtureError("bounded present failure", 503)); return }
     }
     await route.fallback()
@@ -563,7 +565,7 @@ test("DM newer and present recovery keep readable rows and retire a late present
   await expect(page.getByRole("button", { name: "Could not load recent messages. Retry" })).toBeVisible()
   await expect(composerEditable(page)).toHaveText("keep DM draft")
   failPresent = false
-  const held = await holdNextRequest(actors, page, `**${endpoint}**`, url => url.search === "")
+  const held = await holdNextRequest(actors, page, `**${endpoint}**`, isNewestMessagesUrl)
   await page.getByTestId(tid.scrollToPresent).click()
   await held.matched
   const present = page.getByTestId(tid.scrollToPresent)

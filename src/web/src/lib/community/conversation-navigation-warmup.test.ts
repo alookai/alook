@@ -42,7 +42,7 @@ describe("native entry warmup", () => {
     packet.selection = { reason: "explicit_anchor", anchorMessageId: "m1" }
     load.mockResolvedValue(packet)
     await startConversationNavigationWarmup(client, { ...target, anchorMessageId: "m1" })
-    expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&anchor=m1")
+    expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&anchor=m1&includeRefs=1")
     expect(client.getQueryData(key)).toBe(previous)
   })
 

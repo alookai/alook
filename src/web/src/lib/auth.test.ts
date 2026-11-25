@@ -106,7 +106,6 @@ function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {
     WS_DO_WORKER: {},
     EMAIL_WORKER: { fetch: vi.fn(async () => new Response("ok", { status: 200 })) },
     NEXT_INC_CACHE_R2_BUCKET: {},
-    NEXT_TAG_CACHE_D1: {},
     NEXT_CACHE_DO_QUEUE: {},
     GITHUB_CLIENT_ID: "gh",
     GITHUB_CLIENT_SECRET: "gh-s",

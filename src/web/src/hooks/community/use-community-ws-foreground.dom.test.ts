@@ -77,7 +77,7 @@ async function mountWarmEntryRecovery(recover: (fresh: ReturnType<typeof convers
       if (entries.length === 1) throw new ConversationReadTimeoutError()
       return recover(fresh)
     }
-    if (path === "/api/community/channels/c1/messages") {
+    if (path === "/api/community/channels/c1/messages?includeRefs=1") {
       return messageReadPageFixture({ ...fresh.page, messages: fresh.messages, profiles: fresh.profiles })
     }
     throw new Error(`unexpected entry recovery request: ${String(path)}`)
@@ -130,7 +130,7 @@ describe("community foreground message reconciliation", () => {
         request.result = "authoritative-entry"
         return fresh
       }
-      if (path === "/api/community/channels/c1/messages") {
+      if (path === "/api/community/channels/c1/messages?includeRefs=1") {
         request.result = "message-window"
         return messageReadPageFixture({ ...fresh.page, messages: fresh.messages, profiles: fresh.profiles })
       }
@@ -296,16 +296,16 @@ describe("community foreground message reconciliation", () => {
     await act(async () => { await capturedUseUserWsOptions!.onForeground!() })
     const paths = getCommunityApiFetchMock().mock.calls.map(([path]) => path)
     expect(paths).toEqual(layout === "split" ? [
-      "/api/community/channels/primary/messages",
-      "/api/community/channels/parent/messages",
-    ] : ["/api/community/channels/dm/messages"])
+      "/api/community/channels/primary/messages?includeRefs=1",
+      "/api/community/channels/parent/messages?includeRefs=1",
+    ] : ["/api/community/channels/dm/messages?includeRefs=1"])
     expect(invalidate).not.toHaveBeenCalled()
     if (layout === "split") {
       await act(async () => { getCapturedRuntime().ui.actions.releaseSecondaryChannel(secondary) })
       getCommunityApiFetchMock().mockClear()
       await act(async () => { await capturedUseUserWsOptions!.onForeground!() })
       expect(getCommunityApiFetchMock().mock.calls.map(([path]) => path)).toEqual([
-        "/api/community/channels/primary/messages",
+        "/api/community/channels/primary/messages?includeRefs=1",
       ])
     }
   })
@@ -318,7 +318,7 @@ describe("community foreground message reconciliation", () => {
     flushEffects()
     let release!: (value: unknown) => void
     getCommunityApiFetchMock().mockImplementation(async (path) => {
-      if (path === "/api/community/channels/focused/messages") {
+      if (path === "/api/community/channels/focused/messages?includeRefs=1") {
         if (release) throw new Error(`unexpected duplicate snapshot: ${JSON.stringify(getCommunityApiFetchMock().mock.calls.map(([url]) => url))}`)
         return new Promise((resolve) => { release = resolve })
       }
@@ -338,7 +338,7 @@ describe("community foreground message reconciliation", () => {
     event.message.seq = 3
     await act(async () => { capturedOnMessage!(currentCommunityEventFixture(event)) })
     await Promise.resolve()
-    expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/channels/focused/messages")).toHaveLength(1)
+    expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/channels/focused/messages?includeRefs=1")).toHaveLength(1)
     expect(cancel.mock.calls.filter(([filters]) => JSON.stringify(filters.queryKey) === JSON.stringify(key))).toHaveLength(1)
     await act(async () => { release(page("focused", "snapshot-before-gap")) })
     await act(async () => { await Promise.all([foreground, duplicate, reconnect]) })
@@ -354,8 +354,8 @@ describe("community foreground message reconciliation", () => {
     flushEffects()
     let releaseOld!: (value: unknown) => void
     getCommunityApiFetchMock().mockImplementation(async (path) => {
-      if (path === "/api/community/channels/a/messages") return new Promise((resolve) => { releaseOld = resolve })
-      if (path === "/api/community/channels/b/messages") return page("b", "current-b")
+      if (path === "/api/community/channels/a/messages?includeRefs=1") return new Promise((resolve) => { releaseOld = resolve })
+      if (path === "/api/community/channels/b/messages?includeRefs=1") return page("b", "current-b")
       throw new Error(`unexpected fetch: ${String(path)}`)
     })
     let old!: void | Promise<void>; act(() => { old = capturedUseUserWsOptions!.onForeground!() })

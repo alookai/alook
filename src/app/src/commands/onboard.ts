@@ -49,7 +49,7 @@ export function onboardCommand(): Command {
       if (isRunning()) {
         console.log("\nServices already running.");
       } else {
-        startServices(ports, { foreground: devMode });
+        await startServices(ports, { foreground: devMode });
       }
 
       const baseURL = WEB_URL(ports.web);

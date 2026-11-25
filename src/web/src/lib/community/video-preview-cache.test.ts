@@ -4,7 +4,15 @@ import { get, keys, set } from "idb-keyval"
 import * as storage from "@/lib/query-cache-store"
 import { clearAllPersistedCaches, clearPersistedCache, createIdbPersister, getPersistedCacheSizeBytes } from "@/lib/query-persister"
 import { MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES } from "@alook/shared/constants/community"
-import { captureVideoPreviewOwner, isVideoPreviewCacheKey, readVideoPreview, saveVideoPreview } from "./video-preview-cache"
+import {
+  captureVideoPreviewOwner,
+  isVideoPreviewCacheKey,
+  readVideoMemoryDimensions,
+  readVideoPreview,
+  saveVideoPreview,
+  warmVideoMemoryDimensions,
+  writeVideoMemoryDimensions,
+} from "./video-preview-cache"
 
 let account: string
 let channel: string
@@ -114,5 +122,76 @@ describe("derived video preview persistence", () => {
     expect(await captureVideoPreviewOwner(account, url)).toBeNull()
     expect(await readVideoPreview(owner, url)).toBeNull()
     expect(await saveVideoPreview(owner, url, { width: 640, height: 360 })).toBe(false)
+    expect(await warmVideoMemoryDimensions({}, account)).toBe(0)
+  })
+
+  it("warms only owner-verified dimensions for the claimed account in LRU order without creating poster ObjectURLs", async () => {
+    const createObjectUrl = vi.fn(() => "blob:should-not-be-created")
+    const OriginalURL = URL
+    vi.stubGlobal("URL", class extends OriginalURL {
+      static createObjectURL = createObjectUrl
+    })
+
+    const { owner, persister } = await qualified()
+    const urlOld = `/api/community/channels/${channel}/attachments/old`
+    const urlMid = `/api/community/channels/${channel}/attachments/mid`
+    const urlNew = `/api/community/channels/${channel}/attachments/new`
+    const otherChannel = crypto.randomUUID()
+    const urlDeleted = `/api/community/channels/${otherChannel}/attachments/deleted`
+    const deletedOwner = await captureVideoPreviewOwner(account, urlDeleted)
+    expect(deletedOwner).not.toBeNull()
+
+    const now = vi.spyOn(Date, "now")
+    now.mockReturnValue(1_000)
+    expect(await saveVideoPreview(owner, urlOld, { width: 1280, height: 720, poster: poster() })).toBe(true)
+    now.mockReturnValue(3_000)
+    expect(await saveVideoPreview(owner, urlNew, { width: 720, height: 1280, poster: poster() })).toBe(true)
+    now.mockReturnValue(2_000)
+    expect(await saveVideoPreview(owner, urlMid, { width: 800, height: 600 })).toBe(true)
+    expect(await saveVideoPreview(deletedOwner!, urlDeleted, { width: 640, height: 360 })).toBe(true)
+
+    const mismatchKey = (suffix: string) => `alook:video-preview:v1:${encodeURIComponent(account)}:${encodeURIComponent(`/api/community/channels/${channel}/attachments/${suffix}`)}`
+    const baseRow = await get<Record<string, unknown>>(
+      (await keys(storage.cacheStore)).find(key => typeof key === "string" && key.endsWith(encodeURIComponent(urlOld)))!,
+      storage.cacheStore,
+    )
+    const baseOwner = baseRow!.owner as Record<string, unknown>
+    await set(mismatchKey("bad-device"), { ...baseRow, url: `/api/community/channels/${channel}/attachments/bad-device`, owner: { ...baseOwner, device: crypto.randomUUID() } }, storage.cacheStore)
+    await set(mismatchKey("bad-account"), { ...baseRow, url: `/api/community/channels/${channel}/attachments/bad-account`, owner: { ...baseOwner, account: crypto.randomUUID() } }, storage.cacheStore)
+    await set(mismatchKey("bad-scope"), { ...baseRow, url: `/api/community/channels/${channel}/attachments/bad-scope`, owner: { ...baseOwner, scope: crypto.randomUUID() } }, storage.cacheStore)
+    await set(mismatchKey("bad-epoch"), { ...baseRow, url: `/api/community/channels/${channel}/attachments/bad-epoch`, owner: { ...baseOwner, channelEpoch: crypto.randomUUID() } }, storage.cacheStore)
+    await set(mismatchKey("bad-version"), { ...baseRow, url: `/api/community/channels/${channel}/attachments/bad-version`, owner: { ...baseOwner, version: 99999 } }, storage.cacheStore)
+
+    await persister.retireChannels([otherChannel], true)
+
+    const scope = {}
+    expect(await warmVideoMemoryDimensions(scope, account)).toBe(3)
+    expect(createObjectUrl).not.toHaveBeenCalled()
+    expect(readVideoMemoryDimensions(scope, urlOld)).toEqual({ width: 1280, height: 720 })
+    expect(readVideoMemoryDimensions(scope, urlMid)).toEqual({ width: 800, height: 600 })
+    expect(readVideoMemoryDimensions(scope, urlNew)).toEqual({ width: 720, height: 1280 })
+    expect(readVideoMemoryDimensions(scope, urlDeleted)).toBeNull()
+    expect(readVideoMemoryDimensions(scope, `/api/community/channels/${channel}/attachments/bad-device`)).toBeNull()
+    expect(readVideoMemoryDimensions(scope, `/api/community/channels/${channel}/attachments/bad-account`)).toBeNull()
+    expect(readVideoMemoryDimensions(scope, `/api/community/channels/${channel}/attachments/bad-scope`)).toBeNull()
+    expect(readVideoMemoryDimensions(scope, `/api/community/channels/${channel}/attachments/bad-epoch`)).toBeNull()
+    expect(readVideoMemoryDimensions(scope, `/api/community/channels/${channel}/attachments/bad-version`)).toBeNull()
+
+    const lruScope = {}
+    expect(await warmVideoMemoryDimensions(lruScope, account)).toBe(3)
+    for (let index = 0; index < 254; index++) {
+      writeVideoMemoryDimensions(lruScope, `/api/community/channels/${channel}/attachments/fill-${index}`, { width: 320, height: 240 })
+    }
+    expect(readVideoMemoryDimensions(lruScope, urlOld)).toBeNull()
+    expect(readVideoMemoryDimensions(lruScope, urlMid)).toEqual({ width: 800, height: 600 })
+    expect(readVideoMemoryDimensions(lruScope, urlNew)).toEqual({ width: 720, height: 1280 })
+
+    const retiredScope = {}
+    expect(await warmVideoMemoryDimensions(retiredScope, account, { isCurrent: () => false })).toBe(0)
+    expect(readVideoMemoryDimensions(retiredScope, urlOld)).toBeNull()
+
+    const wrongClaimScope = {}
+    expect(await warmVideoMemoryDimensions(wrongClaimScope, `other-${crypto.randomUUID()}`)).toBe(0)
+    persister.stopPersisting()
   })
 })

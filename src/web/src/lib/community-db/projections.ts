@@ -40,7 +40,23 @@ import type {
 } from "./schema"
 
 function projectedCanonicalMessage(message: MessageRow, child?: ChannelRow): CommunityMessageResource {
-  return { ...message, ...(child ? { thread: { id: child.id, name: child.name ?? "", messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, firstMessageId: child.firstMessageId, participantCount: child.participantCount } } : {}) }
+  return {
+    ...message,
+    ...(child ? {
+      thread: {
+        id: child.id,
+        name: child.name ?? "",
+        messageCount: child.messageCount ?? 0,
+        lastReplyAt: child.lastMessageAt ?? undefined,
+        tags: child.tags,
+        firstMessageId: child.firstMessageId,
+        ...(message.thread?.id === child.id && message.thread.participants !== undefined
+          ? { participants: message.thread.participants }
+          : {}),
+        participantCount: child.participantCount,
+      },
+    } : {}),
+  }
 }
 
 function projectedMessage(message: MessageRow, child?: ChannelRow, reply?: MessageRow): Msg {

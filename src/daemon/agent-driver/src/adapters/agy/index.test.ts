@@ -526,4 +526,23 @@ describe("Antigravity CLI native ACP", () => {
     } finally { await session.stop({ reason: "shutdown", forceAfterMs: 0 }); await session.closed; await collecting; }
     expect(host.releases).toHaveLength(1);
   });
+
+  it.each(["exit", "error"] as const)("clears activityTimer immediately on unexpected process %s without rescheduling", async (terminalEvent) => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture({ pollMs: 1_000 });
+      const errors: unknown[] = [];
+      f.lane.on("error", (error) => errors.push(error));
+      await f.lane.start({ text: "watch" });
+      expect(vi.getTimerCount()).toBe(1);
+      if (terminalEvent === "exit") f.child.emit("exit", 17, null);
+      else f.child.emit("error", new Error("boom"));
+      expect(vi.getTimerCount()).toBe(0);
+      if (terminalEvent === "error") expect(errors.map((error) => (error instanceof Error ? error.message : String(error)))).toEqual(["boom"]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

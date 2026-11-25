@@ -505,15 +505,17 @@ test("local history submission and passive remote append use distinct owners", a
   await newTargetRequest.dispose()
   await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
   let newestGets = 0
+  const isNewestMessagesUrl = (url: URL) =>
+    !url.searchParams.has("entry") && !url.searchParams.has("cursor") && !url.searchParams.has("since") && !url.searchParams.has("anchor")
   alice.page.on("request", request => {
     const url = new URL(request.url())
-    if (request.method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages` && url.search === "") newestGets += 1
+    if (request.method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages` && isNewestMessagesUrl(url)) newestGets += 1
   })
   const newestResponse = alice.page.waitForResponse(response => response.request().method() === "GET"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
-    && new URL(response.url()).search === "")
+    && isNewestMessagesUrl(new URL(response.url())))
   void newestResponse.catch(() => undefined)
-  const newest = await holdNextRequest(actors, alice.page, `**/api/community/channels/${channelId}/messages**`, url => url.search === "")
+  const newest = await holdNextRequest(actors, alice.page, `**/api/community/channels/${channelId}/messages**`, isNewestMessagesUrl)
   await startScrollTrace(alice.page, {
     scenario: "local-history-submission",
     identity: identity(channelId),

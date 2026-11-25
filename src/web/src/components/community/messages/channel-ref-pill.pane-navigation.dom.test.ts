@@ -5,7 +5,12 @@ import { act, fireEvent, render, screen, setupUser, waitFor } from "@/test/react
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { canonicalChannelRow } from "@/lib/community-db/schema"
+import { captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb, publishCommunityMessages } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
+import { readChannelRefPointers } from "@/lib/community/channel-ref-pointers"
+import { channelResourceFixture, messageResourceFixture, profileResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
+import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { reconcileCommunityServerRail } from "@/hooks/community/community-ws/server-rail-reconciliation"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import { invalidateChannelRefDirectory } from "@/hooks/community/community-ws/invalidation-projections"
@@ -154,10 +159,133 @@ describe("channel ref rendered navigation and query ownership", () => {
     await waitFor(() => expect(m.api).toHaveBeenCalledTimes(2))
     fireEvent.click(staleButton)
     expect(m.navigate).not.toHaveBeenCalled()
-    expect(screen.getByText(ref).closest("[data-ref-state]")?.getAttribute("data-ref-state")).toBe("loading")
+    expect(screen.getByRole("button", { name: /Archived post/ }).getAttribute("data-ref-state")).toBe("ready")
     await act(async () => { deny(new ApiError("forbidden", 403)); await refresh })
     await waitFor(() => expect(screen.getByText(ref).closest("[data-ref-state]")?.getAttribute("data-ref-state")).toBe("forbidden"))
     expect(screen.queryByRole("button")).toBeNull(); expect(m.api).toHaveBeenCalledTimes(2)
+  })
+
+  it("renders cold-restored community-db refs on frame 1 without loading flash and gates click until session confirmation", async () => {
+    const client = new QueryClient()
+    const server = serverResourceFixture({ id: "s", name: "Alook", discriminator: "5620", ownerId: "viewer" })
+    const forum = canonicalChannelRow(channelResourceFixture({ id: "forum", serverId: "s", type: "forum", name: "fix" }))
+    const post = canonicalChannelRow(channelResourceFixture({ id: "post", serverId: "s", type: "thread", name: "Archived post", parentChannelId: "forum", parentMessageId: "op1", archived: true }))
+    client.setQueryData(communityKeys.communityDbCollection("viewer", "servers"), [server])
+    client.setQueryData(communityKeys.communityDbCollection("viewer", "channels"), [forum, post])
+    client.setQueryData(communityKeys.channelRefPointers(), {
+      schemaVersion: BUSINESS_SCHEMA_VERSION,
+      accountId: "viewer",
+      pointers: { "/alook#5620/fix/#259": { serverId: "s", channelId: "post" } },
+    })
+
+    const held = deferred()
+    m.api.mockReturnValue(held.promise)
+
+    const { container } = render(
+      React.createElement(
+        CommunityTestProvider,
+        { client },
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(ChannelRefPill, null, ref),
+          React.createElement(ChannelRefPill, null, "/Alook#5620/fix"),
+        ),
+      ),
+    )
+
+    // Frame 1 paints final titles immediately with zero loading state
+    const postButton = screen.getByRole("button", { name: /Archived post.*#18/ })
+    const forumButton = screen.getByRole("button", { name: /fix/ })
+    expect(postButton.getAttribute("data-ref-state")).toBe("ready")
+    expect(forumButton.getAttribute("data-ref-state")).toBe("ready")
+    expect(container.querySelector('[data-ref-state="loading"]')).toBeNull()
+
+    // Unconfirmed cold-restored click MUST NOT navigate while verification is still pending
+    fireEvent.click(postButton)
+    expect(m.navigate).not.toHaveBeenCalled()
+
+    // After authoritative verification resolves, click navigates
+    await act(async () => held.resolve({ target }))
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("button", { name: /Archived post.*#18/ }))
+      expect(m.navigate).toHaveBeenCalledWith("s", "post")
+    })
+  })
+
+  it("renders pre-resolved includeRefs=1 targets and terminal states with zero scatter /channel-ref requests and syncs WS renames", async () => {
+    const client = new QueryClient()
+    const server = serverResourceFixture({ id: "s", name: "Alook", discriminator: "5620", ownerId: "viewer" })
+    const forum = channelResourceFixture({ id: "forum", serverId: "s", type: "forum", name: "fix" })
+    const post = channelResourceFixture({ id: "post", serverId: "s", type: "thread", name: "Initial post title", parentChannelId: "forum", parentMessageId: "op1" })
+
+    const view = render(React.createElement(CommunityTestProvider, { client }, null))
+    const registry = getCommunityDbRegistry(client)!
+    await registry.preload()
+
+    await act(async () => {
+      await publishCommunityMessages(client, {
+        channelId: "dm_1",
+        messages: [messageResourceFixture({ id: "m1", channelId: "dm_1", authorId: "viewer", seq: 1, content: "refs" })],
+        profiles: [profileResourceFixture({ id: "viewer", name: "Viewer" })],
+        refs: {
+          servers: [server],
+          channels: [forum, post],
+          resolvedRefs: [
+            { ref: "/alook#5620/fix/#259", status: "ready", serverId: "s", channelId: "post" },
+            { ref: "/alook#5620/secret", status: "forbidden" },
+            { ref: "/alook#5620/ghost", status: "missing" },
+          ],
+        },
+        proof: { token: captureCommunityLiveSnapshotToken(client, "dm_1") },
+      })
+    })
+
+    view.rerender(
+      React.createElement(
+        CommunityTestProvider,
+        { client },
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(ChannelRefPill, null, ref),
+          React.createElement(ChannelRefPill, null, "/Alook#5620/secret"),
+          React.createElement(ChannelRefPill, null, "/Alook#5620/ghost"),
+        ),
+      ),
+    )
+
+    // Zero scatter /api/community/channel-ref requests
+    expect(m.api).not.toHaveBeenCalled()
+    const readyButton = screen.getByRole("button", { name: /Initial post title.*#18/ })
+    fireEvent.click(readyButton)
+    expect(m.navigate).toHaveBeenCalledExactlyOnceWith("s", "post")
+    expect(screen.getByText("/Alook#5620/secret").closest("[data-ref-state]")?.getAttribute("data-ref-state")).toBe("forbidden")
+    expect(screen.getByText("/Alook#5620/ghost").closest("[data-ref-state]")?.getAttribute("data-ref-state")).toBe("missing")
+
+    // WS rename updates ChannelRefPill immediately from community-db without any HTTP call
+    await act(async () => {
+      projectCommunityWsEventToDb(client, {
+        type: "community:channel.child_update",
+        serverId: "s",
+        parentChannelId: "forum",
+        channelId: "post",
+        changes: { name: "Renamed via WS" },
+      })
+      projectCommunityWsEventToDb(client, {
+        type: "community:server.update",
+        serverId: "s",
+        changes: { name: "AlookV2" },
+      })
+    })
+    await waitFor(() => expect(screen.getByRole("button", { name: /AlookV2.*Renamed via WS.*#18/ })).toBeTruthy())
+    expect(m.api).not.toHaveBeenCalled()
+
+    // Authoritative 403 on reconnect drops persisted pointer too
+    m.api.mockRejectedValueOnce(new ApiError("forbidden", 403))
+    await act(async () => { await reconcileCommunityServerRail(client) })
+    await waitFor(() => expect(screen.getByText(ref).closest("[data-ref-state]")?.getAttribute("data-ref-state")).toBe("forbidden"))
+    expect(readChannelRefPointers(client.getQueryData(communityKeys.channelRefPointers()))).toBeUndefined()
   })
 
 })

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "events";
 import { mkdirSync, existsSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -145,7 +146,7 @@ describe("services", () => {
       const logs: string[] = [];
       const spy = vi.spyOn(console, "log").mockImplementation((m?: unknown) => { logs.push(String(m)); });
 
-      startServices({ web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 });
+      await startServices({ web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 });
       expect(logs.join("\n")).toContain("already running");
       spy.mockRestore();
     });
@@ -158,7 +159,7 @@ describe("services", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       const { startServices } = await import("../src/lib/services.js");
 
-      startServices({ web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 });
+      await startServices({ web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 });
 
       expect(childMocks.spawn).toHaveBeenCalledTimes(4);
       expect(childMocks.spawn).toHaveBeenNthCalledWith(
@@ -182,7 +183,7 @@ describe("services", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       const { startServices } = await import("../src/lib/services.js");
 
-      startServices({ web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 });
+      await startServices({ web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 });
 
       expect(childMocks.wranglerProcess).toHaveBeenCalledTimes(4);
       expect(childMocks.wranglerProcess).toHaveBeenLastCalledWith(
@@ -216,18 +217,111 @@ describe("services", () => {
         vi.spyOn(console, "error").mockImplementation(() => {});
         const { startServices } = await import("../src/lib/services.js");
 
-        expect(() => startServices({
+        await expect(startServices({
           web: 3000,
           emailWorker: 8787,
           wsDo: 8789,
           queueWorker: 8790,
-        })).toThrow("exit:1");
+        })).rejects.toThrow("exit:1");
         expect(childMocks.spawn).toHaveBeenCalledTimes(4);
         expectTerminatedPids([101, 103, 104], platform);
         expect(exit).toHaveBeenCalledOnce();
         expect(exit).toHaveBeenCalledWith(1);
       },
     );
+
+    it("captures async process.nextTick spawn errors with service name, command, cwd, and cleans up listeners", async () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      process.env.NODE_ENV = "production";
+      vi.resetModules();
+
+      const failedChild = Object.assign(new EventEmitter(), {
+        pid: undefined,
+        stderr: { on: vi.fn() },
+        stdout: { on: vi.fn() },
+        unref: vi.fn(),
+      });
+      const children = [fakeChild(101), failedChild, fakeChild(103), fakeChild(104)];
+      childMocks.spawn.mockImplementation(() => {
+        const next = children.shift()!;
+        if (next === failedChild) {
+          process.nextTick(() => {
+            failedChild.emit("error", Object.assign(new Error("spawn wrangler ENOENT"), { code: "ENOENT" }));
+          });
+        }
+        return next;
+      });
+
+      vi.spyOn(process, "kill").mockImplementation(() => true);
+      const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`exit:${code}`);
+      }) as never);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const errors: string[] = [];
+      vi.spyOn(console, "error").mockImplementation((m?: unknown) => { errors.push(String(m)); });
+      const { startServices } = await import("../src/lib/services.js");
+
+      await expect(startServices({
+        web: 3000,
+        emailWorker: 8787,
+        wsDo: 8789,
+        queueWorker: 8790,
+      })).rejects.toThrow("exit:1");
+
+      const output = errors.join("\n");
+      expect(output).toContain("Error: failed to start one or more services.");
+      expect(output).toContain("Email Worker");
+      expect(output).toContain("wrangler dev --local --port 8787");
+      expect(output).toContain(`cwd=${join(testDir, "email-worker")}`);
+      expect(output).toContain("spawn wrangler ENOENT");
+      expect(failedChild.listenerCount("error")).toBe(0);
+      expect(failedChild.listenerCount("spawn")).toBe(0);
+      expectTerminatedPids([101, 103, 104], "linux");
+      expect(exit).toHaveBeenCalledOnce();
+      expect(exit).toHaveBeenCalledWith(1);
+    });
+
+    it("falls back to 'process did not start' and cleans up listeners when a failed child emits no event", async () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      process.env.NODE_ENV = "production";
+      vi.resetModules();
+
+      const silentChild = Object.assign(new EventEmitter(), {
+        pid: undefined,
+        stderr: { on: vi.fn() },
+        stdout: { on: vi.fn() },
+        unref: vi.fn(),
+      });
+      const children = [fakeChild(101), silentChild, fakeChild(103), fakeChild(104)];
+      childMocks.spawn.mockImplementation(() => children.shift()!);
+
+      vi.spyOn(process, "kill").mockImplementation(() => true);
+      const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`exit:${code}`);
+      }) as never);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const errors: string[] = [];
+      vi.spyOn(console, "error").mockImplementation((m?: unknown) => { errors.push(String(m)); });
+      const { startServices } = await import("../src/lib/services.js");
+
+      await expect(startServices({
+        web: 3000,
+        emailWorker: 8787,
+        wsDo: 8789,
+        queueWorker: 8790,
+      })).rejects.toThrow("exit:1");
+
+      const output = errors.join("\n");
+      expect(output).toContain("Email Worker");
+      expect(output).toContain("wrangler dev --local --port 8787");
+      expect(output).toContain(`cwd=${join(testDir, "email-worker")}`);
+      expect(output).toContain("process did not start");
+      expect(silentChild.listenerCount("error")).toBe(0);
+      expect(silentChild.listenerCount("spawn")).toBe(0);
+      expectTerminatedPids([101, 103, 104], "linux");
+      expect(exit).toHaveBeenCalledOnce();
+      expect(exit).toHaveBeenCalledWith(1);
+    });
 
     it.each(["linux", "win32"] as const)(
       "cleans up every foreground child on SIGINT exactly once on %s",
@@ -249,7 +343,7 @@ describe("services", () => {
         vi.spyOn(console, "log").mockImplementation(() => {});
         const { startServices } = await import("../src/lib/services.js");
 
-        startServices(
+        await startServices(
           { web: 3000, emailWorker: 8787, wsDo: 8789, queueWorker: 8790 },
           { foreground: true },
         );

@@ -150,12 +150,12 @@ describe("cached target through the real route, entry and message consumers", ()
     expect(previous.isConnected).toBe(false)
     await act(async () => vi.advanceTimersByTimeAsync(6000))
     const previousLoad = mocks.load.getMockImplementation()!
-    mocks.load.mockImplementation((url: string) => url === "/api/community/channels/c1/messages?entry=1&window=tail"
+    mocks.load.mockImplementation((url: string) => url === "/api/community/channels/c1/messages?entry=1&window=tail&includeRefs=1"
       ? new Promise(() => {}) : previousLoad(url))
     const serverTarget = resolveCommunityLandingHref({ serverId: "s1", channelIds: ["c1"], last: "c1", breakpoint: "desktop" })
     await go(serverTarget)
     expect(serverTarget).toBe(href)
-    expect(mocks.load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1&window=tail")).toBe(true)
+    expect(mocks.load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1&window=tail&includeRefs=1")).toBe(true)
     expect(root().scrollTop).not.toBe(offset)
     expect(root().scrollHeight - root().clientHeight - root().scrollTop).toBeLessThanOrEqual(1)
     expect(root().querySelector('[data-message-list-content]')).toHaveAttribute("aria-hidden", "false")

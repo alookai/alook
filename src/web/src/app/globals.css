@@ -447,6 +447,7 @@
   --app-safe-width: calc(100vw - var(--app-safe-area-left) - var(--app-safe-area-right));
   --app-safe-height: calc(100dvh - var(--app-safe-area-top) - var(--app-safe-area-bottom));
   --app-overlay-safe-height: max(0px, calc(100dvh - var(--app-safe-area-top) - max(var(--app-safe-area-bottom), var(--alook-keyboard-bottom, 0px))));
+  --app-popup-user-bar-clearance: max(0px, calc(3.75rem - max(0px, calc(var(--alook-keyboard-bottom, 0px) - var(--app-safe-area-bottom)))));
   --community-composer-inline-start: 0.75rem;
   --community-composer-inline-end: 0.75rem;
   --community-composer-top-radius: 1.5rem;
@@ -1601,12 +1602,14 @@
 }
 
 /* ── Utility: hide scrollbar ── */
-.scrollbar-none {
+.scrollbar-none,
+.base-ui-disable-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-.scrollbar-none::-webkit-scrollbar {
+.scrollbar-none::-webkit-scrollbar,
+.base-ui-disable-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
@@ -3025,6 +3028,10 @@ body {
 }
 
 @media (min-width: 640px) {
+  html[data-alook-native-resize="true"] {
+    --app-popup-user-bar-clearance: max(0px, calc(3.75rem - max(0px, calc(var(--app-native-window-height) - var(--app-safe-area-top) - var(--app-native-window-safe-bottom) - var(--app-safe-height)))));
+  }
+
   html[data-alook-native-resize="true"] .community-shell-extended[data-slot="community-shell-root"] {
     --community-native-full-safe-height: calc(var(--app-native-window-height) - var(--app-safe-area-top) - var(--app-native-window-safe-bottom));
   }

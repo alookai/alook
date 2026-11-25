@@ -61,8 +61,11 @@ export function UserBarExtensionSlot({
 }: Props) {
   const generatedId = useId()
   const ref = useRef<HTMLDivElement>(null)
-  const boundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
-  const desktopInboxBoundedHeight = `min(40rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
+  const popupClearance = `var(--app-popup-user-bar-clearance, ${COMMUNITY_USER_BAR_HEIGHT_CSS})`
+  const slotBoundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
+  const popupBoundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${popupClearance} - 1rem)))`
+  const desktopInboxBoundedHeight = `min(40rem, max(0px, calc(var(--app-overlay-safe-height) - ${popupClearance} - 1rem)))`
+  const boundedHeight = presentation === "popup" ? popupBoundedHeight : slotBoundedHeight
   const activeHeight = active === "inbox" && presentation === "popup" ? desktopInboxBoundedHeight : boundedHeight
   const unframedMobileProfile = presentation === "slot" && active === "profile"
 

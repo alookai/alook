@@ -112,6 +112,8 @@ describe("UserBarExtensionSlot", () => {
     }))
     expect(slot.style.height).toContain("40rem")
     expect(slot.style.maxHeight).toContain("40rem")
+    expect(slot.style.height).toContain("--app-popup-user-bar-clearance")
+    expect(slot.style.height).toContain("1rem")
   })
 
   it.each([

@@ -7,11 +7,13 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { channelResourceFixture, fullResourceBundleFixture, messageReadPageFixture, messageResourceFixture, resourceBundleFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
 import { captureCommunityLiveSnapshotToken, ingestAttentionSnapshot, publishCommunityResourceBundle } from "@/lib/community-db/sync"
+import { canonicalChannelRow } from "@/lib/community-db/schema"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { messageWindowOptions } from "@/lib/community/message-window"
 import { communityKeys } from "@/lib/query-keys"
 import { InboxUnreadMessages } from "@/components/community/shell/inbox-unread-messages"
 import { ApiError } from "@/lib/errors"
+import { tid } from "@/lib/community/testids"
 import { useInboxChannelMessages, useMarkInboxChannelRead } from "./use-inbox-channel-messages"
 import { flushPendingReadIntents, getLocalReadingPosition, registerReadSurface, releaseReadSurface, submitReadIntent } from "./read-coordinator"
 
@@ -59,7 +61,7 @@ describe("read-only Inbox channel messages", () => {
     const view = renderHook(() => useInboxChannelMessages("parent", 5), { wrapper: owner.wrapper })
     await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4"]))
     expect(mocks.api).toHaveBeenCalledOnce()
-    expect(mocks.api.mock.calls[0]![0]).toBe("/api/community/channels/parent/messages")
+    expect(mocks.api.mock.calls[0]![0]).toBe("/api/community/channels/parent/messages?includeRefs=1")
     expect(mocks.api.mock.calls[0]![1]?.method).toBeUndefined()
     expect(mocks.reconcile).not.toHaveBeenCalled()
     for (const channelId of ["parent", "child", "sibling", "dm"]) expect(owner.registry.collections.readStates.get(channelId)?.lastReadSeq).toBe(2)
@@ -107,8 +109,8 @@ describe("read-only Inbox channel messages", () => {
     await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(complete))
     expect(view.result.current.loading).toBe(false)
     expect(mocks.api.mock.calls.map(([path]) => path)).toEqual([
-      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(latestCursor)}`,
-      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(earlierCursor)}`,
+      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(latestCursor)}&includeRefs=1`,
+      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(earlierCursor)}&includeRefs=1`,
     ])
     expect(mocks.api.mock.calls.every(([, options]) => !options?.method)).toBe(true)
     expect(mocks.reconcile).not.toHaveBeenCalled()
@@ -129,7 +131,7 @@ describe("read-only Inbox channel messages", () => {
     await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m6"]))
     expect(view.result.current.loading).toBe(false)
     expect(mocks.api.mock.calls.map(([path]) => path)).toEqual([
-      `/api/community/channels/parent/messages?since=${encodeURIComponent(`${row(4).createdAt}|m4`)}`,
+      `/api/community/channels/parent/messages?since=${encodeURIComponent(`${row(4).createdAt}|m4`)}&includeRefs=1`,
     ])
     expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
   })
@@ -149,8 +151,8 @@ describe("read-only Inbox channel messages", () => {
       await act(async () => { await vi.waitFor(() => expect(owner.registry.collections.messages.has("m3")).toBe(true)) })
       await advancePreviewTime(1)
       expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m5"])
-      const earlier = `/api/community/channels/parent/messages?cursor=${encodeURIComponent(cursor)}`
-      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", earlier, earlier])
+      const earlier = `/api/community/channels/parent/messages?cursor=${encodeURIComponent(cursor)}&includeRefs=1`
+      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages?includeRefs=1", earlier, earlier])
       expect(mocks.reconcile).not.toHaveBeenCalled()
       expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
     } finally { vi.useRealTimers() }
@@ -175,7 +177,7 @@ describe("read-only Inbox channel messages", () => {
       await act(async () => { await vi.waitFor(() => expect(owner.registry.collections.messages.has("m3")).toBe(true)) })
       await advancePreviewTime(1)
       expect(view.getByText("Body 3")).toBeVisible()
-      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", "/api/community/channels/parent/messages"])
+      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages?includeRefs=1", "/api/community/channels/parent/messages?includeRefs=1"])
       expect(mocks.reconcile).not.toHaveBeenCalled()
       expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
     } finally { vi.useRealTimers() }
@@ -248,6 +250,117 @@ describe("read-only Inbox channel messages", () => {
     expect(view.result.current.messages).toEqual([])
     expect(owner.registry.collections.messages.get("m3")).toBeUndefined()
     expect(mocks.reconcile).not.toHaveBeenCalled()
+  })
+
+  it("reuses ForumPostSkeleton inside ForumPostListItem for initial forum channel loading only", async () => {
+    const owner = await setup()
+    await writeCommunityCollectionRows(owner.registry, "channels", [
+      canonicalChannelRow(channelResourceFixture({ id: "forum", type: "forum", name: "Fixes", creatorId: owner.account })),
+    ], channel => channel.id)
+    await writeCommunityCollectionRows(owner.registry, "readStates", [
+      { channelId: "forum", lastReadMessageId: "forum-2", lastReadAt: "2026-10-01T00:00:02.000Z", lastReadSeq: 2, observedRevision: 0 },
+    ], state => state.channelId)
+    mocks.api.mockReturnValue(new Promise(() => {}))
+
+    const forumView = render(
+      createElement(InboxUnreadMessages, { channelId: "forum", throughSeq: 3, mentions: [] }),
+      { wrapper: owner.wrapper },
+    )
+    try {
+      const status = forumView.getByRole("status", { name: "Loading unread messages" })
+      expect(status).toHaveClass("-mx-1", "pb-1")
+      const listItem = status.querySelector('[data-slot="community-forum-list-item"]')
+      expect(listItem).not.toBeNull()
+      const card = listItem?.querySelector(':scope > [data-slot="community-forum-list-card"]')
+      expect(card).not.toBeNull()
+      expect(card).toHaveClass("py-[6.6px]")
+      expect(card?.querySelector('[data-slot="community-forum-post-skeleton"]')).not.toBeNull()
+
+      forumView.rerender(createElement(InboxUnreadMessages, { channelId: "forum", throughSeq: 3, mentions: [], continuation: true }))
+      expect(forumView.container.querySelector('[data-slot="community-forum-post-skeleton"]')).toBeNull()
+    } finally {
+      forumView.unmount()
+    }
+
+    const textView = render(
+      createElement(InboxUnreadMessages, { channelId: "parent", throughSeq: 3, mentions: [] }),
+      { wrapper: owner.wrapper },
+    )
+    try {
+      expect(textView.getByRole("status", { name: "Loading unread messages" })).toBeInTheDocument()
+      expect(textView.container.querySelector('[data-slot="community-forum-post-skeleton"]')).toBeNull()
+    } finally {
+      textView.unmount()
+    }
+  })
+
+  it("renders forum post participant avatars and overflow count in Inbox Unreads", async () => {
+    const owner = await setup()
+    await writeCommunityCollectionRows(owner.registry, "channels", [
+      canonicalChannelRow(channelResourceFixture({ id: "forum", type: "forum", name: "Fixes", creatorId: owner.account })),
+      canonicalChannelRow({
+        ...channelResourceFixture({
+          id: "post-1",
+          type: "thread",
+          name: "Forum Post With Members",
+          parentChannelId: "forum",
+          parentMessageId: "post-opener",
+          messageCount: 6,
+          creatorId: "usr_alice",
+        }),
+        tags: ["bug"],
+        participantCount: 7,
+      }),
+    ], channel => channel.id)
+    await writeCommunityCollectionRows(owner.registry, "readStates", [
+      { channelId: "forum", lastReadMessageId: "forum-2", lastReadAt: "2026-10-01T00:00:02.000Z", lastReadSeq: 2, observedRevision: 0 },
+    ], state => state.channelId)
+    const opener = messageResourceFixture({
+      id: "post-opener",
+      channelId: "forum",
+      seq: 3,
+      authorId: "usr_alice",
+      authorName: "Alice",
+      content: "Forum Post With Members",
+      thread: {
+        id: "post-1",
+        name: "Forum Post With Members",
+        messageCount: 6,
+        lastReplyAt: "2026-10-01T00:00:05.000Z",
+        tags: ["bug"],
+        firstMessageId: null,
+        participants: [
+          { id: "usr_alice", name: "Alice", avatar: null, avatarVersion: 1 },
+          { id: "usr_bob", name: "Bob", avatar: "https://cdn.example.com/bob.png", avatarVersion: 2 },
+          { id: "usr_cara", name: "Cara", avatar: null, avatarVersion: 1 },
+          { id: "usr_eric", name: "Eric", avatar: null, avatarVersion: 1 },
+          { id: "usr_faye", name: "Faye", avatar: null, avatarVersion: 1 },
+        ],
+        participantCount: 7,
+      },
+    })
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({ messages: [opener], hasMore: false }))
+
+    const onOpenPost = vi.fn()
+    const view = render(
+      createElement(InboxUnreadMessages, {
+        channelId: "forum",
+        throughSeq: 3,
+        mentions: [],
+        openForumPosts: new Map([["post-opener", onOpenPost]]),
+      }),
+      { wrapper: owner.wrapper },
+    )
+    try {
+      await waitFor(() => expect(view.getByTestId(tid.forumThreadCard("post-1"))).toBeVisible())
+      const avatars = view.getByTestId(tid.forumThreadAvatars("post-1"))
+      expect(avatars).toBeVisible()
+      expect(avatars.querySelectorAll('[data-slot="avatar"]')).toHaveLength(4)
+      expect(avatars.querySelector('img[src="https://cdn.example.com/bob.png"]')).not.toBeNull()
+      expect(avatars).toHaveTextContent("+2")
+    } finally {
+      view.unmount()
+    }
   })
 
 })

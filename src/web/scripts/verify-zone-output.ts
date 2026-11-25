@@ -120,6 +120,7 @@ export function verifyZoneOutput(webRoot: string): void {
   assert(!existsSync(join(webRoot, "public/blog")), "Main public tree still contains Blog assets")
   assert(!existsSync(join(mainNext, "server/app/blog")), "Main server bundle still contains Blog")
   assert(existsSync(join(blogOpenNext, "assets/_next/static")), "Blog static chunks are missing")
+  assert(existsSync(join(blogOpenNext, "assets/blog-static/_next/static")), "Blog prefixed static chunks are missing")
   assert(existsSync(join(blogOpenNext, "assets/blog")), "Blog post assets are missing")
   for (const asset of ["alook.svg", "apple-touch-icon.png", "favicon.ico", "icon-192.png", "fonts/dm-sans-600.ttf"]) {
     assert(existsSync(join(blogOpenNext, "assets", asset)), `Staged Blog asset is missing: ${asset}`)

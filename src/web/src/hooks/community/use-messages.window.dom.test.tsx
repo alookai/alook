@@ -56,7 +56,7 @@ describe("native conversation windows", () => {
     await waitFor(() => expect(hook.result.current.messages.map((message) => message.content)).toEqual(["Body"]))
     expect(hook.result.current.isLoading).toBe(false)
     expect(hook.result.current.readSnapshot?.lastReadMessageId).toBe("m1")
-    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail"])
+    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail&includeRefs=1"])
     const key = communityKeys.channelMessagesWindow("c1", { mode: "newest" })
     expect(JSON.stringify(client.getQueryData(key))).not.toContain("Body")
     hook.unmount()
@@ -68,7 +68,7 @@ describe("native conversation windows", () => {
     load.mockImplementation((url: string) => {
       const search = new URL(url, "https://example.test").searchParams
       if (search.has("entry")) return Promise.resolve(fixture())
-      if (search.size === 0) return refresh.promise
+      if (!search.has("cursor") && !search.has("since") && !search.has("anchor")) return refresh.promise
       if (search.get("cursor") === "older") return Promise.resolve(page("m0", 0))
       throw new Error("Unexpected message window")
     })
@@ -123,7 +123,7 @@ describe("native conversation windows", () => {
     expect(pending.accepted).toBe(true)
     if (!pending.accepted) throw new Error("Newer request was rejected")
     await act(async () => expect((await pending.completed).status).toBe(status))
-    expect(load.mock.calls.at(-1)?.[0]).toBe("/api/community/channels/c1/messages?since=newer")
+    expect(load.mock.calls.at(-1)?.[0]).toBe("/api/community/channels/c1/messages?since=newer&includeRefs=1")
     if (status === "success") {
       await waitFor(() => expect(hook.result.current.messages.map(row => row.id)).toEqual(["m1", "m2"]))
       expect(hook.result.current.data?.pageParams).toEqual([{ mode: "newer", cursor: "newer" }, { mode: "anchor", anchor: "m1" }])
