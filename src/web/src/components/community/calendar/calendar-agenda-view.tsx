@@ -98,19 +98,18 @@ export function CalendarAgendaView({
                       styles.eventCard,
                       "flex min-h-11 w-full flex-col gap-2.5 rounded-2xl p-3.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:p-4",
                       degraded && "border-warning/35 bg-warning/6 hover:bg-warning/10",
-                      event.paused && "border-dashed opacity-80",
                       selectedOccurrenceKey === occurrence.occurrenceKey && "ring-2 ring-ring",
                     )}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="flex items-center gap-2 font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                        <CalendarStatusDot status={runStatus} paused={event.paused} degraded={degraded} />
+                        <CalendarStatusDot status={runStatus} degraded={degraded} />
                         <span>{formatTimeRange(occurrence.startAt, occurrence.endAt)}</span>
                       </span>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <CalendarRecurrenceBadge recurrence={event.recurrence} />
                         <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
-                        <CalendarRunStatusBadge status={runStatus} paused={event.paused} />
+                        <CalendarRunStatusBadge status={runStatus} />
                       </div>
                     </div>
 

@@ -21,7 +21,6 @@ export const communityCalendarEvent = sqliteTable(
     recurrenceJson: text("recurrence_json"),
     occurrenceCount: integer("occurrence_count").notNull().default(0),
     nextRunAtMs: integer("next_run_at_ms"),
-    paused: integer("paused", { mode: "boolean" }).notNull().default(false),
     sourceMessageId: text("source_message_id").notNull(),
     sourceChannelId: text("source_channel_id").notNull(),
     version: integer("version").notNull().default(1),
@@ -32,7 +31,7 @@ export const communityCalendarEvent = sqliteTable(
     index("idx_community_calendar_event_owner_created").on(t.ownerUserId, t.createdAtMs),
     index("idx_community_calendar_event_owner_next_run")
       .on(t.ownerUserId, t.nextRunAtMs)
-      .where(sql`${t.paused} = 0 AND ${t.nextRunAtMs} IS NOT NULL`),
+      .where(sql`${t.nextRunAtMs} IS NOT NULL`),
     index("idx_community_calendar_event_creator_id_lookup").on(t.createdByUserId),
   ],
 )

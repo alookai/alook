@@ -639,13 +639,11 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     from?: string;
     to?: string;
     creatorHandle?: string;
-    includePaused?: boolean;
   }): Promise<CalendarListResponse> {
     const params = new URLSearchParams();
     if (req.from) params.set("from", req.from);
     if (req.to) params.set("to", req.to);
     if (req.creatorHandle) params.set("creatorHandle", req.creatorHandle);
-    if (req.includePaused === false) params.set("includePaused", "false");
     const suffix = params.size > 0 ? `?${params.toString()}` : "";
     const res = await fetchImpl(`${base}/api/community/calendar/events${suffix}`, {
       method: "GET",

@@ -48,13 +48,6 @@ function parseWeekdaysOption(raw: string): number[] {
   return [...new Set(days)].sort((a, b) => a - b);
 }
 
-function parseBoolOption(raw: string, flag: string): boolean {
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "true") return true;
-  if (normalized === "false") return false;
-  throw new Error(`${flag} must be true or false`);
-}
-
 function parseRecurrenceOptions(opts: {
   repeat?: string;
   interval?: string;
@@ -123,7 +116,6 @@ function presentCalendarEventForAgent(event: CalendarEvent) {
         }
       : null,
     nextRunAt: event.nextRunAt ? toLocalISO(event.nextRunAt) : null,
-    paused: event.paused,
     sourceMessage: {
       accessible: event.sourceMessage.accessible,
       status: event.sourceMessage.status,
@@ -172,7 +164,6 @@ export function registerCalendarCommands(
     .option("--from <iso>", "window start (ISO-8601, pair with --to)")
     .option("--to <iso>", "window end (ISO-8601, pair with --from)")
     .option("--creator <handle>", "filter by creator handle (e.g. @Elwira#8700)")
-    .option("--no-paused", "exclude paused events")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
@@ -180,7 +171,6 @@ export function registerCalendarCommands(
         from?: string;
         to?: string;
         creator?: string;
-        paused?: boolean;
       };
       const api = getApi();
       if (!api.calendarList) throw new Error("Calendar commands are unavailable");
@@ -190,7 +180,6 @@ export function registerCalendarCommands(
         ...(from ? { from } : {}),
         ...(to ? { to } : {}),
         ...(opts.creator ? { creatorHandle: opts.creator } : {}),
-        ...(opts.paused === false ? { includePaused: false } : {}),
       });
       output({
         success: {
@@ -264,7 +253,6 @@ export function registerCalendarCommands(
     .option("--until <iso>", "recurrence end timestamp (ISO-8601)")
     .option("--count <n>", "maximum total occurrences")
     .option("--message <ref>", "rebind to another accessible message ref")
-    .option("--paused <bool>", "pause or resume (true|false)")
     .option("--ack", "mark the current scheduled execution as completed")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
@@ -281,7 +269,6 @@ export function registerCalendarCommands(
         until?: string;
         count?: string;
         message?: string;
-        paused?: string;
         ack?: boolean;
       };
       const api = getApi();
@@ -298,7 +285,6 @@ export function registerCalendarCommands(
         ...(opts.duration !== undefined ? { durationMinutes: parsePositiveIntOption(opts.duration, "--duration") } : {}),
         ...(recurrence !== undefined ? { recurrence } : {}),
         ...(opts.message !== undefined ? { sourceMessageRef: opts.message } : {}),
-        ...(opts.paused !== undefined ? { paused: parseBoolOption(opts.paused, "--paused") } : {}),
         ...(opts.ack ? { ack: true as const } : {}),
       });
       if (Object.keys(patch).length === 0) {

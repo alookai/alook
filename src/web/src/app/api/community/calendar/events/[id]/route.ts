@@ -114,7 +114,6 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
       ...(parsed.data.timeZone !== undefined ? { timeZone: parsed.data.timeZone } : {}),
       ...(hasRecurrence ? { hasRecurrence: true, recurrence: scheduleCheck.recurrence ?? null } : {}),
       ...(sourceMessageId !== undefined ? { sourceMessageId, sourceChannelId } : {}),
-      ...(parsed.data.paused !== undefined ? { paused: parsed.data.paused } : {}),
       ...(parsed.data.ack === true ? { ack: true } : {}),
     }),
     { route: "calendar:update" },

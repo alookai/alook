@@ -3,7 +3,6 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite"
 import { CalendarPageSkeleton } from "@/components/community/calendar/calendar-skeleton"
 import type {
   CalendarActor,
-  CalendarEventItem,
   CalendarOccurrenceItem,
   CalendarViewMode,
 } from "@/components/community/calendar/calendar-types"
@@ -168,20 +167,6 @@ const SAMPLE_OCCURRENCES: CalendarOccurrenceItem[] = [
   },
 ]
 
-const PAUSED_EVENTS: CalendarEventItem[] = [
-  {
-    id: "cal_paused",
-    title: "Weekly release checklist",
-    creator: ALLI,
-    startAt: new Date(2026, 10, 27, 16, 0).toISOString(),
-    durationMinutes: 30,
-    timeZone: "Asia/Shanghai",
-    recurrence: { recurring: true, label: "Weekly · Fri", rule: { freq: "weekly", interval: 1, byWeekday: [5] } },
-    sourceMessage: { messageId: "msg_release", accessible: true, status: "accessible" },
-    paused: true,
-  },
-]
-
 function CalendarSpecimen({ initialView }: { initialView: CalendarViewMode }) {
   const [view, setView] = useState<CalendarViewMode>(initialView)
   const [anchorDate, setAnchorDate] = useState<Date>(ANCHOR)
@@ -197,7 +182,6 @@ function CalendarSpecimen({ initialView }: { initialView: CalendarViewMode }) {
         onSelectedCreatorIdChange={setSelectedCreatorId}
         creators={[GUS, ALLI, ELWIRA]}
         occurrences={SAMPLE_OCCURRENCES}
-        pausedEvents={PAUSED_EVENTS}
         onBack={() => undefined}
         onOpenSourceMessage={() => undefined}
         onSaveEvent={() => undefined}

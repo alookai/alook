@@ -1,7 +1,6 @@
 export type {
   CalendarActor,
   CalendarEventEditDraft,
-  CalendarEventItem,
   CalendarOccurrenceItem,
   CalendarOccurrenceRunStatus,
   CalendarRecurrenceFreq,

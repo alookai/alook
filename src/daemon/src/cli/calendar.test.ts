@@ -23,7 +23,6 @@ const sampleEvent: CalendarEvent = {
   timeZone: "Asia/Shanghai",
   recurrence: { freq: "weekly", interval: 1, byWeekday: [1, 3, 5] },
   nextRunAt: "2026-11-27T01:00:00.000Z",
-  paused: false,
   sourceMessage: {
     id: "msg_internal_99",
     accessible: true,
@@ -79,11 +78,11 @@ describe("calendar CLI & proxy route policy", () => {
         return Response.json({ event: sampleEvent }, { status: 201 });
       }
       if (init?.method === "PATCH") {
-        const body = JSON.parse(String(init.body ?? "{}")) as { paused?: boolean; ack?: true };
+        const body = JSON.parse(String(init.body ?? "{}")) as { title?: string; ack?: true };
         return Response.json({
           event: {
             ...sampleEvent,
-            ...(body.paused !== undefined ? { paused: body.paused } : {}),
+            ...(body.title !== undefined ? { title: body.title } : {}),
             ...(body.ack
               ? {
                   lastExecution: {
@@ -132,8 +131,8 @@ describe("calendar CLI & proxy route policy", () => {
     expect(JSON.stringify(created)).not.toContain("msg_internal_99");
     expect((created.success.event as { id: string; createdBy: string }).createdBy).toBe("@Elwira#8700");
 
-    const updated = await runCli(["calendar", "update", "cal_test_1", "--paused", "true"]);
-    expect((updated.success.event as { paused: boolean }).paused).toBe(true);
+    const updated = await runCli(["calendar", "update", "cal_test_1", "--title", "Weekly retro v2"]);
+    expect((updated.success.event as { title: string }).title).toBe("Weekly retro v2");
 
     const acked = await runCli(["calendar", "update", "cal_test_1", "--ack"]);
     expect((acked.success.event as { lastExecution: { status: string; ackedAt?: string } }).lastExecution.status).toBe("completed");

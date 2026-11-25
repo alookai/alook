@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS community_calendar_event (
   recurrence_json TEXT,
   occurrence_count INTEGER NOT NULL DEFAULT 0,
   next_run_at_ms INTEGER,
-  paused INTEGER NOT NULL DEFAULT 0,
   source_message_id TEXT NOT NULL,
   source_channel_id TEXT NOT NULL,
   version INTEGER NOT NULL DEFAULT 1,
@@ -23,7 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_community_calendar_event_owner_created
 
 CREATE INDEX IF NOT EXISTS idx_community_calendar_event_owner_next_run
   ON community_calendar_event (owner_user_id, next_run_at_ms)
-  WHERE paused = 0 AND next_run_at_ms IS NOT NULL;
+  WHERE next_run_at_ms IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_community_calendar_event_creator_id_lookup
   ON community_calendar_event (created_by_user_id);

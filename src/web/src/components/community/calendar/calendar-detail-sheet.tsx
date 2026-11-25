@@ -30,7 +30,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
@@ -132,7 +131,6 @@ export function CalendarDetailSheet({
   const [recurrenceFreq, setRecurrenceFreq] = useState<RecurrenceOption>("none")
   const [recurrenceInterval, setRecurrenceInterval] = useState(1)
   const [recurrenceWeekdays, setRecurrenceWeekdays] = useState<number[]>([])
-  const [paused, setPaused] = useState(false)
 
   const event = occurrence?.event ?? null
   const runStatus = occurrence?.runStatus ?? event?.lastExecution?.status ?? null
@@ -151,7 +149,6 @@ export function CalendarDetailSheet({
     setRecurrenceFreq(rule ? rule.freq : "none")
     setRecurrenceInterval(rule ? Math.max(1, rule.interval) : 1)
     setRecurrenceWeekdays(rule?.freq === "weekly" ? (rule.byWeekday ?? [validStart.getDay()]) : [])
-    setPaused(Boolean(event.paused))
     setEditing(true)
   }
 
@@ -196,7 +193,6 @@ export function CalendarDetailSheet({
       durationMinutes,
       timeZone: event.timeZone,
       recurrence,
-      paused,
     })
     setEditing(false)
   }
@@ -222,7 +218,7 @@ export function CalendarDetailSheet({
                 <div className="flex flex-wrap items-center gap-1.5">
                   <CalendarRecurrenceBadge recurrence={event.recurrence} />
                   <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
-                  <CalendarRunStatusBadge status={runStatus} paused={event.paused} />
+                  <CalendarRunStatusBadge status={runStatus} />
                 </div>
                 <SheetTitle className="mt-1">
                   {editing ? "Edit event" : event.title}
@@ -414,22 +410,6 @@ export function CalendarDetailSheet({
                       />
                     </div>
 
-                    <div className="flex items-center justify-between gap-4 rounded-xl border border-border/70 bg-muted/50 p-4">
-                      <div className="flex flex-col gap-0.5">
-                        <Label htmlFor="calendar-edit-paused" className="text-sm font-medium">
-                          Pause schedule
-                        </Label>
-                        <span className="text-xs text-muted-foreground">
-                          Skip automatic bot reminders until resumed.
-                        </span>
-                      </div>
-                      <Switch
-                        id="calendar-edit-paused"
-                        checked={paused}
-                        onCheckedChange={setPaused}
-                      />
-                    </div>
-
                     {mutationError ? (
                       <p role="alert" className="text-xs text-destructive">
                         {mutationError}
@@ -552,7 +532,7 @@ export function CalendarDetailSheet({
                         </h3>
                         <div className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-card p-4 text-xs">
                           <div className="flex items-center justify-between gap-2">
-                            <CalendarRunStatusBadge status={event.lastExecution.status} paused={event.paused} />
+                            <CalendarRunStatusBadge status={event.lastExecution.status} />
                             {event.lastExecution.ackedAt ?? event.lastExecution.updatedAt ?? event.lastExecution.scheduledAt ? (
                               <span className="font-mono tabular-nums text-muted-foreground">
                                 {formatFullDateTime(

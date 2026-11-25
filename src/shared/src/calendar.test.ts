@@ -29,7 +29,6 @@ describe("calendar recurrence and timezone math", () => {
         durationMinutes: 30,
         timeZone: "Asia/Shanghai",
         recurrence: null,
-        paused: false,
       },
       Date.parse("2026-11-25T00:00:00.000Z"),
       Date.parse("2026-11-27T00:00:00.000Z"),
@@ -84,7 +83,7 @@ describe("calendar recurrence and timezone math", () => {
     expect(new Date(first!).toISOString()).toBe("2026-11-25T09:00:00.000Z") // Wed
 
     const occs = expandCalendarOccurrences(
-      { id: "cal_w", ...spec, durationMinutes: 45, paused: false },
+      { id: "cal_w", ...spec, durationMinutes: 45 },
       Date.parse("2026-11-24T00:00:00.000Z"),
       Date.parse("2026-12-03T00:00:00.000Z"),
     )
@@ -143,7 +142,6 @@ describe("calendar recurrence and timezone math", () => {
         durationMinutes: 30,
         timeZone: "UTC",
         recurrence: { freq: "daily", interval: 1 },
-        paused: false,
       },
       Date.parse("2026-11-25T00:00:00.000Z"),
       Date.parse("2026-11-28T00:00:00.000Z"),

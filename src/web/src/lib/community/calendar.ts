@@ -66,7 +66,6 @@ export type CalendarEventItem = {
   recurrence: CalendarRecurrenceSummary
   sourceMessage: CalendarSourceMessage
   lastExecution?: CalendarExecutionSummary | null
-  paused?: boolean
 }
 
 export type CalendarOccurrenceItem = {
@@ -85,7 +84,6 @@ export type CalendarEventEditDraft = {
   durationMinutes: number
   timeZone: string
   recurrence: CalendarRecurrenceRule | null
-  paused: boolean
 }
 
 type CalendarActorDto = {
@@ -124,7 +122,6 @@ export type CalendarEventDto = {
   timeZone: string
   recurrence: CalendarRecurrenceRule | null
   nextRunAt: string | null
-  paused: boolean
   sourceMessage: CalendarSourceMessageDto
   lastExecution: CalendarLastExecutionDto | null
   createdAt: string
@@ -152,7 +149,6 @@ export type CalendarUpdateRequestDto = {
   durationMinutes?: number
   timeZone?: string
   recurrence?: CalendarRecurrenceRule | null
-  paused?: boolean
   ack?: boolean
 }
 
@@ -268,7 +264,6 @@ function mapCalendarEventDto(
           lastError: dto.lastExecution.lastError,
         }
       : null,
-    paused: dto.paused,
   }
 }
 
@@ -278,7 +273,6 @@ export function mapCalendarListResponse(
 ): {
   events: CalendarEventItem[]
   occurrences: CalendarOccurrenceItem[]
-  pausedEvents: CalendarEventItem[]
   creators: CalendarActor[]
 } {
   const events = response.events.map((dto) => mapCalendarEventDto(dto, avatarByUserId))
@@ -296,9 +290,8 @@ export function mapCalendarListResponse(
       event,
     })
   }
-  const pausedEvents = events.filter((event) => event.paused)
   const creators = response.creators.map((actor) => mapActor(actor, avatarByUserId))
-  return { events, occurrences, pausedEvents, creators }
+  return { events, occurrences, creators }
 }
 
 export function calendarEventsQueryOptions(params: {
@@ -312,7 +305,6 @@ export function calendarEventsQueryOptions(params: {
       const search = new URLSearchParams({
         from: params.from,
         to: params.to,
-        includePaused: "true",
       })
       return apiFetchCommunity<CalendarListResponseDto>(
         `/api/community/calendar/events?${search.toString()}`,

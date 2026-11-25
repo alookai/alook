@@ -667,7 +667,7 @@ export interface ServerApi {
   platformMachine?(req: PlatformMachineRequest): Promise<Record<string, unknown>>;
   platformFeedback?(req: BotFeedbackInput): Promise<Record<string, unknown>>;
   platformBot?(req: PlatformBotRequest): Promise<Record<string, unknown>>;
-  calendarList?(req: { from?: string; to?: string; creatorHandle?: string; includePaused?: boolean }): Promise<CalendarListResponse>;
+  calendarList?(req: { from?: string; to?: string; creatorHandle?: string }): Promise<CalendarListResponse>;
   calendarCreate?(req: CalendarCreateRequest): Promise<{ event: CalendarEvent }>;
   calendarUpdate?(req: { id: string; patch: CalendarUpdateRequest }): Promise<{ event: CalendarEvent }>;
   calendarDelete?(req: { id: string }): Promise<{ deleted: true }>;

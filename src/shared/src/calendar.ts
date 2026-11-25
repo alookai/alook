@@ -92,7 +92,6 @@ export const CalendarEventSchema = z.strictObject({
   timeZone: z.string().min(1),
   recurrence: CalendarRecurrenceSchema.nullable(),
   nextRunAt: z.iso.datetime().nullable(),
-  paused: z.boolean(),
   sourceMessage: CalendarSourceMessageSchema,
   lastExecution: CalendarLastExecutionSchema.nullable(),
   createdAt: z.iso.datetime(),
@@ -135,7 +134,6 @@ export const CalendarUpdateRequestSchema = z.strictObject({
   timeZone: z.string().trim().min(1).max(128).optional(),
   recurrence: CalendarRecurrenceSchema.nullable().optional(),
   sourceMessageRef: z.string().trim().min(1).max(512).optional(),
-  paused: z.boolean().optional(),
   ack: z.literal(true).optional(),
 })
 export type CalendarUpdateRequest = z.infer<typeof CalendarUpdateRequestSchema>
@@ -518,10 +516,8 @@ function fastForwardToOrAfter(
 
 export function computeInitialNextRun(
   spec: CalendarScheduleSpec,
-  paused: boolean,
   nowMs: number,
 ): { nextRunAtMs: number | null; occurrenceCount: number } {
-  if (paused) return { nextRunAtMs: null, occurrenceCount: 0 }
   const first = computeFirstOccurrenceMs(spec)
   if (first === null) return { nextRunAtMs: null, occurrenceCount: 0 }
   if (!spec.recurrence || first >= nowMs - 60_000) {
@@ -536,7 +532,6 @@ export interface ExpandCalendarEventInput {
   durationMinutes: number
   timeZone: string
   recurrence: CalendarRecurrence | null
-  paused: boolean
 }
 
 export function expandCalendarOccurrences(
@@ -568,22 +563,20 @@ export function expandCalendarOccurrences(
     }
   }
 
-  if (!event.paused) {
-    const first = computeFirstOccurrenceMs(event)
-    if (first !== null) {
-      const lookbackStart = rangeStartMs - durationMs
-      const start = fastForwardToOrAfter(event, first, 0, lookbackStart)
-      let current = start.occurrenceMs
-      let priorCount = start.priorCount
-      let generated = 0
-      while (current !== null && current < rangeEndMs && generated < CALENDAR_MAX_OCCURRENCES_PER_EVENT) {
-        if (current + durationMs > rangeStartMs) {
-          addOccurrence(current, runStatusByScheduledMs.get(current) ?? "scheduled")
-          generated += 1
-        }
-        priorCount += 1
-        current = computeNextOccurrenceAfter(event, current, priorCount)
+  const first = computeFirstOccurrenceMs(event)
+  if (first !== null) {
+    const lookbackStart = rangeStartMs - durationMs
+    const start = fastForwardToOrAfter(event, first, 0, lookbackStart)
+    let current = start.occurrenceMs
+    let priorCount = start.priorCount
+    let generated = 0
+    while (current !== null && current < rangeEndMs && generated < CALENDAR_MAX_OCCURRENCES_PER_EVENT) {
+      if (current + durationMs > rangeStartMs) {
+        addOccurrence(current, runStatusByScheduledMs.get(current) ?? "scheduled")
+        generated += 1
       }
+      priorCount += 1
+      current = computeNextOccurrenceAfter(event, current, priorCount)
     }
   }
 

@@ -118,7 +118,6 @@ export function CalendarWeekView({
                       <CalendarStatusDot
                         key={item.occurrenceKey}
                         status={runStatus}
-                        paused={item.event.paused}
                         degraded={degraded}
                         size="sm"
                         className={cn(
@@ -165,19 +164,18 @@ export function CalendarWeekView({
                     styles.eventCard,
                     "flex min-h-11 w-full flex-col gap-2.5 rounded-2xl p-3.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                     degraded && "border-warning/35 bg-warning/6 hover:bg-warning/10",
-                    event.paused && "border-dashed opacity-80",
                     selectedOccurrenceKey === occurrence.occurrenceKey && "ring-2 ring-ring",
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-2 font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                      <CalendarStatusDot status={runStatus} paused={event.paused} degraded={degraded} />
+                      <CalendarStatusDot status={runStatus} degraded={degraded} />
                       <span>{formatTimeRange(occurrence.startAt, occurrence.endAt)}</span>
                     </span>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       <CalendarRecurrenceBadge recurrence={event.recurrence} compact />
                       <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} compact />
-                      <CalendarRunStatusBadge status={runStatus} paused={event.paused} />
+                      <CalendarRunStatusBadge status={runStatus} />
                     </div>
                   </div>
                   <div className="flex min-w-0 flex-col gap-1">
@@ -257,7 +255,6 @@ export function CalendarWeekView({
                       <CalendarStatusDot
                         key={item.occurrenceKey}
                         status={runStatus}
-                        paused={item.event.paused}
                         degraded={degraded}
                         size="sm"
                         className="size-1.25"
@@ -358,11 +355,9 @@ export function CalendarWeekView({
                           singleLine ? "flex-row items-center gap-1.5 px-2 py-0.5" : "flex-col gap-0.5 px-2 py-1.5",
                           degraded
                             ? "border-warning/40 bg-warning/14 hover:bg-warning/20"
-                            : event.paused
-                              ? "border-dashed border-border bg-muted/60 opacity-80 hover:opacity-100"
-                              : settled
-                                ? "border-border/80 bg-muted/75 hover:bg-muted"
-                                : "border-primary/25 bg-primary/12 hover:bg-primary/18 dark:border-primary/35 dark:bg-primary/18 dark:hover:bg-primary/25",
+                            : settled
+                              ? "border-border/80 bg-muted/75 hover:bg-muted"
+                              : "border-primary/25 bg-primary/12 hover:bg-primary/18 dark:border-primary/35 dark:bg-primary/18 dark:hover:bg-primary/25",
                           selectedOccurrenceKey === item.occurrenceKey && "ring-2 ring-ring ring-offset-1 ring-offset-card",
                         )}
                       >
@@ -370,7 +365,6 @@ export function CalendarWeekView({
                           <>
                             <CalendarStatusDot
                               status={runStatus}
-                              paused={event.paused}
                               degraded={degraded}
                               size="sm"
                             />
@@ -386,7 +380,6 @@ export function CalendarWeekView({
                             <div className="flex items-center gap-1.5">
                               <CalendarStatusDot
                                 status={runStatus}
-                                paused={event.paused}
                                 degraded={degraded}
                                 size="sm"
                               />

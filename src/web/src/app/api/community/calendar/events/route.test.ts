@@ -96,7 +96,6 @@ describe("calendar events API routes (D1 + DO sync-alarm)", () => {
     recurrence: { freq: "daily" as const, interval: 1 },
     occurrenceCount: 1,
     nextRunAtMs: Date.parse("2026-11-27T01:00:00.000Z"),
-    paused: false,
     sourceMessageId: "msg_1",
     sourceChannelId: "ch_1",
     version: 1,

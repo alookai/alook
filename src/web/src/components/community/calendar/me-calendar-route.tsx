@@ -97,7 +97,6 @@ export default function MeCalendarPage() {
             durationMinutes: draft.durationMinutes,
             timeZone: draft.timeZone,
             recurrence: draft.recurrence,
-            paused: draft.paused,
           },
         })
         toast.success("Event updated")
@@ -141,7 +140,6 @@ export default function MeCalendarPage() {
       onSelectedCreatorIdChange={setSelectedCreatorId}
       creators={creators}
       occurrences={mapped?.occurrences ?? []}
-      pausedEvents={mapped?.pausedEvents ?? []}
       loading={calendarQuery.isPending}
       error={loadError}
       retrying={calendarQuery.isFetching}

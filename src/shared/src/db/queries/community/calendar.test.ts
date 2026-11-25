@@ -139,7 +139,6 @@ describe("community calendar D1 queries", () => {
     // List with range returns runsByEvent & latestRunByEvent
     const listed = await listOwnerCalendarEvents(db, "owner_1", {
       creatorId: "bot_1",
-      includePaused: false,
       fromMs: baseMs - 3600_000,
       toMs: baseMs + 2 * 86_400_000,
     })
@@ -158,13 +157,6 @@ describe("community calendar D1 queries", () => {
     if (!rescheduled.ok) return
     const conflictClaim = await claimDueEventOccurrence(db, rescheduled.event, baseMs + 9600)
     expect(conflictClaim?.id).toBe(claimedRun!.id)
-
-    // Schedule change (pause) clears nextRunAtMs and removes pending runs
-    const paused = await updateCalendarEvent(db, "owner_1", created.event.id, {
-      paused: true,
-      nowMs: baseMs + 10_000,
-    })
-    expect(paused.ok).toBe(true)
     expect(await getEarliestNextRunMs(db, "owner_1")).toBeNull()
 
     expect(await deleteCalendarEvent(db, "owner_1", created.event.id)).toBe(true)

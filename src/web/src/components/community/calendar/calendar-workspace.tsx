@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, Pause, Users } from "@/components/icons/lucide"
+import { ChevronDown, ChevronLeft, ChevronRight, Users } from "@/components/icons/lucide"
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { HOME_TAB_COLUMN_CLASS } from "@/components/community/home-tab-layout"
 import { Button } from "@/components/ui/button"
@@ -22,15 +22,9 @@ import {
 } from "./calendar-date"
 import { CalendarDetailSheet } from "./calendar-detail-sheet"
 import { CalendarPageSkeleton } from "./calendar-skeleton"
-import {
-  CalendarRecurrenceBadge,
-  CalendarSourceStatusBadge,
-  CalendarStatusDot,
-} from "./calendar-status"
 import type {
   CalendarActor,
   CalendarEventEditDraft,
-  CalendarEventItem,
   CalendarOccurrenceItem,
   CalendarViewMode,
 } from "./calendar-types"
@@ -48,7 +42,6 @@ export function CalendarWorkspace({
   onSelectedCreatorIdChange,
   creators,
   occurrences,
-  pausedEvents = [],
   loading = false,
   error = null,
   retrying = false,
@@ -69,7 +62,6 @@ export function CalendarWorkspace({
   onSelectedCreatorIdChange: (creatorId: string | null) => void
   creators: readonly CalendarActor[]
   occurrences: readonly CalendarOccurrenceItem[]
-  pausedEvents?: readonly CalendarEventItem[]
   loading?: boolean
   error?: string | null
   retrying?: boolean
@@ -96,36 +88,10 @@ export function CalendarWorkspace({
     return occurrences.filter((item) => item.event.creator.id === selectedCreatorId)
   }, [occurrences, selectedCreatorId])
 
-  const filteredPausedEvents = useMemo(() => {
-    const representedEventIds = new Set(filteredOccurrences.map((item) => item.eventId))
-    return pausedEvents.filter((event) => {
-      if (representedEventIds.has(event.id)) return false
-      if (selectedCreatorId && event.creator.id !== selectedCreatorId) return false
-      return true
-    })
-  }, [filteredOccurrences, pausedEvents, selectedCreatorId])
-
-  const pausedAsOccurrences = useMemo<CalendarOccurrenceItem[]>(
-    () =>
-      filteredPausedEvents.map((event) => ({
-        occurrenceKey: `paused:${event.id}`,
-        eventId: event.id,
-        startAt: event.startAt,
-        endAt: event.endAt ?? null,
-        runStatus: event.lastExecution?.status ?? null,
-        event,
-      })),
-    [filteredPausedEvents],
-  )
-
   const activeOccurrence = useMemo(() => {
     if (!selectedOccurrenceKey) return null
-    return (
-      filteredOccurrences.find((item) => item.occurrenceKey === selectedOccurrenceKey)
-      ?? pausedAsOccurrences.find((item) => item.occurrenceKey === selectedOccurrenceKey)
-      ?? null
-    )
-  }, [filteredOccurrences, pausedAsOccurrences, selectedOccurrenceKey])
+    return filteredOccurrences.find((item) => item.occurrenceKey === selectedOccurrenceKey) ?? null
+  }, [filteredOccurrences, selectedOccurrenceKey])
 
   const selectedCreator = useMemo(
     () => (selectedCreatorId ? creators.find((c) => c.id === selectedCreatorId) ?? null : null),
@@ -151,7 +117,7 @@ export function CalendarWorkspace({
       ? "1 event"
       : `${filteredOccurrences.length} events`
 
-  if (loading && occurrences.length === 0 && pausedEvents.length === 0) {
+  if (loading && occurrences.length === 0) {
     return <CalendarPageSkeleton onBack={onBack} />
   }
 
@@ -229,12 +195,6 @@ export function CalendarWorkspace({
                 <span>{headingParts.rangeShort}</span>
                 <span aria-hidden className="text-border">·</span>
                 <span>{eventCountLabel}</span>
-                {pausedAsOccurrences.length > 0 ? (
-                  <>
-                    <span aria-hidden className="text-border">·</span>
-                    <span>{pausedAsOccurrences.length} paused</span>
-                  </>
-                ) : null}
               </div>
 
               <div className={cn(styles.navTray, "inline-flex shrink-0 sm:hidden")}>
@@ -371,45 +331,6 @@ export function CalendarWorkspace({
               onSelectOccurrence={(item) => setSelectedOccurrenceKey(item.occurrenceKey)}
             />
           )}
-
-          {pausedAsOccurrences.length > 0 ? (
-            <section aria-label="Paused schedules" className="flex flex-col gap-3 border-t border-border/60 pt-5">
-              <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                <Pause className="size-3.5" aria-hidden />
-                <span>Paused schedules ({pausedAsOccurrences.length})</span>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {pausedAsOccurrences.map((item) => (
-                  <button
-                    key={item.occurrenceKey}
-                    type="button"
-                    data-testid={tid.calendarEvent(item.event.id)}
-                    onClick={() => setSelectedOccurrenceKey(item.occurrenceKey)}
-                    className="flex min-h-11 flex-col gap-2 rounded-2xl border border-dashed border-border/80 bg-card/70 p-3.5 text-left transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <CalendarStatusDot paused />
-                        <span className="truncate text-sm font-medium text-foreground/90">{item.event.title}</span>
-                      </span>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <CalendarRecurrenceBadge recurrence={item.event.recurrence} compact />
-                        <CalendarSourceStatusBadge
-                          source={item.event.sourceMessage}
-                          runStatus={item.runStatus}
-                          compact
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <CalendarActorAvatar actor={item.event.creator} size={18} />
-                      <span className="truncate">{item.event.creator.name}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
         </div>
       </ScrollArea>
 

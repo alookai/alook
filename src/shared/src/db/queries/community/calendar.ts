@@ -25,7 +25,6 @@ export interface StoredCalendarEvent {
   recurrence: CalendarRecurrence | null
   occurrenceCount: number
   nextRunAtMs: number | null
-  paused: boolean
   sourceMessageId: string
   sourceChannelId: string
   version: number
@@ -72,7 +71,6 @@ function mapEventRow(row: typeof communityCalendarEvent.$inferSelect): StoredCal
     recurrence,
     occurrenceCount: row.occurrenceCount,
     nextRunAtMs: row.nextRunAtMs,
-    paused: row.paused,
     sourceMessageId: row.sourceMessageId,
     sourceChannelId: row.sourceChannelId,
     version: row.version,
@@ -145,7 +143,6 @@ export async function listOwnerCalendarEvents(
   ownerUserId: string,
   opts: {
     creatorId?: string | null
-    includePaused?: boolean
     fromMs?: number | null
     toMs?: number | null
   } = {},
@@ -161,11 +158,9 @@ export async function listOwnerCalendarEvents(
     .orderBy(asc(communityCalendarEvent.createdAtMs))
     .limit(CALENDAR_MAX_EVENTS_PER_OWNER)
 
-  const includePaused = opts.includePaused !== false
   const creatorId = opts.creatorId ?? null
   const events = rows
     .map(mapEventRow)
-    .filter((event) => includePaused || !event.paused)
     .filter((event) => !creatorId || event.createdByUserId === creatorId)
     .sort((a, b) => {
       const aKey = a.nextRunAtMs ?? a.startAtMs
@@ -258,7 +253,6 @@ export async function createCalendarEvent(
   const durationMinutes = input.durationMinutes ?? CALENDAR_DEFAULT_DURATION_MINUTES
   const initial = computeInitialNextRun(
     { startAtMs: input.startAtMs, timeZone: input.timeZone, recurrence },
-    false,
     nowMs,
   )
   const id = `cal_${crypto.randomUUID()}`
@@ -277,7 +271,6 @@ export async function createCalendarEvent(
       recurrenceJson: recurrence ? JSON.stringify(recurrence) : null,
       occurrenceCount: initial.occurrenceCount,
       nextRunAtMs: initial.nextRunAtMs,
-      paused: false,
       sourceMessageId: input.sourceMessageId,
       sourceChannelId: input.sourceChannelId,
       version: 1,
@@ -303,7 +296,6 @@ export async function updateCalendarEvent(
     recurrence?: CalendarRecurrence | null
     sourceMessageId?: string
     sourceChannelId?: string
-    paused?: boolean
     ack?: true
     nowMs?: number
   },
@@ -328,7 +320,6 @@ export async function updateCalendarEvent(
   const recurrence = patch.hasRecurrence
     ? normalizeRecurrence(patch.recurrence ?? null)
     : existing.recurrence
-  const paused = patch.paused ?? existing.paused
   const sourceMessageId = patch.sourceMessageId ?? existing.sourceMessageId
   const sourceChannelId = patch.sourceChannelId ?? existing.sourceChannelId
 
@@ -336,7 +327,6 @@ export async function updateCalendarEvent(
     startAtMs !== existing.startAtMs
     || timeZone !== existing.timeZone
     || JSON.stringify(recurrence) !== JSON.stringify(existing.recurrence)
-    || paused !== existing.paused
 
   const snapshotChanged =
     title !== existing.title
@@ -351,7 +341,6 @@ export async function updateCalendarEvent(
   if (scheduleChanged) {
     const recomputed = computeInitialNextRun(
       { startAtMs, timeZone, recurrence },
-      paused,
       nowMs,
     )
     nextRunAtMs = recomputed.nextRunAtMs
@@ -456,7 +445,6 @@ export async function updateCalendarEvent(
       recurrenceJson: recurrence ? JSON.stringify(recurrence) : null,
       occurrenceCount,
       nextRunAtMs,
-      paused,
       sourceMessageId,
       sourceChannelId,
       version: nextVersion,
@@ -505,7 +493,6 @@ export async function getEarliestNextRunMs(
     .where(
       and(
         eq(communityCalendarEvent.ownerUserId, ownerUserId),
-        eq(communityCalendarEvent.paused, false),
         isNotNull(communityCalendarEvent.nextRunAtMs),
       ),
     )
@@ -526,7 +513,6 @@ export async function listDueEventsForOwner(
     .where(
       and(
         eq(communityCalendarEvent.ownerUserId, ownerUserId),
-        eq(communityCalendarEvent.paused, false),
         isNotNull(communityCalendarEvent.nextRunAtMs),
         lte(communityCalendarEvent.nextRunAtMs, nowMs),
       ),
@@ -564,7 +550,6 @@ export async function claimDueEventOccurrence(
         eq(communityCalendarEvent.id, event.id),
         eq(communityCalendarEvent.ownerUserId, event.ownerUserId),
         eq(communityCalendarEvent.version, event.version),
-        eq(communityCalendarEvent.paused, false),
         eq(communityCalendarEvent.nextRunAtMs, scheduledAtMs),
       ),
     )

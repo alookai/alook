@@ -27,7 +27,7 @@ export function calendarOwnerUserId(actor: CommunityActor): string {
   return actor.kind === "human" ? actor.userId : actor.ownerUserId
 }
 
-export function ownerCalendarFetch(
+function ownerCalendarFetch(
   env: Env,
   ownerUserId: string,
   innerPath: string,
@@ -286,7 +286,6 @@ export async function hydrateCalendarEvents(
       timeZone: event.timeZone,
       recurrence: event.recurrence,
       nextRunAt: event.nextRunAtMs !== null ? new Date(event.nextRunAtMs).toISOString() : null,
-      paused: event.paused,
       sourceMessage,
       lastExecution: toLastExecution(latestRunByEvent[event.id]),
       createdAt: new Date(event.createdAtMs).toISOString(),
@@ -316,7 +315,6 @@ export function buildCalendarOccurrences(
         durationMinutes: event.durationMinutes,
         timeZone: event.timeZone,
         recurrence: event.recurrence,
-        paused: event.paused,
       },
       fromMs,
       toMs,

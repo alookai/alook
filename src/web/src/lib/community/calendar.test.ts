@@ -34,7 +34,7 @@ describe("calendar client mapping", () => {
     })
   })
 
-  it("maps events, occurrences, creators, paused schedules, and redacts inaccessible source messages", () => {
+  it("maps events, occurrences, creators, and redacts inaccessible source messages", () => {
     const response: CalendarListResponseDto = {
       creators: [
         { id: "bot_alli", handle: "@Alli#6011", name: "Alli", avatarVersion: 2, isBot: true },
@@ -51,7 +51,6 @@ describe("calendar client mapping", () => {
           timeZone: "Asia/Shanghai",
           recurrence: { freq: "daily", interval: 1 },
           nextRunAt: "2026-11-27T01:00:00.000Z",
-          paused: false,
           sourceMessage: {
             id: "msg_1",
             accessible: true,
@@ -72,8 +71,8 @@ describe("calendar client mapping", () => {
           updatedAt: "2026-11-25T04:00:00.000Z",
         },
         {
-          id: "cal_paused",
-          title: "Paused lost-access reminder",
+          id: "cal_lost",
+          title: "Lost-access reminder",
           description: "",
           createdBy: { id: "bot_elwira", handle: "@Elwira#8700", name: "Elwira", avatarVersion: 1, isBot: true },
           startAt: "2026-11-26T05:00:00.000Z",
@@ -81,7 +80,6 @@ describe("calendar client mapping", () => {
           timeZone: "Asia/Shanghai",
           recurrence: null,
           nextRunAt: null,
-          paused: true,
           sourceMessage: {
             id: "msg_deleted",
             accessible: false,
@@ -123,11 +121,11 @@ describe("calendar client mapping", () => {
     expect(mapped.occurrences[0]?.event.lastExecution?.ackedAt).toBe("2026-11-26T01:04:00.000Z")
     expect(mapped.occurrences[0]?.event.sourceMessage.excerpt).toBe("Share daily update here")
 
-    expect(mapped.pausedEvents).toHaveLength(1)
-    expect(mapped.pausedEvents[0]?.sourceMessage.accessible).toBe(false)
-    expect(mapped.pausedEvents[0]?.sourceMessage.excerpt).toBeNull()
-    expect(mapped.pausedEvents[0]?.sourceMessage.channelLabel).toBeNull()
-    expect(mapped.pausedEvents[0]?.sourceMessage.unavailableReason).toContain("deleted")
+    const lost = mapped.events.find((e) => e.id === "cal_lost")
+    expect(lost?.sourceMessage.accessible).toBe(false)
+    expect(lost?.sourceMessage.excerpt).toBeNull()
+    expect(lost?.sourceMessage.channelLabel).toBeNull()
+    expect(lost?.sourceMessage.unavailableReason).toContain("deleted")
   })
 
   it("invalidates active calendar queries on community:calendar.changed", async () => {

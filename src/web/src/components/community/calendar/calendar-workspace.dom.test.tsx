@@ -5,7 +5,6 @@ import { render, setupUser } from "@/test/react-dom-harness"
 import type {
   CalendarActor,
   CalendarEventEditDraft,
-  CalendarEventItem,
   CalendarOccurrenceItem,
   CalendarViewMode,
 } from "./calendar-types"
@@ -81,27 +80,13 @@ function makeFixtureOccurrences(): CalendarOccurrenceItem[] {
   ]
 }
 
-const PAUSED_EVENT: CalendarEventItem = {
-  id: "cal_paused",
-  title: "Weekly retro",
-  creator: ALLI,
-  startAt: new Date(2026, 10, 27, 16, 0).toISOString(),
-  durationMinutes: 30,
-  timeZone: "Asia/Shanghai",
-  recurrence: { recurring: true, label: "Weekly · Fri", rule: { freq: "weekly", interval: 1, byWeekday: [5] } },
-  sourceMessage: { messageId: "msg_retro", accessible: true },
-  paused: true,
-}
-
 function Harness({
   initialView = "agenda",
-  pausedEvents = [],
   onOpenSourceMessage = vi.fn(),
   onSaveEvent = vi.fn(),
   onDeleteEvent = vi.fn(),
 }: {
   initialView?: CalendarViewMode
-  pausedEvents?: readonly CalendarEventItem[]
   onOpenSourceMessage?: (messageId: string) => void
   onSaveEvent?: (eventId: string, draft: CalendarEventEditDraft) => void
   onDeleteEvent?: (eventId: string) => void
@@ -119,7 +104,6 @@ function Harness({
       onSelectedCreatorIdChange={setSelectedCreatorId}
       creators={[ALLI, ELWIRA]}
       occurrences={makeFixtureOccurrences()}
-      pausedEvents={pausedEvents}
       onOpenSourceMessage={onOpenSourceMessage}
       onSaveEvent={onSaveEvent}
       onDeleteEvent={onDeleteEvent}
@@ -190,15 +174,6 @@ describe("CalendarWorkspace", () => {
     expect(view.getByText("Completed")).toBeInTheDocument()
     await user.click(view.getByTestId(tid.calendarEvent("cal_1")))
     expect(view.getByText(/Acknowledged by bot/i)).toBeInTheDocument()
-  })
-
-  it("keeps paused schedules reachable for resuming or editing", async () => {
-    const user = setupUser()
-    const view = render(<Harness initialView="agenda" pausedEvents={[PAUSED_EVENT]} />)
-    expect(view.getByText("Paused schedules (1)")).toBeInTheDocument()
-    await user.click(view.getByTestId(tid.calendarEvent("cal_paused")))
-    expect(view.getByTestId(tid.calendarDetailSheet)).toBeInTheDocument()
-    expect(view.getAllByText("Weekly retro").length).toBeGreaterThan(0)
   })
 
   it("supports editing and confirming deletion from the detail sheet", async () => {

@@ -31,7 +31,6 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
   const range = parseCalendarRange(params.get("from"), params.get("to"))
   if (!range.ok) return writeError(range.error, 400)
 
-  const includePaused = params.get("includePaused") !== "false"
   const creators = await listHouseholdCreators(db, ownerUserId)
 
   let creatorId = params.get("creatorId")?.trim() || null
@@ -48,7 +47,6 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
   const payload = await withD1Retry(
     () => queries.communityCalendar.listOwnerCalendarEvents(db, ownerUserId, {
       creatorId,
-      includePaused,
       fromMs: range.fromMs,
       toMs: range.toMs,
     }),

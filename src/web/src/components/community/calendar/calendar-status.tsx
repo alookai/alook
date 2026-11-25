@@ -2,7 +2,6 @@
 
 import {
   Check,
-  Pause,
   RefreshCw,
   TriangleAlertIcon,
 } from "@/components/icons/lucide"
@@ -18,26 +17,22 @@ const PILL_BASE_CLASS =
 
 export function CalendarStatusDot({
   status,
-  paused,
   degraded,
   size = "md",
   className,
 }: {
   status?: CalendarOccurrenceRunStatus | null
-  paused?: boolean
   degraded?: boolean
   size?: "sm" | "md"
   className?: string
 }) {
   const toneClass = degraded || status === "blocked_access"
     ? "bg-warning"
-    : paused
-      ? "bg-muted-foreground/50"
-      : status === "completed"
-        ? "bg-approval-pass"
-        : status === "pending"
-          ? "bg-warning"
-          : "bg-primary"
+    : status === "completed"
+      ? "bg-approval-pass"
+      : status === "pending"
+        ? "bg-warning"
+        : "bg-primary"
 
   return (
     <span
@@ -96,21 +91,11 @@ export function CalendarSourceStatusBadge({
 
 export function CalendarRunStatusBadge({
   status,
-  paused,
   className,
 }: {
   status?: CalendarOccurrenceRunStatus | null
-  paused?: boolean
   className?: string
 }) {
-  if (paused) {
-    return (
-      <span className={cn(PILL_BASE_CLASS, "bg-muted text-muted-foreground", className)}>
-        <Pause className="size-3 shrink-0" aria-hidden />
-        <span>Paused</span>
-      </span>
-    )
-  }
   if (!status || status === "scheduled") return null
   switch (status) {
     case "completed":
