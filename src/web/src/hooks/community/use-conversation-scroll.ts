@@ -613,7 +613,13 @@ export function useConversationScroll({
     const nextFollowSuspended = followSuspendedRef.current
     const nextFollowingTail = followingTailRef.current
     const nextReadingTail = readingTailRef.current
-    const nextBelowCount = knownBelowCount ?? computeLoadedBelowCount(ctx.items, scrollRef.current, ctx.viewportInsetEnd)
+    const suppressBelowCount = !ctx.hasMoreNewer && (
+      (nextMode === "pinned-to-bottom" && !nextFollowSuspended)
+      || (nextMode === "jumping-to-target" && stateRef.current.kind === "present")
+    )
+    const nextBelowCount = suppressBelowCount
+      ? 0
+      : (knownBelowCount ?? computeLoadedBelowCount(ctx.items, scrollRef.current, ctx.viewportInsetEnd))
     uiStore.setState((current) => {
       if (
         !incrementRevision
@@ -1255,6 +1261,14 @@ export function useConversationScroll({
       else transitionToReadingHistory(false, "cancelled")
       return
     }
+    const alreadyPinned = stateRef.current.mode === "pinned-to-bottom"
+      && !followSuspendedRef.current
+      && !readingNewRef.current
+      && initialSettledRef.current
+      && readReadyRef.current
+      && hasMessages
+      && !hasMoreNewer
+      && !isFetchingNewer
     epochRef.current += 1
     initialSettledRef.current = true
     entryResolvedRef.current = true
@@ -1262,6 +1276,21 @@ export function useConversationScroll({
     readingNewRef.current = false
     upwardIntentRef.current = false
     presentOriginEpochRef.current = null
+    if (alreadyPinned) {
+      const root = scrollRef.current
+      if (root && root.clientHeight > 0) {
+        const maxScroll = Math.max(0, root.scrollHeight - root.clientHeight)
+        const activeSmooth = programmaticScrollRef.current
+        if (Math.abs(root.scrollTop - maxScroll) > 1
+          && (!activeSmooth?.smooth || Math.abs(activeSmooth.target - maxScroll) > 1)) {
+          writeScrollTopSmooth(root, maxScroll, messageScrollBehavior())
+        }
+        syncTailFlags(root)
+      } else {
+        syncUiSnapshot(false, 0)
+      }
+      return
+    }
     if (hasMessages && !hasMoreNewer && !isFetchingNewer) {
       stateRef.current = { mode: "jumping-to-target", kind: "present", targetId: null, align: "end", behavior: messageScrollBehavior(), notifyTarget: false }
       bumpState()
@@ -1270,7 +1299,7 @@ export function useConversationScroll({
       stateRef.current = { mode: "jumping-to-target", kind: "present", targetId: null, align: "end", behavior: messageScrollBehavior(), notifyTarget: false }
       bumpState()
     }
-  }, [bumpState, hasMessages, hasMoreNewer, isFetchingNewer, localSubmitVersion, presentRequest, requestPresentPosition, transitionToReadingHistory, visible])
+  }, [bumpState, hasMessages, hasMoreNewer, isFetchingNewer, localSubmitVersion, presentRequest, requestPresentPosition, syncTailFlags, syncUiSnapshot, transitionToReadingHistory, visible, writeScrollTopSmooth])
 
   useLayoutEffect(() => {
     const completedWindow = hasMessages && !hasMoreNewer && !isFetchingNewer
@@ -1463,7 +1492,11 @@ export function useConversationScroll({
         && !isFetchingNewer
         && !paginationRef.current
       if (settledTailAppend) {
-        writeScrollTopSmooth(root, root.scrollHeight - root.clientHeight, messageScrollBehavior())
+        const maxScroll = Math.max(0, root.scrollHeight - root.clientHeight)
+        const activeSmooth = programmaticScrollRef.current
+        if (!activeSmooth?.smooth || Math.abs(activeSmooth.target - maxScroll) > 1) {
+          writeScrollTopSmooth(root, maxScroll, messageScrollBehavior())
+        }
         syncTailFlags(root)
       } else {
         compensateAnchor(false)
