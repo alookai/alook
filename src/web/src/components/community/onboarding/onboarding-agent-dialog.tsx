@@ -151,14 +151,13 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
         </div> : <div className="space-y-3">
           {ready ? <>
             <PromptCopyPreview value={prompt} label={`Prompt for ${harnessLabel}`} testId="onboarding-agent-prompt" onCopy={handleCopy} onManualCopy={handleManualCopy} />
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs leading-relaxed text-muted-foreground">
-              <p>Your files stay on your computer — nothing is uploaded automatically.</p>
+            <div className="flex items-center">
               <Popover>
                 <PopoverTrigger
                   openOnHover
                   delay={150}
                   render={<Button variant="ghost" size="sm" type="button" />}
-                  className="-mx-2 h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  className="-mx-2 h-11 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground sm:h-8"
                 >
                   <CircleHelp aria-hidden className="size-3.5 shrink-0" />
                   Why do I need to run this command?

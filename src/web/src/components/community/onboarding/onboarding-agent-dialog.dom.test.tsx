@@ -166,7 +166,7 @@ describe("Agent Setup", () => {
     const input = props()
     const view = render(<OnboardingAgentDialog {...input} />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
-    expect(screen.getByText("Your files stay on your computer — nothing is uploaded automatically.")).toBeInTheDocument()
+    expect(screen.queryByText(/Your files stay on your computer/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/1 hour/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/one-time/i)).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Why do I need to run this command?" })).toBeInTheDocument()

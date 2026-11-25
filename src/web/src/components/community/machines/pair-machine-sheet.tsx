@@ -328,7 +328,7 @@ function Step1({
             delay={150}
             data-testid={tid.machinePairHelp}
             render={<Button variant="ghost" size="sm" type="button" />}
-            className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            className="h-11 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground sm:h-8"
           >
             <CircleHelp aria-hidden className="size-3.5 shrink-0" />
             Why do I need to run this command?
