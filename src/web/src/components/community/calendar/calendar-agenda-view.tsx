@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { CalendarDays, ExternalLink } from "@/components/icons/lucide"
 import { EmptyState } from "@/components/community/empty-state"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { CalendarActorAvatar } from "./calendar-actor"
@@ -35,116 +36,117 @@ export function CalendarAgendaView({
   const now = useMemo(() => new Date(), [])
   const groups = useMemo(() => groupOccurrencesByDay(occurrences), [occurrences])
 
-  if (groups.length === 0) {
-    return (
-      <div
-        data-testid={tid.calendarAgenda}
-        className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-border/70 bg-card/60 py-16"
-      >
-        <EmptyState icon={CalendarDays} label={emptyLabel} />
-      </div>
-    )
-  }
-
   return (
-    <div data-testid={tid.calendarAgenda} className="flex flex-col gap-6 sm:gap-7">
-      {groups.map((group) => {
-        const heading = formatAgendaDayLabel(group.date, now)
-        const monthShort = new Intl.DateTimeFormat(undefined, { month: "short" }).format(group.date)
-        return (
-          <section
-            key={group.dayKey}
-            aria-label={`${heading.primary} ${heading.secondary}`}
-            className="grid min-w-0 gap-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-5"
-          >
-            <div className="flex items-center gap-3 sm:items-start sm:pt-2">
-              <div
-                className={cn(
-                  "grid size-10 shrink-0 place-items-center rounded-xl font-mono text-lg font-semibold tabular-nums",
-                  heading.isToday
-                    ? styles.todayDisc
-                    : "bg-muted/80 text-foreground",
-                )}
+    <ScrollArea className="min-h-0 flex-1 bg-background" contentClassName="flex min-h-full flex-col">
+      {groups.length === 0 ? (
+        <div
+          data-testid={tid.calendarAgenda}
+          className="flex flex-1 flex-col items-center justify-center px-6 py-16"
+        >
+          <EmptyState icon={CalendarDays} label={emptyLabel} />
+        </div>
+      ) : (
+        <div data-testid={tid.calendarAgenda} className="flex flex-col divide-y divide-border/50 pb-6">
+          {groups.map((group) => {
+            const heading = formatAgendaDayLabel(group.date, now)
+            const monthShort = new Intl.DateTimeFormat(undefined, { month: "short" }).format(group.date)
+            return (
+              <section
+                key={group.dayKey}
+                aria-label={`${heading.primary} ${heading.secondary}`}
+                className="grid min-w-0 gap-2 px-4 py-4 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-6 sm:px-6 sm:py-5"
               >
-                {group.date.getDate()}
-              </div>
-              <div className="flex min-w-0 flex-col">
-                <h2
-                  className={cn(
-                    "text-sm font-semibold leading-tight",
-                    heading.isToday ? "text-primary" : "text-foreground",
-                  )}
-                >
-                  {heading.primary}
-                </h2>
-                <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                  {formatWeekdayShort(group.date)}, {monthShort}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex min-w-0 flex-col gap-2.5">
-              {group.items.map((occurrence) => {
-                const { event } = occurrence
-                const runStatus = occurrence.runStatus ?? event.lastExecution?.status ?? null
-                const degraded = !event.sourceMessage.accessible || runStatus === "blocked_access"
-                return (
-                  <button
-                    key={occurrence.occurrenceKey}
-                    type="button"
-                    data-testid={tid.calendarEvent(event.id)}
-                    onClick={() => onSelectOccurrence(occurrence)}
+                <div className="flex items-center gap-3 sm:items-start sm:pt-2.5">
+                  <div
                     className={cn(
-                      styles.eventCard,
-                      "flex min-h-11 w-full flex-col gap-2.5 rounded-2xl p-3.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:p-4",
-                      degraded && "border-warning/35 bg-warning/6 hover:bg-warning/10",
-                      selectedOccurrenceKey === occurrence.occurrenceKey && "ring-2 ring-ring",
+                      "grid size-9 shrink-0 place-items-center rounded-full font-mono text-base font-semibold tabular-nums",
+                      heading.isToday
+                        ? styles.todayDisc
+                        : "bg-muted text-foreground",
                     )}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="flex items-center gap-2 font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                        <CalendarStatusDot status={runStatus} degraded={degraded} />
-                        <span>{formatTimeRange(occurrence.startAt, occurrence.endAt)}</span>
-                      </span>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <CalendarRecurrenceBadge recurrence={event.recurrence} />
-                        <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
-                        <CalendarRunStatusBadge status={runStatus} />
+                    {group.date.getDate()}
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <h2
+                      className={cn(
+                        "text-sm leading-tight font-semibold",
+                        heading.isToday ? "text-primary" : "text-foreground",
+                      )}
+                    >
+                      {heading.primary}
+                    </h2>
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                      {formatWeekdayShort(group.date)}, {monthShort}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex min-w-0 flex-col divide-y divide-border/40">
+                  {group.items.map((occurrence) => {
+                    const { event } = occurrence
+                    const runStatus = occurrence.runStatus ?? event.lastExecution?.status ?? null
+                    const degraded = !event.sourceMessage.accessible || runStatus === "blocked_access"
+                    return (
+                      <div key={occurrence.occurrenceKey} className="py-1 first:pt-0 last:pb-0">
+                        <button
+                          type="button"
+                          data-testid={tid.calendarEvent(event.id)}
+                          onClick={() => onSelectOccurrence(occurrence)}
+                          className={cn(
+                            styles.ledgerRow,
+                            "-mx-3 flex min-h-11 w-[calc(100%+1.5rem)] flex-col gap-2 rounded-xl px-3 py-2.5 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:py-3",
+                            degraded && "bg-warning/6 hover:bg-warning/11",
+                            selectedOccurrenceKey === occurrence.occurrenceKey && "bg-muted/65 ring-1 ring-ring/50",
+                          )}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="flex items-center gap-2 font-mono text-xs font-medium tabular-nums text-muted-foreground">
+                              <CalendarStatusDot status={runStatus} degraded={degraded} />
+                              <span>{formatTimeRange(occurrence.startAt, occurrence.endAt)}</span>
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <CalendarRecurrenceBadge recurrence={event.recurrence} />
+                              <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
+                              <CalendarRunStatusBadge status={runStatus} />
+                            </div>
+                          </div>
+
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <div className="text-sm leading-snug font-medium text-foreground">{event.title}</div>
+                            {event.description ? (
+                              <p className="max-w-[68ch] line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                                {event.description}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs text-muted-foreground">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <CalendarActorAvatar actor={event.creator} size={18} />
+                              <span className="truncate font-medium text-foreground/85">
+                                {event.creator.name}
+                              </span>
+                            </span>
+                            {event.sourceMessage.accessible ? (
+                              <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground">
+                                <ExternalLink className="size-3 shrink-0" aria-hidden />
+                                <span className="truncate">
+                                  {event.sourceMessage.channelLabel ?? "Bound message"}
+                                </span>
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
                       </div>
-                    </div>
-
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="text-sm font-medium leading-snug text-foreground">{event.title}</div>
-                      {event.description ? (
-                        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                          {event.description}
-                        </p>
-                      ) : null}
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs text-muted-foreground">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <CalendarActorAvatar actor={event.creator} size={20} />
-                        <span className="truncate font-medium text-foreground/85">
-                          {event.creator.name}
-                        </span>
-                      </span>
-                      {event.sourceMessage.accessible ? (
-                        <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground">
-                          <ExternalLink className="size-3 shrink-0" aria-hidden />
-                          <span className="truncate">
-                            {event.sourceMessage.channelLabel ?? "Bound message"}
-                          </span>
-                        </span>
-                      ) : null}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-        )
-      })}
-    </div>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      )}
+    </ScrollArea>
   )
 }
