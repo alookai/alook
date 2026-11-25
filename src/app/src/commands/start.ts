@@ -22,7 +22,7 @@ export function startCommand(): Command {
         console.log("Services already running.");
       } else {
         await checkPorts(ports);
-        startServices(ports, { foreground: !!process.env.ALOOK_PROJECT_ROOT });
+        await startServices(ports, { foreground: !!process.env.ALOOK_PROJECT_ROOT });
         await waitForServer(WEB_URL(ports.web));
       }
 

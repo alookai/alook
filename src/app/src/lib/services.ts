@@ -69,7 +69,35 @@ function killProcess(pid: number): boolean {
   }
 }
 
-export function startServices(ports: DevPortProfile, opts: StartOptions = {}): void {
+function collectSpawnError(child: ChildProcess): Promise<Error | undefined> {
+  if (typeof child.once !== "function") return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      clearImmediate(timer);
+      if (typeof child.off === "function") {
+        child.off("error", onError);
+        child.off("spawn", onSpawn);
+      } else if (typeof child.removeListener === "function") {
+        child.removeListener("error", onError);
+        child.removeListener("spawn", onSpawn);
+      }
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(error);
+    };
+    const onError = (error: Error) => finish(error);
+    const onSpawn = () => finish(undefined);
+    const timer = setImmediate(() => finish(undefined));
+    child.once("error", onError);
+    child.once("spawn", onSpawn);
+  });
+}
+
+export async function startServices(ports: DevPortProfile, opts: StartOptions = {}): Promise<void> {
   const existing = readPids();
   const anyAlive = SELF_HOSTED_SERVICES.map((service) => existing[service.key]).some(
     (pid) => pid && isAlive(pid),
@@ -100,8 +128,20 @@ export function startServices(ports: DevPortProfile, opts: StartOptions = {}): v
     child: spawnService(record.service.directory, record.command, record.args, record.cwd, foreground),
   }));
 
-  if (started.some(({ child }) => !child.pid)) {
+  const failed = started.filter(({ child }) => !child.pid);
+  if (failed.length > 0) {
+    const failures = await Promise.all(
+      failed.map(async (record) => ({
+        record,
+        error: await collectSpawnError(record.child),
+      })),
+    );
     console.error("Error: failed to start one or more services.");
+    for (const { record, error } of failures) {
+      const cmd = [record.command, ...record.args].join(" ");
+      const reason = error?.message || "process did not start";
+      console.error(`  ${record.service.label} (${cmd}, cwd=${record.cwd}): ${reason}`);
+    }
     for (const { child } of started) {
       if (child.pid) killProcess(child.pid);
     }
