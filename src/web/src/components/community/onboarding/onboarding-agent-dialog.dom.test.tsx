@@ -162,19 +162,43 @@ describe("Agent Setup", () => {
     expect(input.onConnected).not.toHaveBeenCalled()
   })
 
-  it("shows privacy reassurance, accepts manual copy, and offers Copy again while waiting", async () => {
+  it("shows accurate temporary-code scope, writes the full multiline prompt on manual copy, ignores partial copy, and offers Copy again while waiting", async () => {
     const input = props()
     const view = render(<OnboardingAgentDialog {...input} />)
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
     expect(screen.getByText(/Your files stay on your computer/)).toBeInTheDocument()
+    expect(screen.getByText(/temporary setup code expires in 1 hour/)).toBeInTheDocument()
+    expect(screen.queryByText(/one-time code/i)).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "How does this stay private?" })).toBeInTheDocument()
 
-    fireEvent.copy(screen.getByTestId("onboarding-agent-prompt"))
+    const promptEl = screen.getByTestId("onboarding-agent-prompt")
+    const expectedPrompt = [
+      `Follow ${location.origin}/onboard.md to set up my Alook team.`,
+      "Daemon: pair fixture-pair",
+      "Access code (1h): fixture-code",
+    ].join("\n")
+
+    // Partial selection copy should neither overwrite clipboardData nor jump into waiting.
+    const partialRange = document.createRange()
+    partialRange.setStart(promptEl.firstChild!, 0)
+    partialRange.setEnd(promptEl.firstChild!, 6)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(partialRange)
+    const partialSetData = vi.fn()
+    fireEvent.copy(promptEl, { clipboardData: { setData: partialSetData } })
+    expect(partialSetData).not.toHaveBeenCalled()
+    expect(screen.queryByTestId("onboarding-agent-waiting")).not.toBeInTheDocument()
+
+    // Select-all (Cmd+A) + native copy writes the exact complete multiline prompt before unmounting.
+    fireEvent.keyDown(promptEl, { key: "a", metaKey: true })
+    const fullSetData = vi.fn()
+    fireEvent.copy(promptEl, { clipboardData: { setData: fullSetData } })
+    expect(fullSetData).toHaveBeenCalledWith("text/plain", expectedPrompt)
     await waitFor(() => expect(screen.getByTestId("onboarding-agent-waiting")).toBeInTheDocument())
     expect(input.onConnected).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole("button", { name: "Copy again" }))
-    await waitFor(() => expect(mocks.copy).toHaveBeenCalledOnce())
+    await waitFor(() => expect(mocks.copy).toHaveBeenCalledExactlyOnceWith(expectedPrompt))
 
     mocks.machines = [{ id: "machine-1", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] } as CommunityMachineSummary]
     view.rerender(<OnboardingAgentDialog {...input} />)

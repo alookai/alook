@@ -152,7 +152,7 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
           {ready ? <>
             <PromptCopyPreview value={prompt} label={`Prompt for ${harnessLabel}`} testId="onboarding-agent-prompt" onCopy={handleCopy} onManualCopy={handleManualCopy} />
             <div className="flex items-start justify-between gap-2 text-xs leading-relaxed text-muted-foreground">
-              <p>Your files stay on your computer — nothing is uploaded automatically. This one-time code expires in 1 hour and only sets up your starter team.</p>
+              <p>Your files stay on your computer — nothing is uploaded automatically. This temporary setup code expires in 1 hour (up to 3 bots).</p>
               <Popover>
                 <PopoverTrigger
                   openOnHover
@@ -180,7 +180,7 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
                     <MachinePairMessageDiagram />
                     <div className="flex flex-col gap-2">
                       <h4 className="text-base font-semibold leading-tight">Your files stay on your computer</h4>
-                      <p className="text-sm leading-relaxed text-muted-foreground">Alook never automatically uploads your local files. The 1-hour setup code only creates starter bots and a room, then expires.</p>
+                      <p className="text-sm leading-relaxed text-muted-foreground">Alook never automatically uploads your local files. During the 1-hour window, the temporary setup code lets your agent read your machines, friends, and servers, create up to 3 bots and a server, invite bots, and send messages as you or your bots.</p>
                     </div>
                   </ScrollArea>
                 </PopoverContent>
