@@ -135,6 +135,7 @@ function presentCalendarEventForAgent(event: CalendarEvent) {
           lastExecution: {
             scheduledAt: toLocalISO(event.lastExecution.scheduledAt),
             status: event.lastExecution.status,
+            ...(event.lastExecution.ackedAt ? { ackedAt: toLocalISO(event.lastExecution.ackedAt) } : {}),
             ...(event.lastExecution.lastError ? { lastError: event.lastExecution.lastError } : {}),
             updatedAt: toLocalISO(event.lastExecution.updatedAt),
           },
@@ -264,6 +265,7 @@ export function registerCalendarCommands(
     .option("--count <n>", "maximum total occurrences")
     .option("--message <ref>", "rebind to another accessible message ref")
     .option("--paused <bool>", "pause or resume (true|false)")
+    .option("--ack", "mark the current scheduled execution as completed")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command, id: string) {
@@ -280,6 +282,7 @@ export function registerCalendarCommands(
         count?: string;
         message?: string;
         paused?: string;
+        ack?: boolean;
       };
       const api = getApi();
       if (!api.calendarUpdate) throw new Error("Calendar commands are unavailable");
@@ -296,6 +299,7 @@ export function registerCalendarCommands(
         ...(recurrence !== undefined ? { recurrence } : {}),
         ...(opts.message !== undefined ? { sourceMessageRef: opts.message } : {}),
         ...(opts.paused !== undefined ? { paused: parseBoolOption(opts.paused, "--paused") } : {}),
+        ...(opts.ack ? { ack: true as const } : {}),
       });
       if (Object.keys(patch).length === 0) {
         throw new Error("provide at least one field to update");

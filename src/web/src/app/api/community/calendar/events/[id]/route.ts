@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { CalendarUpdateRequestSchema } from "@alook/shared"
+import { CalendarUpdateRequestSchema, queries, withD1Retry } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityActorPolicy } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
@@ -10,11 +10,9 @@ import {
   calendarOwnerUserId,
   hydrateCalendarEvents,
   listHouseholdCreators,
-  ownerCalendarFetch,
   parseFullMessageRef,
+  syncOwnerCalendarAlarm,
   validateCalendarScheduleFields,
-  type StoredCalendarEvent,
-  type StoredCalendarRun,
 } from "@/lib/community/calendar.server"
 
 export const GET = withAuth(communityActorPolicy(), async (_req: NextRequest, ctx) => {
@@ -23,16 +21,12 @@ export const GET = withAuth(communityActorPolicy(), async (_req: NextRequest, ct
 
   const db = getDb(ctx.env.DB)
   const ownerUserId = calendarOwnerUserId(ctx.actor)
-  const doRes = await ownerCalendarFetch(ctx.env, ownerUserId, `/events/${encodeURIComponent(eventId)}`, {
-    method: "GET",
-  })
-  if (doRes.status === 404) return writeError("calendar event not found", 404)
-  if (!doRes.ok) return writeError("failed to load calendar event", 502)
+  const payload = await withD1Retry(
+    () => queries.communityCalendar.getCalendarEventById(db, ownerUserId, eventId),
+    { route: "calendar:get-one" },
+  )
+  if (!payload) return writeError("calendar event not found", 404)
 
-  const payload = (await doRes.json()) as {
-    event: StoredCalendarEvent
-    latestRun: StoredCalendarRun | null
-  }
   const creators = await listHouseholdCreators(db, ownerUserId)
   const [event] = await hydrateCalendarEvents(
     db,
@@ -91,12 +85,11 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
     if (!resolvedMessage.ok) {
       return writeError(resolvedMessage.error, resolvedMessage.status)
     }
-    const currentRes = await ownerCalendarFetch(ctx.env, ownerUserId, `/events/${encodeURIComponent(eventId)}`, {
-      method: "GET",
-    })
-    if (currentRes.status === 404) return writeError("calendar event not found", 404)
-    if (!currentRes.ok) return writeError("failed to verify calendar event", 502)
-    const current = (await currentRes.json()) as { event: StoredCalendarEvent }
+    const current = await withD1Retry(
+      () => queries.communityCalendar.getCalendarEventById(db, ownerUserId, eventId),
+      { route: "calendar:verify-event" },
+    )
+    if (!current) return writeError("calendar event not found", 404)
     if (current.event.createdByUserId !== ctx.actor.userId) {
       const creatorAccess = await requireMessageSurfaceAccess(
         db,
@@ -112,11 +105,8 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
   }
 
   const hasRecurrence = Object.prototype.hasOwnProperty.call(rawBody as Record<string, unknown>, "recurrence")
-  const doRes = await ownerCalendarFetch(ctx.env, ownerUserId, `/events/${encodeURIComponent(eventId)}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      ownerUserId,
+  const updated = await withD1Retry(
+    () => queries.communityCalendar.updateCalendarEvent(db, ownerUserId, eventId, {
       ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
       ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
       ...(scheduleCheck.startAtMs !== undefined ? { startAtMs: scheduleCheck.startAtMs } : {}),
@@ -125,15 +115,20 @@ export const PATCH = withAuth(communityActorPolicy(), async (req: NextRequest, c
       ...(hasRecurrence ? { hasRecurrence: true, recurrence: scheduleCheck.recurrence ?? null } : {}),
       ...(sourceMessageId !== undefined ? { sourceMessageId, sourceChannelId } : {}),
       ...(parsed.data.paused !== undefined ? { paused: parsed.data.paused } : {}),
+      ...(parsed.data.ack === true ? { ack: true } : {}),
     }),
-  })
-  if (doRes.status === 404) return writeError("calendar event not found", 404)
-  if (!doRes.ok) return writeError("failed to update calendar event", 502)
+    { route: "calendar:update" },
+  )
 
-  const updated = (await doRes.json()) as {
-    event: StoredCalendarEvent
-    latestRun: StoredCalendarRun | null
+  if (!updated.ok) {
+    return writeError(updated.error, updated.code === "not_found" ? 404 : 409)
   }
+
+  await syncOwnerCalendarAlarm(ctx.env, ownerUserId, {
+    eventId,
+    reason: parsed.data.ack === true ? "run_updated" : "updated",
+  })
+
   const creators = await listHouseholdCreators(db, ownerUserId)
   const [event] = await hydrateCalendarEvents(
     db,
@@ -150,14 +145,18 @@ export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest,
   const eventId = ctx.params?.id?.trim()
   if (!eventId) return writeError("missing event id", 400)
 
+  const db = getDb(ctx.env.DB)
   const ownerUserId = calendarOwnerUserId(ctx.actor)
-  const doRes = await ownerCalendarFetch(ctx.env, ownerUserId, `/events/${encodeURIComponent(eventId)}`, {
-    method: "DELETE",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ownerUserId }),
+  const deleted = await withD1Retry(
+    () => queries.communityCalendar.deleteCalendarEvent(db, ownerUserId, eventId),
+    { route: "calendar:delete" },
+  )
+  if (!deleted) return writeError("calendar event not found", 404)
+
+  await syncOwnerCalendarAlarm(ctx.env, ownerUserId, {
+    eventId,
+    reason: "deleted",
   })
-  if (doRes.status === 404) return writeError("calendar event not found", 404)
-  if (!doRes.ok) return writeError("failed to delete calendar event", 502)
 
   return new Response(null, { status: 204 })
 })

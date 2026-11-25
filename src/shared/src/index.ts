@@ -645,3 +645,4 @@ export * from "./community-feedback";
 export * from "./community-decision-card";
 export * from "./model-observation";
 export * from "./calendar";
+export type { StoredCalendarEvent, StoredCalendarRun } from "./db/queries/community/calendar";

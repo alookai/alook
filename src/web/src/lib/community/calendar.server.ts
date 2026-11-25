@@ -16,46 +16,12 @@ import {
   type CalendarRunStatus,
   type CalendarSourceMessage,
   type Database,
+  type StoredCalendarEvent,
+  type StoredCalendarRun,
 } from "@alook/shared"
 import { wsDoFetch } from "@/lib/broadcast"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import type { CommunityActor } from "@/lib/middleware/community-actor"
-
-export interface StoredCalendarEvent {
-  id: string
-  ownerUserId: string
-  createdByUserId: string
-  title: string
-  description: string
-  startAtMs: number
-  durationMinutes: number
-  timeZone: string
-  recurrence: CalendarRecurrence | null
-  occurrenceCount: number
-  nextRunAtMs: number | null
-  paused: boolean
-  sourceMessageId: string
-  sourceChannelId: string
-  version: number
-  createdAtMs: number
-  updatedAtMs: number
-}
-
-export interface StoredCalendarRun {
-  id: string
-  eventId: string
-  eventVersion: number
-  botUserId: string
-  scheduledAtMs: number
-  sourceMessageId: string
-  sourceChannelId: string
-  titleSnapshot: string
-  descriptionSnapshot: string
-  status: CalendarRunStatus
-  lastError: string | null
-  createdAtMs: number
-  updatedAtMs: number
-}
 
 export function calendarOwnerUserId(actor: CommunityActor): string {
   return actor.kind === "human" ? actor.userId : actor.ownerUserId
@@ -69,6 +35,28 @@ export function ownerCalendarFetch(
 ): Promise<Response> {
   const path = `/owner-calendar/${encodeURIComponent(ownerUserId)}${innerPath}`
   return wsDoFetch(env, path, init, { label: ownerUserId, type: "owner-calendar" })
+}
+
+export async function syncOwnerCalendarAlarm(
+  env: Env,
+  ownerUserId: string,
+  change?: {
+    eventId: string
+    reason: "created" | "updated" | "deleted" | "run_updated"
+  },
+): Promise<void> {
+  try {
+    await ownerCalendarFetch(env, ownerUserId, "/sync-alarm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ownerUserId,
+        ...(change ? { eventId: change.eventId, reason: change.reason } : {}),
+      }),
+    })
+  } catch {
+    // Best-effort alarm & WS sync; D1 already holds the authoritative state.
+  }
 }
 
 export function parseFullMessageRef(rawRef: string): { channelRef: string; seq: number } | null {
@@ -154,6 +142,7 @@ function toLastExecution(run: StoredCalendarRun | null | undefined): CalendarLas
     scheduledAt: new Date(run.scheduledAtMs).toISOString(),
     status: run.status,
     lastError: run.lastError,
+    ackedAt: run.ackedAtMs !== null ? new Date(run.ackedAtMs).toISOString() : null,
     updatedAt: new Date(run.updatedAtMs).toISOString(),
   }
 }
@@ -360,12 +349,21 @@ export function validateCalendarScheduleFields(input: {
 }
 
 export async function resyncOwnerCalendarForBots(
+  db: Database,
   env: Env,
   ownerUserId: string,
   botIds: readonly string[],
 ): Promise<{ attempted: number; dispatched: number; blocked: number }> {
   if (botIds.length === 0) return { attempted: 0, dispatched: 0, blocked: 0 }
   try {
+    const pendingRuns = await withD1Retry(
+      () => queries.communityCalendar.listPendingRunsForOwner(db, ownerUserId, 50),
+      { route: "calendar:resync-check-pending" },
+    )
+    const botIdSet = new Set(botIds)
+    if (!pendingRuns.some((run) => botIdSet.has(run.botUserId))) {
+      return { attempted: 0, dispatched: 0, blocked: 0 }
+    }
     const res = await ownerCalendarFetch(env, ownerUserId, "/resync-bots", {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -1,5 +1,11 @@
 import { NextRequest } from "next/server"
-import { CalendarCreateRequestSchema, CALENDAR_DEFAULT_DURATION_MINUTES } from "@alook/shared"
+import {
+  CALENDAR_DEFAULT_DURATION_MINUTES,
+  CALENDAR_MAX_EVENTS_PER_OWNER,
+  CalendarCreateRequestSchema,
+  queries,
+  withD1Retry,
+} from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
@@ -11,12 +17,10 @@ import {
   hydrateCalendarEvents,
   listHouseholdCreators,
   normalizeHandleInput,
-  ownerCalendarFetch,
   parseCalendarRange,
   parseFullMessageRef,
+  syncOwnerCalendarAlarm,
   validateCalendarScheduleFields,
-  type StoredCalendarEvent,
-  type StoredCalendarRun,
 } from "@/lib/community/calendar.server"
 
 export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx) => {
@@ -41,26 +45,15 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
     creatorId = matched.id
   }
 
-  const query = new URLSearchParams()
-  if (creatorId) query.set("creatorId", creatorId)
-  if (!includePaused) query.set("includePaused", "false")
-  if (range.fromMs !== null && range.toMs !== null) {
-    query.set("fromMs", String(range.fromMs))
-    query.set("toMs", String(range.toMs))
-  }
-
-  const doRes = await ownerCalendarFetch(ctx.env, ownerUserId, `/events${query.size > 0 ? `?${query}` : ""}`, {
-    method: "GET",
-  })
-  if (!doRes.ok) {
-    return writeError("failed to load calendar events", 502)
-  }
-
-  const payload = (await doRes.json()) as {
-    events: StoredCalendarEvent[]
-    runsByEvent: Record<string, StoredCalendarRun[]>
-    latestRunByEvent: Record<string, StoredCalendarRun | null>
-  }
+  const payload = await withD1Retry(
+    () => queries.communityCalendar.listOwnerCalendarEvents(db, ownerUserId, {
+      creatorId,
+      includePaused,
+      fromMs: range.fromMs,
+      toMs: range.toMs,
+    }),
+    { route: "calendar:list" },
+  )
 
   const events = await hydrateCalendarEvents(
     db,
@@ -123,31 +116,31 @@ export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ct
     return writeError(resolvedMessage.error, resolvedMessage.status)
   }
 
-  const doRes = await ownerCalendarFetch(ctx.env, bot.ownerUserId, "/events", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+  const created = await withD1Retry(
+    () => queries.communityCalendar.createCalendarEvent(db, {
       ownerUserId: bot.ownerUserId,
       createdByUserId: bot.userId,
       title: parsed.data.title,
       description: parsed.data.description ?? "",
-      startAtMs: scheduleCheck.startAtMs,
+      startAtMs: scheduleCheck.startAtMs!,
       durationMinutes: parsed.data.durationMinutes ?? CALENDAR_DEFAULT_DURATION_MINUTES,
       timeZone: parsed.data.timeZone,
       recurrence: scheduleCheck.recurrence ?? null,
       sourceMessageId: resolvedMessage.messageId,
       sourceChannelId: resolvedMessage.channelId,
     }),
-  })
-  if (!doRes.ok) {
-    const errBody = (await doRes.json().catch(() => ({}))) as { error?: string }
-    return writeError(errBody.error ?? "failed to create calendar event", doRes.status >= 400 && doRes.status < 500 ? doRes.status : 502)
+    { route: "calendar:create" },
+  )
+
+  if (!created.ok) {
+    return writeError(`calendar event limit reached (${CALENDAR_MAX_EVENTS_PER_OWNER})`, 409)
   }
 
-  const created = (await doRes.json()) as {
-    event: StoredCalendarEvent
-    latestRun: StoredCalendarRun | null
-  }
+  await syncOwnerCalendarAlarm(ctx.env, bot.ownerUserId, {
+    eventId: created.event.id,
+    reason: "created",
+  })
+
   const creators = await listHouseholdCreators(db, bot.ownerUserId)
   const [event] = await hydrateCalendarEvents(
     db,

@@ -170,6 +170,7 @@ async function seedHouseholdAndMessage(opts: {
   }
 
   return {
+    db,
     ownerId,
     botId,
     machineId,
@@ -186,29 +187,38 @@ async function seedHouseholdAndMessage(opts: {
   }
 }
 
-describe("OwnerCalendarDurableObject workerd runtime", () => {
-  it("commits recurring alarm atomically, dispatches via existing agent:event, and stays idempotent on duplicate alarm", async () => {
+async function syncAlarm(ownerId: string, change?: { eventId: string; reason: "created" | "updated" | "deleted" | "run_updated" }) {
+  const res = await worker.fetch(new Request(`https://worker.test/owner-calendar/${ownerId}/sync-alarm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ownerUserId: ownerId, ...change }),
+  }))
+  expect(res.status).toBe(200)
+  return (await res.json()) as { nextAlarmMs: number | null }
+}
+
+describe("OwnerCalendarDurableObject workerd runtime (D1 + stateless DO timer)", () => {
+  it("dispatches recurring event via agent:event with --ack guidance, advances D1, and supports --ack completion", async () => {
     const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "text" })
     try {
       const startAtMs = Date.now() - 1000
-      const createRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerUserId: fx.ownerId,
-          createdByUserId: fx.botId,
-          title: "Hourly standup",
-          description: "Post status summary",
-          startAtMs,
-          durationMinutes: 30,
-          timeZone: "UTC",
-          recurrence: { freq: "hourly", interval: 1 },
-          sourceMessageId: fx.messageId,
-          sourceChannelId: fx.channelId,
-        }),
-      }))
-      expect(createRes.status).toBe(201)
-      const created = (await createRes.json()) as { event: { id: string; nextRunAtMs: number } }
+      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "Hourly standup",
+        description: "Post status summary",
+        startAtMs,
+        durationMinutes: 30,
+        timeZone: "UTC",
+        recurrence: { freq: "hourly", interval: 1 },
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
+
+      const synced = await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
+      expect(synced.nextAlarmMs).toBe(startAtMs)
 
       const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
         runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
@@ -216,119 +226,107 @@ describe("OwnerCalendarDurableObject workerd runtime", () => {
 
       const ran = await runDurableObjectAlarm(stub)
       expect(ran).toBe(true)
-
       await new Promise((r) => setTimeout(r, 30))
-      const agentEvents = fx.receivedFrames.filter(
-        (frame): frame is { type: string; agentId: string; launchId: string; prompt: string } =>
-          typeof frame === "object" && frame !== null && (frame as { type?: string }).type === "agent:event",
-      )
-      expect(agentEvents).toHaveLength(1)
-      expect(agentEvents[0]!.agentId).toBe(fx.botId)
-      expect(agentEvents[0]!.launchId).toMatch(/^calrun_crun_/)
-      expect(agentEvents[0]!.prompt).toContain("--reply \"#7\"")
 
-      const listRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`))
-      const listed = (await listRes.json()) as {
-        events: Array<{ id: string; nextRunAtMs: number | null; occurrenceCount: number }>
-        latestRunByEvent: Record<string, { status: string; scheduledAtMs: number } | null>
-      }
-      expect(listed.events).toHaveLength(1)
-      expect(listed.events[0]!.occurrenceCount).toBe(1)
-      expect(listed.events[0]!.nextRunAtMs).toBeGreaterThan(startAtMs)
-      expect(listed.latestRunByEvent[created.event.id]?.status).toBe("dispatched")
+      expect(fx.receivedFrames).toHaveLength(1)
+      const frame = fx.receivedFrames[0] as { type: string; agentId: string; launchId: string; prompt: string }
+      expect(frame.type).toBe("agent:event")
+      expect(frame.agentId).toBe(fx.botId)
+      expect(frame.launchId).toMatch(/^calrun_crun_/)
+      expect(frame.prompt).toContain("Hourly standup")
+      expect(frame.prompt).toContain('--reply "#7"')
+      expect(frame.prompt).toContain(`$ALOOK_CLI calendar update ${created.event.id} --ack`)
 
-      // Next alarm must remain scheduled in the future
-      const nextAlarm = await runInDurableObject(stub, (_instance, state) => state.storage.getAlarm())
-      expect(nextAlarm).toBe(listed.events[0]!.nextRunAtMs)
+      const fetched = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      expect(fetched?.latestRun?.status).toBe("dispatched")
+      expect(fetched?.event.nextRunAtMs).toBeGreaterThan(Date.now())
 
-      // Calling alarm() again before nextRunAtMs must NOT duplicate the run or send a second event
-      await runInDurableObject(stub, async (instance) => {
-        await (instance as unknown as { alarm(): Promise<void> }).alarm()
+      // Duplicate alarm call before next occurrence is a safe no-op
+      const ranAgain = await runDurableObjectAlarm(stub)
+      expect(ranAgain).toBe(true)
+      await new Promise((r) => setTimeout(r, 20))
+      expect(fx.receivedFrames).toHaveLength(1)
+
+      // Bot acknowledges completion with --ack
+      const acked = await queries.communityCalendar.updateCalendarEvent(fx.db, fx.ownerId, created.event.id, {
+        ack: true,
       })
-      const afterRepeat = fx.receivedFrames.filter(
-        (frame) => typeof frame === "object" && frame !== null && (frame as { type?: string }).type === "agent:event",
-      )
-      expect(afterRepeat).toHaveLength(1)
+      expect(acked.ok).toBe(true)
+      if (!acked.ok) return
+      expect(acked.latestRun?.status).toBe("completed")
+      expect(acked.latestRun?.ackedAtMs).toBeTypeOf("number")
     } finally {
       fx.close()
     }
   })
 
-  it("targets forum post thread (/server/forum/#seq) instead of posting a new forum title", async () => {
-    const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "forum" })
+  it("deletes DO storage via deleteAll() after the last one-time event fires", async () => {
+    const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "text" })
     try {
       const startAtMs = Date.now() - 1000
-      const createRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerUserId: fx.ownerId,
-          createdByUserId: fx.botId,
-          title: "Forum check-in",
-          description: "Reply inside post",
-          startAtMs,
-          durationMinutes: 15,
-          timeZone: "UTC",
-          recurrence: null,
-          sourceMessageId: fx.messageId,
-          sourceChannelId: fx.channelId,
-        }),
-      }))
-      expect(createRes.status).toBe(201)
+      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "One-off check",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: null,
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
 
+      await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
       const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
         runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
       )
+
       await runDurableObjectAlarm(stub)
       await new Promise((r) => setTimeout(r, 30))
+      expect(fx.receivedFrames).toHaveLength(1)
 
-      const agentEvents = fx.receivedFrames.filter(
-        (frame): frame is { type: string; prompt: string } =>
-          typeof frame === "object" && frame !== null && (frame as { type?: string }).type === "agent:event",
-      )
-      expect(agentEvents).toHaveLength(1)
-      expect(agentEvents[0]!.prompt).toContain("/general/#7\"")
-      expect(agentEvents[0]!.prompt).not.toContain("--reply \"#7\"")
+      const storedOwner = await runInDurableObject(stub, async (_instance, state) => {
+        return {
+          ownerUserId: await state.storage.get("ownerUserId"),
+          alarm: await state.storage.getAlarm(),
+        }
+      })
+      expect(storedOwner).toEqual({ ownerUserId: undefined, alarm: null })
     } finally {
       fx.close()
     }
   })
 
-  it("keeps run pending when machine is offline, then dispatches via resync-bots after reconnect", async () => {
-    const fx = await seedHouseholdAndMessage({ machineConnected: false })
-    let reconnectedClient: WebSocket | null = null
+  it("keeps offline triggers pending in D1 and flushes them on /resync-bots once the daemon reconnects", async () => {
+    const fx = await seedHouseholdAndMessage({ machineConnected: false, channelType: "text" })
+    let reconnectClient: WebSocket | null = null
     try {
       const startAtMs = Date.now() - 1000
-      const createRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerUserId: fx.ownerId,
-          createdByUserId: fx.botId,
-          title: "Offline recovery check",
-          description: "Run on reconnect",
-          startAtMs,
-          durationMinutes: 30,
-          timeZone: "UTC",
-          recurrence: null,
-          sourceMessageId: fx.messageId,
-          sourceChannelId: fx.channelId,
-        }),
-      }))
-      const created = (await createRes.json()) as { event: { id: string } }
+      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "Offline reminder",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: null,
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
 
+      await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
       const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
         runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
 
-      const beforeList = (await (await worker.fetch(
-        new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`),
-      )).json()) as { latestRunByEvent: Record<string, { status: string; lastError: string | null } | null> }
-      expect(beforeList.latestRunByEvent[created.event.id]?.status).toBe("pending")
-      expect(beforeList.latestRunByEvent[created.event.id]?.lastError).toBe("machine_offline")
+      const afterOffline = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      expect(afterOffline?.latestRun?.status).toBe("pending")
+      expect(afterOffline?.latestRun?.lastError).toBe("machine_offline")
 
-      // Daemon reconnects
+      const frames: unknown[] = []
       const wsDoId = runtimeEnv.WS_DO.idFromName("community-machine:" + fx.doName)
       const upgradeRes = await runtimeEnv.WS_DO.get(wsDoId).fetch(
         new Request("https://worker.test/", {
@@ -336,12 +334,9 @@ describe("OwnerCalendarDurableObject workerd runtime", () => {
         }),
       )
       expect(upgradeRes.status).toBe(101)
-      reconnectedClient = upgradeRes.webSocket!
-      reconnectedClient.accept()
-      const frames: unknown[] = []
-      reconnectedClient.addEventListener("message", (event) => {
-        try { frames.push(JSON.parse(String(event.data))) } catch {}
-      })
+      reconnectClient = upgradeRes.webSocket!
+      reconnectClient.accept()
+      reconnectClient.addEventListener("message", (event) => frames.push(JSON.parse(String(event.data))))
 
       const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/resync-bots`, {
         method: "POST",
@@ -349,224 +344,202 @@ describe("OwnerCalendarDurableObject workerd runtime", () => {
         body: JSON.stringify({ ownerUserId: fx.ownerId, botIds: [fx.botId] }),
       }))
       expect(resyncRes.status).toBe(200)
-      await expect(resyncRes.json()).resolves.toEqual({ attempted: 1, dispatched: 1, blocked: 0 })
+      expect(await resyncRes.json()).toEqual({ attempted: 1, dispatched: 1, blocked: 0 })
 
       await new Promise((r) => setTimeout(r, 30))
-      expect(frames.some((f) => (f as { type?: string }).type === "agent:event")).toBe(true)
+      expect(frames).toHaveLength(1)
 
-      const afterList = (await (await worker.fetch(
-        new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`),
-      )).json()) as { latestRunByEvent: Record<string, { status: string; lastError: string | null } | null> }
-      expect(afterList.latestRunByEvent[created.event.id]?.status).toBe("dispatched")
-      expect(afterList.latestRunByEvent[created.event.id]?.lastError).toBeNull()
+      const afterResync = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      expect(afterResync?.latestRun?.status).toBe("dispatched")
     } finally {
-      try { reconnectedClient?.close(1000, "done") } catch {}
+      try { reconnectClient?.close(1000, "done") } catch {}
       fx.close()
     }
   })
 
-  it("marks run blocked_access when bot loses access to the bound message", async () => {
+  it("marks run blocked_access when the bot no longer has access to the bound message", async () => {
     const fx = await seedHouseholdAndMessage({ machineConnected: true, botIsChannelMember: false })
     try {
       const startAtMs = Date.now() - 1000
-      const createRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerUserId: fx.ownerId,
-          createdByUserId: fx.botId,
-          title: "Lost access event",
-          description: "Should block",
-          startAtMs,
-          durationMinutes: 30,
-          timeZone: "UTC",
-          recurrence: null,
-          sourceMessageId: fx.messageId,
-          sourceChannelId: fx.channelId,
-        }),
-      }))
-      const created = (await createRes.json()) as { event: { id: string } }
+      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "No access task",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: null,
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
 
+      await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
       const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
         runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
 
-      const list = (await (await worker.fetch(
-        new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`),
-      )).json()) as { latestRunByEvent: Record<string, { status: string; lastError: string | null } | null> }
-      expect(list.latestRunByEvent[created.event.id]?.status).toBe("blocked_access")
-      expect(list.latestRunByEvent[created.event.id]?.lastError).toBe("source_message_inaccessible")
-      expect(fx.receivedFrames.filter((f) => (f as { type?: string }).type === "agent:event")).toHaveLength(0)
-
-      // Confirm DB helper is cleanly wired
-      const db = createDb(runtimeEnv.DB)
-      expect(await queries.communityBot.getBotWakeContext(db, fx.botId)).toMatchObject({ state: "ready" })
+      const fetched = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      expect(fetched?.latestRun?.status).toBe("blocked_access")
+      expect(fetched?.latestRun?.lastError).toBe("source_message_inaccessible")
+      expect(fx.receivedFrames).toHaveLength(0)
     } finally {
       fx.close()
     }
   })
 
-  it("dispatches bound thread message when bot can read parent channel without prior thread participation", async () => {
+  it("formats forum opener bound messages to reply inside /server/forum/#seq without --reply", async () => {
     const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "forum" })
     try {
-      const db = createDb(runtimeEnv.DB)
+      const startAtMs = Date.now() - 1000
+      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "Forum post check-in",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: null,
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
+
+      await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
+      const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
+        runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
+      )
+      await runDurableObjectAlarm(stub)
+      await new Promise((r) => setTimeout(r, 30))
+
+      expect(fx.receivedFrames).toHaveLength(1)
+      const frame = fx.receivedFrames[0] as { prompt: string }
+      expect(frame.prompt).toContain('/general/#7"')
+      expect(frame.prompt).not.toContain("--reply")
+    } finally {
+      fx.close()
+    }
+  })
+
+  it("dispatches when bound to a thread the bot can read via parent channel even before joining the thread", async () => {
+    const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "text" })
+    try {
       const threadId = `thr_${crypto.randomUUID().slice(0, 8)}`
       const threadMsgId = `tmsg_${crypto.randomUUID().slice(0, 8)}`
       const nowIso = new Date().toISOString()
 
-      await db.insert(communityChannel).values({
+      await fx.db.insert(communityChannel).values({
         id: threadId,
         serverId: fx.serverId,
+        name: "Side thread",
+        type: "thread",
         parentChannelId: fx.channelId,
         parentMessageId: fx.messageId,
-        name: "Post thread",
-        type: "thread",
         isPrivate: false,
         position: 0,
         createdAt: nowIso,
       })
-      await db.insert(communityMessage).values({
+      await fx.db.insert(communityMessage).values({
         id: threadMsgId,
         channelId: threadId,
         authorId: fx.ownerId,
         seq: 2,
-        content: "Thread reply context",
+        content: "Thread trigger context",
         createdAt: nowIso,
       })
 
-      const createRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerUserId: fx.ownerId,
-          createdByUserId: fx.botId,
-          title: "Thread check",
-          description: "Reply to thread msg",
-          startAtMs: Date.now() - 1000,
-          durationMinutes: 15,
-          timeZone: "UTC",
-          recurrence: null,
-          sourceMessageId: threadMsgId,
-          sourceChannelId: threadId,
-        }),
-      }))
-      expect(createRes.status).toBe(201)
-      const created = (await createRes.json()) as { event: { id: string } }
+      const startAtMs = Date.now() - 1000
+      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "Thread check-in",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: null,
+        sourceMessageId: threadMsgId,
+        sourceChannelId: threadId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
 
+      await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
       const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
         runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
       await new Promise((r) => setTimeout(r, 30))
 
-      const agentEvents = fx.receivedFrames.filter(
-        (frame): frame is { type: string; prompt: string } =>
-          typeof frame === "object" && frame !== null && (frame as { type?: string }).type === "agent:event",
-      )
-      expect(agentEvents).toHaveLength(1)
-      expect(agentEvents[0]!.prompt).toContain("/general/#7\" --reply \"#2\"")
-
-      const list = (await (await worker.fetch(
-        new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`),
-      )).json()) as { latestRunByEvent: Record<string, { status: string } | null> }
-      expect(list.latestRunByEvent[created.event.id]?.status).toBe("dispatched")
+      expect(fx.receivedFrames).toHaveLength(1)
+      const frame = fx.receivedFrames[0] as { prompt: string }
+      expect(frame.prompt).toContain("/general/#7")
+      expect(frame.prompt).toContain('--reply "#2"')
     } finally {
       fx.close()
     }
   })
 
-  it("preserves finished schedule, occurrenceCount, and pending run snapshot when PATCH only changes title/description", async () => {
-    const fx = await seedHouseholdAndMessage({ machineConnected: false })
-    let reconnectedClient: WebSocket | null = null
+  it("refreshes pending run snapshot on metadata-only edit before /resync-bots dispatches", async () => {
+    const fx = await seedHouseholdAndMessage({ machineConnected: false, channelType: "text" })
+    let reconnectClient: WebSocket | null = null
     try {
       const startAtMs = Date.now() - 1000
-      const createRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerUserId: fx.ownerId,
-          createdByUserId: fx.botId,
-          title: "Original title",
-          description: "Original description",
-          startAtMs,
-          durationMinutes: 30,
-          timeZone: "UTC",
-          recurrence: null,
-          sourceMessageId: fx.messageId,
-          sourceChannelId: fx.channelId,
-        }),
-      }))
-      const created = (await createRes.json()) as { event: { id: string } }
+      const created = await queries.communityCalendar.createCalendarEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "Original title",
+        description: "Original body",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: { freq: "hourly", interval: 1 },
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
 
+      await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
       const stub = runtimeEnv.OWNER_CALENDAR_DO.get(
         runtimeEnv.OWNER_CALENDAR_DO.idFromName(`owner-calendar:${fx.ownerId}`),
       )
       await runDurableObjectAlarm(stub)
 
-      // Full-form PATCH with unchanged schedule fields, only title & description edited
-      const patchRes = await worker.fetch(
-        new Request(`https://worker.test/owner-calendar/${fx.ownerId}/events/${created.event.id}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            ownerUserId: fx.ownerId,
-            title: "Edited title",
-            description: "Edited instructions",
-            startAtMs,
-            durationMinutes: 30,
-            timeZone: "UTC",
-            hasRecurrence: true,
-            recurrence: null,
-            paused: false,
-          }),
-        }),
-      )
-      expect(patchRes.status).toBe(200)
-      const patched = (await patchRes.json()) as {
-        event: { nextRunAtMs: number | null; occurrenceCount: number; title: string }
-        latestRun: { status: string; titleSnapshot: string; descriptionSnapshot: string } | null
-      }
-      expect(patched.event.nextRunAtMs).toBeNull()
-      expect(patched.event.occurrenceCount).toBe(1)
-      expect(patched.latestRun?.status).toBe("pending")
-      expect(patched.latestRun?.titleSnapshot).toBe("Edited title")
-      expect(patched.latestRun?.descriptionSnapshot).toBe("Edited instructions")
+      const beforeEdit = await queries.communityCalendar.getCalendarEventById(fx.db, fx.ownerId, created.event.id)
+      expect(beforeEdit?.latestRun?.status).toBe("pending")
 
-      // Finished one-time event must NOT have an alarm re-armed
-      const alarm = await runInDurableObject(stub, (_instance, state) => state.storage.getAlarm())
-      expect(alarm).toBeNull()
+      const edited = await queries.communityCalendar.updateCalendarEvent(fx.db, fx.ownerId, created.event.id, {
+        title: "Updated title",
+        description: "Updated body",
+      })
+      expect(edited.ok).toBe(true)
+      if (!edited.ok) return
+      expect(edited.event.nextRunAtMs).toBe(beforeEdit?.event.nextRunAtMs)
 
-      // Reconnect delivers the preserved pending run with updated title/instructions
+      const frames: unknown[] = []
       const wsDoId = runtimeEnv.WS_DO.idFromName("community-machine:" + fx.doName)
       const upgradeRes = await runtimeEnv.WS_DO.get(wsDoId).fetch(
         new Request("https://worker.test/", {
           headers: { Upgrade: "websocket", Authorization: `Bearer ${fx.credSecret}` },
         }),
       )
-      reconnectedClient = upgradeRes.webSocket!
-      reconnectedClient.accept()
-      const frames: unknown[] = []
-      reconnectedClient.addEventListener("message", (event) => {
-        try { frames.push(JSON.parse(String(event.data))) } catch {}
-      })
+      reconnectClient = upgradeRes.webSocket!
+      reconnectClient.accept()
+      reconnectClient.addEventListener("message", (event) => frames.push(JSON.parse(String(event.data))))
 
       const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-calendar/${fx.ownerId}/resync-bots`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ownerUserId: fx.ownerId, botIds: [fx.botId] }),
       }))
-      await expect(resyncRes.json()).resolves.toEqual({ attempted: 1, dispatched: 1, blocked: 0 })
+      expect(await resyncRes.json()).toEqual({ attempted: 1, dispatched: 1, blocked: 0 })
       await new Promise((r) => setTimeout(r, 30))
 
-      const dispatched = frames.find(
-        (f): f is { type: string; prompt: string } =>
-          typeof f === "object" && f !== null && (f as { type?: string }).type === "agent:event",
-      )
-      expect(dispatched?.prompt).toContain("Edited title")
-      expect(dispatched?.prompt).toContain("Edited instructions")
+      expect(frames).toHaveLength(1)
+      const frame = frames[0] as { prompt: string }
+      expect(frame.prompt).toContain("Updated title")
+      expect(frame.prompt).toContain("Updated body")
     } finally {
-      try { reconnectedClient?.close(1000, "done") } catch {}
+      try { reconnectClient?.close(1000, "done") } catch {}
       fx.close()
     }
   })

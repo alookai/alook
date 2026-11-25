@@ -37,6 +37,7 @@ const sampleEvent: CalendarEvent = {
     scheduledAt: "2026-11-26T01:00:00.000Z",
     status: "dispatched",
     lastError: null,
+    ackedAt: null,
     updatedAt: "2026-11-26T01:00:01.000Z",
   },
   createdAt: "2026-11-25T04:00:00.000Z",
@@ -78,7 +79,23 @@ describe("calendar CLI & proxy route policy", () => {
         return Response.json({ event: sampleEvent }, { status: 201 });
       }
       if (init?.method === "PATCH") {
-        return Response.json({ event: { ...sampleEvent, paused: true } });
+        const body = JSON.parse(String(init.body ?? "{}")) as { paused?: boolean; ack?: true };
+        return Response.json({
+          event: {
+            ...sampleEvent,
+            ...(body.paused !== undefined ? { paused: body.paused } : {}),
+            ...(body.ack
+              ? {
+                  lastExecution: {
+                    ...sampleEvent.lastExecution!,
+                    status: "completed" as const,
+                    ackedAt: "2026-11-26T01:05:00.000Z",
+                    updatedAt: "2026-11-26T01:05:00.000Z",
+                  },
+                }
+              : {}),
+          },
+        });
       }
       if (init?.method === "DELETE") {
         return new Response(null, { status: 204 });
@@ -117,6 +134,10 @@ describe("calendar CLI & proxy route policy", () => {
 
     const updated = await runCli(["calendar", "update", "cal_test_1", "--paused", "true"]);
     expect((updated.success.event as { paused: boolean }).paused).toBe(true);
+
+    const acked = await runCli(["calendar", "update", "cal_test_1", "--ack"]);
+    expect((acked.success.event as { lastExecution: { status: string; ackedAt?: string } }).lastExecution.status).toBe("completed");
+    expect((acked.success.event as { lastExecution: { status: string; ackedAt?: string } }).lastExecution.ackedAt).toBeTruthy();
 
     const deleted = await runCli(["calendar", "delete", "cal_test_1"]);
     expect(deleted.success).toEqual({ deleted: true, id: "cal_test_1" });
