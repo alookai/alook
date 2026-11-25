@@ -1,22 +1,22 @@
 import { QueryClient } from "@tanstack/react-query"
 import { describe, expect, it, vi } from "vitest"
-import { handleCalendarChanged } from "@/hooks/community/community-ws/calendar-events"
+import { handleScheduleChanged } from "@/hooks/community/community-ws/schedule-events"
 import { communityKeys } from "@/lib/query-keys"
 import {
-  formatCalendarRecurrence,
-  mapCalendarListResponse,
-  type CalendarListResponseDto,
-} from "./calendar"
+  formatScheduleRecurrence,
+  mapScheduleListResponse,
+  type ScheduleListResponseDto,
+} from "./schedule"
 
-describe("calendar client mapping", () => {
+describe("schedule client mapping", () => {
   it("formats recurring rules into readable summaries", () => {
-    expect(formatCalendarRecurrence(null)).toEqual({
+    expect(formatScheduleRecurrence(null)).toEqual({
       recurring: false,
       label: "One-time",
       ruleText: null,
     })
     expect(
-      formatCalendarRecurrence({
+      formatScheduleRecurrence({
         freq: "weekly",
         interval: 1,
         byWeekday: [1, 3, 5],
@@ -27,7 +27,7 @@ describe("calendar client mapping", () => {
       label: "Weekly · Mon, Wed, Fri",
       ruleText: "10 times",
     })
-    expect(formatCalendarRecurrence({ freq: "daily", interval: 2 })).toEqual({
+    expect(formatScheduleRecurrence({ freq: "daily", interval: 2 })).toEqual({
       recurring: true,
       label: "Every 2 days",
       ruleText: null,
@@ -35,14 +35,14 @@ describe("calendar client mapping", () => {
   })
 
   it("maps events, occurrences, creators, and redacts inaccessible source messages", () => {
-    const response: CalendarListResponseDto = {
+    const response: ScheduleListResponseDto = {
       creators: [
         { id: "bot_alli", handle: "@Alli#6011", name: "Alli", avatarVersion: 2, isBot: true },
         { id: "bot_elwira", handle: "@Elwira#8700", name: "Elwira", avatarVersion: 1, isBot: true },
       ],
       events: [
         {
-          id: "cal_1",
+          id: "sch_1",
           title: "Standup digest",
           description: "Post summary",
           createdBy: { id: "bot_alli", handle: "@Alli#6011", name: "Alli", avatarVersion: 2, isBot: true },
@@ -71,7 +71,7 @@ describe("calendar client mapping", () => {
           updatedAt: "2026-11-25T04:00:00.000Z",
         },
         {
-          id: "cal_lost",
+          id: "sch_lost",
           title: "Lost-access reminder",
           description: "",
           createdBy: { id: "bot_elwira", handle: "@Elwira#8700", name: "Elwira", avatarVersion: 1, isBot: true },
@@ -92,6 +92,7 @@ describe("calendar client mapping", () => {
           lastExecution: {
             scheduledAt: "2026-11-26T05:00:00.000Z",
             status: "blocked_access",
+            ackedAt: null,
             lastError: "source_deleted",
             updatedAt: "2026-11-26T05:00:01.000Z",
           },
@@ -101,8 +102,8 @@ describe("calendar client mapping", () => {
       ],
       occurrences: [
         {
-          eventId: "cal_1",
-          occurrenceKey: "cal_1:2026-11-26T01:00:00.000Z",
+          eventId: "sch_1",
+          occurrenceKey: "sch_1:2026-11-26T01:00:00.000Z",
           startAt: "2026-11-26T01:00:00.000Z",
           endAt: "2026-11-26T01:30:00.000Z",
           runStatus: "completed",
@@ -110,7 +111,7 @@ describe("calendar client mapping", () => {
       ],
     }
 
-    const mapped = mapCalendarListResponse(
+    const mapped = mapScheduleListResponse(
       response,
       new Map([["bot_alli", "/avatars/alli.png"]]),
     )
@@ -121,22 +122,22 @@ describe("calendar client mapping", () => {
     expect(mapped.occurrences[0]?.event.lastExecution?.ackedAt).toBe("2026-11-26T01:04:00.000Z")
     expect(mapped.occurrences[0]?.event.sourceMessage.excerpt).toBe("Share daily update here")
 
-    const lost = mapped.events.find((e) => e.id === "cal_lost")
+    const lost = mapped.events.find((e) => e.id === "sch_lost")
     expect(lost?.sourceMessage.accessible).toBe(false)
     expect(lost?.sourceMessage.excerpt).toBeNull()
     expect(lost?.sourceMessage.channelLabel).toBeNull()
     expect(lost?.sourceMessage.unavailableReason).toContain("deleted")
   })
 
-  it("invalidates active calendar queries on community:calendar.changed", async () => {
+  it("invalidates active schedule queries on community:schedule.changed", async () => {
     const queryClient = new QueryClient()
     const spy = vi.spyOn(queryClient, "invalidateQueries")
-    await handleCalendarChanged(
-      { type: "community:calendar.changed", eventId: "cal_1", reason: "updated" },
+    await handleScheduleChanged(
+      { type: "community:schedule.changed", eventId: "sch_1", reason: "updated" },
       { queryClient },
     )
     expect(spy).toHaveBeenCalledWith({
-      queryKey: communityKeys.calendar(),
+      queryKey: communityKeys.schedule(),
       refetchType: "active",
     })
   })

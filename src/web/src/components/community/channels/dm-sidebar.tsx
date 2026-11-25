@@ -16,8 +16,8 @@ import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { compactRequestCount } from "@/lib/community/friend-requests"
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy, onShowCalendar,
-  friendsActive, machinesActive, botsActive, privacyActive, calendarActive,
+  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy, onShowSchedule,
+  friendsActive, machinesActive, botsActive, privacyActive, scheduleActive,
   friendRequestCount = 0,
   loadError,
 }: {
@@ -31,15 +31,15 @@ export const DmSidebar = memo(function DmSidebar({
   onShowMachines?: () => void
   onShowBots?: () => void
   onShowPrivacy?: () => void
-  onShowCalendar?: () => void
+  onShowSchedule?: () => void
   friendsActive?: boolean
   friendRequestCount?: number
   machinesActive?: boolean
   botsActive?: boolean
   privacyActive?: boolean
-  calendarActive?: boolean
+  scheduleActive?: boolean
 }) {
-  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive && !calendarActive)
+  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive && !scheduleActive)
   const requestCount = compactRequestCount(friendRequestCount)
   const shortcuts: Array<{
     href: string; label: string; Icon: LucideIcon; active?: boolean; onActivate: () => void
@@ -50,7 +50,7 @@ export const DmSidebar = memo(function DmSidebar({
     ...(onShowMachines ? [{ href: "/c/me/machines", label: "Machines", Icon: Monitor, active: machinesActive, onActivate: onShowMachines, testId: tid.machineGuideIntroSource }] : []),
     ...(onShowBots ? [{ href: "/c/me/bots", label: "My Bots", Icon: Bot, active: botsActive, onActivate: onShowBots }] : []),
     ...(onShowPrivacy ? [{ href: "/c/me/privacy", label: "Privacy", Icon: Shield, active: privacyActive, onActivate: onShowPrivacy }] : []),
-    ...(onShowCalendar ? [{ href: "/c/me/calendar", label: "Calendar", Icon: CalendarDays, active: calendarActive, onActivate: onShowCalendar, testId: tid.calendarShortcut }] : []),
+    ...(onShowSchedule ? [{ href: "/c/me/schedule", label: "Schedule", Icon: CalendarDays, active: scheduleActive, onActivate: onShowSchedule, testId: tid.scheduleShortcut }] : []),
   ]
   const activeShortcut = shortcuts.findIndex((shortcut) => shortcut.active)
   return (

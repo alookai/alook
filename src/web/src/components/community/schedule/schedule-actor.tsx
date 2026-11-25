@@ -3,14 +3,14 @@
 import { AgentAvatar } from "@/components/avatar"
 import { Avatar } from "@/components/community/avatar"
 import { cn } from "@/lib/utils"
-import type { CalendarActor } from "./calendar-types"
+import type { ScheduleActor } from "./schedule-types"
 
-export function CalendarActorAvatar({
+export function ScheduleActorAvatar({
   actor,
   size = 20,
   className,
 }: {
-  actor: CalendarActor
+  actor: ScheduleActor
   size?: number
   className?: string
 }) {

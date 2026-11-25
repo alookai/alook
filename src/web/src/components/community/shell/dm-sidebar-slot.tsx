@@ -40,7 +40,7 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
 
   const machinesActive = pathname === "/c/me/machines"
   const privacyActive = pathname === "/c/me/privacy"
-  const calendarActive = pathname === "/c/me/calendar"
+  const scheduleActive = pathname === "/c/me/schedule"
   const botsActive = pathname === "/c/me/bots"
   const friendsActive = pathname === "/c/me/friends"
 
@@ -70,9 +70,9 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
     communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/privacy")
   }, [communityRuntime.ui])
 
-  const onShowCalendar = useCallback(() => {
+  const onShowSchedule = useCallback(() => {
     communityRuntime.ui.actions.setCurrentChannelId(null)
-    communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/calendar")
+    communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/schedule")
   }, [communityRuntime.ui])
 
   const blockedUserIds = useMemo(
@@ -95,14 +95,14 @@ function MeSidebar({ pathname, routeCommitted }: { pathname: string; routeCommit
       onShowMachines={onShowMachines}
       onShowBots={onShowBots}
       onShowPrivacy={onShowPrivacy}
-      onShowCalendar={onShowCalendar}
+      onShowSchedule={onShowSchedule}
       privacyActive={privacyActive}
-      calendarActive={calendarActive}
+      scheduleActive={scheduleActive}
       friendsActive={friendsActive}
       machinesActive={machinesActive}
       botsActive={botsActive}
     />
-  ), [dms, currentChannelId, dmsLoading, initialError, isFetching, retryDms, blockedUserIds, enterDm, onShowFriends, friendRequestCount, onShowMachines, onShowBots, onShowPrivacy, onShowCalendar, privacyActive, calendarActive, friendsActive, machinesActive, botsActive])
+  ), [dms, currentChannelId, dmsLoading, initialError, isFetching, retryDms, blockedUserIds, enterDm, onShowFriends, friendRequestCount, onShowMachines, onShowBots, onShowPrivacy, onShowSchedule, privacyActive, scheduleActive, friendsActive, machinesActive, botsActive])
 
   return sidebar()
 }

@@ -7,21 +7,21 @@ import {
 } from "@/components/icons/lucide"
 import { cn } from "@/lib/utils"
 import type {
-  CalendarOccurrenceRunStatus,
-  CalendarRecurrenceSummary,
-  CalendarSourceMessage,
-} from "./calendar-types"
+  ScheduleOccurrenceRunStatus,
+  ScheduleRecurrenceSummary,
+  ScheduleSourceMessage,
+} from "./schedule-types"
 
 const PILL_BASE_CLASS =
   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap"
 
-export function CalendarStatusDot({
+export function ScheduleStatusDot({
   status,
   degraded,
   size = "md",
   className,
 }: {
-  status?: CalendarOccurrenceRunStatus | null
+  status?: ScheduleOccurrenceRunStatus | null
   degraded?: boolean
   size?: "sm" | "md"
   className?: string
@@ -47,11 +47,11 @@ export function CalendarStatusDot({
   )
 }
 
-export function CalendarRecurrenceBadge({
+export function ScheduleRecurrenceBadge({
   recurrence,
   compact = false,
 }: {
-  recurrence: CalendarRecurrenceSummary
+  recurrence: ScheduleRecurrenceSummary
   compact?: boolean
 }) {
   if (!recurrence.recurring) {
@@ -70,13 +70,13 @@ export function CalendarRecurrenceBadge({
   )
 }
 
-export function CalendarSourceStatusBadge({
+export function ScheduleSourceStatusBadge({
   source,
   runStatus,
   compact = false,
 }: {
-  source: CalendarSourceMessage
-  runStatus?: CalendarOccurrenceRunStatus | null
+  source: ScheduleSourceMessage
+  runStatus?: ScheduleOccurrenceRunStatus | null
   compact?: boolean
 }) {
   if (source.accessible) return null
@@ -89,11 +89,11 @@ export function CalendarSourceStatusBadge({
   )
 }
 
-export function CalendarRunStatusBadge({
+export function ScheduleRunStatusBadge({
   status,
   className,
 }: {
-  status?: CalendarOccurrenceRunStatus | null
+  status?: ScheduleOccurrenceRunStatus | null
   className?: string
 }) {
   if (!status || status === "scheduled") return null

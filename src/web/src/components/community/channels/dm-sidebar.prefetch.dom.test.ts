@@ -101,8 +101,8 @@ describe("DmSidebar navigation intent", () => {
     expect(onShowPrivacy).toHaveBeenCalledOnce()
   })
 
-  it("places Calendar after Privacy without navigating on hover", () => {
-    const onShowCalendar = vi.fn()
+  it("places Schedule after Privacy without navigating on hover", () => {
+    const onShowSchedule = vi.fn()
     const view = render(createElement(DmSidebar, {
       dms: [],
       activeDm: null,
@@ -111,19 +111,19 @@ describe("DmSidebar navigation intent", () => {
       onShowMachines: vi.fn(),
       onShowBots: vi.fn(),
       onShowPrivacy: vi.fn(),
-      onShowCalendar,
-      calendarActive: true,
+      onShowSchedule,
+      scheduleActive: true,
     }))
     const links = view.getAllByRole("link")
-    expect(links.map(link => link.textContent)).toEqual(["Friends", "Machines", "My Bots", "Privacy", "Calendar"])
-    const calendar = view.getByRole("link", { name: "Calendar" })
-    expect(calendar).toHaveAttribute("href", "/c/me/calendar")
-    expect(calendar).toHaveAttribute("aria-current", "page")
+    expect(links.map(link => link.textContent)).toEqual(["Friends", "Machines", "My Bots", "Privacy", "Schedule"])
+    const schedule = view.getByRole("link", { name: "Schedule" })
+    expect(schedule).toHaveAttribute("href", "/c/me/schedule")
+    expect(schedule).toHaveAttribute("aria-current", "page")
     expect(view.getByRole("link", { name: "Friends" })).not.toHaveAttribute("aria-current")
-    fireEvent.pointerEnter(calendar)
-    expect(onShowCalendar).not.toHaveBeenCalled()
-    fireEvent.click(calendar)
-    expect(onShowCalendar).toHaveBeenCalledOnce()
+    fireEvent.pointerEnter(schedule)
+    expect(onShowSchedule).not.toHaveBeenCalled()
+    fireEvent.click(schedule)
+    expect(onShowSchedule).toHaveBeenCalledOnce()
   })
 
   it("centers shortcut icons in a 32px leading slot matching DM avatars", () => {

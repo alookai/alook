@@ -1,7 +1,7 @@
-import type { CalendarOccurrenceItem } from "./calendar-types"
+import type { ScheduleOccurrenceItem } from "./schedule-types"
 
 const DEFAULT_WEEK_STARTS_ON = 1
-export const DEFAULT_OCCURRENCE_DURATION_MINUTES = 30
+const DEFAULT_OCCURRENCE_DURATION_MINUTES = 30
 export const WEEK_HOUR_HEIGHT_PX = 60
 export const WEEK_HOURS = Array.from({ length: 24 }, (_, hour) => hour)
 
@@ -114,7 +114,7 @@ export function formatLocalTimeZoneShort(date = new Date()): string {
     const offset = parts.find((part) => part.type === "timeZoneName")?.value
     if (offset) return offset.replace("GMT", "UTC")
   } catch {
-    // Fall back to resolved timezone tail below.
+    // Fall back to Local below.
   }
   return "Local"
 }
@@ -173,20 +173,13 @@ export function formatAgendaDayLabel(date: Date, now: Date): {
   if (diffDays === -1) return { primary: "Yesterday", secondary, isToday: false }
   return {
     primary: new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(target),
-    secondary: new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: target.getFullYear() !== now.getFullYear() ? "numeric" : undefined }).format(target),
+    secondary: new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: target.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+    }).format(target),
     isToday: false,
   }
-}
-
-export function formatTimeInputValue(date: Date): string {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-}
-
-export function combineLocalDateAndTime(date: Date, timeHHMM: string): Date {
-  const [rawHour = "0", rawMinute = "0"] = timeHHMM.split(":")
-  const hour = Math.min(23, Math.max(0, Number.parseInt(rawHour, 10) || 0))
-  const minute = Math.min(59, Math.max(0, Number.parseInt(rawMinute, 10) || 0))
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute, 0, 0)
 }
 
 function minutesFromDayStart(iso: string, dayDate: Date): number {
@@ -196,7 +189,7 @@ function minutesFromDayStart(iso: string, dayDate: Date): number {
 }
 
 export type PositionedDayBlock = {
-  item: CalendarOccurrenceItem
+  item: ScheduleOccurrenceItem
   startMinutes: number
   endMinutes: number
   topPx: number
@@ -206,7 +199,7 @@ export type PositionedDayBlock = {
 }
 
 export function layoutDayOccurrences(
-  items: readonly CalendarOccurrenceItem[],
+  items: readonly ScheduleOccurrenceItem[],
   dayDate: Date,
   hourHeightPx = WEEK_HOUR_HEIGHT_PX,
 ): PositionedDayBlock[] {
@@ -271,12 +264,12 @@ export function layoutDayOccurrences(
 }
 
 export function groupOccurrencesByDay(
-  items: readonly CalendarOccurrenceItem[],
-): Array<{ dayKey: string; date: Date; items: CalendarOccurrenceItem[] }> {
+  items: readonly ScheduleOccurrenceItem[],
+): Array<{ dayKey: string; date: Date; items: ScheduleOccurrenceItem[] }> {
   const sorted = [...items].sort(
     (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
   )
-  const map = new Map<string, { dayKey: string; date: Date; items: CalendarOccurrenceItem[] }>()
+  const map = new Map<string, { dayKey: string; date: Date; items: ScheduleOccurrenceItem[] }>()
   for (const item of sorted) {
     const d = new Date(item.startAt)
     if (Number.isNaN(d.getTime())) continue

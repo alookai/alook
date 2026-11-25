@@ -6,31 +6,31 @@ import { EmptyState } from "@/components/community/empty-state"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
-import { CalendarActorAvatar } from "./calendar-actor"
+import { ScheduleActorAvatar } from "./schedule-actor"
 import {
   formatAgendaDayLabel,
   formatTimeRange,
   formatWeekdayShort,
   groupOccurrencesByDay,
-} from "./calendar-date"
+} from "./schedule-date"
 import {
-  CalendarRecurrenceBadge,
-  CalendarRunStatusBadge,
-  CalendarSourceStatusBadge,
-  CalendarStatusDot,
-} from "./calendar-status"
-import type { CalendarOccurrenceItem } from "./calendar-types"
-import styles from "./calendar.module.css"
+  ScheduleRecurrenceBadge,
+  ScheduleRunStatusBadge,
+  ScheduleSourceStatusBadge,
+  ScheduleStatusDot,
+} from "./schedule-status"
+import type { ScheduleOccurrenceItem } from "./schedule-types"
+import styles from "./schedule.module.css"
 
-export function CalendarAgendaView({
+export function ScheduleAgendaView({
   occurrences,
   selectedOccurrenceKey,
   onSelectOccurrence,
-  emptyLabel = "No upcoming events in this range. Ask a bot to schedule a reminder from any message.",
+  emptyLabel = "No scheduled tasks in this range. Ask a bot to set up a schedule.",
 }: {
-  occurrences: readonly CalendarOccurrenceItem[]
+  occurrences: readonly ScheduleOccurrenceItem[]
   selectedOccurrenceKey: string | null
-  onSelectOccurrence: (occurrence: CalendarOccurrenceItem) => void
+  onSelectOccurrence: (occurrence: ScheduleOccurrenceItem) => void
   emptyLabel?: string
 }) {
   const now = useMemo(() => new Date(), [])
@@ -40,13 +40,13 @@ export function CalendarAgendaView({
     <ScrollArea className="min-h-0 flex-1 bg-background" contentClassName="flex min-h-full flex-col">
       {groups.length === 0 ? (
         <div
-          data-testid={tid.calendarAgenda}
+          data-testid={tid.scheduleAgenda}
           className="flex flex-1 flex-col items-center justify-center px-6 py-16"
         >
           <EmptyState icon={CalendarDays} label={emptyLabel} />
         </div>
       ) : (
-        <div data-testid={tid.calendarAgenda} className="flex flex-col divide-y divide-border/50 pb-6">
+        <div data-testid={tid.scheduleAgenda} className="flex flex-col divide-y divide-border/50 pb-6">
           {groups.map((group) => {
             const heading = formatAgendaDayLabel(group.date, now)
             const monthShort = new Intl.DateTimeFormat(undefined, { month: "short" }).format(group.date)
@@ -91,7 +91,7 @@ export function CalendarAgendaView({
                       <div key={occurrence.occurrenceKey} className="py-1 first:pt-0 last:pb-0">
                         <button
                           type="button"
-                          data-testid={tid.calendarEvent(event.id)}
+                          data-testid={tid.scheduleEvent(event.id)}
                           onClick={() => onSelectOccurrence(occurrence)}
                           className={cn(
                             styles.ledgerRow,
@@ -102,13 +102,13 @@ export function CalendarAgendaView({
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="flex items-center gap-2 font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                              <CalendarStatusDot status={runStatus} degraded={degraded} />
+                              <ScheduleStatusDot status={runStatus} degraded={degraded} />
                               <span>{formatTimeRange(occurrence.startAt, occurrence.endAt)}</span>
                             </span>
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <CalendarRecurrenceBadge recurrence={event.recurrence} />
-                              <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
-                              <CalendarRunStatusBadge status={runStatus} />
+                              <ScheduleRecurrenceBadge recurrence={event.recurrence} />
+                              <ScheduleSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} />
+                              <ScheduleRunStatusBadge status={runStatus} />
                             </div>
                           </div>
 
@@ -123,7 +123,7 @@ export function CalendarAgendaView({
 
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs text-muted-foreground">
                             <span className="flex min-w-0 items-center gap-2">
-                              <CalendarActorAvatar actor={event.creator} size={18} />
+                              <ScheduleActorAvatar actor={event.creator} size={18} />
                               <span className="truncate font-medium text-foreground/85">
                                 {event.creator.name}
                               </span>

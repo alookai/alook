@@ -1,20 +1,19 @@
 import { describe, expect, it } from "vitest"
 import {
-  combineLocalDateAndTime,
   formatWeekRangeLabel,
   getWeekDays,
   groupOccurrencesByDay,
   layoutDayOccurrences,
   localDayKey,
   startOfWeek,
-} from "./calendar-date"
-import type { CalendarOccurrenceItem } from "./calendar-types"
+} from "./schedule-date"
+import type { ScheduleOccurrenceItem } from "./schedule-types"
 
 function makeOccurrence(
   id: string,
   startIso: string,
   endIso?: string,
-): CalendarOccurrenceItem {
+): ScheduleOccurrenceItem {
   return {
     occurrenceKey: `${id}:${startIso}`,
     eventId: id,
@@ -22,7 +21,7 @@ function makeOccurrence(
     endAt: endIso ?? null,
     event: {
       id,
-      title: `Event ${id}`,
+      title: `Task ${id}`,
       creator: { id: "bot_1", name: "Alli", kind: "bot" },
       startAt: startIso,
       durationMinutes: 30,
@@ -34,7 +33,7 @@ function makeOccurrence(
   }
 }
 
-describe("calendar-date", () => {
+describe("schedule-date", () => {
   it("computes Monday-first week days across a month boundary", () => {
     const wed = new Date(2026, 10, 25)
     const monday = startOfWeek(wed, 1)
@@ -88,14 +87,5 @@ describe("calendar-date", () => {
     const groups = groupOccurrencesByDay([d1, d3, d2])
     expect(groups.map((g) => g.dayKey)).toEqual(["2026-11-25", "2026-11-26"])
     expect(groups[0]?.items.map((item) => item.eventId)).toEqual(["2", "3"])
-  })
-
-  it("combines local date and HH:mm time safely", () => {
-    const combined = combineLocalDateAndTime(new Date(2026, 10, 25), "14:45")
-    expect(combined.getFullYear()).toBe(2026)
-    expect(combined.getMonth()).toBe(10)
-    expect(combined.getDate()).toBe(25)
-    expect(combined.getHours()).toBe(14)
-    expect(combined.getMinutes()).toBe(45)
   })
 })

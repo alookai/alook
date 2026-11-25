@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, Users } from "@/components/icons/lucide"
+import { Bot, ChevronDown, ChevronLeft, ChevronRight } from "@/components/icons/lucide"
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -10,35 +10,35 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
-import { CalendarActorAvatar } from "./calendar-actor"
-import { CalendarAgendaView } from "./calendar-agenda-view"
+import { ScheduleActorAvatar } from "./schedule-actor"
+import { ScheduleAgendaView } from "./schedule-agenda-view"
+import { ScheduleBotNotice } from "./schedule-bot-notice"
 import {
   addLocalDays,
   formatMonthHeadingParts,
   getWeekDays,
   startOfLocalDay,
-} from "./calendar-date"
-import { CalendarDetailSheet } from "./calendar-detail-sheet"
-import { CalendarPageSkeleton } from "./calendar-skeleton"
+} from "./schedule-date"
+import { ScheduleDetailSheet } from "./schedule-detail-sheet"
+import { SchedulePageSkeleton } from "./schedule-skeleton"
 import type {
-  CalendarActor,
-  CalendarEventEditDraft,
-  CalendarOccurrenceItem,
-  CalendarViewMode,
-} from "./calendar-types"
-import { CalendarWeekView } from "./calendar-week-view"
-import styles from "./calendar.module.css"
+  ScheduleActor,
+  ScheduleOccurrenceItem,
+  ScheduleViewMode,
+} from "./schedule-types"
+import { ScheduleWeekView } from "./schedule-week-view"
+import styles from "./schedule.module.css"
 
-const ALL_CREATORS_VALUE = "__all__"
+const ALL_BOTS_VALUE = "__all__"
 
-export function CalendarWorkspace({
+export function ScheduleWorkspace({
   view,
   onViewChange,
   anchorDate,
   onAnchorDateChange,
-  selectedCreatorId,
-  onSelectedCreatorIdChange,
-  creators,
+  selectedBotId,
+  onSelectedBotIdChange,
+  bots,
   occurrences,
   loading = false,
   error = null,
@@ -46,31 +46,27 @@ export function CalendarWorkspace({
   onRetry,
   onBack,
   onOpenSourceMessage,
-  onSaveEvent,
-  onDeleteEvent,
-  saving = false,
-  deleting = false,
-  mutationError = null,
+  onAskBot,
+  askingBot = false,
+  onOpenBots,
 }: {
-  view: CalendarViewMode
-  onViewChange: (view: CalendarViewMode) => void
+  view: ScheduleViewMode
+  onViewChange: (view: ScheduleViewMode) => void
   anchorDate: Date
   onAnchorDateChange: (date: Date) => void
-  selectedCreatorId: string | null
-  onSelectedCreatorIdChange: (creatorId: string | null) => void
-  creators: readonly CalendarActor[]
-  occurrences: readonly CalendarOccurrenceItem[]
+  selectedBotId: string | null
+  onSelectedBotIdChange: (botId: string | null) => void
+  bots: readonly ScheduleActor[]
+  occurrences: readonly ScheduleOccurrenceItem[]
   loading?: boolean
   error?: string | null
   retrying?: boolean
   onRetry?: () => void
   onBack?: () => void
   onOpenSourceMessage: (messageId: string) => void
-  onSaveEvent?: (eventId: string, draft: CalendarEventEditDraft) => Promise<void> | void
-  onDeleteEvent?: (eventId: string) => Promise<void> | void
-  saving?: boolean
-  deleting?: boolean
-  mutationError?: string | null
+  onAskBot?: (botId: string) => void
+  askingBot?: boolean
+  onOpenBots?: () => void
 }) {
   const [datePopoverOpen, setDatePopoverOpen] = useState(false)
   const [selectedOccurrenceKey, setSelectedOccurrenceKey] = useState<string | null>(null)
@@ -82,51 +78,51 @@ export function CalendarWorkspace({
   )
 
   const filteredOccurrences = useMemo(() => {
-    if (!selectedCreatorId) return occurrences
-    return occurrences.filter((item) => item.event.creator.id === selectedCreatorId)
-  }, [occurrences, selectedCreatorId])
+    if (!selectedBotId) return occurrences
+    return occurrences.filter((item) => item.event.creator.id === selectedBotId)
+  }, [occurrences, selectedBotId])
 
   const activeOccurrence = useMemo(() => {
     if (!selectedOccurrenceKey) return null
     return filteredOccurrences.find((item) => item.occurrenceKey === selectedOccurrenceKey) ?? null
   }, [filteredOccurrences, selectedOccurrenceKey])
 
-  const selectedCreator = useMemo(
-    () => (selectedCreatorId ? creators.find((c) => c.id === selectedCreatorId) ?? null : null),
-    [creators, selectedCreatorId],
+  const selectedBot = useMemo(
+    () => (selectedBotId ? bots.find((b) => b.id === selectedBotId) ?? null : null),
+    [bots, selectedBotId],
   )
 
-  const creatorSelectItems = useMemo(
+  const botSelectItems = useMemo(
     () => [
-      { value: ALL_CREATORS_VALUE, label: "All creators" },
-      ...creators.map((creator) => ({
-        value: creator.id,
-        label: creator.kind === "human" ? `${creator.name} (Owner)` : creator.name,
+      { value: ALL_BOTS_VALUE, label: "All bots" },
+      ...bots.map((bot) => ({
+        value: bot.id,
+        label: bot.name,
       })),
     ],
-    [creators],
+    [bots],
   )
 
   const jumpToToday = () => onAnchorDateChange(startOfLocalDay(new Date()))
   const stepDays = view === "week" ? 7 : 14
-  const eventCountLabel = filteredOccurrences.length === 0
-    ? "No events"
+  const taskCountLabel = filteredOccurrences.length === 0
+    ? "No tasks"
     : filteredOccurrences.length === 1
-      ? "1 event"
-      : `${filteredOccurrences.length} events`
+      ? "1 task"
+      : `${filteredOccurrences.length} tasks`
 
   if (loading && occurrences.length === 0) {
-    return <CalendarPageSkeleton onBack={onBack} />
+    return <SchedulePageSkeleton onBack={onBack} />
   }
 
   return (
     <section
-      aria-labelledby="calendar-heading"
-      data-testid={tid.calendarPage}
+      aria-labelledby="schedule-heading"
+      data-testid={tid.schedulePage}
       className="@container flex min-h-0 flex-1 flex-col bg-background"
     >
-      <h1 id="calendar-heading" className="sr-only">
-        Calendar
+      <h1 id="schedule-heading" className="sr-only">
+        Schedule
       </h1>
 
       <header className="shrink-0 border-b border-border/55 bg-background px-4 py-2.5 sm:px-6 sm:py-3">
@@ -190,7 +186,7 @@ export function CalendarWorkspace({
             <div className="hidden items-center gap-1.5 font-mono text-[11px] leading-none tabular-nums text-muted-foreground sm:flex">
               <span>{headingParts.rangeShort}</span>
               <span aria-hidden className="text-border">·</span>
-              <span>{eventCountLabel}</span>
+              <span>{taskCountLabel}</span>
             </div>
 
             <div className={cn(styles.navTray, "inline-flex shrink-0 sm:hidden")}>
@@ -247,41 +243,39 @@ export function CalendarWorkspace({
               </button>
             </div>
 
-            {creators.length > 0 ? (
+            {bots.length > 0 ? (
               <Select
-                value={selectedCreatorId ?? ALL_CREATORS_VALUE}
+                value={selectedBotId ?? ALL_BOTS_VALUE}
                 onValueChange={(value) =>
-                  onSelectedCreatorIdChange(!value || value === ALL_CREATORS_VALUE ? null : value)
+                  onSelectedBotIdChange(!value || value === ALL_BOTS_VALUE ? null : value)
                 }
-                items={creatorSelectItems}
+                items={botSelectItems}
               >
                 <SelectTrigger
-                  aria-label="Filter by creator"
+                  aria-label="Filter by bot"
                   className={cn(styles.filterPill, "min-w-0 flex-1 sm:w-38 sm:flex-none")}
                 >
                   <SelectValue>
-                    {selectedCreator ? (
+                    {selectedBot ? (
                       <span className="flex min-w-0 items-center gap-1.5">
-                        <CalendarActorAvatar actor={selectedCreator} size={18} />
-                        <span className="truncate">{selectedCreator.name}</span>
+                        <ScheduleActorAvatar actor={selectedBot} size={18} />
+                        <span className="truncate">{selectedBot.name}</span>
                       </span>
                     ) : (
                       <span className="flex min-w-0 items-center gap-1.5 text-foreground/85">
-                        <Users className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                        <span className="truncate">All creators</span>
+                        <Bot className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="truncate">All bots</span>
                       </span>
                     )}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_CREATORS_VALUE}>All creators</SelectItem>
-                  {creators.map((creator) => (
-                    <SelectItem key={creator.id} value={creator.id}>
+                  <SelectItem value={ALL_BOTS_VALUE}>All bots</SelectItem>
+                  {bots.map((bot) => (
+                    <SelectItem key={bot.id} value={bot.id}>
                       <span className="flex min-w-0 items-center gap-2">
-                        <CalendarActorAvatar actor={creator} size={18} />
-                        <span className="truncate">
-                          {creator.kind === "human" ? `${creator.name} (Owner)` : creator.name}
-                        </span>
+                        <ScheduleActorAvatar actor={bot} size={18} />
+                        <span className="truncate">{bot.name}</span>
                       </span>
                     </SelectItem>
                   ))}
@@ -296,7 +290,7 @@ export function CalendarWorkspace({
               }}
               className="shrink-0"
             >
-              <TabsList aria-label="Calendar view">
+              <TabsList aria-label="Schedule view">
                 <TabsTrigger value="week">Week</TabsTrigger>
                 <TabsTrigger value="agenda">Agenda</TabsTrigger>
               </TabsList>
@@ -304,6 +298,14 @@ export function CalendarWorkspace({
           </div>
         </div>
       </header>
+
+      <ScheduleBotNotice
+        bots={bots}
+        selectedBot={selectedBot}
+        onAskBot={onAskBot}
+        askingBot={askingBot}
+        onOpenBots={onOpenBots}
+      />
 
       {error && occurrences.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
@@ -315,7 +317,7 @@ export function CalendarWorkspace({
           />
         </div>
       ) : view === "week" ? (
-        <CalendarWeekView
+        <ScheduleWeekView
           weekDays={weekDays}
           selectedDay={anchorDate}
           onSelectDay={(day) => onAnchorDateChange(startOfLocalDay(day))}
@@ -324,14 +326,14 @@ export function CalendarWorkspace({
           onSelectOccurrence={(item) => setSelectedOccurrenceKey(item.occurrenceKey)}
         />
       ) : (
-        <CalendarAgendaView
+        <ScheduleAgendaView
           occurrences={filteredOccurrences}
           selectedOccurrenceKey={selectedOccurrenceKey}
           onSelectOccurrence={(item) => setSelectedOccurrenceKey(item.occurrenceKey)}
         />
       )}
 
-      <CalendarDetailSheet
+      <ScheduleDetailSheet
         occurrence={activeOccurrence}
         open={Boolean(activeOccurrence)}
         onOpenChange={(nextOpen) => {
@@ -341,11 +343,6 @@ export function CalendarWorkspace({
           setSelectedOccurrenceKey(null)
           onOpenSourceMessage(messageId)
         }}
-        onSaveEvent={onSaveEvent}
-        onDeleteEvent={onDeleteEvent}
-        saving={saving}
-        deleting={deleting}
-        mutationError={mutationError}
       />
     </section>
   )

@@ -4,10 +4,10 @@ import { useMemo, useRef } from "react"
 import { CalendarDays, RefreshCw, TriangleAlertIcon } from "@/components/icons/lucide"
 import { EmptyState } from "@/components/community/empty-state"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { useCalendarClockMinute, useInitialWeekScroll } from "@/hooks/community/use-calendar"
+import { useInitialWeekScroll, useScheduleClockMinute } from "@/hooks/community/use-schedule"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
-import { CalendarActorAvatar } from "./calendar-actor"
+import { ScheduleActorAvatar } from "./schedule-actor"
 import {
   formatHourLabel,
   formatLocalTimeZoneFull,
@@ -20,19 +20,19 @@ import {
   localDayKey,
   WEEK_HOUR_HEIGHT_PX,
   WEEK_HOURS,
-} from "./calendar-date"
+} from "./schedule-date"
 import {
-  CalendarRecurrenceBadge,
-  CalendarRunStatusBadge,
-  CalendarSourceStatusBadge,
-  CalendarStatusDot,
-} from "./calendar-status"
-import type { CalendarOccurrenceItem } from "./calendar-types"
-import styles from "./calendar.module.css"
+  ScheduleRecurrenceBadge,
+  ScheduleRunStatusBadge,
+  ScheduleSourceStatusBadge,
+  ScheduleStatusDot,
+} from "./schedule-status"
+import type { ScheduleOccurrenceItem } from "./schedule-types"
+import styles from "./schedule.module.css"
 
 const TOTAL_GRID_HEIGHT_PX = WEEK_HOURS.length * WEEK_HOUR_HEIGHT_PX
 
-export function CalendarWeekView({
+export function ScheduleWeekView({
   weekDays,
   selectedDay,
   onSelectDay,
@@ -43,17 +43,17 @@ export function CalendarWeekView({
   weekDays: readonly Date[]
   selectedDay: Date
   onSelectDay: (day: Date) => void
-  occurrences: readonly CalendarOccurrenceItem[]
+  occurrences: readonly ScheduleOccurrenceItem[]
   selectedOccurrenceKey: string | null
-  onSelectOccurrence: (occurrence: CalendarOccurrenceItem) => void
+  onSelectOccurrence: (occurrence: ScheduleOccurrenceItem) => void
 }) {
-  const now = useCalendarClockMinute()
+  const now = useScheduleClockMinute()
   const scrollViewportRef = useRef<HTMLDivElement>(null)
   const initialHour = Math.max(0, Math.min(18, now.getHours() - 1, 8))
   useInitialWeekScroll(scrollViewportRef, WEEK_HOUR_HEIGHT_PX, initialHour)
 
   const byDayKey = useMemo(() => {
-    const map = new Map<string, CalendarOccurrenceItem[]>()
+    const map = new Map<string, ScheduleOccurrenceItem[]>()
     for (const day of weekDays) map.set(localDayKey(day), [])
     for (const item of occurrences) {
       const d = new Date(item.startAt)
@@ -77,7 +77,7 @@ export function CalendarWeekView({
   const mobileDayHeading = useMemo(() => formatMobileDayHeading(selectedDay, now), [selectedDay, now])
 
   return (
-    <div data-testid={tid.calendarWeekGrid} className="flex min-h-0 flex-1 flex-col">
+    <div data-testid={tid.scheduleWeekGrid} className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col sm:hidden">
         <div className="flex shrink-0 flex-col gap-3 border-b border-border/50 bg-background px-4 pt-3 pb-3">
           <div
@@ -116,7 +116,7 @@ export function CalendarWeekView({
                       const runStatus = item.runStatus ?? item.event.lastExecution?.status ?? null
                       const degraded = !item.event.sourceMessage.accessible || runStatus === "blocked_access"
                       return (
-                        <CalendarStatusDot
+                        <ScheduleStatusDot
                           key={item.occurrenceKey}
                           status={runStatus}
                           degraded={degraded}
@@ -138,10 +138,10 @@ export function CalendarWeekView({
             <h2 className="text-xs font-semibold text-foreground">{mobileDayHeading}</h2>
             <span className="font-mono text-xs tabular-nums text-muted-foreground">
               {mobileDayItems.length === 0
-                ? "No events"
+                ? "No tasks"
                 : mobileDayItems.length === 1
-                  ? "1 event"
-                  : `${mobileDayItems.length} events`}
+                  ? "1 task"
+                  : `${mobileDayItems.length} tasks`}
             </span>
           </div>
         </div>
@@ -149,7 +149,7 @@ export function CalendarWeekView({
         <ScrollArea className="min-h-0 flex-1" contentClassName="flex min-h-full flex-col">
           {mobileDayItems.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-6 py-16">
-              <EmptyState icon={CalendarDays} label="No events scheduled for this day." />
+              <EmptyState icon={CalendarDays} label="No scheduled tasks for this day." />
             </div>
           ) : (
             <div className="flex flex-col divide-y divide-border/45 pb-6">
@@ -161,7 +161,7 @@ export function CalendarWeekView({
                   <button
                     key={occurrence.occurrenceKey}
                     type="button"
-                    data-testid={tid.calendarEvent(event.id)}
+                    data-testid={tid.scheduleEvent(event.id)}
                     onClick={() => onSelectOccurrence(occurrence)}
                     className={cn(
                       styles.ledgerRow,
@@ -172,13 +172,13 @@ export function CalendarWeekView({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="flex items-center gap-2 font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                        <CalendarStatusDot status={runStatus} degraded={degraded} />
+                        <ScheduleStatusDot status={runStatus} degraded={degraded} />
                         <span>{formatTimeRange(occurrence.startAt, occurrence.endAt)}</span>
                       </span>
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <CalendarRecurrenceBadge recurrence={event.recurrence} compact />
-                        <CalendarSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} compact />
-                        <CalendarRunStatusBadge status={runStatus} />
+                        <ScheduleRecurrenceBadge recurrence={event.recurrence} compact />
+                        <ScheduleSourceStatusBadge source={event.sourceMessage} runStatus={runStatus} compact />
+                        <ScheduleRunStatusBadge status={runStatus} />
                       </div>
                     </div>
                     <div className="flex min-w-0 flex-col gap-1">
@@ -190,7 +190,7 @@ export function CalendarWeekView({
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <CalendarActorAvatar actor={event.creator} size={18} />
+                      <ScheduleActorAvatar actor={event.creator} size={18} />
                       <span className="truncate font-medium text-foreground/85">{event.creator.name}</span>
                       {event.sourceMessage.accessible && event.sourceMessage.channelLabel ? (
                         <span className="truncate text-muted-foreground/80">
@@ -256,7 +256,7 @@ export function CalendarWeekView({
                     const runStatus = item.runStatus ?? item.event.lastExecution?.status ?? null
                     const degraded = !item.event.sourceMessage.accessible || runStatus === "blocked_access"
                     return (
-                      <CalendarStatusDot
+                      <ScheduleStatusDot
                         key={item.occurrenceKey}
                         status={runStatus}
                         degraded={degraded}
@@ -347,7 +347,7 @@ export function CalendarWeekView({
                         key={item.occurrenceKey}
                         type="button"
                         title={`${event.title} (${formatTimeRange(item.startAt, item.endAt)})`}
-                        data-testid={tid.calendarEvent(event.id)}
+                        data-testid={tid.scheduleEvent(event.id)}
                         onClick={() => onSelectOccurrence(item)}
                         style={{
                           top: block.topPx + 1,
@@ -368,7 +368,7 @@ export function CalendarWeekView({
                       >
                         {singleLine ? (
                           <>
-                            <CalendarStatusDot
+                            <ScheduleStatusDot
                               status={runStatus}
                               degraded={degraded}
                               size="sm"
@@ -383,7 +383,7 @@ export function CalendarWeekView({
                         ) : (
                           <>
                             <div className="flex items-center gap-1.5">
-                              <CalendarStatusDot
+                              <ScheduleStatusDot
                                 status={runStatus}
                                 degraded={degraded}
                                 size="sm"
@@ -402,7 +402,7 @@ export function CalendarWeekView({
                             </div>
                             {showCreator ? (
                               <div className="mt-auto flex items-center gap-1.5 pt-1 text-[11px] text-muted-foreground">
-                                <CalendarActorAvatar actor={event.creator} size={14} />
+                                <ScheduleActorAvatar actor={event.creator} size={14} />
                                 <span className="truncate">{event.creator.name}</span>
                               </div>
                             ) : null}

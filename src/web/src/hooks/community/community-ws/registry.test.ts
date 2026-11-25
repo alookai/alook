@@ -26,7 +26,7 @@ const handlers = vi.hoisted(() => new Proxy({} as Record<string, ReturnType<type
 }))
 
 vi.mock("./pii-events", () => ({ handleBotPii: handlers.handleBotPii }))
-vi.mock("./calendar-events", () => ({ handleCalendarChanged: handlers.handleCalendarChanged }))
+vi.mock("./schedule-events", () => ({ handleScheduleChanged: handlers.handleScheduleChanged }))
 
 vi.mock("./server-rail-reconciliation", () => ({ handleServerRailChanged: handlers.handleServerRailChanged }))
 
@@ -141,7 +141,7 @@ describe("community WebSocket registry", () => {
     ["community:runtime.models", "handleRuntimeModels"],
     ["community:bot.pii", "handleBotPii"],
     ["community:bot.audit_event", "handleBotAuditEvent"],
-    ["community:calendar.changed", "handleCalendarChanged"],
+    ["community:schedule.changed", "handleScheduleChanged"],
   ] as const)("dispatches %s through its existing handler group", (type, handlerName) => {
     const context = dispatchContext()
     dispatchCommunityWsEvent(communityWsEventFixtures[type], context)

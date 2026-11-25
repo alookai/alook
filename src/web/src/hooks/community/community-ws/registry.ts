@@ -1,5 +1,5 @@
 import { handleBotPii } from "./pii-events"
-import { handleCalendarChanged } from "./calendar-events"
+import { handleScheduleChanged } from "./schedule-events"
 import { handleServerRailChanged } from "./server-rail-reconciliation"
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -108,7 +108,7 @@ export const communityWsRegistry = {
   "community:bot.pii": { handler: handleBotPii, reconnectPolicies: ["machines"] },
   "community:runtime.models": { handler: handleRuntimeModels, reconnectPolicies: ["machines"] },
   "community:bot.audit_event": { handler: handleBotAuditEvent, reconnectPolicies: ["bot-audits"] },
-  "community:calendar.changed": { handler: handleCalendarChanged, reconnectPolicies: ["calendar"] },
+  "community:schedule.changed": { handler: handleScheduleChanged, reconnectPolicies: ["schedule"] },
 } satisfies CommunityWsRegistry
 
 export function dispatchCommunityWsEvent(

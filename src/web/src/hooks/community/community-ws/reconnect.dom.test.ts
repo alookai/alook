@@ -754,11 +754,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     await vi.waitFor(() => {
       expect(started).toContain(JSON.stringify([...communityKeys.all, "bot"]))
     })
-    expect(started).not.toContain(JSON.stringify(communityKeys.calendar()))
+    expect(started).not.toContain(JSON.stringify(communityKeys.schedule()))
 
     gates.get(JSON.stringify([...communityKeys.all, "bot"]))!.resolve()
     await vi.waitFor(() => {
-      expect(started).toContain(JSON.stringify(communityKeys.calendar()))
+      expect(started).toContain(JSON.stringify(communityKeys.schedule()))
     })
 
     for (const gate of gates.values()) gate.resolve()

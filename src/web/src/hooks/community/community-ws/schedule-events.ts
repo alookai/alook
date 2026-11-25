@@ -2,17 +2,17 @@ import { communityKeys } from "@/lib/query-keys"
 import type { CommunityWsEvent } from "@alook/shared"
 import type { QueryClient } from "@tanstack/react-query"
 
-export type CalendarChangedWsEvent = Extract<
+export type ScheduleChangedWsEvent = Extract<
   CommunityWsEvent,
-  { type: "community:calendar.changed" }
+  { type: "community:schedule.changed" }
 >
 
-export function handleCalendarChanged(
-  _event: CalendarChangedWsEvent,
+export function handleScheduleChanged(
+  _event: ScheduleChangedWsEvent,
   { queryClient }: { queryClient: QueryClient },
 ) {
   return queryClient.invalidateQueries({
-    queryKey: communityKeys.calendar(),
+    queryKey: communityKeys.schedule(),
     refetchType: "active",
   })
 }

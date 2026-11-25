@@ -1,4 +1,4 @@
-/* Alook Technostalgia frameless calendar controls & drafting-grid tokens.
+/* Alook Technostalgia frameless schedule controls & drafting-grid tokens.
  * Built strictly on Alook's existing --tn-* and semantic theme tokens so light
  * (warm paper / beige plastic / CD blue) and dark (pure black / glass / neon)
  * stay in lockstep without duplicating theme palettes. */
@@ -97,7 +97,7 @@
     inset 0 0 0 1px rgb(140 160 220 / 32%);
 }
 
-/* Creator filter pill harmonizes SelectTrigger with the recessed pill deck */
+/* Bot filter pill harmonizes SelectTrigger with the recessed pill deck */
 .filterPill {
   height: 34px !important;
   border-radius: 999px !important;

@@ -1,27 +1,27 @@
 import { useState } from "react"
 import type { Meta, StoryObj } from "@storybook/nextjs-vite"
-import { CalendarPageSkeleton } from "@/components/community/calendar/calendar-skeleton"
+import { SchedulePageSkeleton } from "@/components/community/schedule/schedule-skeleton"
 import type {
-  CalendarActor,
-  CalendarOccurrenceItem,
-  CalendarViewMode,
-} from "@/components/community/calendar/calendar-types"
-import { CalendarWorkspace } from "@/components/community/calendar/calendar-workspace"
+  ScheduleActor,
+  ScheduleOccurrenceItem,
+  ScheduleViewMode,
+} from "@/components/community/schedule/schedule-types"
+import { ScheduleWorkspace } from "@/components/community/schedule/schedule-workspace"
 
 const ANCHOR = new Date(2026, 10, 25)
-const GUS: CalendarActor = { id: "user_gus", name: "Gus", handle: "@gus#1813", kind: "human" }
-const ALLI: CalendarActor = { id: "bot_alli", name: "Alli", handle: "@Alli#6011", kind: "bot" }
-const ELWIRA: CalendarActor = { id: "bot_elwira", name: "Elwira", handle: "@Elwira#8700", kind: "bot" }
+const ALLI: ScheduleActor = { id: "bot_alli", name: "Alli", handle: "@Alli#6011", kind: "bot" }
+const ELWIRA: ScheduleActor = { id: "bot_elwira", name: "Elwira", handle: "@Elwira#8700", kind: "bot" }
+const CECILIA: ScheduleActor = { id: "bot_cecilia", name: "Cecilia", handle: "@Cecilia#7971", kind: "bot" }
 
-const SAMPLE_OCCURRENCES: CalendarOccurrenceItem[] = [
+const SAMPLE_OCCURRENCES: ScheduleOccurrenceItem[] = [
   {
-    occurrenceKey: "cal_1:2026-11-24T09:30",
-    eventId: "cal_1",
+    occurrenceKey: "sch_1:2026-11-24T09:30",
+    eventId: "sch_1",
     startAt: new Date(2026, 10, 24, 9, 30).toISOString(),
     endAt: new Date(2026, 10, 24, 10, 0).toISOString(),
     runStatus: "completed",
     event: {
-      id: "cal_1",
+      id: "sch_1",
       title: "Daily standup summary",
       description: "Summarize completed work and open blockers in the thread.",
       creator: ALLI,
@@ -51,13 +51,13 @@ const SAMPLE_OCCURRENCES: CalendarOccurrenceItem[] = [
     },
   },
   {
-    occurrenceKey: "cal_1:2026-11-25T09:30",
-    eventId: "cal_1",
+    occurrenceKey: "sch_1:2026-11-25T09:30",
+    eventId: "sch_1",
     startAt: new Date(2026, 10, 25, 9, 30).toISOString(),
     endAt: new Date(2026, 10, 25, 10, 0).toISOString(),
     runStatus: "dispatched",
     event: {
-      id: "cal_1",
+      id: "sch_1",
       title: "Daily standup summary",
       description: "Summarize completed work and open blockers in the thread.",
       creator: ALLI,
@@ -86,16 +86,16 @@ const SAMPLE_OCCURRENCES: CalendarOccurrenceItem[] = [
     },
   },
   {
-    occurrenceKey: "cal_3:2026-11-25T11:00",
-    eventId: "cal_3",
+    occurrenceKey: "sch_3:2026-11-25T11:00",
+    eventId: "sch_3",
     startAt: new Date(2026, 10, 25, 11, 0).toISOString(),
     endAt: new Date(2026, 10, 25, 12, 30).toISOString(),
     runStatus: "scheduled",
     event: {
-      id: "cal_3",
+      id: "sch_3",
       title: "Design review prep",
-      description: "Collect desktop and mobile screenshots before the review.",
-      creator: GUS,
+      description: "Collect desktop and mobile shell screenshots before the review.",
+      creator: CECILIA,
       startAt: new Date(2026, 10, 25, 11, 0).toISOString(),
       durationMinutes: 90,
       endAt: new Date(2026, 10, 25, 12, 30).toISOString(),
@@ -111,13 +111,13 @@ const SAMPLE_OCCURRENCES: CalendarOccurrenceItem[] = [
     },
   },
   {
-    occurrenceKey: "cal_4:2026-11-25T15:00",
-    eventId: "cal_4",
+    occurrenceKey: "sch_4:2026-11-25T15:00",
+    eventId: "sch_4",
     startAt: new Date(2026, 10, 25, 15, 0).toISOString(),
     endAt: new Date(2026, 10, 25, 15, 30).toISOString(),
     runStatus: "pending",
     event: {
-      id: "cal_4",
+      id: "sch_4",
       title: "Release gate check",
       description: "Verify CI status and confirm merge sign-off with Gus.",
       creator: ELWIRA,
@@ -139,13 +139,13 @@ const SAMPLE_OCCURRENCES: CalendarOccurrenceItem[] = [
     },
   },
   {
-    occurrenceKey: "cal_2:2026-11-26T14:00",
-    eventId: "cal_2",
+    occurrenceKey: "sch_2:2026-11-26T14:00",
+    eventId: "sch_2",
     startAt: new Date(2026, 10, 26, 14, 0).toISOString(),
     endAt: new Date(2026, 10, 26, 15, 0).toISOString(),
     runStatus: "blocked_access",
     event: {
-      id: "cal_2",
+      id: "sch_2",
       title: "Archived thread reminder",
       creator: ELWIRA,
       startAt: new Date(2026, 10, 26, 14, 0).toISOString(),
@@ -167,37 +167,37 @@ const SAMPLE_OCCURRENCES: CalendarOccurrenceItem[] = [
   },
 ]
 
-function CalendarSpecimen({ initialView }: { initialView: CalendarViewMode }) {
-  const [view, setView] = useState<CalendarViewMode>(initialView)
+function ScheduleSpecimen({ initialView }: { initialView: ScheduleViewMode }) {
+  const [view, setView] = useState<ScheduleViewMode>(initialView)
   const [anchorDate, setAnchorDate] = useState<Date>(ANCHOR)
-  const [selectedCreatorId, setSelectedCreatorId] = useState<string | null>(null)
+  const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-background">
-      <CalendarWorkspace
+      <ScheduleWorkspace
         view={view}
         onViewChange={setView}
         anchorDate={anchorDate}
         onAnchorDateChange={setAnchorDate}
-        selectedCreatorId={selectedCreatorId}
-        onSelectedCreatorIdChange={setSelectedCreatorId}
-        creators={[GUS, ALLI, ELWIRA]}
+        selectedBotId={selectedBotId}
+        onSelectedBotIdChange={setSelectedBotId}
+        bots={[ALLI, ELWIRA, CECILIA]}
         occurrences={SAMPLE_OCCURRENCES}
         onBack={() => undefined}
         onOpenSourceMessage={() => undefined}
-        onSaveEvent={() => undefined}
-        onDeleteEvent={() => undefined}
+        onAskBot={() => undefined}
+        onOpenBots={() => undefined}
       />
     </div>
   )
 }
 
 const meta = {
-  title: "Web/Business/Calendar",
-  component: CalendarSpecimen,
+  title: "Web/Business/Schedule",
+  component: ScheduleSpecimen,
   tags: ["autodocs", "ai-generated"],
   parameters: { layout: "fullscreen" },
   args: { initialView: "week" },
-} satisfies Meta<typeof CalendarSpecimen>
+} satisfies Meta<typeof ScheduleSpecimen>
 
 export default meta
 type Story = StoryObj<typeof meta>
@@ -213,7 +213,7 @@ export const AgendaView: Story = {
 export const LoadingSkeleton: Story = {
   render: () => (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-background">
-      <CalendarPageSkeleton reserveBackSlot />
+      <SchedulePageSkeleton reserveBackSlot />
     </div>
   ),
 }

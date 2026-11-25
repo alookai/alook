@@ -3,32 +3,31 @@ import { describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { render, setupUser } from "@/test/react-dom-harness"
 import type {
-  CalendarActor,
-  CalendarEventEditDraft,
-  CalendarOccurrenceItem,
-  CalendarViewMode,
-} from "./calendar-types"
-import { CalendarWorkspace } from "./calendar-workspace"
+  ScheduleActor,
+  ScheduleOccurrenceItem,
+  ScheduleViewMode,
+} from "./schedule-types"
+import { ScheduleWorkspace } from "./schedule-workspace"
 
 const ANCHOR = new Date(2026, 10, 25)
 
-const ALLI: CalendarActor = { id: "bot_alli", name: "Alli", handle: "@Alli#6011", kind: "bot" }
-const ELWIRA: CalendarActor = { id: "bot_elwira", name: "Elwira", handle: "@Elwira#8700", kind: "bot" }
+const ALLI: ScheduleActor = { id: "bot_alli", name: "Alli", handle: "@Alli#6011", kind: "bot" }
+const ELWIRA: ScheduleActor = { id: "bot_elwira", name: "Elwira", handle: "@Elwira#8700", kind: "bot" }
 
-function makeFixtureOccurrences(): CalendarOccurrenceItem[] {
+function makeFixtureOccurrences(): ScheduleOccurrenceItem[] {
   const start1 = new Date(2026, 10, 25, 9, 30).toISOString()
   const end1 = new Date(2026, 10, 25, 10, 0).toISOString()
   const start2 = new Date(2026, 10, 26, 14, 0).toISOString()
   const end2 = new Date(2026, 10, 26, 14, 45).toISOString()
   return [
     {
-      occurrenceKey: `cal_1:${start1}`,
-      eventId: "cal_1",
+      occurrenceKey: `sch_1:${start1}`,
+      eventId: "sch_1",
       startAt: start1,
       endAt: end1,
       runStatus: "dispatched",
       event: {
-        id: "cal_1",
+        id: "sch_1",
         title: "Daily standup summary",
         description: "Summarize team progress in the thread.",
         creator: ALLI,
@@ -52,13 +51,13 @@ function makeFixtureOccurrences(): CalendarOccurrenceItem[] {
       },
     },
     {
-      occurrenceKey: `cal_2:${start2}`,
-      eventId: "cal_2",
+      occurrenceKey: `sch_2:${start2}`,
+      eventId: "sch_2",
       startAt: start2,
       endAt: end2,
       runStatus: "blocked_access",
       event: {
-        id: "cal_2",
+        id: "sch_2",
         title: "Archived thread reminder",
         creator: ELWIRA,
         startAt: start2,
@@ -82,70 +81,73 @@ function makeFixtureOccurrences(): CalendarOccurrenceItem[] {
 
 function Harness({
   initialView = "agenda",
+  bots = [ALLI, ELWIRA],
   onOpenSourceMessage = vi.fn(),
-  onSaveEvent = vi.fn(),
-  onDeleteEvent = vi.fn(),
+  onAskBot = vi.fn(),
+  onOpenBots = vi.fn(),
 }: {
-  initialView?: CalendarViewMode
+  initialView?: ScheduleViewMode
+  bots?: readonly ScheduleActor[]
   onOpenSourceMessage?: (messageId: string) => void
-  onSaveEvent?: (eventId: string, draft: CalendarEventEditDraft) => void
-  onDeleteEvent?: (eventId: string) => void
+  onAskBot?: (botId: string) => void
+  onOpenBots?: () => void
 }) {
-  const [view, setView] = useState<CalendarViewMode>(initialView)
+  const [view, setView] = useState<ScheduleViewMode>(initialView)
   const [anchorDate, setAnchorDate] = useState<Date>(ANCHOR)
-  const [selectedCreatorId, setSelectedCreatorId] = useState<string | null>(null)
+  const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
   return (
-    <CalendarWorkspace
+    <ScheduleWorkspace
       view={view}
       onViewChange={setView}
       anchorDate={anchorDate}
       onAnchorDateChange={setAnchorDate}
-      selectedCreatorId={selectedCreatorId}
-      onSelectedCreatorIdChange={setSelectedCreatorId}
-      creators={[ALLI, ELWIRA]}
+      selectedBotId={selectedBotId}
+      onSelectedBotIdChange={setSelectedBotId}
+      bots={bots}
       occurrences={makeFixtureOccurrences()}
       onOpenSourceMessage={onOpenSourceMessage}
-      onSaveEvent={onSaveEvent}
-      onDeleteEvent={onDeleteEvent}
+      onAskBot={onAskBot}
+      onOpenBots={onOpenBots}
     />
   )
 }
 
-describe("CalendarWorkspace", () => {
+describe("ScheduleWorkspace", () => {
   it("switches between Week and Agenda views without offering Month", async () => {
     const user = setupUser()
     const view = render(<Harness initialView="week" />)
-    expect(view.getByTestId(tid.calendarWeekGrid)).toBeInTheDocument()
+    expect(view.getByTestId(tid.scheduleWeekGrid)).toBeInTheDocument()
     expect(view.queryByRole("tab", { name: "Month" })).toBeNull()
 
     await user.click(view.getByRole("tab", { name: "Agenda" }))
-    expect(view.getByTestId(tid.calendarAgenda)).toBeInTheDocument()
+    expect(view.getByTestId(tid.scheduleAgenda)).toBeInTheDocument()
     expect(view.getByText("Daily standup summary")).toBeInTheDocument()
   })
 
-  it("displays creator, 3-state execution status, and source-message states without a participants section", async () => {
+  it("displays read-only task detail and source-message states without edit or delete actions", async () => {
     const user = setupUser()
     const onOpenSourceMessage = vi.fn()
     const view = render(<Harness initialView="agenda" onOpenSourceMessage={onOpenSourceMessage} />)
 
-    await user.click(view.getByTestId(tid.calendarEvent("cal_1")))
-    expect(view.getByTestId(tid.calendarDetailSheet)).toBeInTheDocument()
-    expect(view.getByText("Creator")).toBeInTheDocument()
-    expect(view.queryByText(/Participants/i)).toBeNull()
+    await user.click(view.getByTestId(tid.scheduleEvent("sch_1")))
+    expect(view.getByTestId(tid.scheduleDetailSheet)).toBeInTheDocument()
+    expect(view.getByText("Scheduled by")).toBeInTheDocument()
+    expect(view.queryByRole("button", { name: "Edit event" })).toBeNull()
+    expect(view.queryByRole("button", { name: "Delete event" })).toBeNull()
     expect(view.getAllByText("Dispatched").length).toBeGreaterThan(0)
-    await user.click(view.getByTestId(tid.calendarSourceLink))
+    await user.click(view.getByTestId(tid.scheduleSourceLink))
     expect(onOpenSourceMessage).toHaveBeenCalledWith("msg_standup")
 
-    await user.click(view.getByTestId(tid.calendarEvent("cal_2")))
+    await user.click(view.getByTestId(tid.scheduleEvent("sch_2")))
     expect(view.getByText("Original message is unavailable")).toBeInTheDocument()
     expect(view.getAllByText("Access blocked").length).toBeGreaterThan(0)
-    expect(view.queryByTestId(tid.calendarSourceLink)).toBeNull()
+    expect(view.queryByTestId(tid.scheduleSourceLink)).toBeNull()
   })
 
   it("renders completed execution state and acknowledged timestamp from --ack", async () => {
     const user = setupUser()
     const ackedAt = new Date(2026, 10, 25, 9, 34).toISOString()
-    const completedOccurrence: CalendarOccurrenceItem = {
+    const completedOccurrence: ScheduleOccurrenceItem = {
       ...makeFixtureOccurrences()[0]!,
       runStatus: "completed",
       event: {
@@ -159,51 +161,41 @@ describe("CalendarWorkspace", () => {
       },
     }
     const view = render(
-      <CalendarWorkspace
+      <ScheduleWorkspace
         view="agenda"
         onViewChange={vi.fn()}
         anchorDate={ANCHOR}
         onAnchorDateChange={vi.fn()}
-        selectedCreatorId={null}
-        onSelectedCreatorIdChange={vi.fn()}
-        creators={[ALLI]}
+        selectedBotId={null}
+        onSelectedBotIdChange={vi.fn()}
+        bots={[ALLI]}
         occurrences={[completedOccurrence]}
         onOpenSourceMessage={vi.fn()}
       />,
     )
     expect(view.getByText("Completed")).toBeInTheDocument()
-    await user.click(view.getByTestId(tid.calendarEvent("cal_1")))
+    await user.click(view.getByTestId(tid.scheduleEvent("sch_1")))
     expect(view.getByText(/Acknowledged by bot/i)).toBeInTheDocument()
   })
 
-  it("supports editing and confirming deletion from the detail sheet", async () => {
+  it("prompts users to ask a bot to schedule, supports single/multi-bot jump, and guides to My Bots when empty", async () => {
     const user = setupUser()
-    const onSaveEvent = vi.fn()
-    const onDeleteEvent = vi.fn()
-    const view = render(
-      <Harness
-        initialView="agenda"
-        onSaveEvent={onSaveEvent}
-        onDeleteEvent={onDeleteEvent}
-      />,
-    )
+    const onAskBot = vi.fn()
+    const multi = render(<Harness initialView="week" bots={[ALLI, ELWIRA]} onAskBot={onAskBot} />)
+    await user.click(multi.getByTestId(tid.scheduleAskBot))
+    await user.click(multi.getByRole("button", { name: "Elwira" }))
+    expect(onAskBot).toHaveBeenCalledWith("bot_elwira")
+    multi.unmount()
 
-    await user.click(view.getByTestId(tid.calendarEvent("cal_1")))
-    await user.click(view.getByRole("button", { name: "Edit event" }))
-    const titleInput = view.getByLabelText("Title")
-    await user.clear(titleInput)
-    await user.type(titleInput, "Updated standup")
-    await user.click(view.getByRole("button", { name: "Save changes" }))
-    expect(onSaveEvent).toHaveBeenCalledWith(
-      "cal_1",
-      expect.objectContaining({
-        title: "Updated standup",
-      }),
-    )
+    const onAskSingle = vi.fn()
+    const single = render(<Harness initialView="week" bots={[ALLI]} onAskBot={onAskSingle} />)
+    await user.click(single.getByTestId(tid.scheduleAskBot))
+    expect(onAskSingle).toHaveBeenCalledWith("bot_alli")
+    single.unmount()
 
-    await user.click(view.getByRole("button", { name: "Delete event" }))
-    const confirmButtons = view.getAllByRole("button", { name: "Delete event" })
-    await user.click(confirmButtons[confirmButtons.length - 1]!)
-    expect(onDeleteEvent).toHaveBeenCalledWith("cal_1")
+    const onOpenBots = vi.fn()
+    const empty = render(<Harness initialView="week" bots={[]} onOpenBots={onOpenBots} />)
+    await user.click(empty.getByTestId(tid.scheduleAskBot))
+    expect(onOpenBots).toHaveBeenCalledOnce()
   })
 })

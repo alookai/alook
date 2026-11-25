@@ -1,160 +1,86 @@
 import { queryOptions } from "@tanstack/react-query"
+import type {
+  ScheduleActorSummary,
+  ScheduleEvent,
+  ScheduleListResponse,
+  ScheduleOccurrenceStatus,
+  ScheduleRecurrence,
+  ScheduleRunStatus,
+  ScheduleSourceMessageStatus,
+} from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { apiFetchCommunity } from "./account-cache-lifecycle"
 
-export type CalendarViewMode = "week" | "agenda"
+export type ScheduleViewMode = "week" | "agenda"
 
-type CalendarActorKind = "human" | "bot"
+type ScheduleActorKind = "human" | "bot"
 
-export type CalendarActor = {
+export type ScheduleActor = {
   id: string
   name: string
   handle?: string | null
-  kind: CalendarActorKind
+  kind: ScheduleActorKind
   avatarUrl?: string | null
 }
 
-export type CalendarSourceMessage = {
+export type ScheduleSourceMessage = {
   messageId: string
   accessible: boolean
-  status?: "accessible" | "inaccessible" | "deleted" | (string & {})
+  status?: ScheduleSourceMessageStatus | (string & {})
   channelLabel?: string | null
   excerpt?: string | null
   unavailableReason?: string | null
 }
 
-type CalendarRunStatus = "pending" | "dispatched" | "completed" | "blocked_access"
+export type ScheduleOccurrenceRunStatus = ScheduleOccurrenceStatus
 
-export type CalendarOccurrenceRunStatus = "scheduled" | CalendarRunStatus
-
-type CalendarExecutionSummary = {
-  status: CalendarRunStatus
+type ScheduleExecutionSummary = {
+  status: ScheduleRunStatus
   scheduledAt?: string | null
   updatedAt?: string | null
   ackedAt?: string | null
   lastError?: string | null
 }
 
-export type CalendarRecurrenceFreq = "hourly" | "daily" | "weekly" | "monthly"
+type ScheduleRecurrenceRule = ScheduleRecurrence
 
-export type CalendarRecurrenceRule = {
-  freq: CalendarRecurrenceFreq
-  interval: number
-  byWeekday?: number[]
-  untilAt?: string | null
-  count?: number | null
-}
-
-export type CalendarRecurrenceSummary = {
+export type ScheduleRecurrenceSummary = {
   recurring: boolean
   label: string
   ruleText?: string | null
-  rule?: CalendarRecurrenceRule | null
+  rule?: ScheduleRecurrenceRule | null
   nextRunAt?: string | null
 }
 
-export type CalendarEventItem = {
+export type ScheduleEventItem = {
   id: string
   title: string
   description?: string | null
-  creator: CalendarActor
+  creator: ScheduleActor
   startAt: string
   durationMinutes: number
   endAt?: string | null
   timeZone: string
-  recurrence: CalendarRecurrenceSummary
-  sourceMessage: CalendarSourceMessage
-  lastExecution?: CalendarExecutionSummary | null
+  recurrence: ScheduleRecurrenceSummary
+  sourceMessage: ScheduleSourceMessage
+  lastExecution?: ScheduleExecutionSummary | null
 }
 
-export type CalendarOccurrenceItem = {
+export type ScheduleOccurrenceItem = {
   occurrenceKey: string
   eventId: string
   startAt: string
   endAt?: string | null
-  runStatus?: CalendarOccurrenceRunStatus | null
-  event: CalendarEventItem
+  runStatus?: ScheduleOccurrenceRunStatus | null
+  event: ScheduleEventItem
 }
 
-export type CalendarEventEditDraft = {
-  title: string
-  description: string
-  startAt: string
-  durationMinutes: number
-  timeZone: string
-  recurrence: CalendarRecurrenceRule | null
-}
-
-type CalendarActorDto = {
-  id: string
-  handle: string
-  name: string
-  avatarVersion: number
-  isBot: boolean
-}
-
-type CalendarLastExecutionDto = {
-  scheduledAt: string
-  status: CalendarRunStatus
-  lastError: string | null
-  ackedAt?: string | null
-  updatedAt: string
-}
-
-type CalendarSourceMessageDto = {
-  id: string
-  accessible: boolean
-  status: "accessible" | "inaccessible" | "deleted"
-  ref: string | null
-  channelRef: string | null
-  seq: number | null
-  preview: string | null
-}
-
-export type CalendarEventDto = {
-  id: string
-  title: string
-  description: string
-  createdBy: CalendarActorDto
-  startAt: string
-  durationMinutes: number
-  timeZone: string
-  recurrence: CalendarRecurrenceRule | null
-  nextRunAt: string | null
-  sourceMessage: CalendarSourceMessageDto
-  lastExecution: CalendarLastExecutionDto | null
-  createdAt: string
-  updatedAt: string
-}
-
-type CalendarOccurrenceDto = {
-  eventId: string
-  occurrenceKey: string
-  startAt: string
-  endAt: string
-  runStatus: CalendarOccurrenceRunStatus
-}
-
-export type CalendarListResponseDto = {
-  events: CalendarEventDto[]
-  occurrences: CalendarOccurrenceDto[]
-  creators: CalendarActorDto[]
-}
-
-export type CalendarUpdateRequestDto = {
-  title?: string
-  description?: string
-  startAt?: string
-  durationMinutes?: number
-  timeZone?: string
-  recurrence?: CalendarRecurrenceRule | null
-  ack?: boolean
-}
+export type ScheduleListResponseDto = ScheduleListResponse
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const
 
-export function formatCalendarRecurrence(recurrence: CalendarRecurrenceRule | null): {
+export function formatScheduleRecurrence(recurrence: ScheduleRecurrenceRule | null): {
   recurring: boolean
   label: string
   ruleText: string | null
@@ -205,9 +131,9 @@ export function formatCalendarRecurrence(recurrence: CalendarRecurrenceRule | nu
 }
 
 function mapActor(
-  dto: CalendarActorDto,
+  dto: ScheduleActorSummary,
   avatarByUserId: ReadonlyMap<string, string | null>,
-): CalendarActor {
+): ScheduleActor {
   return {
     id: dto.id,
     name: dto.name,
@@ -217,18 +143,18 @@ function mapActor(
   }
 }
 
-function unavailableSourceReason(status: CalendarSourceMessageDto["status"]): string {
+function unavailableSourceReason(status: ScheduleSourceMessageStatus): string {
   if (status === "deleted") {
     return "The original message was deleted. Content is hidden and automatic replies cannot be posted."
   }
   return "Access to the original conversation was lost. Content is hidden and automatic replies cannot be posted."
 }
 
-function mapCalendarEventDto(
-  dto: CalendarEventDto,
+function mapScheduleEventDto(
+  dto: ScheduleEvent,
   avatarByUserId: ReadonlyMap<string, string | null> = new Map(),
-): CalendarEventItem {
-  const formatted = formatCalendarRecurrence(dto.recurrence)
+): ScheduleEventItem {
+  const formatted = formatScheduleRecurrence(dto.recurrence)
   const endMs = Date.parse(dto.startAt) + dto.durationMinutes * 60_000
   const endAt = Number.isFinite(endMs) ? new Date(endMs).toISOString() : null
   const accessible = dto.sourceMessage.accessible
@@ -267,17 +193,17 @@ function mapCalendarEventDto(
   }
 }
 
-export function mapCalendarListResponse(
-  response: CalendarListResponseDto,
+export function mapScheduleListResponse(
+  response: ScheduleListResponseDto,
   avatarByUserId: ReadonlyMap<string, string | null> = new Map(),
 ): {
-  events: CalendarEventItem[]
-  occurrences: CalendarOccurrenceItem[]
-  creators: CalendarActor[]
+  events: ScheduleEventItem[]
+  occurrences: ScheduleOccurrenceItem[]
+  creators: ScheduleActor[]
 } {
-  const events = response.events.map((dto) => mapCalendarEventDto(dto, avatarByUserId))
+  const events = response.events.map((dto) => mapScheduleEventDto(dto, avatarByUserId))
   const eventById = new Map(events.map((item) => [item.id, item]))
-  const occurrences: CalendarOccurrenceItem[] = []
+  const occurrences: ScheduleOccurrenceItem[] = []
   for (const occ of response.occurrences) {
     const event = eventById.get(occ.eventId)
     if (!event) continue
@@ -294,20 +220,20 @@ export function mapCalendarListResponse(
   return { events, occurrences, creators }
 }
 
-export function calendarEventsQueryOptions(params: {
+export function scheduleEventsQueryOptions(params: {
   from: string
   to: string
 }) {
   return queryOptions({
-    queryKey: communityKeys.calendarEvents(params),
-    queryFn: async ({ client, signal }): Promise<CalendarListResponseDto> => {
+    queryKey: communityKeys.scheduleEvents(params),
+    queryFn: async ({ client, signal }): Promise<ScheduleListResponseDto> => {
       const token = captureCommunityLiveSnapshotToken(client)
       const search = new URLSearchParams({
         from: params.from,
         to: params.to,
       })
-      return apiFetchCommunity<CalendarListResponseDto>(
-        `/api/community/calendar/events?${search.toString()}`,
+      return apiFetchCommunity<ScheduleListResponseDto>(
+        `/api/community/schedule/events?${search.toString()}`,
         { signal },
         token,
       )

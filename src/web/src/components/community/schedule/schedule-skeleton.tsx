@@ -4,7 +4,7 @@ import { ChevronLeft } from "@/components/icons/lucide"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
-export function CalendarPageSkeleton({
+export function SchedulePageSkeleton({
   onBack,
   reserveBackSlot = false,
 }: {
@@ -15,7 +15,7 @@ export function CalendarPageSkeleton({
     <div
       role="status"
       aria-busy="true"
-      aria-label="Loading calendar"
+      aria-label="Loading schedule"
       className="flex min-h-0 flex-1 flex-col bg-background"
     >
       <header className="shrink-0 border-b border-border/55 px-4 py-2.5 sm:px-6 sm:py-3">
@@ -47,6 +47,11 @@ export function CalendarPageSkeleton({
           </div>
         </div>
       </header>
+
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 bg-muted/35 px-4 py-2.5 dark:bg-white/3 sm:px-6">
+        <Skeleton className="h-3.5 w-64 max-w-[60%] rounded" />
+        <Skeleton className="h-6 w-32 rounded-full" />
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col sm:hidden">
         <div className="border-b border-border/50 px-4 pt-3 pb-3">
