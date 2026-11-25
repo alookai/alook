@@ -4,15 +4,18 @@ import { useCallback, useEffect, useRef } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useMutation } from "@tanstack/react-query"
 import { AUTOMATION_PERMISSION_LIMITS, AUTOMATION_READ_PERMISSIONS, AUTOMATION_WRITE_PERMISSIONS, isPresenceOnline, type AutomationAccessCodeCreateResponse } from "@alook/shared"
-import { RefreshCw, Loader2 } from "@/components/icons/lucide";
+import { CircleHelp, Copy, Loader2, RefreshCw } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { PromptCopyPreview } from "@/components/ui/prompt-copy-preview"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, OnboardingProgress } from "./onboarding-surface"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { MachinePairMessageDiagram } from "../machines/machine-pair-message-diagram"
 import { buildPairCommand } from "../machines/pair-machine-sheet"
 
 type Pair = { tokenId: string; expiresAt: string; machineId?: string }
@@ -121,23 +124,74 @@ export function OnboardingAgentDialog({ harness, harnessLabel, onChooseAgent, on
       setCopied("copied")
     } catch { try { assert(); setCopied("error") } catch {} }
   }, [prompt, source, setup.code, setup.pair, machine, setNow, setCopiedSignal, setCopied])
+  const handleManualCopy = useCallback(() => {
+    if (!prompt || !setup.code) return
+    if (Date.parse(setup.code.accessCode.expiresAt ?? "") <= Date.now() || (!machine && Date.parse(setup.pair?.expiresAt ?? "") <= Date.now())) {
+      setNow(Date.now())
+      return
+    }
+    setCopiedSignal(source.signal)
+    setCopied("copied")
+  }, [prompt, setup.code, setup.pair, machine, source.signal, setNow, setCopiedSignal, setCopied])
   return <Dialog open onOpenChange={(open) => { if (!open) exit() }}>
     <DialogContent data-testid="onboarding-agent-dialog" className="border-0 p-6 shadow-none ring-0 sm:max-w-xl">
-      <div className="space-y-6 p-4 sm:p-6">
+      <div className="min-w-0 space-y-6 p-4 sm:p-6">
         <OnboardingProgress current={2} total={2} />
         <DialogHeader className="gap-3 text-left">
           <ProviderLogo provider={harness} className="size-8" />
-          <DialogTitle className="text-2xl font-semibold tracking-tight">{waiting ? "Waiting for your computer" : `Continue in ${harnessLabel}`}</DialogTitle>
-          <DialogDescription>{waiting ? `Paste the copied prompt into ${harnessLabel}. Setup will close when your computer connects.` : `Copy this prompt and paste it into ${harnessLabel}.`}</DialogDescription>
+          <DialogTitle className="text-2xl font-semibold tracking-tight">{waiting ? "Waiting for your computer to connect" : `Set up with ${harnessLabel}`}</DialogTitle>
+          <DialogDescription>{waiting ? `Paste the copied prompt into ${harnessLabel}. We’ll take you right in once your computer connects.` : `Copy and paste this into ${harnessLabel}. It only lets your local agent send and receive Alook messages, and asks before creating your first room.`}</DialogDescription>
         </DialogHeader>
-        {waiting && !codeExpired && !pairExpired ? <div ref={waitingStatus} tabIndex={-1} data-testid="onboarding-agent-waiting" role="status" className="outline-none flex items-center gap-3 text-sm text-muted-foreground"><Loader2 aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />Waiting for connection…</div> : <div className="space-y-3">
-          {ready ? <PromptCopyPreview value={prompt} label={`Prompt for ${harnessLabel}`} testId="onboarding-agent-prompt" onCopy={handleCopy} /> : failed || isError || codeExpired || pairExpired || needsConnection ? <div className="space-y-3">
-            <p role="alert" className="text-sm text-destructive">{codeExpired || pairExpired ? "Setup credentials expired. Refresh to continue." : needsConnection ? "Your computer went offline. Prepare a new connection to continue." : "Couldn’t prepare Agent Setup. Try again, or use Manual."}</p>
+        <p className="rounded-lg bg-muted/40 px-3.5 py-2.5 text-sm leading-relaxed text-muted-foreground sm:hidden">
+          On your phone? Open <span className="font-medium text-foreground">alook.ai</span> on the computer where {harnessLabel} is installed to connect it — you can still explore Alook here.
+        </p>
+        {waiting && !codeExpired && !pairExpired ? <div ref={waitingStatus} tabIndex={-1} data-testid="onboarding-agent-waiting" role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 px-3.5 py-3 text-sm text-muted-foreground outline-none">
+          <span className="flex items-center gap-2.5"><Loader2 aria-hidden className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />Waiting for your computer to connect…</span>
+          <Button type="button" variant="ghost" size="sm" className="h-9 text-foreground" onClick={handleCopy}><Copy aria-hidden className="size-3.5" />Copy again</Button>
+        </div> : <div className="space-y-3">
+          {ready ? <>
+            <PromptCopyPreview value={prompt} label={`Prompt for ${harnessLabel}`} testId="onboarding-agent-prompt" onCopy={handleCopy} onManualCopy={handleManualCopy} />
+            <div className="flex items-center">
+              <Popover>
+                <PopoverTrigger
+                  openOnHover
+                  delay={150}
+                  render={<Button variant="ghost" size="sm" type="button" />}
+                  className="-mx-2 h-11 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground sm:h-8"
+                >
+                  <CircleHelp aria-hidden className="size-3.5 shrink-0" />
+                  Why do I need to run this command?
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="end"
+                  className="flex w-104 max-w-[calc(var(--app-safe-width)-2rem)] max-h-[calc(var(--app-overlay-safe-height)-2rem)] flex-col overflow-hidden p-0"
+                >
+                  <ScrollArea
+                    className="flex min-h-0 flex-1 flex-col"
+                    viewportClassName="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+                    contentClassName="flex flex-col gap-4 p-4 sm:p-6"
+                  >
+                    <div className="flex flex-col gap-2">
+                      <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why do I need to run this command?</PopoverTitle>
+                      <p className="text-sm leading-relaxed text-muted-foreground">Your AI tool runs on your computer. This only lets your local agent send and receive Alook messages using your existing setup.</p>
+                    </div>
+                    <MachinePairMessageDiagram />
+                    <div className="flex flex-col gap-2">
+                      <h4 className="text-base font-semibold leading-tight">Your files stay on your computer</h4>
+                      <p className="text-sm leading-relaxed text-muted-foreground">Alook never automatically uploads your local files.</p>
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </> : failed || isError || codeExpired || pairExpired || needsConnection ? <div className="space-y-3">
+            <p role="alert" className="text-sm text-destructive">{codeExpired || pairExpired ? "This setup code expired. Refresh to get a new one." : needsConnection ? "Your computer went offline. Refresh to reconnect it." : "Couldn’t prepare the prompt. Try again, or switch to Terminal."}</p>
             <Button type="button" variant="outline" className="h-11" disabled={pending} onClick={() => { if (isError) void refetch(); else void generate() }}><RefreshCw aria-hidden className="size-4" />Try again</Button>
-          </div> : <div role="status" aria-label="Preparing Agent Setup"><Skeleton className="h-11 w-full" /></div>}
+          </div> : <div role="status" aria-label="Preparing setup prompt"><Skeleton className="h-11 w-full" /></div>}
           {copied === "error" ? <p role="alert" className="text-sm text-destructive">Copy failed. Try again, or select the prompt and copy it.</p> : null}
         </div>}
-        <Button type="button" variant="outline" className="h-11 px-3" onClick={() => leave(onChooseAgent)}>Change agent</Button>
+        <Button type="button" variant="outline" className="h-11 px-3" onClick={() => leave(onChooseAgent)}>Choose another tool</Button>
       </div>
     </DialogContent>
   </Dialog>

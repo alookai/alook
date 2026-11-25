@@ -16,7 +16,7 @@ export const ONBOARDING_INITIALIZATION_STEPS = [
 
 export const ONBOARDING_INITIALIZATION_LABEL: Record<OnboardingInitializationStep, string> = {
   "creating-bots": "Creating your bots",
-  "creating-room": "Creating your server",
+  "creating-room": "Creating your room",
   "inviting-bots": "Inviting your bots",
   "preparing-welcome": "Preparing your first conversation",
 }

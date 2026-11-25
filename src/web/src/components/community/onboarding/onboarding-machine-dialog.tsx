@@ -186,7 +186,7 @@ export function OnboardingMachineDialog({
         showCloseButton={Boolean(onExit)}
         className="max-h-[calc(var(--app-overlay-safe-height)-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 scrollbar-none sm:max-w-lg"
       >
-        <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
+        <DialogHeader className="min-w-0 gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
           <OnboardingProgress current={2} total={totalSteps} />
           <div className="flex flex-col gap-2">
             <DialogTitle className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight">
@@ -199,32 +199,37 @@ export function OnboardingMachineDialog({
                     <ProviderLogo provider={harness} className="size-5" />
                     {harnessLabel}
                   </span>
-                  <span>machine</span>
+                  <span>computer</span>
                 </>
               )}
             </DialogTitle>
             <DialogDescription className={unavailableMachine ? "flex items-center gap-2 text-sm leading-relaxed" : "max-w-[52ch] leading-relaxed"}>
               {unavailableMachine ? (
                 <>Computer is connected<Check aria-hidden className="size-4 shrink-0" /></>
-              ) : "Run one command. We’ll continue when it’s online."}
+              ) : "Run this once in Terminal. Setup continues automatically once your computer connects."}
             </DialogDescription>
           </div>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
+        <div className="flex min-w-0 flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
+          {!unavailableMachine && !machineLimitReached ? (
+            <p className="rounded-lg bg-muted/40 px-3.5 py-2.5 text-sm leading-relaxed text-muted-foreground sm:hidden">
+              On your phone? Open <span className="font-medium text-foreground">alook.ai</span> on your computer to run this command in Terminal.
+            </p>
+          ) : null}
           {unavailableMachine ? (
             <section data-testid={tid.onboardingRuntimeUnavailable} className="flex flex-col gap-4" role="status">
               <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-4">
-                <p className="text-sm font-medium text-foreground">Agent detection failed</p>
+                <p className="text-sm font-medium text-foreground">Couldn’t find {harnessLabel} on this computer</p>
                 {runtimeError ? (
                   <code className="font-mono text-sm leading-relaxed wrap-anywhere text-destructive">{runtimeError}</code>
                 ) : (
-                  <p className="text-sm leading-relaxed text-muted-foreground">The selected agent wasn’t detected as available.</p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">We couldn’t find this tool on your computer yet.</p>
                 )}
               </div>
               <div className="flex flex-col gap-2">
                 <p className="text-base leading-relaxed text-foreground">
-                  Install or fix {harnessLabel}, then restart the Alook daemon from a terminal where {harnessLabel} works.
+                  Make sure {harnessLabel} is installed and signed in, then run the connect command again from a terminal where {harnessLabel} works.
                 </p>
                 <p className="text-sm leading-relaxed text-muted-foreground">Setup continues automatically when it’s ready.</p>
               </div>
@@ -242,15 +247,15 @@ export function OnboardingMachineDialog({
               <div className="flex items-start gap-3">
                 <CircleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-warning" />
                 <div className="flex min-w-0 flex-col gap-1">
-                  <h3 className="text-sm font-medium text-foreground">Machine limit reached</h3>
+                  <h3 className="text-sm font-medium text-foreground">Computer limit reached</h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    Your plan can’t connect another machine. Choose a harness already available on an online machine, or manage your machines and restart setup.
+                    Your plan can’t connect another computer. Choose a tool on a computer that’s already connected, or manage your machines first.
                   </p>
                 </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <Button type="button" variant="outline" onClick={onChooseAnotherHarness}>
-                  Choose another harness
+                  Choose another tool
                 </Button>
                 <Button type="button" onClick={onManageMachines}>
                   Manage machines
@@ -280,7 +285,7 @@ export function OnboardingMachineDialog({
         </div>
 
         <DialogFooter className="m-0 rounded-b-xl border-0 bg-transparent px-4 py-4 sm:px-6">
-          {onAgentSetup ? <Button type="button" variant="ghost" className="text-foreground h-11 sm:h-9" onClick={onAgentSetup}>Agent Setup</Button> : null}
+          {onAgentSetup ? <Button type="button" variant="ghost" className="text-foreground h-11 sm:h-9" onClick={onAgentSetup}>Set up with agent</Button> : null}
           {unavailableMachine ? (
             <>
               <Button
@@ -290,7 +295,7 @@ export function OnboardingMachineDialog({
                 data-testid={tid.onboardingChooseHarness}
                 onClick={onChooseAnotherHarness}
               >
-                Choose another agent
+                Choose another tool
               </Button>
               {joinSupport.data ? (
                 <a
