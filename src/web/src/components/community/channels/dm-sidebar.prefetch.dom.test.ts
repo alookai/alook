@@ -101,6 +101,31 @@ describe("DmSidebar navigation intent", () => {
     expect(onShowPrivacy).toHaveBeenCalledOnce()
   })
 
+  it("places Calendar after Privacy without navigating on hover", () => {
+    const onShowCalendar = vi.fn()
+    const view = render(createElement(DmSidebar, {
+      dms: [],
+      activeDm: null,
+      onPickDm: vi.fn(),
+      onShowFriends: vi.fn(),
+      onShowMachines: vi.fn(),
+      onShowBots: vi.fn(),
+      onShowPrivacy: vi.fn(),
+      onShowCalendar,
+      calendarActive: true,
+    }))
+    const links = view.getAllByRole("link")
+    expect(links.map(link => link.textContent)).toEqual(["Friends", "Machines", "My Bots", "Privacy", "Calendar"])
+    const calendar = view.getByRole("link", { name: "Calendar" })
+    expect(calendar).toHaveAttribute("href", "/c/me/calendar")
+    expect(calendar).toHaveAttribute("aria-current", "page")
+    expect(view.getByRole("link", { name: "Friends" })).not.toHaveAttribute("aria-current")
+    fireEvent.pointerEnter(calendar)
+    expect(onShowCalendar).not.toHaveBeenCalled()
+    fireEvent.click(calendar)
+    expect(onShowCalendar).toHaveBeenCalledOnce()
+  })
+
   it("centers shortcut icons in a 32px leading slot matching DM avatars", () => {
     const view = render(createElement(DmSidebar, {
       dms: [{

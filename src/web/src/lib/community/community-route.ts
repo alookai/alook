@@ -8,6 +8,7 @@ type CommunityModuleRoute =
   | "me-machines"
   | "me-bots"
   | "me-privacy"
+  | "me-calendar"
   | "dm-detail"
   | "message-resolution"
   | "server-root"
@@ -22,6 +23,7 @@ type CommunityModuleMain =
   | { kind: "machines" }
   | { kind: "bots" }
   | { kind: "privacy" }
+  | { kind: "calendar" }
   | { kind: "dm"; dmId: string }
   | { kind: "server-landing"; serverId: string }
   | { kind: "server-conversation"; serverId: string; leafId: string }
@@ -74,7 +76,7 @@ export type CommunityCheckpointPlan = {
     | { kind: "keep" }
     | { kind: "server-skeleton"; serverId: string }
     | { kind: "me-skeleton" }
-  main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "module-route"; href: string; module: "friends" | "bots" | "privacy" | "machines" | "me-root" | "server-landing" | "route-resolution" } | { kind: "dm-route"; href: string; dmId: string } | {
+  main: { kind: "keep" } | { kind: "server-route"; href: string } | { kind: "module-route"; href: string; module: "friends" | "bots" | "privacy" | "calendar" | "machines" | "me-root" | "server-landing" | "route-resolution" } | { kind: "dm-route"; href: string; dmId: string } | {
     kind: "target-skeleton"
     href: string
   }
@@ -179,6 +181,9 @@ export function resolveCommunityModulePlan(href: string): CommunityModulePlan {
     }
     if (leaf === "privacy") {
       return { route: "me-privacy", surface: "detail", rail: "community", sidebar: { kind: "me" }, main: { kind: "privacy" } }
+    }
+    if (leaf === "calendar") {
+      return { route: "me-calendar", surface: "detail", rail: "community", sidebar: { kind: "me" }, main: { kind: "calendar" } }
     }
     if (leaf === "bots") {
       return {

@@ -9,6 +9,7 @@ import { ServerConversationRoute } from "../channels/server-conversation-route"
 
 import FriendsRoute from "../social/friends-route"
 import PrivacyRoute from "../bots/me-privacy-route"
+import CalendarRoute from "../calendar/me-calendar-route"
 import BotsRoute from "../bots/me-bots-route"
 import MachinesRoute from "../machines/me-machines-route"
 import CommunityRootRoute from "./community-root-route"
@@ -29,6 +30,7 @@ export function CommunityModuleRoute({ href, routeCommitted }: { href: string; r
       channelId={plan.main.leafId} href={target.href} routeCommitted={routeCommitted} />
   ) : plan.main.kind === "friends" ? <FriendsRoute />
     : plan.main.kind === "privacy" ? <PrivacyRoute />
+    : plan.main.kind === "calendar" ? <CalendarRoute />
     : plan.main.kind === "bots" ? <BotsRoute />
       : plan.main.kind === "machines" ? <MachinesRoute />
         : plan.main.kind === "me-root" ? <MeRootRoute />

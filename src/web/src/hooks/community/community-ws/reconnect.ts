@@ -292,6 +292,12 @@ function policyExecutors(
         refetchType: "active",
       })
     },
+    "calendar": async () => {
+      await queryClient.invalidateQueries({
+        queryKey: communityKeys.calendar(),
+        refetchType: "active",
+      })
+    },
   }
 }
 
