@@ -215,7 +215,7 @@ export function CalendarWeekView({
         <ScrollArea
           viewportRef={scrollViewportRef}
           className="min-h-0 flex-1"
-          viewportClassName="h-[min(36rem,calc(100vh-17rem))] min-h-96"
+          viewportClassName="h-[calc(100vh-17rem)] min-h-96"
         >
           <div
             className="relative grid grid-cols-[3.75rem_repeat(7,minmax(0,1fr))]"
@@ -274,7 +274,8 @@ export function CalendarWeekView({
                     const degraded = !event.sourceMessage.accessible || runStatus === "blocked_access"
                     const widthPct = 100 / block.columnCount
                     const leftPct = block.column * widthPct
-                    const compact = block.heightPx < 48
+                    const singleLine = block.heightPx < 44
+                    const showCreator = block.heightPx >= 64
 
                     return (
                       <button
@@ -289,7 +290,8 @@ export function CalendarWeekView({
                           width: `calc(${widthPct}% - 4px)`,
                         }}
                         className={cn(
-                          "group absolute z-10 flex flex-col overflow-hidden rounded-md border border-border/80 border-l-2 bg-background/95 px-2 py-1 text-left shadow-(--e1) transition-colors duration-150 hover:z-30 hover:bg-accent focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                          "group absolute z-10 flex overflow-hidden rounded-md border border-border/80 border-l-2 bg-background/95 text-left shadow-(--e1) transition-colors duration-150 hover:z-30 hover:bg-accent focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
+                          singleLine ? "flex-row items-center gap-1 px-1.5 py-0.5" : "flex-col px-2 py-1",
                           degraded
                             ? "border-l-warning bg-warning/10 hover:bg-warning/15"
                             : event.paused
@@ -298,26 +300,45 @@ export function CalendarWeekView({
                           selectedOccurrenceKey === item.occurrenceKey && "ring-2 ring-ring",
                         )}
                       >
-                        <div className="flex items-center gap-1 text-[11px] leading-tight">
-                          <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
-                            {formatTimeShort(item.startAt)}
-                          </span>
-                          {event.recurrence.recurring ? (
-                            <RefreshCw className="size-2.5 shrink-0 text-muted-foreground" aria-hidden />
-                          ) : null}
-                          {degraded ? (
-                            <TriangleAlertIcon className="ml-auto size-3 shrink-0 text-warning" aria-label="Attention needed" />
-                          ) : null}
-                        </div>
-                        <div className={cn("truncate text-xs font-medium text-foreground", compact && "leading-tight")}>
-                          {event.title}
-                        </div>
-                        {!compact ? (
-                          <div className="mt-auto flex items-center gap-1.5 pt-0.5 text-[11px] text-muted-foreground">
-                            <CalendarActorAvatar actor={event.creator} size={14} />
-                            <span className="truncate">{event.creator.name}</span>
-                          </div>
-                        ) : null}
+                        {singleLine ? (
+                          <>
+                            <span className="shrink-0 font-mono text-[11px] leading-none tabular-nums text-muted-foreground">
+                              {formatTimeShort(item.startAt)}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-xs leading-none font-medium text-foreground">
+                              {event.title}
+                            </span>
+                            {event.recurrence.recurring ? (
+                              <RefreshCw className="size-2.5 shrink-0 text-muted-foreground" aria-hidden />
+                            ) : null}
+                            {degraded ? (
+                              <TriangleAlertIcon className="size-3 shrink-0 text-warning" aria-label="Attention needed" />
+                            ) : null}
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1 text-[11px] leading-tight">
+                              <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                                {formatTimeShort(item.startAt)}
+                              </span>
+                              {event.recurrence.recurring ? (
+                                <RefreshCw className="size-2.5 shrink-0 text-muted-foreground" aria-hidden />
+                              ) : null}
+                              {degraded ? (
+                                <TriangleAlertIcon className="ml-auto size-3 shrink-0 text-warning" aria-label="Attention needed" />
+                              ) : null}
+                            </div>
+                            <div className="truncate text-xs leading-tight font-medium text-foreground">
+                              {event.title}
+                            </div>
+                            {showCreator ? (
+                              <div className="mt-auto flex items-center gap-1.5 pt-0.5 text-[11px] text-muted-foreground">
+                                <CalendarActorAvatar actor={event.creator} size={14} />
+                                <span className="truncate">{event.creator.name}</span>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
                       </button>
                     )
                   })}

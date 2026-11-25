@@ -572,6 +572,7 @@ export function CalendarDetailSheet({
                   {editing ? (
                     <>
                       <Button
+                        key="calendar-edit-cancel"
                         type="button"
                         variant="outline"
                         className="h-11 sm:h-9"
@@ -581,6 +582,7 @@ export function CalendarDetailSheet({
                         Cancel
                       </Button>
                       <Button
+                        key="calendar-edit-submit"
                         type="submit"
                         form="calendar-event-edit-form"
                         className="h-11 sm:h-9"
@@ -593,6 +595,7 @@ export function CalendarDetailSheet({
                     <>
                       {onDeleteEvent ? (
                         <Button
+                          key="calendar-view-delete"
                           type="button"
                           variant="ghost"
                           className="h-11 gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive sm:mr-auto sm:h-9"
@@ -605,6 +608,7 @@ export function CalendarDetailSheet({
                       ) : null}
                       {onSaveEvent ? (
                         <Button
+                          key="calendar-view-edit"
                           type="button"
                           variant="outline"
                           className="h-11 gap-2 sm:h-9"

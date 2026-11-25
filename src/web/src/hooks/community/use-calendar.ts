@@ -84,6 +84,8 @@ export function useCalendarClockMinute(): Date {
   return now
 }
 
+const INITIAL_WEEK_SCROLL_TOP_OFFSET_PX = 14
+
 export function useInitialWeekScroll(
   viewportRef: RefObject<HTMLDivElement | null>,
   hourHeightPx: number,
@@ -95,6 +97,6 @@ export function useInitialWeekScroll(
     const viewport = viewportRef.current
     if (!viewport) return
     doneRef.current = true
-    viewport.scrollTop = initialHour * hourHeightPx
+    viewport.scrollTop = Math.max(0, initialHour * hourHeightPx - INITIAL_WEEK_SCROLL_TOP_OFFSET_PX)
   }, [hourHeightPx, initialHour, viewportRef])
 }
