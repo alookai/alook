@@ -114,7 +114,7 @@ describe("child channel metadata stale rendering", () => {
 
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/post-1/messages?entry=1&window=tail",
+      "/api/community/channels/post-1/messages?entry=1&window=tail&includeRefs=1",
       expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
     expect(queryClient.getQueryData(

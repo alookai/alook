@@ -165,7 +165,7 @@ describe("returned entry and selected message window", () => {
       const search = new URL(url, "https://example.test").searchParams
       if (search.has("entry")) return response.promise
       if (search.has("since")) return Promise.resolve({ ...fresh.page, profiles: fresh.profiles, messages: fresh.messages.slice(1) })
-      if (search.size === 0) return Promise.resolve({ ...fresh.page, profiles: fresh.profiles, messages: fresh.messages })
+      if (!search.has("cursor") && !search.has("anchor")) return Promise.resolve({ ...fresh.page, profiles: fresh.profiles, messages: fresh.messages })
       throw new Error(`Unexpected message window ${url}`)
     })
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
@@ -190,7 +190,7 @@ describe("returned entry and selected message window", () => {
       await waitFor(() => expect(returned.result.current.messages.map(message => message.id)).toEqual(expectedIds))
       expect(returned.result.current.latestSeq).toBe(13)
       expect(returned.result.current.data?.pageParams[0]).toEqual(oldParam)
-      expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")).toHaveLength(0)
+      expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages?includeRefs=1")).toHaveLength(0)
       const capturedSnapshot = returned.result.current.readSnapshot
       await act(async () => ingestReadStateSnapshot(registry, { revision: 2, readStates: [{
         channelId: "c1", lastReadMessageId: "m13", lastReadAt: fresh.messages.at(-1)!.createdAt, lastReadSeq: 13,
@@ -230,7 +230,7 @@ describe("returned entry and selected message window", () => {
       const search = new URL(url, "https://example.test").searchParams
       if (search.has("entry")) return entry.promise
       if (search.has("since")) return Promise.resolve({ ...fresh.page, profiles: fresh.profiles, messages: fresh.messages.slice(1) })
-      if (search.size === 0) return oldWindow.promise
+      if (!search.has("cursor") && !search.has("anchor")) return oldWindow.promise
       throw new Error(`Unexpected message window ${url}`)
     })
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000)
@@ -245,7 +245,7 @@ describe("returned entry and selected message window", () => {
         olderRepair = reconcileFocusedMessageQueries(client, "channel", "c1", "s1")
         await Promise.resolve()
       })
-      await waitFor(() => expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")).toHaveLength(1))
+      await waitFor(() => expect(load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages?includeRefs=1")).toHaveLength(1))
       await act(async () => entry.resolve(fresh))
       await waitFor(() => expect(returned.result.current.isFetching).toBe(false))
       const latestKey = communityKeys.channelMessagesWindow("c1", { mode: "newest" })

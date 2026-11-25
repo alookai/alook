@@ -40,8 +40,12 @@ async function decodedResponse(response: PlaywrightResponse) {
     requestedCommunityContract(new Headers(request.headers())) ?? COMMUNITY_CONTRACT_VERSION)
 }
 
+function isNewestMessagesUrl(url: URL) {
+  return !url.searchParams.has("entry") && !url.searchParams.has("cursor") && !url.searchParams.has("since") && !url.searchParams.has("anchor")
+}
+
 async function expectRepairedMessage(responses: PlaywrightResponse[], channelId: string, content: string) {
-  expect(responses.some((response) => new URL(response.url()).search === "")).toBe(true)
+  expect(responses.some((response) => isNewestMessagesUrl(new URL(response.url())))).toBe(true)
   const pages = await Promise.all(responses.map(async (response) => ({
     url: new URL(response.url()), page: await decodedResponse(response) as MessagesPage,
   })))

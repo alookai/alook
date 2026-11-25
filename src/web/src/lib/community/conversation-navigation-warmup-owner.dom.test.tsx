@@ -49,7 +49,7 @@ describe("entry handoff to mounted consumers", () => {
       messages: useMessages("c1", { serverId: "s1", anchorMessageId: "m1" }) }), { wrapper })
     await waitFor(() => expect(hook.result.current.messages.initialPositionKnown).toBe(true))
     expect(load).toHaveBeenCalledOnce()
-    expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&anchor=m1")
+    expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&anchor=m1&includeRefs=1")
     hook.unmount()
   })
 

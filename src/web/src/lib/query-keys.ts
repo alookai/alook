@@ -29,6 +29,7 @@ export const communityKeys = {
   channelRefTargets: () => [...communityKeys.servers(), "channel-ref-target"] as const,
   channelRefTarget: (ref: string, qualification: { accountEpoch: number; accessEpoch: number; lifetime: number; scopes: readonly (readonly [string, number, boolean])[] }) =>
     [...communityKeys.channelRefTargets(), ref, qualification] as const,
+  channelRefPointers: () => [...communityKeys.all, "channel-ref-pointers"] as const,
   server: (serverId: string) =>
     [...communityKeys.servers(), serverId] as const,
   forumSidebarThreads: (serverId: string) =>

@@ -176,7 +176,7 @@ async function setup(kind: Kind, ownTail = false, strict = false, options: {
     const pageResponse = options.pageTransport?.(url)
     if (pageResponse !== undefined) return pageResponse
     if (url.startsWith("/api/community/channels/c1/messages?") && new URL(url, "https://test.invalid").searchParams.has("entry") && options.refresh) return options.refresh
-    if (url === "/api/community/channels/c1/messages" && options.refreshWindow) return options.refreshWindow.then(value => ({
+    if (url === "/api/community/channels/c1/messages?includeRefs=1" && options.refreshWindow) return options.refreshWindow.then(value => ({
       ...value.page, profiles: value.profiles, messages: value.messages,
     }))
     if (url.startsWith("/api/community/channels/c1/messages?since=") && options.refresh) return options.refresh.then(value => ({
@@ -281,7 +281,7 @@ function boundObserver(row: Element) {
   return observer!
 }
 const messageOrReadRequests = () => load.mock.calls.filter(([url]) => String(url).includes("/messages") || String(url).endsWith("/read"))
-const latestRequests = () => load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages")
+const latestRequests = () => load.mock.calls.filter(([url]) => url === "/api/community/channels/c1/messages?includeRefs=1")
 function deferredEntry() {
   let resolve!: (value: ReturnType<typeof entry>) => void
   const promise = new Promise<ReturnType<typeof entry>>(done => { resolve = done })
@@ -857,7 +857,7 @@ describe("conversation entry positioning through real reading owners", () => {
     const originalLoad = load.getMockImplementation()!
     load.mockClear()
     load.mockImplementation((url: string, ...args: unknown[]) => {
-      if (url.startsWith("/api/community/channels/c1/messages?")) {
+      if (url.startsWith("/api/community/channels/c1/messages?&includeRefs=1")) {
         const query = new URL(url, "https://test.invalid").searchParams
         if (query.has("entry")) return landing.promise
         if (query.get("since") === cursor) return Promise.resolve(retained)

@@ -40,7 +40,7 @@ describe("channelMessagesQueryFn — url per mode", () => {
     apiFetchMock.mockResolvedValueOnce(messageReadPageFixture({ messages: [], hasMore: false, latestSeq: 0 }))
     const { client } = await createCommunityQueryOwner()
     await channelMessagesQueryFn("ch_1")({ client, signal: new AbortController().signal, pageParam: { mode: "newest" } })
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/ch_1/messages", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/ch_1/messages?includeRefs=1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
   })
 
   it("older → ?cursor=<c>", async () => {
@@ -53,7 +53,7 @@ describe("channelMessagesQueryFn — url per mode", () => {
       pageParam: { mode: "older", cursor: "2026-07-03T00:00:00.000Z|abc" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/ch_1/messages?cursor=2026-07-03T00%3A00%3A00.000Z%7Cabc",
+      "/api/community/channels/ch_1/messages?cursor=2026-07-03T00%3A00%3A00.000Z%7Cabc&includeRefs=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
@@ -68,7 +68,7 @@ describe("channelMessagesQueryFn — url per mode", () => {
       pageParam: { mode: "newer", cursor: "cur_new" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/ch_1/messages?since=cur_new",
+      "/api/community/channels/ch_1/messages?since=cur_new&includeRefs=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
@@ -83,7 +83,7 @@ describe("channelMessagesQueryFn — url per mode", () => {
       pageParam: { mode: "anchor", anchor: "m_42" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/ch_1/messages?anchor=m_42",
+      "/api/community/channels/ch_1/messages?anchor=m_42&includeRefs=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
@@ -98,7 +98,7 @@ describe("channelMessagesQueryFn — url per mode", () => {
       pageParam: { mode: "since", since: "cur_since" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/ch_1/messages?since=cur_since",
+      "/api/community/channels/ch_1/messages?since=cur_since&includeRefs=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
@@ -162,7 +162,7 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
     controller.abort()
     expect(apiFetchMock.mock.calls.at(-1)?.[1].signal.aborted).toBe(true)
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/ch_abort/messages",
+      "/api/community/channels/ch_abort/messages?includeRefs=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
@@ -223,7 +223,7 @@ describe("shared DM message window transport", () => {
     controller.abort()
     expect(apiFetchMock.mock.calls.at(-1)?.[1].signal.aborted).toBe(true)
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/dm_abort/messages",
+      "/api/community/channels/dm_abort/messages?includeRefs=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
@@ -233,7 +233,7 @@ describe("shared DM message window transport", () => {
     apiFetchMock.mockResolvedValueOnce(messageReadPageFixture({ messages: [], hasMore: false, latestSeq: 0 }))
     const { client } = await createCommunityQueryOwner()
     await channelMessagesQueryFn("dm_1")({ client, signal: new AbortController().signal, pageParam: { mode: "newest" } })
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/dm_1/messages", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/dm_1/messages?includeRefs=1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
   })
 
   it("older cursor → ?cursor", async () => {
@@ -246,7 +246,7 @@ describe("shared DM message window transport", () => {
       pageParam: { mode: "older", cursor: "cur_1" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/community/channels/dm_1/messages?cursor=cur_1",
+      "/api/community/channels/dm_1/messages?cursor=cur_1&includeRefs=1",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })

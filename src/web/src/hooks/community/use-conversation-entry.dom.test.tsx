@@ -637,7 +637,7 @@ describe("conversation entry selection", () => {
     await waitFor(() => expect(hook.result.current.window).not.toBeNull())
     expect(hook.result.current.snapshot?.lastReadMessageId).toBe("m1")
     expect(hook.result.current.canRead).toBe(true)
-    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail"])
+    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail&includeRefs=1"])
     hook.unmount()
   })
 
@@ -1059,7 +1059,7 @@ describe("conversation entry return during accepted reading", () => {
       expect(view.latest.feed.initialPositionMessageId).toBeNull()
       expect(view.latest.controller.readPositionReady).toBe(false)
       expect(view.latest.controller.paginationEnabled).toBe(false)
-      expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=30")).toBe(true)
+      expect(load.mock.calls.some(([url]) => url === "/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=30&includeRefs=1")).toBe(true)
       const fresh = fixture()
       fresh.messages = Array.from({ length: 23 }, (_, index) => ({ ...fresh.messages[0], id: `m${index + 20}`, seq: index + 20,
         createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 20)).toISOString(),
@@ -1118,7 +1118,7 @@ describe("conversation entry return during accepted reading", () => {
       newBoundary: { afterSeq: 30, target: { id: "m31", channelId: "c1", seq: 31, authorId: "peer" } } }
     const entryRead = deferred<ReturnType<typeof fixture>>()
     const originalLoad = load.getMockImplementation()!
-    const expectedRequest = "/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=30"
+    const expectedRequest = "/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=30&includeRefs=1"
     load.mockImplementation((url: string, options: unknown) => {
       if (!url.includes("/messages?entry=1")) return originalLoad(url, options)
       if (url !== expectedRequest) throw new Error(`Unexpected entry coverage request ${url}`)
@@ -1173,7 +1173,7 @@ describe("conversation entry return during accepted reading", () => {
       page: { ...alternate.page, latestSeq: seq } }
     const entryRead = deferred<ReturnType<typeof fixture>>()
     const originalLoad = load.getMockImplementation()!
-    const expectedRequest = `/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=${seq}`
+    const expectedRequest = `/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=${seq}&includeRefs=1`
     load.mockImplementation((url: string, options: unknown) => {
       if (!url.includes("/messages?entry=1")) return originalLoad(url, options)
       if (url !== expectedRequest) throw new Error(`Unexpected canonical entry request ${url}`)
@@ -1256,7 +1256,7 @@ describe("conversation entry return during accepted reading", () => {
       response.newBoundary = { afterSeq: 30, target: { id: "m31", channelId: "c1", seq: 31, authorId: "peer" } }
       response.page = { ...response.page, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 100 }
       expect(view.latest.feed.initialPositionKnown).toBe(false)
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=30"])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=30&includeRefs=1"])
       await act(async () => {
         if (boundary !== "covering response") ingestReadStateSnapshot(owner.registry, { revision: 5, readStates: [higher] })
         pending.resolve(response)
@@ -1437,7 +1437,7 @@ describe("native entry freshness with authoritative newer attention", () => {
       expect(load).not.toHaveBeenCalled()
     } else {
       await waitFor(() => expect(load).toHaveBeenCalledOnce())
-      expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=1")
+      expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?entry=1&window=tail&newAfterSeq=1&includeRefs=1")
       expect(hook.result.current.window).toBe(selected)
       const fresh = { ...packet, channel: { ...packet.channel, messageCount: 2 }, messages: [...packet.messages, { ...packet.messages[0], id: "m2", seq: 2, content: "New message" }], page: { ...packet.page, latestSeq: 2 },
         newBoundary: { afterSeq: 1, target: { id: "m2", channelId: "c1", seq: 2, authorId: "peer" } } }
@@ -1787,7 +1787,7 @@ describe("cache-first New boundary and jump", () => {
       expect((await missRequest.completed).status).toBe("success")
       await waitFor(() => expect(hook.result.current.messages.map(message => message.id)).toEqual(["m20"]))
       expect(load).toHaveBeenCalledOnce()
-      expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?anchor=m20")
+      expect(load.mock.calls[0][0]).toBe("/api/community/channels/c1/messages?anchor=m20&includeRefs=1")
 
       let backToNewest!: ReturnType<typeof hook.result.current.loadNewTarget>
       act(() => { backToNewest = hook.result.current.loadNewTarget("m50") })
