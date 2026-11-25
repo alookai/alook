@@ -20,6 +20,7 @@ export function writeCommunityChannelRead( channelId: string, channel: unknown,
 
 export type MessagePage = Pick<CommunityMessagesRead["page"], "latestSeq"> & Partial<{ [Field in Exclude<keyof CommunityMessagesRead["page"], "latestSeq">]: NonNullable<CommunityMessagesRead["page"][Field]> }> & {
   relatedMessages?: CommunityMessagesRead["relatedMessages"]
+  refs?: CommunityMessagesRead["refs"]
   messages: unknown[]
   profiles: CommunityMessagesRead["profiles"]
   cursor?: NonNullable<CommunityMessagesRead["page"]["olderCursor"]>
@@ -36,6 +37,7 @@ function messageReadPayload(channelId: string, page: MessagePage, contract: Comm
   return { contractVersion: contract, channelId,
     profiles: page.profiles,
     relatedMessages: page.relatedMessages,
+    ...(page.refs ? { refs: page.refs } : {}),
     messages: page.messages.map((message) => CommunityMessageResourceSchema.parse(message)),
     page: { olderCursor: page.olderCursor ?? page.cursor ?? null, newerCursor: page.newerCursor ?? null,
       hasMoreOlder: page.hasMoreOlder ?? page.hasMore ?? false, hasMoreNewer: page.hasMoreNewer ?? false,

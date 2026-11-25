@@ -1,4 +1,5 @@
 import { messageWindowIdentity, readPersistedMessageWindow, persistedMessageWindowComplete, boundPersistedMessageWindow, messageWindowMessageIds, messageWindowDependencies, type PersistedMessageWindow } from "@/lib/community/message-window-persistence"
+import { isChannelRefPointersKey, readChannelRefPointers, scrubChannelRefPointers } from "@/lib/community/channel-ref-pointers"
 import { isServerDirectoryWindowKey, readServerDirectoryWindow, serverDirectoryWindowComplete, type ServerDirectoryWindow } from "@/lib/community/server-directory-window"
 import { CommunitySelfProfileReadSchema } from "@alook/shared"
 import { forumSidebarWindowComplete, isForumSidebarWindowKey, readForumSidebarWindowResult } from "@/lib/community/forum-sidebar-window"
@@ -58,7 +59,7 @@ function isCommunityDbCollectionKey(queryKey: readonly unknown[]): boolean {
 }
 
 export function shouldPersistQueryKey(queryKey: readonly unknown[]): boolean {
-  return displayWindowIdentity(queryKey)?.domain === "community" || isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isPageListQueryKey(queryKey) || isDirectoryWindowKey(queryKey) || isBotDirectoryWindowKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey) || messageWindowIdentity(queryKey) !== undefined
+  return displayWindowIdentity(queryKey)?.domain === "community" || isCommunityDbCollectionKey(queryKey) || isCommunityListResourceKey(queryKey) || isPageListQueryKey(queryKey) || isDirectoryWindowKey(queryKey) || isBotDirectoryWindowKey(queryKey) || isForumSidebarWindowKey(queryKey) || isServerDirectoryWindowKey(queryKey) || isChannelRefPointersKey(queryKey) || messageWindowIdentity(queryKey) !== undefined
 }
 
 export function shouldPersistQuery(
@@ -71,11 +72,12 @@ export function shouldPersistQuery(
     || readBotDirectoryWindow(queryKey, data) !== undefined
     || readDisplayWindow(queryKey, data)?.domain === "community"
     || isServerDirectoryWindowKey(queryKey) && readServerDirectoryWindow(data)?.serverId === queryKey[2]
+    || isChannelRefPointersKey(queryKey) && readChannelRefPointers(data) !== undefined
     || isForumSidebarWindowKey(queryKey) && readForumSidebarWindowResult(data)?.window.serverId === queryKey[2]
 }
 
 export function shouldDehydrateCommunityQuery(query: { queryKey: readonly unknown[]; state: { status: string; data: unknown } }) {
-  return (query.state.status === "success" || displayWindowIdentity(query.queryKey)?.domain === "community" || isForumSidebarWindowKey(query.queryKey) || isPageListQueryKey(query.queryKey) || isDirectoryWindowKey(query.queryKey) || isBotDirectoryWindowKey(query.queryKey) || messageWindowIdentity(query.queryKey) !== undefined)
+  return (query.state.status === "success" || displayWindowIdentity(query.queryKey)?.domain === "community" || isForumSidebarWindowKey(query.queryKey) || isPageListQueryKey(query.queryKey) || isDirectoryWindowKey(query.queryKey) || isBotDirectoryWindowKey(query.queryKey) || isChannelRefPointersKey(query.queryKey) || messageWindowIdentity(query.queryKey) !== undefined)
     && shouldPersistQuery(query.queryKey, query.state.data)
 }
 
@@ -398,6 +400,14 @@ function scrubDehydratedClient(
       || [...data.window.base, ...(data.window.retained?.disposition === "eligible" ? [data.window.retained.reference] : [])].some(row => retired.has(row.id) || retired.has(row.parentChannelId))
       || !forumSidebarWindowComplete(data.window, { directory: qualifiedDirectories.get(data.window.serverId), servers: rows("servers"), channels: retainedChannels, channelMemberships: retainedChannelMemberships, messages: retainedMessages }, userId, data.window.serverId, null, Date.now() + data.serverClockOffsetMs)) continue
     queries.push({ ...q, state: { ...q.state, data, status: "success", error: null, errorUpdatedAt: 0,
+      errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
+  }
+  for (const q of client.clientState.queries) {
+    if (!userId || !isChannelRefPointersKey(q.queryKey)) continue
+    const pointers = readChannelRefPointers(q.state.data)
+    const scrubbed = pointers && scrubChannelRefPointers(pointers, { servers: rows("servers"), channels: retainedChannels }, userId, retiredIds)
+    if (!scrubbed) continue
+    queries.push({ ...q, state: { ...q.state, data: scrubbed, status: "success", error: null, errorUpdatedAt: 0,
       errorUpdateCount: 0, isInvalidated: true, fetchFailureCount: 0, fetchFailureReason: null, fetchStatus: "idle", fetchMeta: null } })
   }
   return {

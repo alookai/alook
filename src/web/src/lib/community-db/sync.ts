@@ -14,7 +14,7 @@ import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/c
 import { notifyManager,type QueryClient } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"
-import { appendDecisionCardResponder, attachDecisionCardViewerDismissed, extractDecisionCardFromEmbeds, markDecisionCardViewerDismissed, mergeDecisionCardEmbeds, FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
+import { appendDecisionCardResponder, attachDecisionCardViewerDismissed, extractDecisionCardFromEmbeds, markDecisionCardViewerDismissed, mergeDecisionCardEmbeds, FORUM_ARCHIVE_TAG, CommunityChannelResourceSchema, CommunityMessageRefsSchema, CommunityServerResourceSchema, AttentionIncludedSchema, CommunityMessageResourceSchema, CommunityMessageResourcesSchema, communityMessageProfileIds, CommunityResourceProfileSchema, CommunityMemberRelationSchema, type CommunityChannelResource, type CommunityMessageRefs, type CommunityMemberRelation, type CommunityResourceProfile, type CommunityMessageResource, type CommunityServerResource, type AccountAttentionSnapshot, type CommunityWsEvent, type CommunityContract, type ServerRailProjection } from "@alook/shared"
 import type { CommunityDmsRead as DmsResponse } from "@alook/shared"
 import type { FoldersResponse, ServersResponse } from "@/lib/community/models/navigation"
 import type { queries } from "@alook/shared"
@@ -31,7 +31,8 @@ writeCommunityProfilePatches,
 isCommunityProfileRetired,
 } from "@/lib/community/profile-seed"
 import type { CommunityProfilePatch } from "@/lib/community/models/people"
-import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
+import { channelRefAccessQualification, type ChannelRefDirectory, type ChannelRefTarget } from "@/lib/community/channel-ref"
+import { pruneChannelRefPointers, pruneChannelRefPointersAgainstDb, upsertChannelRefPointers } from "@/lib/community/channel-ref-pointers"
 
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
@@ -527,6 +528,7 @@ export async function restoreCommunityCollections(registry: CommunityDbRegistry,
   })
   await Promise.all(completions)
   assertCommunitySnapshotTokenCurrent(client, token, undefined)
+  pruneChannelRefPointersAgainstDb(registry, { blockedServers, isRetiredChannel })
 }
 
 function patchRows<N extends CollectionName>(
@@ -1990,6 +1992,151 @@ export function publishAccountAttentionSnapshot(
   })
 }
 
+export type ChannelRefQueryResource =
+  | { status: "ready"; target: ChannelRefTarget; token: CommunityLiveSnapshotToken; access: string }
+  | { status: "forbidden" | "missing"; token: CommunityLiveSnapshotToken; access: string }
+
+function mergeChannelRefEntities(
+  registry: CommunityDbRegistry,
+  resources: { servers: readonly CommunityServerResource[]; channels: readonly CommunityChannelResource[] },
+) {
+  const mergedServers = resources.servers.map((raw) => {
+    const server = CommunityServerResourceSchema.parse(raw)
+    const existing = readCommunityCollectionRow(registry, "servers", server.id)
+    return existing ? { ...server, position: existing.position } : server
+  })
+  if (mergedServers.length > 0) upsertRows(registry, "servers", mergedServers)
+
+  const mergedChannels = resources.channels.map((raw) => {
+    const channel = CommunityChannelResourceSchema.parse(raw)
+    const existing = readCommunityCollectionRow(registry, "channels", channel.id)
+    if (!existing) return canonicalChannelRow({ ...channel, pending: false })
+    return canonicalChannelRow({
+      ...existing,
+      type: channel.type,
+      serverId: channel.serverId,
+      name: channel.name,
+      parentChannelId: channel.parentChannelId,
+      parentMessageId: channel.parentMessageId,
+      archived: channel.archived,
+    }, existing)
+  })
+  if (mergedChannels.length > 0) upsertRows(registry, "channels", mergedChannels)
+}
+
+function isRefTargetCurrentForProof(
+  registry: CommunityDbRegistry,
+  token: CommunityLiveSnapshotToken,
+  target: ChannelRefTarget,
+) {
+  const ws = registry.runtime.ws.get()
+  if (ws.profileAccountEpoch !== token.accountEpoch) return false
+  if (registry.runtime.ws.actions.isChannelAccessRevoked(target.channel.id, target.server.id, target.channel.parentChannelId ?? undefined)) return false
+  const channelGeneration = ws.channelAccessScopes.get(target.channel.id)?.generation ?? 0
+  if (channelGeneration !== (token.channelScopes.get(target.channel.id)?.generation ?? 0)) return false
+  if (target.channel.parentChannelId) {
+    const parentGeneration = ws.channelAccessScopes.get(target.channel.parentChannelId)?.generation ?? 0
+    if (parentGeneration !== (token.channelScopes.get(target.channel.parentChannelId)?.generation ?? 0)) return false
+  }
+  return true
+}
+
+function ingestMessageRefs(
+  registry: CommunityDbRegistry,
+  input: CommunityMessageRefs,
+  proof: CommunityFreshQueryProof,
+) {
+  const refs = CommunityMessageRefsSchema.parse(input)
+  if (refs.resolvedRefs.length === 0) return
+  const serverById = new Map(refs.servers.map((server) => [server.id, server]))
+  const channelById = new Map(refs.channels.map((channel) => [channel.id, channel]))
+  const eligibleServers = new Map<string, CommunityServerResource>()
+  const eligibleChannels = new Map<string, CommunityChannelResource>()
+  const pointerUpdates: Array<{ ref: string; serverId: string; channelId: string }> = []
+  const pointerRemovals: string[] = []
+  const seededResources: Array<{ ref: string; resource: ChannelRefQueryResource }> = []
+  const ws = registry.runtime.ws.get()
+
+  for (const resolved of refs.resolvedRefs) {
+    if (resolved.status !== "ready") {
+      pointerRemovals.push(resolved.ref)
+      if (ws.profileAccountEpoch === proof.token.accountEpoch && ws.accessEpoch === proof.token.accessEpoch) {
+        seededResources.push({
+          ref: resolved.ref,
+          resource: {
+            status: resolved.status,
+            token: proof.token,
+            access: channelRefAccessQualification(ws, undefined),
+          },
+        })
+      }
+      continue
+    }
+    const server = serverById.get(resolved.serverId)
+    const channel = channelById.get(resolved.channelId)
+    if (!server || !channel) continue
+    const target: ChannelRefTarget = {
+      server: { id: server.id, name: server.name },
+      channel: { id: channel.id, name: channel.name ?? "", parentChannelId: channel.parentChannelId },
+    }
+    if (!isRefTargetCurrentForProof(registry, proof.token, target)) continue
+    eligibleServers.set(server.id, server)
+    if (channel.parentChannelId) {
+      const parent = channelById.get(channel.parentChannelId)
+      if (parent) eligibleChannels.set(parent.id, parent)
+    }
+    eligibleChannels.set(channel.id, channel)
+    pointerUpdates.push({ ref: resolved.ref, serverId: server.id, channelId: channel.id })
+    seededResources.push({
+      ref: resolved.ref,
+      resource: {
+        status: "ready",
+        target,
+        token: proof.token,
+        access: channelRefAccessQualification(ws, target),
+      },
+    })
+  }
+
+  mergeChannelRefEntities(registry, {
+    servers: [...eligibleServers.values()],
+    channels: [...eligibleChannels.values()],
+  })
+  upsertChannelRefPointers(registry, pointerUpdates, pointerRemovals)
+  const qualification = {
+    accountEpoch: proof.token.accountEpoch,
+    accessEpoch: 0,
+    lifetime: proof.token.ownerGeneration,
+    scopes: [] as readonly (readonly [string, number, boolean])[],
+  }
+  for (const { ref, resource } of seededResources) {
+    registry.queryClient.setQueryData(communityKeys.channelRefTarget(ref, qualification), resource)
+  }
+}
+
+export function publishCommunityChannelRefResolution(
+  queryClient: QueryClient,
+  normalizedRef: string,
+  target: ChannelRefTarget,
+  resources: { servers: readonly CommunityServerResource[]; channels: readonly CommunityChannelResource[] } | undefined,
+  proof: CommunityFreshQueryProof,
+) {
+  return withCommunityQueryProof(queryClient, proof, (registry) => {
+    if (!isRefTargetCurrentForProof(registry, proof.token, target)) return "stale" as const
+    notifyManager.batch(() => {
+      if (resources) mergeChannelRefEntities(registry, resources)
+      const hasServer = (resources?.servers.some((row) => row.id === target.server.id) ?? false)
+        || readCommunityCollectionRow(registry, "servers", target.server.id) !== undefined
+      const hasChannel = (resources?.channels.some((row) => row.id === target.channel.id) ?? false)
+        || readCommunityCollectionRow(registry, "channels", target.channel.id) !== undefined
+      if (hasServer && hasChannel) {
+        upsertChannelRefPointers(registry, [{ ref: normalizedRef, serverId: target.server.id, channelId: target.channel.id }])
+      }
+    })
+    return "published" as const
+  })
+}
+
 export function publishCommunityMessages(
   queryClient: QueryClient,
   publication: {
@@ -1997,6 +2144,7 @@ export function publishCommunityMessages(
     messages: MessageInput[]
     relatedMessages?: readonly CommunityMessageResource[]
     profiles: readonly CommunityResourceProfile[]
+    refs?: CommunityMessageRefs
     proof: CommunityFreshQueryProof
   },
 ) {
@@ -2006,6 +2154,7 @@ export function publishCommunityMessages(
     notifyManager.batch(() => {
       ingestResourceProfiles(registry, graph.profiles, publication.proof)
       ingestMessageResources(registry, graph.messages, graph.profiles)
+      if (publication.refs) ingestMessageRefs(registry, publication.refs, publication.proof)
       void afterCommunityCollectionWrites(registry, () => {
         if (!getCanonicalCommunityMessageResources(queryClient, graph.messages)) throw new Error("Message profile publication incomplete")
       })
@@ -2534,6 +2683,7 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
   const removedChannelIds = collectChannelScopeIds(registry.queryClient, serverId)
   for (const id of removedChannelIds) registry.runtime.ws.actions.revokeChannelAccess(serverId, id)
   clearChannelTransientState(registry, removedChannelIds, serverId)
+  pruneChannelRefPointers(registry, { serverId, channelIds: removedChannelIds })
   pruneInboxCaches(registry.queryClient, removedChannelIds, serverId)
   clearLastChannel(serverId)
   registry.runtime.ws.actions.revokeServerAccess(serverId)
@@ -2631,6 +2781,7 @@ export function retireCommunityChannelReading(
   for (const id of removed) if (!registry.runtime.ws.actions.isChannelAccessRevoked(id, serverId)) revoke(id)
   void registry.retireReadingDisk(removed, options.reason === "resource-deleted")
     .catch((error: unknown) => console.error("Channel cache retirement failed", error))
+  pruneChannelRefPointers(registry, { channelIds: removed })
   if (options.clearTransient !== false) clearChannelTransientState(registry, removed, serverId, options.preserveQuery, options)
   withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => notifyManager.batch(() => {
     patchRows(registry, "channels", (row) => ({ ...row, preview: "" }),

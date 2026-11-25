@@ -130,7 +130,7 @@ export type MessagesPage = Partial<{ [Field in keyof CommunityMessagesRead["page
   cursor?: NonNullable<CommunityMessagesRead["page"]["olderCursor"]>
 }
 
-export type MessagesReadPage = MessagesPage & Pick<CommunityMessagesRead, "profiles" | "relatedMessages">
+export type MessagesReadPage = MessagesPage & Pick<CommunityMessagesRead, "profiles" | "relatedMessages" | "refs">
 
 export type MessagesWindowPage = Omit<MessagesPage, "messages"> & { messages: Array<Pick<CommunityMessageResource, "id"> & Partial<Pick<CommunityMessageResource, "seq">>>; newestCursor?: string }
 
@@ -141,7 +141,7 @@ export function messageWindowPage(page: MessagesPage | MessagesReadPage): Messag
     const cursor = `${message.createdAt}|${message.id}`
     if (newestCursor === undefined || cursor > newestCursor) newestCursor = cursor
   }
-  const { profiles: _profiles, relatedMessages: _relatedMessages, ...window } = page as MessagesReadPage
+  const { profiles: _profiles, relatedMessages: _relatedMessages, refs: _refs, ...window } = page as MessagesReadPage
   return { ...window, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newestCursor ? { newestCursor } : {}) }
 }
 

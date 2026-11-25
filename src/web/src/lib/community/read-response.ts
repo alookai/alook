@@ -59,7 +59,7 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
     const data = schemas.messages.parse(value)
     assertScope(data.channelId); assertScope(data.surfaceReceipt.channelId)
     for (const message of data.messages) assertScope(message.channelId)
-    return { profiles: data.profiles, ...(data.relatedMessages ? { relatedMessages: data.relatedMessages } : {}), messages: data.messages,
+    return { profiles: data.profiles, ...(data.relatedMessages ? { relatedMessages: data.relatedMessages } : {}), ...(data.refs ? { refs: data.refs } : {}), messages: data.messages,
       olderCursor: data.page.olderCursor ?? undefined, newerCursor: data.page.newerCursor ?? undefined,
       hasMoreOlder: data.page.hasMoreOlder, hasMoreNewer: data.page.hasMoreNewer, latestSeq: data.page.latestSeq,
       surfaceReceipt: data.surfaceReceipt }

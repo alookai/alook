@@ -144,7 +144,7 @@ describe("native navigation warming and DM consumer mounting", () => {
       const href = source === "route" ? "/c/channels/s1/c1?tag=explicit" : "/c/channels/s1/c1"
       await prepareNavigationMetadata(owner.client, href)
       await prepareNavigationMetadata(owner.client, href)
-      expect(load.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/c1/messages?entry=1&window=tail&tag=${source === "route" ? "explicit" : "saved"}`])
+      expect(load.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/c1/messages?entry=1&window=tail&tag=${source === "route" ? "explicit" : "saved"}&includeRefs=1`])
     } finally { localStorage.clear() }
   })
 

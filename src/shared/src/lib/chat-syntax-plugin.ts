@@ -5,20 +5,13 @@ import { codes } from "micromark-util-symbol"
 import type { Construct, Effects, Extension, State, TokenizeContext } from "micromark-util-types"
 import type { Plugin } from "unified"
 import { MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary, isMentionEndBoundary } from "../utils/community-mentions"
+import { CHANNEL_REF_RE, SERVER_REF_RE } from "./channel-ref-syntax"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 
 // Refs use canonical full paths; #N is a channel message and /#N#M is a thread message.
 // Tagged mentions require a discriminator of at least four digits. Only @everyone broadcasts.
 // @here and bare #N stay literal. Preserve sentence punctuation and do not match partial URLs.
 // Code and inlineCode stay literal.
-const REF_TERM = ".,;:!?)\\]}\"'\\u2014\\u2019\\u201D\\u2026\\u3001\\u3002\\u3009\\u300B\\u300D\\u300F\\u3011\\u3015\\u3017\\u3019\\u301B\\uFF01\\uFF02\\uFF07\\uFF09\\uFF0C\\uFF0E\\uFF1A\\uFF1B\\uFF1F\\uFF3D\\uFF5D"
-const REF_SEG = `[^\\s/#${REF_TERM}]+`
-const HANDLE_SEG = `${REF_SEG}#\\d{4,}`
-
-const CHANNEL_REF_RE = new RegExp(`(?<!/[^\\s${REF_TERM}]*)(?:/${HANDLE_SEG}/${REF_SEG}|/\\.dm/${HANDLE_SEG})(?:#\\d+|/#\\d+(?:#\\d+)?)?(?=\\s|$|[${REF_TERM}])`, "gu")
-
-const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${HANDLE_SEG}(?=\\s|$|[${REF_TERM}])`, "gu")
-
 const MENTION_RE = new RegExp(
   String.raw`(?<!/|${MENTION_IDENTIFIER_CHARACTERS})(?:@everyone(?!${MENTION_IDENTIFIER_CHARACTERS})|@[^@#\n\r]*[^@#\n\r\s]#\d{4,}(?!${MENTION_IDENTIFIER_CHARACTERS}))`,
   "gu",

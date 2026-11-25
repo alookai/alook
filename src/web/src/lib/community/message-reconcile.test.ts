@@ -208,7 +208,7 @@ describe("focused message reconnect catch-up", () => {
     const stop = observer.subscribe(() => undefined)
     await observer.fetchPreviousPage()
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
-    expect(apiFetchMock.mock.calls[2][0]).toBe("/api/community/channels/scroll-newer/messages?since=next-page")
+    expect(apiFetchMock.mock.calls[2][0]).toBe("/api/community/channels/scroll-newer/messages?since=next-page&includeRefs=1")
     expect(registry.collections.messages.get("m_4")?.content).toBe("from scroll")
     expect(client.getQueryData<{ pages: unknown[]; pageParams: unknown[] }>(key)?.pageParams).toEqual([
       { mode: "newer", cursor: "next-page" }, { mode: "newest" }, { mode: "older", cursor: "older-2" },
@@ -335,11 +335,11 @@ describe("focused message reconnect catch-up", () => {
 
     try {
       await reconcileFocusedMessageQueries(client, "channel", scopeId, undefined, "newest")
-      expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/${scopeId}/messages`])
+      expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([`/api/community/channels/${scopeId}/messages?includeRefs=1`])
       expect(client.getQueryData(historyKey)).toBe(originalHistory)
 
       await reconcileFocusedMessageQueries(client, "channel", scopeId)
-      expect(apiFetchMock.mock.calls.map(([url]) => url)).toContain(`/api/community/channels/${scopeId}/messages?anchor=m_2`)
+      expect(apiFetchMock.mock.calls.map(([url]) => url)).toContain(`/api/community/channels/${scopeId}/messages?anchor=m_2&includeRefs=1`)
     } finally {
       newest.unsubscribe()
       history.unsubscribe()
@@ -982,7 +982,7 @@ describe("focused message reconnect catch-up", () => {
 
       expect(apiFetchMock).toHaveBeenCalledOnce()
       expect(apiFetchMock).toHaveBeenCalledWith(
-        `/api/community/channels/${scopeId}/messages`, expect.objectContaining({ assertActive: expect.any(Function) }),
+        `/api/community/channels/${scopeId}/messages?includeRefs=1`, expect.objectContaining({ assertActive: expect.any(Function) }),
       )
       expect(queryFn).not.toHaveBeenCalled()
       const messages = queryClient.getQueryData<{
@@ -1013,8 +1013,8 @@ describe("focused message reconnect catch-up", () => {
     await Promise.all([repair, gap])
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
-      `/api/community/channels/${scopeId}/messages`,
-      `/api/community/channels/${scopeId}/messages`,
+      `/api/community/channels/${scopeId}/messages?includeRefs=1`,
+      `/api/community/channels/${scopeId}/messages?includeRefs=1`,
     ])
     expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages.map((message) => message.id)).toEqual(["m_1", "m_2"])
     expect(queryFn).not.toHaveBeenCalled()
@@ -1204,8 +1204,8 @@ describe("focused message reconnect catch-up", () => {
     await reconcileFocusedMessageQueries(queryClient, "channel", "ch_anchor")
 
     expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "/api/community/channels/ch_anchor/messages?anchor=m_10",
-      "/api/community/channels/ch_anchor/messages?since=2026-08-15T00%3A00%3A10.000Z%7Cm_10",
+      "/api/community/channels/ch_anchor/messages?anchor=m_10&includeRefs=1",
+      "/api/community/channels/ch_anchor/messages?since=2026-08-15T00%3A00%3A10.000Z%7Cm_10&includeRefs=1",
     ])
     expect(queryClient.getQueryData<{
       pages: Array<{ messages: Array<{ id: string }> }>
@@ -1259,8 +1259,8 @@ describe("focused message reconnect catch-up", () => {
 
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "/api/community/channels/ch_1/messages",
-      "/api/community/channels/ch_1/messages?since=2026-08-15T00%3A00%3A02.000Z%7Cm_2",
+      "/api/community/channels/ch_1/messages?includeRefs=1",
+      "/api/community/channels/ch_1/messages?since=2026-08-15T00%3A00%3A02.000Z%7Cm_2&includeRefs=1",
     ])
     expect(queryFn).not.toHaveBeenCalled()
     expect(queryClient.getQueryData<{
@@ -1324,7 +1324,7 @@ describe("focused message reconnect catch-up", () => {
 
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(apiFetchMock.mock.calls.at(-1)?.[0]).toBe(
-      "/api/community/channels/ch_bounded/messages?since=2026-08-15T00%3A00%3A02.000Z%7Cm_2",
+      "/api/community/channels/ch_bounded/messages?since=2026-08-15T00%3A00%3A02.000Z%7Cm_2&includeRefs=1",
     )
     expect(queryClient.getQueryData<{
       pages: Array<{
@@ -1361,7 +1361,7 @@ describe("focused message reconnect catch-up", () => {
 
     expect(apiFetchMock).toHaveBeenCalledOnce()
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/ch_1/messages", expect.objectContaining({ assertActive: expect.any(Function) }),
+      "/api/community/channels/ch_1/messages?includeRefs=1", expect.objectContaining({ assertActive: expect.any(Function) }),
     )
     expect(queryFn).not.toHaveBeenCalled()
     expect(queryClient.getQueryData<{
@@ -1441,7 +1441,7 @@ describe("focused message reconnect catch-up", () => {
 
     expect(apiFetchMock).toHaveBeenCalledOnce()
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/dm_1/messages", expect.objectContaining({ assertActive: expect.any(Function) }),
+      "/api/community/channels/dm_1/messages?includeRefs=1", expect.objectContaining({ assertActive: expect.any(Function) }),
     )
     expect(queryFn).not.toHaveBeenCalled()
     expect(queryClient.getQueryData<{
@@ -1469,7 +1469,7 @@ describe("focused message reconnect catch-up", () => {
     await reconcileFocusedMessageQueries(queryClient, "channel", "forum_1")
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/forum_1/messages?tag=bug", expect.objectContaining({ assertActive: expect.any(Function) }),
+      "/api/community/channels/forum_1/messages?tag=bug&includeRefs=1", expect.objectContaining({ assertActive: expect.any(Function) }),
     )
     unsubscribe()
   })

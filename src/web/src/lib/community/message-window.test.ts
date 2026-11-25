@@ -62,9 +62,9 @@ describe("native message window identity", () => {
     expect(messagePageNeighbors(data, messagePageForReading(data, "m3")!)).toEqual({ older: false, newer: false })
     expect(messagePageForReading(data, "reply-target-only")).toBeUndefined()
     expect(load.mock.calls.map(([url]) => url)).toEqual([
-      "/api/community/channels/c1/messages?tag=tag&anchor=m2",
-      "/api/community/channels/c1/messages?tag=tag&cursor=older",
-      "/api/community/channels/c1/messages?tag=tag&since=newer",
+      "/api/community/channels/c1/messages?tag=tag&anchor=m2&includeRefs=1",
+      "/api/community/channels/c1/messages?tag=tag&cursor=older&includeRefs=1",
+      "/api/community/channels/c1/messages?tag=tag&since=newer&includeRefs=1",
     ])
     expect(registry.collections.messages.get("m2")?.content).toBe("Body 2")
     expect(JSON.stringify(data)).not.toContain("Body")

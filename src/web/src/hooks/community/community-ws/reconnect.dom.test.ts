@@ -59,7 +59,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       runtime.ui.actions.setCurrentServerId("server-B")
       runtime.ui.actions.subscribe({ channelId: "channel-B" })
       await repairing
-      expect(getCommunityApiFetchMock()).toHaveBeenCalledExactlyOnceWith("/api/community/channels/channel-A/messages", expect.anything())
+      expect(getCommunityApiFetchMock()).toHaveBeenCalledExactlyOnceWith("/api/community/channels/channel-A/messages?includeRefs=1", expect.anything())
       expect(revoke).toHaveBeenCalledWith("server-A", "channel-A")
       expect(revoke).not.toHaveBeenCalledWith("server-B", "channel-A")
       expect(client.getQueryData(communityKeys.channelMessages("channel-A"))).toBeUndefined()

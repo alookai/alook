@@ -351,6 +351,58 @@ export async function resolveChannelByNameForMember(
   return rows;
 }
 
+export async function resolveTopLevelChannelsForRefBatch(
+  db: Database,
+  serverId: string,
+  userId: string,
+  names: readonly string[],
+) {
+  const uniqueNames = [...new Set(names)];
+  if (uniqueNames.length === 0) return [];
+  const rows = (
+    await Promise.all(
+      chunk(uniqueNames, D1_MAX_IN_PARAMS - 4).map((batch) =>
+        db
+          .select({
+            channel: CHANNEL_COLUMNS,
+            categoryPrivate: communityCategory.private,
+            accessMemberId: communityChannelMember.id,
+          })
+          .from(communityChannel)
+          .innerJoin(
+            communityServerMember,
+            and(
+              eq(communityServerMember.serverId, communityChannel.serverId),
+              eq(communityServerMember.userId, userId),
+            ),
+          )
+          .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+          .leftJoin(
+            communityChannelMember,
+            and(
+              eq(communityChannelMember.channelId, communityChannel.id),
+              eq(communityChannelMember.userId, userId),
+              eq(communityChannelMember.relation, "access"),
+            ),
+          )
+          .where(
+            and(
+              eq(communityChannel.serverId, serverId),
+              inArray(communityChannel.name, batch),
+              isNull(communityChannel.parentChannelId),
+            ),
+          ),
+      ),
+    )
+  ).flat();
+  return rows.map((row) => ({
+    channel: row.channel,
+    isPrivate: (row.categoryPrivate ?? 0) === 1,
+    isCreator: row.channel.creatorId === userId,
+    isChannelMember: row.accessMemberId !== null,
+  }));
+}
+
 /**
  * Top-level channels (no threads — `parentChannelId IS NULL`, mirroring
  * `listServerChannels`) a viewer can see via `listChannels`, scoped to server

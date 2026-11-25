@@ -1040,6 +1040,29 @@ export async function getMessageByChannelAndSeq(
   return rows[0] ?? null;
 }
 
+export async function listMessagesByChannelAndSeqs(
+  db: Database,
+  channelId: string,
+  seqs: readonly number[],
+): Promise<Array<{ id: string; channelId: string; seq: number }>> {
+  const uniqueSeqs = [...new Set(seqs.filter((seq) => Number.isInteger(seq) && seq > 0))];
+  if (uniqueSeqs.length === 0) return [];
+  return (
+    await Promise.all(
+      chunk(uniqueSeqs, D1_MAX_IN_PARAMS - 1).map((batch) =>
+        db
+          .select({
+            id: communityMessage.id,
+            channelId: communityMessage.channelId,
+            seq: communityMessage.seq,
+          })
+          .from(communityMessage)
+          .where(and(eq(communityMessage.channelId, channelId), inArray(communityMessage.seq, batch))),
+      ),
+    )
+  ).flat();
+}
+
 export async function getFirstPeerMessageAfterSeq(
   db: Database,
   target: { channelId: string; viewerId: string; afterSeq: number; throughSeq: number },

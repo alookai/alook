@@ -35,6 +35,7 @@ export function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag
       params.set("anchor", pageParam.anchor)
       break
   }
+  params.set("includeRefs", "1")
   const qs = params.toString()
   return qs ? `${base}?${qs}` : base
 }
@@ -77,6 +78,7 @@ export const channelMessagesQueryFn =
       messages: page.messages,
       relatedMessages: page.relatedMessages,
       profiles: page.profiles,
+      refs: page.refs,
       proof: { token: publicationToken, signal },
     })
     return messageWindowPage(page)

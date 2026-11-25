@@ -137,7 +137,7 @@ function publishConversationEntryResult(
     if (entry.peer) void publishCommunityChannelMembersSnapshot(client, null, channel.id, "access", [entry.viewerId, entry.peer.id].map((userId) => ({
       channelId: channel.id, userId, relation: "access", source: "added", isCreator: channel.creatorId === userId, role: null, memberId: null,
     })), proof, [entry.peer])
-    void publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles, proof })
+    void publishCommunityMessages(client, { channelId: channel.id, messages: entry.messages, relatedMessages: entry.relatedMessages?.filter(message => message.channelId === channel.id), profiles: entry.profiles, refs: entry.refs, proof })
     if (entry.opener) {
       void publishCommunityMessages(client, { channelId: entry.opener.channelId, messages: [entry.opener], relatedMessages: entry.relatedMessages?.filter(message => message.channelId === entry.opener!.channelId), profiles: entry.profiles, proof })
       void afterCommunityCollectionWrites(registry, () => { client.setQueryData(communityKeys.message(entry.opener!.id), entry.opener!.id) })
@@ -447,6 +447,7 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
       else if (target.preferTail !== false) search.set("window", "tail")
       if (target.newAfterSeq != null) search.set("newAfterSeq", String(target.newAfterSeq))
       if (target.tag) search.set("tag", target.tag)
+      search.set("includeRefs", "1")
       try {
         const entry = await withConversationReadDeadline(signal, (readSignal) => apiFetch<CommunityConversationEntryRead>(
           `/api/community/channels/${encodeURIComponent(target.channelId)}/messages?${search}`,

@@ -1,5 +1,10 @@
-import { DM_SERVER, formatRef, parseNameAndTag, parseRef } from "@alook/shared"
+import { DM_SERVER, formatRef, parseNameAndTag, parseRef, type CommunityChannelResource, type CommunityServerResource } from "@alook/shared"
 import type { CommunityWsStoreState } from "@/stores/community/ws-store"
+
+export type ChannelRefResources = {
+  servers: CommunityServerResource[]
+  channels: CommunityChannelResource[]
+}
 
 export type ChannelRefTarget = {
   server: { id: string; name: string }
@@ -131,10 +136,10 @@ export function resolveChannelRefBase(
  * on this shape since it requires `/<server>/<channel>`) against the
  * already-fetched directory. Only a name#discriminator handle resolves.
  */
-export function resolveServerRefBase(
-  directory: ChannelRefDirectory,
+export function resolveServerRefBase<T extends Pick<ChannelRefDirectoryServer, "id" | "name" | "discriminator">>(
+  directory: readonly T[],
   ref: string,
-): ChannelRefDirectoryServer | null {
+): T | null {
   if (!ref.startsWith("/")) return null
   const body = ref.slice(1)
   if (!body || body.includes("/")) return null
@@ -142,10 +147,10 @@ export function resolveServerRefBase(
   return resolveDirectoryServer(directory, body)
 }
 
-function resolveDirectoryServer(
-  directory: ChannelRefDirectory,
+function resolveDirectoryServer<T extends Pick<ChannelRefDirectoryServer, "id" | "name" | "discriminator">>(
+  directory: readonly T[],
   segment: string,
-): ChannelRefDirectoryServer | null {
+): T | null {
   const handle = parseNameAndTag(segment)
   if (!handle) return null
   return directory.find((server) =>
