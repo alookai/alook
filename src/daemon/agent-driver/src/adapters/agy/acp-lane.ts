@@ -265,7 +265,7 @@ export class AgyAcpLane implements RuntimeLane {
   stop(input: LaneStopInput = {}): Promise<void> {
     this.requestedStopReason ??= input.reason ?? "requested_stop";
     this.ready = false;
-    if (this.activityTimer) clearTimeout(this.activityTimer);
+    this.clearActivityTimer();
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
     this.toolCalls.clear();
@@ -273,8 +273,7 @@ export class AgyAcpLane implements RuntimeLane {
     this.promptOutcomes.clear();
     this.observedPrompts.clear();
     this.usage.reset();
-    const waiter = this.configWaiter;
-    if (waiter) { clearTimeout(waiter.timer); this.configWaiter = undefined; waiter.reject(new Error("Antigravity CLI lane stopped")); }
+    this.rejectConfigWaiter(new Error("Antigravity CLI lane stopped"));
     this.stopPromise ??= this.stopPhysicalOnce(input);
     return this.stopPromise;
   }
@@ -725,6 +724,8 @@ export class AgyAcpLane implements RuntimeLane {
       }
       this.processTerminal = true;
       this.ready = false;
+      this.clearActivityTimer();
+      this.rejectConfigWaiter(normalized);
       this.currentPromptRequestId = null;
       this.terminalOwner = null;
       this.toolCalls.clear();
@@ -742,10 +743,13 @@ export class AgyAcpLane implements RuntimeLane {
       if (this.processTerminal || this.process !== proc) return;
       this.processTerminal = true;
       this.ready = false;
+      this.clearActivityTimer();
+      const exitError = new Error("Agy ACP process exited");
+      this.rejectConfigWaiter(exitError);
       this.currentPromptRequestId = null;
       this.terminalOwner = null;
       this.toolCalls.clear();
-      this.rejectAllPending(new Error("Agy ACP process exited"));
+      this.rejectAllPending(exitError);
       if (this.suppressExit || !this.processActivated) return;
       this.events.emit("exit", {
         code,
@@ -1016,8 +1020,22 @@ export class AgyAcpLane implements RuntimeLane {
     return reading;
   }
 
+  private clearActivityTimer(): void {
+    if (!this.activityTimer) return;
+    clearTimeout(this.activityTimer);
+    this.activityTimer = undefined;
+  }
+
+  private rejectConfigWaiter(error: Error): void {
+    const waiter = this.configWaiter;
+    if (!waiter) return;
+    clearTimeout(waiter.timer);
+    this.configWaiter = undefined;
+    waiter.reject(error);
+  }
+
   private scheduleActivity(): void {
-    if (!this.ready || this.requestedStopReason || this.processTerminal) return;
+    if (!this.ready || this.requestedStopReason || this.processTerminal || this.activityTimer) return;
     this.activityTimer = setTimeout(() => {
       this.activityTimer = undefined;
       void this.refreshActivity().then(() => this.scheduleActivity());

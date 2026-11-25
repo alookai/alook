@@ -1,4 +1,4 @@
-import { NativeExecutionReader } from "../adapters/agy/execution.js";
+import { NativeExecutionReader, NativeSessionActivityReader } from "../adapters/agy/execution.js";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,6 +45,7 @@ import { createAgentDriverSdkWithRegistry } from "../sdk.js";
 beforeEach(() => {
   vi.spyOn(NativeExecutionReader.prototype, "checkpoint").mockResolvedValue({ index: -1, executionId: null, lastStepIndex: -1 });
   vi.spyOn(NativeExecutionReader.prototype, "terminal").mockResolvedValue("success");
+  vi.spyOn(NativeSessionActivityReader.prototype, "activity").mockResolvedValue("idle");
 });
 
 const isCodexBackend = (backend: string) => ["codex", "codex-app", "codex-cli"].includes(backend);
@@ -131,7 +132,11 @@ class HarnessRuntimeLane implements RuntimeLane {
 }
 
 const workingDirectories: string[] = [];
+const activeProcesses: HarnessProcess[] = [];
 afterEach(() => {
+  for (const proc of activeProcesses.splice(0)) {
+    if (proc.exitCode === null && proc.signalCode === null) proc.finish(0, null);
+  }
   vi.restoreAllMocks();
   for (const directory of workingDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
@@ -151,7 +156,9 @@ function fakeProcess(): HarnessProcess {
       proc.emit("exit", code, signal);
     },
   });
-  return proc as unknown as HarnessProcess;
+  const handle = proc as unknown as HarnessProcess;
+  activeProcesses.push(handle);
+  return handle;
 }
 
 function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
