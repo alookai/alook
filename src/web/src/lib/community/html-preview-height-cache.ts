@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { promisifyRequest } from "idb-keyval"
+import { channelFenceKey, isPersistedChannelFences } from "@/lib/persisted-account-identity"
 import { cacheTransaction } from "@/lib/query-cache-store"
 
 const CACHE_PREFIX = "alook:html-preview-height:"
@@ -164,6 +165,79 @@ export async function saveHtmlPreviewHeight(
     })
   } catch {
     return false
+  }
+}
+
+function parseAccountEntryKey(key: IDBValidKey, accountPrefix: string): { channelId: string | undefined; attachmentId: string } | undefined {
+  if (typeof key !== "string" || !key.startsWith(accountPrefix)) return undefined
+  const rest = key.slice(accountPrefix.length)
+  const sep = rest.indexOf(":")
+  if (sep === -1 || rest.indexOf(":", sep + 1) !== -1) return undefined
+  const encodedChannel = rest.slice(0, sep)
+  const encodedAttachmentId = rest.slice(sep + 1)
+  if (!encodedAttachmentId) return undefined
+  try {
+    const channelId = encodedChannel ? decodeURIComponent(encodedChannel) : undefined
+    const attachmentId = decodeURIComponent(encodedAttachmentId)
+    return attachmentId ? { channelId, attachmentId } : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function warmHtmlPreviewMemoryHeights(
+  queryClient: QueryClient,
+  accountId: string | null | undefined,
+  options?: { store?: IDBObjectStore; isCurrent?: () => boolean },
+): Promise<number> {
+  if (!accountId) return 0
+  const isCurrent = options?.isCurrent ?? (() => true)
+  if (!isCurrent()) return 0
+  const run = async (store: IDBObjectStore): Promise<number> => {
+    const rawFences = await promisifyRequest<unknown>(store.get(channelFenceKey(accountId)))
+    if (rawFences !== undefined && !isPersistedChannelFences(rawFences)) return 0
+    if (!isCurrent()) return 0
+    const fences = rawFences
+    const accountPrefix = `${PREFIX}${encodeURIComponent(accountId)}:`
+    const entries = await new Promise<Array<{ attachmentId: string; height: number; savedAt: number }>>((resolve, reject) => {
+      const result: Array<{ attachmentId: string; height: number; savedAt: number }> = []
+      let scanned = 0
+      const request = store.openCursor(IDBKeyRange.bound(accountPrefix, `${accountPrefix}\uffff`))
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (!cursor) { resolve(result); return }
+        scanned += 1
+        const parsed = parseAccountEntryKey(cursor.key, accountPrefix)
+        const record = parsed ? validStoredRecord(cursor.value) : undefined
+        if (parsed && record) {
+          const recordChannelValid = record.channelId === undefined || typeof record.channelId === "string"
+          const channelsConsistent = parsed.channelId === record.channelId
+          const effectiveChannel = parsed.channelId
+          const fenced = Boolean(effectiveChannel && fences?.has(effectiveChannel))
+          if (recordChannelValid && channelsConsistent && !fenced) {
+            result.push({
+              attachmentId: parsed.attachmentId,
+              height: clampHtmlPreviewHeight(record.height),
+              savedAt: record.savedAt,
+            })
+          }
+        }
+        if (scanned >= MAX_IDB_ENTRIES) { resolve(result); return }
+        cursor.continue()
+      }
+    })
+    if (!isCurrent()) return 0
+    entries.sort((a, b) => a.savedAt - b.savedAt)
+    for (const entry of entries) {
+      writeHtmlPreviewMemoryHeight(queryClient, entry.attachmentId, entry.height)
+    }
+    return entries.length
+  }
+  try {
+    return options?.store ? await run(options.store) : await cacheTransaction("readonly", run)
+  } catch {
+    return 0
   }
 }
 

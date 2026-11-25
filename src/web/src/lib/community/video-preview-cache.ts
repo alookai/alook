@@ -154,6 +154,69 @@ export async function saveVideoPreview(owner: VideoPreviewOwner, url: string, pr
   } catch { return false }
 }
 
+export async function warmVideoMemoryDimensions(
+  scope: object | null | undefined,
+  accountId: string | null | undefined,
+  options?: { store?: IDBObjectStore; isCurrent?: () => boolean },
+): Promise<number> {
+  if (!scope || !accountId) return 0
+  const isCurrent = options?.isCurrent ?? (() => true)
+  if (!isCurrent()) return 0
+  const run = async (store: IDBObjectStore): Promise<number> => {
+    const claim = await readPersistedAccountClaim(store)
+    if (!claim || claim.id !== accountId || !isCurrent()) return 0
+    const fences = await promisifyRequest<unknown>(store.get(channelFenceKey(accountId)))
+    if (!isPersistedChannelFences(fences) || !isCurrent()) return 0
+    const accountPrefix = `${PREFIX}${encodeURIComponent(accountId)}:`
+    const entries = await new Promise<Array<{ url: string; width: number; height: number; savedAt: number }>>((resolve, reject) => {
+      const result: Array<{ url: string; width: number; height: number; savedAt: number }> = []
+      let scanned = 0
+      const request = store.openCursor(IDBKeyRange.bound(accountPrefix, `${accountPrefix}\uffff`))
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (!cursor) { resolve(result); return }
+        scanned += 1
+        if (typeof cursor.key === "string" && cursor.key.startsWith(accountPrefix)) {
+          try {
+            const url = decodeURIComponent(cursor.key.slice(accountPrefix.length))
+            const channelId = channelFor(url)
+            if (channelId) {
+              const fence = fences.get(channelId)
+              if (!fence?.deleted) {
+                const expectedOwner: VideoPreviewOwner = {
+                  id: claim.id,
+                  version: claim.version,
+                  device: claim.device,
+                  account: claim.account,
+                  scope: claim.scope,
+                  channelId,
+                  channelEpoch: fence?.epoch,
+                }
+                const row = storedPreview(cursor.value, expectedOwner, url)
+                if (row) result.push({ url: row.url, width: row.width, height: row.height, savedAt: row.savedAt })
+              }
+            }
+          } catch {}
+        }
+        if (scanned >= MAX_ENTRIES) { resolve(result); return }
+        cursor.continue()
+      }
+    })
+    if (!isCurrent()) return 0
+    entries.sort((a, b) => a.savedAt - b.savedAt)
+    for (const entry of entries) {
+      writeVideoMemoryDimensions(scope, entry.url, { width: entry.width, height: entry.height })
+    }
+    return entries.length
+  }
+  try {
+    return options?.store ? await run(options.store) : await cacheTransaction("readonly", run)
+  } catch {
+    return 0
+  }
+}
+
 export async function clearVideoPreviewChannels(store: IDBObjectStore, accountId: string | null, channelIds: readonly string[]) {
   invalidateVideoMemoryDimensionsCache()
   const channels = new Set(channelIds)
