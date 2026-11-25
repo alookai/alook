@@ -673,12 +673,19 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   const actors = await caseActors(["alice", "bob", "carol"])
   const dmId = await actors.seed.seedDm("alice", actors.userId("bob"))
   const nextDm = await actors.seed.seedDm("alice", actors.userId("carol"))
+  const signalServer = await actors.seed.seedServer("bob", "attention-signal")
+  await actors.seed.seedJoinServer("bob", "alice", signalServer)
+  const signalChannel = await actors.seed.seedChannel("bob", signalServer, "signal")
   for (let index = 0; index < 24; index++) await actors.seed.seedMessage("alice", nextDm, `new conversation ${index}`)
   const ids: string[] = []
   for (let index = 0; index < 36; index++) ids.push(await actors.seed.seedMessage("bob", dmId, `warm same-author body ${index}`))
   const { page, context } = await actors.asUser("alice")
   const nextPreview = await seedResizableHtmlPreview(page, nextDm)
-  const proxy = await proxyCommunityWebSockets(context)
+  let dmMessageFramePolicy: "forward" | "hold" | "drop" = "forward"
+  const proxy = await proxyCommunityWebSockets(context, {
+    decide: frame => dmMessageFramePolicy !== "forward" && communityFrameEvents(frame).some(event =>
+      event.type === "community:message.create" && event.channelId === dmId) ? dmMessageFramePolicy : "forward",
+  })
   const path = `/c/me/${dmId}`
   await gotoAfterUserWsAuth(page, path)
   const root = page.getByTestId(tid.messageScroller)
@@ -731,6 +738,11 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   await held.matched
   await expect(page.getByTestId(tid.message(unread))).toBeVisible()
   const before = await lateNewGeometry(root, unread)
+  expect(before.dividerFor).toBe(unread)
+  expect(before.divider).not.toBeNull()
+  expect(before.divider!.connected).toBe(true)
+  expect(before.divider!.width).toBeGreaterThan(0)
+  expect(before.divider!.height).toBeGreaterThan(0)
   expect(before.body).not.toBeNull()
   expect(before.body!.connected).toBe(true)
   expect(before.body!.width).toBeGreaterThan(0)
@@ -750,7 +762,7 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   const after = await lateNewGeometry(root, unread)
   expect(after.ids.at(-1)).toBe(before.ids.at(-1))
   expect(after.ids.at(-1)).toBe(unread)
-  expect(after.keys).not.toEqual(before.keys)
+  expect(after.keys).toEqual(before.keys)
   expect(after.dividerFor).toBe(unread)
   expect(after.divider).not.toBeNull()
   expect(after.divider!.connected).toBe(true)
@@ -869,10 +881,34 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
       readable: { top, bottom, left, right },
     }
   }, secondPeer)).toMatchObject({ away: true, oldNewMounted: true, oldNewMeasured: true, oldNewReadable: false })
-  const oldLookup = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url => url.searchParams.has("newAfterSeq"))
+  await expect(frame).toBeAttached()
+  dmMessageFramePolicy = "hold"
   const retiredPeer = await actors.seed.seedMessage("bob", dmId, "retired New lookup")
   await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
     event.type === "community:message.create" && event.message?.id === retiredPeer)).toBe(true)
+  await expect.poll(() => proxy.heldCount()).toBeGreaterThanOrEqual(1)
+  dmMessageFramePolicy = "drop"
+  const tailGapPeer = await actors.seed.seedMessage("bob", dmId, "tail gap peer behind retired lookup")
+  let tailGapSeq: number | undefined
+  await expect.poll(() => {
+    const match = proxy.frames.flatMap(communityFrameEvents).find(event =>
+      event.type === "community:message.create" && event.message?.id === tailGapPeer)
+    tailGapSeq = typeof match?.message?.seq === "number" ? match.message.seq : undefined
+    return tailGapSeq !== undefined
+  }).toBe(true)
+  dmMessageFramePolicy = "forward"
+  const attentionUpdated = page.waitForResponse(async response => {
+    if (response.status() !== 200 || new URL(response.url()).pathname !== "/api/community/users/me/attention") return false
+    const body = await response.json().catch(() => null) as { scopes?: Array<{ channelId?: string; lastUnreadSeq?: number }> } | null
+    return !!body?.scopes?.some(scope => scope.channelId === dmId && (scope.lastUnreadSeq ?? 0) >= tailGapSeq!)
+  })
+  await actors.seed.seedMessage("bob", signalChannel, "refresh attention snapshot")
+  await attentionUpdated
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  const oldLookup = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url => url.searchParams.has("newAfterSeq"))
+  expect(proxy.releaseHeld(frame => communityFrameEvents(frame).some(event =>
+    event.type === "community:message.create" && event.message?.id === retiredPeer))).toBe(1)
   await oldLookup.matched
   await frame.evaluate((element) => {
     const source = (element as HTMLIFrameElement).contentWindow

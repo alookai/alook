@@ -11,7 +11,8 @@ import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { useDmMessages, useMessages } from "@/hooks/community/use-messages"
 import { installMessageScrollFixture, resize, restoreMessageScrollFixture, scrollFixture, runFrames, bodyTop } from "@/test/message-scroll-fixture"
 import { MessageList } from "./message-list"
-import { ingestMessages } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, ingestMessages, publishAccountAttentionSnapshot } from "@/lib/community-db/sync"
+import { resourceBundleFixture } from "@/test/community-resource-fixtures"
 import { dispatchCommunityWsEvent } from "@/hooks/community/community-ws/registry"
 
 const load = vi.hoisted(() => vi.fn())
@@ -270,6 +271,16 @@ describe("consecutive live peers preserve the reading body", () => {
       const peer = { ...tall, id: "peer169", seq: 169,
         clientNonce: "00000000-0000-4000-8000-000000000169", createdAt: "2026-10-01T01:03:53.013Z" }
       if (nonceTransition === "api-read") {
+        await act(async () => publishAccountAttentionSnapshot(owner.client, {
+          snapshot: {
+            resources: resourceBundleFixture(),
+            scopes: [{ scopeId: "c1", channelId: "c1", serverId: kind === "channel" ? "s1" : null, ordinaryUnread: true,
+              lastUnreadSeq: 170, lastAttentionSeq: null, attentionCount: 0 }],
+            items: [], limit: 100, truncated: false,
+            included: { servers: [], channels: [], dms: [], profiles: [], messages: [] },
+          },
+          proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined },
+        }))
         load.mockResolvedValue({ ...packet,
           messages: [...packet.messages.slice(-48), { ...tall, clientNonce: null }, { ...peer, clientNonce: null }],
           page: { ...packet.page, latestSeq: 169, hasMoreOlder: true, olderCursor: `${packet.messages.at(-48)!.createdAt}|${packet.messages.at(-48)!.id}` },

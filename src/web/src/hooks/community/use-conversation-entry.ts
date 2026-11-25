@@ -11,10 +11,12 @@ import { useCanonicalMessagesById, useCanonicalProfilesProjection, useChannelRea
 import { canonicalMessageResource } from "@/lib/community-db/resources"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCommunityRuntime } from "@/stores/community/runtime"
+import { useMessageOverlayIds } from "@/stores/community/message-stream"
+import type { MessageScope } from "@/lib/community/message-stream"
 import { isChannelMetadataTokenCurrent } from "@/lib/community/conversation-qualification"
 import {
-  assessConversationScope, conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationEntry, getQualifiedConversationScope,
-  type ConversationEntryResource, type ConversationEntryTarget,
+  assessConversationScope, conversationEntryOptions, currentConversationReadState, deriveLocalConversationNewBoundary, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationEntry, getQualifiedConversationScope,
+  type ConversationEntryResource, type ConversationEntryTarget, type ConversationWindowScope,
 } from "@/lib/community/conversation-entry"
 import { messageWindowIdentity, type MessageWindowData } from "@/lib/community/message-window"
 import { communityKeys } from "@/lib/query-keys"
@@ -221,6 +223,10 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
       }
     : null, [targetAnchorMessageId, targetChannelId, targetNewAfterSeq, targetServerId, targetTag])
   const { client, cachedResource, scope, currentPointer, input, options: entryOptions, query, canonical, resource, canRead, displayWindowReady, windowReady, revoked, denied, anchorMissing } = useConversationResource(baseTarget, intent, "messages")
+  const streamScope = useMemo<MessageScope>(() => input.serverId === null
+    ? { kind: "dm", id: input.channelId }
+    : { kind: "channel", id: input.channelId, serverId: input.serverId }, [input.channelId, input.serverId])
+  useMessageOverlayIds(streamScope)
   const entryIdentity = hashKey([
     input.channelId,
     input.serverId,
@@ -231,18 +237,52 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     scope?.proof.viewerId ?? null,
     scope?.proof.accountEpoch ?? -1,
   ])
+  const resolveEntryNewBoundary = (
+    boundaryScope: ConversationWindowScope | undefined,
+    boundaryResource: ConversationEntryResource | undefined,
+    boundaryWindow: EntryWindow | undefined,
+    pointer: (CommunityReadStateResource & { observedRevision?: number }) | undefined,
+  ): { boundary: ConversationEntryResource["newBoundaryAtEntry"] | undefined; provisional: boolean } => {
+    const serverReady = !!boundaryResource
+      && query.isSuccess && !query.isFetching && query.data === boundaryResource
+      && (input.newAfterSeq !== null
+        ? boundaryResource.newBoundaryAtEntry.afterSeq === input.newAfterSeq
+        : boundaryResource.readStateRevision >= (pointer?.observedRevision ?? -1))
+    const afterSeq = input.newAfterSeq ?? pointer?.lastReadSeq ?? null
+    const local = boundaryScope && boundaryWindow && afterSeq !== null
+      ? deriveLocalConversationNewBoundary(client, input, boundaryScope, boundaryWindow.key, afterSeq)
+      : undefined
+    if (serverReady) {
+      if (boundaryResource.newBoundaryAtEntry.target === null
+        && local?.boundary.target
+        && local.latestSeq > boundaryResource.latestSeqAtEntry) {
+        return { boundary: local.boundary, provisional: false }
+      }
+      return { boundary: boundaryResource.newBoundaryAtEntry, provisional: false }
+    }
+    if (!query.isError && local?.boundary.target) {
+      return { boundary: local.boundary, provisional: input.newAfterSeq === null }
+    }
+    if (boundaryResource && input.newAfterSeq !== null
+      && boundaryResource.newBoundaryAtEntry.target !== null
+      && boundaryResource.newBoundaryAtEntry.afterSeq === input.newAfterSeq) {
+      return { boundary: boundaryResource.newBoundaryAtEntry, provisional: false }
+    }
+    return { boundary: undefined, provisional: false }
+  }
   const createEntry = () => {
     const pointer = scope ? currentConversationReadState(client, input.channelId) : undefined
     const cachedScope = cachedResource ?? scope
     const covered = cachedScope ? findConversationEntryWindow(client, input, cachedScope, pointer) : undefined
     const window = covered ?? (cachedScope ? findConversationDisplayWindow(client, input, cachedScope) : undefined)
-    const boundary = cachedResource && (query.isSuccess && !query.isFetching && query.data === cachedResource
-      || input.newAfterSeq !== null && cachedResource.newBoundaryAtEntry.target !== null) && (input.newAfterSeq !== null
-      ? cachedResource.newBoundaryAtEntry.afterSeq === input.newAfterSeq
-      : cachedResource.readStateRevision >= (pointer?.observedRevision ?? -1)) ? cachedResource.newBoundaryAtEntry : undefined
-    return { client, identity: entryIdentity, intent, knownRevision: pointer?.observedRevision ?? -1, state: createStore<{ snapshot: CommunityReadStateResource | null; window: EntryWindow | null; covered: boolean; retained: boolean; newBoundary: ConversationEntryResource["newBoundaryAtEntry"] | undefined }>({
+    const resolved = resolveEntryNewBoundary(cachedScope, cachedResource, window, pointer)
+    const boundary = resolved.provisional ? undefined : resolved.boundary
+    const provisionalNewTarget = resolved.provisional && resolved.boundary?.target
+      ? { id: resolved.boundary.target.id, afterSeq: resolved.boundary.afterSeq }
+      : null
+    return { client, identity: entryIdentity, intent, knownRevision: pointer?.observedRevision ?? -1, state: createStore<{ snapshot: CommunityReadStateResource | null; window: EntryWindow | null; covered: boolean; retained: boolean; newBoundary: ConversationEntryResource["newBoundaryAtEntry"] | undefined; provisionalNewTarget: { id: string; afterSeq: number } | null }>({
       snapshot: pointer ?? null,
-      window: window ?? null, covered: !!covered, retained: false, newBoundary: boundary,
+      window: window ?? null, covered: !!covered, retained: false, newBoundary: boundary, provisionalNewTarget,
     }) }
   }
   const [entry, setEntry] = useState(createEntry)
@@ -259,15 +299,28 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const window = canRead ? (selected.retained ? selected.window : candidate) ?? selected.window ?? candidate ?? display ?? null : null
   const snapshot = replaceEqualDeep(selected.snapshot, window ? (!selected.covered ? candidatePointer ?? selected.snapshot : selected.snapshot) ?? null : null)
   const targetCovered = canRead && (selected.covered || !!candidate)
-  const newBoundary = selected.newBoundary ?? (candidateResource
-    && (query.isSuccess && !query.isFetching && query.data === candidateResource
-      || input.newAfterSeq !== null && candidateResource.newBoundaryAtEntry.target !== null)
-    && (input.newAfterSeq === null || candidateResource.newBoundaryAtEntry.afterSeq === input.newAfterSeq)
-    ? candidateResource.newBoundaryAtEntry : undefined)
+  const resolvedBoundary = selected.newBoundary !== undefined
+    ? { boundary: selected.newBoundary, provisional: false }
+    : canRead
+      ? resolveEntryNewBoundary(candidateScope, candidateResource, window ?? undefined, candidatePointer)
+      : { boundary: undefined, provisional: false }
+  const newBoundary = resolvedBoundary.boundary
+  const frozenBoundary = resolvedBoundary.provisional ? selected.newBoundary : newBoundary
+  const provisionalNewTargetId = resolvedBoundary.provisional ? newBoundary?.target?.id ?? null : null
+  const provisionalNewTargetAfterSeq = resolvedBoundary.provisional && newBoundary?.target ? newBoundary.afterSeq : null
+  const provisionalNewTarget = useMemo(
+    () => provisionalNewTargetId !== null && provisionalNewTargetAfterSeq !== null
+      ? { id: provisionalNewTargetId, afterSeq: provisionalNewTargetAfterSeq }
+      : selected.provisionalNewTarget,
+    [provisionalNewTargetAfterSeq, provisionalNewTargetId, selected.provisionalNewTarget],
+  )
   useLayoutEffect(() => {
-    if (!window || !snapshot || selected.window === window && selected.snapshot === snapshot && selected.covered === targetCovered && selected.newBoundary === newBoundary) return
-    entry.state.setState(current => ({ ...current, window, snapshot, covered: targetCovered, newBoundary }))
-  }, [window, snapshot, targetCovered, newBoundary, entry, selected])
+    if (!window || !snapshot || selected.window === window && selected.snapshot === snapshot && selected.covered === targetCovered
+      && selected.newBoundary === frozenBoundary
+      && selected.provisionalNewTarget?.id === provisionalNewTarget?.id
+      && selected.provisionalNewTarget?.afterSeq === provisionalNewTarget?.afterSeq) return
+    entry.state.setState(current => ({ ...current, window, snapshot, covered: targetCovered, newBoundary: frozenBoundary, provisionalNewTarget }))
+  }, [window, snapshot, targetCovered, frozenBoundary, provisionalNewTarget, entry, selected])
   const retainWindow = useCallback(() => {
     if (!canRead || !window) return
     entry.state.setState(current => current.retained ? current : { ...current, window, retained: true })
@@ -291,8 +344,13 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
   const retry = useCallback(() => refetch({ cancelRefetch: false }), [refetch])
   const refreshedBoundary = query.isSuccess && !query.isFetching && query.data && isChannelMetadataTokenCurrent(query.data.proof)
     ? query.data.newBoundaryAtEntry : undefined
-  const retiredNewTargetId = newBoundary?.target && refreshedBoundary?.afterSeq === newBoundary.afterSeq
-    && refreshedBoundary.target?.id !== newBoundary.target.id ? newBoundary.target.id : undefined
+  const retiredNewTargetId = refreshedBoundary
+    ? (newBoundary?.target && refreshedBoundary.afterSeq >= newBoundary.afterSeq && refreshedBoundary.target?.id !== newBoundary.target.id
+        ? newBoundary.target.id
+        : provisionalNewTarget && refreshedBoundary.afterSeq >= provisionalNewTarget.afterSeq && refreshedBoundary.target?.id !== provisionalNewTarget.id
+          ? provisionalNewTarget.id
+          : undefined)
+    : undefined
   return { ...activeQuery, intent, resource, scope, canonical, canRead, displayWindowReady, windowReady, window, snapshot, newBoundary: canRead ? newBoundary : undefined, retiredNewTargetId, targetCovered, revoked, denied, anchorMissing,
     initialPositionPending: !targetCovered,
     initialPositionMessageId: null,

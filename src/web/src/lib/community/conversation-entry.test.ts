@@ -7,7 +7,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "./account-cache-lifecycle"
-import { assessConversationScope, conversationEntryOptions, currentConversationReadState, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationScope, publishConversationEntry } from "./conversation-entry"
+import { assessConversationScope, conversationEntryOptions, currentConversationReadState, deriveLocalConversationNewBoundary, findCachedMessageWindowContaining, findConversationDisplayWindow, findConversationEntryWindow, getQualifiedConversationScope, publishConversationEntry } from "./conversation-entry"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import type { MessageWindowData } from "./message-window"
 
@@ -489,4 +489,85 @@ it.each(["main", "opener"] as const)("validates the effective retained %s reply 
   const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
   expect(registry.collections.messages.get(original.id)?.replyTo).toEqual(retainedReply)
   expect(findConversationEntryWindow(client, target, resource, value.readState)).toBeDefined()
+})
+
+describe("local New boundary derivation and cross-window lookup", () => {
+  it("derives exact first peer boundary across deleted server seqs and contiguous live WS rows while rejecting gaps", async () => {
+    const { client, registry, runtime } = await createCommunityQueryOwner()
+    const value = entry()
+    const rows = [
+      { ...value.messages[0], id: "m5", seq: 5, authorId: "viewer", createdAt: "2026-10-01T00:00:05.000Z" },
+      { ...value.messages[0], id: "m6", seq: 6, authorId: "viewer", createdAt: "2026-10-01T00:00:06.000Z" },
+      { ...value.messages[0], id: "m7", seq: 7, authorId: "viewer", createdAt: "2026-10-01T00:00:07.000Z" },
+      { ...value.messages[0], id: "m9", seq: 9, authorId: "peer", createdAt: "2026-10-01T00:00:09.000Z" },
+    ]
+    value.messages = rows
+    value.profiles = [...value.profiles, profileResourceFixture({ id: "viewer", name: "Viewer" })]
+    value.page = { olderCursor: "2026-10-01T00:00:05.000Z|m5", newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 9 }
+    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const scope = getQualifiedConversationScope(client, target)!
+
+    expect(deriveLocalConversationNewBoundary(client, target, scope, resource.windowKey, 5)).toEqual({
+      boundary: { afterSeq: 5, target: { id: "m9", channelId: "c1", seq: 9, authorId: "peer" } },
+      latestSeq: 9,
+      tailComplete: true,
+    })
+    expect(deriveLocalConversationNewBoundary(client, target, scope, resource.windowKey, 4)).toBeUndefined()
+    expect(deriveLocalConversationNewBoundary(client, target, scope, resource.windowKey, 9)).toEqual({
+      boundary: { afterSeq: 9, target: null },
+      latestSeq: 9,
+      tailComplete: true,
+    })
+
+    const { ingestMessages } = await import("@/lib/community-db/sync")
+    const liveOwn = { ...value.messages[0], id: "m10", seq: 10, authorId: "viewer", createdAt: "2026-10-01T00:00:10.000Z" }
+    const livePeer = { ...value.messages[0], id: "m11", seq: 11, authorId: "peer", createdAt: "2026-10-01T00:00:11.000Z" }
+    ingestMessages(registry, "c1", [liveOwn, livePeer])
+    runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, { type: "wsMessage", message: liveOwn })
+    runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, { type: "wsMessage", message: livePeer })
+    expect(deriveLocalConversationNewBoundary(client, target, scope, resource.windowKey, 9)).toEqual({
+      boundary: { afterSeq: 9, target: { id: "m11", channelId: "c1", seq: 11, authorId: "peer" } },
+      latestSeq: 11,
+      tailComplete: true,
+    })
+
+    const gapPeer = { ...value.messages[0], id: "m13", seq: 13, authorId: "peer", createdAt: "2026-10-01T00:00:13.000Z" }
+    ingestMessages(registry, "c1", [gapPeer])
+    runtime.messageStream.actions.dispatch({ kind: "channel", id: "c1", serverId: "s1" }, { type: "wsMessage", message: gapPeer })
+    expect(deriveLocalConversationNewBoundary(client, target, scope, resource.windowKey, 11)).toEqual({
+      boundary: { afterSeq: 11, target: null },
+      latestSeq: 11,
+      tailComplete: false,
+    })
+
+    const windowData = client.getQueryData<MessageWindowData>(resource.windowKey)!
+    client.setQueryData<MessageWindowData>(resource.windowKey, {
+      ...windowData,
+      pages: windowData.pages.map(page => ({ ...page, hasMoreNewer: true })),
+    })
+    expect(deriveLocalConversationNewBoundary(client, target, scope, resource.windowKey, 5)).toBeUndefined()
+  })
+
+  it("finds a target message in another qualified cached window and rejects unqualified windows", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const newestEntry = entry()
+    newestEntry.messages = [{ ...newestEntry.messages[0], id: "m50", seq: 50 }]
+    newestEntry.page = { olderCursor: "old", newerCursor: null, hasMoreOlder: true, hasMoreNewer: false, latestSeq: 50 }
+    await publishConversationEntry(client, target, newestEntry, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+
+    const anchorTarget = { ...target, anchorMessageId: "m10" }
+    const anchorEntry = entry()
+    anchorEntry.selection = { reason: "explicit_anchor", anchorMessageId: "m10" }
+    anchorEntry.messages = [{ ...anchorEntry.messages[0], id: "m10", seq: 10, authorId: "peer" }]
+    anchorEntry.page = { olderCursor: "old10", newerCursor: "new10", hasMoreOlder: true, hasMoreNewer: true, latestSeq: 50 }
+    const anchorResource = await publishConversationEntry(client, anchorTarget, anchorEntry, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+
+    const scope = getQualifiedConversationScope(client, target)!
+    const hit = findCachedMessageWindowContaining(client, target, scope, "m10")
+    expect(hit?.window.key).toEqual(anchorResource.windowKey)
+    expect(hit?.data.pages[0].messages.map(message => message.id)).toEqual(["m10"])
+
+    await registry.collections.messages.utils.writeDelete("m10")
+    expect(findCachedMessageWindowContaining(client, target, scope, "m10")).toBeUndefined()
+  })
 })
