@@ -146,7 +146,7 @@ export function PairMachineSheet({
       assert()
       const result = await tauriInvoke<{ success: boolean; message: string }>("daemon_pair", { machineKey: key, machineId })
       assert()
-      if (!result.success) throw new Error(result.message || "The daemon did not start")
+      if (!result.success) throw new Error(result.message || "The local connector did not start")
       return { key }
     },
   })
@@ -154,7 +154,7 @@ export function PairMachineSheet({
   const connecting = currentLaunch && launch.isPending
   const started = currentLaunch && launch.isSuccess && launch.data.key === pendingTokenId
   const launchError = currentLaunch && launch.error && !(launch.error instanceof DOMException && launch.error.name === "AbortError")
-    ? nativeErrorMessage(launch.error, "Couldn't start the daemon. Run the command below in a terminal instead.") : null
+    ? nativeErrorMessage(launch.error, "Couldn't start the local connector. Run the command below in a terminal instead.") : null
   const command = pendingTokenId ? buildPairCommand(pendingTokenId, mode.kind === "reconnect" ? mode.machineId : undefined) : ""
   const copyCommand = async () => {
     if (!command) return
@@ -346,11 +346,11 @@ function Step1({
             >
               <div className="flex flex-col gap-2">
                 <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why run a terminal command?</PopoverTitle>
-                <p className="text-sm leading-relaxed text-muted-foreground">Your CLI agents run on your computer. This command starts a background service so they can receive messages and reply in Alook, using your existing setup.</p>
+                <p className="text-sm leading-relaxed text-muted-foreground">Your AI tools run on your computer. This command starts a lightweight local connector so they can chat in Alook using your existing setup.</p>
               </div>
               <MachinePairMessageDiagram />
               <div className="flex flex-col gap-2">
-                <h4 className="text-base font-semibold leading-tight">No automatic file uploads</h4>
+                <h4 className="text-base font-semibold leading-tight">Your files stay on your computer</h4>
                 <p className="text-sm leading-relaxed text-muted-foreground">Alook does not automatically upload any of your local file contents.</p>
               </div>
             </ScrollArea>
@@ -406,7 +406,7 @@ function Step1({
                   className="w-full"
                 >
                   {connecting && <Loader2 className="size-4 animate-spin" />}
-                  {connecting ? "Connecting…" : started ? "Daemon started" : "Connect this computer"}
+                  {connecting ? "Connecting…" : started ? "Connecting…" : "Connect this computer"}
                 </Button>
               )}
               {(checkingRuntime || !runtimeCapability?.available || launchError) && (
@@ -484,7 +484,7 @@ function Step2({
             ready ? "text-foreground" : "text-muted-foreground",
           ].join(" ")}
         >
-          Waiting for the daemon…
+          Waiting for your computer to connect…
         </Heading>
       </header>
     </section>

@@ -70,16 +70,18 @@ vi.mock("./onboarding-agent-dialog", () => ({
     createElement("button", { onClick: onExit }, "Exit agent")),
 }))
 vi.mock("./onboarding-select-dialog", () => ({
-  OnboardingSelectDialog: ({ value, onValueChange, onSubmit, advanceOnSelect }: {
+  OnboardingSelectDialog: ({ value, onValueChange, onSubmit, advanceOnSelect, secondaryLabel, onSecondaryAction }: {
     advanceOnSelect?: boolean
     value: string
     onValueChange: (value: string) => void
     onSubmit: (value: string) => void
+    secondaryLabel?: string
+    onSecondaryAction?: () => void
   }) => createElement("div", {}, createElement("button", {
     "data-testid": "select-harness",
     "data-value": value,
     onClick: () => { onValueChange(mocks.selectedHarness); if (advanceOnSelect) onSubmit(mocks.selectedHarness) },
-  }), advanceOnSelect ? null : createElement("button", { onClick: () => onSubmit("developer") }, "Finish setup")),
+  }), secondaryLabel && onSecondaryAction ? createElement("button", { onClick: onSecondaryAction }, secondaryLabel) : null, advanceOnSelect ? null : createElement("button", { onClick: () => onSubmit("developer") }, "Finish setup")),
 }))
 vi.mock("@/hooks/community/use-machines", () => ({ useMachines: () => ({ machines: [] }) }))
 vi.mock("../bots/model-field", () => ({ ModelField: ({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) => createElement("input", { "aria-label": "Model", value: value ?? "", onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value || null) }) }))
@@ -152,16 +154,24 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(mocks.initialize).not.toHaveBeenCalled()
   })
 
-  it("defaults to Agent Setup and supports Manual and exit without creating a team", async () => {
+  it("defaults to Agent Setup and supports Terminal and exit without creating a team", async () => {
     mocks.state = { status: "active", stage: "harness" }
     render(createElement(CommunityOnboardingForm))
-    expect(screen.getByText("Pick your local agent")).toBeInTheDocument()
+    expect(screen.getByText("Set up your first bot")).toBeInTheDocument()
     fireEvent.click(screen.getByTestId("select-harness"))
     expect(screen.getByText("Agent Setup")).toBeInTheDocument()
     expect(mocks.initialize).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("tab", { name: "Manual" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Terminal" }))
     expect(screen.getByRole("button", { name: "Machine connected" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Exit manual" }))
+    expect(owner.runtime.ui.get().onboardingState).toBeNull()
+    expect(mocks.initialize).not.toHaveBeenCalled()
+  })
+
+  it("lets first-time users skip directly from Step 1", () => {
+    mocks.state = { status: "active", stage: "harness" }
+    render(createElement(CommunityOnboardingForm))
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }))
     expect(owner.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.initialize).not.toHaveBeenCalled()
   })

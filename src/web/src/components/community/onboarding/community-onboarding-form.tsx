@@ -41,7 +41,7 @@ import { useMachines } from "@/hooks/community/use-machines"
 import { OnboardingModelDialog } from "./onboarding-model-dialog"
 
 function harnessLabel(value?: string) {
-  return ONBOARDING_HARNESSES.find((option) => option.value === value)?.label ?? "your harness"
+  return ONBOARDING_HARNESSES.find((option) => option.value === value)?.label ?? "your AI tool"
 }
 
 function CommunityOnboardingSteps() {
@@ -166,13 +166,15 @@ function CommunityOnboardingSteps() {
         onOpenChange={(open) => { if (!open) skipCommunityOnboarding(communityRuntime) }}
         step={{ current: 1, total: 2 }}
         dismissible
-        title="Which harness do you already use?"
-        description="Pick the setup that already runs your bots."
+        title="Which AI coding tool do you use?"
+        description="Connect a tool on your computer so it can chat and work with you in Alook."
         options={[...ONBOARDING_HARNESSES]}
         value={harness}
         onValueChange={setHarness}
         advanceOnSelect
         submitLabel="Continue"
+        secondaryLabel="Skip for now"
+        onSecondaryAction={() => skipCommunityOnboarding(communityRuntime)}
         onSubmit={(value) => {
           advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value, setupMode: supportsAgentSetup(value) ? "agent" : "manual" })
         }}
@@ -305,9 +307,9 @@ export function CommunityOnboardingForm() {
           if (switching && (value === "manual" || (value === "agent" && agentSetup)) && mode !== value) switchCommunityOnboardingSetup(runtime, value)
         }}>
           <TabsList aria-label="Setup method" className="scrollbar-none">
-            {(["agent", "manual"] as const).map((value) => <TabsTrigger key={value} value={value} data-testid={`onboarding-mode-${value}`} disabled={!switching || (value === "agent" && !agentSetup)}>{value === "agent" ? "Agent" : "Manual"}</TabsTrigger>)}
+            {(["agent", "manual"] as const).map((value) => <TabsTrigger key={value} value={value} data-testid={`onboarding-mode-${value}`} disabled={!switching || (value === "agent" && !agentSetup)}>{value === "agent" ? "With agent" : "Terminal"}</TabsTrigger>)}
           </TabsList>
-        </Tabs> : <span className="text-sm text-muted-foreground">Pick your local agent</span>}
+        </Tabs> : <span className="text-sm text-muted-foreground">Set up your first bot</span>}
         <Button type="button" variant="ghost" size="icon" aria-label="Exit setup" title="Exit setup" className="size-11 text-foreground" onClick={() => skipCommunityOnboarding(runtime)}><X aria-hidden className="size-4" /></Button>
       </header>
       <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1">

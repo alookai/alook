@@ -91,7 +91,7 @@ describe("Agent Setup", () => {
     const input = props()
     render(<OnboardingAgentDialog {...input} />)
     await waitFor(() => expect(mocks.request).toHaveBeenCalledOnce())
-    fireEvent.click(screen.getByRole("button", { name: "Change agent" }))
+    fireEvent.click(screen.getByRole("button", { name: "Choose another tool" }))
     expect(input.onChooseAgent).toHaveBeenCalledOnce()
     await act(async () => resolvePair(pair()))
     expect(mocks.request).toHaveBeenCalledOnce()
@@ -160,6 +160,25 @@ describe("Agent Setup", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Copy failed"))
     expect(screen.queryByTestId("onboarding-agent-waiting")).not.toBeInTheDocument()
     expect(input.onConnected).not.toHaveBeenCalled()
+  })
+
+  it("shows privacy reassurance, accepts manual copy, and offers Copy again while waiting", async () => {
+    const input = props()
+    const view = render(<OnboardingAgentDialog {...input} />)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy prompt" })).toBeEnabled())
+    expect(screen.getByText(/Your files stay on your computer/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "How does this stay private?" })).toBeInTheDocument()
+
+    fireEvent.copy(screen.getByTestId("onboarding-agent-prompt"))
+    await waitFor(() => expect(screen.getByTestId("onboarding-agent-waiting")).toBeInTheDocument())
+    expect(input.onConnected).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy again" }))
+    await waitFor(() => expect(mocks.copy).toHaveBeenCalledOnce())
+
+    mocks.machines = [{ id: "machine-1", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] } as CommunityMachineSummary]
+    view.rerender(<OnboardingAgentDialog {...input} />)
+    await waitFor(() => expect(input.onConnected).toHaveBeenCalledOnce())
   })
 
 })

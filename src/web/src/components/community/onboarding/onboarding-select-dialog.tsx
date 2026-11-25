@@ -302,30 +302,32 @@ export function OnboardingSelectDialog({
             ) : null}
           </div>
 
-          {!advanceOnSelect && <DialogFooter className="m-0 rounded-none border-0 bg-transparent px-4 py-4 sm:px-6">
+          {(!advanceOnSelect || (secondaryLabel && onSecondaryAction)) && <DialogFooter className="m-0 rounded-none border-0 bg-transparent px-4 pt-2 pb-5 sm:px-6">
             {secondaryLabel && onSecondaryAction ? (
               <Button
                 type="button"
                 variant="ghost"
-                className="h-11 sm:h-9"
+                className="h-11 text-muted-foreground hover:text-foreground sm:h-9"
                 onClick={onSecondaryAction}
                 disabled={busy}
               >
                 {secondaryLabel}
               </Button>
             ) : null}
-            <Button
-              type="submit"
-              className="h-11 min-h-11 w-full sm:h-9 sm:min-h-9 sm:w-auto"
-              disabled={!canSubmit || locked}
-            >
-              {status === "loading" ? (
-                <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
-              ) : status === "success" ? (
-                <CheckIcon />
-              ) : null}
-              {status === "loading" ? loadingLabel : submitLabel}
-            </Button>
+            {!advanceOnSelect ? (
+              <Button
+                type="submit"
+                className="h-11 min-h-11 w-full sm:h-9 sm:min-h-9 sm:w-auto"
+                disabled={!canSubmit || locked}
+              >
+                {status === "loading" ? (
+                  <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+                ) : status === "success" ? (
+                  <CheckIcon />
+                ) : null}
+                {status === "loading" ? loadingLabel : submitLabel}
+              </Button>
+            ) : null}
           </DialogFooter>}
         </form>
       </DialogContent>

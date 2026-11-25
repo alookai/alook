@@ -98,7 +98,7 @@ export function OnboardingSelectDialogPreview({
         harness={harness}
         harnessLabel={
           ONBOARDING_HARNESSES.find((option) => option.value === harness)?.label
-            ?? "your harness"
+            ?? "your AI tool"
         }
         {...(simulateOnlineMachine
           ? {
@@ -133,11 +133,11 @@ export function OnboardingSelectDialogPreview({
       open
       onOpenChange={() => undefined}
       step={{ current: isIdentity ? 3 : 1, total: 3 }}
-      title={isIdentity ? "Which best describes you?" : "Which harness do you already use?"}
+      title={isIdentity ? "Which best describes you?" : "Which AI coding tool do you use?"}
       description={
         isIdentity
           ? "We’ll shape the room around your work."
-          : "Pick the setup that already runs your bots."
+          : "Connect a tool on your computer so it can chat and work with you in Alook."
       }
       options={isIdentity ? [...ONBOARDING_IDENTITIES] : [...ONBOARDING_HARNESSES]}
       value={value}

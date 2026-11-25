@@ -116,7 +116,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
     await user.tab()
     expect(help).toHaveFocus()
     await user.keyboard("{Enter}")
-    expect(await view.findByTestId(tid.machinePairHelpContent)).toHaveTextContent("starts a background service")
+    expect(await view.findByTestId(tid.machinePairHelpContent)).toHaveTextContent("starts a lightweight local connector")
     await user.keyboard("{Escape}")
     await waitFor(() => expect(view.queryByTestId(tid.machinePairHelpContent)).not.toBeInTheDocument())
     await user.click(help)
