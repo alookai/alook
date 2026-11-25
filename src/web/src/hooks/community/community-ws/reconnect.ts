@@ -294,8 +294,7 @@ function policyExecutors(
     },
     "calendar": async () => {
       await queryClient.invalidateQueries({
-        queryKey: [...communityKeys.all, "calendar"],
-        exact: false,
+        queryKey: communityKeys.calendar(),
         refetchType: "active",
       })
     },

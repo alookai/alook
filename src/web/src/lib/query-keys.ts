@@ -148,6 +148,9 @@ export const communityKeys = {
 
   // ── Bots ────────────────────────────────────────────────────────────────
   bots: () => [...communityKeys.all, "bots"] as const,
+  calendar: () => [...communityKeys.all, "calendar"] as const,
+  calendarEvents: (params: { from: string; to: string }) =>
+    [...communityKeys.calendar(), "events", params.from, params.to] as const,
   botPii: (machineId: string, botId: string) => [...communityKeys.all, "pii", machineId, botId] as const,
   billing: () => [...communityKeys.all, "billing"] as const,
   bugReport: (reportId: string) =>

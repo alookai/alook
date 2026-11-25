@@ -8,10 +8,10 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 371,
-    "environment": 13,
+    "composition": 376,
+    "environment": 14,
     "nonvisual": 32,
-    "direct": 161
+    "direct": 164
   },
   "entries": [
     {
@@ -2314,6 +2314,128 @@
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/calendar-actor.tsx",
+      "application": "Web",
+      "candidates": [
+        "CalendarActorAvatar"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-calendar--agenda-view",
+          "region": "Creator avatar rendered on event cards, filter options, and detail sheet"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/calendar-agenda-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "CalendarAgendaView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-calendar--agenda-view",
+          "region": "Chronological grouped Agenda list with creator and bound message metadata"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/calendar-detail-sheet.tsx",
+      "application": "Web",
+      "candidates": [
+        "CalendarDetailSheet"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-calendar--agenda-view",
+          "region": "Click any scheduled event card to inspect creator, bound source message, edit form, and delete confirmation"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/calendar-skeleton.tsx",
+      "application": "Web",
+      "candidates": [
+        "CalendarMobileHeader",
+        "CalendarPageSkeleton"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-calendar--loading-skeleton",
+          "region": "CalendarPageSkeleton and CalendarMobileHeader loading shell"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/calendar-status.tsx",
+      "application": "Web",
+      "candidates": [
+        "CalendarRecurrenceBadge",
+        "CalendarRunStatusBadge",
+        "CalendarSourceStatusBadge"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-calendar--agenda-view",
+          "region": "Recurrence, source-unavailable warning, and 3-state execution status badges"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/calendar-week-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "CalendarWeekView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-calendar--week-view",
+          "region": "7-day Week time grid on desktop and day strip on mobile"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/calendar-workspace.tsx",
+      "application": "Web",
+      "candidates": [
+        "CalendarWorkspace"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-calendar--week-view",
+          "region": "Home Calendar workspace in Week view with creator filter and date-picker popover"
+        },
+        {
+          "story": "web-business-calendar--agenda-view",
+          "region": "Home Calendar workspace in Agenda view with paused schedules"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/calendar/me-calendar-route.tsx",
+      "application": "Web",
+      "candidates": [
+        "MeCalendarPage"
+      ],
+      "kind": "environment",
+      "examples": [],
+      "reason": "Community route host wiring /c/me/calendar to live query hooks, router, and toasts; its full UI renders in CalendarWorkspace stories."
     },
     {
       "source": "src/web/src/components/community/channels/channel-dnd.tsx",
@@ -8613,6 +8735,22 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/ui/calendar.tsx",
+      "application": "Web",
+      "candidates": [
+        "Calendar",
+        "CalendarDayButton"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-calendar--default",
+          "region": "Alook-stylized shadcn single-date Calendar picker"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/ui/card.tsx",
       "application": "Web",
       "candidates": [
@@ -9423,6 +9561,24 @@
       "source": "src/storybook/stories/business/attachments.stories.tsx"
     },
     {
+      "id": "web-business-calendar--week-view",
+      "title": "Web/Business/Calendar",
+      "name": "Week View",
+      "source": "src/storybook/stories/business/calendar.stories.tsx"
+    },
+    {
+      "id": "web-business-calendar--agenda-view",
+      "title": "Web/Business/Calendar",
+      "name": "Agenda View",
+      "source": "src/storybook/stories/business/calendar.stories.tsx"
+    },
+    {
+      "id": "web-business-calendar--loading-skeleton",
+      "title": "Web/Business/Calendar",
+      "name": "Loading Skeleton",
+      "source": "src/storybook/stories/business/calendar.stories.tsx"
+    },
+    {
       "id": "web-business-message-bubbles--agent",
       "title": "Web/Business/Message bubbles",
       "name": "Agent",
@@ -9997,6 +10153,12 @@
       "title": "Web/Foundations/Button",
       "name": "Long Label",
       "source": "src/storybook/stories/foundations/button.stories.tsx"
+    },
+    {
+      "id": "web-foundations-calendar--default",
+      "title": "Web/Foundations/Calendar",
+      "name": "Default",
+      "source": "src/storybook/stories/foundations/calendar.stories.tsx"
     },
     {
       "id": "web-foundations-card--default",

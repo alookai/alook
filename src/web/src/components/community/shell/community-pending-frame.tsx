@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react"
 import { BotListSkeleton } from "@/components/community/bots/bot-list-view"
+import { CalendarPageSkeleton } from "@/components/community/calendar/calendar-skeleton"
 import { ConversationResolutionPendingFrame } from "@/components/community/channels/conversation-resolution-pending-frame"
 import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { MachineListSkeleton } from "@/components/community/machines/machine-list"
@@ -53,6 +54,9 @@ export function CommunityPendingFrame({
   switch (plan.main.kind) {
     case "privacy":
       content = <RouteResolutionPendingFrame />
+      break
+    case "calendar":
+      content = <CalendarPageSkeleton reserveBackSlot={reserveMeBackSlot} />
       break
     case "me-root":
       content = <MeRootPendingFrame />

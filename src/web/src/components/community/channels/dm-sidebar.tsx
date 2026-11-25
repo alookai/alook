@@ -5,7 +5,7 @@ import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
 import { type LucideIcon } from "lucide-react";
-import { Users, Ban, Monitor, Bot, Shield, MessagesSquare } from "@/components/icons/lucide";
+import { Users, Ban, Monitor, Bot, Shield, CalendarDays, MessagesSquare } from "@/components/icons/lucide";
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -16,8 +16,8 @@ import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { compactRequestCount } from "@/lib/community/friend-requests"
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy,
-  friendsActive, machinesActive, botsActive, privacyActive,
+  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy, onShowCalendar,
+  friendsActive, machinesActive, botsActive, privacyActive, calendarActive,
   friendRequestCount = 0,
   loadError,
 }: {
@@ -31,13 +31,15 @@ export const DmSidebar = memo(function DmSidebar({
   onShowMachines?: () => void
   onShowBots?: () => void
   onShowPrivacy?: () => void
+  onShowCalendar?: () => void
   friendsActive?: boolean
   friendRequestCount?: number
   machinesActive?: boolean
   botsActive?: boolean
   privacyActive?: boolean
+  calendarActive?: boolean
 }) {
-  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive)
+  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive && !calendarActive)
   const requestCount = compactRequestCount(friendRequestCount)
   const shortcuts: Array<{
     href: string; label: string; Icon: LucideIcon; active?: boolean; onActivate: () => void
@@ -48,6 +50,7 @@ export const DmSidebar = memo(function DmSidebar({
     ...(onShowMachines ? [{ href: "/c/me/machines", label: "Machines", Icon: Monitor, active: machinesActive, onActivate: onShowMachines, testId: tid.machineGuideIntroSource }] : []),
     ...(onShowBots ? [{ href: "/c/me/bots", label: "My Bots", Icon: Bot, active: botsActive, onActivate: onShowBots }] : []),
     ...(onShowPrivacy ? [{ href: "/c/me/privacy", label: "Privacy", Icon: Shield, active: privacyActive, onActivate: onShowPrivacy }] : []),
+    ...(onShowCalendar ? [{ href: "/c/me/calendar", label: "Calendar", Icon: CalendarDays, active: calendarActive, onActivate: onShowCalendar, testId: tid.calendarShortcut }] : []),
   ]
   const activeShortcut = shortcuts.findIndex((shortcut) => shortcut.active)
   return (
@@ -149,6 +152,7 @@ export function DmSidebarSkeleton() {
     >
       <div className="shrink-0 px-2 pt-4">
         <div className="flex flex-col gap-1">
+          <Skeleton className="h-9 w-full rounded-md" />
           <Skeleton className="h-9 w-full rounded-md" />
           <Skeleton className="h-9 w-full rounded-md" />
           <Skeleton className="h-9 w-full rounded-md" />
