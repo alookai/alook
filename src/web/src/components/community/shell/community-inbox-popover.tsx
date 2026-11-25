@@ -45,6 +45,30 @@ type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
 export type InboxTab = "unreads" | "todo" | "marked"
 
+function focusedScrollTargetInside(container: HTMLElement): HTMLElement | null {
+  const active = container.ownerDocument.activeElement
+  if (!(active instanceof HTMLElement) || !container.contains(active)) return null
+  if (!active.matches("input, textarea, [contenteditable='true']")) return null
+  const enclosing =
+    active.closest<HTMLElement>('[data-slot="inbox-card-footer"]')
+    ?? active.closest<HTMLElement>('[data-slot="inbox-reply-composer"]')
+    ?? active.closest<HTMLElement>("form")
+  return enclosing && container.contains(enclosing) ? enclosing : active
+}
+
+function scrollTargetIntoContainer(container: HTMLElement, target: HTMLElement, margin = 12) {
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  if (containerRect.height <= 0 || targetRect.height <= 0) return
+  const bottomLimit = containerRect.bottom - margin
+  const topLimit = containerRect.top + margin
+  if (targetRect.bottom > bottomLimit) {
+    container.scrollTop += targetRect.bottom - bottomLimit
+  } else if (targetRect.top < topLimit) {
+    container.scrollTop -= topLimit - targetRect.top
+  }
+}
+
 function InboxScrollBody({
   tab,
   getScrollOffset,
@@ -62,11 +86,20 @@ function InboxScrollBody({
   const transientScrollRef = useRef(false)
   useLayoutEffect(() => {
     const element = ref.current
-    if (!element || !getScrollOffset) return
+    if (!element) return
     const restore = () => {
-      element.scrollTop = getScrollOffset(tab)
+      const focused = focusedScrollTargetInside(element)
+      if (focused) {
+        const beforeScrollTop = element.scrollTop
+        scrollTargetIntoContainer(element, focused)
+        if (element.scrollTop !== beforeScrollTop) {
+          onScrollOffsetChange?.(tab, element.scrollTop)
+        }
+        return
+      }
+      if (getScrollOffset) element.scrollTop = getScrollOffset(tab)
     }
-    restore()
+    if (getScrollOffset) element.scrollTop = getScrollOffset(tab)
     const window = element.ownerDocument.defaultView
     const ResizeObserverConstructor = window?.ResizeObserver
     const observer = ResizeObserverConstructor
@@ -75,16 +108,18 @@ function InboxScrollBody({
     observer?.observe(element)
     if (contentRef.current) observer?.observe(contentRef.current)
     let secondFrame: number | null = null
-    const firstFrame = window?.requestAnimationFrame(() => {
-      restore()
-      secondFrame = window.requestAnimationFrame(restore)
-    }) ?? null
+    const firstFrame = getScrollOffset
+      ? window?.requestAnimationFrame(() => {
+        restore()
+        secondFrame = window.requestAnimationFrame(restore)
+      }) ?? null
+      : null
     return () => {
       observer?.disconnect()
       if (firstFrame !== null) window?.cancelAnimationFrame(firstFrame)
       if (secondFrame !== null) window?.cancelAnimationFrame(secondFrame)
     }
-  }, [getScrollOffset, tab])
+  }, [getScrollOffset, onScrollOffsetChange, tab])
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
     const next = event.currentTarget.scrollTop
     const previous = getScrollOffset?.(tab) ?? 0
