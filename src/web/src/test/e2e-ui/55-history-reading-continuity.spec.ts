@@ -673,12 +673,19 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
   const actors = await caseActors(["alice", "bob", "carol"])
   const dmId = await actors.seed.seedDm("alice", actors.userId("bob"))
   const nextDm = await actors.seed.seedDm("alice", actors.userId("carol"))
+  const signalServer = await actors.seed.seedServer("bob", "attention-signal")
+  await actors.seed.seedJoinServer("bob", "alice", signalServer)
+  const signalChannel = await actors.seed.seedChannel("bob", signalServer, "signal")
   for (let index = 0; index < 24; index++) await actors.seed.seedMessage("alice", nextDm, `new conversation ${index}`)
   const ids: string[] = []
   for (let index = 0; index < 36; index++) ids.push(await actors.seed.seedMessage("bob", dmId, `warm same-author body ${index}`))
   const { page, context } = await actors.asUser("alice")
   const nextPreview = await seedResizableHtmlPreview(page, nextDm)
-  const proxy = await proxyCommunityWebSockets(context)
+  let dmMessageFramePolicy: "forward" | "hold" | "drop" = "forward"
+  const proxy = await proxyCommunityWebSockets(context, {
+    decide: frame => dmMessageFramePolicy !== "forward" && communityFrameEvents(frame).some(event =>
+      event.type === "community:message.create" && event.channelId === dmId) ? dmMessageFramePolicy : "forward",
+  })
   const path = `/c/me/${dmId}`
   await gotoAfterUserWsAuth(page, path)
   const root = page.getByTestId(tid.messageScroller)
@@ -874,45 +881,34 @@ test("warm late New preserves a fixed DM tail through media growth, takeover and
       readable: { top, bottom, left, right },
     }
   }, secondPeer)).toMatchObject({ away: true, oldNewMounted: true, oldNewMeasured: true, oldNewReadable: false })
-  await page.getByRole("link", { name: "Friends", exact: true }).click()
-  await expect(page).toHaveURL(/\/c\/me\/friends$/)
-  const gapBatch = await actors.seedHistory(dmId, Array.from({ length: 200 }, (_, index) => ({
-    author: "bob" as const,
-    content: `gap history batch ${index}`,
-  })))
-  await page.locator(`a[href="${path}"]`).first().click()
-  await expect(page).toHaveURL(new RegExp(`${dmId}$`))
-  expect(await page.evaluate(() => performance.timeOrigin)).toBe(warmDocument)
-  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
-  const jumpToGapNew = page.getByTestId(tid.scrollToNew)
-  await expect(jumpToGapNew).toBeVisible()
-  await jumpToGapNew.click()
-  await expect(root.locator(`[data-message-divider-for="${gapBatch[0]}"] [data-new-divider]`)).toBeInViewport()
-  await expect(jumpToGapNew).toBeHidden()
-  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
-  await root.hover()
-  const readGapDivider = () => root.evaluate((element, id) => {
-    const divider = element.querySelector<HTMLElement>(`[data-message-divider-for="${id}"] [data-new-divider]`)
-    const rect = divider?.getBoundingClientRect(), viewport = element.getBoundingClientRect()
-    const top = viewport.top + element.clientTop, left = viewport.left + element.clientLeft
-    const right = left + element.clientWidth
-    const bottom = top + element.clientHeight - Math.max(0, Number(element.dataset.composerOcclusion ?? 0))
-    return {
-      away: element.scrollHeight - element.clientHeight - element.scrollTop > 1,
-      oldNewReadable: !!rect && rect.width > 0 && rect.height > 0 && rect.bottom > top && rect.top < bottom && rect.right > left && rect.left < right,
-      oldNewMounted: !!divider?.isConnected,
-      oldNewMeasured: !!rect && rect.width > 0 && rect.height > 0,
-    }
-  }, gapBatch[0]!)
-  for (let step = 0; step < 8 && (await readGapDivider()).oldNewReadable; step++) {
-    await page.mouse.wheel(0, -250)
-  }
-  await expect.poll(readGapDivider).toMatchObject({ away: true, oldNewMounted: true, oldNewMeasured: true, oldNewReadable: false })
   await expect(frame).toBeAttached()
-  const oldLookup = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url => url.searchParams.has("newAfterSeq"))
+  dmMessageFramePolicy = "hold"
   const retiredPeer = await actors.seed.seedMessage("bob", dmId, "retired New lookup")
   await expect.poll(() => proxy.frames.flatMap(communityFrameEvents).some(event =>
     event.type === "community:message.create" && event.message?.id === retiredPeer)).toBe(true)
+  await expect.poll(() => proxy.heldCount()).toBeGreaterThanOrEqual(1)
+  dmMessageFramePolicy = "drop"
+  const tailGapPeer = await actors.seed.seedMessage("bob", dmId, "tail gap peer behind retired lookup")
+  let tailGapSeq: number | undefined
+  await expect.poll(() => {
+    const match = proxy.frames.flatMap(communityFrameEvents).find(event =>
+      event.type === "community:message.create" && event.message?.id === tailGapPeer)
+    tailGapSeq = typeof match?.message?.seq === "number" ? match.message.seq : undefined
+    return tailGapSeq !== undefined
+  }).toBe(true)
+  dmMessageFramePolicy = "forward"
+  const attentionUpdated = page.waitForResponse(async response => {
+    if (response.status() !== 200 || new URL(response.url()).pathname !== "/api/community/users/me/attention") return false
+    const body = await response.json().catch(() => null) as { scopes?: Array<{ channelId?: string; lastUnreadSeq?: number }> } | null
+    return !!body?.scopes?.some(scope => scope.channelId === dmId && (scope.lastUnreadSeq ?? 0) >= tailGapSeq!)
+  })
+  await actors.seed.seedMessage("bob", signalChannel, "refresh attention snapshot")
+  await attentionUpdated
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(root.locator('[data-read-position-ready="true"]')).toBeVisible()
+  const oldLookup = await holdNextRequest(actors, page, `**/api/community/channels/${dmId}/messages**`, url => url.searchParams.has("newAfterSeq"))
+  expect(proxy.releaseHeld(frame => communityFrameEvents(frame).some(event =>
+    event.type === "community:message.create" && event.message?.id === retiredPeer))).toBe(1)
   await oldLookup.matched
   await frame.evaluate((element) => {
     const source = (element as HTMLIFrameElement).contentWindow
