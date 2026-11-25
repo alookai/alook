@@ -1602,12 +1602,14 @@
 }
 
 /* ── Utility: hide scrollbar ── */
-.scrollbar-none {
+.scrollbar-none,
+.base-ui-disable-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-.scrollbar-none::-webkit-scrollbar {
+.scrollbar-none::-webkit-scrollbar,
+.base-ui-disable-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
