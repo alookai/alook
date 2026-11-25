@@ -52,6 +52,8 @@ export type ComposerViewProps = {
   onFileSelect: ChangeEventHandler<HTMLInputElement>
   editorContent?: ReactNode
   editor: Editor | null
+  placeholder?: string
+  showPlaceholder?: boolean
   hideAttach: boolean
   hideEmoji: boolean
   showSend: boolean
@@ -81,6 +83,8 @@ export function ComposerView({
   onFileSelect,
   editor,
   editorContent,
+  placeholder,
+  showPlaceholder = false,
   hideAttach,
   hideEmoji,
   showSend,
@@ -213,14 +217,24 @@ export function ComposerView({
           data-testid={tid.composerInput}
         >
           {editorContent ?? (
-            <ScrollArea
-              viewportClassName={`${isForumThreadBody ? "max-h-60" : "max-h-48"} min-h-6 text-base chat-input-line-height outline-none`}
-            >
-              <EditorContent
-                editor={editor}
-                className="min-h-6 outline-none"
-              />
-            </ScrollArea>
+            <div className="relative">
+              <ScrollArea
+                viewportClassName={`${isForumThreadBody ? "max-h-60" : "max-h-48"} min-h-6 text-base chat-input-line-height outline-none`}
+              >
+                <EditorContent
+                  editor={editor}
+                  className="min-h-6 outline-none"
+                />
+              </ScrollArea>
+              {showPlaceholder && placeholder && (
+                <div
+                  aria-hidden="true"
+                  data-slot="composer-placeholder"
+                  data-placeholder={placeholder}
+                  className="chat-placeholder-overlay text-base select-none"
+                />
+              )}
+            </div>
           )}
         </div>
         {!hideAttach && (
