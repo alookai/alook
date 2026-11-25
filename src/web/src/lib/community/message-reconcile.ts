@@ -1,6 +1,6 @@
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
-import { COMMUNITY_CONTRACT_HEADER, CommunityMessageResourceSchema } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, CommunityMessageResourceSchema, type CommunityMessageRefs } from "@alook/shared"
 import { CancelledError, hashKey, queryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -24,6 +24,24 @@ function isWindowKey(key: QueryKey, initialMode?: "newest") {
 }
 function latest(cache: MessageCache, includeWatermark = true) { return Math.max(0, ...cache.pages.flatMap((page) => [...page.messages.map((message) => message.seq ?? 0), ...(includeWatermark ? [page.latestSeq ?? 0] : [])])) }
 function cursor(cache: MessageCache) { return cache.pages.flatMap((page) => page.newestCursor ? [page.newestCursor] : []).sort().at(-1) ?? null }
+function mergePendingMessageRefs(pages: readonly MessagesReadPage[]): CommunityMessageRefs | undefined {
+  const refPages = pages.flatMap((page) => page.refs ? [page.refs] : [])
+  if (refPages.length === 0) return undefined
+  const servers = new Map<string, CommunityMessageRefs["servers"][number]>()
+  const channels = new Map<string, CommunityMessageRefs["channels"][number]>()
+  const resolvedRefs = new Map<string, CommunityMessageRefs["resolvedRefs"][number]>()
+  for (const refs of refPages) {
+    for (const server of refs.servers) servers.set(server.id, server)
+    for (const channel of refs.channels) channels.set(channel.id, channel)
+    for (const resolved of refs.resolvedRefs) resolvedRefs.set(resolved.ref, resolved)
+  }
+  return {
+    servers: [...servers.values()],
+    channels: [...channels.values()],
+    resolvedRefs: [...resolvedRefs.values()],
+  }
+}
+
 function url(scopeId: string, param: MessagesPageParam, tag: string | null) {
   return buildMessagesUrl(`/api/community/channels/${scopeId}/messages`, param, tag)
 }
@@ -245,7 +263,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scope: GapRepa
             ? [prefetched.page, cached] : [...(cached ? [cached] : []), ...(prefetched ? [prefetched.page] : [])]
           const pending = [refreshed, ...(prefetched ? [prefetched.page] : [])].filter(page => !published.has(page))
           if (pending.length) {
-            await publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), relatedMessages: pending.flatMap(page => page.relatedMessages ?? []), profiles: [...new Map(pending.flatMap(page => page.profiles).map(profile => [profile.id, profile])).values()], proof: { token, signal } })
+            await publishCommunityMessages(queryClient, { channelId: scopeId, messages: pending.flatMap(page => page.messages), relatedMessages: pending.flatMap(page => page.relatedMessages ?? []), profiles: [...new Map(pending.flatMap(page => page.profiles).map(profile => [profile.id, profile])).values()], refs: mergePendingMessageRefs(pending), proof: { token, signal } })
             for (const page of pending) published.add(page)
           }
           queryClient.setQueryData<MessageCache>(key, (cache) => isMessageCache(cache) ? mergeWindow(cache, refreshed, catchUp) : cache)

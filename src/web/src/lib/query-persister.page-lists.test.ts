@@ -315,7 +315,7 @@ describe("actual body membership through IDB and new canonical owners", () => {
     })
     const unsubscribe = observer.subscribe(() => undefined)
     try { await observer.fetchNextPage() } finally { unsubscribe() }
-    expect(load.mock.calls[0][0]).toBe(`/api/community/channels/dm/messages?cursor=${encodeURIComponent(cursor(50))}`)
+    expect(load.mock.calls[0][0]).toBe(`/api/community/channels/dm/messages?cursor=${encodeURIComponent(cursor(50))}&includeRefs=1`)
     expect(owner.client.getQueryData<MessageWindowData>(key)?.pages.map(page => page.messages.length)).toEqual([3, overlap ? 52 : 50])
 
     const restored = await saveAndRestore(owner)
@@ -350,7 +350,7 @@ describe("actual body membership through IDB and new canonical owners", () => {
     })
     const unsubscribe = observer.subscribe(() => undefined)
     try { await observer.fetchPreviousPage() } finally { unsubscribe() }
-    expect(load.mock.calls[0][0]).toBe(`/api/community/channels/post/messages?since=${encodeURIComponent(cursor(175))}`)
+    expect(load.mock.calls[0][0]).toBe(`/api/community/channels/post/messages?since=${encodeURIComponent(cursor(175))}&includeRefs=1`)
     const paginated = owner.client.getQueryData<MessageWindowData>(seeded.resource.windowKey)!
     expect(paginated.pages[0].messages.map(row => row.id)).not.toContain(anchor)
     expect(paginated.pages[1].messages.map(row => row.id)).toContain(anchor)

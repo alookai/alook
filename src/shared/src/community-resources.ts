@@ -213,9 +213,56 @@ export const CommunityResourceBundleSchema = CommunityMessageResourcesSchema.saf
 })
 export type CommunityResourceBundle = z.infer<typeof CommunityResourceBundleSchema>
 
+export const CommunityResolvedChannelRefSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    ref: z.string().min(1),
+    status: z.literal("ready"),
+    serverId: id,
+    channelId: id,
+  }),
+  z.strictObject({
+    ref: z.string().min(1),
+    status: z.enum(["forbidden", "missing"]),
+  }),
+])
+
+export const CommunityMessageRefsSchema = z.strictObject({
+  servers: z.array(CommunityServerResourceSchema),
+  channels: z.array(CommunityChannelResourceSchema),
+  resolvedRefs: z.array(CommunityResolvedChannelRefSchema),
+}).superRefine((refs, ctx) => {
+  const serverIds = new Set(refs.servers.map(row => row.id))
+  const channelById = new Map(refs.channels.map(row => [row.id, row]))
+  const refKeys = new Set(refs.resolvedRefs.map(row => row.ref))
+  if (
+    serverIds.size !== refs.servers.length
+    || channelById.size !== refs.channels.length
+    || refKeys.size !== refs.resolvedRefs.length
+  ) {
+    ctx.addIssue({ code: "custom", message: "Duplicated ref resource" })
+    return
+  }
+  for (const channel of refs.channels) {
+    if (channel.serverId === null || !serverIds.has(channel.serverId)) {
+      ctx.addIssue({ code: "custom", path: ["channels"], message: "Ref channel server missing" })
+    }
+    if (channel.parentChannelId !== null && !channelById.has(channel.parentChannelId)) {
+      ctx.addIssue({ code: "custom", path: ["channels"], message: "Ref channel parent missing" })
+    }
+  }
+  for (const resolved of refs.resolvedRefs) {
+    if (resolved.status !== "ready") continue
+    const channel = channelById.get(resolved.channelId)
+    if (!serverIds.has(resolved.serverId) || !channel || channel.serverId !== resolved.serverId) {
+      ctx.addIssue({ code: "custom", path: ["resolvedRefs"], message: "Resolved ref target missing from resources" })
+    }
+  }
+})
+
 export const CommunityChannelReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema, access: CommunityAccessDecisionSchema })
 export const CommunityMessagesReadSchema = CommunityMessageResourcesSchema.safeExtend({ ...envelope, page: CommunityPageSchema,
   relatedMessages: z.array(CommunityMessageResourceSchema).optional(),
+  refs: CommunityMessageRefsSchema.optional(),
   surfaceReceipt: z.strictObject({ channelId: id, surfaceKind: z.enum(["channel", "forum", "thread", "dm"]) }) }).superRefine(validateRelatedMessageGraph)
 export const CommunityConversationEntryReadSchema = CommunityMessagesReadSchema.safeExtend({
   viewerId: id,
@@ -326,6 +373,8 @@ export type CommunityMessagesRead = z.infer<typeof CommunityMessagesReadSchema>
 export type CommunityConversationEntryRead = z.infer<typeof CommunityConversationEntryReadSchema>
 export type CommunityThreadsRead = z.infer<typeof CommunityThreadsReadSchema>
 export type CommunityMembersRead = z.infer<typeof CommunityMembersReadSchema>
+export type CommunityResolvedChannelRef = z.infer<typeof CommunityResolvedChannelRefSchema>
+export type CommunityMessageRefs = z.infer<typeof CommunityMessageRefsSchema>
 export type CommunityMessageSurfaceReceipt = CommunityMessagesRead["surfaceReceipt"]
 
 export function communityChannelResourceFromStorage(value: unknown): CommunityChannelResource {

@@ -182,7 +182,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockReset().mockResolvedValue(page([{ ...row(100), content: "corrected" }], 101))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages"])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?includeRefs=1"])
       expect(h.ids()).toEqual(["m98", "m99", "m100", "m101"])
       expect(h.registry.collections.messages.get("m100")?.content).toBe("corrected")
     } finally { h.unsubscribe() }
@@ -217,7 +217,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValueOnce(page([{ ...row(100), replyTo: { id: "gone", authorName: "Deleted user", deleted: true } }], 101))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages"])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?includeRefs=1"])
       expect(h.registry.collections.messages.get("m100")?.replyTo).toEqual({ id: "gone", authorName: "Deleted user", deleted: true })
       expect(h.ids()).toEqual(["m98", "m99", "m100", "m101"])
     } finally { h.unsubscribe() }
@@ -229,7 +229,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValueOnce(page([row(100)], 103)).mockResolvedValueOnce(page([row(102), row(103)], 103))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages", `/api/community/channels/c1/messages?${suffix(101)}`])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?includeRefs=1", `/api/community/channels/c1/messages?${suffix(101)}&includeRefs=1`])
       expect(h.ids()).toEqual(["m98", "m99", "m100", "m101", "m102", "m103"])
     } finally { h.unsubscribe() }
   })
@@ -240,7 +240,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValueOnce(page([row(100)], 100)).mockResolvedValueOnce(page([row(102)], 102))
     try {
       await reconcileWindow(h.client, { kind: "channel", scopeId: "c1", serverId: "s1" }, h.key, 103)
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages", `/api/community/channels/c1/messages?${suffix(101)}`])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?includeRefs=1", `/api/community/channels/c1/messages?${suffix(101)}&includeRefs=1`])
       expect(h.ids()).toEqual(["m98", "m99", "m100", "m101", "m102", "m103"])
       expect(h.read().pages[0].hasMoreNewer).toBe(false)
     } finally { h.unsubscribe() }
@@ -267,7 +267,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValue(page([row(0)], 1))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages"])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?includeRefs=1"])
       expect(h.ids()).toEqual(["m0", "m1"])
     } finally { h.unsubscribe() }
   })
@@ -289,7 +289,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValueOnce(page([row(100)], 102)).mockResolvedValueOnce(page([row(99), row(100), row(101), row(102)], 102))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages", `/api/community/channels/c1/messages?${suffix(98)}`])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?includeRefs=1", `/api/community/channels/c1/messages?${suffix(98)}&includeRefs=1`])
       expect(h.ids()).toEqual(["m98", "m99", "m100", "m101", "m102"])
     } finally { h.unsubscribe() }
   })
@@ -306,7 +306,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValueOnce(page([row(100)], 103)).mockResolvedValueOnce(page([row(101), row(102), row(103)], 103))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages", `/api/community/channels/c1/messages?${suffix(100)}`])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?includeRefs=1", `/api/community/channels/c1/messages?${suffix(100)}&includeRefs=1`])
       expect(h.ids()).toEqual(["m98", "m99", "m100", "m101", "m102", "m103"])
     } finally { h.unsubscribe() }
   })
@@ -317,7 +317,7 @@ describe("complete canonical coverage at the existing repair owner", () => {
     load.mockResolvedValueOnce(page([row(100)], 102)).mockResolvedValueOnce(page([row(102)], 102))
     try {
       await reconcileFocusedMessageQueries(h.client, "channel", "c1", "s1")
-      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?tag=bug", `/api/community/channels/c1/messages?tag=bug&${suffix(100)}`])
+      expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/channels/c1/messages?tag=bug&includeRefs=1", `/api/community/channels/c1/messages?tag=bug&${suffix(100)}&includeRefs=1`])
       expect(h.ids()).toEqual(["m98", "m100", "m102"])
     } finally { h.unsubscribe() }
   })

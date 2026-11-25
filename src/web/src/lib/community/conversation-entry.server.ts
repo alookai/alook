@@ -8,6 +8,7 @@ import type { parseCommunityMessageWindow } from "./messages"
 import { readCommunityForumRows } from "./forum-feed.server"
 import { readCommunityThreadsResource } from "./thread-read"
 import { readCommunityMessageResource, readCommunityMessageProfiles } from "./message-payload"
+import { resolveMessagePageRefs } from "./channel-ref-target"
 
 type ConversationEntryInput = {
   viewerId: string
@@ -16,6 +17,7 @@ type ConversationEntryInput = {
   preferTail: boolean
   newAfterSeq?: number
   tag?: string
+  includeRefs?: boolean
 }
 
 export async function readCommunityConversationEntry(db: Database, input: ConversationEntryInput): Promise<
@@ -40,8 +42,16 @@ export async function readCommunityConversationEntry(db: Database, input: Conver
   if (!read.ok) return read
   const openerProfiles = opener ? await readCommunityMessageProfiles(db, [opener.message, ...opener.relatedMessages], readProfiles) : []
   const profiles = [...new Map([...read.page.profiles, ...openerProfiles].map(profile => [profile.id, profile])).values()]
+  const refMessages = input.includeRefs ? [
+    ...(read.page.messages as Array<{ content?: string | null }>),
+    ...(read.page.relatedMessages ?? []),
+    ...(opener ? [opener.message, ...opener.relatedMessages] : []),
+    ...("forumFeed" in read && read.forumFeed ? read.forumFeed.included.messages : []),
+  ] : []
+  const refs = input.includeRefs ? await resolveMessagePageRefs(db, viewerId, refMessages) : undefined
   return { ok: true, entry: CommunityConversationEntryReadSchema.parse({
     ...communityMessagesReadFromPage(channelId, read.page), profiles, viewerId, channel, peer,
+    ...(refs ? { refs } : {}),
     ...(opener ? { opener: opener.message, relatedMessages: [...new Map([...(read.page.relatedMessages ?? []), ...opener.relatedMessages].filter(message => !read.page.messages.some(root => (root as { id: string }).id === message.id) && message.id !== opener.message.id).map(message => [message.id, message])).values()] } : {}),
     ...(parent ? { parent } : {}),
     readState: read.readState, readStateRevision: read.revision, newBoundary: read.newBoundary, selection: read.selection,

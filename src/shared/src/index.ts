@@ -536,6 +536,7 @@ export { computeDiscriminator, parseNameAndTag, formatHandle } from "./lib/discr
 export { validateCommunityName, sanitizeCommunityName } from "./lib/community-name";
 export type { CommunityNameValidation } from "./lib/community-name";
 export { parseInviteToken } from "./lib/invite-link";
+export { extractChannelRefsFromText } from "./lib/channel-ref-syntax";
 export { slugify } from "./lib/slugify";
 
 export { toAlookAddress } from "./utils/email";

@@ -103,19 +103,21 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
   if (rawTag !== null && !tag) return writeError("tag must not be empty", 400)
   if (tag && tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
 
+  const includeRefs = params.get("includeRefs") === "1"
+
   if (params.get("entry") === "1") {
     const boundary = params.get("newAfterSeq")
     const newAfterSeq = boundary === null ? undefined : Number(boundary)
     if (boundary !== null && (!/^(0|[1-9]\d*)$/.test(boundary) || !Number.isSafeInteger(newAfterSeq))) return writeError("invalid New snapshot", 400)
     const result = await readCommunityConversationEntry(db, {
-      viewerId: userId, target: resolved.value, window, tag, preferTail: params.get("window") === "tail", newAfterSeq,
+      viewerId: userId, target: resolved.value, window, tag, preferTail: params.get("window") === "tail", newAfterSeq, includeRefs,
     })
     if (!result.ok) return NextResponse.json({ error: result.error, ...(result.details ? { details: result.details } : {}) }, { status: result.status })
     return writeCommunityConversationEntryRead(result.entry)
   }
 
   const result = await readCommunityMessageWindow(db, {
-    viewerId: userId, target: resolved.value, window, tag, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION,
+    viewerId: userId, target: resolved.value, window, tag, contract: COMMUNITY_RESOURCE_CONTRACT_VERSION, includeRefs,
   })
   if (!result.ok) return NextResponse.json({ error: result.error, details: result.details }, { status: result.status })
   return writeCommunityMessagesRead(channelId, result.page)

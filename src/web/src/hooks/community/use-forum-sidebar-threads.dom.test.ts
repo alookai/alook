@@ -570,7 +570,7 @@ describe("forum sidebar canonical projection", () => {
     await waitFor(() => expect(sidebar.result.current.threads[0]?.title).toBe("Canonical title"))
     let releaseRetained!: (value: SidebarThreadEnvelope) => void
     const retained = new Promise<SidebarThreadEnvelope>((resolve) => { releaseRetained = resolve })
-    apiFetchMock.mockImplementation((url) => url === "/api/community/channels/post-1/messages?entry=1&window=tail" ? Promise.resolve(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: null, lastMessageAt: null, id: "post-1", serverId: "server-1", type: "thread", name: "Canonical title", archived: false, createdAt: new Date().toISOString() })) : retained)
+    apiFetchMock.mockImplementation((url) => url === "/api/community/channels/post-1/messages?entry=1&window=tail&includeRefs=1" ? Promise.resolve(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: null, lastMessageAt: null, id: "post-1", serverId: "server-1", type: "thread", name: "Canonical title", archived: false, createdAt: new Date().toISOString() })) : retained)
     retainId = "post-1"
     sidebar.rerender()
     const route = renderHook(() => {
@@ -584,7 +584,7 @@ describe("forum sidebar canonical projection", () => {
       await waitFor(() => expect(route.result.current.metadata.canRead).toBe(true))
       expect(route.result.current.opener.data?.content).toBe("Canonical title")
       await waitFor(() => expect(apiFetchMock.mock.calls.some(([url]) => new URL(url, "http://localhost").searchParams.get("retainId") === "post-1")).toBe(true))
-      expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/channels/post-1/messages?entry=1&window=tail")).toHaveLength(1)
+      expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/channels/post-1/messages?entry=1&window=tail&includeRefs=1")).toHaveLength(1)
       await waitFor(() => expect(queryClient.getQueryData(conversationEntryOptions(queryClient, { serverId: "server-1", channelId: "post-1" }).queryKey)).toBeDefined())
       expect(isChannelMetadataTokenCurrent(queryClient.getQueryData(conversationEntryOptions(queryClient, { serverId: "server-1", channelId: "post-1" }).queryKey)!.proof)).toBe(true)
     } finally {

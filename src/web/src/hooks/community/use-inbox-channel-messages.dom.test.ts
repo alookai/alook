@@ -59,7 +59,7 @@ describe("read-only Inbox channel messages", () => {
     const view = renderHook(() => useInboxChannelMessages("parent", 5), { wrapper: owner.wrapper })
     await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4"]))
     expect(mocks.api).toHaveBeenCalledOnce()
-    expect(mocks.api.mock.calls[0]![0]).toBe("/api/community/channels/parent/messages")
+    expect(mocks.api.mock.calls[0]![0]).toBe("/api/community/channels/parent/messages?includeRefs=1")
     expect(mocks.api.mock.calls[0]![1]?.method).toBeUndefined()
     expect(mocks.reconcile).not.toHaveBeenCalled()
     for (const channelId of ["parent", "child", "sibling", "dm"]) expect(owner.registry.collections.readStates.get(channelId)?.lastReadSeq).toBe(2)
@@ -107,8 +107,8 @@ describe("read-only Inbox channel messages", () => {
     await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(complete))
     expect(view.result.current.loading).toBe(false)
     expect(mocks.api.mock.calls.map(([path]) => path)).toEqual([
-      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(latestCursor)}`,
-      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(earlierCursor)}`,
+      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(latestCursor)}&includeRefs=1`,
+      `/api/community/channels/parent/messages?cursor=${encodeURIComponent(earlierCursor)}&includeRefs=1`,
     ])
     expect(mocks.api.mock.calls.every(([, options]) => !options?.method)).toBe(true)
     expect(mocks.reconcile).not.toHaveBeenCalled()
@@ -129,7 +129,7 @@ describe("read-only Inbox channel messages", () => {
     await waitFor(() => expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m6"]))
     expect(view.result.current.loading).toBe(false)
     expect(mocks.api.mock.calls.map(([path]) => path)).toEqual([
-      `/api/community/channels/parent/messages?since=${encodeURIComponent(`${row(4).createdAt}|m4`)}`,
+      `/api/community/channels/parent/messages?since=${encodeURIComponent(`${row(4).createdAt}|m4`)}&includeRefs=1`,
     ])
     expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
   })
@@ -149,8 +149,8 @@ describe("read-only Inbox channel messages", () => {
       await act(async () => { await vi.waitFor(() => expect(owner.registry.collections.messages.has("m3")).toBe(true)) })
       await advancePreviewTime(1)
       expect(view.result.current.messages.map(message => message.id)).toEqual(["m3", "m4", "m5"])
-      const earlier = `/api/community/channels/parent/messages?cursor=${encodeURIComponent(cursor)}`
-      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", earlier, earlier])
+      const earlier = `/api/community/channels/parent/messages?cursor=${encodeURIComponent(cursor)}&includeRefs=1`
+      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages?includeRefs=1", earlier, earlier])
       expect(mocks.reconcile).not.toHaveBeenCalled()
       expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
     } finally { vi.useRealTimers() }
@@ -175,7 +175,7 @@ describe("read-only Inbox channel messages", () => {
       await act(async () => { await vi.waitFor(() => expect(owner.registry.collections.messages.has("m3")).toBe(true)) })
       await advancePreviewTime(1)
       expect(view.getByText("Body 3")).toBeVisible()
-      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages", "/api/community/channels/parent/messages"])
+      expect(mocks.api.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/parent/messages?includeRefs=1", "/api/community/channels/parent/messages?includeRefs=1"])
       expect(mocks.reconcile).not.toHaveBeenCalled()
       expect(owner.registry.collections.readStates.get("parent")?.lastReadSeq).toBe(2)
     } finally { vi.useRealTimers() }
