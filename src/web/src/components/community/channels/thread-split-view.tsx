@@ -16,6 +16,7 @@ import styles from "./thread-split-view.module.css"
 const THREAD_SPLIT_PARENT_MIN_WIDTH = 320
 export const THREAD_SPLIT_PANEL_MIN_WIDTH = 360
 export const THREAD_SPLIT_PANEL_MAX_WIDTH = 800
+const THREAD_SPLIT_PANEL_STYLE: CSSProperties = { overflow: "hidden" }
 
 const threadSplitLayoutStorage = {
   getItem: (key: string) => typeof window === "undefined" ? null : window.localStorage.getItem(key),
@@ -74,14 +75,16 @@ export function ThreadSplitView({
       data-layout={layoutPending || resolvingParent ? "pending" : split ? "split" : "full"}
       data-layout-pending={layoutPending || undefined}
       data-community-conversation-subtype={conversationSubtype === "unknown" ? undefined : conversationSubtype}
-      className={cn("relative flex min-h-0 min-w-0 flex-1", styles.layout)}
+      className={cn("relative flex min-h-0 min-w-0 flex-1", styles.layout, layoutPending && styles.pendingLayout)}
       style={{
         "--thread-split-parent-min": `${THREAD_SPLIT_PARENT_MIN_WIDTH}px`,
         "--thread-split-thread-min": `${THREAD_SPLIT_PANEL_MIN_WIDTH}px`,
         "--thread-split-thread-max": `${THREAD_SPLIT_PANEL_MAX_WIDTH}px`,
       } as CSSProperties}
     >
-      <span ref={modeMarkerRef} aria-hidden className={styles.modeMarker} />
+      <div aria-hidden data-thread-split-probe="" className={styles.modeProbe}>
+        <span ref={modeMarkerRef} className={styles.modeMarker} />
+      </div>
       <ResizablePanelGroup
         id="community-thread-split-layout"
         orientation="horizontal"
@@ -108,6 +111,7 @@ export function ThreadSplitView({
           minSize={THREAD_SPLIT_PARENT_MIN_WIDTH}
           disabled={!split || resolvingParent}
           data-layout-hidden={!split && !layoutPending || undefined}
+          style={THREAD_SPLIT_PANEL_STYLE}
           className="flex min-h-0 min-w-0 flex-col"
         >
           {(split || layoutPending) && <section
@@ -137,6 +141,7 @@ export function ThreadSplitView({
           maxSize={THREAD_SPLIT_PANEL_MAX_WIDTH}
           disabled={!split || resolvingParent}
           data-layout-active={!split && !layoutPending || undefined}
+          style={THREAD_SPLIT_PANEL_STYLE}
           className="flex min-h-0 min-w-0 flex-col bg-background"
         >
           <section
