@@ -2364,7 +2364,6 @@
       "source": "src/web/src/components/community/calendar/calendar-skeleton.tsx",
       "application": "Web",
       "candidates": [
-        "CalendarMobileHeader",
         "CalendarPageSkeleton"
       ],
       "kind": "direct",

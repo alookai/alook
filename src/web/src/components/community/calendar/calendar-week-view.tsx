@@ -28,6 +28,7 @@ import {
   CalendarStatusDot,
 } from "./calendar-status"
 import type { CalendarOccurrenceItem } from "./calendar-types"
+import styles from "./calendar.module.css"
 
 const TOTAL_GRID_HEIGHT_PX = WEEK_HOURS.length * WEEK_HOUR_HEIGHT_PX
 
@@ -81,42 +82,53 @@ export function CalendarWeekView({
         <div
           role="tablist"
           aria-label="Days of week"
-          className="grid grid-cols-7 gap-1 rounded-2xl border border-border/80 bg-card p-1.5"
+          className={styles.dayStrip}
         >
           {weekDays.map((day) => {
             const key = localDayKey(day)
             const isSelected = key === selectedDayKey
             const isToday = isSameLocalDay(day, now)
-            const count = byDayKey.get(key)?.length ?? 0
+            const dayItems = byDayKey.get(key) ?? []
             return (
               <button
                 key={key}
                 type="button"
                 role="tab"
                 aria-selected={isSelected}
+                data-selected={isSelected || undefined}
+                data-today={isToday || undefined}
                 onClick={() => onSelectDay(day)}
                 className={cn(
-                  "flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
-                  isSelected
-                    ? "bg-primary text-primary-foreground"
-                    : isToday
-                      ? "bg-accent/60 text-primary"
-                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                  styles.dayKey,
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  !isSelected && isToday && "text-primary",
                 )}
               >
-                <span className="text-[11px] font-medium uppercase">{formatWeekdayShort(day)}</span>
-                <span className="font-mono text-sm font-semibold tabular-nums">{day.getDate()}</span>
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    count > 0
-                      ? isSelected
-                        ? "bg-primary-foreground"
-                        : "bg-primary"
-                      : "bg-transparent",
-                  )}
-                />
+                <span className="text-[10px] font-semibold tracking-wider uppercase opacity-80">
+                  {formatWeekdayShort(day)}
+                </span>
+                <span className="font-mono text-sm font-semibold tabular-nums leading-none">
+                  {day.getDate()}
+                </span>
+                <span aria-hidden className="flex h-1.5 items-center gap-0.5">
+                  {dayItems.slice(0, 3).map((item) => {
+                    const runStatus = item.runStatus ?? item.event.lastExecution?.status ?? null
+                    const degraded = !item.event.sourceMessage.accessible || runStatus === "blocked_access"
+                    return (
+                      <CalendarStatusDot
+                        key={item.occurrenceKey}
+                        status={runStatus}
+                        paused={item.event.paused}
+                        degraded={degraded}
+                        size="sm"
+                        className={cn(
+                          "size-1",
+                          isSelected && isToday && "bg-primary-foreground/90",
+                        )}
+                      />
+                    )
+                  })}
+                </span>
               </button>
             )
           })}
@@ -150,12 +162,10 @@ export function CalendarWeekView({
                   data-testid={tid.calendarEvent(event.id)}
                   onClick={() => onSelectOccurrence(occurrence)}
                   className={cn(
-                    "flex min-h-11 w-full flex-col gap-2.5 rounded-xl border bg-card p-3.5 text-left transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none",
-                    degraded
-                      ? "border-warning/35 bg-warning/6 hover:bg-warning/10"
-                      : event.paused
-                        ? "border-dashed border-border/80 opacity-80"
-                        : "border-border/80",
+                    styles.eventCard,
+                    "flex min-h-11 w-full flex-col gap-2.5 rounded-2xl p-3.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                    degraded && "border-warning/35 bg-warning/6 hover:bg-warning/10",
+                    event.paused && "border-dashed opacity-80",
                     selectedOccurrenceKey === occurrence.occurrenceKey && "ring-2 ring-ring",
                   )}
                 >
@@ -194,32 +204,34 @@ export function CalendarWeekView({
         </div>
       </div>
 
-      <div className="hidden min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card sm:flex">
-        <div className="grid shrink-0 grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-border/70 bg-card">
-          <div
-            title={tzFull}
-            className="flex items-end justify-end border-r border-border/50 px-2 pb-2 font-mono text-[10px] leading-none text-muted-foreground/80 select-none"
-          >
-            {tzShort}
+      <div className={cn(styles.gridShell, "hidden min-h-0 flex-1 flex-col overflow-hidden sm:flex")}>
+        <div className={cn(styles.gridHeader, "grid shrink-0 grid-cols-[3.75rem_repeat(7,minmax(0,1fr))] border-b border-border/75")}>
+          <div className="flex items-end justify-center border-r border-border/50 px-1 pb-2.5 select-none">
+            <span
+              title={tzFull}
+              className="rounded-md bg-muted/90 px-1.5 py-0.5 font-mono text-[10px] leading-none font-medium text-muted-foreground"
+            >
+              {tzShort}
+            </span>
           </div>
           {weekDays.map((day) => {
             const key = localDayKey(day)
             const isToday = isSameLocalDay(day, now)
             const isSelected = key === selectedDayKey
-            const count = byDayKey.get(key)?.length ?? 0
+            const dayItems = byDayKey.get(key) ?? []
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => onSelectDay(day)}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-1 border-r border-border/40 px-1.5 py-2.5 text-center transition-colors duration-150 last:border-r-0 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset motion-reduce:transition-none",
-                  isToday && "bg-accent/25",
+                  "flex flex-col items-center justify-center gap-1 border-r border-border/45 px-1.5 py-3 text-center transition-colors duration-150 last:border-r-0 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset motion-reduce:transition-none",
+                  isToday && "bg-primary/6 dark:bg-primary/10",
                 )}
               >
                 <span
                   className={cn(
-                    "text-[11px] font-medium tracking-wider uppercase",
+                    "text-[10px] font-semibold tracking-widest uppercase",
                     isToday ? "text-primary" : "text-muted-foreground",
                   )}
                 >
@@ -227,27 +239,32 @@ export function CalendarWeekView({
                 </span>
                 <span
                   className={cn(
-                    "grid size-8 place-items-center rounded-full font-mono text-sm font-medium tabular-nums transition-colors",
+                    "grid size-8 place-items-center rounded-full font-mono text-[15px] font-semibold tabular-nums transition-colors",
                     isToday
-                      ? "bg-primary font-semibold text-primary-foreground"
+                      ? styles.todayDisc
                       : isSelected
-                        ? "bg-muted font-semibold text-foreground"
+                        ? "bg-card text-foreground ring-1 ring-border"
                         : "text-foreground",
                   )}
                 >
                   {day.getDate()}
                 </span>
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-1 rounded-full",
-                    count > 0
-                      ? isToday
-                        ? "bg-primary"
-                        : "bg-muted-foreground/60"
-                      : "bg-transparent",
-                  )}
-                />
+                <span aria-hidden className="flex h-1.5 items-center gap-1">
+                  {dayItems.slice(0, 3).map((item) => {
+                    const runStatus = item.runStatus ?? item.event.lastExecution?.status ?? null
+                    const degraded = !item.event.sourceMessage.accessible || runStatus === "blocked_access"
+                    return (
+                      <CalendarStatusDot
+                        key={item.occurrenceKey}
+                        status={runStatus}
+                        paused={item.event.paused}
+                        degraded={degraded}
+                        size="sm"
+                        className="size-1.25"
+                      />
+                    )
+                  })}
+                </span>
               </button>
             )
           })}
@@ -256,17 +273,17 @@ export function CalendarWeekView({
         <ScrollArea
           viewportRef={scrollViewportRef}
           className="min-h-0 flex-1"
-          viewportClassName="h-[calc(100dvh-14.5rem)] min-h-104 max-h-192"
+          viewportClassName="h-[calc(100dvh-11.5rem)] min-h-108 max-h-200"
         >
           <div
-            className="relative grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))]"
+            className="relative grid grid-cols-[3.75rem_repeat(7,minmax(0,1fr))]"
             style={{ height: TOTAL_GRID_HEIGHT_PX }}
           >
             <div className="relative border-r border-border/50 bg-card select-none">
               {WEEK_HOURS.map((hour) => (
                 <div
                   key={hour}
-                  className="relative pr-2 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80"
+                  className="relative pr-2.5 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80"
                   style={{ height: WEEK_HOUR_HEIGHT_PX }}
                 >
                   {hour > 0 ? (
@@ -286,7 +303,7 @@ export function CalendarWeekView({
                   key={key}
                   className={cn(
                     "relative border-r border-border/40 last:border-r-0",
-                    isToday && "bg-accent/15",
+                    isToday && "bg-primary/4 dark:bg-primary/7",
                   )}
                 >
                   {WEEK_HOURS.map((hour) => (

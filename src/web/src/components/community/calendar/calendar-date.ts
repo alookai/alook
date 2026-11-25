@@ -85,6 +85,25 @@ export function formatWeekRangeLabel(days: readonly Date[]): string {
   return `${full.format(first)} – ${full.format(last)}`
 }
 
+export function formatMonthHeadingParts(days: readonly Date[], anchorDate: Date): {
+  month: string
+  monthShort: string
+  year: string
+  rangeShort: string
+} {
+  const first = days[0] ?? anchorDate
+  const last = days[days.length - 1] ?? anchorDate
+  const sameYear = first.getFullYear() === last.getFullYear()
+  const sameMonth = sameYear && first.getMonth() === last.getMonth()
+  const month = new Intl.DateTimeFormat(undefined, { month: "long" }).format(anchorDate)
+  const monthShort = new Intl.DateTimeFormat(undefined, { month: "short" }).format(anchorDate)
+  const year = String(anchorDate.getFullYear())
+  const rangeShort = sameMonth
+    ? `${new Intl.DateTimeFormat(undefined, { month: "short" }).format(first)} ${first.getDate()} – ${last.getDate()}`
+    : `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(first)} – ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(last)}`
+  return { month, monthShort, year, rangeShort }
+}
+
 export function formatWeekdayShort(date: Date): string {
   return new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date)
 }
