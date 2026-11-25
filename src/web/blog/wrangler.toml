@@ -23,7 +23,29 @@ directory = ".open-next/assets"
 binding = "ASSETS"
 html_handling = "none"
 not_found_handling = "none"
-run_worker_first = true
+run_worker_first = [
+  "/*",
+  "!/_next/static/*",
+  "!/blog-static/_next/static/*",
+  "!/blog/_generated/*",
+  "!/blog/*.webp",
+  "!/blog/*.png",
+  "!/blog/*.jpg",
+  "!/blog/*.jpeg",
+  "!/blog/*.svg",
+  "!/blog/*.md",
+  "!/usecases/*.webp",
+  "!/usecases/*.png",
+  "!/usecases/*.jpg",
+  "!/usecases/*.jpeg",
+  "!/usecases/*.svg",
+  "!/fonts/*",
+  "!/alook.svg",
+  "!/apple-touch-icon.png",
+  "!/icon-192.png",
+  "!/favicon.ico",
+  "!/manifest.json",
+]
 
 [[routes]]
 pattern = "alook.ai/blog*"

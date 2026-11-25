@@ -8,6 +8,7 @@ import gonePaths from "./src/lib/blog/gone.json";
 const retiredArticlePaths = new Set(gonePaths);
 
 const MANIFEST_PATH = "/internal/blog-discovery";
+const IMMUTABLE_STATIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 async function fetchOpenNext(
 	request: Request,
@@ -33,6 +34,16 @@ export default class BlogWorker extends WorkerEntrypoint<BlogCloudflareEnv> {
 		}
 		if (pathname === MANIFEST_PATH) return new Response("Not Found", { status: 404 });
 		const response = await fetchOpenNext(request, this.env, this.ctx);
+		if (
+			response.status === 200
+			&& (request.method === "GET" || request.method === "HEAD")
+			&& (pathname.startsWith("/blog-static/_next/static/") || pathname.startsWith("/_next/static/"))
+			&& !response.headers.has("Cache-Control")
+		) {
+			const headers = new Headers(response.headers);
+			headers.set("Cache-Control", IMMUTABLE_STATIC_CACHE_CONTROL);
+			return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+		}
 		const publicDocument = pathname === "/blog" || /^\/(?:tutorials|usecases)(?:\/[^/.]+)?\/?$/.test(pathname) || /^\/blog\/[^/.]+\/?$/.test(pathname);
 		return finalizePublicWorkerResponse(response, publicDocument, request);
 	}
