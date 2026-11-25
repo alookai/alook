@@ -1,0 +1,329 @@
+/* Alook Technostalgia calendar controls & surfaces.
+ * Built strictly on Alook's existing --tn-* and semantic theme tokens so light
+ * (warm paper / beige plastic / CD blue) and dark (pure black / glass / neon)
+ * stay in lockstep without duplicating theme palettes. */
+
+.navTray {
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--muted);
+  box-shadow:
+    inset 0 1.5px 2px rgb(60 45 20 / 14%),
+    inset 0 -1px 0 rgb(255 255 255 / 50%);
+}
+
+:global(.dark) .navTray,
+:global([data-tn-mode="dark"]) .navTray {
+  background: #070707;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 80%),
+    inset 0 0 0 1px rgb(255 255 255 / 7%);
+}
+
+.navStep {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out,
+    transform 90ms ease-out;
+}
+
+.navStep:hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+
+.navStep:active {
+  transform: scale(0.92);
+}
+
+.todayKey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding-inline: 12px;
+  border-radius: 999px;
+  background: linear-gradient(var(--tn-paper-raised, var(--card)), color-mix(in oklab, var(--muted) 75%, var(--card)));
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 1.5px 0 color-mix(in oklab, var(--border) 95%, rgb(120 95 60 / 35%)),
+    0 2px 4px rgb(60 45 20 / 12%);
+  transition:
+    transform 90ms ease-out,
+    box-shadow 120ms ease-out,
+    filter 140ms ease-out;
+}
+
+.todayKey:hover {
+  filter: brightness(1.02);
+}
+
+.todayKey:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 2px rgb(60 45 20 / 16%),
+    0 0 0 transparent;
+}
+
+:global(.dark) .todayKey,
+:global([data-tn-mode="dark"]) .todayKey {
+  background:
+    radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 22%), transparent 65%),
+    #161618;
+  color: #f2f5ff;
+  box-shadow:
+    inset 0 0 0 1px rgb(140 160 220 / 28%),
+    0 1.5px 0 rgb(140 160 220 / 24%),
+    0 4px 12px -4px rgb(91 124 255 / 26%);
+}
+
+:global(.dark) .todayKey:active,
+:global([data-tn-mode="dark"]) .todayKey:active {
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 60%),
+    inset 0 0 0 1px rgb(140 160 220 / 32%);
+}
+
+/* Creator filter pill harmonizes SelectTrigger with the recessed pill deck */
+.filterPill {
+  height: 34px !important;
+  border-radius: 999px !important;
+  padding-inline: 12px 10px !important;
+  border: 0 !important;
+  background: var(--muted) !important;
+  box-shadow:
+    inset 0 1.5px 2px rgb(60 45 20 / 12%),
+    inset 0 -1px 0 rgb(255 255 255 / 50%) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  transition: background-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+
+.filterPill:hover {
+  background: color-mix(in oklab, var(--muted) 84%, var(--card)) !important;
+}
+
+:global(.dark) .filterPill,
+:global([data-tn-mode="dark"]) .filterPill {
+  background: #0b0b0c !important;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 80%),
+    inset 0 0 0 1px rgb(255 255 255 / 8%) !important;
+}
+
+:global(.dark) .filterPill:hover,
+:global([data-tn-mode="dark"]) .filterPill:hover {
+  background: #121215 !important;
+}
+
+/* Interactive month/range hero trigger */
+.monthTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px 2px 2px;
+  margin-left: -2px;
+  border-radius: 12px;
+  transition: background-color 140ms ease-out;
+}
+
+.monthTrigger:hover,
+.monthTrigger[data-open="true"] {
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+}
+
+.monthChevron {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  transition: transform 160ms ease-out, background-color 140ms ease-out, color 140ms ease-out;
+}
+
+.monthTrigger:hover .monthChevron,
+.monthTrigger[data-open="true"] .monthChevron {
+  color: var(--foreground);
+}
+
+.monthTrigger[data-open="true"] .monthChevron {
+  transform: rotate(180deg);
+}
+
+/* Mobile 7-day recessed tactile strip */
+.dayStrip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  padding: 5px;
+  border-radius: 18px;
+  background: var(--muted);
+  box-shadow:
+    inset 0 1.5px 2px rgb(60 45 20 / 14%),
+    inset 0 -1px 0 rgb(255 255 255 / 55%);
+}
+
+:global(.dark) .dayStrip,
+:global([data-tn-mode="dark"]) .dayStrip {
+  background: #070707;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 85%),
+    inset 0 0 0 1px rgb(255 255 255 / 7%);
+}
+
+.dayKey {
+  display: flex;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 13px;
+  padding: 5px 2px;
+  color: var(--muted-foreground);
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out,
+    box-shadow 140ms ease-out,
+    transform 90ms ease-out;
+}
+
+.dayKey:active {
+  transform: scale(0.95);
+}
+
+.dayKey[data-selected="true"] {
+  background: linear-gradient(var(--tn-paper-raised, var(--card)), color-mix(in oklab, var(--muted) 70%, var(--card)));
+  color: var(--foreground);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 1.5px 0 color-mix(in oklab, var(--border) 95%, rgb(120 95 60 / 35%)),
+    0 3px 6px -2px rgb(60 45 20 / 16%);
+}
+
+.dayKey[data-selected="true"][data-today="true"] {
+  background: linear-gradient(color-mix(in oklab, var(--primary) 86%, white), var(--primary));
+  color: var(--primary-foreground);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 1.5px 0 var(--tn-blue-side, var(--primary)),
+    0 4px 10px -3px color-mix(in oklab, var(--primary) 50%, transparent);
+}
+
+:global(.dark) .dayKey[data-selected="true"],
+:global([data-tn-mode="dark"]) .dayKey[data-selected="true"] {
+  background:
+    radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 26%), transparent 65%),
+    #16161a;
+  color: #f2f5ff;
+  box-shadow:
+    inset 0 0 0 1px rgb(140 160 220 / 34%),
+    0 4px 12px -4px rgb(91 124 255 / 32%);
+}
+
+:global(.dark) .dayKey[data-selected="true"][data-today="true"],
+:global([data-tn-mode="dark"]) .dayKey[data-selected="true"][data-today="true"] {
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgb(150 175 255 / 28%), transparent 65%),
+    var(--primary);
+  color: #f4f7fc;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 24%),
+    0 0 16px -2px rgb(91 124 255 / 55%);
+}
+
+/* Desktop week grid outer shell & today disc */
+.gridShell {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%);
+}
+
+:global(.dark) .gridShell,
+:global([data-tn-mode="dark"]) .gridShell {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
+}
+
+.gridHeader {
+  background: color-mix(in oklab, var(--muted) 42%, var(--card));
+}
+
+:global(.dark) .gridHeader,
+:global([data-tn-mode="dark"]) .gridHeader {
+  background: color-mix(in oklab, #ffffff 2.5%, var(--card));
+}
+
+.todayDisc {
+  background: linear-gradient(color-mix(in oklab, var(--primary) 88%, white), var(--primary));
+  color: var(--primary-foreground);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 2px 6px -2px color-mix(in oklab, var(--primary) 55%, transparent);
+}
+
+:global(.dark) .todayDisc,
+:global([data-tn-mode="dark"]) .todayDisc {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 25%),
+    0 0 14px -2px rgb(91 124 255 / 60%);
+}
+
+/* Tactile event cards in Agenda & Mobile list */
+.eventCard {
+  border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+  background: var(--card);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%);
+  transition:
+    background-color 140ms ease-out,
+    border-color 140ms ease-out,
+    transform 110ms ease-out;
+}
+
+.eventCard:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--foreground) 18%, var(--border));
+}
+
+.eventCard:active {
+  transform: translateY(0.5px);
+}
+
+:global(.dark) .eventCard,
+:global([data-tn-mode="dark"]) .eventCard {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navStep,
+  .todayKey,
+  .filterPill,
+  .monthTrigger,
+  .monthChevron,
+  .dayKey,
+  .eventCard {
+    transition: none;
+  }
+  .eventCard:hover,
+  .eventCard:active,
+  .todayKey:active,
+  .dayKey:active,
+  .navStep:active {
+    transform: none;
+  }
+}

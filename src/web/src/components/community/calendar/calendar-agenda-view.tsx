@@ -9,6 +9,7 @@ import { CalendarActorAvatar } from "./calendar-actor"
 import {
   formatAgendaDayLabel,
   formatTimeRange,
+  formatWeekdayShort,
   groupOccurrencesByDay,
 } from "./calendar-date"
 import {
@@ -18,6 +19,7 @@ import {
   CalendarStatusDot,
 } from "./calendar-status"
 import type { CalendarOccurrenceItem } from "./calendar-types"
+import styles from "./calendar.module.css"
 
 export function CalendarAgendaView({
   occurrences,
@@ -48,24 +50,37 @@ export function CalendarAgendaView({
     <div data-testid={tid.calendarAgenda} className="flex flex-col gap-6 sm:gap-7">
       {groups.map((group) => {
         const heading = formatAgendaDayLabel(group.date, now)
+        const monthShort = new Intl.DateTimeFormat(undefined, { month: "short" }).format(group.date)
         return (
           <section
             key={group.dayKey}
             aria-label={`${heading.primary} ${heading.secondary}`}
-            className="grid min-w-0 gap-3 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-5"
+            className="grid min-w-0 gap-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-5"
           >
-            <div className="flex items-baseline gap-2 sm:flex-col sm:gap-0.5 sm:pt-3">
-              <h2
+            <div className="flex items-center gap-3 sm:items-start sm:pt-2">
+              <div
                 className={cn(
-                  "text-sm font-semibold",
-                  heading.isToday ? "text-primary" : "text-foreground",
+                  "grid size-10 shrink-0 place-items-center rounded-xl font-mono text-lg font-semibold tabular-nums",
+                  heading.isToday
+                    ? styles.todayDisc
+                    : "bg-muted/80 text-foreground",
                 )}
               >
-                {heading.primary}
-              </h2>
-              <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                {heading.secondary}
-              </span>
+                {group.date.getDate()}
+              </div>
+              <div className="flex min-w-0 flex-col">
+                <h2
+                  className={cn(
+                    "text-sm font-semibold leading-tight",
+                    heading.isToday ? "text-primary" : "text-foreground",
+                  )}
+                >
+                  {heading.primary}
+                </h2>
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {formatWeekdayShort(group.date)}, {monthShort}
+                </span>
+              </div>
             </div>
 
             <div className="flex min-w-0 flex-col gap-2.5">
@@ -80,12 +95,10 @@ export function CalendarAgendaView({
                     data-testid={tid.calendarEvent(event.id)}
                     onClick={() => onSelectOccurrence(occurrence)}
                     className={cn(
-                      "flex min-h-11 w-full flex-col gap-2.5 rounded-xl border bg-card p-3.5 text-left transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transition-none sm:p-4",
-                      degraded
-                        ? "border-warning/35 bg-warning/6 hover:bg-warning/10"
-                        : event.paused
-                          ? "border-dashed border-border/80 opacity-80"
-                          : "border-border/80",
+                      styles.eventCard,
+                      "flex min-h-11 w-full flex-col gap-2.5 rounded-2xl p-3.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:p-4",
+                      degraded && "border-warning/35 bg-warning/6 hover:bg-warning/10",
+                      event.paused && "border-dashed opacity-80",
                       selectedOccurrenceKey === occurrence.occurrenceKey && "ring-2 ring-ring",
                     )}
                   >
