@@ -43,6 +43,7 @@ describe("Composer first-character dictation & composition stability", () => {
     expect(initialOverlay).not.toBeNull()
     expect(initialOverlay).toHaveAttribute("aria-hidden", "true")
     expect(initialOverlay).toHaveAttribute("data-placeholder", "Message /general")
+    expect(initialOverlay).toHaveAttribute("data-visible", "true")
     expect(initialOverlay).toHaveClass("chat-placeholder-overlay")
     expect(initialOverlay?.textContent).toBe("")
     expect(composerInput.textContent).toBe("")
@@ -55,6 +56,7 @@ describe("Composer first-character dictation & composition stability", () => {
     const setPropsSpy = vi.spyOn(editor.view, "setProps")
     const updateStateSpy = vi.spyOn(editor.view, "updateState")
     const paragraphAttrMutations: string[] = []
+    const placeholderRemovals: Node[] = []
     const observer = new MutationObserver((records) => {
       for (const record of records) {
         if (record.type === "attributes" && record.attributeName) {
@@ -62,13 +64,24 @@ describe("Composer first-character dictation & composition stability", () => {
         }
       }
     })
+    const wrapperObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const removed of record.removedNodes) {
+          if (removed === initialOverlay) {
+            placeholderRemovals.push(removed)
+          }
+        }
+      }
+    })
     observer.observe(paragraph, { attributes: true })
+    wrapperObserver.observe(composerInput, { childList: true, subtree: true })
 
     try {
       await act(async () => {
         fireEvent.compositionStart(editable)
       })
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBeNull()
+      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(initialOverlay)
+      expect(initialOverlay).toHaveAttribute("data-visible", "false")
       expect(setOptionsSpy).not.toHaveBeenCalled()
       expect(setPropsSpy).not.toHaveBeenCalled()
       expect(updateStateSpy).not.toHaveBeenCalled()
@@ -84,7 +97,8 @@ describe("Composer first-character dictation & composition stability", () => {
       expect(setOptionsSpy).not.toHaveBeenCalled()
       expect(setPropsSpy).not.toHaveBeenCalled()
       expect(updateStateSpy).not.toHaveBeenCalled()
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBeNull()
+      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(initialOverlay)
+      expect(initialOverlay).toHaveAttribute("data-visible", "false")
       expect(editable).toHaveFocus()
       expect(paragraph.getAttribute("class")).toBeNull()
       expect(paragraph.getAttribute("data-placeholder")).toBeNull()
@@ -95,38 +109,40 @@ describe("Composer first-character dictation & composition stability", () => {
       expect(setOptionsSpy).not.toHaveBeenCalled()
       expect(setPropsSpy).not.toHaveBeenCalled()
       expect(updateStateSpy).not.toHaveBeenCalled()
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBeNull()
+      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(initialOverlay)
+      expect(initialOverlay).toHaveAttribute("data-visible", "false")
 
-      // Clear content -> placeholder reappears cleanly with empty composerInput textContent.
+      // Clear content -> placeholder becomes visible again cleanly with empty composerInput textContent.
       await act(async () => {
         editor.commands.clearContent()
         updateStateSpy.mockClear()
       })
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]'))
-        .toHaveAttribute("data-placeholder", "Message /general")
+      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(initialOverlay)
+      expect(initialOverlay).toHaveAttribute("data-placeholder", "Message /general")
+      expect(initialOverlay).toHaveAttribute("data-visible", "true")
       expect(composerInput.textContent).toBe("")
       expect(setOptionsSpy).not.toHaveBeenCalled()
       expect(setPropsSpy).not.toHaveBeenCalled()
       expect(updateStateSpy).not.toHaveBeenCalled()
 
-      // Empty compositionstart -> hides overlay; empty compositionend -> restores overlay.
+      // Empty compositionstart -> hides overlay via CSS; empty compositionend -> restores visibility.
       await act(async () => {
         fireEvent.compositionStart(editable)
       })
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBeNull()
+      expect(initialOverlay).toHaveAttribute("data-visible", "false")
       await act(async () => {
         fireEvent.compositionEnd(editable)
       })
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]'))
-        .toHaveAttribute("data-placeholder", "Message /general")
+      expect(initialOverlay).toHaveAttribute("data-visible", "true")
       expect(composerInput.textContent).toBe("")
 
       // Dynamic placeholder prop updates overlay + aria-label without calling setOptions.
       await act(async () => {
         view.rerender(createElement(Composer, composerProps({ placeholder: "Ask anything" })))
       })
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]'))
-        .toHaveAttribute("data-placeholder", "Ask anything")
+      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(initialOverlay)
+      expect(initialOverlay).toHaveAttribute("data-placeholder", "Ask anything")
+      expect(initialOverlay).toHaveAttribute("data-visible", "true")
       expect(composerInput.textContent).toBe("")
       expect(editable).toHaveAttribute("aria-label", "Ask anything")
       expect(setOptionsSpy).not.toHaveBeenCalled()
@@ -137,8 +153,60 @@ describe("Composer first-character dictation & composition stability", () => {
         await Promise.resolve()
       })
       expect(paragraphAttrMutations).toEqual([])
+      expect(placeholderRemovals).toEqual([])
     } finally {
       observer.disconnect()
+      wrapperObserver.disconnect()
+      view.unmount()
+    }
+  })
+
+  it("adopts a browser-inserted 1st-character Text node in-place without removing it or calling Selection.collapse", async () => {
+    const view = render(createElement(Composer, composerProps()))
+    await waitFor(() => {
+      expect(view.container.querySelector(".tiptap p")).not.toBeNull()
+    })
+
+    const editable = view.container.querySelector<TiptapEditorHTMLElement>(".tiptap")!
+    const editor = editable.editor!
+    const paragraph = editable.querySelector("p")!
+    editable.focus()
+
+    // Simulate WebKit/Chromium inserting a direct #text("你") into empty <p> and placing
+    // the DOM selection at offset 1 on that browser-owned Text node before ProseMirror flushes.
+    const browserTextNode = document.createTextNode("你")
+    paragraph.replaceChildren(browserTextNode)
+    const selection = window.getSelection()!
+    selection.collapse(browserTextNode, 1)
+
+    const collapseSpy = vi.spyOn(Selection.prototype, "collapse")
+    const removeAllRangesSpy = vi.spyOn(Selection.prototype, "removeAllRanges")
+    const removedTextNodes: Node[] = []
+    const textObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            removedTextNodes.push(node)
+          }
+        }
+      }
+    })
+    textObserver.observe(paragraph, { childList: true })
+
+    try {
+      await act(async () => {
+        editor.view.dispatch(editor.state.tr.insertText("你", 1, 1))
+      })
+      expect(removedTextNodes).toEqual([])
+      expect(paragraph.firstChild).toBe(browserTextNode)
+      expect((browserTextNode as unknown as { pmViewDesc?: unknown }).pmViewDesc).toBeDefined()
+      expect(collapseSpy).not.toHaveBeenCalled()
+      expect(removeAllRangesSpy).not.toHaveBeenCalled()
+      expect(editor.getText()).toBe("你")
+    } finally {
+      textObserver.disconnect()
+      collapseSpy.mockRestore()
+      removeAllRangesSpy.mockRestore()
       view.unmount()
     }
   })
@@ -162,8 +230,9 @@ describe("Composer first-character dictation & composition stability", () => {
     const editable = view.container.querySelector<TiptapEditorHTMLElement>(".tiptap")!
     const editor = editable.editor!
     const paragraph = editable.querySelector("p")!
-    expect(view.container.querySelector('[data-slot="composer-placeholder"]'))
-      .toHaveAttribute("data-placeholder", "What do you want to discuss?")
+    const overlay = view.container.querySelector('[data-slot="composer-placeholder"]')
+    expect(overlay).toHaveAttribute("data-placeholder", "What do you want to discuss?")
+    expect(overlay).toHaveAttribute("data-visible", "true")
     expect(view.getByTestId(tid.composerInput).textContent).toBe("")
 
     const setOptionsSpy = vi.spyOn(editor, "setOptions")
@@ -179,7 +248,8 @@ describe("Composer first-character dictation & composition stability", () => {
       expect(setOptionsSpy).not.toHaveBeenCalled()
       expect(setPropsSpy).not.toHaveBeenCalled()
       expect(updateStateSpy).not.toHaveBeenCalled()
-      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBeNull()
+      expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(overlay)
+      expect(overlay).toHaveAttribute("data-visible", "false")
       expect(paragraph.getAttribute("class")).toBeNull()
       expect(paragraph.getAttribute("data-placeholder")).toBeNull()
       expect(editable).toHaveFocus()

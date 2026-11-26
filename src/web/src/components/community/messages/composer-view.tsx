@@ -226,11 +226,12 @@ export function ComposerView({
                   className="min-h-6 outline-none"
                 />
               </ScrollArea>
-              {showPlaceholder && placeholder && (
+              {placeholder && (
                 <div
                   aria-hidden="true"
                   data-slot="composer-placeholder"
                   data-placeholder={placeholder}
+                  data-visible={showPlaceholder ? "true" : "false"}
                   className="chat-placeholder-overlay text-base select-none"
                 />
               )}

@@ -3122,7 +3122,7 @@
 }
 
 :global(body).theme:has([data-community-shell]) :global(.tiptap) p[class~="is-editor-empty"]:first-child::before,
-:global(body).theme:has([data-community-shell]) :global(.chat-placeholder-overlay) {
+:global(body).theme:has([data-community-shell]) :global(.chat-placeholder-overlay):not([data-visible="false"]) {
   color: var(--muted-foreground);
   opacity: 1;
 }
