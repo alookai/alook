@@ -32,6 +32,8 @@ describe("findWakeCandidates", () => {
     instruction: "Own triage",
     machineId: "m1",
     runtime: "claude",
+    isBot: true,
+    deletedAt: null,
     lastReadSeq: 0,
     ...overrides,
   });
@@ -128,13 +130,16 @@ describe("findWakeCandidates", () => {
   it("issues exactly one db.select call — no notification-setting/mention lookups", async () => {
     const db = createSelectMock([
       row(),
+      row({ botUserId: "human_1", isBot: false }),
+      row({ botUserId: "deleted_bot", deletedAt: "2026-01-01T00:00:00.000Z" }),
     ]);
     const result = await findWakeCandidates(db as never, {
-      recipients: ["bot1"],
+      recipients: ["bot1", "human_1", "deleted_bot"],
       channelId: "c1",
       newSeq: 1,
     });
     expect(result).toEqual([candidate]);
-    expect((db.select as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    // 1 outer candidate select + 1 jsonTextSet subquery builder.
+    expect((db.where as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
   });
 });

@@ -30,7 +30,6 @@ const invites = z.object({ invites: z.array(invite), observed, auxiliaryReadEpoc
   .refine(value => new Set(value.invites.map(row => row.code)).size === value.invites.length)
 export const inviteInfoReadSchema = z.object({ serverId: id, serverName: id, serverIcon: z.string().nullable(), memberCount: z.number().int().nonnegative(), observed, auxiliaryReadEpoch })
 
-export type MemberIdentity = z.infer<typeof identity>
 export type MemberWindow = z.infer<typeof memberPage>
 export type MembersWindowCache = InfiniteData<MemberWindow, string | null | undefined>
 export type ChannelRosterWindow = z.infer<typeof channelRoster>

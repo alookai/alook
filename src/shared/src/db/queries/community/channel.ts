@@ -1,6 +1,6 @@
 import { readServerRailSnapshot } from "./server-rail";
 import { sortServerRailRows } from "../../../community-server-rail";
-import { eq, and, asc, desc, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
+import { eq, and, asc, desc, isNotNull, isNull, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import {
   communityChannel,
@@ -147,15 +147,15 @@ export async function filterChannelReadableUserIds(
   userIds: readonly string[],
 ): Promise<string[]> {
   const ids = [...new Set(userIds)];
-  const batches = chunk(ids, D1_MAX_IN_PARAMS).map((part) => db
+  if (ids.length === 0) return [];
+  const rows = await db
     .select({ userId: user.id })
     .from(communityChannel)
-    .innerJoin(user, inArray(user.id, part))
+    .innerJoin(user, inArray(user.id, jsonTextSet(db, ids)))
     .where(and(
       eq(communityChannel.id, channelId),
       channelReadableSql(user.id, CHANNEL_COLUMNS),
-    )));
-  const rows = (await Promise.all(batches)).flat();
+    ));
   const readable = new Set(rows.map((row) => row.userId));
   return ids.filter((id) => readable.has(id));
 }
@@ -452,11 +452,16 @@ export async function getThreadChannelByParentMessage(
   return row ? row : null;
 }
 
+export const DEFAULT_CHILD_CHANNELS_LIMIT = 100;
+export const MAX_CHILD_CHANNELS_LIMIT = 200;
+export type ChildChannelCursor = { activityAt: string; id: string };
+
 export async function listChildChannels(
   db: Database,
   parentChannelId: string,
-  opts?: { archived?: boolean; type?: string }
+  opts?: { archived?: boolean; type?: string; limit?: number; cursor?: ChildChannelCursor }
 ) {
+  const activityAt = sql<string>`coalesce(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`;
   const conditions = [eq(communityChannel.parentChannelId, parentChannelId)];
   if (opts?.archived !== undefined) {
     conditions.push(eq(communityChannel.archived, opts.archived ? 1 : 0));
@@ -464,11 +469,25 @@ export async function listChildChannels(
   if (opts?.type) {
     conditions.push(eq(communityChannel.type, opts.type));
   }
+  if (opts?.cursor) {
+    conditions.push(
+      or(
+        lt(activityAt, opts.cursor.activityAt),
+        and(
+          eq(activityAt, opts.cursor.activityAt),
+          lt(communityChannel.id, opts.cursor.id),
+        ),
+      )!,
+    );
+  }
+  const rawLimit = opts?.limit ?? DEFAULT_CHILD_CHANNELS_LIMIT;
+  const limit = Math.max(1, Math.min(rawLimit, MAX_CHILD_CHANNELS_LIMIT + 1));
   const rows = await db
     .select(CHANNEL_COLUMNS)
     .from(communityChannel)
     .where(and(...conditions))
-    .orderBy(desc(communityChannel.lastMessageAt));
+    .orderBy(desc(activityAt), desc(communityChannel.id))
+    .limit(limit);
   return rows;
 }
 

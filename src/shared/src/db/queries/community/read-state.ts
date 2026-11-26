@@ -1,4 +1,5 @@
 import { eq, and, exists, gte, notExists, or, sql, type SQL } from "drizzle-orm";
+import { chunk } from "../_chunk";
 import {
   communityMessage,
   communityReadState,
@@ -399,19 +400,65 @@ export async function markReadToMessageWithRevision(
  *   channels stay empty in `communityReadState` because the invariant
  *   forbids `lastReadMessageId = null` rows.
  */
+const MASS_MARK_READ_CHUNK_SIZE = 250;
+
+function markManyReadToMessagesBuilder(
+  db: Database,
+  userId: string,
+  messages: ReadonlyArray<{ id: string; channelId: string; createdAt: string; seq: number }>,
+) {
+  const encoded = JSON.stringify(
+    messages.map((message) => [message.channelId, message.id, message.createdAt, message.seq]),
+  );
+  const targetChannelId = sql<string>`CAST(json_extract(mark_target.value, '$[0]') AS TEXT)`;
+  const targetMessageId = sql<string>`CAST(json_extract(mark_target.value, '$[1]') AS TEXT)`;
+  const targetCreatedAt = sql<string>`CAST(json_extract(mark_target.value, '$[2]') AS TEXT)`;
+  const targetSeq = sql<number>`CAST(json_extract(mark_target.value, '$[3]') AS INTEGER)`;
+
+  const selected = db
+    .select({
+      id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+      userId: sql<string>`${userId}`.as("user_id"),
+      channelId: targetChannelId.as("channel_id"),
+      lastReadAt: targetCreatedAt.as("last_read_at"),
+      lastReadMessageId: targetMessageId.as("last_read_message_id"),
+      lastReadSeq: targetSeq.as("last_read_seq"),
+    })
+    .from(sql`json_each(${encoded}) AS mark_target`)
+    .where(
+      notExists(
+        db
+          .select({ one: sql<number>`1` })
+          .from(communityReadState)
+          .where(
+            and(
+              eq(communityReadState.userId, userId),
+              eq(communityReadState.channelId, targetChannelId),
+              gte(communityReadState.lastReadSeq, targetSeq),
+            ),
+          ),
+      ),
+    );
+
+  return db
+    .insert(communityReadState)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: [communityReadState.userId, communityReadState.channelId],
+      set: {
+        lastReadAt: sql`excluded.last_read_at`,
+        lastReadMessageId: sql`excluded.last_read_message_id`,
+        lastReadSeq: sql`excluded.last_read_seq`,
+      },
+      setWhere: sql`${communityReadState.lastReadSeq} < excluded.last_read_seq`,
+    });
+}
+
 export async function markAllServerChannelsRead(
   db: Database,
   userId: string,
   visibleChannelIds: string[]
 ): Promise<ReadAllResult> {
-  // Scope to the channels the viewer may see — the same visible-id set the
-  // inbox unread + mentions consumers use (resolved once per fetch via
-  // `listVisibleChannelIdsForUser`). Convergence on the id set replaces the
-  // old inlined category `or()`, which climbed nothing and so evaluated child
-  // child threads by their own (always-NULL) categoryId as public. The
-  // id set parent-climbs, so a child under a private parent the viewer can't
-  // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
-  // for channels behind an invisible private parent.
   if (visibleChannelIds.length === 0) {
     return {
       count: 0,
@@ -430,11 +477,9 @@ export async function markAllServerChannelsRead(
     };
   }
 
-  const statements = latest.map((message) => markReadToMessageBuilder(db, {
-    userId,
-    channelId: message.channelId,
-    message,
-  }));
+  const statements = chunk(latest, MASS_MARK_READ_CHUNK_SIZE).map((batch) =>
+    markManyReadToMessagesBuilder(db, userId, batch),
+  );
   const effectCondition = readStateAdvancesAnyTargetCondition(
     db,
     userId,

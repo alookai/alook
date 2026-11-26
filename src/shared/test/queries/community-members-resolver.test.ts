@@ -47,6 +47,7 @@ function makeDb(rowQueues: Record<string, unknown[][]>): Database {
     b.from = () => b;
     b.leftJoin = () => b;
     b.where = () => b;
+    b.orderBy = () => b;
     b.limit = () => Promise.resolve(rows);
     b.then = (resolve: (v: unknown) => void) => resolve(rows);
     return b;
@@ -194,12 +195,10 @@ describe("resolveScopeMemberUserIds", () => {
 describe("resolveScopeMembers — source tagging", () => {
   it("public channel: owner/admin → admin, plain member → inherited", async () => {
     mockIsChannelPrivate.mockResolvedValue(false);
-    mockListMemberUserIds.mockResolvedValue(["owner1", "admin1", "member1"]);
     const db = makeDb({
       select: [
-        [{ serverId: "srv-1" }], // resolveScopeMemberUserIds channel lookup
-        [{ serverId: "srv-1" }], // resolveScopeMembers target lookup
-        [ // role rows
+        [{ id: CHANNEL, serverId: "srv-1", creatorId: null, parentChannelId: null }], // target lookup
+        [ // ordered server member role rows
           { userId: "owner1", role: "owner" },
           { userId: "admin1", role: "admin" },
           { userId: "member1", role: "member" },
@@ -207,7 +206,7 @@ describe("resolveScopeMembers — source tagging", () => {
       ],
     });
 
-    const members = await resolveScopeMembers(db, { scopeId: CHANNEL });
+    const members = await resolveScopeMembers(db, CHANNEL);
 
     expect(members).toEqual([
       { userId: "owner1", role: "owner", source: "admin" },
@@ -216,30 +215,27 @@ describe("resolveScopeMembers — source tagging", () => {
     ]);
   });
 
-  it("private channel: explicit member/creator → explicit, others → admin", async () => {
+  it("private channel: returns explicit members and creator tagged explicit with scoped role lookup", async () => {
     mockIsChannelPrivate.mockResolvedValue(true);
-    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["member1", "creator1", "admin1"]);
     mockListChannelMemberUserIds.mockResolvedValue(["member1"]);
     const db = makeDb({
       select: [
-        [{ serverId: "srv-1" }], // resolveScopeMemberUserIds channel lookup
         // resolveScopeMembers target lookup — top-level channel is its own
         // anchor, so its creatorId is read directly (no separate anchor query).
         [{ id: CHANNEL, serverId: "srv-1", parentChannelId: null, creatorId: "creator1" }],
-        [ // role rows
+        [ // scoped role rows for explicit + creator only (evaluated before jsonTextSet subquery)
           { userId: "member1", role: "member" },
-          { userId: "creator1", role: "member" },
-          { userId: "admin1", role: "admin" },
+          { userId: "creator1", role: "admin" },
         ],
+        [], // jsonTextSet subquery builder slot
       ],
     });
 
-    const members = await resolveScopeMembers(db, { scopeId: CHANNEL });
+    const members = await resolveScopeMembers(db, CHANNEL);
 
     expect(members).toEqual([
       { userId: "member1", role: "member", source: "explicit" },
-      { userId: "creator1", role: "member", source: "explicit" },
-      { userId: "admin1", role: "admin", source: "admin" },
+      { userId: "creator1", role: "admin", source: "explicit" },
     ]);
   });
 });

@@ -17,7 +17,7 @@ import type { Member } from "@/lib/community/models/people"
 import { parseCommunityServerMembersRead } from "@alook/shared"
 import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate, CommunityRole } from "@alook/shared"
 import type { MemberWindow, MembersWindowCache } from "@/lib/community/directory-window-persistence"
-export type { MemberIdentity, MemberWindow, MembersWindowCache } from "@/lib/community/directory-window-persistence"
+export type { MemberWindow } from "@/lib/community/directory-window-persistence"
 
 export const SEARCH_DEBOUNCE_MS = 200
 const EMPTY_MEMBERS: Member[] = []
@@ -80,7 +80,7 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision, observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
   }
 
-export function mergeMemberWindows(client: QueryClient, key: QueryKey, previous: unknown, next: unknown): MembersWindowCache {
+function mergeMemberWindows(client: QueryClient, key: QueryKey, previous: unknown, next: unknown): MembersWindowCache {
   const incoming = next as MembersWindowCache
   const old = previous as MembersWindowCache | undefined
   const resource = client.getQueryCache().find({ queryKey: key, exact: true })

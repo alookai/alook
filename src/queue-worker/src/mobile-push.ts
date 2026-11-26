@@ -87,11 +87,7 @@ export async function processMobilePush(
     }
   }
 
-  const [target, activeDevices] = await Promise.all([
-    dependencies.getTarget(db, task.messageId),
-    dependencies.listDevices(db, task.userId),
-  ])
-  if (!target) return { outcome: "skip", reason: "message_missing" }
+  const activeDevices = await dependencies.listDevices(db, task.userId)
   const devices = activeDevices.filter((device) => !task.installationId || device.installationId === task.installationId)
   if (devices.length === 0) return { outcome: "skip", reason: "no_active_devices" }
 
@@ -103,6 +99,9 @@ export async function processMobilePush(
     }
     return { outcome: "queued", devices: devices.length }
   }
+
+  const target = await dependencies.getTarget(db, task.messageId)
+  if (!target) return { outcome: "skip", reason: "message_missing" }
 
   const payload = await dependencies.buildPayload(target, task.userId)
   let fcmAccessToken: Promise<string> | undefined

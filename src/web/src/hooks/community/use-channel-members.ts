@@ -4,18 +4,18 @@ import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
 import { useCallback,useMemo } from "react"
-import { QueryObserver,useMutation,useQuery,useQueryClient,type QueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
+import { useMutation,useQuery,useQueryClient,type QueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { type CommunityMembersRead, type CommunityRole, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
+import { MAX_MEMBERS_PAGE_SIZE, parseCommunityServerMembersRead, type CommunityMembersRead, type CommunityRole, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
 import type { CommunityProfile, CommunityUserCore, Presence } from "@/lib/community/models/people"
-import { fetchAllServerMembers } from "./fetch-all-server-members"
 
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getMemberReadState, useCanonicalProfilesProjection, useServerMemberProjection, useChannelRosterProjection } from "@/lib/community-db/projections"
-import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent,publishCommunityChannelMembersSnapshot,retireCommunityChannelReading,setCanonicalCommunityChannelMember } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent,publishCommunityChannelMembersSnapshot,publishCommunityMembersSnapshot,retireCommunityChannelReading,setCanonicalCommunityChannelMember } from "@/lib/community-db/sync"
 import { channelMembershipKey, type ChannelMembershipRow } from "@/lib/community-db/schema"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { beginCommunityProfileSeed, communityUserProfilePatch, writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { useCommunityViewSource } from "./use-community-view-source"
@@ -61,35 +61,34 @@ function channelMembersOptions(client: QueryClient, channelId: string, serverId?
   }
 }
 
-async function readChannelRoster(client: QueryClient, channelId: string, serverId: string, signal: AbortSignal) {
-  const original = captureCommunityLiveSnapshotToken(client, channelId)
-  const assert = () => assertCommunityLiveSnapshotTokenCurrent(client, original, signal)
-  assert()
-  const auxiliaryReadEpoch = await original.registry!.captureAuxiliaryReadEpoch()
-  assert()
-  const options = { ...channelMembersOptions(client, channelId, serverId), ...(auxiliaryReadEpoch ? { staleTime: 0 } : {}) }
-  const observer = new QueryObserver(client, { ...options, enabled: false })
-  const unsubscribe = observer.subscribe(() => undefined)
-  signal.addEventListener("abort", unsubscribe, { once: true })
-  try {
-    const window = await client.query({ ...options, select: undefined })
-    assert()
-    return window
-  } finally { signal.removeEventListener("abort", unsubscribe); unsubscribe() }
-}
-
 async function addableMembersQueryFn(serverId: string, channelId: string, context: QueryFunctionContext): Promise<AddableMembersWindow> {
   const original = captureCommunityLiveSnapshotToken(context.client, channelId)
-  assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
-  const auxiliaryReadEpoch = await original.registry!.captureAuxiliaryReadEpoch()
-  assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
-  const [serverMembers, roster] = await Promise.all([
-    fetchAllServerMembers(context.client, serverId, context.signal),
-    readChannelRoster(context.client, channelId, serverId, context.signal),
-  ])
-  assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
-  const present = new Set(roster.members.map(member => member.userId))
-  return { serverId, relation: roster.relation, members: serverMembers.filter(member => !present.has(member.userId)).map(({ id, userId }) => ({ id, userId })), observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
+  const registry = original.registry!
+  const queryKey = communityKeys.channelAddableMembers(channelId)
+  const resource = context.client.getQueryCache().find({ queryKey, exact: true })
+  const assert = () => {
+    assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
+    if (resource && context.client.getQueryCache().find({ queryKey, exact: true }) !== resource) throw new DOMException("Retired addable members", "AbortError")
+  }
+  assert()
+  await registry.ready
+  await Promise.all([registry.collections.serverMemberships.preload(), registry.collections.channelMemberships.preload()])
+  const auxiliaryReadEpoch = await registry.captureAuxiliaryReadEpoch()
+  assert()
+  const profileSnapshot = beginCommunityProfileSeed(registry)
+  const params = new URLSearchParams({ excludeChannelId: channelId, limit: String(MAX_MEMBERS_PAGE_SIZE) })
+  const path = "/api/community/servers/" + encodeURIComponent(serverId) + "/members?" + params.toString()
+  const data = parseCommunityServerMembersRead(
+    await apiFetch<unknown>(path, communityRequestOptions(context.client, original, context.signal, assert)),
+    serverId,
+    registry.accountId!,
+    false,
+  )
+  assert()
+  await writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
+  await publishCommunityMembersSnapshot(context.client, serverId, data.members, { token: original, signal: context.signal })
+  assert()
+  return { serverId, relation: "access", members: data.members.map(({ id, userId }) => ({ id, userId })), observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
 }
 
 type ChannelMembersResult = Omit<UseQueryResult<ChannelRosterWindow>, "data"> & {

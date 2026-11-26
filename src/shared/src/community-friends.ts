@@ -18,7 +18,7 @@ function checkProfiles(rows: Array<{ userId: string }>, resources: CommunityReso
   }
 }
 export const CommunityAcceptedFriendsReadSchema = z.union([
-  z.strictObject({ ...fresh, friends: z.array(CommunityAcceptedFriendDescriptorSchema) }).superRefine((value, ctx) => checkProfiles(value.friends, value.resources, ctx)),
+  z.strictObject({ ...fresh, friends: z.array(CommunityAcceptedFriendDescriptorSchema), totalFriends: z.number().int().nonnegative().optional() }).superRefine((value, ctx) => checkProfiles(value.friends, value.resources, ctx)),
   z.strictObject({ ...stale, friends: z.array(CommunityAcceptedFriendDescriptorSchema).length(0) }),
 ])
 export const CommunityBlockedFriendsReadSchema = z.union([

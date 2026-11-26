@@ -17,6 +17,7 @@ const mockResolveRecipients = vi.fn()
 const mockResolveNotificationRecipients = vi.fn()
 const mockResolveEligibility = vi.fn()
 const mockFindWakeCandidates = vi.fn()
+const mockListActivePushTargetsForUsers = vi.fn()
 const mockLogWarn = vi.fn()
 const mockHydrateCreation = vi.fn()
 
@@ -65,6 +66,9 @@ vi.mock("@alook/shared", async () => {
       communityBotCreation: { hydrateCreationRequestsForDmMessages: (...args: unknown[]) => mockHydrateCreation(...args) },
       communityBot: {
         findWakeCandidates: (...args: unknown[]) => mockFindWakeCandidates(...args),
+      },
+      communityPushDevice: {
+        listActivePushTargetsForUsers: (...args: unknown[]) => mockListActivePushTargetsForUsers(...args),
       },
     },
   }
@@ -199,6 +203,9 @@ describe("planCommittedMessage", () => {
         runtime: "codex",
       },
     ])
+    mockListActivePushTargetsForUsers.mockImplementation(async (_db: unknown, userIds: string[]) =>
+      userIds.map((userId) => ({ userId, installationId: `inst_${userId}` })),
+    )
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
     mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
@@ -370,11 +377,11 @@ describe("planCommittedMessage", () => {
       messageCount: 3,
     })
     mockListAttention.mockResolvedValue([{ userId: "parent_viewer", kind: "mention" }])
-    mockResolveRecipients.mockImplementation(async (_db, channelId: string) => {
-      if (channelId === "t1") return ["author_1", "participant_1"]
-      if (channelId === "forum_1") return ["participant_1", "parent_viewer"]
-      return []
-    })
+    mockResolveRecipients.mockResolvedValue(["author_1", "participant_1", "parent_viewer"])
+    mockResolveNotificationRecipients.mockImplementation(
+      (_db: unknown, _id: string, run: (phase: "thread-participants", query: () => Promise<string[]>) => Promise<string[]>) =>
+        run("thread-participants", async () => ["author_1", "participant_1"]),
+    )
     mockResolveEligibility.mockResolvedValue(new Map([
       ["participant_1", state()],
       ["author_1", state()],
@@ -383,10 +390,12 @@ describe("planCommittedMessage", () => {
     mockFindWakeCandidates.mockResolvedValue([])
 
     const plan = await planCommittedMessage({} as never, "msg_1")
-    expect(plan.contentUserIds).toEqual(["author_1", "participant_1"])
+    expect(plan.contentUserIds).toEqual(["author_1", "participant_1", "parent_viewer"])
+    expect(plan.unreadPlainUserIds).toEqual(["participant_1"])
     expect(plan.mentionUserIds).toEqual(["parent_viewer"])
     expect(plan.pushUserIds).toEqual(["participant_1", "parent_viewer"])
-    expect(plan.parentProjectionUserIds).toEqual(["participant_1", "parent_viewer"])
+    expect(plan.parentProjectionUserIds).toEqual(["author_1", "participant_1", "parent_viewer"])
+    expect(mockResolveRecipients).toHaveBeenCalledTimes(1)
     expect(plan.parentProjection).toMatchObject({
       parentChannelId: "forum_1",
       channelId: "t1",
@@ -589,6 +598,9 @@ describe("dispatchCommittedMessage", () => {
     )
     mockResolveEligibility.mockResolvedValue(new Map())
     mockFindWakeCandidates.mockResolvedValue([])
+    mockListActivePushTargetsForUsers.mockImplementation(async (_db: unknown, userIds: string[]) =>
+      userIds.map((userId) => ({ userId, installationId: `inst_${userId}` })),
+    )
     mockSendMessageDeliveryBatch.mockResolvedValue(undefined)
     mockEnqueueQueueTasks.mockResolvedValue(undefined)
   })
@@ -609,7 +621,7 @@ describe("dispatchCommittedMessage", () => {
     expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([])
   })
 
-  it("forwards parent projections in the browser delivery batch", async () => {
+  it("forwards parent projections in the browser delivery batch reusing the thread content audience", async () => {
     mockGetMessage.mockResolvedValue({ ...message, channelId: "t1" })
     mockGetChannel.mockResolvedValue({
       ...channel,
@@ -618,21 +630,24 @@ describe("dispatchCommittedMessage", () => {
       parentChannelId: "forum_1",
       messageCount: 3,
     })
-    mockResolveRecipients.mockImplementation(async (_db, channelId: string) =>
-      channelId === "forum_1" ? ["parent_viewer"] : ["author_1"],
+    mockResolveRecipients.mockResolvedValue(["author_1", "parent_viewer"])
+    mockResolveNotificationRecipients.mockImplementation(
+      (_db: unknown, _id: string, run: (phase: "thread-participants", query: () => Promise<string[]>) => Promise<string[]>) =>
+        run("thread-participants", async () => ["author_1"]),
     )
 
     await dispatchCommittedMessage({} as never, "msg_1", {
       joinedParticipantUserIds: ["author_1"],
     })
 
+    expect(mockResolveRecipients).toHaveBeenCalledTimes(1)
     expect(mockSendMessageDeliveryBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         parentProjection: expect.objectContaining({
           parentChannelId: "forum_1",
           channelId: "t1",
         }),
-        parentProjectionUserIds: ["parent_viewer"],
+        parentProjectionUserIds: ["author_1", "parent_viewer"],
         communityContract: BUSINESS_SCHEMA_VERSION,
         joinedParticipantUserIds: ["author_1"],
         rosterRefreshUserId: "author_1",
@@ -653,6 +668,9 @@ describe("dispatchCommittedMessage", () => {
       ["u_all", state()],
       ["bot_1", state({ hasAttention: true })],
     ]))
+    mockListActivePushTargetsForUsers.mockResolvedValue([
+      { userId: "u_all", installationId: "inst_u_all" },
+    ])
     mockFindWakeCandidates.mockResolvedValue([{
       botUserId: "bot_1",
       name: "Bot",
@@ -665,8 +683,7 @@ describe("dispatchCommittedMessage", () => {
     await dispatchCommittedMessage({} as never, "msg_1")
 
     expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(1, [
-      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
-      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all", installationId: "inst_u_all" },
     ])
     expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [
       { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },
@@ -719,6 +736,7 @@ describe("dispatchCommittedMessage", () => {
   it("enqueues eligible candidates directly", async () => {
     mockResolveRecipients.mockResolvedValue(["author_1", "bot_1"])
     mockResolveEligibility.mockResolvedValue(new Map([["bot_1", state()]]))
+    mockListActivePushTargetsForUsers.mockResolvedValue([])
     mockFindWakeCandidates.mockResolvedValue([{
       botUserId: "bot_1",
       name: "Bot",
@@ -740,6 +758,9 @@ describe("dispatchCommittedMessage", () => {
       ["u_all", state()],
       ["bot_1", state()],
     ]))
+    mockListActivePushTargetsForUsers.mockResolvedValue([
+      { userId: "u_all", installationId: "inst_u_all" },
+    ])
     mockFindWakeCandidates.mockResolvedValue([{
       botUserId: "bot_1",
       name: "Bot",
@@ -752,8 +773,7 @@ describe("dispatchCommittedMessage", () => {
 
     expect(mockSendMessageDeliveryBatch).toHaveBeenCalledOnce()
     expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(1, [
-      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all" },
-      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "bot_1" },
+      { version: 1, kind: "mobile-push", messageId: "msg_1", userId: "u_all", installationId: "inst_u_all" },
     ])
     expect(mockEnqueueQueueTasks).toHaveBeenNthCalledWith(2, [
       { version: 1, kind: "bot-wake", messageId: "msg_1", botUserId: "bot_1" },

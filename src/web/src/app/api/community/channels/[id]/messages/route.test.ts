@@ -21,6 +21,7 @@ const mockGetMessageInScope = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
+const mockFindServerMembersByHandles = vi.fn()
 const mockCreateMentions = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
@@ -119,6 +120,7 @@ vi.mock("@alook/shared", async () => {
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
         listMemberUserIds: (...a: unknown[]) => mockListMemberUserIds(...a),
+        findServerMembersByHandles: (...a: unknown[]) => mockFindServerMembersByHandles(...a),
       },
       communityMention: {
         createMentions: (...a: unknown[]) => mockCreateMentions(...a),
@@ -283,6 +285,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     })
     mockGetMessageByAuthorAndNonce.mockResolvedValue(null)
     mockListMembers.mockResolvedValue([])
+    mockFindServerMembersByHandles.mockResolvedValue([])
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
     mockListMemberUserIds.mockResolvedValue([])
@@ -701,14 +704,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "m1", {})
   })
 
-  it("resolves @Bob candidate via listMembers (name-projected) when content includes '@'", async () => {
-    // Content contains "@" — the single fetch must be listMembers (needs
-    // userName), covering both broadcast + candidate branches. listMemberUserIds
-    // must not fire so we don't double-query.
-    mockListMembers.mockResolvedValue([
-      { userId: "u1", userName: "Alice", discriminator: "0001" },
+  it("resolves @Bob candidate via findServerMembersByHandles when content includes an @mention handle", async () => {
+    mockFindServerMembersByHandles.mockResolvedValue([
       { userId: "u2", userName: "Bob", discriminator: "0002" },
-      { userId: "u3", userName: "Carol", discriminator: "0003" },
     ])
     mockGetMessage.mockResolvedValue({
       id: "m1",
@@ -729,18 +727,18 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const res = await POST(postReq({ content: "hi @Bob#0002" }), ctx)
 
     expect(res.status).toBe(201)
-    expect(mockListMembers).toHaveBeenCalledTimes(1)
+    expect(mockFindServerMembersByHandles).toHaveBeenCalledTimes(1)
+    expect(mockFindServerMembersByHandles).toHaveBeenCalledWith({}, "s1", [{ name: "Bob", discriminator: "0002" }])
+    expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockListMemberUserIds).not.toHaveBeenCalled()
     expect(mockCreateMessage.mock.calls[0][1].mentions).toEqual([{ userId: "u2", kind: "mention" }])
   })
 
   it("does not query members for a plain channel post with no '@' and no everyone/here", async () => {
-    // No "@" in content and no broadcast mentionType — neither member query
-    // should fire. This is the short-circuit branch of the split in
-    // message-handler.ts.
     const res = await POST(postReq({ content: "just a note" }), ctx)
     expect(res.status).toBe(201)
     expect(mockListMembers).not.toHaveBeenCalled()
+    expect(mockFindServerMembersByHandles).not.toHaveBeenCalled()
     expect(mockListMemberUserIds).not.toHaveBeenCalled()
   })
 

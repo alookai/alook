@@ -10,8 +10,9 @@ import {
   MAX_MEMBERS_PAGE_SIZE,
 } from "@alook/shared"
 import { communityActorPolicy } from "@/lib/middleware/community-actor"
-import { requireServerMember } from "@/lib/community/permissions"
+import { requireChannelAccess, requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt, parseMemberCursor, buildMemberPaginatedResponse } from "@/lib/community/messages"
+import { encodeMemberSearchCursor, parseMemberSearchCursor } from "@/lib/community/member-search-cursor"
 import { mapMemberForApi } from "@/lib/community/member-payload"
 import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
 
@@ -93,13 +94,51 @@ async function handleHumanList(
     DEFAULT_MEMBERS_PAGE_SIZE,
     MAX_MEMBERS_PAGE_SIZE,
   )
+  const excludeChannelId = url.searchParams.get("excludeChannelId")?.trim() || null
+  const rawExcludeRelation = url.searchParams.get("excludeRelation")
+  if (rawExcludeRelation !== null && rawExcludeRelation !== "access" && rawExcludeRelation !== "notify") {
+    return writeError("invalid excludeRelation", 400)
+  }
+  let excludeChannel: { channelId: string; relation: "access" | "notify"; excludeUserId?: string | null } | undefined
+  if (excludeChannelId) {
+    const channelAccess = await requireChannelAccess(db, excludeChannelId, userId)
+    if (!channelAccess.ok) return writeError(channelAccess.error, channelAccess.status)
+    if (channelAccess.value.channel.serverId !== serverId) {
+      return writeError("channel does not belong to this server", 400)
+    }
+    const relation = rawExcludeRelation ?? "access"
+    excludeChannel = relation === "notify"
+      ? { channelId: channelAccess.value.channel.id, relation: "notify" }
+      : { channelId: channelAccess.value.anchor.id, relation: "access", excludeUserId: channelAccess.value.anchor.creatorId }
+  }
+
+  const q = url.searchParams.get("q")?.trim() ?? ""
+  if (q.length > 0) {
+    const searchCursor = parseMemberSearchCursor(url.searchParams.get("cursor"), { serverId, query: q })
+    if (searchCursor === null) return writeError("invalid cursor", 400)
+    const page = await queries.communityMember.searchMembers(db, serverId, q, {
+      limit,
+      cursor: searchCursor,
+      ...(excludeChannel ? { excludeChannel } : {}),
+    })
+    const members = page.members.map((r) => mapMemberForApi(r, userId))
+    const nextCursor = page.cursor
+      ? encodeMemberSearchCursor({ serverId, query: q, name: page.cursor.name, id: page.cursor.id })
+      : undefined
+    return writeJSON(parseCommunityServerMembersRead({ viewerId: userId, serverId, members, limit, hasMore: page.hasMore, cursor: nextCursor }, serverId, userId, true))
+  }
+
   const cursor = parseMemberCursor(url.searchParams.get("cursor"))
 
   // Fetch page + total in parallel — total is returned in the envelope so the
   // settings tab (SettingsMembers) can show the real member count without a
   // second round-trip to /members/count.
   const [page, total] = await Promise.all([
-    queries.communityMember.listMembersPaginated(db, serverId, { cursor, limit }),
+    queries.communityMember.listMembersPaginated(db, serverId, {
+      cursor,
+      limit,
+      ...(excludeChannel ? { excludeChannel } : {}),
+    }),
     queries.communityMember.countMembers(db, serverId),
   ])
 

@@ -74,6 +74,9 @@ export const CommunityReactionDetailsReadSchema = z.strictObject({
     z.strictObject({ kind: z.literal("dm"), channelId: CommunityResourceProfileSchema.shape.id }),
   ]),
   actors: z.array(z.strictObject({ userId: CommunityResourceProfileSchema.shape.id, profile: CommunityReactionActorProfileSchema.nullable() })),
+  emoji: z.string().optional(),
+  hasMore: z.boolean().optional(),
+  cursor: z.string().nullable().optional(),
 }).superRefine((value, ctx) => {
   if (new Set(value.actors.map(row => row.userId)).size !== value.actors.length || value.actors.some(row => row.profile && row.profile.id !== row.userId)) ctx.addIssue({ code: "custom", message: "Reaction actor identity mismatch" })
 })

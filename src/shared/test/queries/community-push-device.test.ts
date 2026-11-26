@@ -8,9 +8,11 @@ import type { Database } from "../../src/db";
 import {
   disablePushDevice,
   listActivePushDevices,
+  listActivePushTargetsForUsers,
   registerPushDevice,
   type RegisterPushDeviceInput,
 } from "../../src/db/queries/community/push-device";
+import { createMigratedDb } from "../helpers/migrated-db";
 
 const schema = { ...coreSchema, ...communitySchema };
 
@@ -253,5 +255,39 @@ describe("community push device queries", () => {
     });
     expect(devices[0]).not.toHaveProperty("providerTokenHash");
     expect(devices[0]).not.toHaveProperty("userId");
+  });
+
+  it("pre-filters active human push targets across users while excluding bots, deleted users, and disabled devices", async () => {
+    const migrated = createMigratedDb();
+    try {
+      migrated.sqlite.exec(`
+        INSERT INTO user (id, name, email, discriminator, isBot, deletedAt) VALUES
+          ('human_active', 'HumanActive', 'ha@push.test', '0001', 0, NULL),
+          ('human_disabled', 'HumanDisabled', 'hd@push.test', '0002', 0, NULL),
+          ('human_nodevice', 'HumanNoDev', 'hn@push.test', '0003', 0, NULL),
+          ('human_deleted', 'HumanDeleted', 'hdel@push.test', '0004', 0, '2026-09-01T00:00:00Z'),
+          ('bot_active', 'BotActive', 'bot@push.test', '0005', 1, NULL);
+        INSERT INTO community_push_device (id, user_id, installation_id, platform, provider_environment, provider_token_encrypted, provider_token_hash, last_seen_at, disabled_at, created_at, updated_at) VALUES
+          ('d1', 'human_active', 'inst_1', 'ios', 'production', 'enc1', '1111111111111111111111111111111111111111111111111111111111111111', '2026-09-01T00:00:00Z', NULL, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z'),
+          ('d2', 'human_active', 'inst_2', 'android', 'production', 'enc2', '2222222222222222222222222222222222222222222222222222222222222222', '2026-09-01T00:00:00Z', NULL, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z'),
+          ('d3', 'human_disabled', 'inst_3', 'ios', 'production', 'enc3', '3333333333333333333333333333333333333333333333333333333333333333', '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z', '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z'),
+          ('d4', 'human_deleted', 'inst_4', 'ios', 'production', 'enc4', '4444444444444444444444444444444444444444444444444444444444444444', '2026-09-01T00:00:00Z', NULL, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z'),
+          ('d5', 'bot_active', 'inst_5', 'ios', 'production', 'enc5', '5555555555555555555555555555555555555555555555555555555555555555', '2026-09-01T00:00:00Z', NULL, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z');
+      `);
+
+      const targets = await listActivePushTargetsForUsers(migrated.db, [
+        "human_active",
+        "human_disabled",
+        "human_nodevice",
+        "human_deleted",
+        "bot_active",
+      ]);
+      expect(targets.sort((a, b) => a.installationId.localeCompare(b.installationId))).toEqual([
+        { userId: "human_active", installationId: "inst_1" },
+        { userId: "human_active", installationId: "inst_2" },
+      ]);
+    } finally {
+      migrated.sqlite.close();
+    }
   });
 });

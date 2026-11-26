@@ -331,7 +331,13 @@ export const CommunityMessageReadSchema = z.strictObject({ ...envelope,
   validateRelatedMessageGraph({ messages: [read.message], relatedMessages: read.relatedMessages, profiles: read.profiles }, ctx)
 })
 export const CommunityMessagePostedSchema = CommunityMessageReadSchema.safeExtend({ deduped: z.boolean(), threadId: id.optional() })
-export const CommunityMembersReadSchema = z.strictObject({ ...envelope, relation: z.enum(["access", "notify"]), members: z.array(CommunityMemberRelationSchema), profiles: z.array(CommunityResourceProfileSchema) })
+export const CommunityMembersReadSchema = z.strictObject({
+  ...envelope,
+  relation: z.enum(["access", "notify"]),
+  members: z.array(CommunityMemberRelationSchema),
+  profiles: z.array(CommunityResourceProfileSchema),
+  page: z.strictObject({ nextCursor: z.string().nullable(), hasMore: z.boolean() }).optional(),
+})
 export const CommunityThreadsReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema,
   threads: z.array(CommunityChannelResourceSchema),
   included: CommunityMessageResourcesSchema.safeExtend({ members: z.array(CommunityMemberRelationSchema),

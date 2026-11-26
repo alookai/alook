@@ -140,7 +140,12 @@ function configureTransport(source: Owner, family: string, empty: boolean) {
     if (failing) throw new Error("Sustained directory transport failure")
     if (options?.method === "DELETE" && path === "/api/community/invites/saved-token") return { success: true }
     if (path.startsWith("/api/community/servers/server/members")) {
-      const search = new URL(path, "https://fixture.test").searchParams.has("q")
+      const parsed = new URL(path, "https://fixture.test")
+      const search = parsed.searchParams.has("q")
+      const excludeChannelId = parsed.searchParams.get("excludeChannelId")
+      if (excludeChannelId) {
+        return serverMembersReadFixture("server", empty ? [] : [member], { viewerId: source.account, search: false, total: 2 })
+      }
       return serverMembersReadFixture("server", search ? empty ? [] : [member] : [viewer, member], { viewerId: source.account, search, total: 2 })
     }
     if (path.includes("/channels/") && path.includes("/members?")) {
@@ -152,7 +157,10 @@ function configureTransport(source: Owner, family: string, empty: boolean) {
         profiles: selected.map(row => profileResourceFixture({ id: row.userId, name: row.name })),
       })
     }
-    if (path.endsWith("/accepted")) return friendBucketScenarioFixture("friends", empty ? [] : [{ id: "friend-person", userId: "friend-person", name: "Friend", discriminator: "0042", avatar: "F", avatarVersion: 0 }], source.account)
+    if (path.includes("/friends/accepted")) return {
+      ...friendBucketScenarioFixture("friends", empty ? [] : [{ id: "friend-person", userId: "friend-person", name: "Friend", discriminator: "0042", avatar: "F", avatarVersion: 0 }], source.account),
+      totalFriends: empty ? 0 : 1,
+    }
     if (path.endsWith("/blocked")) return friendBucketScenarioFixture("blocked", [], source.account)
     if (path.endsWith("/pending")) return friendBucketScenarioFixture("pending", [], source.account)
     if (path.includes("/users/search?")) return { users: empty ? [] : [{ id: "person", name: "Person", discriminator: "0042", image: null, avatarVersion: 0 }] }
@@ -385,9 +393,9 @@ describe("composed directory reads after same-writer retirement", () => {
       await act(async () => { await source.client.refetchQueries({ queryKey: key, exact: true }) })
       await waitFor(() => expect(view.result.current).toMatchObject({ ids: expected, ready: true, observed: true }))
       const newReads = api.mock.calls.slice(before).map(([path]) => path as string)
-      expect(newReads.some(path => path.startsWith("/api/community/servers/server/members"))).toBe(true)
-      if (family === "addable") expect(newReads.some(path => path.includes("/channels/parent/members?"))).toBe(true)
-      if (family === "invitable") expect(newReads.some(path => path.endsWith("/accepted"))).toBe(true)
+      if (family === "members") expect(newReads.some(path => path.startsWith("/api/community/servers/server/members"))).toBe(true)
+      if (family === "addable") expect(newReads.some(path => path.startsWith("/api/community/servers/server/members") && path.includes("excludeChannelId=parent"))).toBe(true)
+      if (family === "invitable") expect(newReads.some(path => path === "/api/community/friends/accepted?excludeServerId=server")).toBe(true)
       await save()
       view.unmount()
       writer.stopPersisting()

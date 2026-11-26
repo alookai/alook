@@ -62,9 +62,17 @@ export async function listThreadParticipantUserIds(
 
 export async function listThreadParticipants(
   db: Database,
-  threadChannelId: string
+  threadChannelId: string,
+  opts?: { limit?: number; cursor?: string }
 ) {
-  return db
+  const conditions = [
+    eq(communityChannelMember.channelId, threadChannelId),
+    eq(communityChannelMember.relation, "notify"),
+  ];
+  if (opts?.cursor) {
+    conditions.push(gt(communityChannelMember.userId, opts.cursor));
+  }
+  const baseQuery = db
     .select({
       userId: communityChannelMember.userId,
       source: communityChannelMember.source,
@@ -76,12 +84,9 @@ export async function listThreadParticipants(
     })
     .from(communityChannelMember)
     .innerJoin(user, eq(user.id, communityChannelMember.userId))
-    .where(
-      and(
-        eq(communityChannelMember.channelId, threadChannelId),
-        eq(communityChannelMember.relation, "notify")
-      )
-    );
+    .where(and(...conditions))
+    .orderBy(asc(communityChannelMember.userId));
+  return opts?.limit !== undefined ? baseQuery.limit(opts.limit) : baseQuery;
 }
 
 export async function listParticipantsForChannels(

@@ -2488,6 +2488,14 @@ export function publishCommunityFriendships(queryClient: QueryClient, rows: Frie
   }))
 }
 
+export function upsertCommunityAcceptedFriendships(queryClient: QueryClient, rows: FriendshipRow[], proof: CommunityFreshQueryProof) {
+  return withCommunityQueryProof(queryClient, proof, (registry) => notifyManager.batch(() => {
+    const state = canonicalRevisionState(queryClient)
+    const accepted = rows.filter((row) => (state.entityRevisions.get(canonicalEntityKey("friendships", `user:${row.userId}`)) ?? 0) <= proof.token.canonicalRevision)
+    upsertRows(registry, "friendships", accepted)
+  }))
+}
+
 export function removeSettledCommunityFriendCommands(queryClient: QueryClient, ids: readonly string[]) {
   const cache = queryClient.getMutationCache()
   for (const mutation of cache.findAll({ mutationKey: ["community", "friend-request"], predicate: (entry) => entry.state.status !== "pending" && ids.includes((entry.state.variables as { friendshipId?: string } | undefined)?.friendshipId ?? "") })) cache.remove(mutation)

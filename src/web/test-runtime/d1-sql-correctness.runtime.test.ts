@@ -57,10 +57,11 @@ function recordedDb(label: string, beforeBatch?: (attempt: number, statements: {
   return { db: createDb(d1), record };
 }
 
-function statementCount(record: ReturnType<typeof recordedDb>["record"], fragment: string, count: number) {
+function statementCount(record: ReturnType<typeof recordedDb>["record"], fragment: string, count: number | readonly number[]) {
   const selected = record.statements.filter(({ sql }) => sql.includes(fragment));
   expect(selected.length).toBeGreaterThan(0);
-  for (const statement of selected) expect(statement.bindings).toHaveLength(count);
+  const allowed = Array.isArray(count) ? count : [count];
+  for (const statement of selected) expect(allowed).toContain(statement.bindings.length);
 }
 
 async function seedUser(id: string, name = id, discriminator = "1710") {
@@ -145,7 +146,7 @@ describe("whole-statement SQL correctness on native D1", () => {
     expect(await queries.communityAgentInbox.getInboxSnapshotForAgent(db, f.viewer, { accessVisibleChannelIds: [thread] })).toEqual([]);
     await run("INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_at) VALUES (?, ?, ?, 'notify', 'added', ?)", `${f.prefix}_notify`, thread, f.viewer, baseline);
     expect(await queries.communityAgentInbox.getInboxSnapshotForAgent(db, f.viewer, { accessVisibleChannelIds: [thread] })).toMatchObject([{ channelId: thread, pendingCount: 1 }]);
-    statementCount(record, 'pending_inbox', 14);
+    statementCount(record, 'pending_inbox', [7, 8]);
     expect(await rows("SELECT last_read_seq FROM community_read_state WHERE id = ?", `${f.prefix}_read`)).toEqual([{ last_read_seq: 1 }]);
   });
 
@@ -165,7 +166,7 @@ describe("whole-statement SQL correctness on native D1", () => {
     for (const count of [1, 88, 89, 90, 125]) {
       const parents = f.channels.slice(0, count);
       const childIds = children.slice(0, count);
-      const forum = await queries.communityInbox.listUnreadForumOpeners(db, f.viewer, [...parents, ...parents]);
+      const forum = await queries.communityInbox.listUnreadForumOpeners(db, f.viewer, [...parents, ...parents], { limit: 200 });
       const thread = await queries.communityInbox.listThreadOpenersByChildIds(db, f.viewer, [...childIds, ...childIds]);
       expect(new Set(forum.map(({ openerMessageId }) => openerMessageId))).toEqual(new Set(parents.flatMap((_, i) => [0, 1, 2, 4, 5, 7].includes(i) ? [] : [`${f.prefix}_opener_${i}`])));
       expect(new Set(thread.map(({ childChannelId }) => childChannelId))).toEqual(new Set(childIds.filter((_, i) => ![0, 1, 3].includes(i))));
@@ -178,8 +179,8 @@ describe("whole-statement SQL correctness on native D1", () => {
     }
     expect(await queries.communityInbox.listUnreadForumOpeners(db, f.viewer, [])).toEqual([]);
     expect(await queries.communityInbox.listThreadOpenersByChildIds(db, f.viewer, [])).toEqual([]);
-    statementCount(record, 'forum_inbox_child', 13);
-    statementCount(record, 'thread_inbox_child_lookup', 13);
+    statementCount(record, 'forum_inbox_child', 7);
+    statementCount(record, 'thread_inbox_child_lookup', 7);
   });
 
   it("creates exactly one complete graph with a single native seven-statement batch", async () => {

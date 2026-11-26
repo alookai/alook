@@ -57,7 +57,7 @@ function ReactionScope({ children }: { children: React.ReactNode }) {
 function Root({ kind, consumers = 2 }: { kind: Kind; consumers?: number }) { const Probe = probes[kind]; const children = Array.from({ length: consumers }, (_, index) => <Probe key={index} />); return <QueryProvider userId="A">{kind === "reactions" ? <ReactionScope>{children}</ReactionScope> : children}</QueryProvider> }
 const peer = { id: "peer", userId: "peer", name: "Late Peer", discriminator: "0001", avatar: "", avatarVersion: 0, status: "offline", sub: "" }
 function response(path: string) {
-  if (path.endsWith("accepted")) return { friends: [{ ...peer, id: "friendship" }] }
+  if (path.includes("/friends/accepted")) return { friends: [{ ...peer, id: "friendship" }] }
   if (path.endsWith("blocked")) return { blocked: [] }
   if (path.endsWith("pending")) return { pending: [] }
   if (path.endsWith("presence")) return { online: ["peer"] }
@@ -68,7 +68,7 @@ function response(path: string) {
   if (path.endsWith("/reactions")) return { messageId: "message", scope: { kind: "server", serverId: "server", channelId: "channel" }, actors: [{ userId: "peer", profile: peer }] }
   throw new Error(`unexpected path ${path}`)
 }
-function requestCount(kind: Kind) { return kind === "invitableFriends" ? 4 : kind === "friends" ? 3 : kind === "addableMembers" ? 2 : 1 }
+function requestCount(kind: Kind) { return kind === "friends" ? 3 : 1 }
 beforeEach(async () => { await clearAllPersistedCaches(); api.mockReset() })
 describe("actual shared friend read ownership", () => {
   it.each(kinds)("%s keeps shared IO for one observer, aborts at zero, and rejects late profile publication", async (kind) => {
