@@ -2,6 +2,7 @@ import { createElement, startTransition, StrictMode, Suspense, useLayoutEffect, 
 import { describe, expect, it, vi } from "vitest"
 import { act, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { UserBar, UserBarSkeleton } from "./user-bar"
+import styles from "./user-bar.module.css"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { tid } from "@/lib/community/testids"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
@@ -494,4 +495,40 @@ describe("UserBar Inbox switching", () => {
     }))
     expect(trigger).toHaveAttribute("data-variant", "ghost")
   })
+
+  it.each(["mobile", "desktop"] as const)(
+    "keeps fixed avatar-to-name gap and compact avatar layout box on %s UserBar and UserBarSkeleton",
+    async (breakpoint) => {
+      const onOpenProfile = vi.fn()
+      const user = setupUser()
+      const view = render(createElement("div", null,
+        createElement(UserBar, {
+          breakpoint,
+          user: { id: "u1", name: "Alice", avatar: "A" },
+          inbox: createElement("div", null, "Inbox content"),
+          hasUnread: false,
+          onOpenProfile,
+        }),
+        createElement(UserBarSkeleton),
+      ))
+
+      const liveRow = view.getByTestId(tid.userBar).querySelector('[data-slot="community-user-bar-base"] > div')!
+      const skeletonRow = view.getByTestId(tid.initialUserBarPending).firstElementChild!.firstElementChild!
+      for (const row of [liveRow, skeletonRow]) {
+        expect(row.className).toContain("gap-2")
+        expect(row.className).not.toContain("sm:@max-[224px]/user-bar:gap-1")
+      }
+
+      const avatarButton = view.getByRole("button", { name: "Open profile", exact: true })
+      const settingsButton = view.getByTestId(tid.userSettingsOpen)
+      const inboxButton = view.getByTestId(tid.inboxTrigger)
+      expect(avatarButton).toHaveClass(styles.target)
+      expect(avatarButton).not.toHaveClass(styles.actionTarget)
+      expect(settingsButton).toHaveClass(styles.target, styles.actionTarget)
+      expect(inboxButton).toHaveClass(styles.target, styles.actionTarget)
+
+      await user.click(avatarButton)
+      expect(onOpenProfile).toHaveBeenCalledOnce()
+    },
+  )
 })

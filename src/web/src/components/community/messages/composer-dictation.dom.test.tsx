@@ -211,6 +211,212 @@ describe("Composer first-character dictation & composition stability", () => {
     }
   })
 
+  it("adopts browser 1st-character Text node and preserves trailing <br> when Selection points to <p> offset 1", async () => {
+    const view = render(createElement(Composer, composerProps()))
+    await waitFor(() => {
+      expect(view.container.querySelector(".tiptap p")).not.toBeNull()
+    })
+
+    const editable = view.container.querySelector<TiptapEditorHTMLElement>(".tiptap")!
+    const editor = editable.editor!
+    const paragraph = editable.querySelector("p")!
+    const trailingBreak = paragraph.querySelector("br.ProseMirror-trailingBreak")
+    expect(trailingBreak).not.toBeNull()
+    editable.focus()
+
+    // Simulate WebKit/browser dictation inserting #text("你") before the existing trailing <br>
+    // while leaving Selection on the <p> element itself at offset 1 (after the inserted text node).
+    const browserTextNode = document.createTextNode("你")
+    paragraph.insertBefore(browserTextNode, trailingBreak)
+    const selection = window.getSelection()!
+    selection.collapse(paragraph, 1)
+
+    const collapseSpy = vi.spyOn(Selection.prototype, "collapse")
+    const removeAllRangesSpy = vi.spyOn(Selection.prototype, "removeAllRanges")
+    const removedNodes: Node[] = []
+    const childObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          removedNodes.push(node)
+        }
+      }
+    })
+    childObserver.observe(paragraph, { childList: true })
+
+    try {
+      await act(async () => {
+        editor.view.dispatch(editor.state.tr.insertText("你", 1, 1))
+      })
+      expect(removedNodes).toEqual([])
+      expect(paragraph.firstChild).toBe(browserTextNode)
+      expect((browserTextNode as unknown as { pmViewDesc?: unknown }).pmViewDesc).toBeDefined()
+      expect(paragraph.contains(trailingBreak)).toBe(true)
+      expect(collapseSpy).not.toHaveBeenCalled()
+      expect(removeAllRangesSpy).not.toHaveBeenCalled()
+      expect(editor.getText()).toBe("你")
+    } finally {
+      childObserver.disconnect()
+      collapseSpy.mockRestore()
+      removeAllRangesSpy.mockRestore()
+      view.unmount()
+    }
+  })
+
+  it("adopts browser 1st-character Text node in-place when transient dictation nodeValue differs from committed text", async () => {
+    const view = render(createElement(Composer, composerProps()))
+    await waitFor(() => {
+      expect(view.container.querySelector(".tiptap p")).not.toBeNull()
+    })
+
+    const editable = view.container.querySelector<TiptapEditorHTMLElement>(".tiptap")!
+    const editor = editable.editor!
+    const paragraph = editable.querySelector("p")!
+    const trailingBreak = paragraph.querySelector("br.ProseMirror-trailingBreak")
+    expect(trailingBreak).not.toBeNull()
+    editable.focus()
+
+    // Simulate transient dictation text / auto-punctuation mismatch ("你 " in DOM vs "你" committed).
+    const browserTextNode = document.createTextNode("你 ")
+    paragraph.insertBefore(browserTextNode, trailingBreak)
+    const selection = window.getSelection()!
+    selection.collapse(browserTextNode, 1)
+
+    const removedNodes: Node[] = []
+    const childObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          removedNodes.push(node)
+        }
+      }
+    })
+    childObserver.observe(paragraph, { childList: true })
+
+    try {
+      await act(async () => {
+        editor.view.dispatch(editor.state.tr.insertText("你", 1, 1))
+      })
+      expect(removedNodes).toEqual([])
+      expect(paragraph.firstChild).toBe(browserTextNode)
+      expect(browserTextNode.nodeValue).toBe("你")
+      expect((browserTextNode as unknown as { pmViewDesc?: unknown }).pmViewDesc).toBeDefined()
+      expect(editor.getText()).toBe("你")
+    } finally {
+      childObserver.disconnect()
+      view.unmount()
+    }
+  })
+
+  it("keeps <p> childList stable across 0 -> 1 -> 2 -> 0 character transitions without removing the trailing <br>", async () => {
+    const view = render(createElement(Composer, composerProps()))
+    await waitFor(() => {
+      expect(view.container.querySelector(".tiptap p")).not.toBeNull()
+    })
+
+    const editable = view.container.querySelector<TiptapEditorHTMLElement>(".tiptap")!
+    const editor = editable.editor!
+    const paragraph = editable.querySelector("p")!
+    const trailingBreak = paragraph.querySelector("br.ProseMirror-trailingBreak")
+    const overlay = view.container.querySelector('[data-slot="composer-placeholder"]')
+    expect(trailingBreak).not.toBeNull()
+    editable.focus()
+
+    const browserTextNode = document.createTextNode("你")
+    paragraph.insertBefore(browserTextNode, trailingBreak)
+    window.getSelection()!.collapse(browserTextNode, 1)
+
+    const removedNodes: Node[] = []
+    const childObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          removedNodes.push(node)
+        }
+      }
+    })
+    childObserver.observe(paragraph, { childList: true })
+
+    try {
+      // 0 -> 1
+      await act(async () => {
+        editor.view.dispatch(editor.state.tr.insertText("你", 1, 1))
+      })
+      expect(removedNodes).toEqual([])
+      expect(paragraph.firstChild).toBe(browserTextNode)
+      expect(paragraph.contains(trailingBreak)).toBe(true)
+
+      // 1 -> 2
+      browserTextNode.nodeValue = "你好"
+      window.getSelection()!.collapse(browserTextNode, 2)
+      await act(async () => {
+        editor.view.dispatch(editor.state.tr.insertText("好", 2, 2))
+      })
+      expect(removedNodes).toEqual([])
+      expect(paragraph.firstChild).toBe(browserTextNode)
+      expect(paragraph.contains(trailingBreak)).toBe(true)
+      expect(editor.getText()).toBe("你好")
+
+      // 2 -> 0 (delete back to empty)
+      await act(async () => {
+        editor.commands.clearContent()
+      })
+      expect(editor.isEmpty).toBe(true)
+      expect(paragraph.querySelector("br.ProseMirror-trailingBreak")).not.toBeNull()
+      expect(overlay).toHaveAttribute("data-visible", "true")
+    } finally {
+      childObserver.disconnect()
+      view.unmount()
+    }
+  })
+
+  it("reconciles a real DOMObserver flush for 1st-character insertion before trailing <br> with Selection on <p> offset 1", async () => {
+    const view = render(createElement(Composer, composerProps()))
+    await waitFor(() => {
+      expect(view.container.querySelector(".tiptap p")).not.toBeNull()
+    })
+
+    const editable = view.container.querySelector<TiptapEditorHTMLElement>(".tiptap")!
+    const editor = editable.editor!
+    const paragraph = editable.querySelector("p")!
+    const trailingBreak = paragraph.querySelector("br.ProseMirror-trailingBreak")
+    expect(trailingBreak).not.toBeNull()
+    editable.focus()
+
+    // Insert the browser-owned Text node before the trailing <br> and place Selection on <p> offset 1,
+    // then flush ProseMirror's real DOMObserver -> readDOMChange -> parseBetween -> updateState pipeline.
+    const browserTextNode = document.createTextNode("你")
+    paragraph.insertBefore(browserTextNode, trailingBreak)
+    window.getSelection()!.collapse(paragraph, 1)
+
+    const collapseSpy = vi.spyOn(Selection.prototype, "collapse")
+    const removeAllRangesSpy = vi.spyOn(Selection.prototype, "removeAllRanges")
+    const removedNodes: Node[] = []
+    const childObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          removedNodes.push(node)
+        }
+      }
+    })
+    childObserver.observe(paragraph, { childList: true })
+
+    try {
+      await act(async () => {
+        ;(editor.view as unknown as { domObserver: { flush: () => void } }).domObserver.flush()
+      })
+      expect(editor.getText()).toBe("你")
+      expect(removedNodes).toEqual([])
+      expect(paragraph.firstChild).toBe(browserTextNode)
+      expect((browserTextNode as unknown as { pmViewDesc?: unknown }).pmViewDesc).toBeDefined()
+      expect(paragraph.contains(trailingBreak)).toBe(true)
+      expect(collapseSpy).not.toHaveBeenCalled()
+      expect(removeAllRangesSpy).not.toHaveBeenCalled()
+    } finally {
+      childObserver.disconnect()
+      collapseSpy.mockRestore()
+      removeAllRangesSpy.mockRestore()
+      view.unmount()
+    }
+  })
+
   it("keeps setOptions silent on 1st character in forumThreadBody mode when onDirty triggers parent re-render", async () => {
     const onDirty = vi.fn()
     const view = render(createElement(Composer, {

@@ -792,6 +792,7 @@ test.describe("composer and viewport scroll anchors", () => {
       let setOptionsCalls = 0
       let setPropsCalls = 0
       let textNodeRemovals = 0
+      let brRemovals = 0
       let placeholderRemovals = 0
       const origSetOptions = editor.setOptions.bind(editor)
       editor.setOptions = (...args: unknown[]) => {
@@ -808,6 +809,7 @@ test.describe("composer and viewport scroll anchors", () => {
         for (const record of records) {
           for (const node of record.removedNodes) {
             if (node.nodeType === Node.TEXT_NODE) textNodeRemovals += 1
+            if (node.nodeName === "BR") brRemovals += 1
           }
         }
       })
@@ -834,6 +836,7 @@ test.describe("composer and viewport scroll anchors", () => {
         setOptionsCalls = 0
         setPropsCalls = 0
         textNodeRemovals = 0
+        brRemovals = 0
         placeholderRemovals = 0
       }
 
@@ -853,6 +856,7 @@ test.describe("composer and viewport scroll anchors", () => {
         const char1 = {
           text: editableEl.textContent,
           textNodeRemovals,
+          brRemovals,
           selCalls: [...selCalls],
           placeholderRemovals,
           setOptionsCalls,
@@ -870,6 +874,7 @@ test.describe("composer and viewport scroll anchors", () => {
           text: editableEl.textContent,
           sameTextNode: node1 !== null && node1 === node2,
           textNodeRemovals,
+          brRemovals,
           selCalls: [...selCalls],
           placeholderRemovals,
         }
@@ -889,11 +894,32 @@ test.describe("composer and viewport scroll anchors", () => {
         const afterClearChar1 = {
           text: editableEl.textContent,
           textNodeRemovals,
+          brRemovals,
           selCalls: [...selCalls],
           placeholderRemovals,
           placeholderStillMounted: inputEl.contains(placeholderEl),
           placeholderVisible: placeholderEl.getAttribute("data-visible"),
           focused: document.activeElement === editableEl,
+        }
+
+        // Verify <p> offset-1 Selection with preserved trailing <br> through real DOMObserver flush.
+        editor.commands.clearContent()
+        await wait(50)
+        const paragraph = editableEl.querySelector("p")!
+        const trailingBr = paragraph.querySelector("br.ProseMirror-trailingBreak")
+        editableEl.focus()
+        const pSelTextNode = document.createTextNode("试")
+        paragraph.insertBefore(pSelTextNode, trailingBr)
+        rawCollapse.call(window.getSelection(), paragraph, 1)
+        reset()
+        await wait(50)
+        const elementSelectionChar1 = {
+          text: editableEl.textContent,
+          sameTextNode: paragraph.firstChild === pSelTextNode,
+          trailingBrPreserved: trailingBr !== null && paragraph.contains(trailingBr),
+          textNodeRemovals,
+          brRemovals,
+          selCalls: [...selCalls],
         }
 
         return {
@@ -904,6 +930,7 @@ test.describe("composer and viewport scroll anchors", () => {
           clearedVisible,
           clearedInputText,
           afterClearChar1,
+          elementSelectionChar1,
         }
       } finally {
         tiptapObs.disconnect()
@@ -919,6 +946,7 @@ test.describe("composer and viewport scroll anchors", () => {
     expect(report.char1).toEqual({
       text: "你",
       textNodeRemovals: 0,
+      brRemovals: 0,
       selCalls: [],
       placeholderRemovals: 0,
       setOptionsCalls: 0,
@@ -931,6 +959,7 @@ test.describe("composer and viewport scroll anchors", () => {
       text: "你好",
       sameTextNode: true,
       textNodeRemovals: 0,
+      brRemovals: 0,
       selCalls: [],
       placeholderRemovals: 0,
     })
@@ -939,11 +968,20 @@ test.describe("composer and viewport scroll anchors", () => {
     expect(report.afterClearChar1).toEqual({
       text: "测",
       textNodeRemovals: 0,
+      brRemovals: 0,
       selCalls: [],
       placeholderRemovals: 0,
       placeholderStillMounted: true,
       placeholderVisible: "false",
       focused: true,
+    })
+    expect(report.elementSelectionChar1).toEqual({
+      text: "试",
+      sameTextNode: true,
+      trailingBrPreserved: true,
+      textNodeRemovals: 0,
+      brRemovals: 0,
+      selCalls: [],
     })
   })
 })

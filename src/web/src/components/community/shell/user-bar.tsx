@@ -200,14 +200,14 @@ export function UserBarSkeleton() {
       className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0 sm:px-2 sm:pb-3"
     >
       <div className={cn(styles.base, "flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2")}>
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
+        <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
           <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-full")} /></div>
           <div className={cn(styles.name, "flex min-w-0 flex-1 items-center sm:@max-[156px]/user-bar:hidden")}>
             <Skeleton className="h-3.5 w-full rounded" />
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
-            <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
+            <div className={cn(styles.target, styles.actionTarget)}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
+            <div className={cn(styles.target, styles.actionTarget)}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
           </div>
         </div>
       </div>
@@ -253,7 +253,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
       ? LoaderCircle
       : Download
   return (
-    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
+    <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
       <button ref={profileTriggerRef} onClick={(e) => {
         if (hasOpenExtension) {
           dismissOpenSlot()
@@ -306,7 +306,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
             ref={updateBadgeRef}
             type="button"
             data-testid={tid.daemonUpdateBadge}
-            className={cn(styles.target, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+            className={cn(styles.target, styles.actionTarget, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
             aria-label={updateBadgeLabel}
             onClick={() => {
               onRequestExtensionFocus("update")
@@ -332,6 +332,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
                 ? "relative size-7 rounded-full max-sm:mx-2 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
                 : cn(
                   styles.target,
+                  styles.actionTarget,
                   styles.squareButton,
                   styles.inbox,
                   "rounded-lg text-muted-foreground aria-expanded:text-foreground",
@@ -367,6 +368,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
           }}
           className={cn(
             styles.target,
+            styles.actionTarget,
             styles.squareButton,
             "rounded-lg text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             mobile && "active:text-foreground",
