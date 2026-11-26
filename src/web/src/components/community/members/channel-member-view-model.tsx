@@ -13,7 +13,7 @@ import type { Member } from "@/lib/community/models/people"
 import type { ComposerProps } from "@/components/community/messages/composer"
 import { toastApiError } from "@/lib/api/client"
 import { isAbortError } from "@/lib/errors"
-import { makeUserNameResolver } from "@/lib/community/display-name"
+import { displayName, UNAVAILABLE_MEMBER } from "@/lib/community/display-name"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useAddableMembers,
@@ -144,7 +144,7 @@ export function useChannelMemberViewModel({
   const parentChannelId = isNotifyUnit ? currentChannelMeta?.parentChannelId ?? null : null
   const parentChannelMembersHook = useChannelMembers(
     parentChannelId ?? "",
-    accessAllowed && !!parentChannelId,
+    accessAllowed && !!parentChannelId && (manageMembersOpen || currentChannelPrivate),
     serverId,
     "access",
   )
@@ -349,29 +349,51 @@ export function useChannelMemberViewModel({
       }
     }
   }, [canLeaveChannel, currentUser.id, leaveSource, removeMember, channelMembersHook])
-  const manageContext = scopedDrawer
+  const isChannelMembersCurrentRead = channelMembersHook.isCurrentRead
+  const isMembersCurrentRead = membersHook.isCurrentRead
+  const manageContext = useMemo(() => scopedDrawer
     ? {
         viewerUserId: currentUser.id,
         actionable: channelMembersHook.observed,
         viewerIsCreator: viewerIsUnitCreator,
         unitLabel: currentChannelMeta?.name ?? channelName,
         onLeave: (userId: string, caller?: MemberOriginalView) => {
-          if (!channelMembersHook.isCurrentRead()) throw new DOMException("Member roster changed", "AbortError")
+          if (!isChannelMembersCurrentRead()) throw new DOMException("Member roster changed", "AbortError")
           return removeMember.mutateAsync({ userId, assertActive: leaveView(caller) })
         },
         onRemove: (userId: string, caller?: MemberOriginalView) => {
-          if (!channelMembersHook.isCurrentRead()) throw new DOMException("Member roster changed", "AbortError")
+          if (!isChannelMembersCurrentRead()) throw new DOMException("Member roster changed", "AbortError")
           return removeMember.mutateAsync({ userId, assertActive: originalView(caller) })
         },
       }
-    : undefined
+    : undefined, [channelMembersHook.observed, channelName, currentChannelMeta?.name, currentUser.id, isChannelMembersCurrentRead, leaveView, originalView, removeMember, scopedDrawer, viewerIsUnitCreator])
 
   const searchLocalMembers = useCallback((query: string) => {
     setMemberUi(current => current.channelId === channelId && current.query === query ? current
       : { channelId, query, dialogOpen: current.channelId === channelId && current.dialogOpen })
   }, [channelId, setMemberUi])
 
-  const memberPanelProps: ChannelMemberPanelProps = {
+  const retryScopedMembers = useCallback(() => { void refetchParticipantMembers() }, [refetchParticipantMembers])
+  const openManageMembers = useCallback(() => {
+    setMemberUi((current) => ({ channelId, query: current.channelId === channelId ? current.query : "", dialogOpen: true }))
+  }, [channelId, setMemberUi])
+  const onSetRole = useCallback((memberId: string, role: Role) => {
+    const assert = source.capture()
+    assert()
+    if (!isMembersCurrentRead()) return
+    setMemberRoleMut.mutate({ serverId, memberId, role, assertActive: assert }, {
+      onSuccess: () => { try { assert() } catch { return }; toast("Role updated") },
+      onError: (error) => toastApiError(error, "Failed to update role", assert),
+    })
+  }, [isMembersCurrentRead, serverId, setMemberRoleMut, source])
+  const onKickMember = useCallback((memberId: string, caller?: MemberOriginalView) => {
+    const assert = originalView(caller)
+    assert()
+    if (!isMembersCurrentRead()) throw new DOMException("Member roster changed", "AbortError")
+    return kickMemberMut.mutateAsync({ serverId, memberId, assertActive: assert }).then(() => { assert(); toast("Member kicked") })
+  }, [isMembersCurrentRead, kickMemberMut, originalView, serverId])
+
+  const memberPanelProps = useMemo<ChannelMemberPanelProps>(() => ({
     memberScopeId: `${serverId}:${channelId}`,
     members: panelMembers,
     membersLoading: scopedDrawer ? channelMembersHook.loading : membersHook.loading,
@@ -379,34 +401,46 @@ export function useChannelMemberViewModel({
     memberActionsEnabled: scopedDrawer ? channelMembersHook.observed : membersHook.observed,
     membersFailed: scopedDrawer ? channelMembersHook.failed || channelMembersHook.isError : membersHook.failed || membersHook.refreshFailed,
     membersRefreshing: scopedDrawer ? channelMembersHook.isFetching : membersHook.refreshing,
-    onRetryMembers: scopedDrawer ? () => { void refetchParticipantMembers() } : membersHook.refresh,
+    onRetryMembers: scopedDrawer ? retryScopedMembers : membersHook.refresh,
     membersLoadingMore: scopedDrawer ? false : membersHook.loadingMore,
     membersHasMore: scopedDrawer ? false : membersHook.hasMore,
     onLoadMoreMembers: scopedDrawer ? undefined : membersHook.loadMore,
-    onSearchMembers: scopedDrawer
-      ? searchLocalMembers
-      : membersHook.searchMembers,
-    onAddMember: scopedDrawer
-      ? () => setMemberUi({ channelId, query: memberQuery, dialogOpen: true })
-      : undefined,
+    onSearchMembers: scopedDrawer ? searchLocalMembers : membersHook.searchMembers,
+    onAddMember: scopedDrawer ? openManageMembers : undefined,
     manageContext,
     myRole,
-    onSetRole: (memberId: string, role: Role) => {
-      const assert = source.capture()
-      assert()
-      if (!membersHook.isCurrentRead()) return
-      setMemberRoleMut.mutate({ serverId, memberId, role, assertActive: assert }, {
-        onSuccess: () => { try { assert() } catch { return }; toast("Role updated") },
-        onError: (error) => toastApiError(error, "Failed to update role", assert),
-      })
-    },
-    onKickMember: (memberId: string, caller?: MemberOriginalView) => {
-      const assert = originalView(caller)
-      assert()
-      if (!membersHook.isCurrentRead()) throw new DOMException("Member roster changed", "AbortError")
-      return kickMemberMut.mutateAsync({ serverId, memberId, assertActive: assert }).then(() => { assert(); toast("Member kicked") })
-    },
-  }
+    onSetRole,
+    onKickMember,
+  }), [
+    channelId,
+    channelMembersHook.data,
+    channelMembersHook.failed,
+    channelMembersHook.isError,
+    channelMembersHook.isFetching,
+    channelMembersHook.loading,
+    channelMembersHook.observed,
+    manageContext,
+    membersHook.displayReady,
+    membersHook.failed,
+    membersHook.hasMore,
+    membersHook.loadMore,
+    membersHook.loading,
+    membersHook.loadingMore,
+    membersHook.observed,
+    membersHook.refresh,
+    membersHook.refreshFailed,
+    membersHook.refreshing,
+    membersHook.searchMembers,
+    myRole,
+    onKickMember,
+    onSetRole,
+    openManageMembers,
+    panelMembers,
+    retryScopedMembers,
+    scopedDrawer,
+    searchLocalMembers,
+    serverId,
+  ])
 
   const manageMembersDialog = useMemo(() => {
     if (!manageMembersOpen) return null
@@ -467,11 +501,27 @@ export function useChannelMemberViewModel({
     )
   }, [manageMembersOpen, isNotifyUnit, addableMembers, serverId, channelId, channelName, addableMembersData, addableMembersLoading, addableMembersError, addableMembersFetching, participantMembersData, parentMembersData, currentChannelMeta?.name, participantCandidatesResolved, participantCandidatesLoading, participantCandidatesError, participantCandidatesRetrying, retryParticipantCandidates, currentUser.id, addThreadParticipantMut, originalView, setMemberUi, memberQuery, refetchAddableMembers, addChannelMemberMut, channelMembersHook, parentChannelMembersHook, addableChannelMembers])
 
-  const memberNames = JSON.stringify(membersHook.members.map(({ userId, id, name }) => ({ userId, id, name })))
-  const resolveUserName = useMemo(
-    () => makeUserNameResolver(JSON.parse(memberNames) as Array<{ userId: string; id: string; name: string }>),
-    [memberNames],
-  )
+  let memberNameKey = ""
+  for (const { userId, id, name } of membersHook.members) {
+    memberNameKey += `${userId}\0${id}\0${name}\x01`
+  }
+  const resolveUserName = useMemo(() => {
+    const namesById = new Map<string, string>()
+    if (memberNameKey) {
+      for (const entry of memberNameKey.split("\x01")) {
+        if (!entry) continue
+        const first = entry.indexOf("\0")
+        const second = entry.indexOf("\0", first + 1)
+        if (first < 0 || second < 0) continue
+        const userId = entry.slice(0, first)
+        const id = entry.slice(first + 1, second)
+        const name = entry.slice(second + 1)
+        const key = userId || id
+        if (key && !namesById.has(key)) namesById.set(key, displayName({ name }))
+      }
+    }
+    return (userId: string) => namesById.get(userId) ?? UNAVAILABLE_MEMBER
+  }, [memberNameKey])
 
   return {
     composerMembers,

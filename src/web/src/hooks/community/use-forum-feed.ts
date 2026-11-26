@@ -12,7 +12,7 @@ import { conversationListScopeKey } from "@/lib/community/conversation-qualifica
 import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId, useCanonicalMessagesById, useChildChannelsByParentId } from "@/lib/community-db/projections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityForumFeed } from "@/lib/community-db/sync"
 import { forumTagFromUrl, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import { messageProfileIds, type ForumThread, type Msg } from "@/lib/community/models/message"
@@ -62,9 +62,19 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
     const page = normalizeThreadResources(channelId, transport)
     const freshThreads = page.threads.filter((thread) => !protocol.get().publishedIds.has(thread.id))
     const ids = new Set(freshThreads.map((thread) => thread.id)), openerIds = new Set(freshThreads.map((thread) => thread.parentMessageId))
-    const roots = page.included.messages.filter((message) => openerIds.has(message.id) || ids.has(message.channelId))
-    const replyIds = new Set(roots.flatMap(message => message.replyToId ? [message.replyToId] : []))
-    const messages = page.included.messages.filter((message) => roots.includes(message) || replyIds.has(message.id) && roots.some(root => root.replyToId === message.id && root.channelId === message.channelId))
+    const rootSet = new Set<typeof page.included.messages[number]>()
+    const replyChannelsById = new Map<string, Set<string>>()
+    for (const message of page.included.messages) {
+      if (openerIds.has(message.id) || ids.has(message.channelId)) {
+        rootSet.add(message)
+        if (message.replyToId) {
+          let channels = replyChannelsById.get(message.replyToId)
+          if (!channels) { channels = new Set(); replyChannelsById.set(message.replyToId, channels) }
+          channels.add(message.channelId)
+        }
+      }
+    }
+    const messages = page.included.messages.filter((message) => rootSet.has(message) || replyChannelsById.get(message.id)?.has(message.channelId) === true)
     const users = new Set([...page.included.members.filter((member) => ids.has(member.channelId)).map((member) => member.userId), ...messages.flatMap(messageProfileIds)])
     await publishCommunityForumFeed(queryClient, channelId, { ...page, threads: freshThreads, included: {
       messages,
@@ -79,7 +89,7 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
   })
 }
 
-export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<string, Msg>, channels: ReadonlyMap<string, ChannelRow>, profiles: ReturnType<typeof useCanonicalProfilesByUserId>, filter: string | null = null): ForumThread[] {
+export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<string, Msg>, channels: ReadonlyMap<string, ChannelRow>, profiles: ReturnType<typeof useCanonicalIdentitiesByUserId>, filter: string | null = null): ForumThread[] {
   const byId = new Map<string, ForumThread>()
   for (const page of pages) for (const window of page.threads) {
     if (byId.has(window.id)) continue
@@ -97,7 +107,7 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
 
 export function useForumFeed(serverId: string, channelId: string, options?: { routeTag?: string | null; onSelectTag?: (tag: string) => void }) {
   const presented = useConversationPresentation()
-  const queryClient = useQueryClient(), channels = useCanonicalChannelsById(), profiles = useCanonicalProfilesByUserId()
+  const queryClient = useQueryClient()
   const persistedTag = useStoredForumTag(channelId)
   const routeTag = forumTagFromUrl(options?.routeTag)
   const [fallbackSelection, setFallbackSelection] = useAtom(useCreateAtom<{ channelId: string | null; tag: string }>({ channelId: null, tag: "All" }))
@@ -126,6 +136,9 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
     enabled: presented && selectionReady && entry.canRead && !entry.verificationFetching && (!entry.verificationFailed || entry.displayWindow !== undefined), subscribed: selectionReady && entry.canRead, staleTime: 5_000,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
   const displayCandidate = selectionReady && entry.canRead && entry.displayWindow !== undefined
+  const channels = useChildChannelsByParentId(channelId, displayCandidate)
+  const participantIds = useMemo(() => [...new Set(displayCandidate ? query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.participantIds)) ?? [] : [])], [displayCandidate, query.data?.pages])
+  const profiles = useCanonicalIdentitiesByUserId(participantIds, displayCandidate && participantIds.length > 0)
   const messageIds = useMemo(() => [...new Set(displayCandidate ? query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => [...(thread.openerMessageId ? [thread.openerMessageId] : []), ...(channels.get(thread.id)?.firstMessageId ? [channels.get(thread.id)!.firstMessageId!] : [])])) ?? [] : [])], [displayCandidate, query.data?.pages, channels])
   const messages = useCanonicalMessagesById(messageIds)
   const displayReady = displayCandidate && query.data !== undefined && messageIds.every(id => messages?.has(id))

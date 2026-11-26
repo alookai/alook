@@ -15,17 +15,12 @@ import { parseCommunityDmsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import type { DM } from "@/lib/community/models/people"
 import { useMemo } from "react"
-import {
-  useCanonicalProfilesByUserId,
-} from "@/lib/community-db/projections"
-import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useDmProjection } from "@/lib/community-db/projections"
 import {
   assertCommunityLiveSnapshotTokenCurrent,
   captureCommunityLiveSnapshotToken,
   publishCommunityLiveSnapshot,
 } from "@/lib/community-db/sync"
-import { sortDmsByActivity } from "@/lib/community/dm-order"
 import { useCommunityOnlineAccount } from "./community-origin"
 
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
@@ -74,23 +69,7 @@ export function useDms(enabled = true, subscribed = enabled): UseQueryResult<{ i
     // Reuse recent projected DMs across layout mounts; WS/reconnect invalidate explicitly.
     staleTime: 30_000,
   })
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const dms = useMemo(() => {
-    const source = dbDms ?? EMPTY_DMS
-    if (source.length === 0) return EMPTY_DMS as DM[]
-    return sortDmsByActivity(source.map((dm) => {
-      const liveProfile = profilesByUserId.get(dm.userId)
-      const profile = readCommunityProfile(liveProfile, dm.userId)
-      return {
-        ...dm,
-        name: liveProfile?.name ?? dm.name,
-        discriminator: liveProfile?.discriminator ?? dm.discriminator,
-        avatar: liveProfile?.avatar ?? dm.avatar,
-        avatarVersion: liveProfile?.avatarVersion ?? dm.avatarVersion,
-        status: liveProfile ? profile.presence : "offline",
-      }
-    }))
-  }, [dbDms, profilesByUserId])
+  const dms = (dbDms && dbDms.length > 0 ? dbDms : EMPTY_DMS) as DM[]
   const isDisplayReady = dbDms !== undefined && (dbDms.length > 0 || query.data?.ids?.length === 0)
   return {
     ...query,

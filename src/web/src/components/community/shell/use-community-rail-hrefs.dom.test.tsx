@@ -3,7 +3,10 @@ import { createStore } from "@tanstack/store"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { serverResourceFixture, channelResourceFixture } from "@/test/community-resource-fixtures"
+import { serverResourceFixture, channelResourceFixture, serverRailResponseFixture } from "@/test/community-resource-fixtures"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { ingestServers } from "@/lib/community-db/sync"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { createElement } from "react"
 import { renderToString } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -128,5 +131,64 @@ describe("rail hrefs derived from canonical rows and existing navigation memory"
     })
     expect(view.result.current.serverHrefs.s).toBe("/c/channels/s")
     expect(localStorage.getItem("community:lastChannel:s")).toBe("invalid/path")
+  })
+
+  it("ignores non-structural channel lastMessageAt updates without localStorage reads or JSON serialization", async () => {
+    const { registry } = await createCommunityQueryOwner("viewer")
+    const serverCount = 150
+    const channelCount = 500
+    const servers = Array.from({ length: serverCount }, (_, i) => ({
+      id: `srv-${i}`,
+      name: `Server ${i}`,
+      initial: "S",
+      active: false,
+      unread: false,
+      mentions: 0,
+      ownerId: "viewer",
+    }))
+    ingestServers(registry, serverRailResponseFixture({ servers }, "viewer"))
+    const channels = Array.from({ length: channelCount }, (_, i) =>
+      canonicalChannelFixture({ id: `ch-${i}`, serverId: `srv-${i % serverCount}`, type: "text", position: i }),
+    )
+    await writeCommunityCollectionRows(registry, "channels", channels, (r) => r.id)
+    owner.registry = registry
+
+    let renders = 0
+    const view = renderHook(() => {
+      renders += 1
+      return useCommunityRailHrefs(servers, "desktop")
+    })
+    expect(Object.keys(view.result.current.serverHrefs)).toHaveLength(serverCount)
+
+    const rendersBeforePatch = renders
+    const snapshotBeforePatch = view.result.current
+    const getItemSpy = vi.spyOn(Storage.prototype, "getItem")
+    const stringifySpy = vi.spyOn(JSON, "stringify")
+
+    await act(async () => {
+      const nextChannels = [
+        canonicalChannelFixture({
+          id: "ch-0",
+          serverId: "srv-0",
+          type: "text",
+          position: 0,
+          lastMessageAt: "2026-11-26T12:00:00.000Z",
+        }),
+        ...channels.slice(1),
+      ]
+      await writeCommunityCollectionRows(registry, "channels", nextChannels, (r) => r.id)
+    })
+
+    const railHrefsStringifyCalls = stringifySpy.mock.calls.filter(
+      ([arg]) => typeof arg === "object" && arg !== null && "serverHrefs" in arg,
+    ).length
+
+    expect(getItemSpy).not.toHaveBeenCalled()
+    expect(railHrefsStringifyCalls).toBe(0)
+    expect(renders - rendersBeforePatch).toBe(0)
+    expect(view.result.current).toBe(snapshotBeforePatch)
+
+    view.unmount()
+    await registry.cleanup()
   })
 })

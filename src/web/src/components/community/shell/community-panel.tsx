@@ -1,7 +1,7 @@
 "use client"
 
 import { EmptyState } from "../empty-state"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { MessagesSquare, Pin, Users } from "@/components/icons/lucide";
 import { messagePreviewText, type CommunityRole as Role } from "@alook/shared"
 
@@ -18,7 +18,7 @@ import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { Msg, Thread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
 import type { CommunityProfile } from "@/lib/community/models/people"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
 export type CommunityPanelProps = {
@@ -57,20 +57,44 @@ export type CommunityPanelProps = {
   onJumpToMessage?: (seq: number) => void
 }
 
+const EMPTY_PROFILES: ReadonlyMap<string, CommunityProfile> = new Map()
+
 export function CommunityPanel(props: CommunityPanelProps) {
-  const { open, onOpenChange, kind } = props
+  const { kind } = props
   const [retained, setRetained] = useState(kind)
   if (kind && retained !== kind) setRetained(kind)
   const displayed = kind ?? retained
-  const profilesByUserId = useCanonicalProfilesByUserId()
   if (!displayed) return null
+  return <CommunityPanelSheet {...props} displayed={displayed} onClearRetained={() => setRetained(null)} />
+}
+
+function CommunityPanelSheet({
+  displayed,
+  onClearRetained,
+  ...props
+}: CommunityPanelProps & {
+  displayed: Exclude<RightPanel, null>
+  onClearRetained: () => void
+}) {
+  const { open, onOpenChange, kind, pinned, threads } = props
+  const authorIds = useMemo(() => {
+    if (displayed === "members") return []
+    const ids = new Set<string>()
+    if (displayed === "pinned") {
+      for (const message of pinned) if (message.authorId) ids.add(message.authorId)
+    } else {
+      for (const thread of threads) if (thread.parent.authorId) ids.add(thread.parent.authorId)
+    }
+    return [...ids]
+  }, [displayed, pinned, threads])
+  const profilesByUserId = useCanonicalIdentitiesByUserId(authorIds, displayed !== "members" && authorIds.length > 0)
   const { icon: Icon, label } = panelHeading(displayed)
 
   return (
     <CommunitySheet
       open={open}
       onOpenChange={onOpenChange}
-      onOpenChangeComplete={(open) => { if (!open) setRetained(null) }}
+      onOpenChangeComplete={(nowOpen) => { if (!nowOpen) onClearRetained() }}
       title={(
         <span className="flex min-w-0 items-center gap-2">
           <Icon className="size-4 shrink-0 text-muted-foreground" />
@@ -81,7 +105,7 @@ export function CommunityPanel(props: CommunityPanelProps) {
       bodyClassName={displayed === "members" ? "h-full p-0 sm:p-0" : "flex flex-col"}
       bodyViewportClassName={displayed === "members" ? "overflow-hidden" : undefined}
     >
-      {renderCommunityPanelBody({ ...props, kind: displayed }, profilesByUserId)}
+      {renderCommunityPanelBody({ ...props, kind: displayed }, displayed === "members" ? EMPTY_PROFILES : profilesByUserId)}
     </CommunitySheet>
   )
 }

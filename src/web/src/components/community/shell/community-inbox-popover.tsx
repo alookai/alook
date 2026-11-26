@@ -22,7 +22,7 @@ import type { InboxChannelReadAction } from "@/hooks/community/use-inbox-channel
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
-import { useCanonicalCategoriesById, useCanonicalChannelsById, useCanonicalProfilesByUserId, useCanonicalServersById, useDmProjection } from "@/lib/community-db/projections"
+import { useCanonicalCategoriesById, useCanonicalIdentitiesByUserId, useCanonicalServersById, useChannelsByIds, useDmProjection } from "@/lib/community-db/projections"
 import type { EntityKind } from "@/lib/community/models/navigation"
 import { cn } from "@/lib/utils"
 import { readCommunityProfile } from "@/lib/community/profile-read"
@@ -31,7 +31,9 @@ import { MESSAGE_GROUPED_ROW_PADDING_PX } from "@/lib/community/message-list-ite
 import styles from "./community-inbox-popover.module.css"
 import indicatorStyles from "./inbox-unread-indicator.module.css"
 import {
+  memo,
   useId,
+  useMemo,
   useState,
   useLayoutEffect,
   useRef,
@@ -105,17 +107,45 @@ function InboxScrollBody({
     const observer = ResizeObserverConstructor
       ? new ResizeObserverConstructor(restore)
       : null
-    observer?.observe(element)
-    if (contentRef.current) observer?.observe(contentRef.current)
+    let observing = false
+    let settled = !getScrollOffset
+    const attachObserver = () => {
+      if (!observer || observing) return
+      observing = true
+      observer.observe(element)
+      if (contentRef.current) observer.observe(contentRef.current)
+    }
+    const detachObserver = () => {
+      if (!observer || !observing) return
+      observing = false
+      observer.disconnect()
+    }
+    if (!settled || focusedScrollTargetInside(element)) attachObserver()
     let secondFrame: number | null = null
     const firstFrame = getScrollOffset
       ? window?.requestAnimationFrame(() => {
         restore()
-        secondFrame = window.requestAnimationFrame(restore)
+        secondFrame = window.requestAnimationFrame(() => {
+          restore()
+          settled = true
+          if (!focusedScrollTargetInside(element)) detachObserver()
+        })
       }) ?? null
       : null
+    const onFocusIn = () => {
+      if (focusedScrollTargetInside(element)) attachObserver()
+    }
+    const onFocusOut = () => {
+      queueMicrotask(() => {
+        if (settled && !focusedScrollTargetInside(element)) detachObserver()
+      })
+    }
+    element.addEventListener("focusin", onFocusIn)
+    element.addEventListener("focusout", onFocusOut)
     return () => {
-      observer?.disconnect()
+      detachObserver()
+      element.removeEventListener("focusin", onFocusIn)
+      element.removeEventListener("focusout", onFocusOut)
       if (firstFrame !== null) window?.cancelAnimationFrame(firstFrame)
       if (secondFrame !== null) window?.cancelAnimationFrame(secondFrame)
     }
@@ -192,12 +222,26 @@ function InboxIconAction({ children, className, compact, ...props }:
   )
 }
 
-function useInboxCardDirectory() {
-  const channels = useCanonicalChannelsById()
+function useInboxCardDirectory(channelIds: readonly string[]) {
+  const directChannels = useChannelsByIds(channelIds, channelIds.length > 0)
+  const parentIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const channel of directChannels.values()) {
+      if (channel.parentChannelId && !directChannels.has(channel.parentChannelId)) ids.add(channel.parentChannelId)
+    }
+    return [...ids]
+  }, [directChannels])
+  const parentChannels = useChannelsByIds(parentIds, parentIds.length > 0)
+  const channels = useMemo(() => {
+    if (parentChannels.size === 0) return directChannels
+    const merged = new Map(directChannels)
+    for (const [id, row] of parentChannels) merged.set(id, row)
+    return merged
+  }, [directChannels, parentChannels])
   const categories = useCanonicalCategoriesById()
   const servers = useCanonicalServersById()
-  const dms = useDmProjection()
-  return { channels, categories, servers, dms }
+  const dms = useDmProjection({ includePresence: false })
+  return useMemo(() => ({ channels, categories, servers, dms }), [categories, channels, dms, servers])
 }
 
 type InboxCardDirectory = ReturnType<typeof useInboxCardDirectory>
@@ -834,7 +878,7 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
   )
 }
 
-export function InboxPopover({
+export const InboxPopover = memo(function InboxPopover({
   friendRequests = [],
   unreads,
   unreadDms,
@@ -932,8 +976,44 @@ export function InboxPopover({
   channelReadActions?: ReadonlyMap<string, InboxChannelReadAction>
   surface?: "desktop" | "mobile" | "extension"
 }) {
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const directory = useInboxCardDirectory()
+  const channelIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const server of unreads) {
+      for (const channel of server.channels) {
+        ids.add(channel.channelId)
+        for (const child of channel.children) {
+          ids.add(child.channelId)
+          if (child.parentChannelId) ids.add(child.parentChannelId)
+        }
+        for (const opener of channel.forumOpeners ?? []) {
+          ids.add(opener.channelId)
+          if (opener.parentChannelId) ids.add(opener.parentChannelId)
+        }
+      }
+    }
+    for (const dm of unreadDms) ids.add(dm.channelId)
+    for (const mention of mentions) if (mention.channelId) ids.add(mention.channelId)
+    for (const todo of todos) {
+      ids.add(todo.channelId)
+      if (todo.parentChannelId) ids.add(todo.parentChannelId)
+    }
+    for (const item of marked) {
+      ids.add(item.channelId)
+      if (item.parentChannelId) ids.add(item.parentChannelId)
+    }
+    return [...ids]
+  }, [marked, mentions, todos, unreadDms, unreads])
+  const profileIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const req of friendRequests) if (req.row.userId) ids.add(req.row.userId)
+    for (const dm of unreadDms) if (dm.otherUserId) ids.add(dm.otherUserId)
+    for (const mention of mentions) if (mention.m.authorId) ids.add(mention.m.authorId)
+    for (const todo of todos) if (todo.m.authorId) ids.add(todo.m.authorId)
+    for (const item of marked) if (item.m.authorId) ids.add(item.m.authorId)
+    return [...ids]
+  }, [friendRequests, marked, mentions, todos, unreadDms])
+  const profilesByUserId = useCanonicalIdentitiesByUserId(profileIds, profileIds.length > 0)
+  const directory = useInboxCardDirectory(channelIds)
   const hasUnreads = hasProjectedUnreads
   const hasMentions = hasProjectedMentions
   const showUnreadDot = selectUnreadPresentation({
@@ -1039,7 +1119,7 @@ export function InboxPopover({
       </TabsContent>
     </Tabs>
   )
-}
+})
 
 function InboxRowsSkeleton() {
   return (

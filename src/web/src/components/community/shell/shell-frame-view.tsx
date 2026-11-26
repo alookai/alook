@@ -1,7 +1,7 @@
 "use client"
 
 import { MobilePage } from "./mobile-page"
-import type { RefObject } from "react"
+import { useCallback, useMemo, type RefObject } from "react"
 import type { MobileEntryMotion } from "@/contexts/community/mobile-page-motion"
 import { DmRoute } from "@/components/community/channels/dm-route"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
@@ -72,42 +72,80 @@ export function ShellFrameView({
   const modulePlan = resolveCommunityModulePlan(contentHref)
   const targetSidebar = modulePlan.sidebar
   const { runningBots } = useRunningOwnedBots()
-  const inboxElement = (
-    <InboxPopover
-      {...inbox.popoverProps}
-      surface="extension"
-    />
-  )
-  const user = {
+  const inboxActive = userBarExtension.active === "inbox"
+  const inboxElement = useMemo(() => (
+    inboxActive ? <InboxPopover {...inbox.popoverProps} surface="extension" /> : null
+  ), [inboxActive, inbox.popoverProps])
+  const user = useMemo(() => ({
     id: profile.currentUser.id,
     name: profile.currentUser.name,
     avatar: profile.currentUser.avatar,
     runningBotCount: runningBots.length,
-  }
+  }), [profile.currentUser.avatar, profile.currentUser.id, profile.currentUser.name, runningBots.length])
   const isInitial = breakpoint === "unknown"
   const profileInExtension = userBarExtension.active === "profile"
     && profile.profile?.data.userId === profile.currentUser.id
-  const profileElement = profileInExtension && profile.profile ? (
-    <ProfileCard
-      data={profile.profile.data}
-      x={profile.profile.x}
-      y={profile.profile.y}
-      bp={breakpoint}
-      onClose={profile.closeProfile}
-      onMessage={profile.profileMessage}
-      isSelf
-      onUpdateStatus={profile.updateOwnStatus}
-      onOpenOwnerProfile={profile.openOwnerProfile}
-      onOpenBotAudit={profile.openBotAudit}
-      extension
-    />
-  ) : null
-  const profileCompanionElement = profileInExtension && runningBots.length > 0 ? (
-    <ProfileRunningBotsCard
-      onOpenBotAudit={profile.openBotAudit}
-      showShadow={breakpoint !== "mobile"}
-    />
-  ) : null
+  const profileElement = useMemo(() => (
+    profileInExtension && profile.profile ? (
+      <ProfileCard
+        data={profile.profile.data}
+        x={profile.profile.x}
+        y={profile.profile.y}
+        bp={breakpoint}
+        onClose={profile.closeProfile}
+        onMessage={profile.profileMessage}
+        isSelf
+        runningBots={runningBots}
+        onUpdateStatus={profile.updateOwnStatus}
+        onOpenOwnerProfile={profile.openOwnerProfile}
+        onOpenBotAudit={profile.openBotAudit}
+        extension
+      />
+    ) : null
+  ), [
+    breakpoint,
+    profile.closeProfile,
+    profile.openBotAudit,
+    profile.openOwnerProfile,
+    profile.profile,
+    profile.profileMessage,
+    profile.updateOwnStatus,
+    profileInExtension,
+    runningBots,
+  ])
+  const profileCompanionElement = useMemo(() => (
+    profileInExtension && runningBots.length > 0 ? (
+      <ProfileRunningBotsCard
+        runningBots={runningBots}
+        onOpenBotAudit={profile.openBotAudit}
+        showShadow={breakpoint !== "mobile"}
+      />
+    ) : null
+  ), [breakpoint, profile.openBotAudit, profileInExtension, runningBots])
+  const daemonUpdateRequest = daemonUpdate.request
+  const onRequestDaemonUpdate = useCallback(() => { void daemonUpdateRequest() }, [daemonUpdateRequest])
+  const userBarExtensionProp = useMemo(() => ({
+    active: userBarExtension.active,
+    inbox: inboxElement,
+    profile: profileElement,
+    profileCompanion: profileCompanionElement,
+    update: daemonUpdate.update,
+    updateBadgePhase: userBarUpdateBadgePhase(userBarExtension),
+    eligibleMachines: daemonUpdate.eligibleMachines,
+    onOpenUpdate: onUserBarOpenUpdate,
+    onRequestUpdate: onRequestDaemonUpdate,
+    onDismiss: dismissUserBarExtension,
+  }), [
+    daemonUpdate.eligibleMachines,
+    daemonUpdate.update,
+    dismissUserBarExtension,
+    inboxElement,
+    onRequestDaemonUpdate,
+    onUserBarOpenUpdate,
+    profileCompanionElement,
+    profileElement,
+    userBarExtension,
+  ])
 
   const main = checkpoint.main.kind === "dm-route" ? (
     <DmRoute key={`${profile.currentUser.id}/${checkpoint.main.dmId}`} dmId={checkpoint.main.dmId}
@@ -154,25 +192,14 @@ export function ShellFrameView({
           user={user}
           onOpenProfile={onUserBarOpenProfile}
           onEditProfile={profile.openUserSettings}
-          inbox={inboxElement}
+          inbox={inboxElement ?? true}
           hasUnread={inbox.hasUnread}
           unreadCount={inbox.unreadCount}
           unreadCountPartial={inbox.unreadCountPartial}
-          inboxOpen={userBarExtension.active === "inbox"}
+          inboxOpen={inboxActive}
           inboxOpening={inboxOpening}
           onInboxOpenChange={onUserBarInboxOpenChange}
-          extension={{
-            active: userBarExtension.active,
-            inbox: inboxElement,
-            profile: profileElement,
-            profileCompanion: profileCompanionElement,
-            update: daemonUpdate.update,
-            updateBadgePhase: userBarUpdateBadgePhase(userBarExtension),
-            eligibleMachines: daemonUpdate.eligibleMachines,
-            onOpenUpdate: onUserBarOpenUpdate,
-            onRequestUpdate: () => { void daemonUpdate.request() },
-            onDismiss: dismissUserBarExtension,
-          }}
+          extension={userBarExtensionProp}
         />
       )}
       overlays={!isInitial && (

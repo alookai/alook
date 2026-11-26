@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery, useIsRestoring, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
-import { useCanonicalChannelsById, useCanonicalMessagesById, useChannelReadStateProjection, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
+import { useCanonicalMessagesById, useChannelReadStateProjection, useOptionalCommunityDbRegistry, useRouteChannelProjection } from "@/lib/community-db/projections"
 import { assertCommunitySnapshotTokenCurrent, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { communityServerRetirementId, communityServerRetirementKey } from "@/lib/community-db/message-access-scope"
 import { communityScopeAllowsAccess } from "@/stores/community/ws-store"
@@ -23,7 +23,7 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const client = useQueryClient()
   const restoring = useIsRestoring()
   const registry = useOptionalCommunityDbRegistry()
-  const channel = useCanonicalChannelsById().get(channelId)
+  const channel = useRouteChannelProjection(channelId)
   const retiringServers = useMutationState({ filters: { mutationKey: communityServerRetirementKey, status: "pending" }, select: mutation => communityServerRetirementId(mutation, registry) })
   const accessAllowed = useCommunityWsStore(state => state.profileViewerId === registry?.accountId && communityScopeAllowsAccess(state, { channelId, serverId: channel?.serverId ?? undefined }))
     && !(channel?.serverId && retiringServers.includes(channel.serverId))

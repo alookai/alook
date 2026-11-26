@@ -13,7 +13,7 @@ import type { Thread, Msg } from "@/lib/community/models/message"
 import {
   materializeCanonicalMessages,
   useCanonicalMessagesById,
-  useCanonicalChannelsById,
+  useChildChannelsByParentId,
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
@@ -68,23 +68,24 @@ export function useThreads(channelId: string | null, requested = true): UseQuery
   canonicalPending: boolean
 } {
   const queryClient = useQueryClient()
-  const channels = useCanonicalChannelsById()
   const presented = useConversationPresentation()
   const enabled = !!channelId
+  const active = enabled && presented && requested
+  const channels = useChildChannelsByParentId(channelId, active)
   const query = useQuery({
     queryKey: enabled ? communityKeys.threads(channelId!) : communityKeys.threads("__none__"),
     queryFn: enabled
       ? threadsQueryFn(channelId!, queryClient)
       : (() => Promise.reject(new Error("disabled"))),
-    enabled: enabled && presented && requested,
+    enabled: active,
   })
-  const messageIds = useMemo(() => query.data?.threads.flatMap((thread) => [...(thread.openerMessageId ? [thread.openerMessageId] : []), ...(channels.get(thread.id)?.firstMessageId ? [channels.get(thread.id)!.firstMessageId!] : [])]) ?? [], [query.data?.threads, channels])
+  const messageIds = useMemo(() => active ? (query.data?.threads.flatMap((thread) => [...(thread.openerMessageId ? [thread.openerMessageId] : []), ...(channels.get(thread.id)?.firstMessageId ? [channels.get(thread.id)!.firstMessageId!] : [])]) ?? []) : [], [active, query.data?.threads, channels])
   const canonicalMessages = useCanonicalMessagesById(messageIds)
-  const threads = materializeThreadsResponse(query.data, canonicalMessages, channels)
+  const threads = useMemo(() => active ? materializeThreadsResponse(query.data, canonicalMessages, channels) : [], [active, query.data, canonicalMessages, channels])
   return {
     ...query,
     threads,
-    canonicalPending: enabled && !!query.data?.threads.length && !query.isError
+    canonicalPending: active && !!query.data?.threads.length && !query.isError
       && (query.data.threads.some(row => !channels.has(row.id)) || messageIds.some(id => !canonicalMessages?.has(id))),
   }
 }

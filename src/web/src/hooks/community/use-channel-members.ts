@@ -103,32 +103,47 @@ export function useChannelMembers(channelId: string, enabled = true, serverId?: 
   const query = useQuery({ ...channelMembersOptions(client, channelId, serverId, relation), enabled: active, subscribed: active })
   const rosterProjection = useChannelRosterProjection(active ? channelId : "", query.data?.relation ?? relation ?? "access")
   const roster = rosterProjection.data
-  const profileProjection = useCanonicalProfilesProjection(roster?.map((member) => member.userId) ?? [])
+  const rosterUserIds = useMemo(() => roster?.map((member) => member.userId) ?? [], [roster])
+  const profileProjection = useCanonicalProfilesProjection(rosterUserIds)
   const profiles = profileProjection.data
-  const membershipProjection = useServerMemberProjection(query.data?.serverId === null ? null : query.data?.serverId ?? serverId ?? null, roster?.map((member) => member.userId) ?? [])
+  const membershipProjection = useServerMemberProjection(query.data?.serverId === null ? null : query.data?.serverId ?? serverId ?? null, rosterUserIds)
+  const membershipByUserId = useMemo(
+    () => new Map((membershipProjection.data ?? []).map((member) => [member.userId, member])),
+    [membershipProjection.data],
+  )
+  const rosterUserIdSet = useMemo(() => new Set(rosterUserIds), [rosterUserIds])
   const members = useMemo<ChannelMember[]>(() => {
-    const byUser = new Map((membershipProjection.data ?? []).map((member) => [member.userId, member]))
+    const creatorSet = new Set(query.data?.creatorIds ?? [])
     return (roster ?? []).flatMap((participant) => {
-      const member = byUser.get(participant.userId)
+      const member = membershipByUserId.get(participant.userId)
       if (query.data?.serverId !== null && !member?.memberId) return []
       if (!profileProjection.resourceProfiles.has(participant.userId)) return []
       const profile = readCommunityProfile(profiles.get(participant.userId), participant.userId)
-      return [{ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source, isCreator: query.data?.creatorIds.includes(participant.userId) === true }]
+      return [{ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source, isCreator: creatorSet.has(participant.userId) }]
     })
-  }, [profiles, profileProjection.resourceProfiles, membershipProjection.data, roster, query.data?.serverId, query.data?.creatorIds])
-  const projections = query.data?.serverId === null ? [rosterProjection, profileProjection] : [rosterProjection, membershipProjection, profileProjection]
-  const complete = !!query.data && projections.every(projection => projection.isReady && projection.isEnabled && !projection.isError)
-    && query.data.members.every(identity => roster?.some(row => row.userId === identity.userId))
+  }, [profiles, profileProjection.resourceProfiles, membershipByUserId, roster, query.data?.serverId, query.data?.creatorIds])
+  const projections = useMemo(
+    () => query.data?.serverId === null ? [rosterProjection, profileProjection] : [rosterProjection, membershipProjection, profileProjection],
+    [membershipProjection, profileProjection, query.data?.serverId, rosterProjection],
+  )
+  const complete = useMemo(() => (
+    !!query.data && projections.every(projection => projection.isReady && projection.isEnabled && !projection.isError)
+    && query.data.members.every(identity => rosterUserIdSet.has(identity.userId))
     && (roster ?? []).every(row => profileProjection.resourceProfiles.has(row.userId)
-      && (query.data?.serverId === null || membershipProjection.data?.some(member => member.userId === row.userId && member.memberId)))
+      && (query.data?.serverId === null || Boolean(membershipByUserId.get(row.userId)?.memberId)))
+  ), [membershipByUserId, profileProjection.resourceProfiles, projections, query.data, roster, rosterUserIdSet])
+  const nonViewerUserIds = useMemo(
+    () => rosterUserIds.filter((userId) => userId !== rosterProjection.registry?.accountId),
+    [rosterProjection.registry?.accountId, rosterUserIds],
+  )
   const readState = getMemberReadState(active, { pending: !complete && (!query.data || query.isRefetching), failed: !complete
-    && (query.isError && !query.isFetching || !!query.data && projections.every(projection => projection.isReady)) }, projections, (roster ?? []).filter((member) => member.userId !== rosterProjection.registry?.accountId).map((member) => member.userId), profileProjection.resourceProfiles)
+    && (query.isError && !query.isFetching || !!query.data && projections.every(projection => projection.isReady)) }, projections, nonViewerUserIds, profileProjection.resourceProfiles)
   const data = useMemo(() => active && complete ? { members } : undefined, [active, complete, members])
-  const isCurrentRead = () => {
-    const state = client.getQueryState<ChannelRosterWindow>(channelMembersOptions(client, channelId, serverId, relation).queryKey)
+  const isCurrentRead = useCallback(() => {
+    const state = client.getQueryState<ChannelRosterWindow>(communityKeys.channelMembers(channelId, relation ?? "access"))
     return active && complete && getCommunityDbRegistry(client) === profileProjection.registry && state?.status === "success"
       && !state.isInvalidated && state.data === query.data && state.data?.observed === true
-  }
+  }, [active, channelId, client, complete, profileProjection.registry, query.data, relation])
   return { ...query, data, members: active ? members : [], profiles, ...readState, observed: isCurrentRead(), isCurrentRead }
 }
 
@@ -139,30 +154,36 @@ export function useAddableMembers(serverId: string, channelId: string, enabled =
   const active = enabled && !!serverId && !!channelId
   const query = useQuery({ queryKey: communityKeys.channelAddableMembers(channelId), queryFn: (context) => addableMembersQueryFn(serverId, channelId, context), enabled: active, subscribed: active })
   const ids = useMemo(() => query.data?.members ?? [], [query.data?.members])
-  const profileProjection = useCanonicalProfilesProjection(ids.map((member) => member.userId))
-  const membershipProjection = useServerMemberProjection(serverId, ids.map((member) => member.userId))
+  const idUserIds = useMemo(() => ids.map((member) => member.userId), [ids])
+  const profileProjection = useCanonicalProfilesProjection(idUserIds)
+  const membershipProjection = useServerMemberProjection(serverId, idUserIds)
   const rosterProjection = useChannelRosterProjection(channelId, query.data?.relation ?? "access")
   const profiles = profileProjection.data
   const memberships = useMemo(() => membershipProjection.data ?? [], [membershipProjection.data])
+  const membershipByUserId = useMemo(
+    () => new Map(memberships.map((member) => [member.userId, member])),
+    [memberships],
+  )
   const roster = useMemo(() => rosterProjection.data ?? [], [rosterProjection.data])
   const members = useMemo<AddableMember[]>(() => {
     const present = new Set(roster.map((member) => member.userId))
-    const current = new Map(memberships.map((member) => [member.userId, member]))
     return ids.flatMap((identity) => {
-      const member = current.get(identity.userId)
+      const member = membershipByUserId.get(identity.userId)
       if (present.has(identity.userId) || member?.memberId !== identity.id || !profileProjection.resourceProfiles.has(identity.userId)) return []
       const profile = readCommunityProfile(profiles.get(identity.userId), identity.userId)
       return [{ userId: identity.userId, name: member.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion }]
     })
-  }, [ids, profiles, profileProjection.resourceProfiles, memberships, roster])
-  const complete = !!query.data && [profileProjection, membershipProjection, rosterProjection].every(projection => projection.isReady && projection.isEnabled && !projection.isError)
-    && ids.every(identity => memberships.some(member => member.userId === identity.userId && member.memberId === identity.id) && profileProjection.resourceProfiles.has(identity.userId))
+  }, [ids, profiles, profileProjection.resourceProfiles, membershipByUserId, roster])
+  const complete = useMemo(() => (
+    !!query.data && [profileProjection, membershipProjection, rosterProjection].every(projection => projection.isReady && projection.isEnabled && !projection.isError)
+    && ids.every(identity => membershipByUserId.get(identity.userId)?.memberId === identity.id && profileProjection.resourceProfiles.has(identity.userId))
+  ), [ids, membershipByUserId, membershipProjection, profileProjection, query.data, rosterProjection])
   const data = useMemo(() => active && complete ? { members } : undefined, [active, complete, members])
-  const isCurrentRead = () => {
+  const isCurrentRead = useCallback(() => {
     const state = client.getQueryState<AddableMembersWindow>(communityKeys.channelAddableMembers(channelId))
     return active && complete && getCommunityDbRegistry(client) === profileProjection.registry && state?.status === "success"
       && !state.isInvalidated && state.data === query.data && state.data?.observed === true
-  }
+  }, [active, channelId, client, complete, profileProjection.registry, query.data])
   return { ...query, data, members: active && complete ? members : [], observed: isCurrentRead(), isCurrentRead }
 }
 

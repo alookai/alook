@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useCallback, useMemo } from "react"
 import { QueryObserver,useQuery,useQueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend } from "@/lib/community/models/people"
@@ -42,9 +42,10 @@ export function useInvitableFriends(serverId: string, enabled = true): Invitable
   const query = useQuery({ queryKey: communityKeys.invitableFriends(serverId), queryFn: (context) => invitableFriendsQueryFn(serverId, context), enabled: active, subscribed: active, retry: false })
   const friendshipProjection = useFriendshipProjection(query.data?.friendIds ?? [])
   const rows = useMemo(() => friendshipProjection.data ?? [], [friendshipProjection.data])
-  const profileProjection = useCanonicalProfilesProjection(rows.map((row) => row.userId))
+  const rowUserIds = useMemo(() => rows.map((row) => row.userId), [rows])
+  const profileProjection = useCanonicalProfilesProjection(rowUserIds)
   const profiles = profileProjection.data
-  const membershipProjection = useServerMemberProjection(serverId, rows.map((row) => row.userId))
+  const membershipProjection = useServerMemberProjection(serverId, rowUserIds)
   const members = useMemo(() => membershipProjection.data ?? [], [membershipProjection.data])
   const friends = useMemo<Friend[]>(() => {
     const present = new Set(members.map((row) => row.userId))
@@ -54,14 +55,20 @@ export function useInvitableFriends(serverId: string, enabled = true): Invitable
       return [{ id: row.id, userId: row.userId, name: profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, status: profile.presence, sub: row.sub ?? "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
     })
   }, [rows, profiles, profileProjection.resourceProfiles, members])
-  const complete = !!query.data && [friendshipProjection, profileProjection, membershipProjection].every(projection => projection.isReady && projection.isEnabled && !projection.isError)
-    && query.data.friendIds.every(id => rows.some(row => row.id === id && row.kind === "accepted" && profileProjection.resourceProfiles.has(row.userId)))
+  const complete = useMemo(() => {
+    if (!query.data || ![friendshipProjection, profileProjection, membershipProjection].every(projection => projection.isReady && projection.isEnabled && !projection.isError)) return false
+    const rowsById = new Map(rows.map((row) => [row.id, row]))
+    return query.data.friendIds.every((id) => {
+      const row = rowsById.get(id)
+      return !!row && row.kind === "accepted" && profileProjection.resourceProfiles.has(row.userId)
+    })
+  }, [friendshipProjection, membershipProjection, profileProjection, query.data, rows])
   const data = useMemo(() => active && complete ? { friends } : undefined, [active, complete, friends])
   const totalFriends = query.data?.totalFriends ?? 0
-  const isCurrentRead = () => {
+  const isCurrentRead = useCallback(() => {
     const state = client.getQueryState<InvitableFriendsWindow>(communityKeys.invitableFriends(serverId))
     return active && complete && getCommunityDbRegistry(client) === profileProjection.registry && state?.status === "success"
       && !state.isInvalidated && state.data === query.data && state.data?.observed === true
-  }
+  }, [active, client, complete, profileProjection.registry, query.data, serverId])
   return { ...query, data, friends: active && complete ? friends : [], totalFriends, observed: isCurrentRead(), isCurrentRead }
 }

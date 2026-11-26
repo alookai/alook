@@ -64,7 +64,18 @@ function BotRow({ bot, onOpenBotAudit }: {
   )
 }
 
-export function ProfileRunningBotsCard({ onOpenBotAudit, showShadow = true }: {
+export function ProfileRunningBotsCard({ runningBots, onOpenBotAudit, showShadow = true }: {
+  runningBots?: RunningBotCardItem[]
+  onOpenBotAudit?: (botId: string) => void
+  showShadow?: boolean
+}) {
+  if (runningBots !== undefined) {
+    return <ProfileRunningBotsCardView runningBots={runningBots} onOpenBotAudit={onOpenBotAudit} showShadow={showShadow} />
+  }
+  return <ProfileRunningBotsCardLive onOpenBotAudit={onOpenBotAudit} showShadow={showShadow} />
+}
+
+function ProfileRunningBotsCardLive({ onOpenBotAudit, showShadow = true }: {
   onOpenBotAudit?: (botId: string) => void
   showShadow?: boolean
 }) {

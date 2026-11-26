@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { useBots, type BotSummary } from "@/hooks/community/use-bots"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId } from "@/lib/community-db/projections"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { isBotActivityRunning } from "@/lib/community/bot-activity-status"
 
@@ -28,7 +28,8 @@ export function resolveRunningOwnedBots(
 
 export function useRunningOwnedBots() {
   const botsQuery = useBots()
-  const profilesByUserId = useCanonicalProfilesByUserId()
+  const botIds = useMemo(() => botsQuery.bots.map((bot) => bot.id), [botsQuery.bots])
+  const profilesByUserId = useCanonicalIdentitiesByUserId(botIds, botIds.length > 0)
   const runningBots = useMemo(
     () => resolveRunningOwnedBots(botsQuery.bots, profilesByUserId),
     [botsQuery.bots, profilesByUserId],

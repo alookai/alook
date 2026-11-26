@@ -7,7 +7,10 @@ import { tid } from "@/lib/community/testids"
 import { ForumView } from "./forum-view"
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true, useBreakpoint: () => "mobile" }))
-vi.mock("@/lib/community-db/projections", () => ({ useCanonicalProfilesByUserId: () => new Map() }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => new Map(),
+  useCanonicalIdentitiesByUserId: () => new Map(),
+}))
 
 const hitTest = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
 const originalRect = HTMLElement.prototype.getBoundingClientRect

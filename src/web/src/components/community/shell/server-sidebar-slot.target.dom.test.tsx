@@ -60,7 +60,7 @@ it("uses the canonical target sidebar before commit, retaining its node while de
   view.rerender(node(true))
   expect(view.getByRole("textbox")).toBe(input)
   expect(input).toHaveValue("Target state")
-  expect(mocks.members).toHaveBeenLastCalledWith("target")
+  expect(mocks.members).toHaveBeenLastCalledWith(null)
   expect(mocks.presence).toHaveBeenLastCalledWith("target")
 })
 

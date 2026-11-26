@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { ChevronDown, Hash, Lock } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
@@ -10,12 +11,24 @@ import { MentionPill } from "../messages/inline-marks"
 import { useServerAdminChannels, type AdminChannel } from "@/hooks/community/use-server-admin-channels"
 import { tid } from "@/lib/community/testids"
 
+const channelCreatedAtFormat = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+})
+
+type FormattedAdminChannel = AdminChannel & { createdAtLabel: string }
+
 function groupChannels(channels: AdminChannel[]) {
-  const groups = new Map<string, { name: string; private: boolean; channels: AdminChannel[] }>()
+  const groups = new Map<string, { name: string; private: boolean; channels: FormattedAdminChannel[] }>()
   for (const channel of channels) {
     const key = channel.category?.id ?? "__uncategorized__"
     const group = groups.get(key) ?? { name: channel.category?.name ?? "Uncategorized", private: channel.category?.private ?? false, channels: [] }
-    group.channels.push(channel)
+    const timestamp = new Date(channel.createdAt)
+    const createdAtLabel = Number.isNaN(timestamp.getTime()) ? channel.createdAt : channelCreatedAtFormat.format(timestamp)
+    group.channels.push({ ...channel, createdAtLabel })
     groups.set(key, group)
   }
   return [...groups.entries()]
@@ -24,6 +37,7 @@ function groupChannels(channels: AdminChannel[]) {
 export function ServerSettingsChannels({ serverId }: { serverId: string }) {
   const [collapsed, setCollapsed] = useAtom(useCreateAtom<Set<string>>(new Set<string>()))
   const { channels, isError, isFetching, refetch, forbidden } = useServerAdminChannels(serverId, true)
+  const groupedChannels = useMemo(() => channels ? groupChannels(channels) : null, [channels])
   const retry = () => { void refetch() }
   if (forbidden) return <div role="alert" className="flex flex-1 flex-col"><EmptyState icon={Lock} label="Only server administrators can view channels." /></div>
   if (isError && !channels) return <ConversationResolutionErrorFrame as="div" title="Couldn’t load channels." retrying={isFetching} onRetry={retry} />
@@ -38,7 +52,7 @@ export function ServerSettingsChannels({ serverId }: { serverId: string }) {
       )}
       {!channels && !isError && <p role="status" className="text-sm text-muted-foreground">Loading channels…</p>}
       {channels?.length === 0 && <EmptyState icon={Hash} label="No channels yet." />}
-      {channels && groupChannels(channels).map(([id, group]) => (
+      {groupedChannels && groupedChannels.map(([id, group]) => (
         <section key={id} aria-label={`Group: ${group.name}`} className="mb-4">
           <button
             type="button" aria-label={`Group: ${group.name}`} aria-expanded={!collapsed.has(id)}
@@ -66,7 +80,7 @@ export function ServerSettingsChannels({ serverId }: { serverId: string }) {
                     </span>
                     <time dateTime={channel.createdAt} title={channel.createdAt} className="shrink-0 whitespace-nowrap tabular-nums">
                       <span className="sr-only">Created: </span>
-                      {new Date(channel.createdAt).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {channel.createdAtLabel}
                     </time>
                   </div>
                 </div>

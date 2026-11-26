@@ -12,6 +12,7 @@ const dbRail = vi.hoisted(() => ({
 const registryActive = vi.hoisted(() => ({ current: true }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useServerRailProjection: () => registryActive.current ? dbRail.current : null,
+  useServerRailStructure: () => registryActive.current ? dbRail.current : null,
   useOptionalCommunityDbRegistry: () => registryActive.current ? {} : null,
 }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(() => new Promise(() => undefined)) }))

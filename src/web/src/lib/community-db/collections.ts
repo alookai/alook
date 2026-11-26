@@ -10,7 +10,6 @@ import {
   type InferSchemaOutput,
 } from "@tanstack/react-db"
 import { queryCollectionOptions } from "@tanstack/query-db-collection"
-import { readCommunityCollectionRow, writeCommunityCollectionChanges } from "./write"
 import type { QueryClient, QueryFunctionContext } from "@tanstack/react-query"
 import { createStore } from "@tanstack/store"
 import { createCommunityStore } from "@/stores/community/ui-store"
@@ -72,7 +71,7 @@ function buildCommunityDbRegistry(
       ...queryCollectionOptions<S, unknown, ReturnType<typeof collectionQueryKey>, string>({
         id, queryClient, schema, getKey,
         queryKey: collectionQueryKey(scopeId, name), queryFn: queryFnFor<InferSchemaOutput<S>>(name),
-        staleTime: Infinity, gcTime: name === "profiles" || typeof window === "undefined" ? Infinity : QUERY_CACHE_GC_TIME, persistedGcTime: name === "profiles" ? Infinity : QUERY_CACHE_GC_TIME,
+        staleTime: Infinity, gcTime: typeof window === "undefined" ? Infinity : QUERY_CACHE_GC_TIME, persistedGcTime: QUERY_CACHE_GC_TIME,
       }),
       gcTime: 0,
     }))
@@ -117,14 +116,9 @@ function buildCommunityDbRegistry(
   type CollectionName = keyof typeof collections
   const restoration = createStore({ captured: false, names: new Set<string>(), hasData: false })
   const runtime = {
-    ui: createCommunityStore(), ws: createCommunityWsStore(accountId, (patches) => {
-      if (!runtime.lifecycle.get().active || runtime.ws.get().profileViewerId !== accountId) return
-      const next = [...patches].flatMap(([id, presence]) => {
-        const row = readCommunityCollectionRow(registry, "profiles", id)
-        return !row || presence === row.presence ? [] : [{ ...row, presence }]
-      })
-      void writeCommunityCollectionChanges(registry, "profiles", next)
-    }), messageStream: createMessageStreamStore(() => ({ get: (id) => { const message = messages.get(id); return typeof message?.seq === "number" ? message as CanonicalMessage : undefined } })),
+    ui: createCommunityStore(),
+    ws: createCommunityWsStore(accountId),
+    messageStream: createMessageStreamStore(() => ({ get: (id) => { const message = messages.get(id); return typeof message?.seq === "number" ? message as CanonicalMessage : undefined } })),
     serverEject: createOwnerServerDeleteStore(),
     lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },
   }

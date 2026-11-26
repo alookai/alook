@@ -32,7 +32,6 @@ import { acquireIconCropSource, type IconCropSource } from "@/lib/community/imag
 import type { SettingsSection } from "@/components/community/settings/settings-types"
 import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { canManageServer, notifLevelDisplay, type ChannelType } from "@alook/shared"
-import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   useServer,
@@ -83,7 +82,6 @@ import {
   useRevokeInvite,
 } from "@/hooks/community/mutations"
 import {
-  useCanonicalProfilesByUserId,
   useOptionalCommunityDbRegistry,
   useRouteChannelProjection,
 } from "@/lib/community-db/projections"
@@ -129,28 +127,6 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     [currentServer],
   )
   const sidebarHintOnly = !routeCommitted || Boolean(currentServer && !authoritativeServer)
-  const membersHook = useServerMembers(routeCommitted && currentServer ? serverId : null)
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const enrichedMembers = useMemo(
-    () =>
-      membersHook.members.map((m) => {
-        const canonical = profilesByUserId.get(m.userId)
-        const profile = canonical
-          ? readCommunityProfile(canonical, m.userId)
-          : { ...m, presence: m.status }
-        return {
-          ...m,
-          name: profile.name,
-          discriminator: profile.discriminator,
-          avatar: profile.avatar,
-          avatarVersion: profile.avatarVersion,
-          status: profile.presence,
-          statusEmoji: profile.statusEmoji,
-          statusText: profile.statusText,
-        }
-      }),
-    [membersHook.members, profilesByUserId],
-  )
   const role = useViewerServerRole(serverId, currentUser.id)
   const isAdmin = routeCommitted && canManageServer(role)
   usePresence(routeCommitted && currentServer ? serverId : null)
@@ -522,6 +498,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
     onSave: async (name, desc) => { await updateServerMut.mutateAsync({ serverId, name, description: desc }) },
   })
 
+  const membersHook = useServerMembers(settingsAdmitted ? serverId : null)
   const serverSettingsDialog = (
     <Dialog open={settingsAdmitted} onOpenChange={(o) => { if (!o) closeSettings() }}>
       <DialogContent className="flex h-full max-h-full w-full max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[calc(100%-4rem)] sm:max-h-180 sm:w-[calc(100%-4rem)] sm:max-w-4xl sm:rounded-xl" showCloseButton={false}>
@@ -533,7 +510,7 @@ function ServerSidebar({ serverId, href, routeCommitted }: { serverId: string; h
           serverId={serverId}
           serverName={currentServer?.name ?? ""}
           serverIcon={currentServer?.icon ?? null}
-          members={enrichedMembers}
+          members={membersHook.members}
           membersLoading={membersHook.loading}
           membersKnown={membersHook.displayReady}
           membersFailed={membersHook.failed || membersHook.refreshFailed}

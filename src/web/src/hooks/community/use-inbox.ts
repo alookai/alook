@@ -28,9 +28,9 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import {
 materializeCanonicalMessage,
 useOptionalCommunityDbRegistry,
-useCanonicalChannelsById,
+useChannelsByIds,
+useCanonicalIdentitiesByUserId,
 useCanonicalMessagesById,
-useCanonicalProfilesByUserId,
 useCanonicalServersById,
 useDmProjection,
 } from "@/lib/community-db/projections"
@@ -66,12 +66,31 @@ export function useInboxAttention() {
   const query = useAccountAttentionProjection()
   const registry = useOptionalCommunityDbRegistry()
   const viewerId = registry?.accountId ?? null
-  const channelsById = useCanonicalChannelsById()
+  const channelIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const scope of query.scopes) {
+      ids.add(scope.channelId)
+      if (scope.parentChannelId) ids.add(scope.parentChannelId)
+    }
+    for (const item of query.items) {
+      if (item.scopeId) ids.add(item.scopeId)
+      if (item.childChannelId) ids.add(item.childChannelId)
+    }
+    return [...ids]
+  }, [query.items, query.scopes])
+  const channelsById = useChannelsByIds(channelIds, channelIds.length > 0)
   const messageIds = useMemo(() => [...new Set(query.items.flatMap((item) => item.messageId ? [item.messageId] : []))], [query.items])
   const messagesById = useCanonicalMessagesById(messageIds)
-  const profilesById = useCanonicalProfilesByUserId()
+  const friendRequestActorIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const item of query.items) {
+      if (item.kind === "friend_request" && item.actorUserId) ids.add(item.actorUserId)
+    }
+    return [...ids]
+  }, [query.items])
+  const profilesById = useCanonicalIdentitiesByUserId(friendRequestActorIds, friendRequestActorIds.length > 0)
   const serversById = useCanonicalServersById()
-  const dmProjection = useDmProjection()
+  const dmProjection = useDmProjection({ includePresence: false })
 
   const projected = useMemo(() => {
     const scopesById = new Map(query.scopes.map((scope) => [scope.scopeId, scope]))
@@ -323,17 +342,23 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowRes
     queryFn: inboxMarkedQueryFn(queryClient),
     enabled,
   })
-  const messageIds = useMemo(() => query.data?.marked.map((row) => row.m.id) ?? [], [query.data?.marked])
+  const messageIds = useMemo(() => enabled ? (query.data?.marked.map((row) => row.m.id) ?? []) : [], [enabled, query.data?.marked])
   const canonicalMessages = useCanonicalMessagesById(messageIds)
   const pendingMarks = useMutationState({ filters: { mutationKey: ["community", "mark-command"], status: "pending" }, select: (mutation) => ({ messageId: (mutation.state.variables as { messageId: string }).messageId, marked: mutation.options.mutationKey?.[2] === true }) })
   const registry = useOptionalCommunityDbRegistry()
   const retiringServers = useMutationState({ filters: { mutationKey: communityServerRetirementKey, status: "pending" }, select: mutation => communityServerRetirementId(mutation, registry) })
-  const markedAccess = useCommunityWsStore((state) => state)
+  const revokedServerIds = useCommunityWsStore((state) => state.revokedServerIds)
+  const channelAccessScopes = useCommunityWsStore((state) => state.channelAccessScopes)
   const eligible = useMemo(() => {
     const source = query.data?.marked ?? (EMPTY_MARKED as Marked[])
-    return source.filter(marked => pendingMarks.filter((command) => command.messageId === marked.m.id).at(-1)?.marked !== false
-      && communityScopeAllowsAccess(markedAccess, marked) && !(marked.serverId && retiringServers.includes(marked.serverId)))
-  }, [query.data?.marked, markedAccess, pendingMarks, retiringServers])
+    if (!enabled || source.length === 0) return EMPTY_MARKED as Marked[]
+    const latestPendingMark = new Map<string, boolean>()
+    for (const command of pendingMarks) latestPendingMark.set(command.messageId, command.marked)
+    const retiringSet = new Set(retiringServers)
+    const accessState = { revokedServerIds, channelAccessScopes }
+    return source.filter(marked => latestPendingMark.get(marked.m.id) !== false
+      && communityScopeAllowsAccess(accessState, marked) && !(marked.serverId && retiringSet.has(marked.serverId)))
+  }, [enabled, query.data?.marked, revokedServerIds, channelAccessScopes, pendingMarks, retiringServers])
   const marked = useMemo(() => {
     return eligible.flatMap((marked) => {
       const message = materializeCanonicalMessage(marked.m, canonicalMessages)

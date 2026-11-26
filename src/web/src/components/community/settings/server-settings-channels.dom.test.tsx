@@ -80,4 +80,30 @@ describe("read-only channel metadata", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Only server administrators")
     expect(screen.queryByText("secret-name")).not.toBeInTheDocument()
   })
+
+  it("preserves memoized channel groups and formatted timestamps when toggling category collapse", async () => {
+    query.channels = Array.from({ length: 200 }, (_, i) => ({
+      id: `ch-${i}`,
+      name: `channel-${i}`,
+      type: "text" as const,
+      position: i,
+      private: false,
+      category: {
+        id: `cat-${i % 10}`,
+        name: `Category ${i % 10}`,
+        private: false,
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      creator: { id: "u-0", handle: "user0#0001" },
+    }))
+    const user = setupUser()
+    render(createElement(ServerSettingsChannels, { serverId: "server-1" }))
+    const toLocaleSpy = vi.spyOn(Date.prototype, "toLocaleString")
+    try {
+      await user.click(screen.getByRole("button", { name: "Group: Category 0" }))
+      expect(toLocaleSpy).not.toHaveBeenCalled()
+    } finally {
+      toLocaleSpy.mockRestore()
+    }
+  })
 })

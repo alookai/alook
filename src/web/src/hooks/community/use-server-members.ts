@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useInfiniteQuery, useMutationState, useQueryClient, replaceEqualDeep, type Query, type QueryKey, type QueryClient } from "@tanstack/react-query"
 import { apiFetch, toastApiError } from "@/lib/api/client"
@@ -20,6 +20,7 @@ import type { MemberWindow, MembersWindowCache } from "@/lib/community/directory
 export type { MemberIdentity, MemberWindow, MembersWindowCache } from "@/lib/community/directory-window-persistence"
 
 export const SEARCH_DEBOUNCE_MS = 200
+const EMPTY_MEMBERS: Member[] = []
 
 type MemberReadProtocol = {
   operation: Promise<unknown> | undefined
@@ -225,51 +226,78 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       return true
     }) ?? []
   }, [data])
-  const membershipProjection = useServerMemberProjection(serverId, identities.map((member) => member.userId))
-  const profileProjection = useCanonicalProfilesProjection(identities.map((member) => member.userId))
+  const memberUserIds = useMemo(() => identities.map((member) => member.userId), [identities])
+  const membershipProjection = useServerMemberProjection(serverId, memberUserIds)
+  const profileProjection = useCanonicalProfilesProjection(memberUserIds)
   const profiles = profileProjection.data
+  const membershipByUserId = useMemo(
+    () => new Map((membershipProjection.data ?? []).map((row) => [row.userId, row])),
+    [membershipProjection.data],
+  )
   const members = useMemo(() => {
-    const byUser = new Map((membershipProjection.data ?? []).map((row) => [row.userId, row]))
     return identities.flatMap((identity) => {
-      const row = byUser.get(identity.userId)
+      const row = membershipByUserId.get(identity.userId)
       if (!row || row.memberId !== identity.id || !profileProjection.resourceProfiles.has(identity.userId)) return []
       const profile = readCommunityProfile(profiles.get(identity.userId), identity.userId)
       return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
     })
-  }, [identities, membershipProjection.data, profiles, profileProjection.resourceProfiles])
+  }, [identities, membershipByUserId, profiles, profileProjection.resourceProfiles])
   const active = searching ? search : infinite
-  const complete = !!data && membershipProjection.isReady && membershipProjection.isEnabled && !membershipProjection.isError
+  const complete = useMemo(() => (
+    !!data && membershipProjection.isReady && membershipProjection.isEnabled && !membershipProjection.isError
     && profileProjection.isReady && profileProjection.isEnabled && !profileProjection.isError
-    && identities.every(identity => membershipProjection.data?.some(row => row.userId === identity.userId && row.memberId === identity.id)
-    && profileProjection.resourceProfiles.has(identity.userId))
+    && identities.every(identity => membershipByUserId.get(identity.userId)?.memberId === identity.id
+      && profileProjection.resourceProfiles.has(identity.userId))
+  ), [data, identities, membershipByUserId, membershipProjection.isEnabled, membershipProjection.isError, membershipProjection.isReady, profileProjection.isEnabled, profileProjection.isError, profileProjection.isReady, profileProjection.resourceProfiles])
   const projectionsReady = membershipProjection.isReady && profileProjection.isReady
+  const nonViewerUserIds = useMemo(
+    () => memberUserIds.filter((userId) => userId !== membershipProjection.registry?.accountId),
+    [memberUserIds, membershipProjection.registry?.accountId],
+  )
   const readState = getMemberReadState(!!serverId, { pending: !complete && (!data || active.isRefetching), failed: !complete && (!searching || searchReady)
-    && (active.isError && !active.isFetching || !!data && projectionsReady) }, [membershipProjection, profileProjection], identities.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profileProjection.resourceProfiles)
+    && (active.isError && !active.isFetching || !!data && projectionsReady) }, [membershipProjection, profileProjection], nonViewerUserIds, profileProjection.resourceProfiles)
   const pendingKicks = useMutationState({ filters: { mutationKey: ["community", "member-command"], status: "pending" }, select: (mutation) => {
     const variables = mutation.state.variables as { kind: string; input: { serverId: string; memberId: string } }
     const current = queryClient.getQueryData<MembersWindowCache>(key)
     return variables.kind === "kick" && variables.input.serverId === serverId && current?.pages.some((page) => page.members.some((member) => member.id === variables.input.memberId)) ? 1 : 0
   } })
-  const assertView = () => source.capture()()
-  const isCurrentRead = () => {
-    const state = queryClient.getQueryState<MembersWindowCache>(searching ? searchKey : key)
+  const assertView = useCallback(() => source.capture()(), [source])
+  const activeQueryKey = searching ? searchKey : key
+  const isCurrentRead = useCallback(() => {
+    const state = queryClient.getQueryState<MembersWindowCache>(activeQueryKey)
     return !!serverId && complete && getCommunityDbRegistry(queryClient) === profileProjection.registry && state?.status === "success"
-      && !state.isInvalidated && state.data === data && state.data.pages.every(page => page.observed === true)
-  }
+      && !state.isInvalidated && state.data !== undefined && state.data === data && state.data.pages.every(page => page.observed === true)
+  }, [activeQueryKey, complete, data, profileProjection.registry, queryClient, serverId])
+  const fetchNextPage = active.fetchNextPage
+  const hasNextPage = active.hasNextPage
+  const activeIsFetching = active.isFetching
+  const loadMore = useCallback(() => {
+    assertView()
+    if ((!searching || searchReady) && hasNextPage && !activeIsFetching) void fetchNextPage({ cancelRefetch: false })
+  }, [activeIsFetching, assertView, fetchNextPage, hasNextPage, searchReady, searching])
+  const reset = useCallback(() => {
+    assertView()
+    intent.setState((state) => ({ ...state, query: "", debounced: "" }))
+  }, [assertView, intent])
+  const refresh = useCallback(() => {
+    assertView()
+    void queryClient.invalidateQueries({ queryKey: key }, { cancelRefetch: false })
+  }, [assertView, key, queryClient])
+  const searchMembers = useCallback((query: string) => {
+    try { assertView() } catch { return }
+    intent.setState((state) => { const trimmed = query.trim(); return state.query === trimmed ? state : { ...state, query: trimmed, debounced: trimmed ? state.debounced : "" } })
+  }, [assertView, intent])
   return {
-    members: serverId ? members : [], loading: readState.loading,
+    members: serverId ? members : EMPTY_MEMBERS, loading: readState.loading,
     observed: isCurrentRead(), isCurrentRead, displayReady: complete, refreshing: active.isFetching, refreshFailed: complete && active.isError && !active.isFetching,
     loadingMore: active.isFetchingNextPage, hasMore: active.hasNextPage,
     total: Math.max(0, (infinite.data?.pages.at(-1)?.total ?? 0) - pendingKicks.reduce<number>((sum, value) => sum + value, 0)), isSearching: searching,
     searchQuery: searching ? searchIntent.query : "",
     searchStatus: !searching ? "idle" : !searchReady ? "loading" : search.isFetchingNextPage ? "loading-more" : search.isFetching ? "loading" : readState.failed || active.isError ? "error" : readState.loading ? "loading" : members.length ? "ready" : "empty",
     failed: readState.failed,
-    loadMore: () => { assertView(); if ((!searching || searchReady) && active.hasNextPage && !active.isFetching) void active.fetchNextPage({ cancelRefetch: false }) },
-    reset: () => { assertView(); intent.setState((state) => ({ ...state, query: "", debounced: "" })) },
-    refresh: () => { assertView(); void queryClient.invalidateQueries({ queryKey: key }, { cancelRefetch: false }) },
-    searchMembers: (query) => {
-      try { assertView() } catch { return }
-      intent.setState((state) => { const trimmed = query.trim(); return state.query === trimmed ? state : { ...state, query: trimmed, debounced: trimmed ? state.debounced : "" } })
-    },
+    loadMore,
+    reset,
+    refresh,
+    searchMembers,
   }
 }
