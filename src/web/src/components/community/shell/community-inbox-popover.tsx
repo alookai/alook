@@ -31,6 +31,7 @@ import { MESSAGE_GROUPED_ROW_PADDING_PX } from "@/lib/community/message-list-ite
 import styles from "./community-inbox-popover.module.css"
 import indicatorStyles from "./inbox-unread-indicator.module.css"
 import {
+  Fragment,
   memo,
   useCallback,
   useId,
@@ -48,10 +49,12 @@ import { useVirtualizer } from "@tanstack/react-virtual"
 import { InboxStickyHeaderProvider, useInboxStickyHeader } from "@/hooks/community/use-inbox-sticky-header"
 import {
   COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
   observeCommunityVirtualizerRect,
 } from "@/hooks/community/virtualizer-react-options"
 
 const EMPTY_MENTIONS: Mention[] = []
+const INBOX_VIRTUALIZE_THRESHOLD = 25
 const INBOX_VIRTUALIZER_INITIAL_RECT = { width: 380, height: 600 }
 const INBOX_UNREAD_CARD_ESTIMATE = 68
 const INBOX_TODO_CARD_ESTIMATE = 220
@@ -568,17 +571,79 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
     return entries
   }, [dms, servers])
   const nothingUnread = friendRequests.length === 0 && unreadEntries.length === 0
+  const unreadsVirtualized = unreadEntries.length > INBOX_VIRTUALIZE_THRESHOLD
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const unreadsVirtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
-    count: unreadEntries.length,
+    count: unreadsVirtualized ? unreadEntries.length : 0,
     getScrollElement: () => viewportRef.current,
     estimateSize: () => INBOX_UNREAD_CARD_ESTIMATE,
     overscan: 6,
     initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
-  const unreadVirtualItems = unreadsVirtualizer.getVirtualItems()
+  const unreadVirtualItems = unreadsVirtualized ? unreadsVirtualizer.getVirtualItems() : []
+  const renderUnreadEntry = (entry: UnreadRowEntry) => (
+    entry.kind === "dm" ? (() => {
+      const dm = entry.dm
+      const profile = readCommunityProfile(profilesByUserId.get(dm.otherUserId), dm.otherUserId)
+      return (
+        <UnreadChannelCard channelId={dm.channelId} name={profile.name} throughSeq={dm.lastUnreadSeq} unreadCount={dm.unreadCount}
+          identityTestId={tid.inboxUnreadDm(dm.channelId)} identityHref={`/c/me/${encodeURIComponent(dm.channelId)}`} onOpen={() => onOpenDm?.(dm)}
+          mentions={mentionsByChannel.get(dm.channelId) ?? EMPTY_MENTIONS}
+          expanded={expandedChannelIds.has(dm.channelId)}
+          onToggleExpanded={toggleChannelExpanded}
+          renderUnreadMessages={input => renderMessages({ ...input, continuation: true, viewerUserId, onSubmitDecisionCard })}
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}
+          replyPlaceholder={`Reply to ${profile.name}…`}
+          replyLabel={`Reply to ${profile.name}`}
+          onReply={onReplyChannel ? (content, nonce) => onReplyChannel(dm.channelId, content, nonce) : undefined}>
+          <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} showJumpCue />
+        </UnreadChannelCard>
+      )
+    })() : entry.kind === "channel" ? (() => {
+      const { server, channel } = entry
+      return (
+        <UnreadChannelCard channelId={channel.channelId} name={channel.channelName} throughSeq={channel.lastUnreadSeq} unreadCount={channel.unreadCount}
+          identityTestId={tid.inboxUnreadChannel(channel.channelId)} onOpen={() => onOpenChannel?.(server, channel, true)}
+          mentions={mentionsByChannel.get(channel.channelId) ?? EMPTY_MENTIONS}
+          expanded={expandedChannelIds.has(channel.channelId)}
+          onToggleExpanded={toggleChannelExpanded}
+          renderUnreadMessages={input => renderMessages({
+            ...input,
+            viewerUserId,
+            onSubmitDecisionCard,
+            openForumPosts: channel.forumOpeners?.length ? new Map(channel.forumOpeners.map(opener => [
+              opener.openerMessageId, () => onOpenThread(server, channel, opener),
+            ])) : undefined,
+          })}
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}
+          replyPlaceholder={`Reply in #${channel.channelName}…`}
+          replyLabel={`Reply in #${channel.channelName}`}
+          onReply={onReplyChannel && channel.type !== "forum" ? (content, nonce) => onReplyChannel(channel.channelId, content, nonce) : undefined}>
+          <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
+            location={channelLocation(directory, channel.channelId)} showJumpCue />
+        </UnreadChannelCard>
+      )
+    })() : (() => {
+      const { server, channel, child } = entry
+      return (
+        <UnreadChannelCard channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq} unreadCount={child.unreadCount}
+          identityTestId={tid.inboxUnreadChild(child.channelId)} onOpen={() => onOpenThread(server, channel, child)}
+          mentions={mentionsByChannel.get(child.channelId) ?? EMPTY_MENTIONS}
+          expanded={expandedChannelIds.has(child.channelId)}
+          onToggleExpanded={toggleChannelExpanded}
+          renderUnreadMessages={input => renderMessages({ ...input, viewerUserId, onSubmitDecisionCard })}
+          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}
+          replyPlaceholder={`Reply in #${child.channelName}…`}
+          replyLabel={`Reply in #${child.channelName}`}
+          onReply={onReplyChannel ? (content, nonce) => onReplyChannel(child.channelId, content, nonce) : undefined}>
+          <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} showJumpCue />
+        </UnreadChannelCard>
+      )
+    })()
+  )
   return (
     <InboxScrollBody tab="unreads" viewportRef={viewportRef} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && nothingUnread && <InboxUnreadsSkeleton />}
@@ -661,79 +726,29 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
         </div>
       )}
       {unreadEntries.length > 0 && (
-        <div className="relative w-full" style={{ height: unreadsVirtualizer.getTotalSize() }}>
-          {unreadVirtualItems.map((virtualItem) => {
-            const entry = unreadEntries[virtualItem.index]
-            if (!entry) return null
-            return (
-              <div
-                key={entry.key}
-                data-index={virtualItem.index}
-                ref={unreadsVirtualizer.measureElement}
-                style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
-              >
-                {entry.kind === "dm" ? (() => {
-                  const dm = entry.dm
-                  const profile = readCommunityProfile(profilesByUserId.get(dm.otherUserId), dm.otherUserId)
-                  return (
-                    <UnreadChannelCard channelId={dm.channelId} name={profile.name} throughSeq={dm.lastUnreadSeq} unreadCount={dm.unreadCount}
-                      identityTestId={tid.inboxUnreadDm(dm.channelId)} identityHref={`/c/me/${encodeURIComponent(dm.channelId)}`} onOpen={() => onOpenDm?.(dm)}
-                      mentions={mentionsByChannel.get(dm.channelId) ?? EMPTY_MENTIONS}
-                      expanded={expandedChannelIds.has(dm.channelId)}
-                      onToggleExpanded={toggleChannelExpanded}
-                      renderUnreadMessages={input => renderMessages({ ...input, continuation: true, viewerUserId, onSubmitDecisionCard })}
-                      onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}
-                      replyPlaceholder={`Reply to ${profile.name}…`}
-                      replyLabel={`Reply to ${profile.name}`}
-                      onReply={onReplyChannel ? (content, nonce) => onReplyChannel(dm.channelId, content, nonce) : undefined}>
-                      <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} showJumpCue />
-                    </UnreadChannelCard>
-                  )
-                })() : entry.kind === "channel" ? (() => {
-                  const { server, channel } = entry
-                  return (
-                    <UnreadChannelCard channelId={channel.channelId} name={channel.channelName} throughSeq={channel.lastUnreadSeq} unreadCount={channel.unreadCount}
-                      identityTestId={tid.inboxUnreadChannel(channel.channelId)} onOpen={() => onOpenChannel?.(server, channel, true)}
-                      mentions={mentionsByChannel.get(channel.channelId) ?? EMPTY_MENTIONS}
-                      expanded={expandedChannelIds.has(channel.channelId)}
-                      onToggleExpanded={toggleChannelExpanded}
-                      renderUnreadMessages={input => renderMessages({
-                        ...input,
-                        viewerUserId,
-                        onSubmitDecisionCard,
-                        openForumPosts: channel.forumOpeners?.length ? new Map(channel.forumOpeners.map(opener => [
-                          opener.openerMessageId, () => onOpenThread(server, channel, opener),
-                        ])) : undefined,
-                      })}
-                      onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}
-                      replyPlaceholder={`Reply in #${channel.channelName}…`}
-                      replyLabel={`Reply in #${channel.channelName}`}
-                      onReply={onReplyChannel && channel.type !== "forum" ? (content, nonce) => onReplyChannel(channel.channelId, content, nonce) : undefined}>
-                      <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
-                        location={channelLocation(directory, channel.channelId)} showJumpCue />
-                    </UnreadChannelCard>
-                  )
-                })() : (() => {
-                  const { server, channel, child } = entry
-                  return (
-                    <UnreadChannelCard channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq} unreadCount={child.unreadCount}
-                      identityTestId={tid.inboxUnreadChild(child.channelId)} onOpen={() => onOpenThread(server, channel, child)}
-                      mentions={mentionsByChannel.get(child.channelId) ?? EMPTY_MENTIONS}
-                      expanded={expandedChannelIds.has(child.channelId)}
-                      onToggleExpanded={toggleChannelExpanded}
-                      renderUnreadMessages={input => renderMessages({ ...input, viewerUserId, onSubmitDecisionCard })}
-                      onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}
-                      replyPlaceholder={`Reply in #${child.channelName}…`}
-                      replyLabel={`Reply in #${child.channelName}`}
-                      onReply={onReplyChannel ? (content, nonce) => onReplyChannel(child.channelId, content, nonce) : undefined}>
-                      <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} showJumpCue />
-                    </UnreadChannelCard>
-                  )
-                })()}
-              </div>
-            )
-          })}
-        </div>
+        unreadsVirtualized ? (
+          <div className="relative w-full" style={{ height: unreadsVirtualizer.getTotalSize() }}>
+            {unreadVirtualItems.map((virtualItem) => {
+              const entry = unreadEntries[virtualItem.index]
+              if (!entry) return null
+              return (
+                <div
+                  key={entry.key}
+                  data-index={virtualItem.index}
+                  ref={unreadsVirtualizer.measureElement}
+                  className="flow-root"
+                  style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
+                >
+                  {renderUnreadEntry(entry)}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          unreadEntries.map((entry) => (
+            <Fragment key={entry.key}>{renderUnreadEntry(entry)}</Fragment>
+          ))
+        )
       )}
     </InboxScrollBody>
   )
@@ -776,161 +791,176 @@ function TodoTab({
   const peersByChannel = useMemo(() => new Map(directory.dms?.map(dm => [dm.id, dm])), [directory.dms])
   const replyTodoHandler = onReplyTodo ?? onSubmitTodo
   const visibleTodos = useMemo(() => todos.filter((todo) => Boolean(todo.m.decisionCard)), [todos])
+  const todoVirtualized = visibleTodos.length > INBOX_VIRTUALIZE_THRESHOLD
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const todoVirtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
-    count: visibleTodos.length,
+    count: todoVirtualized ? visibleTodos.length : 0,
     getScrollElement: () => viewportRef.current,
     estimateSize: () => INBOX_TODO_CARD_ESTIMATE,
     overscan: 4,
     initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
-  const todoVirtualItems = todoVirtualizer.getVirtualItems()
+  const todoVirtualItems = todoVirtualized ? todoVirtualizer.getVirtualItems() : []
+  const renderTodoCard = (todo: InboxTodo) => {
+    const card = todo.m.decisionCard
+    if (!card) return null
+    const channel = directory.channels.get(todo.channelId)
+    const server = todo.serverId ? directory.servers.get(todo.serverId) : undefined
+    const peer = peersByChannel.get(todo.channelId)
+    const channelName = peer?.name ?? channel?.name ?? todo.channel
+    const serverName = server?.name ?? todo.server
+    const location = todo.serverId ? channelLocation(directory, todo.channelId, todo.parentChannelId) : undefined
+    const context = todo.serverId
+      ? (location ? `${serverName} › ${location}` : serverName)
+      : "Direct Messages"
+    const authorProfile = todo.m.authorId ? profilesByUserId.get(todo.m.authorId) : undefined
+    const authorName = authorProfile?.name ?? todo.m.authorName ?? ""
+    const timestamp = todo.m.createdAt ? formatMessageTime(todo.m.createdAt) : ""
+    const open = onOpenTodo ? () => onOpenTodo(todo) : undefined
+    const channelKind = channel?.type === "dm" ? undefined : channel?.type
+    const sourceHeader = (
+      <div className="-mx-2 -my-1 flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          data-testid={tid.inboxTodoOpen(todo.messageId)}
+          onClick={open}
+          disabled={!open}
+          className="group/todo-source flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors duration-150 hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none sm:min-h-0"
+        >
+          {todo.serverId ? (
+            <ServerIcon
+              id={todo.serverId}
+              name={serverName}
+              initial={avatarInitial(serverName)}
+              icon={server?.icon}
+              size={32}
+              className="shrink-0 rounded-lg"
+            />
+          ) : (
+            <Avatar
+              label={peer?.avatar ?? avatarInitial(channelName)}
+              seed={peer?.userId ?? todo.channelId}
+              size={32}
+            />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-1 text-sm font-medium leading-snug text-foreground">
+              {todo.serverId && (
+                <EntityIcon
+                  kind={channelKind}
+                  className={cn(entityIconClassName(channelKind), "text-muted-foreground")}
+                />
+              )}
+              <span className="truncate" title={channelName}>{channelName}</span>
+              {todo.serverId && authorName && (
+                <>
+                  <span aria-hidden="true" className="shrink-0 text-xs font-normal text-muted-foreground">·</span>
+                  <span className="truncate text-xs font-normal text-muted-foreground" title={authorName}>{authorName}</span>
+                </>
+              )}
+            </span>
+            <span className="flex min-w-0 items-center gap-1 text-xs leading-snug text-muted-foreground">
+              <span className="truncate" title={context}>{context}</span>
+              {timestamp && (
+                <>
+                  <span aria-hidden="true" className="shrink-0">·</span>
+                  <span className="shrink-0" suppressHydrationWarning>{timestamp}</span>
+                </>
+              )}
+            </span>
+          </span>
+          {open && (
+            <ArrowUpRight
+              aria-hidden="true"
+              className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover/todo-source:text-foreground"
+            />
+          )}
+        </button>
+        {onDismissTodo && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            data-testid={tid.inboxTodoDismiss(todo.messageId)}
+            aria-label="Dismiss question"
+            title="Dismiss"
+            onClick={() => onDismissTodo(todo)}
+            className="size-9 shrink-0 rounded-lg text-muted-foreground hover:bg-accent/80 hover:text-foreground sm:size-7"
+          >
+            <X className="size-3.5" />
+          </Button>
+        )}
+      </div>
+    )
+    const replyFooter = replyTodoHandler ? (
+      <InboxInlineReply
+        placeholder="Or reply directly…"
+        inputLabel="Reply directly to question"
+        inputTestId={tid.inboxTodoReplyInput(todo.messageId)}
+        sendTestId={tid.inboxTodoReplySend(todo.messageId)}
+        onSend={async (content, nonce) => {
+          const receipt = await replyTodoHandler(todo, content, nonce)
+          if (receipt.replyToId !== todo.messageId) {
+            return {
+              accepted: false,
+              error: "Could not link your reply to this question — reload and try again.",
+            }
+          }
+        }}
+      />
+    ) : undefined
+    return (
+      <article data-testid={tid.inboxTodoCard(todo.messageId)} className="min-w-0">
+        <DecisionCard
+          messageId={todo.messageId}
+          card={card}
+          authorId={todo.m.authorId}
+          viewerUserId={viewerUserId ?? undefined}
+          header={sourceHeader}
+          footer={replyFooter}
+          className="my-0"
+          onSubmit={onSubmitTodo
+            ? (_messageId, content, nonce) => onSubmitTodo(todo, content, nonce)
+            : undefined}
+          onOpenProfile={onOpenProfile}
+        />
+      </article>
+    )
+  }
   return (
     <InboxScrollBody tab="todo" viewportRef={viewportRef} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && todos.length === 0 && <InboxRowsSkeleton />}
       {error && todos.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && todos.length === 0 && <EmptyState icon={CircleCheck} label="No pending questions" />}
       {visibleTodos.length > 0 && (
-        <div className="relative w-full pb-3" style={{ height: todoVirtualizer.getTotalSize() }}>
-          {todoVirtualItems.map((virtualItem) => {
-            const todo = visibleTodos[virtualItem.index]
-            if (!todo) return null
-            const card = todo.m.decisionCard
-            if (!card) return null
-            const channel = directory.channels.get(todo.channelId)
-            const server = todo.serverId ? directory.servers.get(todo.serverId) : undefined
-            const peer = peersByChannel.get(todo.channelId)
-            const channelName = peer?.name ?? channel?.name ?? todo.channel
-            const serverName = server?.name ?? todo.server
-            const location = todo.serverId ? channelLocation(directory, todo.channelId, todo.parentChannelId) : undefined
-            const context = todo.serverId
-              ? (location ? `${serverName} › ${location}` : serverName)
-              : "Direct Messages"
-            const authorProfile = todo.m.authorId ? profilesByUserId.get(todo.m.authorId) : undefined
-            const authorName = authorProfile?.name ?? todo.m.authorName ?? ""
-            const timestamp = todo.m.createdAt ? formatMessageTime(todo.m.createdAt) : ""
-            const open = onOpenTodo ? () => onOpenTodo(todo) : undefined
-            const channelKind = channel?.type === "dm" ? undefined : channel?.type
-            const sourceHeader = (
-              <div className="-mx-2 -my-1 flex min-w-0 items-center gap-1">
-                <button
-                  type="button"
-                  data-testid={tid.inboxTodoOpen(todo.messageId)}
-                  onClick={open}
-                  disabled={!open}
-                  className="group/todo-source flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors duration-150 hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none sm:min-h-0"
+        todoVirtualized ? (
+          <div className="relative w-full pb-3" style={{ height: todoVirtualizer.getTotalSize() }}>
+            {todoVirtualItems.map((virtualItem) => {
+              const todo = visibleTodos[virtualItem.index]
+              if (!todo) return null
+              return (
+                <div
+                  key={todo.id}
+                  data-index={virtualItem.index}
+                  ref={todoVirtualizer.measureElement}
+                  className="flow-root pb-3"
+                  style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
                 >
-                  {todo.serverId ? (
-                    <ServerIcon
-                      id={todo.serverId}
-                      name={serverName}
-                      initial={avatarInitial(serverName)}
-                      icon={server?.icon}
-                      size={32}
-                      className="shrink-0 rounded-lg"
-                    />
-                  ) : (
-                    <Avatar
-                      label={peer?.avatar ?? avatarInitial(channelName)}
-                      seed={peer?.userId ?? todo.channelId}
-                      size={32}
-                    />
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-1 text-sm font-medium leading-snug text-foreground">
-                      {todo.serverId && (
-                        <EntityIcon
-                          kind={channelKind}
-                          className={cn(entityIconClassName(channelKind), "text-muted-foreground")}
-                        />
-                      )}
-                      <span className="truncate" title={channelName}>{channelName}</span>
-                      {todo.serverId && authorName && (
-                        <>
-                          <span aria-hidden="true" className="shrink-0 text-xs font-normal text-muted-foreground">·</span>
-                          <span className="truncate text-xs font-normal text-muted-foreground" title={authorName}>{authorName}</span>
-                        </>
-                      )}
-                    </span>
-                    <span className="flex min-w-0 items-center gap-1 text-xs leading-snug text-muted-foreground">
-                      <span className="truncate" title={context}>{context}</span>
-                      {timestamp && (
-                        <>
-                          <span aria-hidden="true" className="shrink-0">·</span>
-                          <span className="shrink-0" suppressHydrationWarning>{timestamp}</span>
-                        </>
-                      )}
-                    </span>
-                  </span>
-                  {open && (
-                    <ArrowUpRight
-                      aria-hidden="true"
-                      className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover/todo-source:text-foreground"
-                    />
-                  )}
-                </button>
-                {onDismissTodo && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    data-testid={tid.inboxTodoDismiss(todo.messageId)}
-                    aria-label="Dismiss question"
-                    title="Dismiss"
-                    onClick={() => onDismissTodo(todo)}
-                    className="size-9 shrink-0 rounded-lg text-muted-foreground hover:bg-accent/80 hover:text-foreground sm:size-7"
-                  >
-                    <X className="size-3.5" />
-                  </Button>
-                )}
-              </div>
-            )
-            const replyFooter = replyTodoHandler ? (
-              <InboxInlineReply
-                placeholder="Or reply directly…"
-                inputLabel="Reply directly to question"
-                inputTestId={tid.inboxTodoReplyInput(todo.messageId)}
-                sendTestId={tid.inboxTodoReplySend(todo.messageId)}
-                onSend={async (content, nonce) => {
-                  const receipt = await replyTodoHandler(todo, content, nonce)
-                  if (receipt.replyToId !== todo.messageId) {
-                    return {
-                      accepted: false,
-                      error: "Could not link your reply to this question — reload and try again.",
-                    }
-                  }
-                }}
-              />
-            ) : undefined
-            return (
-              <div
-                key={todo.id}
-                data-index={virtualItem.index}
-                ref={todoVirtualizer.measureElement}
-                className="pb-3"
-                style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
-              >
-                <article data-testid={tid.inboxTodoCard(todo.messageId)} className="min-w-0">
-                  <DecisionCard
-                    messageId={todo.messageId}
-                    card={card}
-                    authorId={todo.m.authorId}
-                    viewerUserId={viewerUserId ?? undefined}
-                    header={sourceHeader}
-                    footer={replyFooter}
-                    className="my-0"
-                    onSubmit={onSubmitTodo
-                      ? (_messageId, content, nonce) => onSubmitTodo(todo, content, nonce)
-                      : undefined}
-                    onOpenProfile={onOpenProfile}
-                  />
-                </article>
-              </div>
-            )
-          })}
-        </div>
+                  {renderTodoCard(todo)}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 pb-3">
+            {visibleTodos.map((todo) => (
+              <Fragment key={todo.id}>{renderTodoCard(todo)}</Fragment>
+            ))}
+          </div>
+        )
       )}
     </InboxScrollBody>
   )
@@ -950,67 +980,81 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const peersByChannel = useMemo(() => new Map(directory.dms?.map(dm => [dm.id, dm])), [directory.dms])
+  const markedVirtualized = marked.length > INBOX_VIRTUALIZE_THRESHOLD
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const markedVirtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
-    count: marked.length,
+    count: markedVirtualized ? marked.length : 0,
     getScrollElement: () => viewportRef.current,
     estimateSize: () => INBOX_MARKED_CARD_ESTIMATE,
     overscan: 6,
     initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
-  const markedVirtualItems = markedVirtualizer.getVirtualItems()
+  const markedVirtualItems = markedVirtualized ? markedVirtualizer.getVirtualItems() : []
+  const renderMarkedCard = (mk: Marked) => {
+    const channel = directory.channels.get(mk.channelId)
+    const server = mk.serverId ? directory.servers.get(mk.serverId) : undefined
+    const peer = peersByChannel.get(mk.channelId)
+    const name = peer?.name ?? channel?.name ?? mk.channel
+    const open = onOpenMarked ? () => onOpenMarked(mk) : undefined
+    const isOtherAuthorInDm = !mk.serverId && Boolean(peer?.userId && mk.m.authorId && mk.m.authorId !== peer.userId)
+    const continuation = !mk.serverId && !isOtherAuthorInDm
+    return (
+      <InboxCard testId={tid.inboxMarkedCard(mk.id)}
+        identity={<button type="button" className={cn(identityActionClassName, expandedIdentityActionClassName)} onClick={open}>
+          {mk.serverId
+            ? <InboxServerCardIdentity name={name} kind={channel?.type === "dm" ? undefined : channel?.type}
+                location={channelLocation(directory, mk.channelId, mk.parentChannelId)}
+                server={{ serverId: mk.serverId, serverName: server?.name ?? mk.server, serverIcon: server?.icon }}
+                showJumpCue={Boolean(open)} />
+            : <InboxDmCardIdentity name={name} avatar={peer?.avatar ?? avatarInitial(name)}
+                userId={peer?.userId ?? mk.channelId} discriminator={peer?.discriminator}
+                showJumpCue={Boolean(open)} />}
+        </button>}
+        actions={onUnmark && <InboxIconAction aria-label="Unmark" title="Unmark"
+          data-testid={tid.inboxUnmark(mk.m.id)}
+          className="-me-1.5 text-muted-foreground hover:text-foreground sm:-me-1"
+          onClick={() => onUnmark(mk.m.id)}>
+          <X className="size-4" />
+        </InboxIconAction>}
+      >
+        <div data-slot="inbox-card-messages" className="min-w-0 px-3 sm:px-3.5">
+          <InboxMessagePreview message={{ ...mk.m, grouped: false }} continuation={continuation} first onOpen={open} />
+        </div>
+      </InboxCard>
+    )
+  }
   return (
     <InboxScrollBody tab="marked" viewportRef={viewportRef} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && marked.length === 0 && <InboxRowsSkeleton />}
       {error && marked.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
       {marked.length > 0 && (
-        <div className="relative w-full" style={{ height: markedVirtualizer.getTotalSize() }}>
-          {markedVirtualItems.map((virtualItem) => {
-            const mk = marked[virtualItem.index]
-            if (!mk) return null
-            const channel = directory.channels.get(mk.channelId)
-            const server = mk.serverId ? directory.servers.get(mk.serverId) : undefined
-            const peer = peersByChannel.get(mk.channelId)
-            const name = peer?.name ?? channel?.name ?? mk.channel
-            const open = onOpenMarked ? () => onOpenMarked(mk) : undefined
-            const isOtherAuthorInDm = !mk.serverId && Boolean(peer?.userId && mk.m.authorId && mk.m.authorId !== peer.userId)
-            const continuation = !mk.serverId && !isOtherAuthorInDm
-            return (
-              <div
-                key={mk.id}
-                data-index={virtualItem.index}
-                ref={markedVirtualizer.measureElement}
-                style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
-              >
-                <InboxCard testId={tid.inboxMarkedCard(mk.id)}
-                  identity={<button type="button" className={cn(identityActionClassName, expandedIdentityActionClassName)} onClick={open}>
-                    {mk.serverId
-                      ? <InboxServerCardIdentity name={name} kind={channel?.type === "dm" ? undefined : channel?.type}
-                          location={channelLocation(directory, mk.channelId, mk.parentChannelId)}
-                          server={{ serverId: mk.serverId, serverName: server?.name ?? mk.server, serverIcon: server?.icon }}
-                          showJumpCue={Boolean(open)} />
-                      : <InboxDmCardIdentity name={name} avatar={peer?.avatar ?? avatarInitial(name)}
-                          userId={peer?.userId ?? mk.channelId} discriminator={peer?.discriminator}
-                          showJumpCue={Boolean(open)} />}
-                  </button>}
-                  actions={onUnmark && <InboxIconAction aria-label="Unmark" title="Unmark"
-                    data-testid={tid.inboxUnmark(mk.m.id)}
-                    className="-me-1.5 text-muted-foreground hover:text-foreground sm:-me-1"
-                    onClick={() => onUnmark(mk.m.id)}>
-                    <X className="size-4" />
-                  </InboxIconAction>}
+        markedVirtualized ? (
+          <div className="relative w-full" style={{ height: markedVirtualizer.getTotalSize() }}>
+            {markedVirtualItems.map((virtualItem) => {
+              const mk = marked[virtualItem.index]
+              if (!mk) return null
+              return (
+                <div
+                  key={mk.id}
+                  data-index={virtualItem.index}
+                  ref={markedVirtualizer.measureElement}
+                  className="flow-root"
+                  style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
                 >
-                  <div data-slot="inbox-card-messages" className="min-w-0 px-3 sm:px-3.5">
-                    <InboxMessagePreview message={{ ...mk.m, grouped: false }} continuation={continuation} first onOpen={open} />
-                  </div>
-                </InboxCard>
-              </div>
-            )
-          })}
-        </div>
+                  {renderMarkedCard(mk)}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          marked.map((mk) => (
+            <Fragment key={mk.id}>{renderMarkedCard(mk)}</Fragment>
+          ))
+        )
       )}
     </InboxScrollBody>
   )

@@ -1764,6 +1764,28 @@ export function useConversationScroll({
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     if (footer) ro.observe(footer)
+    const accessorySlot = footer?.querySelector<HTMLElement>('[data-slot="community-composer-accessory-slot"]') ?? null
+    const footerMo = footer && typeof MutationObserver !== "undefined"
+      ? new MutationObserver((mutations) => {
+        if (accessorySlot && mutations.length > 0
+          && mutations.every((mutation) => accessorySlot.contains(mutation.target))) {
+          return
+        }
+        const prevGeo = prevGeometryRef.current
+        if (!prevGeo || prevGeo.clientHeight !== root.clientHeight
+          || prevGeo.clientWidth !== root.clientWidth
+          || prevGeo.tailPaddingEnd !== propsRef.current.tailPaddingEnd) {
+          compensateAnchor(true)
+          updateNewDividerVisibility(false)
+          if (!entryResolvedRef.current || stateRef.current.mode === "jumping-to-target") {
+            bumpState()
+          } else {
+            syncUiSnapshot(false)
+          }
+        }
+      })
+      : null
+    footerMo?.observe(footer!, { childList: true, subtree: true })
 
     return () => {
       root.removeEventListener("scroll", onScroll)
@@ -1778,6 +1800,7 @@ export function useConversationScroll({
       root.ownerDocument.defaultView?.removeEventListener("blur", onBlur)
       ro.disconnect()
       mo.disconnect()
+      footerMo?.disconnect()
       activeTouchRef.current = false
       activePointers.clear()
       if (rafRef.current !== null) {

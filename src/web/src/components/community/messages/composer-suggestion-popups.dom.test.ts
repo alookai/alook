@@ -241,7 +241,7 @@ describe("Composer suggestion popups", () => {
       expect.anything(),
       document.body,
     )
-    expect(mocks.nextScrollTop).toHaveBeenCalledWith(10, 100, 40, 68)
+    expect(mocks.nextScrollTop).toHaveBeenCalledWith(10, 100, 150, 20)
     expect(listScrollTop).toBe(77)
     const text = renderer.container.textContent ?? ""
     expect(text.indexOf("@everyone")).toBeLessThan(text.indexOf("Members"))
@@ -428,7 +428,7 @@ describe("Composer suggestion popups", () => {
       get() { return 0 },
     })
 
-    const mentionItems: MentionPopupState["items"] = Array.from({ length: 40 }, (_, index) => ({
+    const mentionItems: MentionPopupState["items"] = Array.from({ length: 300 }, (_, index) => ({
       kind: "member" as const,
       id: `member-${index}`,
       userId: `user-${index}`,
@@ -470,7 +470,7 @@ describe("Composer suggestion popups", () => {
     expect(listScrollTop).toBe(424)
     mentionView.unmount()
 
-    const channelItems: ChannelRefPopupState["items"] = Array.from({ length: 40 }, (_, index) => ({
+    const channelItems: ChannelRefPopupState["items"] = Array.from({ length: 300 }, (_, index) => ({
       id: `channel-${index}`,
       name: `room-${index}`,
       serverId: "server-1",
@@ -504,5 +504,47 @@ describe("Composer suggestion popups", () => {
     // Index 12 at 36px rows starts at 432, ends at 468; with clientHeight=100 and margin=4 => 372.
     expect(listScrollTop).toBe(372)
     channelView.unmount()
+  })
+
+  it("does not snap scrollTop back to the selected top item when pagination appends more mention candidates", () => {
+    const getRect = () => rect(500)
+    const command = vi.fn()
+    const makeItems = (count: number): MentionPopupState["items"] => Array.from({ length: count }, (_, index) => ({
+      kind: "member" as const,
+      id: `member-${index}`,
+      userId: `user-${index}`,
+      label: `Member${index}#0001`,
+      name: `Member${index}`,
+      discriminator: "0001",
+      avatar: "M",
+      status: "online" as const,
+    }))
+    const view = render(createElement(CommunityMentionList, {
+      state: {
+        items: makeItems(8),
+        query: "",
+        selectedIndex: 0,
+        command,
+        getRect,
+      },
+      presentation: { status: "ready" },
+    }))
+    mocks.nextScrollTop.mockClear()
+    listScrollTop = 180
+
+    view.rerender(createElement(CommunityMentionList, {
+      state: {
+        items: makeItems(12),
+        query: "",
+        selectedIndex: 0,
+        command,
+        getRect,
+      },
+      presentation: { status: "ready" },
+    }))
+    expect(mocks.nextScrollTop).not.toHaveBeenCalled()
+    expect(listScrollTop).toBe(180)
+    expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(12)
+    view.unmount()
   })
 })

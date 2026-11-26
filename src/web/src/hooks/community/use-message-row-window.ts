@@ -3,7 +3,7 @@
 import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from "react"
 import type { FlatItem } from "@/lib/community/message-list-items"
 
-const MESSAGE_ROW_WINDOW_THRESHOLD = 200
+const MESSAGE_ROW_WINDOW_THRESHOLD = 400
 const MESSAGE_ROW_ESTIMATE_PX = 72
 const NON_MESSAGE_ROW_ESTIMATE_PX = 40
 const MESSAGE_ROW_OVERSCAN = 16
