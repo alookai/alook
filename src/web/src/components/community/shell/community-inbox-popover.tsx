@@ -572,11 +572,17 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
   }, [dms, servers])
   const nothingUnread = friendRequests.length === 0 && unreadEntries.length === 0
   const unreadsVirtualized = unreadEntries.length > INBOX_VIRTUALIZE_THRESHOLD
+  const getUnreadItemKey = useCallback(
+    (index: number) => unreadEntries[index]?.key ?? index,
+    [unreadEntries],
+  )
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const unreadsVirtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    directDomUpdatesMode: "position",
     count: unreadsVirtualized ? unreadEntries.length : 0,
     getScrollElement: () => viewportRef.current,
+    getItemKey: getUnreadItemKey,
     estimateSize: () => INBOX_UNREAD_CARD_ESTIMATE,
     overscan: 6,
     initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
@@ -727,7 +733,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
       )}
       {unreadEntries.length > 0 && (
         unreadsVirtualized ? (
-          <div className="relative w-full" style={{ height: unreadsVirtualizer.getTotalSize() }}>
+          <div ref={unreadsVirtualizer.containerRef} className="relative w-full" style={{ height: unreadsVirtualizer.getTotalSize() }}>
             {unreadVirtualItems.map((virtualItem) => {
               const entry = unreadEntries[virtualItem.index]
               if (!entry) return null
@@ -792,11 +798,17 @@ function TodoTab({
   const replyTodoHandler = onReplyTodo ?? onSubmitTodo
   const visibleTodos = useMemo(() => todos.filter((todo) => Boolean(todo.m.decisionCard)), [todos])
   const todoVirtualized = visibleTodos.length > INBOX_VIRTUALIZE_THRESHOLD
+  const getTodoItemKey = useCallback(
+    (index: number) => visibleTodos[index]?.id ?? index,
+    [visibleTodos],
+  )
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const todoVirtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    directDomUpdatesMode: "position",
     count: todoVirtualized ? visibleTodos.length : 0,
     getScrollElement: () => viewportRef.current,
+    getItemKey: getTodoItemKey,
     estimateSize: () => INBOX_TODO_CARD_ESTIMATE,
     overscan: 4,
     initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
@@ -937,7 +949,7 @@ function TodoTab({
       {!loading && !error && todos.length === 0 && <EmptyState icon={CircleCheck} label="No pending questions" />}
       {visibleTodos.length > 0 && (
         todoVirtualized ? (
-          <div className="relative w-full pb-3" style={{ height: todoVirtualizer.getTotalSize() }}>
+          <div ref={todoVirtualizer.containerRef} className="relative w-full pb-3" style={{ height: todoVirtualizer.getTotalSize() }}>
             {todoVirtualItems.map((virtualItem) => {
               const todo = visibleTodos[virtualItem.index]
               if (!todo) return null
@@ -981,11 +993,17 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
   const viewportRef = useRef<HTMLDivElement>(null)
   const peersByChannel = useMemo(() => new Map(directory.dms?.map(dm => [dm.id, dm])), [directory.dms])
   const markedVirtualized = marked.length > INBOX_VIRTUALIZE_THRESHOLD
+  const getMarkedItemKey = useCallback(
+    (index: number) => marked[index]?.id ?? index,
+    [marked],
+  )
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const markedVirtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    directDomUpdatesMode: "position",
     count: markedVirtualized ? marked.length : 0,
     getScrollElement: () => viewportRef.current,
+    getItemKey: getMarkedItemKey,
     estimateSize: () => INBOX_MARKED_CARD_ESTIMATE,
     overscan: 6,
     initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
@@ -1033,7 +1051,7 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
       {!loading && !error && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
       {marked.length > 0 && (
         markedVirtualized ? (
-          <div className="relative w-full" style={{ height: markedVirtualizer.getTotalSize() }}>
+          <div ref={markedVirtualizer.containerRef} className="relative w-full" style={{ height: markedVirtualizer.getTotalSize() }}>
             {markedVirtualItems.map((virtualItem) => {
               const mk = marked[virtualItem.index]
               if (!mk) return null

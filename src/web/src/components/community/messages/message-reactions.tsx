@@ -24,7 +24,7 @@ import {
   type ReactionDetailsProfile,
   useReactionDetails,
 } from "@/hooks/community/use-reaction-details"
-import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS, observeCommunityVirtualizerRect } from "@/hooks/community/virtualizer-react-options"
+import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS, measureCommunityVirtualizerElement, observeCommunityVirtualizerRect } from "@/hooks/community/virtualizer-react-options"
 import {
   useHorizontalOverflowRail,
 } from "@/components/horizontal-overflow-rail"
@@ -243,6 +243,7 @@ function ReactionDetailsDialog({
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const reactorVirtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
     count: reactorIds.length,
     getScrollElement: () => listViewportRef.current,
@@ -321,6 +322,7 @@ function ReactionDetailsDialog({
           </div>
         ) : reactorIds.length > 0 ? (
           <ul
+            ref={reactorVirtualizer.containerRef}
             className="relative w-full"
             style={{ height: reactorVirtualizer.getTotalSize() }}
           >

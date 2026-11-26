@@ -36,6 +36,7 @@ import { useFriendRequestActionState } from "@/hooks/community/use-friend-reques
 import { useDebouncedValue } from "@/hooks/community/use-debounced-value"
 import {
   COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
   observeCommunityVirtualizerRect,
 } from "@/hooks/community/virtualizer-react-options"
 import { tid } from "@/lib/community/testids"
@@ -253,6 +254,7 @@ export function FriendsPage({
     estimateSize: () => FRIEND_ROW_ESTIMATE,
     overscan: 8,
     initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const friendsTotalSize = friendsVirtualizer.getTotalSize()
@@ -264,6 +266,7 @@ export function FriendsPage({
     scrollMargin: friendsTotalSize,
     overscan: 6,
     initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const incomingVirtualizer = useVirtualizer({
@@ -273,6 +276,7 @@ export function FriendsPage({
     estimateSize: () => PENDING_ROW_ESTIMATE,
     overscan: 6,
     initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const incomingTotalSize = incomingVirtualizer.getTotalSize()
@@ -284,6 +288,7 @@ export function FriendsPage({
     scrollMargin: incomingTotalSize,
     overscan: 6,
     initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
 
@@ -378,6 +383,7 @@ export function FriendsPage({
                 <ContextMenuTrigger
                   render={
                     <div
+                      ref={friendsVirtualizer.containerRef}
                       className="relative w-full"
                       style={{ height: friendsTotalSize }}
                     />
@@ -422,7 +428,7 @@ export function FriendsPage({
           ) : blocked.length > 0 ? (
             <div className="mt-8">
               <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — {blocked.length}</div>
-              <div className="relative w-full" style={{ height: blockedVirtualizer.getTotalSize() }}>
+              <div ref={blockedVirtualizer.containerRef} className="relative w-full" style={{ height: blockedVirtualizer.getTotalSize() }}>
                 {blockedVirtualItems.map((virtualItem) => {
                   const b = blocked[virtualItem.index]
                   if (!b) return null
@@ -517,7 +523,7 @@ export function FriendsPage({
               {incomingActions.items.length > 0 && (
                 <div>
                   <div className="mb-2 text-xs font-semibold text-muted-foreground">Incoming — {incomingActions.items.length}</div>
-                  <div className="relative w-full" style={{ height: incomingTotalSize }}>
+                  <div ref={incomingVirtualizer.containerRef} className="relative w-full" style={{ height: incomingTotalSize }}>
                     {incomingVirtualItems.map((virtualItem) => {
                       const item = incomingActions.items[virtualItem.index]
                       if (!item) return null
@@ -569,7 +575,7 @@ export function FriendsPage({
               {outgoing.length > 0 && (
                 <div className={incomingActions.items.length > 0 ? "mt-8" : ""}>
                   <div className="mb-2 text-xs font-semibold text-muted-foreground">Outgoing — {outgoing.length}</div>
-                  <div className="relative w-full" style={{ height: outgoingVirtualizer.getTotalSize() }}>
+                  <div ref={outgoingVirtualizer.containerRef} className="relative w-full" style={{ height: outgoingVirtualizer.getTotalSize() }}>
                     {outgoingVirtualItems.map((virtualItem) => {
                       const p = outgoing[virtualItem.index]
                       if (!p) return null

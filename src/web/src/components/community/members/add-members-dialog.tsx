@@ -7,6 +7,7 @@ import { useCommunityViewSource } from "@/hooks/community/use-community-view-sou
 import { useLatestRef } from "@/hooks/community/use-latest-ref"
 import {
   COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
   observeCommunityVirtualizerRect,
 } from "@/hooks/community/virtualizer-react-options"
 import type { MemberOriginalView } from "./member-management-types"
@@ -163,6 +164,7 @@ export function AddMembersDialog({
     estimateSize: () => ADD_MEMBER_ROW_ESTIMATE,
     overscan: 8,
     initialRect: { width: 440, height: 400 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const virtualItems = virtualizer.getVirtualItems()
@@ -203,7 +205,7 @@ export function AddMembersDialog({
             refreshFailed={queryState.resolved && queryState.error}
             onRetry={() => { source.capture()(); queryState.retry?.() }}
           >
-            <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+            <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
               {virtualItems.map((virtualItem) => {
                 const m = filtered[virtualItem.index]
                 if (!m) return null

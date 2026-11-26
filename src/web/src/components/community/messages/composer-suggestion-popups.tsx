@@ -151,7 +151,7 @@ export function CommunityMentionList({
       >
         {items.length > 0 && (
           virtualized ? (
-            <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+            <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
               {virtualItems.map((virtualItem) => {
                 const item = items[virtualItem.index]
                 if (!item) return null
@@ -285,7 +285,7 @@ export function ChannelRefList({
       >
         {items.length > 0 && (
           virtualized ? (
-            <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+            <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
               {virtualItems.map((virtualItem) => {
                 const item = items[virtualItem.index]
                 if (!item) return null

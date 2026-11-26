@@ -17,6 +17,7 @@ import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { compactRequestCount } from "@/lib/community/friend-requests"
 import {
   COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
   observeCommunityVirtualizerRect,
 } from "@/hooks/community/virtualizer-react-options"
 
@@ -105,6 +106,7 @@ export const DmSidebar = memo(function DmSidebar({
     estimateSize: () => DM_ROW_ESTIMATE,
     overscan: 10,
     initialRect: { width: 240, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const virtualItems = virtualizer.getVirtualItems()
@@ -159,7 +161,7 @@ export const DmSidebar = memo(function DmSidebar({
             ) : dms.length === 0 ? (
               <EmptyState icon={MessagesSquare} label="Your direct messages will appear here." />
             ) : (
-              <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+              <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
                 {virtualItems.map((virtualItem) => {
                   const d = dms[virtualItem.index]
                   if (!d) return null

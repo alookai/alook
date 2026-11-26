@@ -5,7 +5,6 @@ import { withImageGallery } from "./image-preview-gallery"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useMessageListController } from "./message-list-controller"
-import { useMessageRowWindow } from "@/hooks/community/use-message-row-window"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { useReducedMotion } from "@/hooks/use-reduced-motion"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
@@ -107,18 +106,6 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
     tailAttached: !props.hasMoreNewer && !props.isFetchingNewer && !props.presentPending,
     viewerId: props.viewerUserId ?? props.positionScope?.proof.viewerId,
   })
-  const pinnedRowIds = useMemo(
-    () => [props.scrollToMessageId, props.initialPositionMessageId, controller.jumped],
-    [props.scrollToMessageId, props.initialPositionMessageId, controller.jumped],
-  )
-  const rowWindow = useMessageRowWindow({
-    items: controller.items,
-    scrollRef: controller.scrollRef,
-    pinnedIds: pinnedRowIds,
-  })
-  const visibleSlice = rowWindow.windowed
-    ? controller.items.slice(rowWindow.startIndex, rowWindow.endIndex)
-    : controller.items
   return renderMessageListView(resolvedProps, controller, () => (
     <MessageUpdateMotionContext.Provider value={motionActive}>
       <MessageOverlayHostProvider>
@@ -126,35 +113,15 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
           data-message-rows
           className="mt-auto flex w-full flex-col"
         >
-          {rowWindow.topSpacerHeight > 0 && (
+          {controller.items.map((item, index) => (
             <div
-              aria-hidden="true"
-              data-message-window-spacer="top"
-              className="shrink-0"
-              style={{ height: rowWindow.topSpacerHeight }}
-            />
-          )}
-          {visibleSlice.map((item, offset) => {
-            const index = rowWindow.startIndex + offset
-            return (
-              <div
-                key={item.key}
-                data-index={index}
-                ref={rowWindow.windowed ? (node) => rowWindow.measureRow(item.key, node) : undefined}
-                className="w-full"
-              >
-                {renderMessageListRow(item, resolvedProps, controller)}
-              </div>
-            )
-          })}
-          {rowWindow.bottomSpacerHeight > 0 && (
-            <div
-              aria-hidden="true"
-              data-message-window-spacer="bottom"
-              className="shrink-0"
-              style={{ height: rowWindow.bottomSpacerHeight }}
-            />
-          )}
+              key={item.key}
+              data-index={index}
+              className="w-full"
+            >
+              {renderMessageListRow(item, resolvedProps, controller)}
+            </div>
+          ))}
           <div
             aria-hidden="true"
             data-message-list-tail

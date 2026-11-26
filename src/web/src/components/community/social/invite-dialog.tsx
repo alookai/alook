@@ -22,6 +22,7 @@ import { useCommunityViewSource } from "@/hooks/community/use-community-view-sou
 import { useLatestRef } from "@/hooks/community/use-latest-ref"
 import {
   COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
   observeCommunityVirtualizerRect,
 } from "@/hooks/community/virtualizer-react-options"
 import { useInvites } from "@/hooks/community/use-server-panels"
@@ -229,6 +230,7 @@ export function InviteDialog({
     estimateSize: () => INVITE_FRIEND_ROW_ESTIMATE,
     overscan: 8,
     initialRect: { width: 440, height: 400 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const virtualItems = virtualizer.getVirtualItems()
@@ -279,7 +281,7 @@ export function InviteDialog({
             refreshFailed={friendsQuery.data !== undefined && friendsQuery.isError}
             onRetry={() => { void friendsQuery.refetch() }}
           >
-            <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+            <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
               {virtualItems.map((virtualItem) => {
                 const f = eligibleFriends[virtualItem.index]
                 if (!f) return null

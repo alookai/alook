@@ -35,6 +35,7 @@ import { ChannelUnreadIndicator } from "./channel-unread-indicator"
 import { ForumPostCountsStatus } from "./forum-post-count"
 import {
   COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
   observeCommunityVirtualizerRect,
 } from "@/hooks/community/virtualizer-react-options"
 
@@ -244,6 +245,7 @@ function ChannelSidebarContent({
     },
     overscan: 10,
     initialRect: { width: 240, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const virtualEntries = shouldVirtualize ? sidebarVirtualizer.getVirtualItems() : []
@@ -293,7 +295,7 @@ function ChannelSidebarContent({
   const channelTree = (
     <ChannelDndScope tree={tree} onDrop={onDragEnd} enabled={canReorder}>
       {shouldVirtualize ? (
-        <div className="relative w-full" style={{ height: sidebarVirtualizer.getTotalSize() }}>
+        <div ref={sidebarVirtualizer.containerRef} className="relative w-full" style={{ height: sidebarVirtualizer.getTotalSize() }}>
           {virtualEntries.map((virtualItem) => {
             const entry = flatEntries[virtualItem.index]
             if (!entry) return null
