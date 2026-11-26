@@ -92,7 +92,7 @@ const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { nam
   )
 })
 
-export function ForumPostItem({ post: p, profilesByUserId, onOpen, actions }: {
+export const ForumPostItem = memo(function ForumPostItem({ post: p, profilesByUserId, onOpen, actions }: {
   post: ForumThread
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
   onOpen: () => void
@@ -157,4 +157,4 @@ export function ForumPostItem({ post: p, profilesByUserId, onOpen, actions }: {
       </div>
     </div>
   )
-}
+})

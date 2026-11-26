@@ -85,6 +85,6 @@ export function useChannelTree(categories: Category[]) {
     else next.add(id)
     return next
   }), [setCollapsed])
-  return { ...structure, collapsed, toggleCat }
+  return useMemo(() => ({ ...structure, collapsed, toggleCat }), [structure, collapsed, toggleCat])
 }
 export type ChannelTree = ReturnType<typeof useChannelTree>

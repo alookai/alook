@@ -208,3 +208,39 @@ describe("FriendsPage add-friend feedback (QA #8)", () => {
     } finally { view.unmount(); vi.unstubAllGlobals() }
   })
 })
+
+describe("FriendsPage large list virtualization and hoisted menu", () => {
+  it("virtualizes 500 friends with a single hoisted context menu and debounced search filtering", () => {
+    vi.useFakeTimers()
+    try {
+      const manyFriends = Array.from({ length: 500 }, (_, index) => ({
+        id: `fr-${index}`,
+        userId: `u-${index}`,
+        name: index === 499 ? "ZeldaTarget" : `Friend ${index}`,
+        discriminator: String(index).padStart(4, "0"),
+        avatar: "F",
+        avatarVersion: 0,
+        status: "online" as const,
+        sub: "",
+      }))
+      const view = renderPage(<FriendsPage friends={manyFriends} pending={[]} blocked={[]} activeTab="all" />)
+      expect(view.container.querySelectorAll('[data-slot="context-menu-trigger"]')).toHaveLength(1)
+      const initialButtons = view.container.querySelectorAll('[data-slot="context-menu-trigger"] button')
+      expect(initialButtons.length).toBeGreaterThan(0)
+      expect(initialButtons.length).toBeLessThan(40)
+
+      const input = view.getByPlaceholderText("Search friends")
+      fireEvent.change(input, { target: { value: "ZeldaTarget" } })
+      expect(view.getByText("All friends — 500")).toBeInTheDocument()
+
+      act(() => { vi.advanceTimersByTime(150) })
+      expect(view.getByText("All friends — 1")).toBeInTheDocument()
+      expect(view.getByText("ZeldaTarget")).toBeInTheDocument()
+
+      fireEvent.change(input, { target: { value: "" } })
+      expect(view.getByText("All friends — 500")).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

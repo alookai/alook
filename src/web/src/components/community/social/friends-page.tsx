@@ -4,8 +4,9 @@ import { searchCommunityUsers } from "@/lib/community/user-search"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useVirtualizer } from "@tanstack/react-virtual"
 
-import { useEffect, useMemo } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { isAbortError } from "@/lib/errors"
@@ -18,7 +19,7 @@ import { Input } from "@/components/ui/input"
 import { FieldError } from "@/components/ui/field"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, isKeyboardContextMenu } from "@/components/ui/context-menu"
 import { Avatar } from "../avatar"
 import { EmptyState } from "../empty-state"
 import { HOME_TAB_COLUMN_CLASS } from "../home-tab-layout"
@@ -32,7 +33,97 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { actionableIncomingRequests, compactRequestCount } from "@/lib/community/friend-requests"
 import { useFriendRequestActionState } from "@/hooks/community/use-friend-request-action-state"
+import { useDebouncedValue } from "@/hooks/community/use-debounced-value"
+import {
+  COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
+  observeCommunityVirtualizerRect,
+} from "@/hooks/community/virtualizer-react-options"
 import { tid } from "@/lib/community/testids"
+
+const FRIEND_ROW_ESTIMATE = 52
+const BLOCKED_ROW_ESTIMATE = 52
+const PENDING_ROW_ESTIMATE = 56
+const FILTER_DEBOUNCE_MS = 150
+
+const FriendRow = memo(function FriendRow({
+  friend,
+  onDm,
+  onSelectContextFriend,
+}: {
+  friend: Friend
+  onDm?: (userId: string) => void
+  onSelectContextFriend: (friend: Friend | null) => void
+}) {
+  const isSelfBot = isSelfBotFriendship(friend.id)
+  const offline = isPresenceOffline(friend.status)
+  const selectTarget = () => onSelectContextFriend(isSelfBot ? null : friend)
+  return (
+    <button
+      type="button"
+      onClick={() => { if (friend.userId) onDm?.(friend.userId) }}
+      onPointerDownCapture={(event) => {
+        if (event.button === 2 || (event.button === 0 && event.ctrlKey)) selectTarget()
+      }}
+      onContextMenuCapture={selectTarget}
+      onKeyDownCapture={(event) => {
+        if (isKeyboardContextMenu(event.nativeEvent)) selectTarget()
+      }}
+      className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none"
+    >
+      <Avatar label={friend.avatar} seed={friend.userId} size={32} presence={friend.status} dim={offline} />
+      <div className="min-w-0 flex-1">
+        <div className={`truncate text-sm font-medium ${offline ? "text-muted-foreground" : ""}`}>
+          {friend.name}
+          {friend.discriminator && (
+            <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+              #{friend.discriminator}
+            </span>
+          )}
+        </div>
+        {hasStatus(friend.statusEmoji, friend.statusText) && (
+          <div className="truncate text-xs text-muted-foreground">{friend.statusEmoji} {friend.statusText}</div>
+        )}
+      </div>
+      <span className="grid size-8 place-items-center rounded-full bg-secondary text-muted-foreground"><MessagesSquare className="size-4" /></span>
+    </button>
+  )
+})
+
+const BlockedFriendRow = memo(function BlockedFriendRow({
+  user,
+  onUnblock,
+}: {
+  user: BlockedUser
+  onUnblock?: (id: string) => void
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
+      <Avatar label={user.avatar} seed={user.userId} size={32} dim />
+      <div className="min-w-0 flex-1 truncate text-sm font-medium">{user.name}</div>
+      <Button variant="secondary" size="sm" onClick={() => onUnblock?.(user.userId ?? user.id)}>Unblock</Button>
+    </div>
+  )
+})
+
+const OutgoingRequestRow = memo(function OutgoingRequestRow({
+  request,
+  onCancelRequest,
+}: {
+  request: PendingRequest
+  onCancelRequest?: (req: { id: string }) => void
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
+      <Avatar label={request.avatar} seed={request.userId} size={32} />
+      <div className="min-w-0 flex-1 truncate text-sm font-medium">{request.name}</div>
+      {request.needsOwnerApproval ? (
+        <span className="shrink-0 text-xs text-muted-foreground">Waiting on owner approval</span>
+      ) : null}
+      <Button variant="secondary" size="icon-sm" onClick={() => onCancelRequest?.({ id: request.id })} className="rounded-full" aria-label="Cancel"><X className="size-4" /></Button>
+    </div>
+  )
+})
 
 function FriendSection({ title, count, emptyLabel, children }: {
   title: string
@@ -74,16 +165,25 @@ export function FriendsPage({
 }) {
   const previewProfiles = useCommunityPreviewProfiles()
   const profileQueryClient = useQueryClient()
+  const viewportRef = useRef<HTMLDivElement>(null)
   const [filter, setFilter] = useAtom(useCreateAtom(""))
+  const debouncedFilter = useDebouncedValue(filter, FILTER_DEBOUNCE_MS, (value) => value.trim() === "")
   const filteredFriends = useMemo(() => {
-    const q = filter.trim().toLowerCase()
+    const q = debouncedFilter.trim().toLowerCase()
     if (!q) return friends
     return friends.filter((f) =>
       f.name.toLowerCase().includes(q)
       || (f.sub ?? "").toLowerCase().includes(q)
       || (f.discriminator ? `#${f.discriminator}`.includes(q) : false)
     )
-  }, [friends, filter])
+  }, [friends, debouncedFilter])
+
+  const contextFriendRef = useRef<Friend | null>(null)
+  const [contextFriend, setContextFriend] = useState<Friend | null>(null)
+  const handleSelectContextFriend = useCallback((friend: Friend | null) => {
+    contextFriendRef.current = friend
+    setContextFriend((current) => (current === friend ? current : friend))
+  }, [])
 
   const [addValue, setAddValue] = useAtom(useCreateAtom(""))
 
@@ -146,6 +246,52 @@ export function FriendsPage({
   const searchActionable = !!isCurrentSearch()
   const searchResults = searchTerm === addValue.trim() && searchTerm.length >= MIN_SEARCH_LENGTH && searchComplete ? searchQuery.data!.ids : []
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const friendsVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: filteredFriends.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => FRIEND_ROW_ESTIMATE,
+    overscan: 8,
+    initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const friendsTotalSize = friendsVirtualizer.getTotalSize()
+  const blockedVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: blocked.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => BLOCKED_ROW_ESTIMATE,
+    scrollMargin: friendsTotalSize,
+    overscan: 6,
+    initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const incomingVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: incomingActions.items.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => PENDING_ROW_ESTIMATE,
+    overscan: 6,
+    initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const incomingTotalSize = incomingVirtualizer.getTotalSize()
+  const outgoingVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: outgoing.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => PENDING_ROW_ESTIMATE,
+    scrollMargin: incomingTotalSize,
+    overscan: 6,
+    initialRect: { width: 520, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+
   if (loading && friends.length === 0 && pending.length === 0 && blocked.length === 0) {
     return <FriendsPageSkeleton reserveBackSlot={reserveBackSlot || Boolean(onBack)} />
   }
@@ -166,47 +312,10 @@ export function FriendsPage({
   const searchFailed = searchSettled && searchQuery.isError
   const searching = typedTerm.length >= MIN_SEARCH_LENGTH && !searchSettled
 
-  const friendRow = (f: Friend) => {
-    // Owner ↔ own-bot rows are synthetic — no real friendship row exists.
-    // Suppress Remove / Block for these so the caller never fires a mutation
-    // with a synthetic id.
-    const isSelfBot = isSelfBotFriendship(f.id)
-    return (
-      <ContextMenu key={f.id}>
-        <ContextMenuTrigger
-          render={
-            <button
-              onClick={() => { if (f.userId) onDm?.(f.userId) }}
-              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-[background-color,transform] duration-150 hover:bg-accent active:scale-[0.99] motion-reduce:transition-none"
-            />
-          }
-        >
-          <Avatar label={f.avatar} seed={f.userId} size={32} presence={f.status} dim={isPresenceOffline(f.status)} />
-          <div className="min-w-0 flex-1">
-            <div className={`truncate text-sm font-medium ${isPresenceOffline(f.status) ? "text-muted-foreground" : ""}`}>
-              {f.name}
-              {f.discriminator && (
-                <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
-                  #{f.discriminator}
-                </span>
-              )}
-            </div>
-            {hasStatus(f.statusEmoji, f.statusText) && (
-              <div className="truncate text-xs text-muted-foreground">{f.statusEmoji} {f.statusText}</div>
-            )}
-          </div>
-          <span className="grid size-8 place-items-center rounded-full bg-secondary text-muted-foreground"><MessagesSquare className="size-4" /></span>
-        </ContextMenuTrigger>
-        {!isSelfBot && (
-          <ContextMenuContent className="w-44">
-            <ContextMenuItem onClick={() => onRemoveFriend?.(f.id)}><UserMinus className="size-4" /> Remove friend</ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => onBlock?.(f.userId ?? f.id)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Ban className="size-4" /> Block</ContextMenuItem>
-          </ContextMenuContent>
-        )}
-      </ContextMenu>
-    )
-  }
+  const friendVirtualItems = friendsVirtualizer.getVirtualItems()
+  const blockedVirtualItems = blockedVirtualizer.getVirtualItems()
+  const incomingVirtualItems = incomingVirtualizer.getVirtualItems()
+  const outgoingVirtualItems = outgoingVirtualizer.getVirtualItems()
 
   return (
     <Tabs
@@ -239,7 +348,7 @@ export function FriendsPage({
         </header>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1" contentClassName="flex min-h-full flex-col p-4">
+      <ScrollArea viewportRef={viewportRef} className="min-h-0 flex-1" contentClassName="flex min-h-full flex-col p-4">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
           <TabsContent value="all" className={blocked.length === 0 ? "flex flex-col" : undefined}>
           <div className="mb-4">
@@ -263,9 +372,51 @@ export function FriendsPage({
             <FriendSection
               title={`All friends — ${filteredFriends.length}`}
               count={filteredFriends.length}
-              emptyLabel={filter.trim() ? "No friends match that search." : "No friends yet. Add someone from the New tab."}
+              emptyLabel={debouncedFilter.trim() ? "No friends match that search." : "No friends yet. Add someone from the New tab."}
             >
-              {filteredFriends.map(friendRow)}
+              <ContextMenu
+                onOpenChange={(open, details) => {
+                  if (open && !contextFriendRef.current) details.cancel()
+                  if (!open) handleSelectContextFriend(null)
+                }}
+              >
+                <ContextMenuTrigger
+                  render={
+                    <div
+                      ref={friendsVirtualizer.containerRef}
+                      className="relative w-full"
+                      style={{ height: friendsTotalSize }}
+                    />
+                  }
+                >
+                  {friendVirtualItems.map((virtualItem) => {
+                    const f = filteredFriends[virtualItem.index]
+                    if (!f) return null
+                    return (
+                      <div
+                        key={f.id}
+                        data-index={virtualItem.index}
+                        ref={friendsVirtualizer.measureElement}
+                        className="absolute top-0 left-0 w-full pb-1"
+                        style={{ transform: `translateY(${virtualItem.start}px)` }}
+                      >
+                        <FriendRow
+                          friend={f}
+                          onDm={onDm}
+                          onSelectContextFriend={handleSelectContextFriend}
+                        />
+                      </div>
+                    )
+                  })}
+                </ContextMenuTrigger>
+                {contextFriend && !isSelfBotFriendship(contextFriend.id) && (
+                  <ContextMenuContent className="w-44">
+                    <ContextMenuItem onClick={() => onRemoveFriend?.(contextFriend.id)}><UserMinus className="size-4" /> Remove friend</ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => onBlock?.(contextFriend.userId ?? contextFriend.id)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Ban className="size-4" /> Block</ContextMenuItem>
+                  </ContextMenuContent>
+                )}
+              </ContextMenu>
             </FriendSection>
           )}
 
@@ -277,14 +428,22 @@ export function FriendsPage({
           ) : blocked.length > 0 ? (
             <div className="mt-8">
               <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — {blocked.length}</div>
-              <div className="flex flex-col gap-1">
-                {blocked.map((b) => (
-                  <div key={b.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-                    <Avatar label={b.avatar} seed={b.userId} size={32} dim />
-                    <div className="min-w-0 flex-1 truncate text-sm font-medium">{b.name}</div>
-                    <Button variant="secondary" size="sm" onClick={() => onUnblock?.(b.userId ?? b.id)}>Unblock</Button>
-                  </div>
-                ))}
+              <div ref={blockedVirtualizer.containerRef} className="relative w-full" style={{ height: blockedVirtualizer.getTotalSize() }}>
+                {blockedVirtualItems.map((virtualItem) => {
+                  const b = blocked[virtualItem.index]
+                  if (!b) return null
+                  return (
+                    <div
+                      key={b.id}
+                      data-index={virtualItem.index}
+                      ref={blockedVirtualizer.measureElement}
+                      className="absolute top-0 left-0 w-full pb-1"
+                      style={{ transform: `translateY(${virtualItem.start - blockedVirtualizer.options.scrollMargin}px)` }}
+                    >
+                      <BlockedFriendRow user={b} onUnblock={onUnblock} />
+                    </div>
+                  )
+                })}
               </div>
             </div>
           ) : null}
@@ -364,40 +523,49 @@ export function FriendsPage({
               {incomingActions.items.length > 0 && (
                 <div>
                   <div className="mb-2 text-xs font-semibold text-muted-foreground">Incoming — {incomingActions.items.length}</div>
-                  <div className="flex flex-col gap-1">
-                    {incomingActions.items.map((item) => {
+                  <div ref={incomingVirtualizer.containerRef} className="relative w-full" style={{ height: incomingTotalSize }}>
+                    {incomingVirtualItems.map((virtualItem) => {
+                      const item = incomingActions.items[virtualItem.index]
+                      if (!item) return null
                       const p = item.row
                       const actionPending = item.status === "pending"
                       return (
-                      <div
-                        key={p.id}
-                        aria-busy={actionPending || undefined}
-                        className="rounded-md px-2 py-2 hover:bg-accent"
-                      >
-                        <div className="flex items-center gap-3">
-                          <button
-                            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
-                            onClick={(event) => onOpenProfile?.(p.name, event, undefined, p.userId)}
+                        <div
+                          key={p.id}
+                          data-index={virtualItem.index}
+                          ref={incomingVirtualizer.measureElement}
+                          className="absolute top-0 left-0 w-full pb-1"
+                          style={{ transform: `translateY(${virtualItem.start}px)` }}
+                        >
+                          <div
+                            aria-busy={actionPending || undefined}
+                            className="rounded-md px-2 py-2 hover:bg-accent"
                           >
-                            <Avatar label={p.avatar} seed={p.userId} size={32} />
-                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
-                          </button>
-                          <div className="flex gap-2">
-                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "accept") }} className="size-11 rounded-full sm:size-8" aria-label={`Accept ${p.name}'s friend request`}>
-                              {actionPending && item.action === "accept" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className={actionPending ? "size-4" : "size-4 text-status-online"} />}
-                            </Button>
-                            <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "reject") }} className="size-11 rounded-full text-destructive sm:size-8" aria-label={`Reject ${p.name}'s friend request`}>
-                              {actionPending && item.action === "reject" ? <LoaderCircle className="size-4 animate-spin" /> : <X className="size-4" />}
-                            </Button>
+                            <div className="flex items-center gap-3">
+                              <button
+                                className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
+                                onClick={(event) => onOpenProfile?.(p.name, event, undefined, p.userId)}
+                              >
+                                <Avatar label={p.avatar} seed={p.userId} size={32} />
+                                <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
+                              </button>
+                              <div className="flex gap-2">
+                                <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "accept") }} className="size-11 rounded-full sm:size-8" aria-label={`Accept ${p.name}'s friend request`}>
+                                  {actionPending && item.action === "accept" ? <LoaderCircle className="size-4 animate-spin" /> : <Check className={actionPending ? "size-4" : "size-4 text-status-online"} />}
+                                </Button>
+                                <Button variant="secondary" size="icon" disabled={actionPending} onClick={() => { void incomingActions.act(item, "reject") }} className="size-11 rounded-full text-destructive sm:size-8" aria-label={`Reject ${p.name}'s friend request`}>
+                                  {actionPending && item.action === "reject" ? <LoaderCircle className="size-4 animate-spin" /> : <X className="size-4" />}
+                                </Button>
+                              </div>
+                            </div>
+                            {item.error && (
+                              <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
+                                <span>{item.error}</span>
+                                <Button variant="ghost" size="sm" className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => { void incomingActions.retry(item) }}>Retry</Button>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        {item.error && (
-                          <div role="status" aria-live="polite" className="mt-1 flex items-center justify-end gap-2 text-xs text-destructive">
-                            <span>{item.error}</span>
-                            <Button variant="ghost" size="sm" className="min-h-11 min-w-11 font-medium underline sm:min-h-0 sm:min-w-0" onClick={() => { void incomingActions.retry(item) }}>Retry</Button>
-                          </div>
-                        )}
-                      </div>
                       )
                     })}
                   </div>
@@ -407,17 +575,22 @@ export function FriendsPage({
               {outgoing.length > 0 && (
                 <div className={incomingActions.items.length > 0 ? "mt-8" : ""}>
                   <div className="mb-2 text-xs font-semibold text-muted-foreground">Outgoing — {outgoing.length}</div>
-                  <div className="flex flex-col gap-1">
-                    {outgoing.map((p) => (
-                      <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-                        <Avatar label={p.avatar} seed={p.userId} size={32} />
-                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</div>
-                        {p.needsOwnerApproval ? (
-                          <span className="shrink-0 text-xs text-muted-foreground">Waiting on owner approval</span>
-                        ) : null}
-                        <Button variant="secondary" size="icon-sm" onClick={() => onCancelRequest?.({ id: p.id })} className="rounded-full" aria-label="Cancel"><X className="size-4" /></Button>
-                      </div>
-                    ))}
+                  <div ref={outgoingVirtualizer.containerRef} className="relative w-full" style={{ height: outgoingVirtualizer.getTotalSize() }}>
+                    {outgoingVirtualItems.map((virtualItem) => {
+                      const p = outgoing[virtualItem.index]
+                      if (!p) return null
+                      return (
+                        <div
+                          key={p.id}
+                          data-index={virtualItem.index}
+                          ref={outgoingVirtualizer.measureElement}
+                          className="absolute top-0 left-0 w-full pb-1"
+                          style={{ transform: `translateY(${virtualItem.start - outgoingVirtualizer.options.scrollMargin}px)` }}
+                        >
+                          <OutgoingRequestRow request={p} onCancelRequest={onCancelRequest} />
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}

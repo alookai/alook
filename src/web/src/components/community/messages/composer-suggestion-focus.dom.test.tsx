@@ -67,7 +67,7 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
     messageActions: {} as MessageChannelControllerValue["messageActions"],
     threadActions: {} as MessageChannelControllerValue["threadActions"],
     localSubmitVersion: 0,
-    acceptMessage: vi.fn(() => true), sendDecisionReply: vi.fn(async () => ({ replyToId: null })), handleTyping: vi.fn(), typingUsers: [],
+    acceptMessage: vi.fn(() => true), sendDecisionReply: vi.fn(async () => ({ replyToId: null })), handleTyping: vi.fn(), typingScope: "ch:test",
   }),
 }))
 

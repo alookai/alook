@@ -86,13 +86,21 @@ function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadi
   const activeTag = tag ?? positionScope?.tag ?? null
   const previousTagRef = useRef(activeTag)
   const [positionReady, setPositionReady] = useState(false)
-  useLayoutEffect(() => { if (posts.length === 0) setPositionReady(!loading) }, [loading, posts.length])
+  const positionReadyRef = useRef(false)
+  useLayoutEffect(() => {
+    if (posts.length === 0) {
+      const next = !loading
+      positionReadyRef.current = next
+      setPositionReady(next)
+    }
+  }, [loading, posts.length])
   const presentation = useInitialPositionTransition({ firstWindowReady: !loading || posts.length > 0,
     authoritativeEmpty: !loading && posts.length === 0, positionSettled: positionReady })
   const postsRef = useRef(posts)
   useLayoutEffect(() => { postsRef.current = posts }, [posts])
   const bindScrollRoot = useCallback((node: HTMLDivElement | null) => { scrollRef.current = node; onScrollRoot?.(node) }, [onScrollRoot])
   const inspectPosition = useCallback((native: Virtualizer<HTMLDivElement, Element>) => {
+    if (positionReadyRef.current) return
     const root = scrollRef.current
     const current = postsRef.current
     if (!initialized.current || !root || !root.isConnected || root.clientWidth <= 0 || root.clientHeight <= 0
@@ -107,6 +115,7 @@ function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadi
     const padding = Number.parseFloat(window.getComputedStyle(root).paddingTop) || 0
     if (!fold || !rect || rect.height <= 0 || Math.abs(rect.height - fold.size) > 1
       || Math.abs(rect.top - viewport.top + root.scrollTop - padding - fold.start) > 1) return
+    positionReadyRef.current = true
     setPositionReady(true)
   }, [])
   const getItemKey = useCallback((index: number) => posts[index]?.id ?? index, [posts])

@@ -24,6 +24,11 @@ import {
 
 export const READ_VISIBILITY_THRESHOLD = 0.2
 const MESSAGE_LIST_CONTENT_SELECTOR = "[data-message-list-content]"
+const MESSAGE_ROWS_SELECTOR = "[data-message-rows]"
+
+function escapeAttrValue(value: string): string {
+  return value.replace(/["\\\n\r\f]/g, "\\$&")
+}
 
 function readPresentationReadable(scrollRootEl: HTMLElement) {
   const parentLayer = scrollRootEl.closest("[data-thread-parent]")
@@ -153,8 +158,7 @@ export function useTimelineReadObserver({
       }
       return
     }
-    const node = [...scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")]
-      .find((element) => element.dataset.msgId === correlated.id)
+    const node = scrollRootEl.querySelector<HTMLElement>(`[data-msg-id="${escapeAttrValue(correlated.id)}"]`)
     if (!node) takeInboxReadReservationNegative(reservationLease)
   }, [candidate, catchUp, channelId, feedStatus, messages, protocol, scrollRootEl, snapshotStatus, source, tailAttached])
 
@@ -195,6 +199,18 @@ export function useTimelineReadObserver({
       }
       bindings.set(node, { id, generation: observerGeneration })
       observer.observe(node)
+    }
+    const unbind = (node: Element) => {
+      if (!observerActive) return
+      if (!bindings.has(node)) return
+      bindings.delete(node)
+      observer.unobserve(node)
+    }
+    const collectMsgNodes = (node: Node, out: Element[]) => {
+      if ((node as { nodeType?: number }).nodeType !== 1) return
+      const element = node as Element
+      if (element.matches?.("[data-msg-id]")) out.push(element)
+      element.querySelectorAll?.("[data-msg-id]").forEach((child) => out.push(child))
     }
     const createObserver = () => {
       const observerEpoch = observerGeneration
@@ -253,6 +269,10 @@ export function useTimelineReadObserver({
     }
     scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach(bind)
 
+    const observedContainers = new Set<Element>()
+    let observedContentEl: HTMLElement | null = null
+    let observedRowsEl: HTMLElement | null = null
+
     const mutations = typeof MutationObserver === "undefined"
       ? null
       : new MutationObserver((records) => {
@@ -262,6 +282,7 @@ export function useTimelineReadObserver({
             || records.some((record) => record.type === "attributes"
               && (record.attributeName === "data-read-position-ready" && record.oldValue === "false"
                 || record.attributeName === "data-composer-occlusion"))
+          attachScopedContainers()
           if (presentationChanged) {
             retireObserver()
           }
@@ -271,27 +292,64 @@ export function useTimelineReadObserver({
             if (document.visibilityState === "visible") classifyCandidateRef.current()
             return
           }
-          if (records.some((record) => record.type === "attributes" && record.attributeName === "data-msg-id"
-            || [...(record.removedNodes ?? [])].some((node) => (node as Element).matches?.("[data-msg-id]") || (node as Element).querySelector?.("[data-msg-id]")))) {
+          if (records.some((record) => record.type === "attributes" && record.attributeName === "data-msg-id")) {
             sample()
             return
           }
+          const removedElements: Element[] = []
+          const addedElements: Element[] = []
           for (const record of records) {
-            for (const node of record.addedNodes) {
-              if ((node as { nodeType?: number }).nodeType !== 1) continue
-              const element = node as Element
-              if (element.matches?.("[data-msg-id]")) bind(element)
-              element.querySelectorAll?.("[data-msg-id]").forEach(bind)
+            if (record.removedNodes) {
+              for (const node of record.removedNodes) collectMsgNodes(node, removedElements)
+            }
+            if (record.addedNodes) {
+              for (const node of record.addedNodes) collectMsgNodes(node, addedElements)
             }
           }
+          if (removedElements.length > 0 && addedElements.length > 0) {
+            const removedSet = new Set(removedElements)
+            if (addedElements.some((element) => removedSet.has(element))) {
+              sample()
+              return
+            }
+          }
+          for (const element of removedElements) unbind(element)
+          for (const element of addedElements) bind(element)
         })
+
+    const attachScopedContainers = () => {
+      if (!mutations) return
+      const contentEl = scrollRootEl.querySelector<HTMLElement>(MESSAGE_LIST_CONTENT_SELECTOR)
+      if (contentEl && contentEl !== observedContentEl && !observedContainers.has(contentEl)) {
+        observedContentEl = contentEl
+        observedContainers.add(contentEl)
+        mutations.observe(contentEl, {
+          attributes: true,
+          attributeFilter: ["aria-hidden", "inert", "data-read-position-ready"],
+          attributeOldValue: true,
+          childList: true,
+          subtree: false,
+        })
+      }
+      const rowsEl = scrollRootEl.querySelector<HTMLElement>(MESSAGE_ROWS_SELECTOR)
+      if (rowsEl && rowsEl !== observedRowsEl && !observedContainers.has(rowsEl)) {
+        observedRowsEl = rowsEl
+        observedContainers.add(rowsEl)
+        mutations.observe(rowsEl, {
+          childList: true,
+          subtree: false,
+        })
+      }
+    }
+
     mutations?.observe(scrollRootEl, {
       attributes: true,
-      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id", "data-composer-occlusion"],
+      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-composer-occlusion"],
       attributeOldValue: true,
       childList: true,
-      subtree: true,
+      subtree: false,
     })
+    attachScopedContainers()
     const parentLayer = scrollRootEl.closest("[data-thread-parent]")
     if (parentLayer) mutations?.observe(parentLayer, {
       attributes: true, attributeFilter: ["inert", "data-read-observation-paused"], attributeOldValue: true,

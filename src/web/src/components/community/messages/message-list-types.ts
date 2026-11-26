@@ -23,6 +23,7 @@ export type MessageListProps = {
   onLoadNewTarget?: (id: string) => MessageRequest
   onReadNewBoundary?: (afterSeq: number) => Promise<{ boundary: CommunityConversationEntryRead["newBoundary"]; latestSeq: number } | undefined>
   typingUsers?: string[]
+  typingScope?: string
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
   onToggleReaction?: (id: string, emoji: string) => void

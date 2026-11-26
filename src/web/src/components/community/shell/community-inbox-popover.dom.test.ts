@@ -24,6 +24,7 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
   useCanonicalProfilesByUserId: () => mocks.profiles,
   useCanonicalIdentitiesByUserId: () => mocks.profiles,
   useCanonicalCommunityProfile: (id: string | undefined) => id ? mocks.profiles.get(id) : undefined,
+  useCanonicalCommunityIdentity: (id: string | undefined) => id ? mocks.profiles.get(id) : undefined,
   useCanonicalCategoriesById: () => mocks.categories,
   useCanonicalChannelsById: () => mocks.channels,
   useChannelsByIds: () => mocks.channels,
@@ -1531,6 +1532,175 @@ describe("InboxPopover inline reply in Unreads", () => {
       view?.unmount()
       rafSpy.mockRestore()
       cancelRafSpy.mockRestore()
+      window.ResizeObserver = originalResizeObserver
+    }
+  })
+
+  it("virtualizes large Marked and Unreads lists while sharing a single sticky-header ResizeObserver", () => {
+    const originalResizeObserver = window.ResizeObserver
+    let resizeObserverCount = 0
+    window.ResizeObserver = class {
+      constructor() { resizeObserverCount += 1 }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+
+    try {
+      const manyMarked: Marked[] = Array.from({ length: 300 }, (_, index) => ({
+        id: `mk-${index}`,
+        server: "Server",
+        serverId: "s1",
+        channel: "general",
+        channelId: `c-${index}`,
+        m: {
+          id: `msg-${index}`,
+          type: "chat",
+          authorId: "u1",
+          authorName: "Alice",
+          content: `Marked item ${index}`,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        },
+      }))
+      const manyUnreads: UnreadServer[] = [{
+        serverId: "s1",
+        serverName: "Server",
+        channels: Array.from({ length: 300 }, (_, index) => ({
+          channelId: `uch-${index}`,
+          channelName: `channel-${index}`,
+          type: "text",
+          lastMessageAt: "2026-10-01T00:00:00.000Z",
+          lastUnreadSeq: 5,
+          unreadCount: 2,
+          mentionCount: 0,
+          children: [],
+        })),
+      }]
+      const view = renderInboxMessages(React.createElement(InboxPopover, {
+        unreads: manyUnreads,
+        unreadDms: [],
+        mentions: [],
+        todos: [],
+        marked: manyMarked,
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
+        activeTab: "marked",
+      }))
+      const renderedMarkedCards = view.container.querySelectorAll('[data-testid^="community-inbox-marked-card-"]')
+      const renderedUnreadCards = view.container.querySelectorAll('[data-testid^="community-inbox-unread-card-"]')
+      expect(renderedMarkedCards.length).toBeGreaterThan(0)
+      expect(renderedMarkedCards.length).toBeLessThan(40)
+      expect(renderedUnreadCards.length).toBeGreaterThan(0)
+      expect(renderedUnreadCards.length).toBeLessThan(40)
+      // Bounded observers across 600 cards (scroll bodies + virtualizers + 1 shared sticky-header observer)
+      expect(resizeObserverCount).toBeLessThan(30)
+    } finally {
+      window.ResizeObserver = originalResizeObserver
+    }
+  })
+
+  it("re-measures a virtualized unread card on rollback Retry growth and repositions sibling cards without overlap or transform", async () => {
+    const originalResizeObserver = window.ResizeObserver
+    const observed = new Map<Element, Set<ResizeObserverCallback>>()
+    window.ResizeObserver = class {
+      private readonly cb: ResizeObserverCallback
+      private readonly targets = new Set<Element>()
+      constructor(cb: ResizeObserverCallback) { this.cb = cb }
+      observe(target: Element) {
+        this.targets.add(target)
+        let set = observed.get(target)
+        if (!set) {
+          set = new Set()
+          observed.set(target, set)
+        }
+        set.add(this.cb)
+      }
+      unobserve(target: Element) {
+        this.targets.delete(target)
+        observed.get(target)?.delete(this.cb)
+      }
+      disconnect() {
+        for (const target of this.targets) observed.get(target)?.delete(this.cb)
+        this.targets.clear()
+      }
+    } as unknown as typeof ResizeObserver
+
+    const notifyResize = (target: Element, blockSize: number) => {
+      const callbacks = observed.get(target)
+      if (!callbacks) return
+      const entry = {
+        target,
+        borderBoxSize: [{ blockSize, inlineSize: 360 }],
+        contentRect: { width: 360, height: blockSize },
+      } as unknown as ResizeObserverEntry
+      for (const cb of [...callbacks]) cb([entry], {} as ResizeObserver)
+    }
+
+    const allChannels = Array.from({ length: 30 }, (_, index) => ({
+      channelId: `uch-${index}`,
+      channelName: `channel-${index}`,
+      type: "text" as const,
+      lastMessageAt: "2026-10-01T00:00:00.000Z",
+      lastUnreadSeq: 5,
+      unreadCount: 2,
+      mentionCount: 0,
+      children: [],
+    }))
+    const onMarkChannelRead = vi.fn(async () => {})
+    const makeProps = (
+      channels: typeof allChannels,
+      channelReadActions?: ReadonlyMap<string, { status: "pending" | "error"; throughSeq: number }>,
+    ) => ({
+      unreads: [{ serverId: "s1", serverName: "Server", channels }],
+      unreadDms: [],
+      mentions: [],
+      todos: [],
+      marked: [],
+      hasProjectedUnreads: true,
+      hasProjectedMentions: false,
+      activeTab: "unreads" as const,
+      onMarkChannelRead,
+      channelReadActions,
+    })
+
+    let view: ReturnType<typeof renderInboxMessages> | undefined
+    try {
+      view = renderInboxMessages(React.createElement(InboxPopover, makeProps(allChannels)))
+      const initialCards = view.container.querySelectorAll('[data-testid^="community-inbox-unread-card-"]')
+      expect(initialCards.length).toBeGreaterThan(0)
+      expect(initialCards.length).toBeLessThan(30)
+
+      // Optimistically remove uch-0, letting uch-1 occupy index 0 at compact height.
+      view.rerender(React.createElement(InboxPopover, makeProps(allChannels.slice(1))))
+      const compactWrapper0 = view.container.querySelector<HTMLElement>('[data-index="0"]')!
+      await act(async () => { notifyResize(compactWrapper0, 64) })
+
+      // Roll back uch-0 at index 0 with error feedback + Retry button.
+      view.rerender(React.createElement(
+        InboxPopover,
+        makeProps(allChannels, new Map([["uch-0", { status: "error", throughSeq: 5 }]])),
+      ))
+
+      const card0 = view.container.querySelector<HTMLElement>('[data-testid="community-inbox-unread-card-uch-0"]')!
+      const card1 = view.container.querySelector<HTMLElement>('[data-testid="community-inbox-unread-card-uch-1"]')!
+      const wrapper0 = card0.closest<HTMLElement>("[data-index]")!
+      const wrapper1 = card1.closest<HTMLElement>("[data-index]")!
+      expect(wrapper0.className).toContain("flow-root")
+      expect(wrapper1.className).toContain("flow-root")
+
+      // Report card0's expanded height (including bottom margin inside flow-root).
+      await act(async () => { notifyResize(wrapper0, 124) })
+
+      expect(wrapper1.style.transform).toBe("")
+      expect(Number.parseFloat(wrapper1.style.top)).toBeGreaterThanOrEqual(124)
+
+      const retryButton = card0.querySelector<HTMLButtonElement>('button[aria-label="Retry marking channel-0 read"]')!
+      expect(retryButton).not.toBeNull()
+      fireEvent.click(retryButton)
+      expect(onMarkChannelRead).toHaveBeenCalledTimes(1)
+      expect(onMarkChannelRead).toHaveBeenCalledWith("uch-0", 5)
+    } finally {
+      view?.unmount()
       window.ResizeObserver = originalResizeObserver
     }
   })

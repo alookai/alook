@@ -142,3 +142,33 @@ it.each(["list", "row", "category"] as const)("retires an open %s menu when acti
   expect(view.getByText("Group")).toBe(category)
   expect(onPick).not.toHaveBeenCalled()
 })
+
+it("keeps window blur listeners O(1) at rest and virtualizes large channel trees", () => {
+  const addWindowListener = vi.spyOn(window, "addEventListener")
+  try {
+    function LargeSidebar() {
+      const categories = Array.from({ length: 10 }, (_, catIndex) => ({
+        id: `cat-${catIndex}`,
+        name: `Category ${catIndex}`,
+        channels: Array.from({ length: 20 }, (_, chIndex) => ({
+          id: `ch-${catIndex}-${chIndex}`,
+          name: `channel-${catIndex}-${chIndex}`,
+          active: false,
+          unread: false,
+          type: "text" as const,
+        })),
+      }))
+      const tree = useChannelTree(categories)
+      return <ChannelSidebar tree={tree} serverId="server" serverName="Big Server" activeChannel="ch-0-0"
+        setActiveChannel={() => {}} noHeader isAdmin />
+    }
+    const view = render(<LargeSidebar />)
+    const blurListeners = addWindowListener.mock.calls.filter(([type]) => String(type) === "blur")
+    expect(blurListeners.length).toBeLessThanOrEqual(1)
+    const renderedChannels = view.container.querySelectorAll("[data-channel-tree-row]")
+    expect(renderedChannels.length).toBeGreaterThan(0)
+    expect(renderedChannels.length).toBeLessThan(60)
+  } finally {
+    addWindowListener.mockRestore()
+  }
+})

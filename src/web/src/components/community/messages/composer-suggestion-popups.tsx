@@ -1,13 +1,20 @@
 import { observeVisibilitySentinel } from "@/lib/observe-visibility-sentinel"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { useEffect, useRef } from "react"
+import { memo, useCallback, useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { Users } from "@/components/icons/lucide";
 import {
   anchoredPopoverStyle,
   useAnchoredPopover,
 } from "@/hooks/use-anchored-popover"
+import {
+  COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
+  observeCommunityVirtualizerRect,
+} from "@/hooks/community/virtualizer-react-options"
+import { useLatestRef } from "@/hooks/community/use-latest-ref"
 import { Avatar } from "../avatar"
 import { ChannelIcon } from "../channels/channel-icon"
 import { nextListScrollTop } from "@/lib/community/popup-scroll"
@@ -28,17 +35,47 @@ import type { MentionCandidateSource } from "./composer-types"
 
 const POPUP_WIDTH = 256
 const POPUP_MAX_HEIGHT = 240
+const SUGGESTION_VIRTUALIZE_THRESHOLD = 250
+const MENTION_ROW_ESTIMATE = 40
+const MENTION_HEADER_EXTRA_HEIGHT = 28
+const CHANNEL_REF_ROW_ESTIMATE = 36
 
-function scrollSelectedRowIntoView(list: HTMLDivElement | null): void {
-  if (!list) return
-  const row = list.querySelector<HTMLElement>('[aria-selected="true"]')
-  if (!row) return
-  list.scrollTop = nextListScrollTop(
-    list.scrollTop,
-    list.clientHeight,
-    row.offsetTop,
-    row.offsetHeight,
-  )
+function scrollSelectedRowIntoView(
+  list: HTMLDivElement | null,
+  selectedIndex: number,
+  itemCount: number,
+  virtualized: boolean,
+  virtualizer: {
+    measurementsCache: ReadonlyArray<{ start: number; size: number }>
+    scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void
+  },
+): void {
+  if (!list || selectedIndex < 0 || selectedIndex >= itemCount) return
+  if (!virtualized) {
+    const row = list.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (!row) return
+    list.scrollTop = nextListScrollTop(
+      list.scrollTop,
+      list.clientHeight,
+      row.offsetTop,
+      row.offsetHeight,
+    )
+    return
+  }
+  const measurement = virtualizer.measurementsCache[selectedIndex]
+  if (measurement) {
+    const nextTop = nextListScrollTop(
+      list.scrollTop,
+      list.clientHeight,
+      measurement.start,
+      measurement.size,
+    )
+    if (nextTop !== list.scrollTop) {
+      list.scrollTop = nextTop
+    }
+    return
+  }
+  virtualizer.scrollToIndex(selectedIndex, { align: "auto" })
 }
 
 export function CommunityMentionList({
@@ -57,9 +94,34 @@ export function CommunityMentionList({
     getRect,
     command !== null,
   )
+  const firstMemberIndex = items.findIndex((item) => item.kind === "member")
+  const hasVirtual = items.some((item) => item.kind !== "member")
+  const showMembersHeader = hasVirtual && firstMemberIndex > 0
+  const virtualized = items.length > SUGGESTION_VIRTUALIZE_THRESHOLD
+  const itemCountRef = useLatestRef(items.length)
+  const virtualizedRef = useLatestRef(virtualized)
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const virtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: virtualized && geometry && command ? items.length : 0,
+    getScrollElement: () => listRef.current,
+    estimateSize: (index) => (
+      showMembersHeader && index === firstMemberIndex
+        ? MENTION_ROW_ESTIMATE + MENTION_HEADER_EXTRA_HEIGHT
+        : MENTION_ROW_ESTIMATE
+    ),
+    overscan: 6,
+    initialRect: { width: POPUP_WIDTH, height: POPUP_MAX_HEIGHT },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const virtualizerRef = useLatestRef(virtualizer)
+  const handleSelectItem = useCallback((item: MentionItem) => {
+    command?.({ id: item.id, label: item.label })
+  }, [command])
   useEffect(() => {
-    scrollSelectedRowIntoView(listRef.current)
-  }, [selectedIndex, geometry])
+    scrollSelectedRowIntoView(listRef.current, selectedIndex, itemCountRef.current, virtualizedRef.current, virtualizerRef.current)
+  }, [selectedIndex, geometry, itemCountRef, virtualizedRef, virtualizerRef])
   useEffect(() => {
     const root = listRef.current
     const sentinel = sentinelRef.current
@@ -70,9 +132,7 @@ export function CommunityMentionList({
   }, [geometry, command, pagination, presentation.status])
   if (!geometry || !command) return null
 
-  const firstMemberIndex = items.findIndex((item) => item.kind === "member")
-  const hasVirtual = items.some((item) => item.kind !== "member")
-  const showMembersHeader = hasVirtual && firstMemberIndex > 0
+  const virtualItems = virtualized ? virtualizer.getVirtualItems() : []
   return createPortal(
     <div
       data-testid={tid.mentionPopup}
@@ -89,17 +149,44 @@ export function CommunityMentionList({
         viewportClassName="relative overflow-x-hidden overflow-y-auto"
         viewportProps={{ style: { maxHeight: "var(--anchored-popover-max-height)" } }}
       >
-        {items.map((item, index) => (
-          <MentionRow
-            key={`${item.kind}:${item.id}`}
-            item={item}
-            selected={index === selectedIndex}
-            showMembersHeader={
-              showMembersHeader && index === firstMemberIndex
-            }
-            onSelect={() => command({ id: item.id, label: item.label })}
-          />
-        ))}
+        {items.length > 0 && (
+          virtualized ? (
+            <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+              {virtualItems.map((virtualItem) => {
+                const item = items[virtualItem.index]
+                if (!item) return null
+                return (
+                  <div
+                    key={`${item.kind}:${item.id}`}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ transform: `translateY(${virtualItem.start}px)` }}
+                  >
+                    <MentionRow
+                      item={item}
+                      selected={virtualItem.index === selectedIndex}
+                      showMembersHeader={
+                        showMembersHeader && virtualItem.index === firstMemberIndex
+                      }
+                      onSelect={handleSelectItem}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            items.map((item, index) => (
+              <MentionRow
+                key={`${item.kind}:${item.id}`}
+                item={item}
+                selected={index === selectedIndex}
+                showMembersHeader={showMembersHeader && index === firstMemberIndex}
+                onSelect={handleSelectItem}
+              />
+            ))
+          )
+        )}
         {pagination?.hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {pagination?.failed && pagination.retry && (
           <Button variant="ghost" size="sm" type="button" className="h-11 w-full text-sm sm:h-9"
@@ -153,14 +240,33 @@ export function ChannelRefList({
     getRect,
     visible,
   )
+  const virtualized = items.length > SUGGESTION_VIRTUALIZE_THRESHOLD
+  const itemCountRef = useLatestRef(items.length)
+  const virtualizedRef = useLatestRef(virtualized)
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const virtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: virtualized && geometry && visible ? items.length : 0,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => CHANNEL_REF_ROW_ESTIMATE,
+    overscan: 6,
+    initialRect: { width: POPUP_WIDTH, height: POPUP_MAX_HEIGHT },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const virtualizerRef = useLatestRef(virtualizer)
+  const handleSelectChannel = useCallback((item: ChannelRefCandidate) => {
+    command?.(toChannelRefCommandProps(item))
+  }, [command])
   useEffect(() => {
-    scrollSelectedRowIntoView(listRef.current)
-  }, [selectedIndex, geometry])
-  if (!geometry || !visible || !command) return null
+    scrollSelectedRowIntoView(listRef.current, selectedIndex, itemCountRef.current, virtualizedRef.current, virtualizerRef.current)
+  }, [selectedIndex, geometry, itemCountRef, virtualizedRef, virtualizerRef])
+  if (!geometry || !visible) return null
 
   const spansMultipleServers = items.some(
     (item) => item.serverId !== items[0]?.serverId,
   )
+  const virtualItems = virtualized ? virtualizer.getVirtualItems() : []
   return createPortal(
     <div
       data-testid={tid.channelRefPopup}
@@ -177,15 +283,42 @@ export function ChannelRefList({
         viewportClassName="relative overflow-x-hidden overflow-y-auto"
         viewportProps={{ style: { maxHeight: "var(--anchored-popover-max-height)" } }}
       >
-        {items.map((item, index) => (
-          <ChannelRefRow
-            key={item.id}
-            item={item}
-            selected={index === selectedIndex}
-            showServerPrefix={spansMultipleServers}
-            onSelect={() => command(toChannelRefCommandProps(item))}
-          />
-        ))}
+        {items.length > 0 && (
+          virtualized ? (
+            <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+              {virtualItems.map((virtualItem) => {
+                const item = items[virtualItem.index]
+                if (!item) return null
+                return (
+                  <div
+                    key={item.id}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ transform: `translateY(${virtualItem.start}px)` }}
+                  >
+                    <ChannelRefRow
+                      item={item}
+                      selected={virtualItem.index === selectedIndex}
+                      showServerPrefix={spansMultipleServers}
+                      onSelect={handleSelectChannel}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            items.map((item, index) => (
+              <ChannelRefRow
+                key={item.id}
+                item={item}
+                selected={index === selectedIndex}
+                showServerPrefix={spansMultipleServers}
+                onSelect={handleSelectChannel}
+              />
+            ))
+          )
+        )}
         {presentation && presentation.status !== "ready" && (
           <ChannelRefStatus status={presentation.status} />
         )}
@@ -216,7 +349,7 @@ function ChannelRefStatus({
   )
 }
 
-function ChannelRefRow({
+const ChannelRefRow = memo(function ChannelRefRow({
   item,
   selected,
   showServerPrefix,
@@ -225,7 +358,7 @@ function ChannelRefRow({
   item: ChannelRefCandidate
   selected: boolean
   showServerPrefix: boolean
-  onSelect: () => void
+  onSelect: (item: ChannelRefCandidate) => void
 }) {
   return (
     <button
@@ -240,7 +373,7 @@ function ChannelRefRow({
       ].join(" ")}
       onMouseDown={(event) => {
         event.preventDefault()
-        onSelect()
+        onSelect(item)
       }}
     >
       <span data-suggestion-icon className="inline-flex shrink-0">
@@ -257,9 +390,9 @@ function ChannelRefRow({
       </span>
     </button>
   )
-}
+})
 
-export function MentionRow({
+export const MentionRow = memo(function MentionRow({
   item,
   selected,
   showMembersHeader,
@@ -268,7 +401,7 @@ export function MentionRow({
   item: MentionItem
   selected: boolean
   showMembersHeader: boolean
-  onSelect: () => void
+  onSelect: (item: MentionItem) => void
 }) {
   return (
     <>
@@ -289,7 +422,7 @@ export function MentionRow({
         ].join(" ")}
         onMouseDown={(event) => {
           event.preventDefault()
-          onSelect()
+          onSelect(item)
         }}
       >
         {item.kind === "member" ? (
@@ -338,4 +471,4 @@ export function MentionRow({
       </button>
     </>
   )
-}
+})

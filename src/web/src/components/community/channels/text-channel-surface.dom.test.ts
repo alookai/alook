@@ -494,7 +494,7 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(renderer.container.querySelector('[data-slot="community-conversation-surface"]'))
       .toHaveAttribute("data-channel-id", "channel_1")
     expect(mockedMessageList.mock.calls.at(-1)?.[0]).not.toHaveProperty("composerOverlap")
-    expect(mockedMessageList.mock.calls.at(-1)?.[0].typingUsers).toEqual([])
+    expect(mockedMessageList.mock.calls.at(-1)?.[0].typingScope).toBe("ch:channel_1")
     expect(mockedChannelHeader.mock.calls.at(-1)?.[0]).not.toHaveProperty("typingUsers")
   })
 })

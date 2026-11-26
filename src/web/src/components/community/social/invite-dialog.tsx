@@ -2,7 +2,8 @@
 
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { memo, useCallback, useEffect, useMemo, useRef } from "react"
 import { Link2, Loader2, Search } from "@/components/icons/lucide";
 import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -18,6 +19,12 @@ import { useFriendsPresence } from "@/hooks/community/use-friends"
 import { useDmMessageSender, type DmSendReceipt } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useLatestRef } from "@/hooks/community/use-latest-ref"
+import {
+  COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
+  observeCommunityVirtualizerRect,
+} from "@/hooks/community/virtualizer-react-options"
 import { useInvites } from "@/hooks/community/use-server-panels"
 import { isAbortError } from "@/lib/errors"
 import type { Friend } from "@/lib/community/models/people"
@@ -25,12 +32,13 @@ import { captureProductAnalytics } from "@/lib/product-analytics"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
+const INVITE_FRIEND_ROW_ESTIMATE = 60
 
 function inviteUrl(token: string) {
   return `${INVITE_ORIGIN}/c/invite/${token}`
 }
 
-export function InviteFriendRow({
+export const InviteFriendRow = memo(function InviteFriendRow({
   friend,
   tokenReady,
   inviting,
@@ -84,7 +92,7 @@ export function InviteFriendRow({
       </Button>
     </div>
   )
-}
+})
 
 export async function awaitCommittedInvite(
   receipt: DmSendReceipt,
@@ -153,7 +161,8 @@ export function InviteDialog({
   }, [open, currentResolution, view, currentUser.id, resolveInvite])
 
   type SendIntent = { userId: string; token: string; author: { id: string; name: string; avatar: string }; assert: ReturnType<typeof view.capture> }
-  const sendKey = ["community", "invite-send", serverId]
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const sendKey = useMemo(() => ["community", "invite-send", serverId] as const, [serverId])
   const sender = useMutation({
     mutationKey: sendKey,
     gcTime: 0,
@@ -173,7 +182,10 @@ export function InviteDialog({
     },
   })
   const pending = useMutationState({ filters: { mutationKey: sendKey, status: "pending" }, select: (mutation) => mutation.state.variables as SendIntent | undefined })
-  const invitingUserIds = new Set(pending.filter((intent) => intent?.assert.signal === view.signal).map((intent) => intent!.userId))
+  const invitingUserIds = useMemo(
+    () => new Set(pending.filter((intent) => intent?.assert.signal === view.signal).map((intent) => intent!.userId)),
+    [pending, view.signal],
+  )
   const copier = useMutation({
     gcTime: 0,
     mutationFn: async ({ token, assert }: { token: string; assert: ReturnType<typeof view.capture> }) => {
@@ -200,14 +212,29 @@ export function InviteDialog({
     visibleCount: eligibleFriends.length,
     query,
   })
-  const inviteFriend = (friend: Friend) => {
-    if (!token || !friendsQuery.isCurrentRead() || !invitesQuery.isCurrentRead() || !friend.userId || !friendsQuery.friends.some(row => row.userId === friend.userId) || ui.get().invitedUserIds.has(friend.userId)) return
-    const assert = view.capture()
-    const pending = client.getMutationCache().findAll({ mutationKey: sendKey, status: "pending" })
-    if (pending.some((mutation) => { const intent = mutation.state.variables as SendIntent | undefined; return intent && intent.userId === friend.userId && intent.assert.signal === assert.signal })) return
-    sender.mutate({ userId: friend.userId, token, author: { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }, assert })
-  }
+  const latestInviteRef = useLatestRef({ token, friendsQuery, invitesQuery, ui, view, sendKey, sender, currentUser })
+  const inviteFriend = useCallback((friend: Friend) => {
+    const { token: currentToken, friendsQuery: currentFriendsQuery, invitesQuery: currentInvitesQuery, ui: currentUi, view: currentView, sendKey: currentSendKey, sender: currentSender, currentUser: user } = latestInviteRef.current
+    if (!currentToken || !currentFriendsQuery.isCurrentRead() || !currentInvitesQuery.isCurrentRead() || !friend.userId || !currentFriendsQuery.friends.some(row => row.userId === friend.userId) || currentUi.get().invitedUserIds.has(friend.userId)) return
+    const assert = currentView.capture()
+    const pendingMutations = client.getMutationCache().findAll({ mutationKey: currentSendKey, status: "pending" })
+    if (pendingMutations.some((mutation) => { const intent = mutation.state.variables as SendIntent | undefined; return intent && intent.userId === friend.userId && intent.assert.signal === assert.signal })) return
+    currentSender.mutate({ userId: friend.userId, token: currentToken, author: { id: user.id, name: user.name, avatar: user.avatar }, assert })
+  }, [client, latestInviteRef])
   const copyLink = () => { if (token && invitesQuery.isCurrentRead() && !copier.isPending) copier.mutate({ token, assert: view.capture() }) }
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const virtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: open ? eligibleFriends.length : 0,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => INVITE_FRIEND_ROW_ESTIMATE,
+    overscan: 8,
+    initialRect: { width: 440, height: 400 },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
+  const tokenReady = Boolean(token) && friendsQuery.observed
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -236,6 +263,7 @@ export function InviteDialog({
         </div>
 
         <ScrollArea
+          viewportRef={viewportRef}
           className="min-h-0 flex-1"
           viewportClassName="overflow-x-hidden overflow-y-auto"
           contentClassName="flex min-h-full flex-col px-2 py-1.5"
@@ -253,19 +281,28 @@ export function InviteDialog({
             refreshFailed={friendsQuery.data !== undefined && friendsQuery.isError}
             onRetry={() => { void friendsQuery.refetch() }}
           >
-            <div className="flex flex-col gap-0.5">
-              {eligibleFriends.map((f) => {
+            <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+              {virtualItems.map((virtualItem) => {
+                const f = eligibleFriends[virtualItem.index]
+                if (!f) return null
                 const invited = f.userId ? invitedUserIds.has(f.userId) : false
                 const inviting = f.userId ? invitingUserIds.has(f.userId) : false
                 return (
-                  <InviteFriendRow
+                  <div
                     key={f.id}
-                    friend={f}
-                    tokenReady={Boolean(token) && friendsQuery.observed}
-                    inviting={inviting}
-                    invited={invited}
-                    onInvite={(candidate) => void inviteFriend(candidate)}
-                  />
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute top-0 left-0 w-full pb-0.5"
+                    style={{ transform: `translateY(${virtualItem.start}px)` }}
+                  >
+                    <InviteFriendRow
+                      friend={f}
+                      tokenReady={tokenReady}
+                      inviting={inviting}
+                      invited={invited}
+                      onInvite={inviteFriend}
+                    />
+                  </div>
                 )
               })}
             </div>

@@ -43,6 +43,16 @@ export function mergeMessagesPages<T extends { id: string; seq?: number; created
   return mergeTimelinePages(pages)
 }
 
+function maxSeqOf<T>(items: readonly T[] | undefined, read: (item: T) => number | undefined, floor = 0): number {
+  let max = floor
+  if (!items) return max
+  for (const item of items) {
+    const value = read(item)
+    if (value !== undefined && value > max) max = value
+  }
+  return max
+}
+
 const INITIAL_ENTRY_ERROR = new Error("Could not load this conversation")
 
 type MessagesOpts = {
@@ -115,8 +125,16 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const references = useMemo(() => query.data ? mergeMessagesPages(query.data.pages) : [], [query.data])
   const ids = useMemo(() => references.map((message) => message.id), [references])
   const projection = useMessageWindowProjection(entry.canRead ? channelId : null, ids, overlay.liveIds)
-  const canonicalById = useMemo(() => new Map((projection.canonicalMessages ?? []).flatMap((message) =>
-    typeof message.seq === "number" ? [[message.id, { ...message, seq: message.seq }] as const] : [])), [projection.canonicalMessages])
+  const canonicalMessages = projection.canonicalMessages
+  const canonicalById = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof canonicalMessages>[number] & { seq: number }>()
+    for (const message of canonicalMessages ?? []) {
+      if (typeof message.seq === "number") {
+        map.set(message.id, message as typeof message & { seq: number })
+      }
+    }
+    return map
+  }, [canonicalMessages])
   const presentationResources = useMemo(() => new Map([...projection.relatedMessages.map(message => [message.id, message] as const), ...canonicalById]), [canonicalById, projection.relatedMessages])
   const missingCanonical = ids.some(id => !canonicalById.has(id))
   const projectionFailed = projection.status === "error"
@@ -180,15 +198,15 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     targetLoadError,
   })
   const messages = timeline.messages
-  const windowLatestSeq = Math.max(0, ...(query.data?.pages.map((page) => page.latestSeq ?? 0) ?? []))
+  const windowLatestSeq = maxSeqOf(query.data?.pages, (page) => page.latestSeq ?? 0)
   const contiguousTail = channelId && !tag
     ? contiguousWindowLatestSeq(client, { channelId, serverId }, query.data)
     : { latestSeq: windowLatestSeq, liveGap: false }
   const latestSeq = Math.max(windowLatestSeq, contiguousTail.latestSeq)
   const landingWindow = entry.resource ? client.getQueryData<MessageWindowData>(entry.resource.windowKey) : undefined
-  const landingLatestSeq = Math.max(0, ...(landingWindow?.pages.map(page => page.latestSeq ?? 0) ?? []))
+  const landingLatestSeq = maxSeqOf(landingWindow?.pages, (page) => page.latestSeq ?? 0)
   const repairTarget = client.getQueryData<number>([...queryKey, "reconcile-target"]) ?? 0
-  const coveredLatestSeq = Math.max(0, ...canonicalBase.map(message => message.seq))
+  const coveredLatestSeq = maxSeqOf(canonicalBase, (message) => message.seq)
   const readSnapshotFetching = !entry.snapshot || !entry.targetCovered && !selection.window || entry.isPending || ids.some(id => !canonicalById.has(id))
     || repairTarget > coveredLatestSeq
     || !anchorMessageId && !tag && (landingLatestSeq > latestSeq
@@ -198,7 +216,8 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
   const newest = pages[0]
   const hasMoreOlder = (oldest?.hasMoreOlder ?? oldest?.hasMore) ?? false
   const historyStartKnown = !!selectedWindow && (oldest?.hasMoreOlder ?? oldest?.hasMore) === false
-  const hasMoreNewer = newest?.hasMoreNewer ?? false
+  const hasMoreNewer = (newest?.hasMoreNewer ?? false)
+    || (pages.length > 0 && query.data?.pageParams[0]?.mode === "older" && !!newest?.newestCursor)
   const olderCursor = oldest?.olderCursor ?? oldest?.cursor
   const firstReference = oldest?.messages[0]
   const firstRow = firstReference && canonicalById.get(firstReference.id)
@@ -336,10 +355,10 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | undefi
     const entryOpts = conversationEntryOptions(client, { channelId, serverId, tag, preferTail: true, newAfterSeq: afterSeq })
     const initial = typeof entryOpts.initialData === "function" ? entryOpts.initialData() : entryOpts.initialData
     const existing = client.getQueryData<ConversationEntryResource>(entryOpts.queryKey) ?? initial
-    const liveMaxSeq = Math.max(
-      latestSeq,
-      coveredLatestSeq,
-      ...overlay.liveIds.map(id => registry?.collections.messages.get(id)?.seq ?? 0),
+    const liveMaxSeq = maxSeqOf(
+      overlay.liveIds,
+      (id) => registry?.collections.messages.get(id)?.seq ?? 0,
+      Math.max(latestSeq, coveredLatestSeq),
     )
     const staleNullBoundary = !!existing
       && isChannelMetadataTokenCurrent(existing.proof)

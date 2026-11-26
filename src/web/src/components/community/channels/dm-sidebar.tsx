@@ -3,7 +3,8 @@
 import { EmptyState } from "../empty-state"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { dmHref } from "@/lib/community/community-route"
-import { memo } from "react"
+import { memo, useCallback, useRef } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { type LucideIcon } from "lucide-react";
 import { Users, Ban, Monitor, Bot, Shield, MessagesSquare } from "@/components/icons/lucide";
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
@@ -14,6 +15,52 @@ import { tid } from "@/lib/community/testids"
 import type { DM } from "@/lib/community/models/people"
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { compactRequestCount } from "@/lib/community/friend-requests"
+import {
+  COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
+  observeCommunityVirtualizerRect,
+} from "@/hooks/community/virtualizer-react-options"
+
+const DM_ROW_ESTIMATE = 48
+
+const DmSidebarRow = memo(function DmSidebarRow({
+  dm,
+  active,
+  isBlocked,
+  onPickDm,
+}: {
+  dm: DM
+  active: boolean
+  isBlocked: boolean
+  onPickDm: (id: string) => void
+}) {
+  const unread = selectUnreadPresentation({
+    accountUnread: dm.unread === true,
+    active,
+    muted: isBlocked,
+  })
+  const handleActivate = useCallback(() => onPickDm(dm.id), [dm.id, onPickDm])
+  return (
+    <CommunityNavigationLink
+      data-testid={tid.dmRow(dm.id)}
+      href={dmHref(dm.id)}
+      active={active}
+      onActivate={handleActivate}
+      className={[
+        "flex w-full items-center gap-3 rounded-md px-2 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+      ].join(" ")}
+    >
+      <Avatar label={dm.avatar} seed={dm.userId} size={32} presence={isBlocked ? undefined : dm.status} ringColor="var(--sidebar)" />
+      <div className="min-w-0 flex-1 text-left">
+        <div className="truncate text-sm leading-tight text-foreground">{dm.name}</div>
+        <div className="truncate text-xs leading-tight text-muted-foreground">{dm.preview}</div>
+      </div>
+      {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
+      {unread.showDot && <span className="size-2 shrink-0 rounded-full bg-primary" />}
+    </CommunityNavigationLink>
+  )
+})
 
 export const DmSidebar = memo(function DmSidebar({
   dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy,
@@ -37,6 +84,7 @@ export const DmSidebar = memo(function DmSidebar({
   botsActive?: boolean
   privacyActive?: boolean
 }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive)
   const requestCount = compactRequestCount(friendRequestCount)
   const shortcuts: Array<{
@@ -50,6 +98,18 @@ export const DmSidebar = memo(function DmSidebar({
     ...(onShowPrivacy ? [{ href: "/c/me/privacy", label: "Privacy", Icon: Shield, active: privacyActive, onActivate: onShowPrivacy }] : []),
   ]
   const activeShortcut = shortcuts.findIndex((shortcut) => shortcut.active)
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const virtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: dms.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => DM_ROW_ESTIMATE,
+    overscan: 10,
+    initialRect: { width: 240, height: 600 },
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
@@ -89,7 +149,7 @@ export const DmSidebar = memo(function DmSidebar({
         <div className="my-2 h-px bg-border" />
       </div>
       <ScrollAreaRoot className="flex min-h-0 flex-1 flex-col">
-        <ScrollAreaViewport data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto px-2 pb-4">
+        <ScrollAreaViewport ref={viewportRef} data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto px-2 pb-4">
           <ScrollAreaContent className="flex min-h-full flex-1 flex-col">
             <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
               Direct Messages
@@ -100,37 +160,30 @@ export const DmSidebar = memo(function DmSidebar({
               <DmRowsSkeleton />
             ) : dms.length === 0 ? (
               <EmptyState icon={MessagesSquare} label="Your direct messages will appear here." />
-            ) : null}
-            {dms.map((d) => {
-              const active = d.id === activeDm
-              const isBlocked = blockedUserIds?.has(d.userId)
-              const unread = selectUnreadPresentation({
-                accountUnread: d.unread === true,
-                active,
-                muted: isBlocked,
-              })
-              return (
-                <CommunityNavigationLink
-                  key={d.id}
-                  data-testid={tid.dmRow(d.id)}
-                  href={dmHref(d.id)}
-                  active={active}
-                  onActivate={() => onPickDm(d.id)}
-                  className={[
-                    "flex w-full items-center gap-3 rounded-md px-2 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                    active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-                  ].join(" ")}
-                >
-                  <Avatar label={d.avatar} seed={d.userId} size={32} presence={isBlocked ? undefined : d.status} ringColor="var(--sidebar)" />
-                  <div className="min-w-0 flex-1 text-left">
-                    <div className="truncate text-sm leading-tight text-foreground">{d.name}</div>
-                    <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>
-                  </div>
-                  {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
-                  {unread.showDot && <span className="size-2 shrink-0 rounded-full bg-primary" />}
-                </CommunityNavigationLink>
-              )
-            })}
+            ) : (
+              <div ref={virtualizer.containerRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                {virtualItems.map((virtualItem) => {
+                  const d = dms[virtualItem.index]
+                  if (!d) return null
+                  return (
+                    <div
+                      key={d.id}
+                      data-index={virtualItem.index}
+                      ref={virtualizer.measureElement}
+                      className="absolute top-0 left-0 w-full"
+                      style={{ transform: `translateY(${virtualItem.start}px)` }}
+                    >
+                      <DmSidebarRow
+                        dm={d}
+                        active={d.id === activeDm}
+                        isBlocked={blockedUserIds?.has(d.userId) ?? false}
+                        onPickDm={onPickDm}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </ScrollAreaContent>
         </ScrollAreaViewport>
         <ScrollBar orientation="vertical" />
