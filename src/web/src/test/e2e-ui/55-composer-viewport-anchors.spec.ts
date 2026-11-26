@@ -832,6 +832,8 @@ test.describe("composer and viewport scroll anchors", () => {
         return null
       }
       const reset = () => {
+        tiptapObs.takeRecords()
+        wrapperObs.takeRecords()
         selCalls.length = 0
         setOptionsCalls = 0
         setPropsCalls = 0
@@ -843,6 +845,14 @@ test.describe("composer and viewport scroll anchors", () => {
       const insertDirectText = (text: string) => {
         // eslint-disable-next-line @typescript-eslint/no-deprecated -- native direct insertText reproduces mobile voice dictation commit
         document.execCommand("insertText", false, text)
+        // Chromium/Blink synchronously removes an empty paragraph's trailing <br> during
+        // execCommand("insertText"). Drain those synchronous browser mutations so brRemovals
+        // strictly tracks ProseMirror's reconciliation while keeping textNodeRemovals complete.
+        for (const record of tiptapObs.takeRecords()) {
+          for (const node of record.removedNodes) {
+            if (node.nodeType === Node.TEXT_NODE) textNodeRemovals += 1
+          }
+        }
       }
 
       try {
@@ -908,10 +918,10 @@ test.describe("composer and viewport scroll anchors", () => {
         const paragraph = editableEl.querySelector("p")!
         const trailingBr = paragraph.querySelector("br.ProseMirror-trailingBreak")
         editableEl.focus()
+        reset()
         const pSelTextNode = document.createTextNode("试")
         paragraph.insertBefore(pSelTextNode, trailingBr)
         rawCollapse.call(window.getSelection(), paragraph, 1)
-        reset()
         await wait(50)
         const elementSelectionChar1 = {
           text: editableEl.textContent,
