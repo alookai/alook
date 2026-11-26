@@ -1,5 +1,6 @@
 "use client"
 
+import { memo, useMemo } from "react"
 import { ArrowDown, ArrowUp, LoaderCircle, ImageIcon, X } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
@@ -7,20 +8,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX } from "@/lib/community/conversation-layout"
+import { useTypingNamesForScope, useTypingUsersForScope } from "@/stores/community"
 import { allocateComposerAccessoryRail } from "./composer-accessory-rail-layout"
 import { TypingIndicator } from "./typing-indicator"
 
-export function ComposerAccessoryRail({
-  typingNames,
-  scrollCount,
-  scrollMode,
-  onScroll,
-  scrollError = false,
-  newVisible = false,
-  newPending = false,
-  onNew,
-}: {
-  typingNames: string[]
+const EMPTY_TYPING_NAMES: string[] = []
+
+type ComposerAccessoryRailProps = {
+  typingNames?: string[]
+  typingScope?: string
+  resolveUserName?: (userId: string) => string
   scrollCount: number | undefined
   scrollMode: "scroll" | "jump"
   onScroll: () => void
@@ -28,8 +25,37 @@ export function ComposerAccessoryRail({
   newVisible?: boolean
   newPending?: boolean
   onNew?: () => void
-}) {
-  const hasTyping = typingNames.length > 0
+}
+
+function ScopedComposerAccessoryRail(props: ComposerAccessoryRailProps & { typingScope: string }) {
+  const { typingScope, resolveUserName, ...rest } = props
+  const subscribedIds = useTypingUsersForScope(typingScope)
+  const subscribedNames = useTypingNamesForScope(typingScope)
+  const resolvedTypingNames = useMemo(() => {
+    if (subscribedIds.length === 0) return EMPTY_TYPING_NAMES
+    return subscribedIds.map((id) => subscribedNames[id] ?? resolveUserName?.(id) ?? id)
+  }, [resolveUserName, subscribedIds, subscribedNames])
+  return <ComposerAccessoryRailView {...rest} resolvedTypingNames={resolvedTypingNames} />
+}
+
+export const ComposerAccessoryRail = memo(function ComposerAccessoryRail(props: ComposerAccessoryRailProps) {
+  if (props.typingScope) {
+    return <ScopedComposerAccessoryRail {...props} typingScope={props.typingScope} />
+  }
+  return <ComposerAccessoryRailView {...props} resolvedTypingNames={props.typingNames ?? EMPTY_TYPING_NAMES} />
+})
+
+function ComposerAccessoryRailView({
+  resolvedTypingNames,
+  scrollCount,
+  scrollMode,
+  onScroll,
+  scrollError = false,
+  newVisible = false,
+  newPending = false,
+  onNew,
+}: ComposerAccessoryRailProps & { resolvedTypingNames: string[] }) {
+  const hasTyping = resolvedTypingNames.length > 0
   const hasScroll = scrollError || scrollMode === "jump" || (scrollCount ?? 0) > 0
   const hasNew = newVisible && !!onNew
   const layout = allocateComposerAccessoryRail({
@@ -57,7 +83,7 @@ export function ComposerAccessoryRail({
       >
         {hasTyping && (
           <div className="col-start-1 h-full min-w-0 max-w-full">
-            <TypingIndicator names={typingNames} className="h-full w-fit max-w-full" />
+            <TypingIndicator names={resolvedTypingNames} className="h-full w-fit max-w-full" />
           </div>
         )}
         {hasScroll && (

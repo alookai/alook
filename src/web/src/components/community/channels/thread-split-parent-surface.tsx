@@ -19,6 +19,7 @@ import { MessageListSkeleton } from "@/components/community/messages/message-lis
 import { ForumViewSkeleton } from "@/components/community/channels/forum-view"
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
+import { ConversationResourceProvider } from "@/hooks/community/conversation-resource-context"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { communityWsClaimSecondaryChannel, communityWsReleaseSecondaryChannel } from "@/hooks/community/use-community-ws"
 
@@ -98,52 +99,56 @@ export function ThreadSplitParentSurface({
 
   if (isForum(channel.type)) {
     return (
-      <ForumChannelSurface
-        serverId={serverId}
+      <ConversationResourceProvider value={metadata.sharedResource}>
+        <ForumChannelSurface
+          serverId={serverId}
+          channelId={channel.id}
+          channelName={channel.name}
+          channelTitleState={!metadata.canonical ? "pending" : metadata.canonical.name === null ? "unavailable" : "ready"}
+          viewer={viewer}
+          viewerRole={members.myRole}
+          onNavigateParent={onNavigateParent}
+          onLeaveChannel={members.onLeaveChannel}
+          notificationLevel={notificationLevel}
+          onSetNotificationLevel={setNotificationLevel}
+          composerMembers={members.composerMembers}
+          composerMentionCandidates={members.composerMentionCandidates}
+          memberPanelProps={members.memberPanelProps}
+          manageMembersDialog={members.manageMembersDialog}
+          onOpenPost={onOpenChild}
+          onOpenProfile={onOpenProfile}
+          embedded
+        />
+      </ConversationResourceProvider>
+    )
+  }
+
+  return (
+    <ConversationResourceProvider value={metadata.sharedResource}>
+      <TextChannelSurface
         channelId={channel.id}
+        serverId={serverId}
+        serverParam={serverParam}
         channelName={channel.name}
         channelTitleState={!metadata.canonical ? "pending" : metadata.canonical.name === null ? "unavailable" : "ready"}
         viewer={viewer}
-        viewerRole={members.myRole}
+        canManagePins={canManageServer(members.myRole)}
+        anchorMessageId={null}
         onNavigateParent={onNavigateParent}
         onLeaveChannel={members.onLeaveChannel}
         notificationLevel={notificationLevel}
         onSetNotificationLevel={setNotificationLevel}
         composerMembers={members.composerMembers}
         composerMentionCandidates={members.composerMentionCandidates}
+        channelRefCandidates={channelRefCandidates}
         memberPanelProps={members.memberPanelProps}
         manageMembersDialog={members.manageMembersDialog}
-        onOpenPost={onOpenChild}
+        uiHandlers={uiHandlers}
+        onOpenThread={onOpenChild}
         onOpenProfile={onOpenProfile}
+        resolveUserName={members.resolveUserName}
         embedded
       />
-    )
-  }
-
-  return (
-    <TextChannelSurface
-      channelId={channel.id}
-      serverId={serverId}
-      serverParam={serverParam}
-      channelName={channel.name}
-      channelTitleState={!metadata.canonical ? "pending" : metadata.canonical.name === null ? "unavailable" : "ready"}
-      viewer={viewer}
-      canManagePins={canManageServer(members.myRole)}
-      anchorMessageId={null}
-      onNavigateParent={onNavigateParent}
-      onLeaveChannel={members.onLeaveChannel}
-      notificationLevel={notificationLevel}
-      onSetNotificationLevel={setNotificationLevel}
-      composerMembers={members.composerMembers}
-      composerMentionCandidates={members.composerMentionCandidates}
-      channelRefCandidates={channelRefCandidates}
-      memberPanelProps={members.memberPanelProps}
-      manageMembersDialog={members.manageMembersDialog}
-      uiHandlers={uiHandlers}
-      onOpenThread={onOpenChild}
-      onOpenProfile={onOpenProfile}
-      resolveUserName={members.resolveUserName}
-      embedded
-    />
+    </ConversationResourceProvider>
   )
 }

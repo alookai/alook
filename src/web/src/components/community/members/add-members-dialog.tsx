@@ -2,10 +2,16 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useLatestRef } from "@/hooks/community/use-latest-ref"
+import {
+  COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  observeCommunityVirtualizerRect,
+} from "@/hooks/community/virtualizer-react-options"
 import type { MemberOriginalView } from "./member-management-types"
 import type React from "react"
-import { useMemo } from "react"
+import { memo, useCallback, useMemo, useRef } from "react"
 import { Search, Loader2 } from "@/components/icons/lucide";
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -28,13 +34,15 @@ export type AddableCandidate = {
   avatar: string
 }
 
+const ADD_MEMBER_ROW_ESTIMATE = 58
+
 /**
  * A single candidate row with its own in-flight state. Exported so the
  * spinner-vs-"Add" + disabled behaviour is unit-testable without mounting the
  * Portal-rendered Dialog (the node test env's `renderToStaticMarkup` doesn't
  * render portal children).
  */
-export function AddMemberRow({
+export const AddMemberRow = memo(function AddMemberRow({
   candidate,
   adding,
   disabled = false,
@@ -64,7 +72,7 @@ export function AddMemberRow({
       </Button>
     </div>
   )
-}
+})
 
 /**
  * Shared "add members" picker for every private unit — a channel/post roster or
@@ -94,7 +102,8 @@ export function AddMembersDialog({
 }) {
   const client = useQueryClient()
   const source = useCommunityViewSource("add-members:" + scopeId)
-  const key = ["community", "member-picker", scopeId]
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const key = useMemo(() => ["community", "member-picker", scopeId] as const, [scopeId])
   type Intent = { userId: string; candidate: AddableCandidate; assert: ReturnType<typeof source.capture> }
   const command = useMutation({
     mutationKey: key,
@@ -106,7 +115,10 @@ export function AddMembersDialog({
   // In-flight adds, keyed by userId — each row spins independently, so adding
   // multiple people in a row doesn't disable the others.
   const attempts = useMutationState({ filters: { mutationKey: key }, select: (mutation) => ({ intent: mutation.state.variables as Intent | undefined, status: mutation.state.status }) })
-  const addingIds = new Set(attempts.filter((attempt) => attempt.intent?.assert.signal === source.signal && (attempt.status === "pending" || attempt.status === "success")).map((attempt) => attempt.intent!.userId))
+  const addingIds = useMemo(
+    () => new Set(attempts.filter((attempt) => attempt.intent?.assert.signal === source.signal && (attempt.status === "pending" || attempt.status === "success")).map((attempt) => attempt.intent!.userId)),
+    [attempts, source.signal],
+  )
   const visibleCandidates = useMemo(() => {
     const rows = new Map(candidates.map((candidate) => [candidate.userId, candidate]))
     for (const { intent, status } of attempts) {
@@ -131,15 +143,30 @@ export function AddMembersDialog({
     query,
   })
 
-  const add = (userId: string) => {
-    if (queryState.actionable === false) return
-    const candidate = candidates.find((row) => row.userId === userId)
+  const latestRef = useLatestRef({ candidates, actionable: queryState.actionable, command, key, source })
+  const add = useCallback((userId: string) => {
+    const { candidates: currentCandidates, actionable, command: currentCommand, key: currentKey, source: currentSource } = latestRef.current
+    if (actionable === false) return
+    const candidate = currentCandidates.find((row) => row.userId === userId)
     if (!candidate) return
-    const assert = source.capture()
-    const attempts = client.getMutationCache().findAll({ mutationKey: key })
-    if (attempts.some((mutation) => { const intent = mutation.state.variables as Intent | undefined; return intent?.userId === userId && intent.assert.signal === assert.signal && (mutation.state.status === "pending" || mutation.state.status === "success") })) return
-    command.mutate({ userId, candidate: { ...candidate }, assert })
-  }
+    const assert = currentSource.capture()
+    const existingAttempts = client.getMutationCache().findAll({ mutationKey: currentKey })
+    if (existingAttempts.some((mutation) => { const intent = mutation.state.variables as Intent | undefined; return intent?.userId === userId && intent.assert.signal === assert.signal && (mutation.state.status === "pending" || mutation.state.status === "success") })) return
+    currentCommand.mutate({ userId, candidate: { ...candidate }, assert })
+  }, [client, latestRef])
+
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const virtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: filtered.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => ADD_MEMBER_ROW_ESTIMATE,
+    overscan: 8,
+    initialRect: { width: 440, height: 400 },
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
+  const rowsDisabled = queryState.actionable === false
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) { source.retire(); onClose() } }}>
@@ -162,6 +189,7 @@ export function AddMembersDialog({
         </div>
 
         <ScrollArea
+          viewportRef={viewportRef}
           className="min-h-0 flex-1"
           viewportClassName="overflow-x-hidden overflow-y-auto"
           contentClassName="flex min-h-full flex-col px-2 pt-1.5 pb-4"
@@ -175,16 +203,27 @@ export function AddMembersDialog({
             refreshFailed={queryState.resolved && queryState.error}
             onRetry={() => { source.capture()(); queryState.retry?.() }}
           >
-            <div className="flex flex-col gap-0.5">
-              {filtered.map((m) => (
-                <AddMemberRow
-                  key={m.userId}
-                  candidate={m}
-                  adding={addingIds.has(m.userId)}
-                  disabled={queryState.actionable === false}
-                  onAdd={add}
-                />
-              ))}
+            <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+              {virtualItems.map((virtualItem) => {
+                const m = filtered[virtualItem.index]
+                if (!m) return null
+                return (
+                  <div
+                    key={m.userId}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute top-0 left-0 w-full pb-0.5"
+                    style={{ transform: `translateY(${virtualItem.start}px)` }}
+                  >
+                    <AddMemberRow
+                      candidate={m}
+                      adding={addingIds.has(m.userId)}
+                      disabled={rowsDisabled}
+                      onAdd={add}
+                    />
+                  </div>
+                )
+              })}
             </div>
           </PeoplePickerBody>
         </ScrollArea>

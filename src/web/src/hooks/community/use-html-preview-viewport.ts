@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react"
+import { HTML_PREVIEW_THEME_VARIABLES } from "@/lib/community/html-preview-policy"
 
 const MIN_HTML_PREVIEW_HEIGHT = 80
 const MAX_HTML_PREVIEW_HEIGHT = 2000
@@ -13,6 +14,153 @@ const SCROLL_IDLE_HIDE_MS = 800
 const TRACK_PADDING_PX = 2
 const MIN_THUMB_HEIGHT_PX = 24
 const OVERFLOW_EPSILON_PX = 1
+const HTML_PREVIEW_VISIBILITY_MARGIN = "600px 0px"
+
+type SharedResizeEntry = {
+  observer: ResizeObserver
+  listeners: Set<() => void>
+}
+
+const containerResizeRegistry = new WeakMap<HTMLElement, SharedResizeEntry>()
+const windowResizeListeners = new Set<() => void>()
+
+function dispatchWindowResize() {
+  for (const listener of windowResizeListeners) listener()
+}
+
+function subscribeContainerViewportResize(container: HTMLElement | null, listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {}
+  if (windowResizeListeners.size === 0) {
+    window.addEventListener("resize", dispatchWindowResize)
+  }
+  windowResizeListeners.add(listener)
+
+  let entry: SharedResizeEntry | undefined
+  if (container && typeof ResizeObserver !== "undefined") {
+    entry = containerResizeRegistry.get(container)
+    if (!entry) {
+      const listeners = new Set<() => void>()
+      const observer = new ResizeObserver(() => {
+        for (const fn of listeners) fn()
+      })
+      observer.observe(container)
+      entry = { observer, listeners }
+      containerResizeRegistry.set(container, entry)
+    }
+    entry.listeners.add(listener)
+  }
+
+  return () => {
+    windowResizeListeners.delete(listener)
+    if (windowResizeListeners.size === 0) {
+      window.removeEventListener("resize", dispatchWindowResize)
+    }
+    if (container && entry) {
+      entry.listeners.delete(listener)
+      if (entry.listeners.size === 0) {
+        entry.observer.disconnect()
+        containerResizeRegistry.delete(container)
+      }
+    }
+  }
+}
+
+type SharedIntersectionEntry = {
+  ctor: typeof IntersectionObserver
+  observer: IntersectionObserver
+  callbacks: Map<Element, (intersecting: boolean) => void>
+}
+
+const intersectionByRoot = new WeakMap<HTMLElement, SharedIntersectionEntry>()
+let viewportIntersectionEntry: SharedIntersectionEntry | null = null
+
+function dispatchIntersectionEntries(
+  callbacks: Map<Element, (intersecting: boolean) => void>,
+  entries: IntersectionObserverEntry[],
+) {
+  for (const item of entries) {
+    if (item.target) {
+      callbacks.get(item.target)?.(item.isIntersecting)
+    } else {
+      for (const callback of callbacks.values()) callback(item.isIntersecting)
+    }
+  }
+}
+
+function getOrCreateIntersectionEntry(root: HTMLElement | null): SharedIntersectionEntry | null {
+  if (typeof window === "undefined" || !window.IntersectionObserver) return null
+  const Ctor = window.IntersectionObserver
+  if (root) {
+    let entry = intersectionByRoot.get(root)
+    if (!entry || entry.ctor !== Ctor) {
+      const callbacks = new Map<Element, (intersecting: boolean) => void>()
+      const observer = new Ctor((entries) => {
+        dispatchIntersectionEntries(callbacks, entries)
+      }, { root, rootMargin: HTML_PREVIEW_VISIBILITY_MARGIN })
+      entry = { ctor: Ctor, observer, callbacks }
+      intersectionByRoot.set(root, entry)
+    }
+    return entry
+  }
+  if (!viewportIntersectionEntry || viewportIntersectionEntry.ctor !== Ctor) {
+    const callbacks = new Map<Element, (intersecting: boolean) => void>()
+    const observer = new Ctor((entries) => {
+      dispatchIntersectionEntries(callbacks, entries)
+    }, { root: null, rootMargin: HTML_PREVIEW_VISIBILITY_MARGIN })
+    viewportIntersectionEntry = { ctor: Ctor, observer, callbacks }
+  }
+  return viewportIntersectionEntry
+}
+
+function subscribeHtmlPreviewIntersection(
+  element: Element,
+  root: HTMLElement | null,
+  onChange: (intersecting: boolean) => void,
+): () => void {
+  const entry = getOrCreateIntersectionEntry(root)
+  if (!entry) {
+    onChange(true)
+    return () => {}
+  }
+  entry.callbacks.set(element, onChange)
+  entry.observer.observe(element)
+  return () => {
+    entry.callbacks.delete(element)
+    entry.observer.unobserve?.(element)
+    if (entry.callbacks.size === 0) {
+      entry.observer.disconnect()
+      if (root) {
+        if (intersectionByRoot.get(root) === entry) intersectionByRoot.delete(root)
+      } else if (viewportIntersectionEntry === entry) {
+        viewportIntersectionEntry = null
+      }
+    }
+  }
+}
+
+type FrameMessageListener = (event: MessageEvent<unknown>) => void
+const htmlPreviewMessageListeners = new Set<FrameMessageListener>()
+
+function dispatchHtmlPreviewMessage(event: MessageEvent<unknown>) {
+  if (event.origin !== "null" || typeof event.data !== "object" || event.data === null || !("type" in event.data)) return
+  for (const listener of htmlPreviewMessageListeners) {
+    listener(event)
+  }
+}
+
+function subscribeHtmlPreviewMessage(listener: FrameMessageListener): () => void {
+  if (typeof window === "undefined") return () => {}
+  if (htmlPreviewMessageListeners.size === 0) {
+    window.addEventListener("message", dispatchHtmlPreviewMessage)
+  }
+  htmlPreviewMessageListeners.add(listener)
+  return () => {
+    htmlPreviewMessageListeners.delete(listener)
+    if (htmlPreviewMessageListeners.size === 0) {
+      window.removeEventListener("message", dispatchHtmlPreviewMessage)
+    }
+  }
+}
 
 export type HtmlPreviewScrollMetrics = {
   scrollTop: number
@@ -104,13 +252,7 @@ export function useHtmlPreviewViewport({
         setViewportHeight((prev) => (prev === nextHeight ? prev : nextHeight))
       }
     }
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null
-    if (container && observer) observer.observe(container)
-    window.addEventListener("resize", sync)
-    return () => {
-      observer?.disconnect()
-      window.removeEventListener("resize", sync)
-    }
+    return subscribeContainerViewportResize(container, sync)
   }, [container, rootRef])
 
   useEffect(() => () => {
@@ -269,6 +411,7 @@ export function useHtmlPreviewViewport({
 
   return {
     attachRoot,
+    container,
     renderedHeight,
     canScroll,
     scrollFade,
@@ -284,4 +427,100 @@ export function useHtmlPreviewViewport({
     handleTrackPointerDown,
     handleThumbPointerDown,
   }
+}
+
+export function useHtmlPreviewVisibility({
+  rootRef,
+  container,
+}: {
+  rootRef: RefObject<HTMLDivElement | null>
+  container: HTMLElement | null
+}) {
+  const hasIntersectionObserver = typeof window !== "undefined" && Boolean(window.IntersectionObserver)
+  const [mounted, setMounted] = useState<boolean>(() => !hasIntersectionObserver)
+
+  useEffect(() => {
+    const element = rootRef.current
+    if (!element || !hasIntersectionObserver) return
+    const scrollRoot = container ?? findScrollContainer(element)
+    return subscribeHtmlPreviewIntersection(element, scrollRoot, (intersecting) => {
+      setMounted((prev) => (prev === intersecting ? prev : intersecting))
+    })
+  }, [container, hasIntersectionObserver, rootRef])
+
+  return !hasIntersectionObserver || mounted
+}
+
+export function useHtmlPreviewBridge({
+  mounted,
+  frameRef,
+  resolvedTheme,
+  fontSheet,
+  recordHeight,
+  reportScrollMetrics,
+}: {
+  mounted: boolean
+  frameRef: RefObject<HTMLIFrameElement | null>
+  resolvedTheme: string | undefined
+  fontSheet: string | undefined
+  recordHeight: (height: number) => void
+  reportScrollMetrics: (metrics: HtmlPreviewScrollMetrics) => void
+}) {
+  const [loaded, setLoaded] = useState(false)
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
+  const readyRef = useRef(false)
+  const error = status === "error"
+
+  useEffect(() => {
+    if (!mounted || error) return
+    function theme() {
+      const style = getComputedStyle(frameRef.current ?? document.documentElement)
+      const variables = Object.fromEntries(HTML_PREVIEW_THEME_VARIABLES.map((key) => [`--${key}`, style.getPropertyValue(`--${key}`).trim()]))
+      variables["--font-sans"] = style.getPropertyValue("--font-dm-sans").trim() || style.fontFamily
+      variables["--font-mono"] = style.getPropertyValue("--font-dm-mono").trim() || "ui-monospace, monospace"
+      frameRef.current?.contentWindow?.postMessage({ type: "alook-html-theme", dark: resolvedTheme === "dark", variables, fontSheet }, "*")
+    }
+    const timeout = setTimeout(() => { if (!readyRef.current) setStatus("error") }, 15_000)
+    const unsubscribeMessage = subscribeHtmlPreviewMessage((event) => {
+      if (!frameRef.current?.contentWindow || event.source !== frameRef.current.contentWindow) return
+      const data = event.data as Record<string, unknown>
+      if (data.type === "alook-html-theme-request") theme()
+      if (data.type === "alook-html-ready") {
+        clearTimeout(timeout)
+        readyRef.current = true
+        setStatus("ready")
+        theme()
+      }
+      if (data.type === "alook-html-height"
+        && typeof data.height === "number" && Number.isFinite(data.height) && data.height > 0) {
+        recordHeight(data.height)
+      }
+      if (
+        data.type === "alook-html-scroll"
+        && typeof data.scrollTop === "number"
+        && typeof data.scrollHeight === "number"
+        && typeof data.clientHeight === "number"
+        && Number.isFinite(data.scrollTop)
+        && Number.isFinite(data.scrollHeight)
+        && Number.isFinite(data.clientHeight)
+      ) {
+        reportScrollMetrics({
+          scrollTop: data.scrollTop,
+          scrollHeight: data.scrollHeight,
+          clientHeight: data.clientHeight,
+        })
+      }
+    })
+    theme()
+    const themeFrame = requestAnimationFrame(theme)
+    return () => {
+      readyRef.current = false
+      clearTimeout(timeout)
+      cancelAnimationFrame(themeFrame)
+      unsubscribeMessage()
+    }
+  }, [mounted, error, frameRef, resolvedTheme, fontSheet, recordHeight, reportScrollMetrics])
+
+  const effectiveStatus = !mounted ? (error ? "error" : "loading") : status
+  return { loaded: mounted && loaded, setLoaded, status: effectiveStatus, error }
 }

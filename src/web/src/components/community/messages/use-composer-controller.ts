@@ -9,6 +9,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ForwardedRef,
 } from "react"
 import { useEditor, type Editor, type JSONContent } from "@tiptap/react"
@@ -18,8 +19,9 @@ import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { tid } from "@/lib/community/testids"
 import {
   clearComposerDraft,
+  flushComposerDraft,
   readComposerDraft,
-  writeComposerDraft,
+  scheduleComposerDraftWrite,
 } from "@/lib/community/composer-draft"
 import { detectMentionType } from "@/lib/community/mention-extension"
 import { buildPasteDom } from "@/lib/community/paste-plain-text"
@@ -77,7 +79,7 @@ export function useComposerController(
   const isComposingAtom = useCreateAtom(false)
   const [isComposing] = useAtom(isComposingAtom)
   const protocol = useCreateStore({ active, generation: 0, scope: "", scopeVersion: 0, draftKey, nextLongPasteIndex: 1, suppress: false, previousHasContent: false })
-  const sendId = useCreateAtom(crypto.randomUUID()).get()
+  const [sendId] = useState(() => crypto.randomUUID())
   const sendKey = useMemo(() => ["community", "composer-accept", sendId], [sendId])
   const sendInFlight = useIsMutating({ mutationKey: sendKey, exact: true }) > 0
   const enterKeyHint = isForumThreadBody || !hoverCapable ? "enter" : "send"
@@ -249,7 +251,7 @@ export function useComposerController(
       emitDirtyTransition()
       const key = protocol.get().draftKey
       if (key && !isForumThreadBody) {
-        writeComposerDraft(
+        scheduleComposerDraftWrite(
           key,
           updatedEditor.isEmpty ? null : updatedEditor.getJSON(),
         )
@@ -258,12 +260,20 @@ export function useComposerController(
     onBlur: ({ editor: blurredEditor }) => {
       isComposingAtom.set(false)
       resetPopups(blurredEditor)
+      const key = protocol.get().draftKey
+      if (key && !isForumThreadBody) flushComposerDraft(key)
     },
   })
   useLayoutEffect(() => {
     protocol.setState((state) => ({ ...state, active }))
     editor?.setEditable(active, false)
-    if (!active) { isComposingAtom.set(false); editor?.commands.blur(); resetPopups(editor) }
+    if (!active) {
+      isComposingAtom.set(false)
+      editor?.commands.blur()
+      resetPopups(editor)
+      const key = protocol.get().draftKey
+      if (key && !isForumThreadBody) flushComposerDraft(key)
+    }
     const onDestroy = () => {
       if (editorRef.current !== editor) return
       isComposingAtom.set(false)
@@ -277,7 +287,7 @@ export function useComposerController(
       editor?.off("destroy", onDestroy)
       resetPopups(editor)
     }
-  }, [active, editor, isComposingAtom, protocol, resetPopups])
+  }, [active, editor, isComposingAtom, isForumThreadBody, protocol, resetPopups])
   useLayoutEffect(() => {
     editorRef.current = editor
     bindEditor?.(editor)
@@ -295,19 +305,23 @@ export function useComposerController(
   useEffect(() => {
     if (!editor || isForumThreadBody || !draftKey) return
     const doc = readComposerDraft(draftKey)
-    if (!doc) return
-    resetPopups(editor)
-    suppressSuggestions(() => {
-      try {
-        editor.commands.setContent(doc as JSONContent, {
-          emitUpdate: false,
-          errorOnInvalidContent: true,
-        })
-        editorHasContentAtom.set(!editor.isEmpty)
-      } catch {
-        clearComposerDraft(draftKey)
-      }
-    })
+    if (doc) {
+      resetPopups(editor)
+      suppressSuggestions(() => {
+        try {
+          editor.commands.setContent(doc as JSONContent, {
+            emitUpdate: false,
+            errorOnInvalidContent: true,
+          })
+          editorHasContentAtom.set(!editor.isEmpty)
+        } catch {
+          clearComposerDraft(draftKey)
+        }
+      })
+    }
+    return () => {
+      flushComposerDraft(draftKey)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, draftKey])
   const onDirtyRef = useRef(onDirty)
@@ -404,12 +418,12 @@ export function useComposerController(
       protocol.setState((state) => ({ ...state, nextLongPasteIndex: 1 }))
       resetPopups()
     },
-    isEmpty: () => !editor || (editor.isEmpty && pendingFiles.length === 0),
+    isEmpty: () => !editor || (editor.isEmpty && readPendingFilesRef.current().length === 0),
     openFilePicker: () => {
       if (!protocol.get().active) return
       fileInputRef.current?.click()
     },
-  }))
+  }), [clearPendingFiles, editor, editorHasContentAtom, fileInputRef, isComposingAtom, pickerKeyboard, protocol, resetPopups, send, suppressSuggestions])
 
   useEffect(() => {
     if (!active || !autoFocus || !editor || isForumThreadBody || editor.isFocused) return

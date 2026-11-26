@@ -24,6 +24,7 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
   useCanonicalProfilesByUserId: () => mocks.profiles,
   useCanonicalIdentitiesByUserId: () => mocks.profiles,
   useCanonicalCommunityProfile: (id: string | undefined) => id ? mocks.profiles.get(id) : undefined,
+  useCanonicalCommunityIdentity: (id: string | undefined) => id ? mocks.profiles.get(id) : undefined,
   useCanonicalCategoriesById: () => mocks.categories,
   useCanonicalChannelsById: () => mocks.channels,
   useChannelsByIds: () => mocks.channels,
@@ -1531,6 +1532,69 @@ describe("InboxPopover inline reply in Unreads", () => {
       view?.unmount()
       rafSpy.mockRestore()
       cancelRafSpy.mockRestore()
+      window.ResizeObserver = originalResizeObserver
+    }
+  })
+
+  it("virtualizes large Marked and Unreads lists while sharing a single sticky-header ResizeObserver", () => {
+    const originalResizeObserver = window.ResizeObserver
+    let resizeObserverCount = 0
+    window.ResizeObserver = class {
+      constructor() { resizeObserverCount += 1 }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+
+    try {
+      const manyMarked: Marked[] = Array.from({ length: 300 }, (_, index) => ({
+        id: `mk-${index}`,
+        server: "Server",
+        serverId: "s1",
+        channel: "general",
+        channelId: `c-${index}`,
+        m: {
+          id: `msg-${index}`,
+          type: "chat",
+          authorId: "u1",
+          authorName: "Alice",
+          content: `Marked item ${index}`,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        },
+      }))
+      const manyUnreads: UnreadServer[] = [{
+        serverId: "s1",
+        serverName: "Server",
+        channels: Array.from({ length: 300 }, (_, index) => ({
+          channelId: `uch-${index}`,
+          channelName: `channel-${index}`,
+          type: "text",
+          lastMessageAt: "2026-10-01T00:00:00.000Z",
+          lastUnreadSeq: 5,
+          unreadCount: 2,
+          mentionCount: 0,
+          children: [],
+        })),
+      }]
+      const view = renderInboxMessages(React.createElement(InboxPopover, {
+        unreads: manyUnreads,
+        unreadDms: [],
+        mentions: [],
+        todos: [],
+        marked: manyMarked,
+        hasProjectedUnreads: true,
+        hasProjectedMentions: false,
+        activeTab: "marked",
+      }))
+      const renderedMarkedCards = view.container.querySelectorAll('[data-testid^="community-inbox-marked-card-"]')
+      const renderedUnreadCards = view.container.querySelectorAll('[data-testid^="community-inbox-unread-card-"]')
+      expect(renderedMarkedCards.length).toBeGreaterThan(0)
+      expect(renderedMarkedCards.length).toBeLessThan(40)
+      expect(renderedUnreadCards.length).toBeGreaterThan(0)
+      expect(renderedUnreadCards.length).toBeLessThan(40)
+      // Bounded observers across 600 cards (scroll bodies + virtualizers + 1 shared sticky-header observer)
+      expect(resizeObserverCount).toBeLessThan(30)
+    } finally {
       window.ResizeObserver = originalResizeObserver
     }
   })

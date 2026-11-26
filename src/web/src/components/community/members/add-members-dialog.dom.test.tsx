@@ -196,4 +196,31 @@ describe("AddMembersDialog native membership lifecycle", () => {
     expect(f.requests).toHaveLength(1)
     expect(mocks.toastError).not.toHaveBeenCalled()
   })
+
+  it("virtualizes large candidate pools into a bounded row window", async () => {
+    const manyCandidates = Array.from({ length: 500 }, (_, index) => ({
+      userId: `user-${index}`,
+      name: `Member ${index}`,
+      avatar: "M",
+    }))
+    const { AddMembersDialog } = await import("./add-members-dialog")
+    const owner = await createCommunityQueryOwner()
+    const view = render(
+      <CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
+        <AddMembersDialog
+          title="Add members"
+          subtitle="Pick members"
+          candidates={manyCandidates}
+          queryState={{ loading: false, resolved: true, error: false, retrying: false, retry: vi.fn() }}
+          onAdd={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </CommunityTestProvider>,
+    )
+    const dialog = screen.getByRole("dialog")
+    const renderedRows = dialog.querySelectorAll('[data-slot="people-picker-row"]')
+    expect(renderedRows.length).toBeGreaterThan(0)
+    expect(renderedRows.length).toBeLessThan(40)
+    view.unmount()
+  })
 })

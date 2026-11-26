@@ -1,12 +1,13 @@
 "use client"
 
+import { memo, useCallback } from "react"
 import { ForumPostCount } from "./forum-post-count"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { BellOff, Loader2, Pencil, Trash2, Users } from "@/components/icons/lucide";
 import { EntityIcon } from "../entity-icon"
-import { useChannelDndItem } from "./channel-dnd"
+import { ChannelDndBinding, useChannelDndRow } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, isKeyboardContextMenu } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "../drop-line"
@@ -16,11 +17,11 @@ import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { ChannelUnreadIndicator } from "./channel-unread-indicator"
 import { useDndContextMenu } from "../use-dnd-context-menu"
 
-export function hasChannelMenu(h: { onEdit?: () => void; onManageMembers?: () => void; onDelete?: () => void }) {
-  return !!(h.onEdit || h.onManageMembers || h.onDelete)
+export function hasChannelMenu(h: { onEdit?: unknown; onManageMembers?: unknown; onDelete?: unknown; onRequestDelete?: unknown }) {
+  return !!(h.onEdit || h.onManageMembers || h.onDelete || h.onRequestDelete)
 }
 
-export function PendingChannelRow({ ch }: { ch: Channel }) {
+export const PendingChannelRow = memo(function PendingChannelRow({ ch }: { ch: Channel }) {
   return (
     <div
       aria-disabled
@@ -32,28 +33,65 @@ export function PendingChannelRow({ ch }: { ch: Channel }) {
       <span className="truncate font-semibold">{ch.name}</span>
     </div>
   )
-}
+})
 
-export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, onManageMembers, canReorder = true }: {
+export const SortableChannel = memo(function SortableChannel({
+  ch,
+  categoryId,
+  muted,
+  href,
+  active,
+  onClick,
+  onEdit,
+  onDelete,
+  onRequestDelete,
+  onManageMembers,
+  canReorder = true,
+}: {
   ch: Channel
+  categoryId?: string
+  muted?: boolean
   href?: string
   active: boolean
-  onClick: () => void
-  onEdit?: () => void
-  onDelete?: () => void
-  onManageMembers?: () => void
+  onClick: (channelId: string) => void
+  onEdit?: (channel: Channel, categoryId?: string) => void
+  onDelete?: (channelId: string) => void
+  onRequestDelete?: (channel: Channel) => void
+  onManageMembers?: (channel: Channel) => void
   canReorder?: boolean
 }) {
   const [confirmingDelete, setConfirmingDelete] = useAtom(useCreateAtom(false))
-  const { setNodeRef, isDragging, isOver, placement, lineSide, dragActive, suppressClick, resumeClick } = useChannelDndItem(ch.id, "channel", canReorder)
+  const [menuActivated, setMenuActivated] = useAtom(useCreateAtom(false))
+  const {
+    elementRef,
+    headerRef,
+    pressAllowsDragRef,
+    bindingRef,
+    setNodeRef,
+    isDragging,
+    isOver,
+    placement,
+    lineSide,
+    dragActive,
+    suppressClick,
+    resumeClick,
+  } = useChannelDndRow(ch.id, "channel")
+  const isMuted = muted ?? ch.muted === true
   const style = { opacity: isDragging ? 0.3 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging && placement !== "append"
-  const activate = () => { if (!suppressClick()) onClick() }
+  const activate = useCallback(() => { if (!suppressClick()) onClick(ch.id) }, [ch.id, onClick, suppressClick])
+  const activateMenu = menuActivated ? undefined : () => setMenuActivated(true)
   const unread = selectUnreadPresentation({
     accountUnread: ch.unread,
     active,
-    muted: ch.muted === true,
+    muted: isMuted,
   })
+  const hasMenu = hasChannelMenu({ onEdit, onManageMembers, onDelete, onRequestDelete })
+  const menu = useDndContextMenu({ canOpen: hasMenu, canDrag: () => canReorder, suppressOpen: suppressClick })
+  const handleMenuOpenChange = useCallback<NonNullable<React.ComponentProps<typeof ContextMenu>["onOpenChange"]>>((nextOpen, details) => {
+    if (nextOpen && !menuActivated) setMenuActivated(true)
+    menu.onOpenChange(nextOpen, details)
+  }, [menu, menuActivated, setMenuActivated])
   const rowProps = {
     ref: setNodeRef,
     style,
@@ -62,16 +100,22 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
     "data-channel-tree-row": ch.id,
     "aria-roledescription": canReorder ? "draggable" : undefined,
     role: "button", tabIndex: 0,
-    onPointerDownCapture: resumeClick,
-    onTouchStartCapture: resumeClick,
-    onKeyDownCapture: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " " || isKeyboardContextMenu(event.nativeEvent)) resumeClick() },
+    onPointerEnter: activateMenu,
+    onPointerDownCapture: (event: React.PointerEvent<HTMLElement>) => { activateMenu?.(); resumeClick(event) },
+    onTouchStartCapture: (event: React.TouchEvent<HTMLElement>) => { activateMenu?.(); resumeClick(event) },
+    onFocusCapture: activateMenu,
+    onContextMenuCapture: activateMenu,
+    onKeyDownCapture: (event: React.KeyboardEvent<HTMLElement>) => {
+      activateMenu?.()
+      if (event.key === "Enter" || event.key === " " || isKeyboardContextMenu(event.nativeEvent)) resumeClick(event)
+    },
     onClickCapture: (event: React.MouseEvent) => { if (suppressClick()) { event.preventDefault(); event.stopPropagation() } },
     className: [
       "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
       canReorder ? "active:cursor-grabbing" : "",
       active
         ? "bg-sidebar-accent text-foreground"
-        : ch.muted
+        : isMuted
         ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
         : unread.emphasize
           ? "text-foreground hover:bg-sidebar-accent/60"
@@ -89,7 +133,7 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
         <span className="pointer-events-none max-w-full shrink-0 truncate font-semibold">{ch.name}</span>
         {ch.type === "forum" ? <ForumPostCount channelId={ch.id} previewCount={ch.unarchivedPostCount} /> : null}
       </span>
-      {ch.muted ? (
+      {isMuted ? (
       <BellOff className="pointer-events-none size-4 shrink-0 opacity-70" />
       ) : null}
     </>
@@ -102,37 +146,50 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
   ) : (
     <div {...rowProps} onClick={activate}>{content}</div>
   )
-  const hasMenu = hasChannelMenu({ onEdit, onManageMembers, onDelete })
-  const menu = useDndContextMenu({ canOpen: hasMenu, canDrag: () => canReorder, suppressOpen: suppressClick })
+  const canDelete = Boolean(onRequestDelete || onDelete)
+  const triggerDelete = () => {
+    if (onRequestDelete) onRequestDelete(ch)
+    else setConfirmingDelete(true)
+  }
   return (
     <>
-      <ContextMenu disabled={!hasMenu} actionsRef={menu.actionsRef} onOpenChange={menu.onOpenChange}>
+      <ContextMenu disabled={!hasMenu} actionsRef={menu.actionsRef} onOpenChange={handleMenuOpenChange}>
         <ContextMenuTrigger render={row} {...menu.triggerProps} />
-        {hasMenu && <ContextMenuContent className="w-48">
+        {hasMenu && menuActivated && <ContextMenuContent className="w-48">
           <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
-          {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit channel</ContextMenuItem>}
-          {onManageMembers && <ContextMenuItem onClick={onManageMembers}><Users className="size-4" /> Manage members</ContextMenuItem>}
-          {onDelete && (
+          {onEdit && <ContextMenuItem onClick={() => onEdit(ch, categoryId)}><Pencil className="size-4" /> Edit channel</ContextMenuItem>}
+          {onManageMembers && <ContextMenuItem onClick={() => onManageMembers(ch)}><Users className="size-4" /> Manage members</ContextMenuItem>}
+          {canDelete && (
             <>
               {onEdit && <ContextMenuSeparator />}
               <ContextMenuItem
-                onClick={() => setConfirmingDelete(true)}
+                onClick={triggerDelete}
                 className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"
               ><Trash2 className="size-4" /> Delete channel</ContextMenuItem>
             </>
           )}
         </ContextMenuContent>}
       </ContextMenu>
-      {onDelete && (
+      {canReorder && (
+        <ChannelDndBinding
+          id={ch.id}
+          kind="channel"
+          elementRef={elementRef}
+          headerRef={headerRef}
+          pressAllowsDragRef={pressAllowsDragRef}
+          bindingRef={bindingRef}
+        />
+      )}
+      {onDelete && !onRequestDelete && confirmingDelete && (
         <ConfirmDialog
           open={confirmingDelete}
           onOpenChange={setConfirmingDelete}
           title={`Delete /${ch.name}?`}
           description="This channel and its message history will be removed for everyone. This can't be undone."
           confirmLabel="Delete channel"
-          onConfirm={() => { setConfirmingDelete(false); onDelete() }}
+          onConfirm={() => { setConfirmingDelete(false); onDelete(ch.id) }}
         />
       )}
     </>
   )
-}
+})

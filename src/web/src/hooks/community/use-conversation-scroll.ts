@@ -138,38 +138,45 @@ function computeLoadedBelowCount(items: FlatItem[], root: HTMLDivElement | null,
   const rowsEl = findMessageRowsContainer(root)
   if (rowsEl && rowsEl.children.length > 0) {
     const children = rowsEl.children
-    let itemCount = children.length
-    while (itemCount > 0 && !(children[itemCount - 1] as HTMLElement).hasAttribute("data-index")) {
-      itemCount -= 1
+    let firstIdx = 0
+    while (firstIdx < children.length && !(children[firstIdx] as HTMLElement).hasAttribute("data-index")) {
+      firstIdx += 1
     }
-    let lo = 0
-    let hi = itemCount - 1
-    let lastIndex = -1
-    while (lo <= hi) {
-      const mid = (lo + hi) >>> 1
-      const wrapper = children[mid] as HTMLElement
-      const rect = wrapper.getBoundingClientRect()
-      if (rect.top < viewportBottom - 0.5) {
-        lastIndex = mid
-        lo = mid + 1
-      } else {
-        hi = mid - 1
+    let lastIdx = children.length - 1
+    while (lastIdx >= firstIdx && !(children[lastIdx] as HTMLElement).hasAttribute("data-index")) {
+      lastIdx -= 1
+    }
+    if (firstIdx <= lastIdx) {
+      let lo = firstIdx
+      let hi = lastIdx
+      let lastIndex = firstIdx - 1
+      while (lo <= hi) {
+        const mid = (lo + hi) >>> 1
+        const wrapper = children[mid] as HTMLElement
+        const rect = wrapper.getBoundingClientRect()
+        if (rect.top < viewportBottom - 0.5) {
+          lastIndex = mid
+          lo = mid + 1
+        } else {
+          hi = mid - 1
+        }
       }
-    }
-    while (lastIndex >= 0) {
-      const wrapper = children[lastIndex] as HTMLElement
-      if (!wrapper.hasAttribute("data-index")) {
+      while (lastIndex >= firstIdx) {
+        const wrapper = children[lastIndex] as HTMLElement
+        if (!wrapper.hasAttribute("data-index")) {
+          lastIndex -= 1
+          continue
+        }
+        const rect = wrapper.getBoundingClientRect()
+        if (rect.height > 0 && rect.top < viewportBottom - 0.5) {
+          const idx = Number(wrapper.dataset.index)
+          return computeBelowCount(items, Number.isInteger(idx) ? idx : lastIndex)
+        }
         lastIndex -= 1
-        continue
       }
-      const rect = wrapper.getBoundingClientRect()
-      if (rect.height > 0 && rect.top < viewportBottom - 0.5) {
-        const idx = Number(wrapper.dataset.index)
-        return computeBelowCount(items, Number.isInteger(idx) ? idx : lastIndex)
-      }
-      lastIndex -= 1
+      const firstRowIdx = Number((children[firstIdx] as HTMLElement).dataset.index)
+      return computeBelowCount(items, Number.isInteger(firstRowIdx) ? firstRowIdx - 1 : -1)
     }
-    return computeBelowCount(items, -1)
   }
   let lastVisibleIndex = -1
   for (const wrapper of root.querySelectorAll<HTMLElement>("[data-index]")) {
@@ -190,62 +197,68 @@ function captureVisibleAnchor(root: HTMLDivElement | null, items: FlatItem[], vi
   const rowsEl = findMessageRowsContainer(root)
   if (rowsEl && rowsEl.children.length > 0) {
     const children = rowsEl.children
-    let itemCount = children.length
-    while (itemCount > 0 && !(children[itemCount - 1] as HTMLElement).hasAttribute("data-index")) {
-      itemCount -= 1
+    let firstIdx = 0
+    while (firstIdx < children.length && !(children[firstIdx] as HTMLElement).hasAttribute("data-index")) {
+      firstIdx += 1
     }
-    let lo = 0
-    let hi = itemCount - 1
-    let firstCandidate = itemCount
-    while (lo <= hi) {
-      const mid = (lo + hi) >>> 1
-      const wrapper = children[mid] as HTMLElement
-      if (wrapper.getBoundingClientRect().bottom > viewport.top) {
-        firstCandidate = mid
-        hi = mid - 1
-      } else {
-        lo = mid + 1
-      }
+    let lastIdx = children.length - 1
+    while (lastIdx >= firstIdx && !(children[lastIdx] as HTMLElement).hasAttribute("data-index")) {
+      lastIdx -= 1
     }
-    const startIndex = Math.max(0, firstCandidate - 2)
-    let fallback: {
-      anchorId: string
-      anchorKey: string | null
-      viewportOffset: number
-      firstMessageKey: string | null
-    } | null = null
-    for (let i = startIndex; i < itemCount; i++) {
-      const wrapper = children[i] as HTMLElement
-      const body = rowMessageBody(wrapper)
-      const id = body?.dataset.msgId
-      if (!id) continue
-      const bounds = messageContentBounds(body)
-      if (!bounds) continue
-      const rawIdx = Number(wrapper.dataset.index)
-      const idx = Number.isInteger(rawIdx) && items[rawIdx]?.kind === "message" && items[rawIdx].m.id === id
-        ? rawIdx
-        : findMessageIndex(items, id)
-      if (bounds.bottom > viewport.top + 1 && bounds.top < viewport.bottom - viewportInsetEnd - 1) {
-        return {
-          anchorId: id,
-          anchorKey: idx !== null ? items[idx].key : null,
-          viewportOffset: bounds.top - viewport.top,
-          firstMessageKey,
+    if (firstIdx <= lastIdx) {
+      let lo = firstIdx
+      let hi = lastIdx
+      let firstCandidate = lastIdx + 1
+      while (lo <= hi) {
+        const mid = (lo + hi) >>> 1
+        const wrapper = children[mid] as HTMLElement
+        if (wrapper.getBoundingClientRect().bottom > viewport.top) {
+          firstCandidate = mid
+          hi = mid - 1
+        } else {
+          lo = mid + 1
         }
       }
-      if (!fallback && bounds.bottom > viewport.top) {
-        fallback = {
-          anchorId: id,
-          anchorKey: idx !== null ? items[idx].key : null,
-          viewportOffset: bounds.top - viewport.top,
-          firstMessageKey,
+      const startIndex = Math.max(firstIdx, firstCandidate - 2)
+      let fallback: {
+        anchorId: string
+        anchorKey: string | null
+        viewportOffset: number
+        firstMessageKey: string | null
+      } | null = null
+      for (let i = startIndex; i <= lastIdx; i++) {
+        const wrapper = children[i] as HTMLElement
+        const body = rowMessageBody(wrapper)
+        const id = body?.dataset.msgId
+        if (!id) continue
+        const bounds = messageContentBounds(body)
+        if (!bounds) continue
+        const rawIdx = Number(wrapper.dataset.index)
+        const idx = Number.isInteger(rawIdx) && items[rawIdx]?.kind === "message" && items[rawIdx].m.id === id
+          ? rawIdx
+          : findMessageIndex(items, id)
+        if (bounds.bottom > viewport.top + 1 && bounds.top < viewport.bottom - viewportInsetEnd - 1) {
+          return {
+            anchorId: id,
+            anchorKey: idx !== null ? items[idx].key : null,
+            viewportOffset: bounds.top - viewport.top,
+            firstMessageKey,
+          }
+        }
+        if (!fallback && bounds.bottom > viewport.top) {
+          fallback = {
+            anchorId: id,
+            anchorKey: idx !== null ? items[idx].key : null,
+            viewportOffset: bounds.top - viewport.top,
+            firstMessageKey,
+          }
+        }
+        if (bounds.top >= viewport.bottom - viewportInsetEnd - 1) {
+          break
         }
       }
-      if (bounds.top >= viewport.bottom - viewportInsetEnd - 1) {
-        break
-      }
+      return fallback
     }
-    return fallback
   }
   for (const body of root.querySelectorAll<HTMLElement>("[data-msg-id]")) {
     const id = body.dataset.msgId
@@ -774,10 +787,17 @@ export function useConversationScroll({
             else next = "visible"
           }
         } else if (ctx.newDividerSeq !== undefined) {
-          const seqs = ctx.items.flatMap((item) => item.kind === "message" && item.m.seq !== undefined ? [item.m.seq] : [])
-          if (seqs.length > 0) {
-            if (ctx.newDividerSeq < Math.min(...seqs)) next = "above"
-            else if (ctx.newDividerSeq > Math.max(...seqs)) next = "below"
+          let minSeq = Infinity
+          let maxSeq = -Infinity
+          for (const item of ctx.items) {
+            if (item.kind === "message" && item.m.seq !== undefined) {
+              if (item.m.seq < minSeq) minSeq = item.m.seq
+              if (item.m.seq > maxSeq) maxSeq = item.m.seq
+            }
+          }
+          if (minSeq <= maxSeq) {
+            if (ctx.newDividerSeq < minSeq) next = "above"
+            else if (ctx.newDividerSeq > maxSeq) next = "below"
           }
         }
       }
@@ -1744,23 +1764,6 @@ export function useConversationScroll({
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     if (footer) ro.observe(footer)
-    const footerMo = footer && typeof MutationObserver !== "undefined"
-      ? new MutationObserver(() => {
-        const prevGeo = prevGeometryRef.current
-        if (!prevGeo || prevGeo.clientHeight !== root.clientHeight
-          || prevGeo.clientWidth !== root.clientWidth
-          || prevGeo.tailPaddingEnd !== propsRef.current.tailPaddingEnd) {
-          compensateAnchor(true)
-          updateNewDividerVisibility(false)
-          if (!entryResolvedRef.current || stateRef.current.mode === "jumping-to-target") {
-            bumpState()
-          } else {
-            syncUiSnapshot(false)
-          }
-        }
-      })
-      : null
-    footerMo?.observe(footer!, { childList: true, subtree: true })
 
     return () => {
       root.removeEventListener("scroll", onScroll)
@@ -1775,7 +1778,6 @@ export function useConversationScroll({
       root.ownerDocument.defaultView?.removeEventListener("blur", onBlur)
       ro.disconnect()
       mo.disconnect()
-      footerMo?.disconnect()
       activeTouchRef.current = false
       activePointers.clear()
       if (rafRef.current !== null) {

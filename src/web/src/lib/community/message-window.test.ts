@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { InfiniteQueryObserver } from "@tanstack/react-query"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
-import { messagePageForReading, messagePageNeighbors, messageWindowIdentity, messageWindowOptions } from "./message-window"
+import { MAX_MESSAGE_WINDOW_PAGES, messagePageForReading, messagePageNeighbors, messageWindowIdentity, messageWindowOptions } from "./message-window"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("./account-cache-lifecycle", async (original) => ({
@@ -84,5 +84,40 @@ describe("native message window identity", () => {
     expect(data.pages[0]).not.toHaveProperty("relatedMessages")
     expect(registry.collections.messages.get("older")).toMatchObject({ content: target.content, attachments: target.attachments })
     expect(load).toHaveBeenCalledOnce()
+  })
+
+  it("bounds retained pages on deep older pagination and recovers a newer cursor after newest-page eviction", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const totalPages = MAX_MESSAGE_WINDOW_PAGES + 4
+    for (let index = 0; index < totalPages; index += 1) {
+      const seq = (totalPages - index) * 10
+      const createdAt = `2026-10-01T00:${String(seq).padStart(2, "0")}:00.000Z`
+      const row = messageResourceFixture({ id: `m${seq}`, channelId: "c-cap", seq, createdAt, content: `Body ${seq}` })
+      load.mockResolvedValueOnce({
+        profiles: [profileResourceFixture()],
+        messages: [row],
+        olderCursor: `${createdAt}|m${seq}`,
+        hasMoreOlder: index < totalPages - 1,
+        hasMoreNewer: index > 0,
+        latestSeq: totalPages * 10,
+      })
+    }
+
+    const options = messageWindowOptions(client, "c-cap", { mode: "newest" })
+    await client.infiniteQuery({ ...options, select: undefined })
+    const observer = new InfiniteQueryObserver(client, { ...options, enabled: false })
+    const unsubscribe = observer.subscribe(() => {})
+    try {
+      for (let step = 1; step < totalPages; step += 1) {
+        await observer.fetchNextPage()
+      }
+      const data = client.getQueryData(options.queryKey)!
+      expect(data.pages.length).toBeLessThanOrEqual(MAX_MESSAGE_WINDOW_PAGES)
+      const previousParam = options.getPreviousPageParam?.(data.pages[0]!, data.pages, data.pageParams[0]!, data.pageParams)
+      expect(previousParam).toEqual({ mode: "newer", cursor: data.pages[0]!.newestCursor })
+    } finally {
+      unsubscribe()
+      observer.destroy()
+    }
   })
 })

@@ -32,6 +32,7 @@ import styles from "./community-inbox-popover.module.css"
 import indicatorStyles from "./inbox-unread-indicator.module.css"
 import {
   memo,
+  useCallback,
   useId,
   useMemo,
   useState,
@@ -39,9 +40,22 @@ import {
   useRef,
   type ComponentProps,
   type KeyboardEvent,
+  type RefObject,
   type ReactNode,
   type UIEvent,
 } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { InboxStickyHeaderProvider, useInboxStickyHeader } from "@/hooks/community/use-inbox-sticky-header"
+import {
+  COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  observeCommunityVirtualizerRect,
+} from "@/hooks/community/virtualizer-react-options"
+
+const EMPTY_MENTIONS: Mention[] = []
+const INBOX_VIRTUALIZER_INITIAL_RECT = { width: 380, height: 600 }
+const INBOX_UNREAD_CARD_ESTIMATE = 68
+const INBOX_TODO_CARD_ESTIMATE = 220
+const INBOX_MARKED_CARD_ESTIMATE = 136
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
@@ -73,11 +87,13 @@ function scrollTargetIntoContainer(container: HTMLElement, target: HTMLElement, 
 
 function InboxScrollBody({
   tab,
+  viewportRef,
   getScrollOffset,
   onScrollOffsetChange,
   children,
 }: {
   tab: InboxTab
+  viewportRef?: RefObject<HTMLDivElement | null>
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
   children: ReactNode
@@ -86,6 +102,10 @@ function InboxScrollBody({
   const contentRef = useRef<HTMLDivElement>(null)
   const pointerScrollRef = useRef(false)
   const transientScrollRef = useRef(false)
+  const attachViewport = useCallback((node: HTMLDivElement | null) => {
+    ref.current = node
+    if (viewportRef) viewportRef.current = node
+  }, [viewportRef])
   useLayoutEffect(() => {
     const element = ref.current
     if (!element) return
@@ -168,23 +188,25 @@ function InboxScrollBody({
     }
   }
   return (
-    <ScrollAreaRoot className="h-full">
-      <ScrollAreaViewport
-        ref={ref}
-        data-testid={tid.inboxTabScroll(tab)}
-        // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
-        className="flex h-full flex-col overflow-x-hidden overflow-y-auto"
-        onScroll={onScroll}
-        onWheel={() => { transientScrollRef.current = true }}
-        onKeyDown={onKeyDown}
-        onPointerDown={() => { pointerScrollRef.current = true }}
-        onPointerUp={() => { pointerScrollRef.current = false }}
-        onPointerCancel={() => { pointerScrollRef.current = false }}
-      >
-        <ScrollAreaContent ref={contentRef} className="flex min-h-full flex-1 flex-col px-3 pb-3">{children}</ScrollAreaContent>
-      </ScrollAreaViewport>
-      <ScrollBar orientation="vertical" />
-    </ScrollAreaRoot>
+    <InboxStickyHeaderProvider>
+      <ScrollAreaRoot className="h-full">
+        <ScrollAreaViewport
+          ref={attachViewport}
+          data-testid={tid.inboxTabScroll(tab)}
+          // Column so an empty state (Caught up, No mentions) centres in the body (QA #36).
+          className="flex h-full flex-col overflow-x-hidden overflow-y-auto"
+          onScroll={onScroll}
+          onWheel={() => { transientScrollRef.current = true }}
+          onKeyDown={onKeyDown}
+          onPointerDown={() => { pointerScrollRef.current = true }}
+          onPointerUp={() => { pointerScrollRef.current = false }}
+          onPointerCancel={() => { pointerScrollRef.current = false }}
+        >
+          <ScrollAreaContent ref={contentRef} className="flex min-h-full flex-1 flex-col px-3 pb-3">{children}</ScrollAreaContent>
+        </ScrollAreaViewport>
+        <ScrollBar orientation="vertical" />
+      </ScrollAreaRoot>
+    </InboxStickyHeaderProvider>
   )
 }
 
@@ -325,18 +347,7 @@ function InboxCard({ testId, identity, actions, feedback, footer, animatePreview
   const hasPreview = Boolean(children)
   const hasBody = hasPreview || Boolean(feedback) || Boolean(footer)
 
-  useLayoutEffect(() => {
-    const sticky = stickyRef.current
-    const preview = previewRef.current
-    if (!sticky || !preview) return
-    const updateHeight = () => preview.style.setProperty("--inbox-sticky-header-height", `${sticky.offsetHeight}px`)
-    updateHeight()
-    const ResizeObserverConstructor = sticky.ownerDocument.defaultView?.ResizeObserver
-    if (!ResizeObserverConstructor) return
-    const observer = new ResizeObserverConstructor(updateHeight)
-    observer.observe(sticky, { box: "border-box" })
-    return () => observer.disconnect()
-  }, [hasPreview])
+  useInboxStickyHeader(stickyRef, previewRef, hasPreview)
 
   return (
     <article data-testid={testId} className="mb-2.5 isolate min-w-0 rounded-xl text-card-foreground">
@@ -360,7 +371,7 @@ function InboxCard({ testId, identity, actions, feedback, footer, animatePreview
   )
 }
 
-function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOpen, throughSeq = 0, unreadCount = 0, mentions, renderUnreadMessages, onMarkChannelRead, read, replyPlaceholder, replyLabel, onReply, children }: {
+function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOpen, throughSeq = 0, unreadCount = 0, mentions, expanded, onToggleExpanded, renderUnreadMessages, onMarkChannelRead, read, replyPlaceholder, replyLabel, onReply, children }: {
   channelId: string
   name: string
   identityTestId: string
@@ -369,6 +380,8 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
   throughSeq?: number
   unreadCount?: number
   mentions: Mention[]
+  expanded: boolean
+  onToggleExpanded: (channelId: string) => void
   renderUnreadMessages: (input: InboxUnreadMessagesInput) => ReactNode
   onMarkChannelRead?: (channelId: string, throughSeq: number) => Promise<unknown>
   read?: InboxChannelReadAction
@@ -377,7 +390,6 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
   onReply?: (content: string, nonce: string) => Promise<unknown>
   children: ReactNode
 }) {
-  const [expanded, setExpanded] = useState(false)
   const bodyId = useId()
   const countId = `${bodyId}-count`
   const showCount = !expanded && unreadCount > 0
@@ -416,7 +428,7 @@ function UnreadChannelCard({ channelId, name, identityTestId, identityHref, onOp
           data-testid={tid.inboxToggleChannel(channelId)}
           aria-label={`${expanded ? "Hide" : "Show"} unread messages in ${name}`} aria-expanded={expanded} aria-controls={bodyId}
           aria-describedby={showCount ? countId : undefined}
-          onClick={() => setExpanded(value => !value)}>
+          onClick={() => onToggleExpanded(channelId)}>
           <span aria-hidden="true" data-slot="inbox-action-visual" data-unread={showCount}
             className={cn(
               "pointer-events-none",
@@ -492,6 +504,29 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [expandedChannelIds, setExpandedChannelIds] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleChannelExpanded = useCallback((channelId: string) => {
+    setExpandedChannelIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(channelId)) next.delete(channelId)
+      else next.add(channelId)
+      return next
+    })
+  }, [])
+  const mentionsByChannel = useMemo(() => {
+    const map = new Map<string, Mention[]>()
+    for (const mention of mentions) {
+      if (!mention.channelId) continue
+      let bucket = map.get(mention.channelId)
+      if (!bucket) {
+        bucket = []
+        map.set(mention.channelId, bucket)
+      }
+      bucket.push(mention)
+    }
+    return map
+  }, [mentions])
   const renderMessages = renderUnreadMessages ?? ((input: InboxUnreadMessagesInput) => (
     <div data-testid={tid.inboxUnreadMessages(input.channelId)}>
       {input.mentions.length === 0
@@ -509,20 +544,43 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           </div>}
     </div>
   ))
-  const visibleDms = dms
-  const visibleServers = servers.map((server) => ({
-    server,
-    channels: server.channels.map((channel) => {
-      return {
-        channel,
-        directVisible: channel.hasDirectUnread !== false,
-        children: channel.children,
+  type UnreadRowEntry =
+    | { kind: "dm"; key: string; dm: UnreadDm }
+    | { kind: "channel"; key: string; server: UnreadServer; channel: UnreadChannel }
+    | { kind: "child"; key: string; server: UnreadServer; channel: UnreadChannel; child: UnreadChild }
+  const unreadEntries = useMemo<UnreadRowEntry[]>(() => {
+    const entries: UnreadRowEntry[] = []
+    for (const dm of dms) {
+      entries.push({ kind: "dm", key: `dm:${dm.channelId}`, dm })
+    }
+    for (const server of servers) {
+      for (const channel of server.channels) {
+        const directVisible = channel.hasDirectUnread !== false
+        if (!directVisible && channel.children.length === 0) continue
+        if (directVisible) {
+          entries.push({ kind: "channel", key: `ch:${channel.channelId}`, server, channel })
+        }
+        for (const child of channel.children) {
+          entries.push({ kind: "child", key: `child:${child.channelId}`, server, channel, child })
+        }
       }
-    }).filter((group) => group.directVisible || group.children.length > 0),
-  })).filter((group) => group.channels.length > 0)
-  const nothingUnread = friendRequests.length === 0 && visibleServers.length === 0 && visibleDms.length === 0
+    }
+    return entries
+  }, [dms, servers])
+  const nothingUnread = friendRequests.length === 0 && unreadEntries.length === 0
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const unreadsVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: unreadEntries.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => INBOX_UNREAD_CARD_ESTIMATE,
+    overscan: 6,
+    initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const unreadVirtualItems = unreadsVirtualizer.getVirtualItems()
   return (
-    <InboxScrollBody tab="unreads" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
+    <InboxScrollBody tab="unreads" viewportRef={viewportRef} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && nothingUnread && <InboxUnreadsSkeleton />}
       {error && nothingUnread && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
@@ -602,49 +660,81 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, retrying, on
           })}
         </div>
       )}
-      {visibleDms.map(dm => {
-        const profile = readCommunityProfile(profilesByUserId.get(dm.otherUserId), dm.otherUserId)
-        return <UnreadChannelCard key={dm.channelId} channelId={dm.channelId} name={profile.name} throughSeq={dm.lastUnreadSeq} unreadCount={dm.unreadCount}
-          identityTestId={tid.inboxUnreadDm(dm.channelId)} identityHref={`/c/me/${encodeURIComponent(dm.channelId)}`} onOpen={() => onOpenDm?.(dm)}
-          mentions={mentions.filter(mention => mention.channelId === dm.channelId)}
-          renderUnreadMessages={input => renderMessages({ ...input, continuation: true, viewerUserId, onSubmitDecisionCard })}
-          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}
-          replyPlaceholder={`Reply to ${profile.name}…`}
-          replyLabel={`Reply to ${profile.name}`}
-          onReply={onReplyChannel ? (content, nonce) => onReplyChannel(dm.channelId, content, nonce) : undefined}>
-          <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} showJumpCue />
-        </UnreadChannelCard>
-      })}
-      {visibleServers.flatMap(({ server, channels }) => channels.flatMap(({ channel, directVisible, children }) => [
-        ...(directVisible ? [<UnreadChannelCard key={channel.channelId} channelId={channel.channelId} name={channel.channelName} throughSeq={channel.lastUnreadSeq} unreadCount={channel.unreadCount}
-          identityTestId={tid.inboxUnreadChannel(channel.channelId)} onOpen={() => onOpenChannel?.(server, channel, true)}
-          mentions={mentions.filter(mention => mention.channelId === channel.channelId)}
-          renderUnreadMessages={input => renderMessages({
-            ...input,
-            viewerUserId,
-            onSubmitDecisionCard,
-            openForumPosts: channel.forumOpeners?.length ? new Map(channel.forumOpeners.map(opener => [
-              opener.openerMessageId, () => onOpenThread(server, channel, opener),
-            ])) : undefined,
+      {unreadEntries.length > 0 && (
+        <div className="relative w-full" style={{ height: unreadsVirtualizer.getTotalSize() }}>
+          {unreadVirtualItems.map((virtualItem) => {
+            const entry = unreadEntries[virtualItem.index]
+            if (!entry) return null
+            return (
+              <div
+                key={entry.key}
+                data-index={virtualItem.index}
+                ref={unreadsVirtualizer.measureElement}
+                style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
+              >
+                {entry.kind === "dm" ? (() => {
+                  const dm = entry.dm
+                  const profile = readCommunityProfile(profilesByUserId.get(dm.otherUserId), dm.otherUserId)
+                  return (
+                    <UnreadChannelCard channelId={dm.channelId} name={profile.name} throughSeq={dm.lastUnreadSeq} unreadCount={dm.unreadCount}
+                      identityTestId={tid.inboxUnreadDm(dm.channelId)} identityHref={`/c/me/${encodeURIComponent(dm.channelId)}`} onOpen={() => onOpenDm?.(dm)}
+                      mentions={mentionsByChannel.get(dm.channelId) ?? EMPTY_MENTIONS}
+                      expanded={expandedChannelIds.has(dm.channelId)}
+                      onToggleExpanded={toggleChannelExpanded}
+                      renderUnreadMessages={input => renderMessages({ ...input, continuation: true, viewerUserId, onSubmitDecisionCard })}
+                      onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(dm.channelId)}
+                      replyPlaceholder={`Reply to ${profile.name}…`}
+                      replyLabel={`Reply to ${profile.name}`}
+                      onReply={onReplyChannel ? (content, nonce) => onReplyChannel(dm.channelId, content, nonce) : undefined}>
+                      <InboxDmCardIdentity name={profile.name} avatar={profile.avatar} userId={dm.otherUserId} discriminator={profile.discriminator} showJumpCue />
+                    </UnreadChannelCard>
+                  )
+                })() : entry.kind === "channel" ? (() => {
+                  const { server, channel } = entry
+                  return (
+                    <UnreadChannelCard channelId={channel.channelId} name={channel.channelName} throughSeq={channel.lastUnreadSeq} unreadCount={channel.unreadCount}
+                      identityTestId={tid.inboxUnreadChannel(channel.channelId)} onOpen={() => onOpenChannel?.(server, channel, true)}
+                      mentions={mentionsByChannel.get(channel.channelId) ?? EMPTY_MENTIONS}
+                      expanded={expandedChannelIds.has(channel.channelId)}
+                      onToggleExpanded={toggleChannelExpanded}
+                      renderUnreadMessages={input => renderMessages({
+                        ...input,
+                        viewerUserId,
+                        onSubmitDecisionCard,
+                        openForumPosts: channel.forumOpeners?.length ? new Map(channel.forumOpeners.map(opener => [
+                          opener.openerMessageId, () => onOpenThread(server, channel, opener),
+                        ])) : undefined,
+                      })}
+                      onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}
+                      replyPlaceholder={`Reply in #${channel.channelName}…`}
+                      replyLabel={`Reply in #${channel.channelName}`}
+                      onReply={onReplyChannel && channel.type !== "forum" ? (content, nonce) => onReplyChannel(channel.channelId, content, nonce) : undefined}>
+                      <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
+                        location={channelLocation(directory, channel.channelId)} showJumpCue />
+                    </UnreadChannelCard>
+                  )
+                })() : (() => {
+                  const { server, channel, child } = entry
+                  return (
+                    <UnreadChannelCard channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq} unreadCount={child.unreadCount}
+                      identityTestId={tid.inboxUnreadChild(child.channelId)} onOpen={() => onOpenThread(server, channel, child)}
+                      mentions={mentionsByChannel.get(child.channelId) ?? EMPTY_MENTIONS}
+                      expanded={expandedChannelIds.has(child.channelId)}
+                      onToggleExpanded={toggleChannelExpanded}
+                      renderUnreadMessages={input => renderMessages({ ...input, viewerUserId, onSubmitDecisionCard })}
+                      onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}
+                      replyPlaceholder={`Reply in #${child.channelName}…`}
+                      replyLabel={`Reply in #${child.channelName}`}
+                      onReply={onReplyChannel ? (content, nonce) => onReplyChannel(child.channelId, content, nonce) : undefined}>
+                      <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} showJumpCue />
+                    </UnreadChannelCard>
+                  )
+                })()}
+              </div>
+            )
           })}
-          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(channel.channelId)}
-          replyPlaceholder={`Reply in #${channel.channelName}…`}
-          replyLabel={`Reply in #${channel.channelName}`}
-          onReply={onReplyChannel && channel.type !== "forum" ? (content, nonce) => onReplyChannel(channel.channelId, content, nonce) : undefined}>
-          <InboxServerCardIdentity server={server} name={channel.channelName} kind={channel.type}
-            location={channelLocation(directory, channel.channelId)} showJumpCue />
-        </UnreadChannelCard>] : []),
-        ...children.map(child => <UnreadChannelCard key={child.channelId} channelId={child.channelId} name={child.channelName} throughSeq={child.lastUnreadSeq} unreadCount={child.unreadCount}
-          identityTestId={tid.inboxUnreadChild(child.channelId)} onOpen={() => onOpenThread(server, channel, child)}
-          mentions={mentions.filter(mention => mention.channelId === child.channelId)}
-          renderUnreadMessages={input => renderMessages({ ...input, viewerUserId, onSubmitDecisionCard })}
-          onMarkChannelRead={onMarkChannelRead} read={channelReadActions?.get(child.channelId)}
-          replyPlaceholder={`Reply in #${child.channelName}…`}
-          replyLabel={`Reply in #${child.channelName}`}
-          onReply={onReplyChannel ? (content, nonce) => onReplyChannel(child.channelId, content, nonce) : undefined}>
-          <InboxServerCardIdentity server={server} name={child.channelName} kind={child.type} location={channel.channelName} showJumpCue />
-        </UnreadChannelCard>),
-      ]))}
+        </div>
+      )}
     </InboxScrollBody>
   )
 }
@@ -682,16 +772,31 @@ function TodoTab({
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
-  const peersByChannel = new Map(directory.dms?.map(dm => [dm.id, dm]))
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const peersByChannel = useMemo(() => new Map(directory.dms?.map(dm => [dm.id, dm])), [directory.dms])
   const replyTodoHandler = onReplyTodo ?? onSubmitTodo
+  const visibleTodos = useMemo(() => todos.filter((todo) => Boolean(todo.m.decisionCard)), [todos])
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const todoVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: visibleTodos.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => INBOX_TODO_CARD_ESTIMATE,
+    overscan: 4,
+    initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const todoVirtualItems = todoVirtualizer.getVirtualItems()
   return (
-    <InboxScrollBody tab="todo" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
+    <InboxScrollBody tab="todo" viewportRef={viewportRef} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && todos.length === 0 && <InboxRowsSkeleton />}
       {error && todos.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && todos.length === 0 && <EmptyState icon={CircleCheck} label="No pending questions" />}
-      {todos.length > 0 && (
-        <div className="flex flex-col gap-3 pb-3">
-          {todos.map((todo) => {
+      {visibleTodos.length > 0 && (
+        <div className="relative w-full pb-3" style={{ height: todoVirtualizer.getTotalSize() }}>
+          {todoVirtualItems.map((virtualItem) => {
+            const todo = visibleTodos[virtualItem.index]
+            if (!todo) return null
             const card = todo.m.decisionCard
             if (!card) return null
             const channel = directory.channels.get(todo.channelId)
@@ -800,21 +905,29 @@ function TodoTab({
               />
             ) : undefined
             return (
-              <article key={todo.id} data-testid={tid.inboxTodoCard(todo.messageId)} className="min-w-0">
-                <DecisionCard
-                  messageId={todo.messageId}
-                  card={card}
-                  authorId={todo.m.authorId}
-                  viewerUserId={viewerUserId ?? undefined}
-                  header={sourceHeader}
-                  footer={replyFooter}
-                  className="my-0"
-                  onSubmit={onSubmitTodo
-                    ? (_messageId, content, nonce) => onSubmitTodo(todo, content, nonce)
-                    : undefined}
-                  onOpenProfile={onOpenProfile}
-                />
-              </article>
+              <div
+                key={todo.id}
+                data-index={virtualItem.index}
+                ref={todoVirtualizer.measureElement}
+                className="pb-3"
+                style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
+              >
+                <article data-testid={tid.inboxTodoCard(todo.messageId)} className="min-w-0">
+                  <DecisionCard
+                    messageId={todo.messageId}
+                    card={card}
+                    authorId={todo.m.authorId}
+                    viewerUserId={viewerUserId ?? undefined}
+                    header={sourceHeader}
+                    footer={replyFooter}
+                    className="my-0"
+                    onSubmit={onSubmitTodo
+                      ? (_messageId, content, nonce) => onSubmitTodo(todo, content, nonce)
+                      : undefined}
+                    onOpenProfile={onOpenProfile}
+                  />
+                </article>
+              </div>
             )
           })}
         </div>
@@ -835,45 +948,70 @@ function MarkedTab({ marked, loading, error, retrying, onRetry, onOpenMarked, on
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
-  const peersByChannel = new Map(directory.dms?.map(dm => [dm.id, dm]))
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const peersByChannel = useMemo(() => new Map(directory.dms?.map(dm => [dm.id, dm])), [directory.dms])
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const markedVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: marked.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => INBOX_MARKED_CARD_ESTIMATE,
+    overscan: 6,
+    initialRect: INBOX_VIRTUALIZER_INITIAL_RECT,
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const markedVirtualItems = markedVirtualizer.getVirtualItems()
   return (
-    <InboxScrollBody tab="marked" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
+    <InboxScrollBody tab="marked" viewportRef={viewportRef} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && marked.length === 0 && <InboxRowsSkeleton />}
       {error && marked.length === 0 && <AttentionLoadError onRetry={onRetry} retrying={retrying} />}
       {!loading && !error && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
-      {marked.map(mk => {
-        const channel = directory.channels.get(mk.channelId)
-        const server = mk.serverId ? directory.servers.get(mk.serverId) : undefined
-        const peer = peersByChannel.get(mk.channelId)
-        const name = peer?.name ?? channel?.name ?? mk.channel
-        const open = onOpenMarked ? () => onOpenMarked(mk) : undefined
-        const isOtherAuthorInDm = !mk.serverId && Boolean(peer?.userId && mk.m.authorId && mk.m.authorId !== peer.userId)
-        const continuation = !mk.serverId && !isOtherAuthorInDm
-        return (
-          <InboxCard key={mk.id} testId={tid.inboxMarkedCard(mk.id)}
-            identity={<button type="button" className={cn(identityActionClassName, expandedIdentityActionClassName)} onClick={open}>
-              {mk.serverId
-                ? <InboxServerCardIdentity name={name} kind={channel?.type === "dm" ? undefined : channel?.type}
-                    location={channelLocation(directory, mk.channelId, mk.parentChannelId)}
-                    server={{ serverId: mk.serverId, serverName: server?.name ?? mk.server, serverIcon: server?.icon }}
-                    showJumpCue={Boolean(open)} />
-                : <InboxDmCardIdentity name={name} avatar={peer?.avatar ?? avatarInitial(name)}
-                    userId={peer?.userId ?? mk.channelId} discriminator={peer?.discriminator}
-                    showJumpCue={Boolean(open)} />}
-            </button>}
-            actions={onUnmark && <InboxIconAction aria-label="Unmark" title="Unmark"
-              data-testid={tid.inboxUnmark(mk.m.id)}
-              className="-me-1.5 text-muted-foreground hover:text-foreground sm:-me-1"
-              onClick={() => onUnmark(mk.m.id)}>
-              <X className="size-4" />
-            </InboxIconAction>}
-          >
-            <div data-slot="inbox-card-messages" className="min-w-0 px-3 sm:px-3.5">
-              <InboxMessagePreview message={{ ...mk.m, grouped: false }} continuation={continuation} first onOpen={open} />
-            </div>
-          </InboxCard>
-        )
-      })}
+      {marked.length > 0 && (
+        <div className="relative w-full" style={{ height: markedVirtualizer.getTotalSize() }}>
+          {markedVirtualItems.map((virtualItem) => {
+            const mk = marked[virtualItem.index]
+            if (!mk) return null
+            const channel = directory.channels.get(mk.channelId)
+            const server = mk.serverId ? directory.servers.get(mk.serverId) : undefined
+            const peer = peersByChannel.get(mk.channelId)
+            const name = peer?.name ?? channel?.name ?? mk.channel
+            const open = onOpenMarked ? () => onOpenMarked(mk) : undefined
+            const isOtherAuthorInDm = !mk.serverId && Boolean(peer?.userId && mk.m.authorId && mk.m.authorId !== peer.userId)
+            const continuation = !mk.serverId && !isOtherAuthorInDm
+            return (
+              <div
+                key={mk.id}
+                data-index={virtualItem.index}
+                ref={markedVirtualizer.measureElement}
+                style={{ position: "absolute", top: virtualItem.start, left: 0, width: "100%" }}
+              >
+                <InboxCard testId={tid.inboxMarkedCard(mk.id)}
+                  identity={<button type="button" className={cn(identityActionClassName, expandedIdentityActionClassName)} onClick={open}>
+                    {mk.serverId
+                      ? <InboxServerCardIdentity name={name} kind={channel?.type === "dm" ? undefined : channel?.type}
+                          location={channelLocation(directory, mk.channelId, mk.parentChannelId)}
+                          server={{ serverId: mk.serverId, serverName: server?.name ?? mk.server, serverIcon: server?.icon }}
+                          showJumpCue={Boolean(open)} />
+                      : <InboxDmCardIdentity name={name} avatar={peer?.avatar ?? avatarInitial(name)}
+                          userId={peer?.userId ?? mk.channelId} discriminator={peer?.discriminator}
+                          showJumpCue={Boolean(open)} />}
+                  </button>}
+                  actions={onUnmark && <InboxIconAction aria-label="Unmark" title="Unmark"
+                    data-testid={tid.inboxUnmark(mk.m.id)}
+                    className="-me-1.5 text-muted-foreground hover:text-foreground sm:-me-1"
+                    onClick={() => onUnmark(mk.m.id)}>
+                    <X className="size-4" />
+                  </InboxIconAction>}
+                >
+                  <div data-slot="inbox-card-messages" className="min-w-0 px-3 sm:px-3.5">
+                    <InboxMessagePreview message={{ ...mk.m, grouped: false }} continuation={continuation} first onOpen={open} />
+                  </div>
+                </InboxCard>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </InboxScrollBody>
   )
 }

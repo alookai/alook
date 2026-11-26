@@ -11,6 +11,22 @@ const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000
 export const MESSAGE_ROW_VERTICAL_PADDING_PX = 8
 export const MESSAGE_GROUPED_ROW_PADDING_PX = MESSAGE_ROW_VERTICAL_PADDING_PX / 2
 
+const renderMsgCache = new WeakMap<Msg, { groupedTrue?: RenderMsg; groupedFalse?: RenderMsg }>()
+
+function toRenderMsg(message: Msg, grouped: boolean): RenderMsg {
+  let entry = renderMsgCache.get(message)
+  if (!entry) {
+    entry = {}
+    renderMsgCache.set(message, entry)
+  }
+  if (grouped) {
+    if (!entry.groupedTrue) entry.groupedTrue = { ...message, grouped: true }
+    return entry.groupedTrue
+  }
+  if (!entry.groupedFalse) entry.groupedFalse = { ...message, grouped: false }
+  return entry.groupedFalse
+}
+
 export type FlatItem = {
   kind: "message"
   m: RenderMsg
@@ -60,7 +76,7 @@ export function stabilizeFirstRowGrouping(
     const stabilized = items.slice()
     stabilized[firstIndex] = {
       ...firstItem,
-      m: { ...firstItem.m, grouped: false },
+      m: toRenderMsg(firstItem.m, false),
     }
     return { items: stabilized, firstMessageGrouping: previousFirst }
   }
@@ -106,7 +122,7 @@ export function flattenMessageItems(
     }
     items.push({
       kind: "message",
-      m: { ...m, grouped },
+      m: toRenderMsg(m, grouped),
       key: messageDisplayKey(m, viewerUserId),
       paddingTop: joinsPrevious ? MESSAGE_GROUPED_ROW_PADDING_PX : MESSAGE_ROW_VERTICAL_PADDING_PX,
       paddingBottom: MESSAGE_ROW_VERTICAL_PADDING_PX,

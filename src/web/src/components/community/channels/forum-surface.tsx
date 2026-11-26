@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef } from "react"
+import { useCallback, useMemo, useRef } from "react"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
@@ -11,11 +11,12 @@ import type { Member } from "@/lib/community/models/people"
 import { ForumView } from "./forum-view"
 import { useForumFeed } from "@/hooks/community/use-forum-feed"
 import { useConversationEntry } from "@/hooks/community/use-conversation-entry"
+import { ConversationResourceProvider } from "@/hooks/community/conversation-resource-context"
 import { useTimelineReadObserver } from "@/hooks/community/use-read-observer"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 
-export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, ...props }: {
+type ForumSurfaceProps = {
   serverId: string
   forumChannelId: string
   routeTag?: string | null
@@ -30,12 +31,34 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
   onDeletePost?: (post: ForumThread) => void
   canDeletePost?: (post: ForumThread) => boolean | undefined
   deletingPost?: string | null
-}) {
+}
+
+export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, ...props }: ForumSurfaceProps) {
   const feed = useForumFeed(serverId, forumChannelId, { routeTag, onSelectTag })
-  const readState = useConversationEntry(feed.selectionReady ? { channelId: forumChannelId, serverId, tag: feed.tag === "All" ? null : feed.tag } : null)
+  return (
+    <ConversationResourceProvider value={feed.sharedResource}>
+      <ForumSurfaceContent serverId={serverId} forumChannelId={forumChannelId} feed={feed} {...props} />
+    </ConversationResourceProvider>
+  )
+}
+
+function ForumSurfaceContent({
+  serverId,
+  forumChannelId,
+  feed,
+  ...props
+}: Omit<ForumSurfaceProps, "routeTag" | "onSelectTag"> & {
+  feed: ReturnType<typeof useForumFeed>
+}) {
+  const selectedTag = feed.tag === "All" ? null : feed.tag
+  const entryTarget = useMemo(
+    () => (feed.selectionReady ? { channelId: forumChannelId, serverId, tag: selectedTag } : null),
+    [feed.selectionReady, forumChannelId, selectedTag, serverId],
+  )
+  const readState = useConversationEntry(entryTarget)
   const proof = readState.scope?.proof
   const positionScope = useMemo<ConversationListScope | undefined>(() => readState.canRead && proof
-    ? { proof, tag: feed.tag === "All" ? null : feed.tag } : undefined, [readState.canRead, proof, feed.tag])
+    ? { proof, tag: selectedTag } : undefined, [readState.canRead, proof, selectedTag])
   const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const retryScope = JSON.stringify([forumChannelId, feed.tag])
   const [retryAttempt, setRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
@@ -45,18 +68,33 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
   const initialLoadError = accessError || (!feed.displayReady && (
     feed.isError || !!feed.initialLoadError || !!readState.error || retrying
   ))
+  const readMessages = useMemo(
+    () =>
+      feed.posts.flatMap((post) => (
+        post.openerMessageId && post.parentSeq
+          ? [{
+              id: post.openerMessageId,
+              seq: post.parentSeq,
+              authorId: post.authorId,
+              createdAt: post.openerCreatedAt,
+            }]
+          : []
+      )),
+    [feed.posts],
+  )
+  const feedRefetch = feed.refetch
+  const catchUp = useCallback(() => feedRefetch(), [feedRefetch])
+  const retryTags = feed.retryTags
+  const onRetryTags = useCallback(() => { void retryTags() }, [retryTags])
+  const onEditPostTagsProp = props.onEditPostTags
+  const onEditPostTags = useCallback((threadId: string, tags: string[]) => {
+    const post = feed.posts.find((candidate) => candidate.id === threadId)
+    if (post) return onEditPostTagsProp?.(post, tags)
+  }, [feed.posts, onEditPostTagsProp])
+
   useTimelineReadObserver({
     channelId: forumChannelId,
-    messages: feed.posts.flatMap((post) => (
-      post.openerMessageId && post.parentSeq
-        ? [{
-            id: post.openerMessageId,
-            seq: post.parentSeq,
-            authorId: post.authorId,
-            createdAt: post.openerCreatedAt,
-          }]
-        : []
-    )),
+    messages: readMessages,
     scrollRootEl,
     snapshotStatus: isConversationAccessError(readState.error)
       ? "error"
@@ -70,7 +108,7 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
         : "ready",
     tailAttached: true,
     confirmedSeq: readState.snapshot?.lastReadSeq ?? 0,
-    catchUp: () => feed.refetch(),
+    catchUp,
   })
   if (initialLoadError) {
     return <ConversationResolutionErrorFrame as="div" retrying={retrying || feed.isFetching || readState.retrying} onRetry={() => {
@@ -94,7 +132,7 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
     availableTags={feed.availableTags}
     tagsKnown={feed.tagsKnown}
     tagsError={feed.tagsError}
-    onRetryTags={() => { void feed.retryTags() }}
+    onRetryTags={onRetryTags}
     onTagChange={feed.selectTag}
     hasMore={feed.hasMoreOlder}
     loadingMore={feed.isFetchingOlder}
@@ -102,9 +140,6 @@ export function ForumSurface({ serverId, forumChannelId, routeTag, onSelectTag, 
     isError={feed.isError}
     onLoadMore={feed.fetchOlder}
     onScrollRoot={setScrollRootEl}
-    onEditPostTags={(threadId, tags) => {
-      const post = feed.posts.find((candidate) => candidate.id === threadId)
-      if (post) return props.onEditPostTags?.(post, tags)
-    }}
+    onEditPostTags={onEditPostTags}
   />
 }

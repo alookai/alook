@@ -390,4 +390,30 @@ describe("Composer suggestion popups", () => {
     expect(renderer.container.querySelectorAll('span[class="text-muted-foreground"]'))
       .toHaveLength(0)
   })
+
+  it("virtualizes large mention candidate lists into a bounded option window", () => {
+    const items: MentionPopupState["items"] = Array.from({ length: 500 }, (_, index) => ({
+      kind: "member" as const,
+      id: `member-${index}`,
+      userId: `user-${index}`,
+      label: `Member${index}#0001`,
+      name: `Member${index}`,
+      discriminator: "0001",
+      avatar: "M",
+      status: "online" as const,
+    }))
+    const view = render(createElement(CommunityMentionList, {
+      state: {
+        items,
+        query: "",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: () => rect(500),
+      },
+      presentation: { status: "ready" },
+    }))
+    const renderedOptions = view.container.querySelectorAll('[role="option"]')
+    expect(renderedOptions.length).toBeGreaterThan(0)
+    expect(renderedOptions.length).toBeLessThan(40)
+  })
 })

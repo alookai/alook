@@ -73,6 +73,14 @@ export function InboxUnreadMessages({
             </div>
           </div>
     )}
+    {query.hasEarlierUnread && (
+      <div
+        data-slot="inbox-earlier-unread-banner"
+        className="cursor-pointer rounded-lg bg-muted/60 px-2.5 py-1.5 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+      >
+        Jump to channel for earlier unread messages
+      </div>
+    )}
     {messages.length > 0 && <div data-slot="inbox-card-messages" className={cn("flex min-w-0 flex-col", !continuation && "gap-1")}>
       {flattenMessageItems(messages, undefined, false, false, false).map((item, index) => {
         if (item.kind !== "message") return null

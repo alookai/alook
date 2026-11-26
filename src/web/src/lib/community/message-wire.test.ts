@@ -241,4 +241,29 @@ describe("projectPostedMessage", () => {
     expect(cardOnly.decisionCard).toEqual(card)
     expect(cardOnly.embeds).toEqual([])
   })
+
+  it("reuses memoized presented messages for unchanged canonical rows", () => {
+    const row = wire({
+      id: "m-memo",
+      embeds: [{ title: "Release notes", url: "https://example.com" }],
+      attachments: [{ id: "f1", name: "notes.txt", url: "/f1", thumbnailUrl: null, contentType: "text/plain", sizeBytes: 12, width: null, height: null }],
+    })
+    const first = presentCanonicalMessage(row)
+    const second = presentCanonicalMessage(row)
+    expect(second).toBe(first)
+    expect(second.embeds).toBe(first.embeds)
+    expect(second.attachments).toBe(first.attachments)
+
+    const replyRow = wire({
+      id: "m-memo-reply",
+      replyToId: "m-parent",
+      replyTo: { id: "m-parent", authorId: "peer", authorName: "Peer" },
+    })
+    const replyTarget = wire({ id: "m-parent", content: "Parent body" })
+    const withoutTarget = presentCanonicalMessage(replyRow)
+    const withReplyFirst = presentCanonicalMessage(replyRow, replyTarget)
+    const withReplySecond = presentCanonicalMessage(replyRow, replyTarget)
+    expect(withReplySecond).toBe(withReplyFirst)
+    expect(withReplySecond).not.toBe(withoutTarget)
+  })
 })

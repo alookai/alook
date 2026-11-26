@@ -3,6 +3,8 @@ import {
   draftStorageKey,
   readComposerDraft,
   writeComposerDraft,
+  scheduleComposerDraftWrite,
+  flushComposerDraft,
   clearComposerDraft,
 } from "./composer-draft"
 
@@ -129,5 +131,39 @@ describe("composer-draft", () => {
   it("returns null when window is undefined (SSR)", () => {
     vi.stubGlobal("window", undefined)
     expect(readComposerDraft("srv/chan")).toBeNull()
+  })
+
+  it("coalesces rapid scheduled draft updates into a single storage write while reading the latest pending doc synchronously", () => {
+    vi.useFakeTimers()
+    try {
+      const setItem = localStorage.setItem as ReturnType<typeof vi.fn>
+      setItem.mockClear()
+      for (let i = 1; i <= 50; i += 1) {
+        scheduleComposerDraftWrite("srv/rapid", {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: `draft-${i}` }] }],
+        })
+      }
+      expect(setItem).not.toHaveBeenCalled()
+      expect(readComposerDraft("srv/rapid")).toEqual({
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "draft-50" }] }],
+      })
+
+      vi.advanceTimersByTime(300)
+      expect(setItem).toHaveBeenCalledTimes(1)
+      expect(storage["c-composer-draft:srv/rapid"]).toContain("draft-50")
+
+      scheduleComposerDraftWrite("srv/rapid", {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "flushed" }] }],
+      })
+      expect(setItem).toHaveBeenCalledTimes(1)
+      flushComposerDraft("srv/rapid")
+      expect(setItem).toHaveBeenCalledTimes(2)
+      expect(storage["c-composer-draft:srv/rapid"]).toContain("flushed")
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

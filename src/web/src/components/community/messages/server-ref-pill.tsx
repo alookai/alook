@@ -49,8 +49,20 @@ export function ServerRefPill({ children }: { children?: React.ReactNode }) {
       }
     })
     const unsubscribeCollection = registry.collections.servers.subscribeChanges(() => notify())
-    const unsubscribeLifecycle = registry.runtime.lifecycle.subscribe(() => notify())
-    const unsubscribeWs = registry.runtime.ws.subscribe(() => notify())
+    let lastActive = registry.runtime.lifecycle.get().active
+    const unsubscribeLifecycle = registry.runtime.lifecycle.subscribe(() => {
+      const nextActive = registry.runtime.lifecycle.get().active
+      if (nextActive === lastActive) return
+      lastActive = nextActive
+      notify()
+    })
+    let lastRevoked = registry.runtime.ws.get().revokedServerIds
+    const unsubscribeWs = registry.runtime.ws.subscribe(() => {
+      const nextRevoked = registry.runtime.ws.get().revokedServerIds
+      if (nextRevoked === lastRevoked) return
+      lastRevoked = nextRevoked
+      notify()
+    })
     return () => {
       unsubscribeQuery()
       unsubscribeCollection.unsubscribe()

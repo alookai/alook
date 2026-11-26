@@ -62,7 +62,9 @@ vi.mock("@/hooks/use-hover-capable", () => ({
 }))
 vi.mock("@/lib/community/composer-draft", () => ({
   clearComposerDraft: (...args: unknown[]) => mocks.clearDraft(...args),
+  flushComposerDraft: vi.fn(),
   readComposerDraft: (...args: unknown[]) => mocks.readDraft(...args),
+  scheduleComposerDraftWrite: (...args: unknown[]) => mocks.writeDraft(...args),
   writeComposerDraft: (...args: unknown[]) => mocks.writeDraft(...args),
 }))
 vi.mock("@/lib/community/composer-attachment-session", () => ({

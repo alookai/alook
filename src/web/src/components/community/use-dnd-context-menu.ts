@@ -1,9 +1,11 @@
 "use client"
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef } from "react"
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, type ContextType } from "react"
 import type { ContextMenu } from "@base-ui/react/context-menu"
 import { DndContext } from "react-dnd"
 import { communityTouchHoldDelay } from "./community-dnd"
+
+type DragDropManager = NonNullable<ContextType<typeof DndContext>["dragDropManager"]>
 
 type Options = {
   canOpen: boolean
@@ -11,55 +13,142 @@ type Options = {
   suppressOpen: () => boolean
 }
 
+const activeHoldCleanups = new Set<() => void>()
+
+function handleSharedWindowBlur() {
+  for (const cleanup of [...activeHoldCleanups]) cleanup()
+}
+
+function handleSharedVisibilityChange() {
+  if (!document.hidden) return
+  for (const cleanup of [...activeHoldCleanups]) cleanup()
+}
+
+function addHoldCleanup(cleanup: () => void) {
+  if (activeHoldCleanups.has(cleanup)) return
+  if (activeHoldCleanups.size === 0 && typeof window !== "undefined") {
+    window.addEventListener("blur", handleSharedWindowBlur)
+    document.addEventListener("visibilitychange", handleSharedVisibilityChange)
+  }
+  activeHoldCleanups.add(cleanup)
+}
+
+function removeHoldCleanup(cleanup: () => void) {
+  if (!activeHoldCleanups.delete(cleanup)) return
+  if (activeHoldCleanups.size === 0 && typeof window !== "undefined") {
+    window.removeEventListener("blur", handleSharedWindowBlur)
+    document.removeEventListener("visibilitychange", handleSharedVisibilityChange)
+  }
+}
+
+type SharedDragStartEntry = {
+  listeners: Set<() => void>
+  dragging: boolean
+  unsubscribe: () => void
+}
+
+const dragStartRegistry = new WeakMap<DragDropManager, SharedDragStartEntry>()
+
+function addDragStartListener(manager: DragDropManager | undefined, listener: () => void) {
+  if (!manager) return
+  let entry = dragStartRegistry.get(manager)
+  if (!entry) {
+    const monitor = manager.getMonitor()
+    const listeners = new Set<() => void>()
+    const created: SharedDragStartEntry = {
+      listeners,
+      dragging: monitor.isDragging(),
+      unsubscribe: () => {},
+    }
+    created.unsubscribe = monitor.subscribeToStateChange(() => {
+      const active = monitor.isDragging()
+      const started = active && !created.dragging
+      created.dragging = active
+      if (!started) return
+      for (const fn of [...listeners]) fn()
+    })
+    entry = created
+    dragStartRegistry.set(manager, entry)
+  }
+  entry.listeners.add(listener)
+}
+
+function removeDragStartListener(manager: DragDropManager | undefined, listener: () => void) {
+  if (!manager) return
+  const entry = dragStartRegistry.get(manager)
+  if (!entry || !entry.listeners.delete(listener)) return
+  if (entry.listeners.size === 0) {
+    entry.unsubscribe()
+    dragStartRegistry.delete(manager)
+  }
+}
+
 export function useDndContextMenu(options: Options) {
   const { dragDropManager: manager } = useContext(DndContext)
   const latest = useRef(options)
+  const managerRef = useRef(manager)
   const actionsRef = useRef<ContextMenu.Root.Actions | null>(null)
   const hold = useRef<{ node: HTMLElement; x: number; y: number; ready: boolean } | null>(null)
+  const menuOpenRef = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const clearTimer = useCallback(() => {
     if (timer.current !== null) clearTimeout(timer.current)
     timer.current = null
   }, [])
+  const onDragStartRef = useRef<() => void>(() => {})
+  const clearHoldRef = useRef<() => void>(() => {})
+  const syncDragSubscription = useCallback(() => {
+    if (latest.current.canOpen || hold.current !== null || menuOpenRef.current) {
+      addDragStartListener(managerRef.current, onDragStartRef.current)
+    } else {
+      removeDragStartListener(managerRef.current, onDragStartRef.current)
+    }
+  }, [])
   const clearHold = useCallback(() => {
     clearTimer()
     hold.current = null
-  }, [clearTimer])
+    removeHoldCleanup(clearHoldRef.current)
+    syncDragSubscription()
+  }, [clearTimer, syncDragSubscription])
   useLayoutEffect(() => {
-    latest.current = options
-    if (!options.canOpen || !options.canDrag()) clearHold()
-  }, [clearHold, options])
-  useEffect(() => {
-    if (options.canOpen) return
-    actionsRef.current?.close()
-    actionsRef.current?.unmount()
-  }, [options.canOpen])
-  useEffect(() => {
-    let dragging = false
-    const closeForDrag = () => {
-      const active = manager?.getMonitor().isDragging() ?? false
-      const started = active && !dragging
-      dragging = active
-      if (!started) return
+    clearHoldRef.current = clearHold
+    onDragStartRef.current = () => {
       clearHold()
+      menuOpenRef.current = false
+      syncDragSubscription()
       actionsRef.current?.close()
       actionsRef.current?.unmount()
     }
-    const unsubscribe = manager?.getMonitor().subscribeToStateChange(closeForDrag)
-    const visibility = () => { if (document.hidden) clearHold() }
-    window.addEventListener("blur", clearHold)
-    document.addEventListener("visibilitychange", visibility)
-    return () => {
-      unsubscribe?.()
-      window.removeEventListener("blur", clearHold)
-      document.removeEventListener("visibilitychange", visibility)
-      clearHold()
+    const previousManager = managerRef.current
+    if (previousManager !== manager) {
+      removeDragStartListener(previousManager, onDragStartRef.current)
+      managerRef.current = manager
     }
-  }, [manager, clearHold])
-  const suppressed = () => manager?.getMonitor().isDragging() || latest.current.suppressOpen()
+    latest.current = options
+    syncDragSubscription()
+    if (!options.canOpen || !options.canDrag()) clearHold()
+  }, [clearHold, manager, options, syncDragSubscription])
+  useEffect(() => {
+    if (options.canOpen) return
+    menuOpenRef.current = false
+    syncDragSubscription()
+    actionsRef.current?.close()
+    actionsRef.current?.unmount()
+  }, [options.canOpen, syncDragSubscription])
+  useEffect(() => () => {
+    menuOpenRef.current = false
+    clearHold()
+    removeDragStartListener(managerRef.current, onDragStartRef.current)
+  }, [clearHold])
+  const suppressed = () => managerRef.current?.getMonitor().isDragging() || latest.current.suppressOpen()
   const onOpenChange: NonNullable<ContextMenu.Root.Props["onOpenChange"]> = (open, details) => {
-    if (open && (!latest.current.canOpen || suppressed())) details.cancel()
+    if (open && (!latest.current.canOpen || suppressed())) {
+      details.cancel()
+      return
+    }
+    menuOpenRef.current = open
     if (!open) clearHold()
+    else syncDragSubscription()
   }
   const triggerProps: Pick<ContextMenu.Trigger.Props, "onTouchStart" | "onTouchMove" | "onTouchEnd" | "onTouchCancel" | "onContextMenu"> = {
     onTouchStart: (event) => {
@@ -70,6 +159,8 @@ export function useDndContextMenu(options: Options) {
       const touch = event.touches[0]
       const current = { node: event.currentTarget, x: touch.clientX, y: touch.clientY, ready: false }
       hold.current = current
+      addHoldCleanup(clearHoldRef.current)
+      syncDragSubscription()
       timer.current = setTimeout(() => {
         timer.current = null
         if (hold.current !== current || !current.node.isConnected || !latest.current.canOpen || !latest.current.canDrag() || suppressed()) return

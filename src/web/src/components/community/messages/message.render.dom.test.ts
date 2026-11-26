@@ -23,6 +23,9 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
   useCanonicalCommunityProfile: (userId: string | null | undefined) => userId === "u1"
     ? { userId, name: "Alice", discriminator: "", avatar: "A", avatarVersion: 0 }
     : undefined,
+  useCanonicalCommunityIdentity: (userId: string | null | undefined) => userId === "u1"
+    ? { userId, name: "Alice", discriminator: "", avatar: "A", avatarVersion: 0 }
+    : undefined,
 }))
 vi.mock("./emoji-picker-interactive", async () => {
   const ReactModule = await import("react")
@@ -286,9 +289,11 @@ describe("Message memo comparator", () => {
 
   it("bails out when compared fields are unchanged despite a fresh `m` clone", () => {
     const resolveUserName = vi.fn((id: string) => id)
-    const props = { m: baseMsg({ reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u2"] }] }), resolveUserName, onOpenThread: vi.fn() }
+    const props = { m: baseMsg({ reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u2"] }] }), resolveUserName, onOpenThread: vi.fn(), onReply: vi.fn(), onToggleReaction: vi.fn() }
     const view = rtlRender(makeTree(props))
     expect(view.getByTestId(tid.reactionChip("m1", "👍"))).toHaveAttribute("aria-pressed", "false")
+    expect(resolveUserName).not.toHaveBeenCalled()
+    fireEvent.pointerEnter(row(view), { pointerType: "mouse" })
     const initial = resolveUserName.mock.calls.length
     expect(initial).toBeGreaterThan(0)
     view.rerender(makeTree({ ...props, m: { ...props.m } }))

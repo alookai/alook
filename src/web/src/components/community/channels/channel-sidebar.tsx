@@ -3,15 +3,17 @@
 import type { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 import type { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { OfficialServerBadge } from "../official-server-badge"
 import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { channelHref } from "@/lib/community/community-route"
-import { Fragment, memo, useEffect, useRef, type ComponentProps, type MouseEvent } from "react"
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, type ComponentProps, type MouseEvent } from "react"
 import { Link2, Settings, Users, Bell, ChevronDown, UserPlus } from "@/components/icons/lucide";
 import { CommunityDndProvider, useCommunityDndScrolling } from "../community-dnd"
 import { ChannelDndScope, ChannelDropContainer, useChannelDragActive } from "./channel-dnd"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea, ScrollAreaContent, ScrollAreaRoot, ScrollAreaViewport, ScrollBar } from "@/components/ui/scroll-area"
@@ -31,8 +33,20 @@ import type { ForumSidebarThread } from "@/hooks/community/use-forum-sidebar-thr
 import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 import { ChannelUnreadIndicator } from "./channel-unread-indicator"
 import { ForumPostCountsStatus } from "./forum-post-count"
+import {
+  COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  observeCommunityVirtualizerRect,
+} from "@/hooks/community/virtualizer-react-options"
 
 const FORUM_SIDEBAR_ROW_HEIGHT = 28
+const CHANNEL_SIDEBAR_VIRTUALIZE_THRESHOLD = 60
+
+type SidebarVirtualEntry =
+  | { kind: "category-header"; key: string; id: string; name: string; open: boolean; isPrivate: boolean; pending: boolean; hasChannels: boolean; canCreate: boolean }
+  | { kind: "channel"; key: string; channel: Channel; categoryId: string; isPrivate: boolean }
+  | { kind: "pending-channel"; key: string; channel: Channel }
+  | { kind: "forum-threads"; key: string; parentId: string; threads: ForumSidebarThread[] }
+  | { kind: "drop-end"; key: string; categoryId: string; before: boolean; lastRowId?: string }
 
 type Dialog =
   | { kind: "create-channel"; categoryId: string }
@@ -40,6 +54,8 @@ type Dialog =
   | { kind: "create-category" }
   | { kind: "category-settings"; categoryId: string }
   | { kind: "manage-members"; channelId: string; channelName: string }
+  | { kind: "delete-channel"; channelId: string; channelName: string }
+  | { kind: "delete-category"; categoryId: string; categoryName: string }
   | null
 
 export type ChannelSidebarProps = {
@@ -97,18 +113,142 @@ function ChannelSidebarContent({
     }
   }, [isAdmin])
   const canReorder = isAdmin && !reorderPending
-  const onDragEnd = (event: ChannelTreeDrop) => {
+  const onDragEnd = useCallback((event: ChannelTreeDrop) => {
     const commit = projectChannelTreeDrop(tree, event)
     if (!commit || !canReorder) return
     if ("categoryIds" in commit) onReorderCategories?.(commit.categoryIds)
     else onReorderChannels?.(commit.channelIds, commit.move)
-  }
+  }, [canReorder, onReorderCategories, onReorderChannels, tree])
   const [dialog, setDialog] = useAtom(useCreateAtom<Dialog>(null))
-  const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
-  const hasActiveSidebarThread = !!activeThreadId && Object.values(forumThreadsByParent)
-    .some((threads) => threads.some((thread) => thread.id === activeThreadId))
-  const childRows = (parentId: string) => {
-    const threads = forumThreadsByParent[parentId] ?? []
+  const hasActiveSidebarThread = useMemo(() => (
+    !!activeThreadId && Object.values(forumThreadsByParent)
+      .some((threads) => threads.some((thread) => thread.id === activeThreadId))
+  ), [activeThreadId, forumThreadsByParent])
+
+  const noneCatId = useMemo(
+    () => Object.keys(catNames).find((id) => catNames[id] === "") ?? "",
+    [catNames],
+  )
+  const namedCategoryIds = useMemo(
+    () => catOrder.filter((id) => catNames[id] !== ""),
+    [catNames, catOrder],
+  )
+
+  // Who may create a channel where:
+  //   - uncategorized (empty categoryId) / public category → admins only
+  //   - private category → any member (they own the channel + its roster)
+  const canCreateInCategory = useCallback(
+    (categoryId: string) => Boolean(onCreateChannel) && (catPrivate[categoryId] ? true : isAdmin),
+    [catPrivate, isAdmin, onCreateChannel],
+  )
+  const requestCreateChannel = useCallback((categoryId: string) => {
+    if (!canCreateInCategory(categoryId)) { onBlockedCreate?.(); return }
+    setDialog({ kind: "create-channel", categoryId })
+  }, [canCreateInCategory, onBlockedCreate, setDialog])
+
+  const createChannel = useCallback(async (categoryId: string, { name, type }: { name: string; type: ChannelType }) => {
+    const id = await onCreateChannel?.(categoryId, name, type)
+    if (id) setActiveChannel(id)
+  }, [onCreateChannel, setActiveChannel])
+
+  const handleEditChannel = useCallback((ch: Channel, categoryId = "") => {
+    setDialog({ kind: "edit-channel", id: ch.id, categoryId, name: ch.name, type: ch.type ?? "text" })
+  }, [setDialog])
+  const handleRequestDeleteChannel = useCallback((ch: Channel) => {
+    setDialog({ kind: "delete-channel", channelId: ch.id, channelName: ch.name })
+  }, [setDialog])
+  const handleManageChannelMembers = useCallback((ch: Channel) => {
+    setDialog({ kind: "manage-members", channelId: ch.id, channelName: ch.name })
+  }, [setDialog])
+  const handleCategorySettings = useCallback((categoryId: string) => {
+    setDialog({ kind: "category-settings", categoryId })
+  }, [setDialog])
+  const handleRequestDeleteCategory = useCallback((categoryId: string, categoryName: string) => {
+    setDialog({ kind: "delete-category", categoryId, categoryName })
+  }, [setDialog])
+
+  const flatEntries = useMemo<SidebarVirtualEntry[]>(() => {
+    const entries: SidebarVirtualEntry[] = []
+    if (noneCatId) {
+      const noneChannels = order[noneCatId] ?? []
+      for (const ch of noneChannels) {
+        if (ch.pending) {
+          entries.push({ kind: "pending-channel", key: `pending:${ch.id}`, channel: ch })
+        } else {
+          entries.push({ kind: "channel", key: `ch:${ch.id}`, channel: ch, categoryId: noneCatId, isPrivate: false })
+          const threads = forumThreadsByParent[ch.id]
+          if (threads && threads.length > 0) {
+            entries.push({ kind: "forum-threads", key: `threads:${ch.id}`, parentId: ch.id, threads })
+          }
+        }
+      }
+      entries.push({
+        kind: "drop-end",
+        key: `drop-end:${noneCatId}`,
+        categoryId: noneCatId,
+        before: noneChannels.length === 0,
+        lastRowId: noneChannels.filter((channel) => !channel.pending).at(-1)?.id,
+      })
+    }
+    for (const id of namedCategoryIds) {
+      const channels = order[id] ?? []
+      const open = !collapsed.has(id)
+      entries.push({
+        kind: "category-header",
+        key: `cat:${id}`,
+        id,
+        name: catNames[id] ?? id,
+        open,
+        isPrivate: !!catPrivate[id],
+        pending: !!catPending[id],
+        hasChannels: channels.length > 0,
+        canCreate: !catPending[id] && canCreateInCategory(id),
+      })
+      if (open) {
+        for (const ch of channels) {
+          if (ch.pending) {
+            entries.push({ kind: "pending-channel", key: `pending:${ch.id}`, channel: ch })
+          } else {
+            entries.push({ kind: "channel", key: `ch:${ch.id}`, channel: ch, categoryId: id, isPrivate: !!catPrivate[id] })
+            const threads = forumThreadsByParent[ch.id]
+            if (threads && threads.length > 0) {
+              entries.push({ kind: "forum-threads", key: `threads:${ch.id}`, parentId: ch.id, threads })
+            }
+          }
+        }
+        entries.push({
+          kind: "drop-end",
+          key: `drop-end:${id}`,
+          categoryId: id,
+          before: false,
+          lastRowId: channels.filter((channel) => !channel.pending).at(-1)?.id,
+        })
+      }
+    }
+    return entries
+  }, [canCreateInCategory, catNames, catPending, catPrivate, collapsed, forumThreadsByParent, namedCategoryIds, noneCatId, order])
+
+  const shouldVirtualize = flatEntries.length > CHANNEL_SIDEBAR_VIRTUALIZE_THRESHOLD
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const sidebarVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    count: shouldVirtualize ? flatEntries.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => {
+      const entry = flatEntries[index]
+      if (!entry) return 36
+      if (entry.kind === "category-header") return 32
+      if (entry.kind === "forum-threads") return entry.threads.length * FORUM_SIDEBAR_ROW_HEIGHT
+      if (entry.kind === "drop-end") return 16
+      return 36
+    },
+    overscan: 10,
+    initialRect: { width: 240, height: 600 },
+    observeElementRect: observeCommunityVirtualizerRect,
+  })
+  const virtualEntries = shouldVirtualize ? sidebarVirtualizer.getVirtualItems() : []
+
+  const renderForumThreads = (parentId: string, threads: ForumSidebarThread[]) => {
     if (threads.length === 0) return null
     const branchY = (index: number) => index * FORUM_SIDEBAR_ROW_HEIGHT + FORUM_SIDEBAR_ROW_HEIGHT / 2
     const lastY = branchY(threads.length - 1)
@@ -138,76 +278,132 @@ function ChannelSidebarContent({
         {threads.map((thread) => (
           <ForumSidebarThreadRow
             key={thread.id}
+            parentId={parentId}
             thread={thread}
             href={serverId ? channelHref(serverId, thread.id) : undefined}
             active={thread.id === activeThreadId}
             muted={!!mutedChannels?.[parentId]}
-            onClick={() => onSelectForumThread?.(parentId, thread.id)}
+            onSelectForumThread={onSelectForumThread}
           />
         ))}
       </div>
     )
   }
 
-  const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
-
-  // Who may create a channel where:
-  //   - uncategorized (empty categoryId) / public category → admins only
-  //   - private category → any member (they own the channel + its roster)
-  const canCreateInCategory = (categoryId: string) =>
-    Boolean(onCreateChannel) && (catPrivate[categoryId] ? true : isAdmin)
-  const requestCreateChannel = (categoryId: string) => {
-    if (!canCreateInCategory(categoryId)) { onBlockedCreate?.(); return }
-    setDialog({ kind: "create-channel", categoryId })
-  }
-
-  const createChannel = async (categoryId: string, { name, type }: { name: string; type: ChannelType }) => {
-    const id = await onCreateChannel?.(categoryId, name, type)
-    if (id) setActiveChannel(id)
-  }
-
   const channelTree = (
     <ChannelDndScope tree={tree} onDrop={onDragEnd} enabled={canReorder}>
-      {/* uncategorized channels (empty-name category) render bare at the top — no header */}
-      {noneCatId && (
-        <div className={order[noneCatId].length > 0 ? "mb-4" : ""}>
-          <div className="space-y-1">
-            {order[noneCatId].map((ch) => ch.pending ? (
-              <PendingChannelRow key={ch.id} ch={ch} />
-            ) : (
-              <Fragment key={ch.id}>
-                <SortableChannel
-                  ch={withMute(ch)}
-                  href={serverId ? channelHref(serverId, ch.id) : undefined}
-                  active={ch.id === activeChannel && !hasActiveSidebarThread}
-                  canReorder={canReorder}
-                  onClick={() => setActiveChannel(ch.id)}
-                  onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                  onDelete={isAdmin ? () => onDeleteChannel?.(ch.id) : undefined}
-                />
-                {childRows(ch.id)}
-              </Fragment>
-            ))}
-          </div>
-          <ChannelDropContainer id={noneCatId} before={order[noneCatId].length === 0} lastRowId={order[noneCatId].filter((channel) => !channel.pending).at(-1)?.id} />
+      {shouldVirtualize ? (
+        <div className="relative w-full" style={{ height: sidebarVirtualizer.getTotalSize() }}>
+          {virtualEntries.map((virtualItem) => {
+            const entry = flatEntries[virtualItem.index]
+            if (!entry) return null
+            return (
+              <div
+                key={entry.key}
+                data-index={virtualItem.index}
+                ref={sidebarVirtualizer.measureElement}
+                className="absolute top-0 left-0 w-full"
+                style={{ transform: `translateY(${virtualItem.start}px)` }}
+              >
+                {entry.kind === "category-header" ? (
+                  <SortableCategory
+                    id={entry.id}
+                    name={entry.name}
+                    open={entry.open}
+                    onToggle={toggleCat}
+                    onAddChannel={entry.canCreate ? requestCreateChannel : undefined}
+                    onSettings={!entry.pending && isAdmin ? handleCategorySettings : undefined}
+                    onRequestDelete={!entry.pending && isAdmin ? handleRequestDeleteCategory : undefined}
+                    isPrivate={entry.isPrivate}
+                    canReorder={canReorder && !entry.pending}
+                    pending={entry.pending}
+                    hasChannels={entry.hasChannels}
+                    className="mb-1 pt-2"
+                  />
+                ) : entry.kind === "pending-channel" ? (
+                  <div className="pb-1">
+                    <PendingChannelRow ch={entry.channel} />
+                  </div>
+                ) : entry.kind === "channel" ? (() => {
+                  const ch = entry.channel
+                  const canManageChannel = entry.categoryId === noneCatId
+                    ? isAdmin
+                    : isAdmin || (entry.isPrivate && ch.creatorId === currentUserId)
+                  const resolvedMuted = mutedChannels && ch.id in mutedChannels ? mutedChannels[ch.id] : ch.muted
+                  return (
+                    <div className="pb-1">
+                      <SortableChannel
+                        ch={ch}
+                        categoryId={entry.categoryId}
+                        muted={resolvedMuted}
+                        href={serverId ? channelHref(serverId, ch.id) : undefined}
+                        active={ch.id === activeChannel && !hasActiveSidebarThread}
+                        canReorder={canReorder}
+                        onClick={setActiveChannel}
+                        onEdit={canManageChannel ? handleEditChannel : undefined}
+                        onRequestDelete={canManageChannel ? handleRequestDeleteChannel : undefined}
+                        onManageMembers={(entry.isPrivate && canManageChannel) ? handleManageChannelMembers : undefined}
+                      />
+                    </div>
+                  )
+                })() : entry.kind === "forum-threads" ? (
+                  renderForumThreads(entry.parentId, entry.threads)
+                ) : (
+                  <div className="pb-3">
+                    <ChannelDropContainer id={entry.categoryId} before={entry.before} lastRowId={entry.lastRowId} />
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
-      )}
+      ) : (
+        <>
+          {/* uncategorized channels (empty-name category) render bare at the top — no header */}
+          {noneCatId && (
+            <div className={order[noneCatId].length > 0 ? "mb-4" : ""}>
+              <div className="space-y-1">
+                {order[noneCatId].map((ch) => {
+                  if (ch.pending) return <PendingChannelRow key={ch.id} ch={ch} />
+                  const resolvedMuted = mutedChannels && ch.id in mutedChannels ? mutedChannels[ch.id] : ch.muted
+                  const threads = forumThreadsByParent[ch.id]
+                  return (
+                    <Fragment key={ch.id}>
+                      <SortableChannel
+                        ch={ch}
+                        categoryId={noneCatId}
+                        muted={resolvedMuted}
+                        href={serverId ? channelHref(serverId, ch.id) : undefined}
+                        active={ch.id === activeChannel && !hasActiveSidebarThread}
+                        canReorder={canReorder}
+                        onClick={setActiveChannel}
+                        onEdit={isAdmin ? handleEditChannel : undefined}
+                        onRequestDelete={isAdmin ? handleRequestDeleteChannel : undefined}
+                      />
+                      {threads && threads.length > 0 ? renderForumThreads(ch.id, threads) : null}
+                    </Fragment>
+                  )
+                })}
+              </div>
+              <ChannelDropContainer id={noneCatId} before={order[noneCatId].length === 0} lastRowId={order[noneCatId].filter((channel) => !channel.pending).at(-1)?.id} />
+            </div>
+          )}
 
-        {catOrder.filter((id) => catNames[id] !== "").map((id) => (
-          <SortableCategory
-            key={id}
-            id={id}
-            name={catNames[id] ?? id}
-            open={!collapsed.has(id)}
-            onToggle={() => toggleCat(id)}
-            onAddChannel={!catPending[id] && canCreateInCategory(id) ? () => requestCreateChannel(id) : undefined}
-            onSettings={!catPending[id] && isAdmin ? () => setDialog({ kind: "category-settings", categoryId: id }) : undefined}
-            onDelete={!catPending[id] && isAdmin ? () => onDeleteCategory?.(id) : undefined}
-            isPrivate={catPrivate[id]}
-            canReorder={canReorder && !catPending[id]}
-            pending={catPending[id]}
-            hasChannels={(order[id]?.length ?? 0) > 0}
-          >
+          {namedCategoryIds.map((id) => (
+            <SortableCategory
+              key={id}
+              id={id}
+              name={catNames[id] ?? id}
+              open={!collapsed.has(id)}
+              onToggle={toggleCat}
+              onAddChannel={!catPending[id] && canCreateInCategory(id) ? requestCreateChannel : undefined}
+              onSettings={!catPending[id] && isAdmin ? handleCategorySettings : undefined}
+              onRequestDelete={!catPending[id] && isAdmin ? handleRequestDeleteCategory : undefined}
+              isPrivate={catPrivate[id]}
+              canReorder={canReorder && !catPending[id]}
+              pending={catPending[id]}
+              hasChannels={(order[id]?.length ?? 0) > 0}
+            >
               <div className={(order[id]?.length ?? 0) > 0 ? "mt-1" : ""}>
                 <div className="space-y-1">
                 {(order[id] ?? []).map((ch) => {
@@ -217,27 +413,33 @@ function ChannelSidebarContent({
                   //   - private category: the channel creator too
                   // Public-category channels are admin-managed only.
                   const canManageChannel = isAdmin || (!!catPrivate[id] && ch.creatorId === currentUserId)
+                  const resolvedMuted = mutedChannels && ch.id in mutedChannels ? mutedChannels[ch.id] : ch.muted
+                  const threads = forumThreadsByParent[ch.id]
                   return (
                     <Fragment key={ch.id}>
                       <SortableChannel
-                        ch={withMute(ch)}
+                        ch={ch}
+                        categoryId={id}
+                        muted={resolvedMuted}
                         href={serverId ? channelHref(serverId, ch.id) : undefined}
                         active={ch.id === activeChannel && !hasActiveSidebarThread}
                         canReorder={canReorder}
-                        onClick={() => setActiveChannel(ch.id)}
-                        onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                        onDelete={canManageChannel ? () => onDeleteChannel?.(ch.id) : undefined}
-                        onManageMembers={(catPrivate[id] && canManageChannel) ? () => setDialog({ kind: "manage-members", channelId: ch.id, channelName: ch.name }) : undefined}
+                        onClick={setActiveChannel}
+                        onEdit={canManageChannel ? handleEditChannel : undefined}
+                        onRequestDelete={canManageChannel ? handleRequestDeleteChannel : undefined}
+                        onManageMembers={(catPrivate[id] && canManageChannel) ? handleManageChannelMembers : undefined}
                       />
-                      {childRows(ch.id)}
+                      {threads && threads.length > 0 ? renderForumThreads(ch.id, threads) : null}
                     </Fragment>
                   )
                 })}
                 </div>
                 <ChannelDropContainer id={id} lastRowId={order[id]?.filter((channel) => !channel.pending).at(-1)?.id} />
               </div>
-          </SortableCategory>
-        ))}
+            </SortableCategory>
+          ))}
+        </>
+      )}
     </ChannelDndScope>
   )
 
@@ -348,6 +550,34 @@ function ChannelSidebarContent({
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog?.kind === "delete-channel" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => { if (!open) setDialog(null) }}
+          title={`Delete /${dialog.channelName}?`}
+          description="This channel and its message history will be removed for everyone. This can't be undone."
+          confirmLabel="Delete channel"
+          onConfirm={() => {
+            const targetId = dialog.channelId
+            setDialog(null)
+            onDeleteChannel?.(targetId)
+          }}
+        />
+      )}
+      {dialog?.kind === "delete-category" && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => { if (!open) setDialog(null) }}
+          title={`Delete ${dialog.categoryName}?`}
+          description="Channels inside this category will also be removed. This can't be undone."
+          confirmLabel="Delete category"
+          onConfirm={() => {
+            const targetId = dialog.categoryId
+            setDialog(null)
+            onDeleteCategory?.(targetId)
+          }}
+        />
+      )}
     </aside>
   )
 }
@@ -356,20 +586,23 @@ export const ChannelSidebar = memo(function ChannelSidebar(props: ComponentProps
   return <CommunityDndProvider><ChannelSidebarContent {...props} /></CommunityDndProvider>
 })
 
-function ForumSidebarThreadRow({
+const ForumSidebarThreadRow = memo(function ForumSidebarThreadRow({
+  parentId,
   thread,
   href,
   active,
   muted,
-  onClick,
+  onSelectForumThread,
 }: {
+  parentId: string
   thread: ForumSidebarThread
   href?: string
   active: boolean
   muted: boolean
-  onClick: () => void
+  onSelectForumThread?: (parentId: string, id: string) => void
 }) {
   const dragActive = useChannelDragActive()
+  const handleSelect = useCallback(() => onSelectForumThread?.(parentId, thread.id), [onSelectForumThread, parentId, thread.id])
   const unread = selectUnreadPresentation({
     accountUnread: thread.unread,
     active,
@@ -401,16 +634,16 @@ function ForumSidebarThreadRow({
   return (
     <div className="relative" style={{ height: FORUM_SIDEBAR_ROW_HEIGHT }}>
       {href ? (
-        <CommunityNavigationLink {...rowProps} href={href} active={active} onActivate={onClick}
+        <CommunityNavigationLink {...rowProps} href={href} active={active} onActivate={handleSelect}
           navigationDisabled={dragActive !== null}>
           {content}
         </CommunityNavigationLink>
       ) : (
-        <button {...rowProps} type="button" onClick={onClick}>{content}</button>
+        <button {...rowProps} type="button" onClick={handleSelect}>{content}</button>
       )}
     </div>
   )
-}
+})
 
 export function ChannelSidebarSkeleton({
   noHeader,

@@ -71,8 +71,7 @@ let visibility: DocumentVisibilityState
 let visibilityListeners: Set<() => void>
 let pageShowListeners: Set<() => void>
 let mutationCallback: MutationCallback | undefined
-let mutationObserveOptions: MutationObserverInit | undefined
-let mutationObservedTarget: Node | undefined
+let mutationObserveCalls: Array<{ target: Node; options?: MutationObserverInit }> = []
 
 class FakeIntersectionObserver {
   private readonly record: ObserverRecord
@@ -211,8 +210,7 @@ describe("useTimelineReadObserver", () => {
     visibilityListeners = new Set()
     pageShowListeners = new Set()
     mutationCallback = undefined
-    mutationObserveOptions = undefined
-    mutationObservedTarget = undefined
+    mutationObserveCalls = []
     hookState.candidate = null
     refState.reset()
     vi.clearAllMocks()
@@ -227,8 +225,7 @@ describe("useTimelineReadObserver", () => {
       }
 
       observe(target: Node, options?: MutationObserverInit) {
-        mutationObservedTarget = target
-        mutationObserveOptions = options
+        mutationObserveCalls.push({ target, options })
       }
       disconnect() {}
     })
@@ -439,7 +436,8 @@ describe("useTimelineReadObserver", () => {
     parent.append(root)
     useTestRender({ scrollRootEl: root })
     takeUnmounts()
-    expect(mutationObserveOptions?.attributeFilter).toContain(attribute)
+    const parentObserve = mutationObserveCalls.find((call) => call.target === parent)
+    expect(parentObserve?.options?.attributeFilter).toContain(attribute)
     trigger(observers[0]!, row)
     for (const listener of pageShowListeners) listener()
     expect(coordinator.submit).not.toHaveBeenCalled()
@@ -733,14 +731,27 @@ describe("useTimelineReadObserver", () => {
     useTestRender({ scrollRootEl: root })
     takeUnmounts()
     const record = observers[0]!
-    expect(mutationObservedTarget).toBe(root)
-    expect(mutationObserveOptions).toEqual({
-      attributes: true,
-      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id", "data-composer-occlusion"],
-      attributeOldValue: true,
-      childList: true,
-      subtree: true,
+    expect(mutationObserveCalls).toContainEqual({
+      target: root,
+      options: {
+        attributes: true,
+        attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-composer-occlusion"],
+        attributeOldValue: true,
+        childList: true,
+        subtree: false,
+      },
     })
+    expect(mutationObserveCalls).toContainEqual({
+      target: boundary,
+      options: {
+        attributes: true,
+        attributeFilter: ["aria-hidden", "inert", "data-read-position-ready"],
+        attributeOldValue: true,
+        childList: true,
+        subtree: false,
+      },
+    })
+    expect(mutationObserveCalls.every((call) => call.options?.subtree !== true)).toBe(true)
     queueEntry(record, row)
     record.actions.length = 0
 

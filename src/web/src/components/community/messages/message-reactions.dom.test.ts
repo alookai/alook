@@ -2,20 +2,28 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import React from "react"
 import { act, fireEvent, render, type RenderResult } from "@/test/react-dom-harness"
 
-const dialogMocks = vi.hoisted(() => ({ props: vi.fn() }))
+const defaultActors = [
+  { userId: "user_1", profile: { id: "user_1", name: "Alice", discriminator: "0001", avatar: "A", avatarVersion: 0 } },
+  { userId: "user_2", profile: { id: "user_2", name: "Bob", discriminator: "0002", avatar: "B", avatarVersion: 0 } },
+]
+const dialogMocks = vi.hoisted(() => ({
+  props: vi.fn(),
+  useReactionDetails: vi.fn(),
+  actorsOverride: null as Array<{ userId: string; profile: { id: string; name: string; discriminator: string; avatar: string; avatarVersion: number } }> | null,
+}))
 
 vi.mock("@/hooks/community/use-reaction-details", () => ({
-  useReactionDetails: () => ({
-    data: {
-      messageId: "message_1",
-      scope: { kind: "server", serverId: "server_1", channelId: "channel_1" },
-      actors: [
-        { userId: "user_1", profile: { id: "user_1", name: "Alice", discriminator: "0001", avatar: "A", avatarVersion: 0 } },
-        { userId: "user_2", profile: { id: "user_2", name: "Bob", discriminator: "0002", avatar: "B", avatarVersion: 0 } },
-      ],
-    },
-    isLoading: false,
-  }),
+  useReactionDetails: (...args: unknown[]) => {
+    dialogMocks.useReactionDetails(...args)
+    return {
+      data: {
+        messageId: "message_1",
+        scope: { kind: "server", serverId: "server_1", channelId: "channel_1" },
+        actors: dialogMocks.actorsOverride ?? defaultActors,
+      },
+      isLoading: false,
+    }
+  },
 }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: () => undefined,
@@ -260,5 +268,69 @@ describe("restoreReactionFocus", () => {
 
     expect(restoreReactionFocus(null, group)).toBe(group)
     expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+  })
+
+  it("defers tooltip name resolution until active, caps tooltip names at 10, and virtualizes large reactor lists", () => {
+    dialogMocks.useReactionDetails.mockClear()
+    const resolveUserName = vi.fn((userId: string) => `User ${userId}`)
+    const manyUserIds = Array.from({ length: 15 }, (_, index) => `u${index + 1}`)
+    const reactions = [{ emoji: "🔥", count: 25, me: false, userIds: manyUserIds }]
+
+    const view = render(React.createElement(MessageReactions, {
+      messageId: "m-many",
+      authorName: "Alice",
+      messagePreview: "Popular message",
+      reactions,
+      hoverCapable: true,
+      tooltipActive: false,
+      resolveUserName,
+    }))
+    expect(resolveUserName).not.toHaveBeenCalled()
+    expect(dialogMocks.useReactionDetails).not.toHaveBeenCalled()
+
+    view.rerender(React.createElement(MessageReactions, {
+      messageId: "m-many",
+      authorName: "Alice",
+      messagePreview: "Popular message",
+      reactions,
+      hoverCapable: true,
+      tooltipActive: true,
+      resolveUserName,
+    }))
+    expect(resolveUserName).toHaveBeenCalledTimes(10)
+
+    dialogMocks.actorsOverride = Array.from({ length: 1_000 }, (_, index) => ({
+      userId: `reactor-${index}`,
+      profile: {
+        id: `reactor-${index}`,
+        name: `Reactor ${index}`,
+        discriminator: "0001",
+        avatar: "R",
+        avatarVersion: 0,
+      },
+    }))
+
+    vi.useFakeTimers()
+    try {
+      const mobileView = render(React.createElement(MessageReactions, {
+        messageId: "m-virtual",
+        authorName: "Alice",
+        messagePreview: "Crowded message",
+        reactions: [{ emoji: "🎉", count: 1_000, me: false, userIds: ["reactor-0"] }],
+        hoverCapable: false,
+        tooltipActive: false,
+      }))
+      const chip = mobileView.getByTestId(tid.reactionChip("m-virtual", "🎉"))
+      fireEvent.pointerDown(chip, { pointerType: "touch", clientX: 10, clientY: 10 })
+      act(() => { vi.advanceTimersByTime(450) })
+      const dialog = mobileView.container.querySelector('[data-mock-dialog-content]')!
+      const rows = dialog.querySelectorAll("ul li")
+      expect(rows.length).toBeGreaterThan(0)
+      expect(rows.length).toBeLessThan(60)
+      expect(dialog.textContent).toContain("Reactor 0")
+    } finally {
+      dialogMocks.actorsOverride = null
+      vi.useRealTimers()
+    }
   })
 })
