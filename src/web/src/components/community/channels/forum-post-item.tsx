@@ -38,7 +38,7 @@ function ForumTagSummary({ tags }: { tags: string[] }) {
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      {shown.map((tag) => <span key={tag} className="max-w-24 truncate">#{tag}</span>)}
+      {shown.map((tag) => <span key={tag} className="max-w-24 truncate py-0.5 -my-0.5">#{tag}</span>)}
       {hidden.length > 0 && (
         <Popover>
           <PopoverTrigger
@@ -75,10 +75,10 @@ const ForumPostTitle = memo(function ForumPostTitle({ name, postId, seq }: { nam
       data-testid={tid.forumThreadTitle(postId)}
       aria-label={`${name}${seq === undefined ? "" : ` #${seq}`}`}
       title={name}
-      className="w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-tight"
+      className="w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-snug"
     >
       <span className="flex min-w-0 max-w-full items-baseline">
-        <span data-testid={tid.forumThreadTitleText(postId)} className="min-w-0 truncate">{name}</span>
+        <span data-testid={tid.forumThreadTitleText(postId)} className="min-w-0 truncate py-0.5 -my-0.5">{name}</span>
         {seq === undefined ? null : (
           <span
             data-testid={tid.forumThreadSeq(postId)}
@@ -98,6 +98,7 @@ export const ForumPostItem = memo(function ForumPostItem({ post: p, profilesByUs
   onOpen: () => void
   actions?: ReactNode
 }) {
+  const hasPreview = p.preview.trim().length > 0
   const hasOrdinaryTags = p.tags.some((tag) => tag !== FORUM_ARCHIVE_TAG)
   const author = readCommunityProfile(
     profilesByUserId.get(p.authorId),
@@ -122,15 +123,21 @@ export const ForumPostItem = memo(function ForumPostItem({ post: p, profilesByUs
       }}
       className="relative cursor-pointer rounded px-4 py-0 text-left"
     >
-      <div className={cn("grid grid-rows-[minmax(2rem,max-content)_auto] gap-x-2", actions ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
+      <div className={cn(
+        "mb-2 grid gap-x-2",
+        hasPreview ? "grid-rows-[minmax(2rem,max-content)_auto]" : "grid-rows-[minmax(2rem,max-content)]",
+        actions ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1",
+      )}>
         <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
         {actions}
 
-        <p data-slot="community-forum-post-preview" className="col-span-full row-start-2 mb-2 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
+        {hasPreview && (
+          <p data-slot="community-forum-post-preview" className="col-span-full row-start-2 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
+        )}
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Avatar label={author.avatar} seed={p.authorId} size={20} />
-        <span data-slot="community-forum-post-author" title={author.name} className="min-w-0 max-w-[min(12rem,40%)] shrink-0 truncate font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
+        <span data-slot="community-forum-post-author" title={author.name} className="min-w-0 max-w-[min(12rem,40%)] shrink-0 truncate py-0.5 -my-0.5 font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
         <span className="shrink-0" aria-hidden>·</span>
         <span className="shrink-0" suppressHydrationWarning>Active {formatRelativeTime(p.lastMessageAt)}</span>
         {hasOrdinaryTags && <span className="shrink-0 max-sm:hidden" aria-hidden>·</span>}

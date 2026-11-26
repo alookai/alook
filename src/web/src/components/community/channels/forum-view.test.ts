@@ -343,7 +343,7 @@ describe("ForumView platform post actions", () => {
     expect(html).not.toContain("row-span-2")
     expect(html).toContain("col-span-full row-start-2")
     expect(html).toContain("grid-rows-[minmax(2rem,max-content)_auto]")
-    expect(html).toContain("w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-tight")
+    expect(html).toContain("w-full min-w-0 max-w-full self-center text-[15px] font-semibold leading-snug")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
     expect(html).toContain(tid.forumThreadSeq("p1"))

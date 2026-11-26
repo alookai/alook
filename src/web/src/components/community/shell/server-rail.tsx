@@ -86,7 +86,7 @@ function ServerRailFrame({
         <div
           ref={scrollRef}
           data-testid={tid.serverRailScroll}
-          className={`min-h-0 w-full shrink overflow-y-auto overflow-x-clip ${items ? "pt-2 pb-1 " : ""}thin-scrollbar scrollbar-none`}
+          className={`min-h-0 w-full shrink overflow-y-auto overflow-x-clip scroll-fade-y scroll-fade-4 ${items ? "pt-2 pb-1 " : ""}thin-scrollbar scrollbar-none`}
         >
           {items}
         </div>

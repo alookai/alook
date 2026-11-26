@@ -149,7 +149,7 @@ export const DmSidebar = memo(function DmSidebar({
         <div className="my-2 h-px bg-border" />
       </div>
       <ScrollAreaRoot className="flex min-h-0 flex-1 flex-col">
-        <ScrollAreaViewport ref={viewportRef} data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto px-2 pb-4">
+        <ScrollAreaViewport ref={viewportRef} data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto scroll-fade-y scroll-fade-4 px-2 pb-4">
           <ScrollAreaContent className="flex min-h-full flex-1 flex-col">
             <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
               Direct Messages
@@ -209,7 +209,7 @@ export function DmSidebarSkeleton() {
         </div>
         <div className="my-2 h-px bg-border" />
       </div>
-      <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1 px-2 pb-4">
+      <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1 scroll-fade-y scroll-fade-4 px-2 pb-4">
         <Skeleton className="mb-2 ml-2 h-3 w-24 rounded" />
         <DmRowsSkeleton />
       </ScrollArea>
