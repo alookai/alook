@@ -4,6 +4,7 @@ import type { ReactNode, RefObject } from "react"
 import { Popover, PopoverPortal, PopoverPositioner, PopoverPopup } from "@/components/ui/popover"
 import { tid } from "@/lib/community/testids"
 import { useProfileSecondaryPosition } from "@/components/community/social/profile-secondary-position"
+import { USER_BAR_INTERACTIVE_SELECTOR } from "./user-bar-extension-state"
 
 export function UserBarPopover({ anchor, children, companion, inbox, onDismiss, onEscape }: {
   anchor: RefObject<HTMLElement | null>
@@ -27,7 +28,10 @@ export function UserBarPopover({ anchor, children, companion, inbox, onDismiss, 
       const target = details.event instanceof FocusEvent
         ? details.event.relatedTarget
         : details.event.target
-      if (target instanceof Element && target.closest(`[data-testid="${tid.userBar}"]`)) {
+      if (
+        target instanceof Element
+        && target.closest(USER_BAR_INTERACTIVE_SELECTOR)?.closest(`[data-testid="${tid.userBar}"]`)
+      ) {
         details.cancel()
         return
       }

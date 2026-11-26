@@ -256,29 +256,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     applyInboxOpenChange(true)
   }, [applyInboxOpenChange, breakpoint, checkpoint.surface, committedFrame, currentUser.id, inboxOpenRequest,
     navigation.navigationPending, navigation.pendingHref, navigation.publishedHref, setInboxOpenRequest])
-  const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
-    name,
-    event,
-    discriminator,
-    targetUserId,
-  ) => {
-    setInboxOpenRequest(null)
-    if (userBarExtension.active === "profile") {
-      profile.closeProfile()
-      dispatchUserBarExtension({ type: "extension.close", extension: "profile" })
-      return
-    }
-    if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
-    if (userBarExtension.active === "update") daemonUpdate.collapse()
-    profile.openProfile(name, event, discriminator, targetUserId)
-    dispatchUserBarExtension({ type: "extension.open", extension: "profile" })
-  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, setInboxOpenRequest, userBarExtension.active])
-  const onUserBarOpenUpdate = useCallback(() => {
-    setInboxOpenRequest(null)
-    if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
-    if (userBarExtension.active === "profile") profile.closeProfile()
-    daemonUpdate.open()
-  }, [daemonUpdate, inbox, profile, setInboxOpenRequest, userBarExtension.active])
   const dismissUserBarExtension = useCallback(() => {
     setInboxOpenRequest(null)
     if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
@@ -289,6 +266,25 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       extension: userBarExtension.active,
     })
   }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, setInboxOpenRequest, userBarExtension.active])
+  const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
+    name,
+    event,
+    discriminator,
+    targetUserId,
+  ) => {
+    if (inboxOpenRequest !== null || userBarExtension.active !== "none") {
+      dismissUserBarExtension()
+      return
+    }
+    profile.openProfile(name, event, discriminator, targetUserId)
+    dispatchUserBarExtension({ type: "extension.open", extension: "profile" })
+  }, [dismissUserBarExtension, dispatchUserBarExtension, inboxOpenRequest, profile, userBarExtension.active])
+  const onUserBarOpenUpdate = useCallback(() => {
+    setInboxOpenRequest(null)
+    if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
+    if (userBarExtension.active === "profile") profile.closeProfile()
+    daemonUpdate.open()
+  }, [daemonUpdate, inbox, profile, setInboxOpenRequest, userBarExtension.active])
   useEffect(() => {
     if (breakpoint !== "mobile" || checkpoint.surface !== "detail" || userBarExtension.active === "none") return
     dismissUserBarExtension()

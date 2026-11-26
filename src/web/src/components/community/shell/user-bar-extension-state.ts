@@ -1,5 +1,17 @@
 export type UserBarExtensionKind = "none" | "inbox" | "update" | "profile"
 
+export const USER_BAR_INTERACTIVE_SELECTOR = [
+  "button:not(:disabled)",
+  "a[href]",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='link']",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",")
+
 export type UserBarUpdatePhase =
   | "expanded"
   | "collapsedBadge"

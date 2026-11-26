@@ -4,9 +4,13 @@ import { render } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
 
 const positionerPropsSpy = vi.fn()
+const popoverPropsSpy = vi.fn()
 
 vi.mock("@/components/ui/popover", () => ({
-  Popover: ({ children }: { children: ReactNode }) => createElement("div", null, children),
+  Popover: ({ children, ...props }: { children: ReactNode } & Record<string, unknown>) => {
+    popoverPropsSpy(props)
+    return createElement("div", null, children)
+  },
   PopoverPortal: ({ children }: { children: ReactNode }) => createElement("div", null, children),
   PopoverPositioner: ({ children, ...props }: { children: ReactNode } & Record<string, unknown>) => {
     positionerPropsSpy(props)
@@ -72,5 +76,47 @@ describe("UserBarPopover", () => {
       sticky: true,
       collisionAvoidance: { side: "shift", align: "shift", fallbackAxisSide: "none" },
     }))
+  })
+
+  it("cancels outside-press only for interactive User Bar buttons and dismisses on blank User Bar space", () => {
+    popoverPropsSpy.mockClear()
+    const onDismiss = vi.fn()
+    const onEscape = vi.fn()
+    const userBar = document.createElement("div")
+    userBar.dataset.testid = tid.userBar
+    const blank = document.createElement("div")
+    const button = document.createElement("button")
+    const icon = document.createElement("span")
+    button.appendChild(icon)
+    userBar.appendChild(blank)
+    userBar.appendChild(button)
+    document.body.appendChild(userBar)
+    const renderer = render(
+      <UserBarPopover anchor={{ current: userBar }} onDismiss={onDismiss} onEscape={onEscape}>
+        <div>Inbox</div>
+      </UserBarPopover>,
+    )
+    const onOpenChange = popoverPropsSpy.mock.calls.at(-1)?.[0].onOpenChange as (
+      open: boolean,
+      details: { reason: string; event: Event; cancel: () => void },
+    ) => void
+
+    const buttonCancel = vi.fn()
+    onOpenChange(false, { reason: "outside-press", event: { target: icon } as unknown as Event, cancel: buttonCancel })
+    expect(buttonCancel).toHaveBeenCalledOnce()
+    expect(onDismiss).not.toHaveBeenCalled()
+
+    const blankCancel = vi.fn()
+    onOpenChange(false, { reason: "outside-press", event: { target: blank } as unknown as Event, cancel: blankCancel })
+    expect(blankCancel).not.toHaveBeenCalled()
+    expect(onDismiss).toHaveBeenCalledOnce()
+
+    const escapeCancel = vi.fn()
+    onOpenChange(false, { reason: "escape-key", event: { target: document.body } as unknown as Event, cancel: escapeCancel })
+    expect(escapeCancel).not.toHaveBeenCalled()
+    expect(onEscape).toHaveBeenCalledOnce()
+
+    renderer.unmount()
+    userBar.remove()
   })
 })
