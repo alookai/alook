@@ -20,6 +20,10 @@ import type { Presence } from "@/lib/community/models/people"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
+import {
+  COMMUNITY_USER_BAR_HEIGHT_CSS,
+  COMMUNITY_USER_BAR_NATIVE_MOBILE_HEIGHT_CSS,
+} from "./shell-frame-geometry"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { UserBarExtensionSlot } from "./user-bar-extension-slot"
 import { UserBarPopover } from "./user-bar-popover"
@@ -60,6 +64,9 @@ export const UserBar = memo(function UserBar({ breakpoint, user, onOpenProfile, 
   extension?: UserBarExtension
 }) {
   const nativeMobile = useHydratedClient() && isMobile()
+  const userBarHeightCss = nativeMobile
+    ? COMMUNITY_USER_BAR_NATIVE_MOBILE_HEIGHT_CSS
+    : COMMUNITY_USER_BAR_HEIGHT_CSS
   const extensionId = useId()
   const profileTriggerRef = useRef<HTMLButtonElement>(null)
   const profileNameTriggerRef = useRef<HTMLButtonElement>(null)
@@ -116,6 +123,7 @@ export const UserBar = memo(function UserBar({ breakpoint, user, onOpenProfile, 
       onRequestUpdate={extension.onRequestUpdate}
       interactive={mobile}
       presentation={mobile ? "slot" : "popup"}
+      userBarHeightCss={userBarHeightCss}
       focusOnOpen={pendingExtensionFocus === extension.active}
       onInitialFocus={() => {
         if (pendingExtensionFocus === extension.active) {
@@ -139,7 +147,7 @@ export const UserBar = memo(function UserBar({ breakpoint, user, onOpenProfile, 
       }}
     >
       {mobile
-        ? <UserBarExtensionDrawer onDismiss={dismissExtensionWithFocus}>{extensionContent}</UserBarExtensionDrawer>
+        ? <UserBarExtensionDrawer onDismiss={dismissExtensionWithFocus} userBarHeightCss={userBarHeightCss}>{extensionContent}</UserBarExtensionDrawer>
         : extensionContent && extension && (
           <UserBarPopover
             anchor={baseRef}

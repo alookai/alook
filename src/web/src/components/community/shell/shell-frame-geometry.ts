@@ -9,6 +9,7 @@ export const COMMUNITY_SIDEBAR_MAX_WIDTH = 360
 export const COMMUNITY_USER_BAR_BASE_HEIGHT = 60
 export const COMMUNITY_USER_BAR_HEIGHT_CSS =
   `${COMMUNITY_USER_BAR_BASE_HEIGHT}px`
+export const COMMUNITY_USER_BAR_NATIVE_MOBILE_HEIGHT_CSS = "52px"
 const COMMUNITY_LAYOUT_STORAGE_KEY = "react-resizable-panels:community-shell"
 export const COMMUNITY_LAYOUT_PREPAINT_ATTRIBUTE = "data-community-shell-layout"
 export const COMMUNITY_LAYOUT_PREPAINT_SIDEBAR_WIDTH = "--community-shell-prepaint-sidebar-width"

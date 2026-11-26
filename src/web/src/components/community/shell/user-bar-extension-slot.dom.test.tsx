@@ -95,6 +95,7 @@ describe("UserBarExtensionSlot", () => {
     expect(slot).toHaveAttribute("data-extension", "inbox")
     expect(slot.style.height).toContain("28rem")
     expect(slot.style.maxHeight).toContain("28rem")
+    expect(slot.style.height).toContain("max(0px, calc(60px - var(--alook-keyboard-progress, 0px)))")
     expect(renderer.getByTestId("inbox-content")).toBeInTheDocument()
     expect(renderer.queryByTestId("profile-content")).not.toBeInTheDocument()
     expect(renderer.queryByTestId(tid.daemonUpdateNotice)).not.toBeInTheDocument()
@@ -263,4 +264,19 @@ it("assigns distinct fallback IDs to simultaneous standalone extension cards", (
   expect(cards[0].id).not.toBe(cards[1].id)
   expect(document.getElementById(cards[0].id)).toBe(cards[0])
   expect(document.getElementById(cards[1].id)).toBe(cards[1])
+})
+
+it("reclaims covered compact native-mobile UserBar clearance when legacy keyboard progress grows", () => {
+  const view = render(createElement(UserBarExtensionSlot, {
+    active: "inbox",
+    inbox: createElement("div", null, "Inbox content"),
+    update: null,
+    eligibleMachines: [],
+    onDismiss: vi.fn(),
+    onRequestUpdate: vi.fn(),
+    presentation: "slot",
+    userBarHeightCss: "52px",
+  }))
+  const slot = view.getByTestId(tid.userBarExtension)
+  expect(slot.style.height).toContain("max(0px, calc(52px - var(--alook-keyboard-progress, 0px)))")
 })

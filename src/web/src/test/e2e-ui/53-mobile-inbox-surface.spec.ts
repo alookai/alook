@@ -4,6 +4,7 @@ import { expectPaintedInboxCardSurface, expectSeamlessInboxCard } from "./_fixtu
 import type { Page, Request } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
+import { installMobileKeyboard } from "./_fixtures/mobile-keyboard"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { WEB_URL } from "./_setup/paths"
 import { tid } from "./_fixtures/testids"
@@ -502,7 +503,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     })
     await expect.poll(async () => {
       const current = await surfaceGeometry(bob.page)
-      return current.card.bottom <= 544 + GEOMETRY_EPSILON && current.card.top >= 20 - GEOMETRY_EPSILON
+      return Math.abs(current.card.bottom - 544) <= GEOMETRY_EPSILON && current.card.top >= 20 - GEOMETRY_EPSILON
         && Math.abs(current.userBar.top - geometry.userBar.top) <= GEOMETRY_EPSILON
         && Math.abs(current.userBar.bottom - 810) <= GEOMETRY_EPSILON
     }).toBe(true)
@@ -1156,5 +1157,87 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       contentType: "image/png",
     })
     await bob.page.mouse.up()
+  })
+
+  test("keeps mobile Inbox flush above legacy inset keyboard without double-deducting UserBar height", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `Mobile legacy inset ${stamp}`)
+    const unreadId = await seedChannel("alice", serverId, `legacy-unread-${stamp}`)
+    await seedJoinServer("alice", "bob", serverId)
+    await seedMessage("alice", unreadId, `Legacy inset target ${stamp}`)
+
+    const bob = await asUser("bob")
+    const keyboard = await installMobileKeyboard(bob.page, {
+      mode: "inset",
+      width: 390,
+      closedHeight: 844,
+      insetHeight: 300,
+      steps: 4,
+      initialDelayMs: 16,
+    })
+
+    try {
+      await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}`)
+      await ignoreNextDevToolsPointerCapture(bob.page)
+      await bob.page.evaluate(() => {
+        document.documentElement.style.setProperty("--app-safe-area-top", "59px")
+        document.documentElement.style.setProperty("--app-safe-area-bottom", "34px")
+        window.dispatchEvent(new Event("resize"))
+      })
+
+      await bob.page.getByTestId(tid.inboxTrigger).click()
+      const card = bob.page.getByTestId(tid.userBarExtension)
+      await expect(card).toBeVisible()
+      await waitForElementMotion(card)
+      await bob.page.getByTestId(tid.inboxToggleChannel(unreadId)).click()
+
+      const replyInput = bob.page.getByTestId(tid.inboxReplyInput(unreadId))
+      await expect(replyInput).toBeVisible()
+      await replyInput.click()
+      await keyboard.waitForState("open")
+
+      await expect.poll(async () => {
+        return card.evaluate((el, ids) => {
+          const scroll = document.querySelector<HTMLElement>(`[data-testid="${ids.scroll}"]`)!.getBoundingClientRect()
+          const input = document.querySelector<HTMLElement>(`[data-testid="${ids.input}"]`)!
+          const composer = input.closest<HTMLElement>('[data-slot="inbox-reply-composer"]')!.getBoundingClientRect()
+          const send = document.querySelector<HTMLElement>(`[data-testid="${ids.send}"]`)!.getBoundingClientRect()
+          const userBar = document.querySelector<HTMLElement>(`[data-testid="${ids.userBar}"]`)!.getBoundingClientRect()
+          const c = el.getBoundingClientRect()
+          return Math.abs(c.bottom - 544) <= 1
+            && c.top >= 59 - 1
+            && Math.abs(userBar.bottom - 810) <= 1
+            && composer.top >= scroll.top - 1
+            && composer.bottom <= scroll.bottom + 1
+            && send.top >= scroll.top - 1
+            && send.bottom <= scroll.bottom + 1
+        }, {
+          scroll: tid.inboxTabScroll("unreads"),
+          input: tid.inboxReplyInput(unreadId),
+          send: tid.inboxReplySend(unreadId),
+          userBar: tid.userBar,
+        })
+      }).toBe(true)
+
+      await testInfo.attach("inbox-mobile-legacy-inset-390x844", {
+        body: await bob.page.screenshot(),
+        contentType: "image/png",
+      })
+
+      const replyPost = bob.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && response.url().includes(`/api/community/channels/${unreadId}/messages`)
+      ))
+      await replyInput.fill(`Legacy inset reply ${stamp}`)
+      await bob.page.getByTestId(tid.inboxReplySend(unreadId)).click()
+      expect((await replyPost).status()).toBe(201)
+      await expect(bob.page.getByTestId(tid.inboxUnreadCard(unreadId))).toHaveCount(0)
+    } finally {
+      await keyboard.dispose()
+    }
   })
 })
