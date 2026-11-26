@@ -101,6 +101,8 @@ export const mockMarkMachineOnlineIfOffline = vi.fn()
 export const mockTimeoutPendingDiagnosticReportsForMachine = vi.fn().mockResolvedValue([])
 export const mockGetNextPendingDiagnosticDeadlineForMachine = vi.fn().mockResolvedValue(null)
 export const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
+export const mockListServerIdsForUser = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
+const mockGetMember = vi.fn<(db: unknown, serverId: string, userId: string) => Promise<{ id: string } | null>>().mockResolvedValue({ id: "mem_1" })
 export const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockListReadableChannelsForUser = vi.fn()
 const mockGetReadableMessageChannelId = vi.fn()
@@ -122,11 +124,13 @@ export const mockResolveChannelRecipientUserIds = vi.fn(resolveChannelContentRec
 export const mockWithD1Retry = vi.fn(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
 export const mockGetDM = vi.fn()
 export const mockGetDMPeer = vi.fn()
+const mockListDmPeerUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockIsBlocked = vi.fn()
 export const mockAreFriends = vi.fn()
 export const mockListMembers = vi.fn()
 export const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
 export const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
+const mockGetBotPresenceStates = vi.fn<(db: unknown, userIds: string[]) => Promise<{ botUserIds: Set<string>; onlineBotUserIds: Set<string> }>>().mockResolvedValue({ botUserIds: new Set(), onlineBotUserIds: new Set() })
 export const mockGetBotBinding = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string } | null>>().mockResolvedValue(null)
 export const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string; isActive?: boolean } | null>>().mockResolvedValue(null)
 export const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: any, extraStatements?: unknown[]) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
@@ -324,7 +328,9 @@ vi.mock("@alook/shared", async () => {
       STATUS_UPDATE: "community:status.update",
       BOT_AUDIT_EVENT: "community:bot.audit_event",
       PRESENCE_UPDATE: "community:presence.update",
+      PRESENCE_SNAPSHOT: "community:presence.snapshot",
     },
+    COMMUNITY_FOCUS_SET_EVENT: "community:focus.set",
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
     withD1Retry: <T>(fn: () => Promise<T>, opts?: unknown): Promise<T> =>
@@ -401,6 +407,7 @@ vi.mock("@alook/shared", async () => {
         getActiveDoNamesForMachine: (...a: [unknown, string]) => mockGetActiveDoNamesForMachine(...a),
         toSummary: (row: any) => mockToSummary(row),
         isBotOnline: (...a: [unknown, string]) => mockIsBotOnline(...a),
+        getBotPresenceStates: (...a: [unknown, string[]]) => mockGetBotPresenceStates(...a),
         reconcileBotActivityFromRunningAgents: (...a: any[]) =>
           mockReconcileBotActivityFromRunningAgents(...(a as [unknown, string, string[]])),
       },
@@ -449,6 +456,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityMember: {
         getCoMemberUserIds: (...a: [unknown, string]) => mockGetCoMemberUserIds(...a),
+        listServerIdsForUser: (...a: [unknown, string]) => mockListServerIdsForUser(...a),
+        getMember: (...a: [unknown, string, string]) => mockGetMember(...a),
         listMembers: (...a: any[]) => mockListMembers(...a),
       },
       communityFriendship: {
@@ -477,6 +486,7 @@ vi.mock("@alook/shared", async () => {
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
         getDMPeer: (...a: any[]) => mockGetDMPeer(...a),
+        listDmPeerUserIds: (...a: [unknown, string]) => mockListDmPeerUserIds(...a),
       },
       communityBot: {
         listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
@@ -544,15 +554,18 @@ export function resetHarness() {
     mockD1WithSession.mockReturnValue({})
     mockAssertMachineCapacity.mockReset().mockResolvedValue(undefined)
     mockGetMachineByIdForUser.mockResolvedValue({ id: "cm_1", status: "online", availableRuntimes: [] })
-    mockListReadableChannelsForUser.mockImplementation(async (_db, _userId, ids: string[]) => ids.map((id) => ({ id, serverId: null, parentChannelId: null })))
+    mockListReadableChannelsForUser.mockReset().mockImplementation(async (_db, _userId, ids: string[]) => ids.map((id) => ({ id, serverId: null, parentChannelId: null })))
     mockGetReadableMessageChannelId.mockResolvedValue("ch-1")
     // `clearAllMocks` doesn't undo a `mockResolvedValue` set by a prior test —
     // re-pin these two to their empty default so presence-audience tests
     // don't leak state into unrelated auth-flow tests.
     mockGetCoMemberUserIds.mockResolvedValue([])
+    mockListServerIdsForUser.mockResolvedValue([])
+    mockGetMember.mockResolvedValue({ id: "mem_1" })
     mockGetFriendUserIds.mockResolvedValue([])
     mockListBotsForMachine.mockResolvedValue([])
     mockIsBotOnline.mockResolvedValue(false)
+    mockGetBotPresenceStates.mockResolvedValue({ botUserIds: new Set(), onlineBotUserIds: new Set() })
     mockGetUserInternal.mockResolvedValue(null)
     mockIsChannelPrivate.mockResolvedValue(false)
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue([])
@@ -563,6 +576,7 @@ export function resetHarness() {
     mockIsThreadParticipant.mockReset().mockResolvedValue(false)
     mockListChannelMemberUserIds.mockResolvedValue([])
     mockGetDMPeer.mockResolvedValue(null)
+    mockListDmPeerUserIds.mockResolvedValue([])
     mockIsBlocked.mockResolvedValue(false)
     mockAreFriends.mockResolvedValue(true)
     mockResolveScopeMemberUserIds.mockResolvedValue([])

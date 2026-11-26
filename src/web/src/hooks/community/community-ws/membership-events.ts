@@ -22,7 +22,7 @@ import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
 import { evictServerChannelScopes } from "./scope-eviction"
 
-import { invalidateChannelRefDirectory, invalidateForumSidebar, invalidateInbox, invalidateInvitableFriends, invalidatePresence, invalidateServerDetail, invalidateServersList } from "./invalidation-projections"
+import { invalidateChannelRefDirectory, invalidateForumSidebar, invalidateInbox, invalidateInvitableFriends, invalidateServerDetail, invalidateServersList } from "./invalidation-projections"
 import {
   refreshServerReactionDetails,
   removeServerReactionDetails,
@@ -59,13 +59,18 @@ function refreshChannelAccess(event: { serverId: string | null; channelId: strin
 
 export function handleChannelMembershipChange(event: CommunityChannelMembershipChange, context: MembershipEventContext) {
   const { queryClient, projection, viewerUserIdRef } = context
+  const isViewer = event.userId === viewerUserIdRef.current
   setCanonicalCommunityChannelMember(queryClient, event.channelId, event.userId, event.relation, event.present, { event: true })
-  if (event.serverId) invalidateServerDetail(projection, event.serverId)
-  invalidateChannelRefDirectory(projection, { serverId: event.serverId, channelId: event.channelId })
+  if (event.relation === "access" || isViewer) {
+    if (event.serverId) invalidateServerDetail(projection, event.serverId)
+    invalidateChannelRefDirectory(projection, { serverId: event.serverId, channelId: event.channelId })
+  }
   projection.fence("channel-roster", { queryKey: communityKeys.channelMembers(event.channelId, event.relation) })
-  projection.invalidate("channel-addable-members", { queryKey: communityKeys.channelAddableMembers(event.channelId) })
+  if (event.relation === "access") {
+    projection.invalidate("channel-addable-members", { queryKey: communityKeys.channelAddableMembers(event.channelId) })
+  }
   if (event.relation === "notify") projection.invalidate("thread-participants", { queryKey: communityKeys.threadParticipants(event.channelId) })
-  if (event.userId !== viewerUserIdRef.current) return
+  if (!isViewer) return
   if (event.serverId && event.relation === "access") refreshForumPostCounts(queryClient, event.serverId)
   invalidateInbox(projection)
   invalidateServersList(projection)
@@ -94,12 +99,12 @@ export function handleMemberJoin(
   event: CommunityMemberJoin,
   context: MembershipEventContext,
 ) {
-  const { queryClient, viewerUserIdRef, projection } = context
+  const { queryClient, viewerUserIdRef, projection, wsStore } = context
   patchMemberWindows(queryClient, event)
-  // MEMBER_JOIN intentionally carries identity, not presence. Refresh the
-  // affected server's authoritative presence seed so a newly rendered member
-  // does not inherit the offline fallback until the next presence frame.
-  invalidatePresence(projection, event.serverId)
+  if (event.online !== undefined) {
+    const snapshot = wsStore.actions.beginPresenceSnapshot()
+    wsStore.actions.seedPresence(snapshot, [[event.member.userId, event.online ? "online" : "offline"]])
+  }
   refreshServerReactionDetails(queryClient, event.serverId)
   if (event.member.userId === viewerUserIdRef.current) {
     const viewerId = viewerUserIdRef.current

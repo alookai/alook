@@ -5,7 +5,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread, DM_SERVER, formatHandle, parseRef, withD1Retry } from "@alook/shared"
 import type { CommunityCliServerMember as ServerMember } from "@alook/shared"
-import { broadcastToUserSafe } from "@/lib/community/fanout"
+import { fanOutToUsers } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 
@@ -112,7 +112,7 @@ export const POST = withAuth(communityActorPolicy(), async (req: NextRequest, ct
     userId: targetUserId,
   } as const
   const recipients = await queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
-  await Promise.all([...new Set([...recipients, targetUserId])].map((uid) => broadcastToUserSafe(uid, event)))
+  await fanOutToUsers([...new Set([...recipients, targetUserId])], event)
 
   return writeJSON({ ok: true }, 201)
 })

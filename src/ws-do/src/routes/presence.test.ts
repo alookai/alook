@@ -333,9 +333,11 @@ describe("ws-do router", () => {
       expect(Object.keys(completionFields).sort()).toEqual([
         "batchCount",
         "batchSize",
+        "botCount",
         "durationMs",
         "failureCount",
         "failureCounts",
+        "humanCount",
         "maxActive",
         "offlineCount",
         "onlineCount",

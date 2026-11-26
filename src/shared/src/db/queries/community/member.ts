@@ -513,6 +513,14 @@ export async function canBotReadWakeScope(
   return true;
 }
 
+export async function listServerIdsForUser(db: Database, userId: string): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ serverId: communityServerMember.serverId })
+    .from(communityServerMember)
+    .where(eq(communityServerMember.userId, userId));
+  return rows.map((r) => r.serverId);
+}
+
 export async function getCoMemberUserIds(db: Database, userId: string): Promise<string[]> {
   const userServerIds = db
     .select({ serverId: communityServerMember.serverId })

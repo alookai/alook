@@ -34,6 +34,7 @@ const FOCUSED_POLICIES = new Set<CommunityWsReconcilePolicy>([
 ])
 
 const BACKGROUND_RECONCILE_CONCURRENCY = 3
+const DEFAULT_RECONNECT_BACKGROUND_JITTER_MAX_MS = 1500
 
 const EXACT_SERVER_QUERY_FAMILIES = new Set([
   "forum-sidebar-base",
@@ -104,10 +105,33 @@ function cachedServerIds(queryClient: QueryClient, queryKeys: readonly QueryKey[
   return [...serverIds]
 }
 
-async function reconcileCachedServer(queryClient: QueryClient, serverId: string) {
+function resolveActiveServerId(queryClient: QueryClient): string | null {
+  const runtime = getCommunityRuntime(queryClient)
+  const ui = runtime.ui.get()
+  if (ui.currentServerId) return ui.currentServerId
+  const focusedChannelId = ui.subscription.channelId ?? ui.subscription.secondaryChannelId ?? ui.currentChannelId
+  if (!focusedChannelId) return null
+  const scopeServerId = runtime.ws.get().channelAccessScopes.get(focusedChannelId)?.serverId
+  if (scopeServerId) return scopeServerId
+  for (const query of queryClient.getQueryCache().getAll()) {
+    const key = query.queryKey
+    if (key[0] === "community" && key[1] === "channel" && key[2] === focusedChannelId) {
+      const serverId = metadataServerId(queryClient, key)
+      if (serverId) return serverId
+    }
+  }
+  return null
+}
+
+async function reconcileCachedServer(
+  queryClient: QueryClient,
+  serverId: string,
+  eager: boolean,
+) {
+  const refetchType = eager ? "active" : "none"
   const derivedRevalidation = queryClient.invalidateQueries({
     predicate: (query) => isDerivedServerAccessQueryKey(queryClient, query.queryKey, serverId),
-    refetchType: "active",
+    refetchType,
   })
 
   const settled = await Promise.allSettled([
@@ -115,24 +139,37 @@ async function reconcileCachedServer(queryClient: QueryClient, serverId: string)
     queryClient.invalidateQueries({
       queryKey: communityKeys.server(serverId),
       exact: true,
-      refetchType: "active",
+      refetchType,
     }),
     queryClient.invalidateQueries({
       queryKey: communityKeys.members(serverId),
       exact: true,
-      refetchType: "active",
+      refetchType,
     }),
     queryClient.invalidateQueries({
       queryKey: communityKeys.presence(serverId),
       exact: true,
-      refetchType: "active",
+      refetchType,
     }),
     queryClient.invalidateQueries({
       queryKey: communityKeys.invites(serverId),
       exact: true,
-      refetchType: "active",
+      refetchType,
     }),
-    reconcileForumSidebarNotifyMemberships(queryClient, serverId),
+    eager
+      ? reconcileForumSidebarNotifyMemberships(queryClient, serverId)
+      : Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: communityKeys.forumSidebarThreads(serverId),
+            exact: true,
+            refetchType: "none",
+          }),
+          queryClient.invalidateQueries({
+            queryKey: communityKeys.forumPostCounts(serverId),
+            exact: true,
+            refetchType: "none",
+          }),
+        ]),
   ])
   if (settled.some((result) => result.status === "rejected")) {
     throw new Error("server reconciliation failed")
@@ -245,14 +282,19 @@ function policyExecutors(
     "server-rail": () => reconcileCommunityServerRail(queryClient),
     "all-cached-servers": async () => {
       const serverIds = cachedServerIds(queryClient, queryKeys)
-      for (const serverId of serverIds) refreshForumPostCounts(queryClient, serverId)
+      const activeServerId = resolveActiveServerId(queryClient)
+      if (activeServerId && serverIds.includes(activeServerId)) {
+        refreshForumPostCounts(queryClient, activeServerId)
+      }
       const settled = await Promise.allSettled([
         queryClient.invalidateQueries({
           queryKey: communityKeys.servers(),
           exact: true,
           refetchType: "active",
         }),
-        ...serverIds.map((serverId) => reconcileCachedServer(queryClient, serverId)),
+        ...serverIds.map((serverId) =>
+          reconcileCachedServer(queryClient, serverId, serverId === activeServerId),
+        ),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("cached server reconciliation failed")
     },
@@ -349,6 +391,7 @@ export type CommunityWsReconcileSummary = {
 type CommunityWsReconnectOptions = {
   excludePolicies?: readonly CommunityWsReconcilePolicy[]
   viewerUserId?: string | null
+  jitterMs?: number
 }
 
 export async function reconcileCommunityWsReconnect(
@@ -378,6 +421,11 @@ export async function reconcileCommunityWsReconnect(
   const focusedRouteResults = await Promise.all(
     focusedRoutePolicies.map((policy) => executePolicy(executors[policy])),
   )
+  const jitterDelayMs = options.jitterMs
+    ?? (reconnectDurationMs > 0 ? Math.floor(Math.random() * DEFAULT_RECONNECT_BACKGROUND_JITTER_MAX_MS) : 0)
+  if (jitterDelayMs > 0 && backgroundPolicies.length > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, jitterDelayMs))
+  }
   const backgroundResults = await executePoliciesBounded(
     backgroundPolicies,
     executors,

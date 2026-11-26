@@ -20,7 +20,9 @@ const mockDeleteChannelWithMedia = vi.fn()
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockFanOutToServerMembers = vi.fn()
 const mockFanOutToChannel = vi.fn()
+const mockFanOutToUsers = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
+const mockBroadcastDeliveriesSafe = vi.fn()
 const mockScheduleMediaCleanup = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }))
@@ -50,7 +52,9 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+  broadcastDeliveriesSafe: (...a: unknown[]) => mockBroadcastDeliveriesSafe(...a),
 }))
 
 vi.mock("@/lib/community/community-media-cleanup", async () => {
@@ -390,7 +394,10 @@ describe("DELETE /channels/[id]", () => {
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1", "u2"])
     const res = await DELETE(delReq(), ctx)
     expect(res.status).toBe(204)
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(2)
+    expect(mockFanOutToUsers).toHaveBeenCalledWith(["u1", "u2"], expect.objectContaining({
+      type: "community:channel.delete",
+      channelId: "c1",
+    }))
     expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
   })
 

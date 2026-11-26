@@ -14,7 +14,7 @@ import {
 import { fetchViaBindingOrDevFallback } from "./dev-binding-fetch"
 
 const log = createLogger({ service: "broadcast" })
-const bulkBroadcastMaxUserIds = 1000
+const bulkBroadcastMaxUserIds = 400
 const bulkBroadcastMaxActive = 3
 
 function encodeCommunityProducerEvent(message: unknown) {
@@ -266,6 +266,89 @@ function serializeBulkBroadcast(
     throw new Error("community bulk broadcast body too large")
   }
   return body
+}
+
+export type CommunityUserDelivery = {
+  userId: string
+  event: CommunityWsEvent
+}
+
+async function runBroadcastCommunityDeliveries(
+  deliveries: readonly CommunityUserDelivery[],
+): Promise<void> {
+  if (deliveries.length === 0) return
+  const encodedDeliveries: Array<{ userId: string; event: CommunityWsEvent & { schemaVersion: typeof BUSINESS_SCHEMA_VERSION }; byteEstimate: number }> = []
+  const contract = BUSINESS_SCHEMA_VERSION
+  for (const delivery of deliveries) {
+    if (!isValidCommunityUserTarget(delivery.userId)) {
+      throw new Error("invalid community broadcast target")
+    }
+    const encoded = encodeCommunityProducerEvent(delivery.event)
+    if (!encoded.ok) throw new Error(`invalid community event: ${encoded.reason}`)
+    encodedDeliveries.push({
+      userId: delivery.userId,
+      event: encoded.envelope,
+      byteEstimate: encoded.byteLength + delivery.userId.length + 32,
+    })
+  }
+
+  const chunks: Array<Array<{ userId: string; event: CommunityWsEvent & { schemaVersion: typeof BUSINESS_SCHEMA_VERSION } }>> = []
+  let current: Array<{ userId: string; event: CommunityWsEvent & { schemaVersion: typeof BUSINESS_SCHEMA_VERSION } }> = []
+  let currentBytes = 32
+  for (const item of encodedDeliveries) {
+    if (current.length > 0 && (current.length >= bulkBroadcastMaxUserIds || currentBytes + item.byteEstimate > COMMUNITY_BULK_BODY_MAX_BYTES)) {
+      chunks.push(current)
+      current = []
+      currentBytes = 32
+    }
+    current.push({ userId: item.userId, event: item.event })
+    currentBytes += item.byteEstimate
+  }
+  if (current.length > 0) chunks.push(current)
+
+  let nextIndex = 0
+  const results = new Array<PromiseSettledResult<BroadcastChunkResult>>(chunks.length)
+  const workers = Array.from(
+    { length: Math.min(bulkBroadcastMaxActive, chunks.length) },
+    async () => {
+      while (nextIndex < chunks.length) {
+        const index = nextIndex
+        nextIndex += 1
+        try {
+          const body = JSON.stringify({ deliveries: chunks[index] })
+          if (new TextEncoder().encode(body).byteLength > COMMUNITY_BULK_BODY_MAX_BYTES) {
+            throw new Error("community bulk deliveries body too large")
+          }
+          results[index] = {
+            status: "fulfilled",
+            value: await doSend("/broadcast/community/deliveries", body, {
+              label: `deliveries:${deliveries.length}:chunk:${index + 1}/${chunks.length}`,
+              type: "community:deliveries",
+              contract,
+            }),
+          }
+        } catch (reason) {
+          results[index] = { status: "rejected", reason }
+        }
+      }
+    },
+  )
+  await Promise.all(workers)
+  const failed = results.filter((result) => result.status === "rejected").length
+  if (failed > 0) {
+    throw new Error(`community deliveries broadcast failed for ${failed} of ${chunks.length} chunks`)
+  }
+}
+
+export function broadcastCommunityDeliveries(
+  deliveries: readonly CommunityUserDelivery[],
+): Promise<void> {
+  const work = runBroadcastCommunityDeliveries(deliveries)
+  try {
+    const { ctx } = getCloudflareContext()
+    ctx.waitUntil(work.catch(() => {}))
+  } catch {}
+  return work
 }
 
 export function broadcastToUsers(

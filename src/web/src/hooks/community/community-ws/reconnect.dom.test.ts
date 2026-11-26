@@ -497,21 +497,23 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const scopeOnlyMetadata = ["community", "channel", "scope-only", "metadata"] as const
     capturedQueryClient.setQueryData(scopeOnlyMetadata, { id: "scope-only" })
     getCapturedRuntime().ws.actions.observeChannelScope("srv_a", "scope-only")
+    getCapturedRuntime().ui.actions.setCurrentServerId("srv_a")
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
-    await capturedOnReconnect!({ reconnectDurationMs: 250 })
+    await capturedOnReconnect!({ reconnectDurationMs: 0 })
 
     expect(directoryFetches).toBe(2)
     expect(capturedQueryClient.getQueryState(communityKeys.channelRefDirectory())?.isInvalidated).toBe(false)
     const calls = spy.mock.calls.map(([filters]) => filters)
     for (const serverId of ["srv_a", "srv_b"]) {
+      const expectedRefetchType = serverId === "srv_a" ? "active" : "none"
       for (const queryKey of [
         communityKeys.server(serverId),
         communityKeys.members(serverId),
         communityKeys.presence(serverId),
         communityKeys.invites(serverId),
       ]) {
-        expect(calls).toContainEqual({ queryKey, exact: true, refetchType: "active" })
+        expect(calls).toContainEqual({ queryKey, exact: true, refetchType: expectedRefetchType })
       }
       expect(calls).toContainEqual({
         queryKey: communityKeys.forumSidebarThreads(serverId),
@@ -555,7 +557,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       return original(filters, options)
     })
 
-    const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900)
+    const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900, { jitterMs: 0 })
 
     expect(summary).toMatchObject({
       policyCount: 15,
@@ -566,7 +568,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(spy).toHaveBeenCalledWith({
       queryKey: communityKeys.server("srv_b"),
       exact: true,
-      refetchType: "active",
+      refetchType: "none",
     })
 
 
@@ -577,6 +579,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
   it("waits for forum notify reconciliation and reports its reconnect failure", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    getCapturedRuntime().ui.actions.setCurrentServerId("srv_notify")
     capturedQueryClient.setQueryData(communityKeys.server("srv_notify"), { id: "srv_notify" })
     let rejectSidebar!: (error: Error) => void
     getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
@@ -590,7 +593,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })
 
     let settled = false
-    const pending = reconcileCommunityWsReconnect(capturedQueryClient, 25)
+    const pending = reconcileCommunityWsReconnect(capturedQueryClient, 25, { jitterMs: 0 })
       .finally(() => { settled = true })
     await vi.waitFor(() => expect(rejectSidebar).toBeTypeOf("function"))
     expect(settled).toBe(false)
@@ -803,7 +806,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     })
-    createCommunityDbRegistry(queryClient, "u_me")
+    const registry = createCommunityDbRegistry(queryClient, "u_me")
+    registry.runtime.ui.actions.setCurrentServerId("srv_a")
     const versions = { srv_a: 1, srv_b: 1 }
     const fetches = new Map<string, number>()
     const keys = (serverId: "srv_a" | "srv_b") => [
@@ -838,7 +842,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     versions.srv_a = 2
     versions.srv_b = 2
 
-    await reconcileCommunityWsReconnect(queryClient, 50)
+    await reconcileCommunityWsReconnect(queryClient, 50, { jitterMs: 0 })
 
     for (const queryKey of keys("srv_a")) {
       expect(queryClient.getQueryData(queryKey)).toMatchObject({ version: 2 })
@@ -851,12 +855,12 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       expect(queryClient.getQueryData(queryKey)).toMatchObject({ version: 2 })
       expect(fetches.get(JSON.stringify(queryKey))).toBe(2)
     }
-    for (const serverId of ["srv_a", "srv_b"] as const) {
-      expect(queryClient.getQueryData(communityKeys.forumSidebarThreads(serverId)))
-        .toMatchObject({ threads: [], serverNow: "2026-08-01T00:00:00.000Z" })
-    }
+    expect(queryClient.getQueryData(communityKeys.forumSidebarThreads("srv_a")))
+      .toMatchObject({ threads: [], serverNow: "2026-08-01T00:00:00.000Z" })
+    expect(queryClient.getQueryState(communityKeys.forumSidebarThreads("srv_b"))?.isInvalidated)
+      .toBe(true)
     expect(apiFetch.mock.calls.filter(([url]) => String(url).includes("/channels?")))
-      .toHaveLength(2)
+      .toHaveLength(1)
     for (const queryKey of [
       communityKeys.forumSidebarRetained("srv_b", "private-child"),
       communityKeys.channelMeta("srv_b", "private-child"),
@@ -866,6 +870,52 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
     }
     unsubscribes.forEach((unsubscribe) => unsubscribe())
+    queryClient.clear()
+  })
+
+  it("applies reconnect jitter and marks multiple cached inactive servers stale with refetchType none", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const forumChannelCalls: string[] = []
+    getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+      const s = String(url)
+      if (s === "/api/community/users/me/read-state") return { revision: 0, readStates: [] }
+      if (s.includes("/channels?")) {
+        forumChannelCalls.push(s)
+        const serverId = new URL(s, "https://alook.test").pathname.split("/")[4]!
+        return { ...forumSidebarEnvelopeFixture(serverId, [], "u_me"), serverNow: "2026-11-26T00:00:00.000Z" }
+      }
+      return {}
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    const registry = createCommunityDbRegistry(queryClient, "u_me")
+    for (let s = 0; s < 5; s++) {
+      queryClient.setQueryData(communityKeys.server(`srv-${s}`), { id: `srv-${s}` })
+    }
+    registry.runtime.ui.actions.setCurrentServerId("srv-0")
+
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
+    const startedAt = Date.now()
+    await reconcileCommunityWsReconnect(queryClient, 500, { jitterMs: 60 })
+    const elapsedMs = Date.now() - startedAt
+
+    expect(elapsedMs).toBeGreaterThanOrEqual(50)
+    expect(forumChannelCalls).toHaveLength(1)
+    expect(forumChannelCalls[0]).toContain("/servers/srv-0/channels?")
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: communityKeys.server("srv-0"),
+      exact: true,
+      refetchType: "active",
+    })
+    for (let s = 1; s < 5; s++) {
+      expect(queryClient.getQueryState(communityKeys.server(`srv-${s}`))?.isInvalidated).toBe(true)
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: communityKeys.server(`srv-${s}`),
+        exact: true,
+        refetchType: "none",
+      })
+    }
     queryClient.clear()
   })
 })

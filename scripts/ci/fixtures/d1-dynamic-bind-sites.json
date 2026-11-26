@@ -384,6 +384,9 @@
     "key": "src/shared/src/db/queries/community/machine-session-epoch.ts:transitionLiveLease:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/machine.ts:getBotPresenceStates:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/machine.ts:reconcileBotActivityFromRunningAgents:inArray:1"
   },
   {

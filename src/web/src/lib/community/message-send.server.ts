@@ -7,7 +7,7 @@ import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage, getCommunityMessageReplay } from "./message-handler"
 import { createMessageWithThread } from "./create-channels"
 import { resolveMessageTarget, type MessageTargetDescriptor } from "./message-door"
-import { broadcastToUserSafe } from "./fanout"
+import { fanOutToUsers } from "./fanout"
 import { isDuplicateBotMessage, DUPLICATE_MESSAGE_ERROR } from "./jev-send-dedup"
 import { prepareBotDecisionCard } from "./decision-card.server"
 
@@ -198,9 +198,7 @@ export async function handleBotSend(
         userId: botUserId,
       } as const
       const recipients = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
-      await Promise.all(
-        [...new Set(recipients)].map((userId) => broadcastToUserSafe(userId, event)),
-      )
+      await fanOutToUsers([...new Set(recipients)], event)
     }
   }
 

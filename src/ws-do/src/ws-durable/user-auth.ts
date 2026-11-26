@@ -7,7 +7,6 @@ import {
   isUserWsConnectionPing,
   isValidCommunityUserTarget,
   queries,
-  readOrStale,
   withD1Retry,
 } from "@alook/shared"
 import {
@@ -22,9 +21,12 @@ import type {
 } from "./internal"
 import {
   broadcastPresence,
+  handleClientFocusSet,
   handleClientTypingStart,
   handleClientTypingStop,
+  renewSocketRoomsIfDue,
   sendPresenceSnapshot,
+  unregisterSocketFocus,
 } from "./presence-typing"
 import {
   getInternalCommunityUserTarget,
@@ -91,12 +93,20 @@ export async function handleUserFetch(
       logCommunityBrowserEventRejected(context.log, "target-do-bundle", bundle)
       return deliveryErrorResponse(400, { operationId: null, code: "invalid_request" })
     }
+    for (const ev of bundle.prepared.events) {
+      context.channelAccessCache.invalidateForControlEvent(targetUserId, ev)
+    }
     if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
       return deliverCommunityBundle(context, bundle, targetUserId)
     }
     try {
       if (!await withD1Retry(
-        () => canDeliverCommunityContent(createDb(context.env.DB), targetUserId, bundle.prepared.events),
+        () => canDeliverCommunityContent(
+          createDb(context.env.DB),
+          targetUserId,
+          bundle.prepared.events,
+          context.channelAccessCache,
+        ),
         { route: "ws-do:community-delivery-access" },
       )) {
         return jsonResponse({
@@ -131,12 +141,18 @@ export async function handleUserFetch(
       logCommunityBrowserEventRejected(context.log, "target-do", event)
       return invalidCommunityBrowserEventResponse(event)
     }
+    context.channelAccessCache.invalidateForControlEvent(targetUserId, event.event)
     if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
       return jsonResponse({ sent: broadcastCommunity(context, event.event, targetUserId, event.contract) })
     }
     try {
       if (!await withD1Retry(
-        () => canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event]),
+        () => canDeliverCommunityContent(
+          createDb(context.env.DB),
+          targetUserId,
+          [event.event],
+          context.channelAccessCache,
+        ),
         { route: "ws-do:community-content-access" },
       )) {
         context.log.info("community_content_access_denied", { targetUserId, type: event.event.type })
@@ -176,37 +192,7 @@ export async function handleUserFetch(
         invalidateMismatchedUserSocket(context, ws, state, targetUserId, "online-check")
       }
     }
-    if (hasAuthUser) {
-      return new Response(JSON.stringify({ online: true }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
-    if (targetUserId) {
-      const db = createDb(context.env.DB)
-      const { value, stale } = await readOrStale<{ isBotResolved: boolean; online: boolean }>(
-        async () => {
-          const target = await queries.user.getUserInternal(db, targetUserId)
-          if (target?.isBot) {
-            const online = await queries.communityMachine.isBotOnline(db, targetUserId)
-            return { isBotResolved: true, online }
-          }
-          return { isBotResolved: false, online: false }
-        },
-        { isBotResolved: false, online: false },
-        { route: "ws-do/check-user-online" },
-      )
-      if (stale) {
-        return new Response(JSON.stringify({ online: false, stale: true }), {
-          headers: { "Content-Type": "application/json" },
-        })
-      }
-      if (value.isBotResolved) {
-        return new Response(JSON.stringify({ online: value.online }), {
-          headers: { "Content-Type": "application/json" },
-        })
-      }
-    }
-    return new Response(JSON.stringify({ online: false }), {
+    return new Response(JSON.stringify({ online: hasAuthUser }), {
       headers: { "Content-Type": "application/json" },
     })
   }
@@ -264,6 +250,7 @@ export async function handleWebSocketMessage(
     }
     if (state.type === "user" && isUserWsConnectionPing(parsed)) {
       ws.send(JSON.stringify({ type: "connection.pong", nonce: parsed.nonce }))
+      renewSocketRoomsIfDue(context, ws, state).catch(() => { })
     }
     return
   }
@@ -328,6 +315,7 @@ export async function handleWebSocketMessage(
       name,
       discriminator,
       communityContract,
+      focusRenewedAt: Date.now(),
       ...(state?.type === "user" && state.communityDeliveryProgress
         ? { communityDeliveryProgress: state.communityDeliveryProgress }
         : {}),
@@ -353,6 +341,11 @@ export async function handleWebSocketMessage(
   }
   if (state.type === "user" && await handleUserAgentInterrupt(context, state, parsed)) return
   if (state.type === "user") {
+    const focusSet = handleClientFocusSet(context, ws, state, parsed)
+    if (focusSet) {
+      await focusSet
+      return
+    }
     const typingStart = handleClientTypingStart(context, state, parsed)
     if (typingStart) {
       await typingStart
@@ -373,6 +366,7 @@ export async function handleWebSocketClose(
 ): Promise<void> {
   const state = ws.deserializeAttachment() as ConnectionState
   if (state?.type === "user" && state.authenticated) {
+    unregisterSocketFocus(context, ws, state).catch(() => { })
     if (!hasOtherAuthenticatedUserConnection(context, ws, state.userId)) {
       broadcastPresence(context, state.userId, false).catch(() => { })
     }

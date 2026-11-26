@@ -13,6 +13,7 @@ const mockAddThreadParticipant = vi.fn()
 const mockResolveChannelContentRecipientUserIds = vi.fn()
 const mockResolveScopeMemberUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
+const mockFanOutToUsers = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -38,6 +39,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+  fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -91,18 +93,18 @@ describe("POST /channels/[id]/participants", () => {
   it("any participant adds a parent-channel member as a participant", async () => {
     const res = await POST(postReq({ userId: "u2" }), ctx)
     expect(res.status).toBe(201)
-    for (const [, event] of mockBroadcastToUserSafe.mock.calls) {
-      expect(Object.keys(event).sort()).toEqual(["channelId", "present", "relation", "serverId", "type", "userId"])
-      expect(decodeCommunityBrowserEvent(currentCommunityEventFixture(event)).ok).toBe(true)
-    }
+    expect(mockFanOutToUsers).toHaveBeenCalledTimes(1)
+    const [recipients, event] = mockFanOutToUsers.mock.calls[0]!
+    expect(recipients).toEqual(["u1", "u2", "u3"])
+    expect(Object.keys(event).sort()).toEqual(["channelId", "present", "relation", "serverId", "type", "userId"])
+    expect(decodeCommunityBrowserEvent(currentCommunityEventFixture(event)).ok).toBe(true)
     expect(mockAddThreadParticipant).toHaveBeenCalledWith(expect.anything(), {
       threadChannelId: "t1", userId: "u2", source: "added",
     })
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(3)
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u3", expect.objectContaining({
+    expect(event).toMatchObject({
       type: "community:channel.membership.change", relation: "notify", present: true,
       userId: "u2",
-    }))
+    })
   })
 
   it("a non-creator participant can still add (no creator gate)", async () => {

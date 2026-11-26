@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 import { createLogger, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
 import type { WsDurableContext } from "./ws-durable/internal"
+import { ChannelAccessCache } from "./ws-durable/channel-access-cache"
+import { createScopeRoomState, handleScopeRoomFetch } from "./ws-durable/scope-room"
 import {
   acceptUserWebSocket,
   handleUserFetch,
@@ -36,6 +38,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   /** Preserve start/stop delivery order independently for each user and scope. */
   private typingFanoutChains = new Map<string, Promise<void>>()
 
+  private channelAccessCache = new ChannelAccessCache()
+
+  private scopeRoom = createScopeRoomState()
+
   private static readonly SUBREQUEST_BATCH_SIZE = 40
 
   private domainContext(): WsDurableContext {
@@ -47,11 +53,16 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       typingFanoutChains: this.typingFanoutChains,
       typingDedupMs: TYPING_INDICATOR_THROTTLE_MS,
       subrequestBatchSize: WebSocketDurableObject.SUBREQUEST_BATCH_SIZE,
+      channelAccessCache: this.channelAccessCache,
+      scopeRoom: this.scopeRoom,
     }
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
+
+    const roomResponse = await handleScopeRoomFetch(this.domainContext(), request, url)
+    if (roomResponse) return roomResponse
 
     const userResponse = await handleUserFetch(this.domainContext(), request, url)
     if (userResponse) return userResponse

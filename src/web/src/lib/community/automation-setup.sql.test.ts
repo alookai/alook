@@ -8,7 +8,7 @@ import { prepareNativeD1BatchStatement } from "../../../../shared/test/helpers/n
 
 const state = vi.hoisted(() => ({ db: null as unknown, loseServerReceipt: false }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => state.db, getDb: () => state.db }))
-vi.mock("./fanout", () => ({ fanOutToServerMembers: vi.fn(), fanOutToUsers: vi.fn(), broadcastToUserSafe: vi.fn(), fanOutToChannel: vi.fn() }))
+vi.mock("./fanout", () => ({ fanOutToServerMembers: vi.fn(), fanOutToUsers: vi.fn(), broadcastToUserSafe: vi.fn(), broadcastDeliveriesSafe: vi.fn(), fanOutToChannel: vi.fn() }))
 vi.mock("./bot-push", () => ({ pushBotEventToMachine: vi.fn(async () => ({ sent: 0 })) }))
 vi.mock("./message-dispatcher", () => ({ dispatchCommittedMessage: vi.fn(async () => {}) }))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: true })) }))

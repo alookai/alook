@@ -1,4 +1,5 @@
 import { queries, type CommunityWsEvent, type Database } from "@alook/shared"
+import type { ChannelAccessCache } from "./ws-durable/channel-access-cache"
 
 type AccessKind = "channel" | "child-create" | "child-update" | "channel-create" | "mention" | "notification" | "control"
 
@@ -39,6 +40,7 @@ export const communityContentAccessKinds = {
   "community:read_state.advanced": "control",
   "community:inbox.changed": "control",
   "community:presence.update": "control",
+  "community:presence.snapshot": "control",
   "community:status.update": "control",
   "community:identity.update": "control",
   "community:profile.update": "control",
@@ -57,6 +59,7 @@ export async function canDeliverCommunityContent(
   db: Database,
   targetUserId: string,
   events: readonly CommunityWsEvent[],
+  cache?: ChannelAccessCache,
 ): Promise<boolean> {
   const scopes: Scope[] = []
   for (const event of events) {
@@ -110,10 +113,27 @@ export async function canDeliverCommunityContent(
     }
   }
   if (scopes.length === 0) return true
-  const rows = await queries.communityChannel.listReadableChannelsForUser(
-    db, targetUserId, scopes.map((scope) => scope.id),
-  )
-  const readable = new Map(rows.map((row) => [row.id, row]))
+  const now = Date.now()
+  const readable = new Map<string, { serverId: string | null; parentChannelId: string | null }>()
+  const missingIds: string[] = []
+  for (const scope of scopes) {
+    if (readable.has(scope.id)) continue
+    const cached = cache?.getReadable(targetUserId, scope.id, now)
+    if (cached) {
+      readable.set(scope.id, cached)
+    } else {
+      missingIds.push(scope.id)
+    }
+  }
+  if (missingIds.length > 0) {
+    const rows = await queries.communityChannel.listReadableChannelsForUser(
+      db, targetUserId, [...new Set(missingIds)],
+    )
+    cache?.setReadable(targetUserId, rows, now)
+    for (const row of rows) {
+      readable.set(row.id, { serverId: row.serverId, parentChannelId: row.parentChannelId })
+    }
+  }
   return scopes.every((scope) => {
     const row = readable.get(scope.id)
     return row !== undefined

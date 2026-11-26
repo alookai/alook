@@ -67,8 +67,8 @@ describe("Community browser event runtime contract", () => {
   const fixtures = Object.values(communityWsEventFixtures)
   const names = Object.values(WS_EVENTS).sort()
 
-  it("locks the exact 46-event inventory", () => {
-    expect(names).toHaveLength(46)
+  it("locks the exact 47-event inventory", () => {
+    expect(names).toHaveLength(47)
     expect(Object.keys(communityWsEventFixtures).sort()).toEqual(names)
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })

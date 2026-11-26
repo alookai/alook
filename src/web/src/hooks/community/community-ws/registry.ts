@@ -44,6 +44,7 @@ import {
   handleMachineRemoved,
   handleMachineStatus,
   handleMachineUpdated,
+  handlePresenceSnapshot,
   handlePresenceUpdate,
   handleRuntimeModels,
 } from "@/hooks/community/community-ws/presence-machine-events"
@@ -97,6 +98,7 @@ export const communityWsRegistry = {
   "community:read_state.advanced": { handler: handleReadStateAdvanced, reconnectPolicies: ["cached-read-state", "inbox-dms", "all-cached-servers"] },
   "community:inbox.changed": { handler: handleInboxChanged, reconnectPolicies: ["cached-read-state", "inbox-dms", "all-cached-servers"] },
   "community:presence.update": { handler: handlePresenceUpdate, reconnectPolicies: ["friends", "all-cached-servers"] },
+  "community:presence.snapshot": { handler: handlePresenceSnapshot, reconnectPolicies: ["friends", "all-cached-servers"] },
   "community:status.update": { reconnectPolicies: ["status-overlay"] },
   "community:identity.update": { reconnectPolicies: ["identity-surfaces"] },
   "community:profile.update": { reconnectPolicies: ["identity-surfaces"] },
@@ -186,11 +188,13 @@ export function dispatchCommunityWsEvents(
       const publication = entry.handler?.(event, handlerContext)
       if (publication) publications.push(publication)
       if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event, context.contract)
-      if ([
-        "community:server.delete",
-        "community:channel.delete",
-        "community:member.leave",
-      ].includes(event.type) || event.type === "community:channel.membership.change" && !event.present) {
+      const viewerUserId = context.viewerUserIdRef.current
+      if (
+        event.type === "community:server.delete"
+        || event.type === "community:channel.delete"
+        || (event.type === "community:member.leave" && event.userId === viewerUserId)
+        || (event.type === "community:channel.membership.change" && !event.present && event.userId === viewerUserId)
+      ) {
         scheduleAccountAttentionReconcile(context.queryClient)
       }
     }

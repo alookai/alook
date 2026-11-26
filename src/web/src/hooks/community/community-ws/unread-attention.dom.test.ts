@@ -50,7 +50,7 @@ it.each(["text", "dm", "child"] as const)("uses qualified HTTP attention for a %
   expect(getCommunityApiFetchMock().mock.calls.some(([path]) => path === "/api/community/servers" || String(path).endsWith("/unreads"))).toBe(false)
 })
 
-it("rejects an ignored-abort old attention response after a newer arrival", async () => {
+it("coalesces a newer arrival during an in-flight attention read into one trailing refresh", async () => {
   await mountHook({ viewerUserId: "u_me" })
   const old = deferred<ReturnType<typeof attention>>()
   let requests = 0
@@ -58,9 +58,9 @@ it("rejects an ignored-abort old attention response after a newer arrival", asyn
   await act(async () => { await capturedOnMessage!(currentCommunityEventFixture(unreadBump("c1", "u_me", { serverId: "s1" }))) })
   await waitFor(() => expect(requests).toBe(1))
   await act(async () => { await capturedOnMessage!(currentCommunityEventFixture(unreadBump("c1", "u_me", { serverId: "s1" }))) })
-  await waitFor(() => expect(canonicalRegistry!.collections.attentionScopes.get("c1")?.lastUnreadSeq).toBe(5))
+  expect(requests).toBe(1)
   await act(async () => { old.resolve(attention(4)) })
-  expect(canonicalRegistry!.collections.attentionScopes.get("c1")?.lastUnreadSeq).toBe(5)
+  await waitFor(() => expect(canonicalRegistry!.collections.attentionScopes.get("c1")?.lastUnreadSeq).toBe(5))
   expect(requests).toBe(2)
 })
 
@@ -94,4 +94,35 @@ it("rejects a pre-confirmation attention count and retries with the same origina
     expect(requests).toBe(2)
     expect(canonicalRegistry!.collections.attentionScopes.get("c1")).toMatchObject({ lastUnreadSeq: 5, unreadCount: 3 })
   } finally { vi.useRealTimers() }
+})
+
+it("coalesces a rapid burst of unread.bump events without aborting in-flight attention reads", async () => {
+  await mountHook({ viewerUserId: "u_me" })
+  let starts = 0
+  let aborts = 0
+  getCommunityApiFetchMock().mockImplementation(async (path: unknown, options?: { signal?: AbortSignal }) => {
+    if (path === "/api/community/users/me/attention") {
+      starts += 1
+      return await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(attention(5)), 40)
+        options?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer)
+          aborts += 1
+          reject(new DOMException("Aborted", "AbortError"))
+        }, { once: true })
+      })
+    }
+    if (path === "/api/community/users/me/read-state") return { revision: 0, readStates: [] }
+    if (String(path).includes("/messages")) return { messages: [], hasMore: false }
+    throw new Error(`Unexpected transport ${String(path)}`)
+  })
+
+  for (let i = 0; i < 10; i++) {
+    await act(async () => {
+      await capturedOnMessage!(currentCommunityEventFixture(unreadBump(`ch_burst_${i}`, "u_me", { serverId: "s1" })))
+    })
+  }
+  await new Promise((resolve) => setTimeout(resolve, 320))
+  expect(aborts).toBe(0)
+  expect(starts).toBeLessThanOrEqual(2)
 })

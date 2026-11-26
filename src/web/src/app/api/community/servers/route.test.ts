@@ -84,6 +84,7 @@ describe("POST /api/community/servers", () => {
     expect(fanOut).toHaveBeenCalledWith("srv_1", {
       type: WS_EVENTS.MEMBER_JOIN,
       serverId: "srv_1",
+      online: true,
       member: {
         id: "mem_1",
         userId: "u1",

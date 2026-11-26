@@ -7,7 +7,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, createLogger, WS_EVENTS, withD1Retry } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
-import { broadcastToUser, broadcastToUsers } from "../broadcast"
+import { broadcastCommunityDeliveries, broadcastToUser, broadcastToUsers, type CommunityUserDelivery } from "../broadcast"
 
 const log = createLogger({ service: "community-fanout" })
 
@@ -317,9 +317,38 @@ async function broadcastToRecipients(
   }
 }
 
+export async function broadcastDeliveriesSafe(
+  deliveries: readonly CommunityUserDelivery[],
+): Promise<void> {
+  if (deliveries.length === 0) return
+  try {
+    await broadcastCommunityDeliveries(deliveries)
+  } catch (err) {
+    log.warn("broadcast_deliveries_failed", {
+      deliveryCount: deliveries.length,
+      err: String(err),
+    })
+  }
+}
+
 export async function publishServerMemberLeaves(serverId: string, userIds: readonly string[]): Promise<void> {
-  await Promise.all(userIds.flatMap((userId) => {
-    const event = { type: WS_EVENTS.MEMBER_LEAVE, serverId, userId } as const
-    return [fanOutToServerMembers(serverId, event), broadcastToUserSafe(userId, event)]
+  const leaving = [...new Set(userIds)]
+  if (leaving.length === 0) return
+  const selfDeliveries: CommunityUserDelivery[] = leaving.map((userId) => ({
+    userId,
+    event: { type: WS_EVENTS.MEMBER_LEAVE, serverId, userId },
   }))
+  let remainingMembers: string[] = []
+  try {
+    const { env } = getCloudflareContext()
+    remainingMembers = await getServerMemberUserIds(getDb((env as Env).DB), serverId)
+  } catch (err) {
+    log.warn("publish_server_member_leaves_roster_failed", { serverId, err: String(err) })
+  }
+  await Promise.all([
+    broadcastDeliveriesSafe(selfDeliveries),
+    ...(remainingMembers.length > 0
+      ? leaving.map((userId) => fanOutToUsers(remainingMembers, { type: WS_EVENTS.MEMBER_LEAVE, serverId, userId }))
+      : []),
+  ])
 }

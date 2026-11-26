@@ -39,6 +39,7 @@ vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: vi.fn(),
   fanOutToChannel: vi.fn(),
   fanOutToServerMembers: vi.fn(),
+  fanOutToUsers: vi.fn(),
 }))
 vi.mock("@/lib/community/message-dispatcher", () => ({ dispatchCommittedMessage: vi.fn() }))
 

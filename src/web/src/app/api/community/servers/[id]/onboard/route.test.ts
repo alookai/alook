@@ -42,6 +42,9 @@ vi.mock("@alook/shared", async (importOriginal) => {
       communityReadState: {
         markReadToMessageWithRevision: (...args: unknown[]) => mocks.markRead(...args),
       },
+      communityMachine: {
+        getBotPresenceStates: vi.fn(async () => ({ botUserIds: new Set<string>(), onlineBotUserIds: new Set<string>() })),
+      },
     },
   }
 })

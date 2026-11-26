@@ -30,6 +30,7 @@ import type {
 } from "@/hooks/community/community-ws/handler-context"
 import {
   COMMUNITY_CONTRACT_VERSION,
+  COMMUNITY_FOCUS_SET_EVENT,
   decodeCommunityBrowserEvent,
   communityBrowserEventBatchType,
   admitCommunityBrowserEventBatch,
@@ -37,6 +38,7 @@ import {
   isCommunityEventType,
   TYPING_INDICATOR_THROTTLE_MS,
   type AgentInterruptRequest,
+  type CommunityFocusSetFrame,
   type CommunityWsEvent,
   type CommunityContract,
 } from "@alook/shared"
@@ -291,12 +293,45 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     [queryClient, runtime.lifecycle, runtime.ui, runtime.ws, viewToken],
   )
 
+  const authenticatedRef = useRef(false)
+  const lastSentFocusKeyRef = useRef<string | null>(null)
+  const sendRef = useRef<(msg: object) => void>(() => undefined)
+
+  const publishFocus = useCallback((force = false) => {
+    if (!authenticatedRef.current || activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
+    try { getCommunityDbRegistry(queryClient)!.assertOnlineAccount() } catch { return }
+    const ui = runtime.ui.get()
+    const serverId = ui.currentServerId ?? null
+    const channelIds = Array.from(new Set(
+      [ui.subscription.channelId, ui.subscription.secondaryChannelId, ui.subscription.dmConversationId]
+        .filter((id): id is string => Boolean(id)),
+    )).slice(0, 4)
+    const key = `${serverId ?? ""}|${channelIds.join(",")}`
+    if (!force && lastSentFocusKeyRef.current === key) return
+    lastSentFocusKeyRef.current = key
+    sendRef.current({
+      type: COMMUNITY_FOCUS_SET_EVENT,
+      serverId,
+      channelIds,
+      schemaVersion: COMMUNITY_CONTRACT_VERSION,
+    } satisfies CommunityFocusSetFrame)
+  }, [queryClient, runtime.lifecycle, runtime.ui, viewToken])
+
+  const handleDisconnect = useCallback(() => {
+    authenticatedRef.current = false
+    lastSentFocusKeyRef.current = null
+    runtime.ws.actions.markAccessDisconnected()
+  }, [runtime.ws.actions])
+
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
     if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
     await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs, { viewerUserId: viewerUserIdRef.current })
   }, [queryClient, runtime.lifecycle, viewToken])
   const handleAuthenticated = useCallback(async () => {
     if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active) return
+    authenticatedRef.current = true
+    lastSentFocusKeyRef.current = null
+    publishFocus(true)
     void drainCommunityFunnelEvents(runtime.lifecycle)
     void drainInvitedHumanJoined(runtime.lifecycle)
     runtime.ws.actions.markAccessConnected()
@@ -306,7 +341,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       await withCommunityCollectionWrites(registry, () => runtime.ws.actions.setPresence(viewerId, "online"))
     }
     await reconcileAccountReadState(queryClient)
-  }, [queryClient, runtime.ws.actions, runtime.lifecycle, viewToken])
+  }, [publishFocus, queryClient, runtime.ws.actions, runtime.lifecycle, viewToken])
   const reconcileActiveMessages = useCallback((initialMode?: "newest") => {
     if (activeViewRef.current !== viewToken || !runtime.lifecycle.get().active
       || viewerUserIdRef.current !== viewerUserId
@@ -318,12 +353,23 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     viewerUserId: onlineAccount ? viewerUserId : null,
     communityContract: options?.communityContract,
     onReconnect: handleReconnect,
-    onDisconnect: runtime.ws.actions.markAccessDisconnected,
+    onDisconnect: handleDisconnect,
     onAuthenticated: handleAuthenticated,
     onInitialAuthenticated: reconcileInitialMessages,
     onForeground: reconcileActiveMessages,
     onConnectionStateChange: handleConnectionStateChange,
   })
+  useLayoutEffect(() => {
+    sendRef.current = send
+  }, [send])
+  useEffect(() => {
+    const subscription = runtime.ui.subscribe(() => {
+      publishFocus(false)
+    })
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [publishFocus, runtime.ui])
   useEffect(() => {
     reconnectTransportRef.current = reconnectNow
   }, [reconnectNow])
