@@ -612,12 +612,86 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     await bob.page.evaluate(() => document.documentElement.style.removeProperty("--alook-keyboard-bottom"))
     await bob.page.getByTestId(tid.settingsClose).click()
 
+    const avatarButton = bob.page.locator("[data-slot='community-user-bar-base'] button").first()
+    const nameButton = bob.page.getByTestId(tid.userBarName)
+    const userBarBase = bob.page.locator("[data-slot='community-user-bar-base']")
+    const clickBlankUserBarSpace = async () => {
+      const point = await userBarBase.evaluate((base) => {
+        const rect = base.getBoundingClientRect()
+        const candidates = [
+          { x: rect.left + 4, y: rect.top + rect.height / 2 },
+          { x: rect.right - 4, y: rect.top + rect.height / 2 },
+          { x: rect.left + rect.width / 2, y: rect.top + 2 },
+        ]
+        for (const candidate of candidates) {
+          const hit = document.elementFromPoint(candidate.x, candidate.y)
+          if (hit && base.contains(hit) && !hit.closest("button")) return candidate
+        }
+        return null
+      })
+      expect(point).not.toBeNull()
+      await bob.page.mouse.click(point!.x, point!.y)
+    }
+
     await inboxTrigger.click()
-    await bob.page.locator("[data-slot='community-user-bar-base'] button").first().click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-extension", "inbox")
+    await avatarButton.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(0)
+
+    await inboxTrigger.click()
+    await nameButton.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(0)
+
+    await inboxTrigger.click()
+    await clickBlankUserBarSpace()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(0)
+
+    await avatarButton.click()
     await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-extension", "profile")
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-presentation", "slot")
     await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(1)
     await expect(inboxTrigger).not.toBeFocused()
+    const mobileProfileStyle = await bob.page.getByTestId(tid.profileCard).evaluate((card) => {
+      const style = getComputedStyle(card)
+      const reference = document.createElement("div")
+      reference.className = "border border-border/40"
+      reference.style.position = "fixed"
+      reference.style.visibility = "hidden"
+      document.body.appendChild(reference)
+      const expectedBorderColor = getComputedStyle(reference).borderTopColor
+      reference.remove()
+      return {
+        topLeft: style.borderTopLeftRadius,
+        topRight: style.borderTopRightRadius,
+        bottomLeft: style.borderBottomLeftRadius,
+        bottomRight: style.borderBottomRightRadius,
+        topWidth: style.borderTopWidth,
+        rightWidth: style.borderRightWidth,
+        bottomWidth: style.borderBottomWidth,
+        leftWidth: style.borderLeftWidth,
+        topColor: style.borderTopColor,
+        expectedBorderColor,
+      }
+    })
+    expect(mobileProfileStyle.bottomLeft).toBe("0px")
+    expect(mobileProfileStyle.bottomRight).toBe("0px")
+    expect(mobileProfileStyle.topLeft).not.toBe("0px")
+    expect(mobileProfileStyle.topRight).not.toBe("0px")
+    expect(mobileProfileStyle.topWidth).toBe("1px")
+    expect(mobileProfileStyle.rightWidth).toBe("1px")
+    expect(mobileProfileStyle.leftWidth).toBe("1px")
+    expect(mobileProfileStyle.bottomWidth).toBe("0px")
+    expect(mobileProfileStyle.topColor).toBe(mobileProfileStyle.expectedBorderColor)
+
+    await clickBlankUserBarSpace()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+    await nameButton.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-extension", "profile")
     await bob.page.keyboard.press("Escape")
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
 
     await bob.page.setViewportSize({ width: 320, height: 568 })
     await inboxTrigger.click()
@@ -634,6 +708,41 @@ test.describe("mobile Inbox interactive user-bar base", () => {
 
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)
+
+    await bob.page.setViewportSize({ width: 1280, height: 900 })
+    await inboxTrigger.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-extension", "inbox")
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-presentation", "popup")
+    await avatarButton.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(0)
+
+    await inboxTrigger.click()
+    await nameButton.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(0)
+
+    await inboxTrigger.click()
+    await clickBlankUserBarSpace()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+
+    await avatarButton.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-extension", "profile")
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveAttribute("data-presentation", "popup")
+    await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(1)
+    const desktopProfileRadii = await bob.page.getByTestId(tid.profileCard).evaluate((card) => {
+      const style = getComputedStyle(card)
+      return {
+        bottomLeft: style.borderBottomLeftRadius,
+        bottomRight: style.borderBottomRightRadius,
+      }
+    })
+    expect(desktopProfileRadii.bottomLeft).not.toBe("0px")
+    expect(desktopProfileRadii.bottomRight).not.toBe("0px")
+    await avatarButton.click()
+    await expect(bob.page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+
+    expect(writes.writes).toEqual([])
     writes.stop()
   })
 

@@ -171,11 +171,13 @@ describe("UserBarExtensionSlot", () => {
     expect(onRequestUpdate).toHaveBeenCalledOnce()
   })
 
-  it("dismisses on Escape and a blank outside click but leaves User Bar switching atomic", async () => {
+  it("dismisses on Escape, outside blank clicks, and blank User Bar clicks while leaving User Bar buttons atomic", async () => {
     const onDismiss = vi.fn()
     const onDismissOutside = vi.fn()
     const userBar = document.createElement("div")
     userBar.dataset.testid = tid.userBar
+    const blankArea = document.createElement("div")
+    userBar.appendChild(blankArea)
     const switchButton = document.createElement("button")
     userBar.appendChild(switchButton)
     document.body.appendChild(userBar)
@@ -192,11 +194,14 @@ describe("UserBarExtensionSlot", () => {
     await act(async () => switchButton.click())
     expect(onDismiss).not.toHaveBeenCalled()
     expect(onDismissOutside).not.toHaveBeenCalled()
+    await act(async () => blankArea.click())
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(onDismissOutside).not.toHaveBeenCalled()
     await act(async () => document.body.click())
-    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(onDismiss).toHaveBeenCalledTimes(2)
     expect(onDismissOutside).not.toHaveBeenCalled()
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
-    expect(onDismiss).toHaveBeenCalledTimes(2)
+    expect(onDismiss).toHaveBeenCalledTimes(3)
 
     renderer.unmount()
     userBar.remove()
