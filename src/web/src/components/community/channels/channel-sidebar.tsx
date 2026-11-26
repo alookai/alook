@@ -496,7 +496,7 @@ function ChannelSidebarContent({
               <ScrollAreaViewport
                 ref={scrollRef}
                 data-testid={tid.channelSidebarScroll}
-                className="min-h-0 flex-1 overflow-x-clip overflow-y-auto px-2 py-4"
+                className="min-h-0 flex-1 overflow-x-clip overflow-y-auto scroll-fade-y scroll-fade-4 px-2 py-4"
               />
             )}
           >
@@ -670,7 +670,7 @@ export function ChannelSidebarSkeleton({
           {showInviteAction && <Skeleton className="ml-auto size-7 shrink-0 rounded-md" />}
         </header>
       )}
-      <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1 px-2 py-4">
+      <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1 scroll-fade-y scroll-fade-4 px-2 py-4">
         <div className="mb-4 space-y-1">
           <Skeleton className="h-7 w-full rounded-md" />
           <Skeleton className="h-7 w-11/12 rounded-md" />

@@ -84,7 +84,11 @@ describe("member action identity contract", () => {
     expect(source).toContain(
       'className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3"',
     )
-    expect(source).toContain('<ScrollArea className="min-h-0 flex-1" viewportRef={scrollRef}>')
-    expect(source).toContain('<ScrollArea className="min-h-0 flex-1">')
+    expect(source).toContain(
+      '<ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4" viewportRef={scrollRef}>',
+    )
+    expect(source).toContain(
+      '<ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4">',
+    )
   })
 })

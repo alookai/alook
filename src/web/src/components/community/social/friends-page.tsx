@@ -348,7 +348,7 @@ export function FriendsPage({
         </header>
       </div>
 
-      <ScrollArea viewportRef={viewportRef} className="min-h-0 flex-1" contentClassName="flex min-h-full flex-col p-4">
+      <ScrollArea viewportRef={viewportRef} className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4" contentClassName="flex min-h-full flex-col p-4">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
           <TabsContent value="all" className={blocked.length === 0 ? "flex flex-col" : undefined}>
           <div className="mb-4">

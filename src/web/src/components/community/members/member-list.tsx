@@ -289,7 +289,7 @@ export function MemberList({
             )}
           </div>
         )}
-        <ScrollArea className="min-h-0 flex-1" viewportRef={scrollRef}>
+        <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4" viewportRef={scrollRef}>
           <div className="px-4">
             <VirtualRows
               items={items}
@@ -462,7 +462,7 @@ function MemberListSkeleton({
           {showAddMember && <Skeleton className="size-9 shrink-0 rounded-md" />}
         </div>
       )}
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4">
         <div className="px-4 py-4">
           {groups.map((g, i) => (
             <div key={i} className="mb-4">

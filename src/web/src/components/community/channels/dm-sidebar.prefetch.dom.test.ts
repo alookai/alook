@@ -49,7 +49,7 @@ describe("DmSidebar navigation intent", () => {
     const dmList = renderer.container.querySelector('[data-slot="dm-sidebar-list"]')!
     expect(shortcuts).toHaveClass("shrink-0")
     expect(shortcuts).not.toHaveClass("overflow-y-auto")
-    expect(dmList).toHaveClass("min-h-0", "flex-1", "overflow-y-auto")
+    expect(dmList).toHaveClass("min-h-0", "flex-1", "overflow-y-auto", "scroll-fade-y", "scroll-fade-4")
   })
 
   it("waits for click or Enter before activating fixed destinations", async () => {
