@@ -44,7 +44,7 @@ function makeFixtureOccurrences(): ScheduleOccurrenceItem[] {
         sourceMessage: {
           messageId: "msg_standup",
           accessible: true,
-          channelLabel: "/Alook#5620/gus-board",
+          channelLabel: "/Alook#5620/gus-board#42",
           excerpt: "Please send a daily standup digest here.",
         },
         lastExecution: { status: "dispatched", scheduledAt: start1, updatedAt: start1 },
@@ -124,18 +124,31 @@ describe("ScheduleWorkspace", () => {
     expect(view.getByText("Daily standup summary")).toBeInTheDocument()
   })
 
-  it("displays read-only task detail and source-message states without edit or delete actions", async () => {
+  it("displays read-only task detail and clickable message-ref pills without edit or delete actions", async () => {
     const user = setupUser()
     const onOpenSourceMessage = vi.fn()
     const view = render(<Harness initialView="agenda" onOpenSourceMessage={onOpenSourceMessage} />)
 
+    const agendaRow = view.getByTestId(tid.scheduleEvent("sch_1"))
+    const agendaPill = agendaRow.querySelector("button")
+    expect(agendaPill).not.toBeNull()
+    await user.click(agendaPill!)
+    expect(onOpenSourceMessage).toHaveBeenCalledWith("msg_standup")
+    expect(view.queryByTestId(tid.scheduleDetailSheet)).toBeNull()
+
+    onOpenSourceMessage.mockClear()
     await user.click(view.getByTestId(tid.scheduleEvent("sch_1")))
     expect(view.getByTestId(tid.scheduleDetailSheet)).toBeInTheDocument()
     expect(view.getByText("Scheduled by")).toBeInTheDocument()
     expect(view.queryByRole("button", { name: "Edit event" })).toBeNull()
     expect(view.queryByRole("button", { name: "Delete event" })).toBeNull()
+    expect(view.queryByRole("button", { name: "Open original message" })).toBeNull()
     expect(view.getAllByText("Dispatched").length).toBeGreaterThan(0)
-    await user.click(view.getByTestId(tid.scheduleSourceLink))
+    const detailPill = view.getByTestId(tid.scheduleSourceLink)
+    expect(detailPill).toHaveTextContent("Alook /")
+    expect(detailPill).toHaveTextContent("gus-board")
+    expect(detailPill).toHaveTextContent("#42")
+    await user.click(detailPill)
     expect(onOpenSourceMessage).toHaveBeenCalledWith("msg_standup")
 
     await user.click(view.getByTestId(tid.scheduleEvent("sch_2")))

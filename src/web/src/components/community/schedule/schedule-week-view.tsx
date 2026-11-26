@@ -24,6 +24,7 @@ import {
 import {
   ScheduleRecurrenceBadge,
   ScheduleRunStatusBadge,
+  ScheduleSourceRefPill,
   ScheduleSourceStatusBadge,
   ScheduleStatusDot,
 } from "./schedule-status"
@@ -39,6 +40,7 @@ export function ScheduleWeekView({
   occurrences,
   selectedOccurrenceKey,
   onSelectOccurrence,
+  onOpenSourceMessage,
 }: {
   weekDays: readonly Date[]
   selectedDay: Date
@@ -46,6 +48,7 @@ export function ScheduleWeekView({
   occurrences: readonly ScheduleOccurrenceItem[]
   selectedOccurrenceKey: string | null
   onSelectOccurrence: (occurrence: ScheduleOccurrenceItem) => void
+  onOpenSourceMessage: (messageId: string) => void
 }) {
   const now = useScheduleClockMinute()
   const scrollViewportRef = useRef<HTMLDivElement>(null)
@@ -105,7 +108,7 @@ export function ScheduleWeekView({
                     !isSelected && isToday && "text-primary",
                   )}
                 >
-                  <span className="text-[10px] font-semibold tracking-wider uppercase opacity-80">
+                  <span className="text-[11px] font-medium opacity-80">
                     {formatWeekdayShort(day)}
                   </span>
                   <span className="font-mono text-sm leading-none font-semibold tabular-nums">
@@ -158,14 +161,21 @@ export function ScheduleWeekView({
                 const runStatus = occurrence.runStatus ?? event.lastExecution?.status ?? null
                 const degraded = !event.sourceMessage.accessible || runStatus === "blocked_access"
                 return (
-                  <button
+                  <div
                     key={occurrence.occurrenceKey}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     data-testid={tid.scheduleEvent(event.id)}
                     onClick={() => onSelectOccurrence(occurrence)}
+                    onKeyDown={(keyEvent) => {
+                      if (keyEvent.target === keyEvent.currentTarget && (keyEvent.key === "Enter" || keyEvent.key === " ")) {
+                        keyEvent.preventDefault()
+                        onSelectOccurrence(occurrence)
+                      }
+                    }}
                     className={cn(
                       styles.ledgerRow,
-                      "flex min-h-11 w-full flex-col gap-2 px-4 py-3.5 text-left hover:bg-muted/45 active:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
+                      "flex min-h-11 w-full cursor-pointer flex-col gap-2 px-4 py-3.5 text-left hover:bg-muted/45 active:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
                       degraded && "bg-warning/6 hover:bg-warning/10",
                       selectedOccurrenceKey === occurrence.occurrenceKey && "bg-muted/60",
                     )}
@@ -189,16 +199,17 @@ export function ScheduleWeekView({
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <ScheduleActorAvatar actor={event.creator} size={18} />
-                      <span className="truncate font-medium text-foreground/85">{event.creator.name}</span>
-                      {event.sourceMessage.accessible && event.sourceMessage.channelLabel ? (
-                        <span className="truncate text-muted-foreground/80">
-                          · {event.sourceMessage.channelLabel}
-                        </span>
-                      ) : null}
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <ScheduleActorAvatar actor={event.creator} size={18} />
+                        <span className="truncate font-medium text-foreground/85">{event.creator.name}</span>
+                      </span>
+                      <ScheduleSourceRefPill
+                        source={event.sourceMessage}
+                        onOpenSourceMessage={onOpenSourceMessage}
+                      />
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
@@ -233,7 +244,7 @@ export function ScheduleWeekView({
               >
                 <span
                   className={cn(
-                    "text-[10px] font-semibold tracking-[0.12em] uppercase",
+                    "text-xs font-medium",
                     isToday ? "text-primary" : "text-muted-foreground",
                   )}
                 >

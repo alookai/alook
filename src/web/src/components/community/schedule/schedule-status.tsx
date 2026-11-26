@@ -1,10 +1,12 @@
 "use client"
 
+import { DM_SERVER, parseNameAndTag, parseRef } from "@alook/shared"
 import {
   Check,
   RefreshCw,
   TriangleAlertIcon,
 } from "@/components/icons/lucide"
+import { ChannelPill } from "@/components/community/messages/inline-marks"
 import { cn } from "@/lib/utils"
 import type {
   ScheduleOccurrenceRunStatus,
@@ -127,4 +129,81 @@ export function ScheduleRunStatusBadge({
         </span>
       )
   }
+}
+
+function parseSourceRefPillParts(ref: string | null | undefined): {
+  serverPrefix?: string
+  label: string
+  seqSuffix?: number
+  showIcon: boolean
+} {
+  if (!ref) {
+    return { label: "Bound message", showIcon: true }
+  }
+  try {
+    const parsed = parseRef(ref)
+    if (parsed.server === DM_SERVER) {
+      const peer = parseNameAndTag(parsed.channel)
+      return {
+        serverPrefix: "DM",
+        label: peer ? `@${peer.name}` : parsed.channel,
+        seqSuffix: parsed.seq,
+        showIcon: false,
+      }
+    }
+    const serverHandle = parseNameAndTag(parsed.server)
+    const serverPrefix = serverHandle?.name ?? parsed.server
+    if (parsed.threadRootSeq !== undefined) {
+      if (parsed.seq !== undefined) {
+        return {
+          serverPrefix,
+          label: `${parsed.channel} / #${parsed.threadRootSeq}`,
+          seqSuffix: parsed.seq,
+          showIcon: true,
+        }
+      }
+      return {
+        serverPrefix,
+        label: parsed.channel,
+        seqSuffix: parsed.threadRootSeq,
+        showIcon: true,
+      }
+    }
+    return {
+      serverPrefix,
+      label: parsed.channel,
+      seqSuffix: parsed.seq,
+      showIcon: true,
+    }
+  } catch {
+    return { label: ref, showIcon: true }
+  }
+}
+
+export function ScheduleSourceRefPill({
+  source,
+  onOpenSourceMessage,
+  testId,
+}: {
+  source: ScheduleSourceMessage
+  onOpenSourceMessage: (messageId: string) => void
+  testId?: string
+}) {
+  if (!source.accessible) return null
+  const parts = parseSourceRefPillParts(source.channelLabel)
+  return (
+    <ChannelPill
+      state="ready"
+      showIcon={parts.showIcon}
+      serverPrefix={parts.serverPrefix}
+      seqSuffix={parts.seqSuffix}
+      testId={testId}
+      onClick={(event) => {
+        event.stopPropagation()
+        onOpenSourceMessage(source.messageId)
+      }}
+    >
+      {parts.label}
+    </ChannelPill>
+  )
 }

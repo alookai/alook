@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { CalendarDays, ExternalLink } from "@/components/icons/lucide"
+import { CalendarDays } from "@/components/icons/lucide"
 import { EmptyState } from "@/components/community/empty-state"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { tid } from "@/lib/community/testids"
@@ -16,6 +16,7 @@ import {
 import {
   ScheduleRecurrenceBadge,
   ScheduleRunStatusBadge,
+  ScheduleSourceRefPill,
   ScheduleSourceStatusBadge,
   ScheduleStatusDot,
 } from "./schedule-status"
@@ -26,11 +27,13 @@ export function ScheduleAgendaView({
   occurrences,
   selectedOccurrenceKey,
   onSelectOccurrence,
+  onOpenSourceMessage,
   emptyLabel = "No scheduled tasks in this range. Ask a bot to set up a schedule.",
 }: {
   occurrences: readonly ScheduleOccurrenceItem[]
   selectedOccurrenceKey: string | null
   onSelectOccurrence: (occurrence: ScheduleOccurrenceItem) => void
+  onOpenSourceMessage: (messageId: string) => void
   emptyLabel?: string
 }) {
   const now = useMemo(() => new Date(), [])
@@ -89,13 +92,20 @@ export function ScheduleAgendaView({
                     const degraded = !event.sourceMessage.accessible || runStatus === "blocked_access"
                     return (
                       <div key={occurrence.occurrenceKey} className="py-1 first:pt-0 last:pb-0">
-                        <button
-                          type="button"
+                        <div
+                          role="button"
+                          tabIndex={0}
                           data-testid={tid.scheduleEvent(event.id)}
                           onClick={() => onSelectOccurrence(occurrence)}
+                          onKeyDown={(keyEvent) => {
+                            if (keyEvent.target === keyEvent.currentTarget && (keyEvent.key === "Enter" || keyEvent.key === " ")) {
+                              keyEvent.preventDefault()
+                              onSelectOccurrence(occurrence)
+                            }
+                          }}
                           className={cn(
                             styles.ledgerRow,
-                            "-mx-3 flex min-h-11 w-[calc(100%+1.5rem)] flex-col gap-2 rounded-xl px-3 py-2.5 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:py-3",
+                            "-mx-3 flex min-h-11 w-[calc(100%+1.5rem)] cursor-pointer flex-col gap-2 rounded-xl px-3 py-2.5 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:py-3",
                             degraded && "bg-warning/6 hover:bg-warning/11",
                             selectedOccurrenceKey === occurrence.occurrenceKey && "bg-muted/65 ring-1 ring-ring/50",
                           )}
@@ -128,16 +138,12 @@ export function ScheduleAgendaView({
                                 {event.creator.name}
                               </span>
                             </span>
-                            {event.sourceMessage.accessible ? (
-                              <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground">
-                                <ExternalLink className="size-3 shrink-0" aria-hidden />
-                                <span className="truncate">
-                                  {event.sourceMessage.channelLabel ?? "Bound message"}
-                                </span>
-                              </span>
-                            ) : null}
+                            <ScheduleSourceRefPill
+                              source={event.sourceMessage}
+                              onOpenSourceMessage={onOpenSourceMessage}
+                            />
                           </div>
-                        </button>
+                        </div>
                       </div>
                     )
                   })}

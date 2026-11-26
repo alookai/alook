@@ -4462,6 +4462,7 @@
       "candidates": [
         "ScheduleRecurrenceBadge",
         "ScheduleRunStatusBadge",
+        "ScheduleSourceRefPill",
         "ScheduleSourceStatusBadge",
         "ScheduleStatusDot"
       ],

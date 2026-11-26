@@ -324,12 +324,14 @@ export function ScheduleWorkspace({
           occurrences={filteredOccurrences}
           selectedOccurrenceKey={selectedOccurrenceKey}
           onSelectOccurrence={(item) => setSelectedOccurrenceKey(item.occurrenceKey)}
+          onOpenSourceMessage={onOpenSourceMessage}
         />
       ) : (
         <ScheduleAgendaView
           occurrences={filteredOccurrences}
           selectedOccurrenceKey={selectedOccurrenceKey}
           onSelectOccurrence={(item) => setSelectedOccurrenceKey(item.occurrenceKey)}
+          onOpenSourceMessage={onOpenSourceMessage}
         />
       )}
 

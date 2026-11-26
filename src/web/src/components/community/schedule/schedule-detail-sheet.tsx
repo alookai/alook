@@ -1,7 +1,6 @@
 "use client"
 
-import { ExternalLink, TriangleAlertIcon } from "@/components/icons/lucide"
-import { Button } from "@/components/ui/button"
+import { TriangleAlertIcon } from "@/components/icons/lucide"
 import {
   Sheet,
   SheetBody,
@@ -16,6 +15,7 @@ import { formatTimeRange } from "./schedule-date"
 import {
   ScheduleRecurrenceBadge,
   ScheduleRunStatusBadge,
+  ScheduleSourceRefPill,
   ScheduleSourceStatusBadge,
 } from "./schedule-status"
 import type { ScheduleOccurrenceItem } from "./schedule-types"
@@ -84,7 +84,7 @@ export function ScheduleDetailSheet({
             <SheetBody>
               <div className="flex flex-col gap-5">
                 <section className="flex flex-col gap-2">
-                  <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  <h3 className="text-xs font-medium text-muted-foreground">
                     Scheduled by
                   </h3>
                   <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3.5">
@@ -104,7 +104,7 @@ export function ScheduleDetailSheet({
 
                 {event.description ? (
                   <section className="flex flex-col gap-2">
-                    <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    <h3 className="text-xs font-medium text-muted-foreground">
                       Description
                     </h3>
                     <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
@@ -115,7 +115,7 @@ export function ScheduleDetailSheet({
 
                 {event.recurrence.recurring ? (
                   <section className="flex flex-col gap-2">
-                    <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    <h3 className="text-xs font-medium text-muted-foreground">
                       Recurrence
                     </h3>
                     <div className="flex flex-col gap-1 rounded-xl border border-border/60 bg-card p-4 text-sm">
@@ -135,38 +135,27 @@ export function ScheduleDetailSheet({
                 ) : null}
 
                 <section className="flex flex-col gap-2">
-                  <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  <h3 className="text-xs font-medium text-muted-foreground">
                     Bound message
                   </h3>
                   {event.sourceMessage.accessible ? (
-                    <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-4">
-                      {event.sourceMessage.channelLabel ? (
-                        <div className="text-xs font-medium text-muted-foreground">
-                          {event.sourceMessage.channelLabel}
-                        </div>
-                      ) : null}
+                    <div className="flex flex-col items-start gap-2.5 rounded-xl border border-border/70 bg-card p-4">
+                      <div className="text-sm">
+                        <ScheduleSourceRefPill
+                          source={event.sourceMessage}
+                          onOpenSourceMessage={onOpenSourceMessage}
+                          testId={tid.scheduleSourceLink}
+                        />
+                      </div>
                       {event.sourceMessage.excerpt ? (
                         <p className="line-clamp-3 text-sm leading-relaxed text-foreground">
                           {event.sourceMessage.excerpt}
                         </p>
                       ) : (
                         <p className="text-xs text-muted-foreground">
-                          Scheduled tasks reply to message {event.sourceMessage.messageId}.
+                          Scheduled tasks reply to this message.
                         </p>
                       )}
-                      <div>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          data-testid={tid.scheduleSourceLink}
-                          className="h-10 gap-2 sm:h-8"
-                          onClick={() => onOpenSourceMessage(event.sourceMessage.messageId)}
-                        >
-                          <ExternalLink className="size-3.5" aria-hidden />
-                          <span>Open original message</span>
-                        </Button>
-                      </div>
                     </div>
                   ) : (
                     <div
@@ -189,7 +178,7 @@ export function ScheduleDetailSheet({
 
                 {event.lastExecution ? (
                   <section className="flex flex-col gap-2">
-                    <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    <h3 className="text-xs font-medium text-muted-foreground">
                       Last run
                     </h3>
                     <div className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-card p-4 text-xs">
