@@ -747,4 +747,203 @@ test.describe("composer and viewport scroll anchors", () => {
       await keyboard.dispose()
     }
   })
+
+  test("preserves browser-inserted 1st-character Text node, selection, and mounted placeholder on direct insertText", async ({ caseActors }) => {
+    test.setTimeout(90_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { serverId, composerChannelId } = await seedScrollCase(actors)
+    const alice = await actors.asUser("alice")
+
+    await installInputCapability(alice.page, false)
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+
+    const composerInput = alice.page.getByTestId(tid.composerInput)
+    const editable = composerEditable(alice.page)
+    await expect(editable).toBeVisible()
+    await expect(composerInput).toHaveText("")
+    await editable.click()
+    await expect(editable).toBeFocused()
+
+    const report = await alice.page.evaluate(async (composerInputTestId) => {
+      const wait = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms))
+      const inputEl = document.querySelector<HTMLElement>(`[data-testid="${composerInputTestId}"]`)!
+      const editableEl = inputEl.querySelector<HTMLElement & {
+        editor?: {
+          setOptions: (...args: unknown[]) => unknown
+          commands: { clearContent: () => boolean }
+          view: { setProps: (...args: unknown[]) => unknown }
+        }
+      }>(".tiptap")!
+      const editor = editableEl.editor!
+      const placeholderEl = inputEl.querySelector<HTMLElement>('[data-slot="composer-placeholder"]')!
+
+      const selMethods = ["collapse", "extend", "removeAllRanges", "addRange", "setBaseAndExtent"] as const
+      const origSel = new Map<string, (...args: unknown[]) => unknown>()
+      const selCalls: string[] = []
+      for (const method of selMethods) {
+        const fn = Selection.prototype[method] as (...args: unknown[]) => unknown
+        origSel.set(method, fn)
+        ;(Selection.prototype as unknown as Record<string, (...args: unknown[]) => unknown>)[method] = function (...args: unknown[]) {
+          selCalls.push(method)
+          return fn.apply(this, args)
+        }
+      }
+
+      let setOptionsCalls = 0
+      let setPropsCalls = 0
+      let textNodeRemovals = 0
+      let placeholderRemovals = 0
+      const origSetOptions = editor.setOptions.bind(editor)
+      editor.setOptions = (...args: unknown[]) => {
+        setOptionsCalls += 1
+        return origSetOptions(...args)
+      }
+      const origSetProps = editor.view.setProps.bind(editor.view)
+      editor.view.setProps = (...args: unknown[]) => {
+        setPropsCalls += 1
+        return origSetProps(...args)
+      }
+
+      const tiptapObs = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.removedNodes) {
+            if (node.nodeType === Node.TEXT_NODE) textNodeRemovals += 1
+          }
+        }
+      })
+      const wrapperObs = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.removedNodes) {
+            if (node === placeholderEl) placeholderRemovals += 1
+          }
+        }
+      })
+      tiptapObs.observe(editableEl, { childList: true, subtree: true })
+      wrapperObs.observe(inputEl, { childList: true, subtree: true })
+
+      const findTextNode = () => {
+        const paragraph = editableEl.querySelector("p")
+        if (!paragraph) return null
+        for (const node of paragraph.childNodes) {
+          if (node.nodeType === Node.TEXT_NODE) return node
+        }
+        return null
+      }
+      const reset = () => {
+        selCalls.length = 0
+        setOptionsCalls = 0
+        setPropsCalls = 0
+        textNodeRemovals = 0
+        placeholderRemovals = 0
+      }
+
+      const insertDirectText = (text: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- native direct insertText reproduces mobile voice dictation commit
+        document.execCommand("insertText", false, text)
+      }
+
+      try {
+        const initialVisible = placeholderEl.getAttribute("data-visible")
+        const initialInputText = inputEl.textContent
+
+        reset()
+        insertDirectText("你")
+        await wait(50)
+        const node1 = findTextNode()
+        const char1 = {
+          text: editableEl.textContent,
+          textNodeRemovals,
+          selCalls: [...selCalls],
+          placeholderRemovals,
+          setOptionsCalls,
+          setPropsCalls,
+          placeholderStillMounted: inputEl.contains(placeholderEl),
+          placeholderVisible: placeholderEl.getAttribute("data-visible"),
+          focused: document.activeElement === editableEl,
+        }
+
+        reset()
+        insertDirectText("好")
+        await wait(50)
+        const node2 = findTextNode()
+        const char2 = {
+          text: editableEl.textContent,
+          sameTextNode: node1 !== null && node1 === node2,
+          textNodeRemovals,
+          selCalls: [...selCalls],
+          placeholderRemovals,
+        }
+
+        editor.commands.clearContent()
+        await wait(50)
+        const clearedVisible = placeholderEl.getAttribute("data-visible")
+        const clearedInputText = inputEl.textContent
+        editableEl.focus()
+        const rawCollapse = origSel.get("collapse")!
+        rawCollapse.call(window.getSelection(), editableEl.querySelector("p"), 0)
+        await wait(30)
+
+        reset()
+        insertDirectText("测")
+        await wait(50)
+        const afterClearChar1 = {
+          text: editableEl.textContent,
+          textNodeRemovals,
+          selCalls: [...selCalls],
+          placeholderRemovals,
+          placeholderStillMounted: inputEl.contains(placeholderEl),
+          placeholderVisible: placeholderEl.getAttribute("data-visible"),
+          focused: document.activeElement === editableEl,
+        }
+
+        return {
+          initialVisible,
+          initialInputText,
+          char1,
+          char2,
+          clearedVisible,
+          clearedInputText,
+          afterClearChar1,
+        }
+      } finally {
+        tiptapObs.disconnect()
+        wrapperObs.disconnect()
+        for (const [method, fn] of origSel) {
+          ;(Selection.prototype as unknown as Record<string, (...args: unknown[]) => unknown>)[method] = fn
+        }
+      }
+    }, tid.composerInput)
+
+    expect(report.initialVisible).toBe("true")
+    expect(report.initialInputText).toBe("")
+    expect(report.char1).toEqual({
+      text: "你",
+      textNodeRemovals: 0,
+      selCalls: [],
+      placeholderRemovals: 0,
+      setOptionsCalls: 0,
+      setPropsCalls: 0,
+      placeholderStillMounted: true,
+      placeholderVisible: "false",
+      focused: true,
+    })
+    expect(report.char2).toEqual({
+      text: "你好",
+      sameTextNode: true,
+      textNodeRemovals: 0,
+      selCalls: [],
+      placeholderRemovals: 0,
+    })
+    expect(report.clearedVisible).toBe("true")
+    expect(report.clearedInputText).toBe("")
+    expect(report.afterClearChar1).toEqual({
+      text: "测",
+      textNodeRemovals: 0,
+      selCalls: [],
+      placeholderRemovals: 0,
+      placeholderStillMounted: true,
+      placeholderVisible: "false",
+      focused: true,
+    })
+  })
 })

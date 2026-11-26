@@ -2183,6 +2183,11 @@
   content: attr(data-placeholder);
 }
 
+.chat-placeholder-overlay[data-visible="false"] {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .chat-placeholder-overlay>span {
   display: inline-block;
   max-width: 100%;

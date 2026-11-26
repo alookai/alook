@@ -65,7 +65,8 @@
   },
   "pnpm": {
     "patchedDependencies": {
-      "@base-ui/react@1.9.0": "patches/@base-ui__react@1.9.0.patch"
+      "@base-ui/react@1.9.0": "patches/@base-ui__react@1.9.0.patch",
+      "prosemirror-view@1.43.1": "patches/prosemirror-view@1.43.1.patch"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3",

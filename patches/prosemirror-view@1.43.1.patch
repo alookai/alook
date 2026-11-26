@@ -1,0 +1,65 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 214c6a030441ec78b7f200c8943f8f8f6983f100..3a0055fa4fc8124f0734ff332181e7b4a30626ac 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1393,7 +1393,7 @@ var NodeViewDesc = function (_ViewDesc4) {
+       var dom = spec && spec.dom,
+         contentDOM = spec && spec.contentDOM;
+       if (node.isText) {
+-        if (!dom) dom = document.createTextNode(node.text);else if (!isText(dom)) throw new RangeError("Text must be rendered as a DOM text node");
++        if (!dom) dom = !spec && adoptBrowserTextNode(parent, node, outerDeco, view, pos) || document.createTextNode(node.text);else if (!isText(dom)) throw new RangeError("Text must be rendered as a DOM text node");
+       } else if (!dom) {
+         var _spec = prosemirrorModel.DOMSerializer.renderSpec(document, node.type.spec.toDOM(node), null, node.attrs);
+         dom = _spec.dom;
+@@ -1409,6 +1409,16 @@ var NodeViewDesc = function (_ViewDesc4) {
+     }
+   }]);
+ }(ViewDesc);
++function adoptBrowserTextNode(parent, node, outerDeco, view, pos) {
++  if (outerDeco.length || !parent || !parent.contentDOM || !view.domSel) return null;
++  var sel = view.state && view.state.selection;
++  if (!sel || sel.from < pos || sel.to > pos + node.nodeSize) return null;
++  var selRange = view.domSel.readRange();
++  if (!selRange) return null;
++  var candidate = selRange.focusNode && selRange.focusNode.nodeType == 3 ? selRange.focusNode : selRange.anchorNode;
++  if (!candidate || candidate.nodeType != 3 || candidate.pmViewDesc || candidate.parentNode != parent.contentDOM || candidate.nodeValue != node.text) return null;
++  return candidate;
++}
+ function docViewDesc(doc, outerDeco, innerDeco, dom, view, prevOuterDeco) {
+   if (!prevOuterDeco) applyOuterDeco(dom, outerDeco, doc);else patchOuterDeco(dom, dom, computeOuterDeco(prevOuterDeco, doc, false), computeOuterDeco(outerDeco, doc, false));
+   var docView = new NodeViewDesc(undefined, doc, outerDeco, innerDeco, dom, dom, dom);
+diff --git a/dist/index.js b/dist/index.js
+index 94d7e7b94410235ffa16e3b626d036963b96c1a7..7b58416a5e9573217b3cfbd8054d53e032fc37af 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1190,7 +1190,7 @@ class NodeViewDesc extends ViewDesc {
+         let dom = spec && spec.dom, contentDOM = spec && spec.contentDOM;
+         if (node.isText) {
+             if (!dom)
+-                dom = document.createTextNode(node.text);
++                dom = (!spec && adoptBrowserTextNode(parent, node, outerDeco, view, pos)) || document.createTextNode(node.text);
+             else if (!isText(dom))
+                 throw new RangeError("Text must be rendered as a DOM text node");
+         }
+@@ -1404,6 +1404,21 @@ class NodeViewDesc extends ViewDesc {
+ }
+ // Create a view desc for the top-level document node, to be exported
+ // and used by the view class.
++function adoptBrowserTextNode(parent, node, outerDeco, view, pos) {
++    if (outerDeco.length || !parent || !parent.contentDOM || !view.domSel)
++        return null;
++    let sel = view.state && view.state.selection;
++    if (!sel || sel.from < pos || sel.to > pos + node.nodeSize)
++        return null;
++    let selRange = view.domSel.readRange();
++    if (!selRange)
++        return null;
++    let candidate = selRange.focusNode && selRange.focusNode.nodeType == 3 ? selRange.focusNode : selRange.anchorNode;
++    if (!candidate || candidate.nodeType != 3 || candidate.pmViewDesc ||
++        candidate.parentNode != parent.contentDOM || candidate.nodeValue != node.text)
++        return null;
++    return candidate;
++}
+ function docViewDesc(doc, outerDeco, innerDeco, dom, view, prevOuterDeco) {
+     if (!prevOuterDeco)
+         applyOuterDeco(dom, outerDeco, doc);
