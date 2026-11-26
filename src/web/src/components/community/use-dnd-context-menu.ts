@@ -97,19 +97,25 @@ export function useDndContextMenu(options: Options) {
   }, [])
   const onDragStartRef = useRef<() => void>(() => {})
   const clearHoldRef = useRef<() => void>(() => {})
+  const handleDragStart = useCallback(() => {
+    onDragStartRef.current()
+  }, [])
+  const handleHoldCleanup = useCallback(() => {
+    clearHoldRef.current()
+  }, [])
   const syncDragSubscription = useCallback(() => {
     if (latest.current.canOpen || hold.current !== null || menuOpenRef.current) {
-      addDragStartListener(managerRef.current, onDragStartRef.current)
+      addDragStartListener(managerRef.current, handleDragStart)
     } else {
-      removeDragStartListener(managerRef.current, onDragStartRef.current)
+      removeDragStartListener(managerRef.current, handleDragStart)
     }
-  }, [])
+  }, [handleDragStart])
   const clearHold = useCallback(() => {
     clearTimer()
     hold.current = null
-    removeHoldCleanup(clearHoldRef.current)
+    removeHoldCleanup(handleHoldCleanup)
     syncDragSubscription()
-  }, [clearTimer, syncDragSubscription])
+  }, [clearTimer, handleHoldCleanup, syncDragSubscription])
   useLayoutEffect(() => {
     clearHoldRef.current = clearHold
     onDragStartRef.current = () => {
@@ -121,13 +127,13 @@ export function useDndContextMenu(options: Options) {
     }
     const previousManager = managerRef.current
     if (previousManager !== manager) {
-      removeDragStartListener(previousManager, onDragStartRef.current)
+      removeDragStartListener(previousManager, handleDragStart)
       managerRef.current = manager
     }
     latest.current = options
     syncDragSubscription()
     if (!options.canOpen || !options.canDrag()) clearHold()
-  }, [clearHold, manager, options, syncDragSubscription])
+  }, [clearHold, handleDragStart, manager, options, syncDragSubscription])
   useEffect(() => {
     if (options.canOpen) return
     menuOpenRef.current = false
@@ -138,8 +144,8 @@ export function useDndContextMenu(options: Options) {
   useEffect(() => () => {
     menuOpenRef.current = false
     clearHold()
-    removeDragStartListener(managerRef.current, onDragStartRef.current)
-  }, [clearHold])
+    removeDragStartListener(managerRef.current, handleDragStart)
+  }, [clearHold, handleDragStart])
   const suppressed = () => managerRef.current?.getMonitor().isDragging() || latest.current.suppressOpen()
   const onOpenChange: NonNullable<ContextMenu.Root.Props["onOpenChange"]> = (open, details) => {
     if (open && (!latest.current.canOpen || suppressed())) {
@@ -159,7 +165,7 @@ export function useDndContextMenu(options: Options) {
       const touch = event.touches[0]
       const current = { node: event.currentTarget, x: touch.clientX, y: touch.clientY, ready: false }
       hold.current = current
-      addHoldCleanup(clearHoldRef.current)
+      addHoldCleanup(handleHoldCleanup)
       syncDragSubscription()
       timer.current = setTimeout(() => {
         timer.current = null

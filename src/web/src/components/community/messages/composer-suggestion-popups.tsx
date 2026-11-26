@@ -11,6 +11,7 @@ import {
 } from "@/hooks/use-anchored-popover"
 import {
   COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+  measureCommunityVirtualizerElement,
   observeCommunityVirtualizerRect,
 } from "@/hooks/community/virtualizer-react-options"
 import { Avatar } from "../avatar"
@@ -41,22 +42,26 @@ function scrollSelectedRowIntoView(
   list: HTMLDivElement | null,
   selectedIndex: number,
   itemCount: number,
-  scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void,
+  virtualizer: {
+    measurementsCache: ReadonlyArray<{ start: number; size: number }>
+    scrollToIndex: (index: number, options?: { align?: "auto" | "start" | "center" | "end" }) => void
+  },
 ): void {
-  if (!list) return
-  const row = list.querySelector<HTMLElement>('[aria-selected="true"]')
-  if (row) {
-    list.scrollTop = nextListScrollTop(
+  if (!list || selectedIndex < 0 || selectedIndex >= itemCount) return
+  const measurement = virtualizer.measurementsCache[selectedIndex]
+  if (measurement) {
+    const nextTop = nextListScrollTop(
       list.scrollTop,
       list.clientHeight,
-      row.offsetTop,
-      row.offsetHeight,
+      measurement.start,
+      measurement.size,
     )
+    if (nextTop !== list.scrollTop) {
+      list.scrollTop = nextTop
+    }
     return
   }
-  if (selectedIndex >= 0 && selectedIndex < itemCount) {
-    scrollToIndex(selectedIndex, { align: "auto" })
-  }
+  virtualizer.scrollToIndex(selectedIndex, { align: "auto" })
 }
 
 export function CommunityMentionList({
@@ -90,13 +95,14 @@ export function CommunityMentionList({
     ),
     overscan: 6,
     initialRect: { width: POPUP_WIDTH, height: POPUP_MAX_HEIGHT },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const handleSelectItem = useCallback((item: MentionItem) => {
     command?.({ id: item.id, label: item.label })
   }, [command])
   useEffect(() => {
-    scrollSelectedRowIntoView(listRef.current, selectedIndex, items.length, virtualizer.scrollToIndex)
+    scrollSelectedRowIntoView(listRef.current, selectedIndex, items.length, virtualizer)
   }, [selectedIndex, geometry, items.length, virtualizer])
   useEffect(() => {
     const root = listRef.current
@@ -212,13 +218,14 @@ export function ChannelRefList({
     estimateSize: () => CHANNEL_REF_ROW_ESTIMATE,
     overscan: 6,
     initialRect: { width: POPUP_WIDTH, height: POPUP_MAX_HEIGHT },
+    measureElement: measureCommunityVirtualizerElement,
     observeElementRect: observeCommunityVirtualizerRect,
   })
   const handleSelectChannel = useCallback((item: ChannelRefCandidate) => {
     command?.(toChannelRefCommandProps(item))
   }, [command])
   useEffect(() => {
-    scrollSelectedRowIntoView(listRef.current, selectedIndex, items.length, virtualizer.scrollToIndex)
+    scrollSelectedRowIntoView(listRef.current, selectedIndex, items.length, virtualizer)
   }, [selectedIndex, geometry, items.length, virtualizer])
   if (!geometry || !visible) return null
 
