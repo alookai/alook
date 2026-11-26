@@ -4,10 +4,9 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState,
 import {
   ConversationResourceContext,
   type ConversationIntent,
+  type ConversationResourceResult,
   type SharedConversationResource,
 } from "./conversation-resource-context"
-
-export type { SharedConversationResource }
 import { createStore, useSelector } from "@tanstack/react-store"
 import { hashKey, replaceEqualDeep, useIsRestoring, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useConversationActivity, useConversationPresentation } from "@/contexts/view-activity"
@@ -58,7 +57,7 @@ function canReuseSharedResource(
   return true
 }
 
-function useOwnedConversationResource(target: ConversationEntryTarget | null, intent?: ConversationIntent, _consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
+function useOwnedConversationResource(target: ConversationEntryTarget | null, intent?: ConversationIntent, _consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true): ConversationResourceResult {
   const client = useQueryClient()
   const restoring = useIsRestoring()
   const presented = useConversationPresentation()
@@ -228,8 +227,6 @@ function useOwnedConversationResource(target: ConversationEntryTarget | null, in
   }), [anchorMissing, cachedResource, cachedWindow, canonical, client, currentPointer, displayWindowReady, fallback.error, fallback.errorUpdatedAt, fallback.isFetching, fallback.isPending, generation, input, options, qualified, query, readableScope, resource, retryVerification, revoked, serverRevoked, verification.generation, verification.needed, windowReady])
   return result
 }
-
-export type ConversationResourceResult = ReturnType<typeof useOwnedConversationResource>
 
 export function useConversationResource(
   target: ConversationEntryTarget | null,
