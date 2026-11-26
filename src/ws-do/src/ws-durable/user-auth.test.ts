@@ -296,10 +296,23 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).not.toHaveBeenCalled()
       expect((await durable.fetch(request.clone())).status).toBe(200)
       expect(ws.send).toHaveBeenCalledTimes(1)
+      await durable.fetch(new Request("http://internal/community-broadcast", {
+        method: "POST",
+        headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), [INTERNAL_USER_TARGET_HEADER]: "user-42" },
+        body: JSON.stringify({
+          type: "community:channel.membership.change",
+          serverId: null,
+          channelId: "ch-1",
+          userId: "user-42",
+          relation: "access",
+          present: false,
+          schemaVersion: BUSINESS_SCHEMA_VERSION,
+        }),
+      }))
       mockListReadableChannelsForUser.mockResolvedValueOnce([])
       expect((await (await durable.fetch(request.clone())).json()).status).toBe("cancelled")
       expect((await durable.fetch(request.clone())).status).toBe(200)
-      expect(ws.send).toHaveBeenCalledTimes(1)
+      expect(ws.send).toHaveBeenCalledTimes(2)
     })
 
     it("reads current sockets and progress only after concurrent authorization awaits", async () => {
@@ -1069,7 +1082,7 @@ describe("WebSocketDurableObject", () => {
     it("first authenticated user connection broadcasts online presence and starts a snapshot", async () => {
       const { durable } = createDO()
       mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
-      mockGetCoMemberUserIds.mockResolvedValue(["friend-1"])
+      mockGetFriendUserIds.mockResolvedValue(["friend-1"])
       mockStubFetch.mockImplementation(async (request: Request) =>
         new (globalThis.Response as any)(
           request.url.includes("/check-user-online")
@@ -1096,7 +1109,7 @@ describe("WebSocketDurableObject", () => {
     it("second authenticated user connection does not duplicate the online presence transition", async () => {
       const { durable, ctx } = createDO()
       mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
-      mockGetCoMemberUserIds.mockResolvedValue(["friend-1"])
+      mockGetFriendUserIds.mockResolvedValue(["friend-1"])
       mockStubFetch.mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ online: false })))
       const existing = createMockWebSocket()
       existing.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
@@ -1197,7 +1210,7 @@ describe("WebSocketDurableObject", () => {
         name: "Attacker",
         discriminator: "0066",
       })
-      mockGetCoMemberUserIds.mockResolvedValue(["friend-1"])
+      mockGetFriendUserIds.mockResolvedValue(["friend-1"])
       mockStubFetch.mockResolvedValue(
         new (globalThis.Response as any)(JSON.stringify({ sent: 1 })),
       )
@@ -1376,7 +1389,7 @@ describe("WebSocketDurableObject", () => {
 
     it("broadcasts offline presence when the last authenticated user tab closes", async () => {
       const { durable, ctx } = createDO()
-      mockGetCoMemberUserIds.mockResolvedValue(["friend-1"])
+      mockGetFriendUserIds.mockResolvedValue(["friend-1"])
       mockStubFetch.mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ sent: 1 })))
       const closing = createMockWebSocket()
       closing.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })

@@ -391,7 +391,7 @@ describe("useCommunityWs — message.create", () => {
     expect(cache?.pages[0].messages).toEqual([])
   })
 
-  it("invalidates channelMembers for a focused child channel", async () => {
+  it("does NOT invalidate channelMembers for a focused child channel on message.create", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
     const store = getCapturedRuntime().ui.get()
@@ -404,7 +404,7 @@ describe("useCommunityWs — message.create", () => {
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     capturedOnMessage!(currentCommunityEventFixture(messageCreate("ch_1")))
 
-    expect(spy).toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.channelMembers("ch_1") })
     expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.threadParticipants("ch_1") })
   })
 
@@ -1515,5 +1515,50 @@ describe("assigned question card realtime attention sync (Inbox closed)", () => 
     await vi.waitFor(() => {
       expect(getCommunityApiFetchMock().mock.calls.filter(([path]) => path === "/api/community/users/me/attention")).toHaveLength(1)
     })
+  })
+
+  it("does not refetch channelMembers when a message arrives in a focused thread", async () => {
+    const { QueryObserver } = await import("@tanstack/react-query")
+    await mountHook({ viewerUserId: "u_me" })
+    getCapturedRuntime().ui.actions.setCurrentServerId("s1")
+    getCapturedRuntime().ui.actions.subscribe({ channelId: "th_focused" })
+    resetHookMemoization()
+    await mountHook({ viewerUserId: "u_me" })
+
+    let memberRefetches = 0
+    const membersKey = communityKeys.channelMembers("th_focused")
+    capturedQueryClient.setQueryData(membersKey, { members: [] })
+    const observer = new QueryObserver(capturedQueryClient, {
+      queryKey: membersKey,
+      queryFn: async () => {
+        memberRefetches += 1
+        return { members: [] }
+      },
+      staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    try {
+      const message = messageResourceFixture({
+        id: "m_focused_thread_1",
+        channelId: "th_focused",
+        authorId: "u_other",
+        authorName: "Other",
+        authorAvatarVersion: 0,
+        seq: 1,
+        content: "hi",
+      })
+      capturedOnMessage!(currentCommunityEventFixture({
+        type: "community:message.create",
+        channelId: "th_focused",
+        serverId: "s1",
+        parentChannelId: "ch_parent",
+        profiles: messageProfilesFixture([message]),
+        message,
+      }))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(memberRefetches).toBe(0)
+    } finally {
+      unsubscribe()
+    }
   })
 })

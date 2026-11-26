@@ -749,7 +749,7 @@ describe("WebSocketDurableObject", () => {
           { botUserId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
           { botUserId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
         ])
-        mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+        mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
 
         const ws = createMockWebSocket()
         ws.serializeAttachment({
@@ -986,7 +986,7 @@ describe("WebSocketDurableObject", () => {
         const machine = { id: "cm_1", hostname: "host", daemonVersion, availableRuntimes: [], status: "online", lastSeenAt: "2026-11-02T00:00:00.000Z" }
         mockUpsertMachineByMachineId.mockResolvedValue({ machine, priorAvailableRuntimes: [], priorDaemonVersion, priorStatus: "offline" })
         mockListBotsForMachine.mockResolvedValue([{ id: "bot-1", name: "Bot", discriminator: "0001", description: "" }])
-        mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+        mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
         if (ownerFailure) mockStubFetch.mockRejectedValueOnce(new Error("owner unavailable"))
 
         const frame = JSON.stringify({ type: "ready", runtimeReport: [], capabilities: ["control-heartbeat-v1"], runningAgents: [], daemonVersion })

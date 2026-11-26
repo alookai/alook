@@ -1,4 +1,6 @@
 import type { CommunityContract, Logger } from "@alook/shared"
+import type { ChannelAccessCache } from "./channel-access-cache"
+import type { ScopeRoomState } from "./scope-room"
 
 export const COMMUNITY_DELIVERY_PROGRESS_LIMIT = 64
 export const COMMUNITY_CONNECTION_STATE_JSON_MAX_BYTES = 12 * 1024
@@ -22,6 +24,9 @@ export type ConnectionState =
     discriminator?: string
     communityContract?: CommunityContract
     communityDeliveryProgress?: CompactCommunityDeliveryProgress[]
+    focusedServerId?: string | null
+    focusedChannelIds?: string[]
+    focusRenewedAt?: number
   }
   | {
     type: "community-machine"
@@ -75,4 +80,6 @@ export interface WsDurableContext {
   readonly typingFanoutChains: Map<string, Promise<void>>
   readonly typingDedupMs: number
   readonly subrequestBatchSize: number
+  readonly channelAccessCache: ChannelAccessCache
+  readonly scopeRoom: ScopeRoomState
 }

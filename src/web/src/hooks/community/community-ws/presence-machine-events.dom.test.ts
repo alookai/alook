@@ -99,6 +99,18 @@ describe("useCommunityWs — presence", () => {
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toBeUndefined()
   })
 
+  it("presence.snapshot seeds all online users in one frame", async () => {
+    await mountHook()
+    capturedOnMessage!(currentCommunityEventFixture({
+      type: "community:presence.snapshot",
+      onlineUserIds: ["snap-1", "snap-2", "snap-3"],
+    }))
+
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("snap-1")).toBe("online")
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("snap-2")).toBe("online")
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("snap-3")).toBe("online")
+  })
+
 })
 describe("useCommunityWs — status.update", () => {
   it("does not create a durable status track in Zustand", async () => {

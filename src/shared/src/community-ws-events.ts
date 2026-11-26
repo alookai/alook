@@ -181,6 +181,7 @@ const communityMemberJoinSchema = z.strictObject({
   member: CommunityResourceProfileSchema.pick({ name: true, discriminator: true, avatar: true, avatarVersion: true }).extend({
     id: string, userId: string, role: string, joinedAt: string,
   }),
+  online: z.boolean().optional(),
 })
 
 const communityMemberLeaveSchema = z.strictObject({
@@ -296,6 +297,11 @@ const communityPresenceUpdateSchema = z.strictObject({
   online: z.boolean(),
 })
 
+const communityPresenceSnapshotSchema = z.strictObject({
+  type: z.literal("community:presence.snapshot"),
+  onlineUserIds: z.array(string),
+})
+
 const communityStatusUpdateSchema = z.strictObject({
   type: z.literal("community:status.update"),
   userId: string,
@@ -395,6 +401,7 @@ const commonCommunityEventSchemas = [
   communityReadStateAdvancedSchema,
   communityInboxChangedSchema,
   communityPresenceUpdateSchema,
+  communityPresenceSnapshotSchema,
   communityStatusUpdateSchema,
   communityMachineCreatedSchema,
   communityMachineStatusSchema,
@@ -454,6 +461,15 @@ export type CommunityUnreadBump = Extract<CommunityWsEvent, { type: "community:u
 export type CommunityReadStateAdvanced = Extract<CommunityWsEvent, { type: "community:read_state.advanced" }>
 export type CommunityInboxChanged = Extract<CommunityWsEvent, { type: "community:inbox.changed" }>
 export type CommunityPresenceUpdate = Extract<CommunityWsEvent, { type: "community:presence.update" }>
+export type CommunityPresenceSnapshot = Extract<CommunityWsEvent, { type: "community:presence.snapshot" }>
+export const COMMUNITY_FOCUS_SET_EVENT = "community:focus.set" as const
+
+export type CommunityFocusSetFrame = {
+  type: typeof COMMUNITY_FOCUS_SET_EVENT
+  serverId?: string | null
+  channelIds?: string[]
+  schemaVersion: typeof COMMUNITY_CONTRACT_VERSION
+}
 export type CommunityStatusUpdate = Extract<CommunityWsEvent, { type: "community:status.update" }>
 export type CommunityIdentityUpdate = Extract<CommunityWsEvent, { type: "community:identity.update" }>
 export type CommunityProfileUpdate = Extract<CommunityWsEvent, { type: "community:profile.update" }>
@@ -524,6 +540,7 @@ export const WS_EVENTS = {
   READ_STATE_ADVANCED: "community:read_state.advanced",
   INBOX_CHANGED: "community:inbox.changed",
   PRESENCE_UPDATE: "community:presence.update",
+  PRESENCE_SNAPSHOT: "community:presence.snapshot",
   STATUS_UPDATE: "community:status.update",
   IDENTITY_UPDATE: "community:identity.update",
   PROFILE_UPDATE: "community:profile.update",

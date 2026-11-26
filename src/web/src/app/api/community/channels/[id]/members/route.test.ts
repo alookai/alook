@@ -18,6 +18,7 @@ const mockGetUsersByIds = vi.fn()
 const mockResolveScopeMembers = vi.fn()
 const mockGetMembersByUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
+const mockFanOutToUsers = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockListThreadParticipants = vi.fn()
 const mockListThreadParticipantUserIds = vi.fn()
@@ -76,6 +77,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+  fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
 }))
 
 // Dual-actor: crk_ bearer → bot (folded channelMember), else human.

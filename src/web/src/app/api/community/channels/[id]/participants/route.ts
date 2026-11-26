@@ -4,7 +4,7 @@ import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread, PARTICIPANT_SOURCE } from "@alook/shared"
-import { broadcastToUserSafe } from "@/lib/community/fanout"
+import { fanOutToUsers } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 // GET (the participant-list READ) was retired: the unified `/members` endpoint
@@ -73,9 +73,7 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
       userId: targetUserId,
     } as const
     const recipients = await queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId)
-    await Promise.all(
-      [...new Set(recipients)].map((userId) => broadcastToUserSafe(userId, event)),
-    )
+    await fanOutToUsers([...new Set(recipients)], event)
   }
 
   return writeJSON({ ok: true }, 201)

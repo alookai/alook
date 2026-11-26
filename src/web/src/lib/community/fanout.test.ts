@@ -58,9 +58,11 @@ vi.mock("../db", () => ({
 
 const mockBroadcastToUser = vi.fn()
 const mockBroadcastToUsers = vi.fn()
+const mockBroadcastCommunityDeliveries = vi.fn()
 vi.mock("../broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => mockBroadcastToUser(...a),
   broadcastToUsers: (...a: unknown[]) => mockBroadcastToUsers(...a),
+  broadcastCommunityDeliveries: (...a: unknown[]) => mockBroadcastCommunityDeliveries(...a),
 }))
 
 const mockListMembers = vi.fn()
@@ -97,6 +99,7 @@ describe("fanOutToServerMembers", () => {
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockBroadcastToUsers.mockResolvedValue(undefined)
+    mockBroadcastCommunityDeliveries.mockResolvedValue(undefined)
     mockWithD1Retry.mockImplementation(async (fn: () => Promise<unknown>, _opts?: unknown) => fn())
     mockResolveChannelRecipientUserIds.mockResolvedValue([])
     // Default to a non-thread channel so fan-out uses the shared resolver path;
@@ -110,7 +113,7 @@ describe("fanOutToServerMembers", () => {
     await publishServerMemberLeaves("server", ["human", "bot"])
     const events = ["human", "bot"].map(userId => ({ type: WS_EVENTS.MEMBER_LEAVE, serverId: "server", userId }))
     expect(mockBroadcastToUsers.mock.calls).toEqual(events.map(event => [["remaining-1", "remaining-2"], event]))
-    expect(mockBroadcastToUser.mock.calls).toEqual(events.map(event => [event.userId, event]))
+    expect(mockBroadcastCommunityDeliveries).toHaveBeenCalledWith(events.map(event => ({ userId: event.userId, event })))
   })
 
   it("resolves recipients via listMemberUserIds and includes every account connection", async () => {
@@ -250,6 +253,7 @@ describe("fanOutStatusUpdate", () => {
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockBroadcastToUsers.mockResolvedValue(undefined)
+    mockBroadcastCommunityDeliveries.mockResolvedValue(undefined)
     // Default to a non-thread channel so fan-out uses the shared resolver path;
     // the thread test overrides this. (clearAllMocks resets call history, not
     // the resolved-value impl, so re-assert the default each test.)
@@ -472,6 +476,7 @@ describe("fanout helpers absorb setup failures", () => {
     vi.clearAllMocks()
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockBroadcastToUsers.mockResolvedValue(undefined)
+    mockBroadcastCommunityDeliveries.mockResolvedValue(undefined)
   })
 
   it("all shared-payload fanout helpers absorb a bulk rejection", async () => {

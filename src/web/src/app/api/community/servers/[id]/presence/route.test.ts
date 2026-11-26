@@ -94,25 +94,34 @@ describe("GET /api/community/servers/[id]/presence", () => {
     expect(body.limit).toBe(PRESENCE_MEMBER_CAP)
   })
 
-  it.each([1, 50, PRESENCE_MEMBER_CAP])(
-    "service-binding path: issues exactly one WS_DO_WORKER.fetch call regardless of member count (%i members)",
-    async (n) => {
+  it.each([
+    [1, 1],
+    [50, 1],
+    [PRESENCE_MEMBER_CAP, Math.ceil(PRESENCE_MEMBER_CAP / 400)],
+  ])(
+    "service-binding path: chunks WS_DO_WORKER.fetch calls at 400 ids (%i members -> %i calls)",
+    async (n, expectedCalls) => {
       mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1", role: "member" })
       const ids = Array.from({ length: n }, (_, i) => `u${i}`)
       mockListMemberUserIds.mockResolvedValue(ids)
-      mockWsDoWorkerFetch.mockResolvedValue(
+      mockWsDoWorkerFetch.mockImplementation(async () =>
         new Response(JSON.stringify({ online: [], offline: [] }), { status: 200 })
       )
 
       const res = await GET(getReq(), ctx)
       expect(res.status).toBe(200)
-      expect(mockWsDoWorkerFetch).toHaveBeenCalledTimes(1)
+      expect(mockWsDoWorkerFetch).toHaveBeenCalledTimes(expectedCalls)
       // Global fetch fallback should NOT fire when binding succeeds.
       expect(mockFetch).not.toHaveBeenCalled()
-      const [url, init] = mockWsDoWorkerFetch.mock.calls[0] as [string, RequestInit]
-      expect(url).toBe("http://internal/presence/users")
-      expect(init.method).toBe("POST")
-      expect(JSON.parse(init.body as string)).toEqual({ ids })
+      const requestedIds: string[] = []
+      for (const [url, init] of mockWsDoWorkerFetch.mock.calls as Array<[string, RequestInit]>) {
+        expect(url).toBe("http://internal/presence/users")
+        expect(init.method).toBe("POST")
+        const parsed = JSON.parse(init.body as string) as { ids: string[] }
+        expect(parsed.ids.length).toBeLessThanOrEqual(400)
+        requestedIds.push(...parsed.ids)
+      }
+      expect(requestedIds).toEqual(ids)
     }
   )
 

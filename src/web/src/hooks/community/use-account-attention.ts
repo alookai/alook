@@ -140,17 +140,138 @@ function attentionReadRetryPolicy(queryClient: QueryClient) {
   return (failures: number, error: Error) => error instanceof StaleAttentionReadError ? failures < 3 : retry(failures, error)
 }
 
+const DEFAULT_ATTENTION_RECONCILE_DEBOUNCE_MS = 250
+
+type AttentionReconcileSchedulerState = {
+  microtaskQueued: boolean
+  cooldownTimer: ReturnType<typeof setTimeout> | null
+  dirty: boolean
+  unsubscribe: (() => void) | null
+  inFlightPrefetches: Set<string>
+  latestToken: ReturnType<typeof captureCommunityLiveSnapshotToken> | null
+}
+
+const attentionReconcileStates = new WeakMap<QueryClient, AttentionReconcileSchedulerState>()
+
+function getAttentionReconcileState(queryClient: QueryClient): AttentionReconcileSchedulerState {
+  let state = attentionReconcileStates.get(queryClient)
+  if (!state) {
+    state = {
+      microtaskQueued: false,
+      cooldownTimer: null,
+      dirty: false,
+      unsubscribe: null,
+      inFlightPrefetches: new Set(),
+      latestToken: null,
+    }
+    attentionReconcileStates.set(queryClient, state)
+  }
+  return state
+}
+
+function clearAttentionScheduler(state: AttentionReconcileSchedulerState) {
+  state.microtaskQueued = false
+  state.dirty = false
+  if (state.cooldownTimer !== null) {
+    clearTimeout(state.cooldownTimer)
+    state.cooldownTimer = null
+  }
+  state.unsubscribe?.()
+  state.unsubscribe = null
+}
+
+function dispatchAccountAttentionReconcile(queryClient: QueryClient, state: AttentionReconcileSchedulerState) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry?.runtime.lifecycle.get().active || !state.latestToken) {
+    clearAttentionScheduler(state)
+    return
+  }
+  try {
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, state.latestToken, undefined)
+  } catch {
+    clearAttentionScheduler(state)
+    return
+  }
+
+  const query = queryClient.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+  if (query?.state.fetchStatus === "fetching") {
+    state.dirty = true
+    if (!state.unsubscribe) {
+      state.unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+        if (event.query.queryHash !== query.queryHash) return
+        if (event.query.state.fetchStatus !== "idle") return
+        state.unsubscribe?.()
+        state.unsubscribe = null
+        if (!state.dirty || state.cooldownTimer !== null) return
+        state.dirty = false
+        dispatchAccountAttentionReconcile(queryClient, state)
+      })
+    }
+    return
+  }
+
+  state.dirty = false
+  state.cooldownTimer = setTimeout(() => {
+    state.cooldownTimer = null
+    if (!state.dirty) return
+    dispatchAccountAttentionReconcile(queryClient, state)
+  }, DEFAULT_ATTENTION_RECONCILE_DEBOUNCE_MS)
+
+  void queryClient.invalidateQueries(
+    { queryKey: communityKeys.accountAttention(), exact: true, refetchType: "active" },
+    { cancelRefetch: false },
+  ).catch(() => undefined)
+}
+
 export function scheduleAccountAttentionReconcile(queryClient: QueryClient, message?: { channelId?: string; messageId?: string }) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry?.runtime.lifecycle.get().active) return
-  const token = captureCommunityLiveSnapshotToken(queryClient)
+  const state = getAttentionReconcileState(queryClient)
+  state.latestToken = captureCommunityLiveSnapshotToken(queryClient)
+
   if (message?.messageId) {
-    void prefetchCommunityMessage(queryClient, message.messageId, { channelId: message.channelId }).catch(() => undefined)
+    const key = `m:${message.messageId}`
+    if (!state.inFlightPrefetches.has(key)) {
+      state.inFlightPrefetches.add(key)
+      void prefetchCommunityMessage(queryClient, message.messageId, { channelId: message.channelId })
+        .catch(() => undefined)
+        .finally(() => state.inFlightPrefetches.delete(key))
+    }
   } else if (message?.channelId) {
-    void prefetchCommunityLatestMessage(queryClient, message.channelId).catch(() => undefined)
+    const key = `c:${message.channelId}`
+    if (!state.inFlightPrefetches.has(key)) {
+      state.inFlightPrefetches.add(key)
+      void prefetchCommunityLatestMessage(queryClient, message.channelId)
+        .catch(() => undefined)
+        .finally(() => state.inFlightPrefetches.delete(key))
+    }
   }
-  void queryClient.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true }).then(() => {
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
-    return queryClient.invalidateQueries({ queryKey: communityKeys.accountAttention(), exact: true, refetchType: "active" }, { cancelRefetch: false })
-  }).catch(() => undefined)
+
+  if (state.microtaskQueued) return
+  if (state.cooldownTimer !== null) {
+    state.dirty = true
+    return
+  }
+  const query = queryClient.getQueryCache().find({ queryKey: communityKeys.accountAttention(), exact: true })
+  if (query?.state.fetchStatus === "fetching") {
+    state.dirty = true
+    if (!state.unsubscribe) {
+      state.unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+        if (event.query.queryHash !== query.queryHash) return
+        if (event.query.state.fetchStatus !== "idle") return
+        state.unsubscribe?.()
+        state.unsubscribe = null
+        if (!state.dirty || state.cooldownTimer !== null) return
+        state.dirty = false
+        dispatchAccountAttentionReconcile(queryClient, state)
+      })
+    }
+    return
+  }
+
+  state.microtaskQueued = true
+  queueMicrotask(() => {
+    state.microtaskQueued = false
+    dispatchAccountAttentionReconcile(queryClient, state)
+  })
 }

@@ -21,7 +21,7 @@ import {
   type CommunityBrowserEventIngressFailure,
 } from "../community-browser-event-ingress"
 
-const maxBulkUserIds = 1000
+const maxBulkUserIds = 400
 const bulkBatchSize = 40
 
 type BulkBroadcastBody = {
@@ -350,6 +350,118 @@ export async function handleCommunityUsersBroadcast({ request, env, url, traceId
     maxActive,
     batchSize: bulkBatchSize,
     batchCount: Math.ceil(targetUserIds.length / bulkBatchSize),
+    durationMs: Date.now() - startedAt,
+  })
+  return Response.json({ sent })
+}
+
+export async function handleCommunityDeliveriesBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
+  if (url.pathname !== "/broadcast/community/deliveries" || request.method !== "POST") return null
+  const parsed = await readBoundedJsonRequest(request, COMMUNITY_BULK_BODY_MAX_BYTES)
+  if (!parsed.ok) {
+    logCommunityBrowserEventRejected(log, "strict-bulk", parsed)
+    return invalidCommunityBrowserEventResponse(parsed)
+  }
+  if (!isRecord(parsed.value)) {
+    const failure = strictFailure("non-object", parsed.byteCount)
+    logCommunityBrowserEventRejected(log, "strict-bulk", failure)
+    return invalidCommunityBrowserEventResponse(failure)
+  }
+  const body = parsed.value
+  const keys = Object.keys(body)
+  if (keys.some((key) => key !== "deliveries") || !Array.isArray(body.deliveries)) {
+    const failure = strictFailure("invalid-payload", parsed.byteCount)
+    logCommunityBrowserEventRejected(log, "strict-bulk", failure)
+    return invalidCommunityBrowserEventResponse(failure)
+  }
+  if (body.deliveries.length > maxBulkUserIds) {
+    const failure = strictFailure("too-many-targets", parsed.byteCount)
+    logCommunityBrowserEventRejected(log, "strict-bulk", failure, body.deliveries.length)
+    return invalidCommunityBrowserEventResponse(failure)
+  }
+  const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
+  if (version !== String(BUSINESS_SCHEMA_VERSION)) {
+    return invalidCommunityBrowserEventResponse(strictFailure("invalid-payload", parsed.byteCount))
+  }
+
+  const normalizedDeliveries: Array<{ userId: string; body: string; contract: CommunityContract }> = []
+  for (const item of body.deliveries) {
+    if (!isRecord(item)) {
+      const failure = strictFailure("invalid-payload", parsed.byteCount)
+      logCommunityBrowserEventRejected(log, "strict-bulk", failure, body.deliveries.length)
+      return invalidCommunityBrowserEventResponse(failure)
+    }
+    const itemKeys = Object.keys(item)
+    if (itemKeys.some((key) => key !== "userId" && key !== "event")) {
+      const failure = strictFailure("invalid-payload", parsed.byteCount)
+      logCommunityBrowserEventRejected(log, "strict-bulk", failure, body.deliveries.length)
+      return invalidCommunityBrowserEventResponse(failure)
+    }
+    if (!isValidCommunityUserTarget(item.userId)) {
+      const failure = strictFailure("invalid-target", parsed.byteCount)
+      logCommunityBrowserEventRejected(log, "strict-bulk", failure, body.deliveries.length)
+      return invalidCommunityBrowserEventResponse(failure)
+    }
+    const event = normalizeCommunityBrowserEvent(item.event, undefined, BUSINESS_SCHEMA_VERSION)
+    if (!event.ok) {
+      logCommunityBrowserEventRejected(log, "strict-bulk", event, body.deliveries.length)
+      return invalidCommunityBrowserEventResponse(event)
+    }
+    normalizedDeliveries.push({
+      userId: item.userId,
+      body: event.body,
+      contract: event.contract,
+    })
+  }
+
+  const reqLog = log.child({ traceId, targetCount: normalizedDeliveries.length })
+  const startedAt = Date.now()
+  let active = 0
+  let maxActive = 0
+  const results = await settleInBatches(
+    normalizedDeliveries,
+    async (delivery) => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      try {
+        return await broadcastCommunityToBulkTarget(env, delivery.userId, delivery.body, delivery.contract)
+      } finally {
+        active -= 1
+      }
+    },
+    bulkBatchSize,
+  )
+  let sent = 0
+  let successCount = 0
+  let failureCount = 0
+  const failureCounts: Record<BulkFailureKind, number> = {
+    throw: 0,
+    "non-ok": 0,
+    "invalid-json": 0,
+    "invalid-sent": 0,
+  }
+  for (const result of results) {
+    if (result.status === "rejected") {
+      failureCount += 1
+      failureCounts.throw += 1
+    } else if (!result.value.ok) {
+      failureCount += 1
+      failureCounts[result.value.failureKind] += 1
+    } else {
+      successCount += 1
+      sent += result.value.sent
+    }
+  }
+  reqLog.info("community bulk deliveries broadcast complete", {
+    targetCount: normalizedDeliveries.length,
+    resultCount: results.length,
+    successCount,
+    failureCount,
+    failureCounts,
+    sent,
+    maxActive,
+    batchSize: bulkBatchSize,
+    batchCount: Math.ceil(normalizedDeliveries.length / bulkBatchSize),
     durationMs: Date.now() - startedAt,
   })
   return Response.json({ sent })

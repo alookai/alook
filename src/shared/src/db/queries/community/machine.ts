@@ -1,4 +1,5 @@
 import { and, eq, gt, desc, inArray, isNull, exists, sql } from "drizzle-orm"
+import { jsonTextSet } from "../_json-set";
 import {
   communityMachineToken,
   communityMachine,
@@ -726,4 +727,44 @@ export async function isBotOnline(db: Database, botUserId: string): Promise<bool
     )
     .limit(1);
   return rows.length > 0 && isPresenceOnline(rows[0]!.status);
+}
+
+export async function getBotPresenceStates(
+  db: Database,
+  userIds: readonly string[],
+): Promise<{ botUserIds: Set<string>; onlineBotUserIds: Set<string> }> {
+  const uniqueIds = [...new Set(userIds.filter(Boolean))];
+  if (uniqueIds.length === 0) {
+    return { botUserIds: new Set(), onlineBotUserIds: new Set() };
+  }
+  const rows = await db
+    .select({
+      userId: user.id,
+      isBot: user.isBot,
+      deletedAt: user.deletedAt,
+      status: communityMachine.status,
+    })
+    .from(user)
+    .leftJoin(
+      communityBotBinding,
+      and(
+        eq(communityBotBinding.userId, user.id),
+        eq(communityBotBinding.isActive, true),
+      ),
+    )
+    .leftJoin(
+      communityMachine,
+      eq(communityMachine.id, communityBotBinding.machineId),
+    )
+    .where(inArray(user.id, jsonTextSet(db, uniqueIds)));
+  const botUserIds = new Set<string>();
+  const onlineBotUserIds = new Set<string>();
+  for (const row of rows) {
+    if (!row.isBot) continue;
+    botUserIds.add(row.userId);
+    if (row.deletedAt === null && row.status !== null && isPresenceOnline(row.status)) {
+      onlineBotUserIds.add(row.userId);
+    }
+  }
+  return { botUserIds, onlineBotUserIds };
 }

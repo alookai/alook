@@ -12,7 +12,7 @@ import {
   WS_EVENTS,
   slugify,
 } from "@alook/shared"
-import { broadcastToUserSafe, fanOutToServerMembers, fanOutToUsers } from "@/lib/community/fanout"
+import { broadcastDeliveriesSafe, fanOutToServerMembers, fanOutToUsers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 import { isOwnedServerIconKey } from "@/lib/community/storage"
@@ -100,10 +100,13 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req, ctx) => {
   })
   if (!result.deleted) return writeError("server not found", 404)
 
-  await Promise.all(result.readStateRevisions.map((revision) => broadcastToUserSafe(revision.userId, {
-    type: WS_EVENTS.READ_STATE_ADVANCED,
-    revision: revision.revision,
-    inboxChanged: true,
+  await broadcastDeliveriesSafe(result.readStateRevisions.map((revision) => ({
+    userId: revision.userId,
+    event: {
+      type: WS_EVENTS.READ_STATE_ADVANCED,
+      revision: revision.revision,
+      inboxChanged: true,
+    },
   })))
 
   const mediaKeys = result.iconKey && isOwnedServerIconKey(result.iconKey, serverId)

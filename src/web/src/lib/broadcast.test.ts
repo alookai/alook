@@ -26,7 +26,7 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-import { wsDoFetch, broadcastToUser, broadcastToUsers } from "./broadcast"
+import { wsDoFetch, broadcastToUser, broadcastToUsers, broadcastCommunityDeliveries } from "./broadcast"
 import { handleCommunityUsersBroadcast } from "../../../ws-do/src/routes/broadcast"
 import { communityWsEventFixtures } from "../../../shared/test/community-ws-events.fixtures"
 
@@ -441,9 +441,11 @@ describe("broadcastToUsers", () => {
 
   it.each([
     [1, [1]],
-    [1000, [1000]],
-    [1001, [1000, 1]],
-    [2001, [1000, 1000, 1]],
+    [400, [400]],
+    [401, [400, 1]],
+    [1000, [400, 400, 200]],
+    [1001, [400, 400, 201]],
+    [2001, [400, 400, 400, 400, 400, 1]],
   ])("chunks %i targets into valid ordered requests", async (targetCount, expectedSizes) => {
     const bindingFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { userIds: string[] }
@@ -501,7 +503,7 @@ describe("broadcastToUsers", () => {
     await broadcastToUsers(userIds, message, "excluded-user")
 
     const bodies = bodiesOf(bindingFetch)
-    expect(bodies.map((body) => body.userIds.length)).toEqual([1000, 1])
+    expect(bodies.map((body) => body.userIds.length)).toEqual([400, 400, 201])
     expect(bodies.flatMap((body) => body.userIds)).toEqual(expected)
     expect(bodies.every((body) => body.excludeUserId === "excluded-user")).toBe(true)
     expect(bodies.flatMap((body) => body.userIds)).not.toContain("excluded-user")
@@ -523,7 +525,7 @@ describe("broadcastToUsers", () => {
     })
     setBinding(bindingFetch)
     const work = broadcastToUsers(
-      Array.from({ length: 4001 }, (_, index) => `u${index}`),
+      Array.from({ length: 1601 }, (_, index) => `u${index}`),
       communityEvent,
     )
     const lifetime = mockCtxWaitUntil.mock.calls[0]?.[0] as Promise<void>
@@ -536,17 +538,17 @@ describe("broadcastToUsers", () => {
     expect(observedMaxActive).toBe(3)
     expect(lifetimeSettled).toBe(false)
 
-    gates[1].resolve(Response.json({ sent: 1000 }))
+    gates[1].resolve(Response.json({ sent: 400 }))
     await vi.waitFor(() => expect(started).toBe(4))
     expect(observedMaxActive).toBe(3)
     expect(lifetimeSettled).toBe(false)
 
-    gates[0].resolve(Response.json({ sent: 1000 }))
+    gates[0].resolve(Response.json({ sent: 400 }))
     await vi.waitFor(() => expect(started).toBe(5))
     expect(observedMaxActive).toBe(3)
 
-    gates[2].resolve(Response.json({ sent: 1000 }))
-    gates[3].resolve(Response.json({ sent: 1000 }))
+    gates[2].resolve(Response.json({ sent: 400 }))
+    gates[3].resolve(Response.json({ sent: 400 }))
     gates[4].resolve(Response.json({ sent: 1 }))
     await expect(work).resolves.toBeUndefined()
     await expect(lifetime).resolves.toBeUndefined()
@@ -564,21 +566,21 @@ describe("broadcastToUsers", () => {
     })
     setBinding(bindingFetch)
     const work = broadcastToUsers(
-      Array.from({ length: 4001 }, (_, index) => `u${index}`),
+      Array.from({ length: 1601 }, (_, index) => `u${index}`),
       communityEvent,
     )
 
     await expect(work).rejects.toThrow("broadcast failed for 1 of 5 chunks")
 
     expect(bindingFetch).toHaveBeenCalledTimes(5)
-    expect(bodiesOf(bindingFetch).map((body) => body.userIds.length)).toEqual([1000, 1000, 1000, 1000, 1])
+    expect(bodiesOf(bindingFetch).map((body) => body.userIds.length)).toEqual([400, 400, 400, 400, 1])
     expect(mockWarn).toHaveBeenCalledWith(
       "broadcast_users_chunk_complete",
       expect.objectContaining({
-        target: "users:4001",
+        target: "users:1601",
         chunkNumber: 2,
         chunkCount: 5,
-        chunkSize: 1000,
+        chunkSize: 400,
         transportStatus: "failure",
         durationMs: expect.any(Number),
       }),
@@ -588,7 +590,7 @@ describe("broadcastToUsers", () => {
       expect.objectContaining({
         transportSuccessChunkCount: 4,
         transportFailureChunkCount: 1,
-        sent: 3001,
+        sent: 1201,
         maxActive: 3,
       }),
     )
@@ -655,5 +657,37 @@ describe("broadcastToUsers", () => {
 
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("chunks broadcastToUsers and broadcastCommunityDeliveries at <= 400 recipients per ws-do request", async () => {
+    const requests: Array<{ url: string; body: string }> = []
+    const bindingFetch = vi.fn(async (input: string | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url
+      const body = typeof input === "string" ? String(init?.body ?? "") : await input.clone().text()
+      requests.push({ url, body })
+      return new Response(JSON.stringify({ sent: 1 }), { status: 200 })
+    })
+    setBinding(bindingFetch)
+
+    await broadcastToUsers(
+      Array.from({ length: 1000 }, (_, i) => `u-${i}`),
+      communityEvent,
+    )
+    const userChunkSizes = requests
+      .filter((r) => r.url.includes("/broadcast/community/users"))
+      .map((r) => (JSON.parse(r.body) as { userIds: string[] }).userIds.length)
+    expect(userChunkSizes).toEqual([400, 400, 200])
+
+    requests.length = 0
+    await broadcastCommunityDeliveries(
+      Array.from({ length: 850 }, (_, i) => ({
+        userId: `u-${i}`,
+        event: { type: "community:read_state.advanced", revision: i + 1, inboxChanged: true },
+      })),
+    )
+    const deliveryChunkSizes = requests
+      .filter((r) => r.url.includes("/broadcast/community/deliveries"))
+      .map((r) => (JSON.parse(r.body) as { deliveries: unknown[] }).deliveries.length)
+    expect(deliveryChunkSizes).toEqual([400, 400, 50])
   })
 })

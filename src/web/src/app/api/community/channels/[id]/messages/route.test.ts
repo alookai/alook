@@ -65,6 +65,7 @@ const mockHardDeleteMessage = vi.fn()
 const mockRecordFirstAgentReplyPersistedStatement = vi.fn(() => ({ kind: "first-agent-reply-statement" }))
 
 const mockFanOutToChannel = vi.fn()
+const mockFanOutToUsers = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockDispatchCommittedMessage = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
@@ -184,6 +185,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
@@ -841,22 +843,17 @@ describe("POST /api/community/channels/[id]/messages", () => {
       source: PARTICIPANT_SOURCE.ADDED,
     })
     expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith({}, "thread_1")
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(2)
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("bot_1", {
+    expect(mockFanOutToUsers).toHaveBeenCalledTimes(1)
+    expect(mockFanOutToUsers).toHaveBeenCalledWith(["bot_1", "u2"], {
       type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, relation: "notify", present: true,
       serverId: "s1",
       channelId: "thread_1",
       userId: "bot_1",
     })
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u2", expect.objectContaining({
-      type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, relation: "notify", present: true,
-      channelId: "thread_1",
-      userId: "bot_1",
-    }))
     expect(mockAddThreadParticipant.mock.invocationCallOrder[0]).toBeLessThan(
       mockGetLatestSeqForScope.mock.invocationCallOrder[0]!,
     )
-    expect(mockBroadcastToUserSafe.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mockFanOutToUsers.mock.invocationCallOrder[0]).toBeLessThan(
       mockHasDeliverableUnreadForAgentScope.mock.invocationCallOrder[0]!,
     )
     expect(mockCreateMessage).not.toHaveBeenCalled()
@@ -880,7 +877,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
 
     expect(await res.json()).toEqual(expect.objectContaining({ state: "sent" }))
     expect(mockAddThreadParticipant).toHaveBeenCalledTimes(1)
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(1)
+    expect(mockFanOutToUsers).toHaveBeenCalledTimes(1)
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
   })
 

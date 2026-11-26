@@ -7,6 +7,7 @@ const mockUpdateServer = vi.fn()
 const mockDeleteServerWithMedia = vi.fn()
 const mockFanOut = vi.fn()
 const mockFanOutToUsers = vi.fn()
+const mockBroadcastDeliveriesSafe = vi.fn()
 const mockScheduleMediaCleanup = vi.fn()
 const mockWaitUntil = vi.fn()
 const mockGetCloudflareContext = vi.fn()
@@ -42,6 +43,7 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
   fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
+  broadcastDeliveriesSafe: (...a: unknown[]) => mockBroadcastDeliveriesSafe(...a),
 }))
 
 vi.mock("@/lib/community/community-media-cleanup", async () => {

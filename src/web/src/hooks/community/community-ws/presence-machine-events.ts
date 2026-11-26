@@ -10,6 +10,7 @@ import type {
   CommunityMachineRemoved,
   CommunityMachineStatus,
   CommunityMachineUpdated,
+  CommunityPresenceSnapshot,
   CommunityPresenceUpdate,
   CommunityWsEvent,
 } from "@alook/shared"
@@ -29,6 +30,19 @@ export function handlePresenceUpdate(
   getCommunityRuntime(queryClient).ws.actions.setPresence(
     event.userId,
     event.online ? "online" : "offline",
+  )
+}
+
+export function handlePresenceSnapshot(
+  event: CommunityPresenceSnapshot,
+  { queryClient }: PresenceMachineEventContext,
+) {
+  if (event.onlineUserIds.length === 0) return
+  const ws = getCommunityRuntime(queryClient).ws.actions
+  const snapshot = ws.beginPresenceSnapshot()
+  ws.seedPresence(
+    snapshot,
+    event.onlineUserIds.map((userId) => [userId, "online"] as [string, "online"]),
   )
 }
 

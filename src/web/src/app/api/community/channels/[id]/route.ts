@@ -14,7 +14,7 @@ import {
   WS_EVENTS,
   slugify,
 } from "@alook/shared"
-import { fanOutToServerMembers, fanOutToChannel, broadcastToUserSafe } from "@/lib/community/fanout"
+import { broadcastDeliveriesSafe, fanOutToChannel, fanOutToServerMembers, fanOutToUsers } from "@/lib/community/fanout"
 import { requireChannelAccess, requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { writeCommunityChannelRead } from "@/lib/community/read-contract"
 
@@ -179,10 +179,13 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) =
   })
   if (!result.deleted) return writeError("channel not found", 404)
 
-  await Promise.all(result.readStateRevisions.map((revision) => broadcastToUserSafe(revision.userId, {
-    type: WS_EVENTS.READ_STATE_ADVANCED,
-    revision: revision.revision,
-    inboxChanged: true,
+  await broadcastDeliveriesSafe(result.readStateRevisions.map((revision) => ({
+    userId: revision.userId,
+    event: {
+      type: WS_EVENTS.READ_STATE_ADVANCED,
+      revision: revision.revision,
+      inboxChanged: true,
+    },
   })))
 
   const event = {
@@ -192,7 +195,7 @@ export const DELETE = withAuth(humanAuthPolicy, async (_req: NextRequest, ctx) =
     parentChannelId: channel.parentChannelId,
   } as const
   if (audience) {
-    await Promise.all(audience.map((userId) => broadcastToUserSafe(userId, event)))
+    await fanOutToUsers(audience, event)
   } else {
     await fanOutToServerMembers(channel.serverId, event)
   }

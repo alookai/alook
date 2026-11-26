@@ -228,6 +228,10 @@ export const communityWsEventFixtures = {
     userId: "user-1",
     online: true,
   },
+  "community:presence.snapshot": {
+    type: "community:presence.snapshot",
+    onlineUserIds: ["user-1", "user-2"],
+  },
   "community:status.update": {
     type: "community:status.update",
     userId: "user-1",
@@ -314,6 +318,7 @@ export const requiredFixturePaths = {
   "community:read_state.advanced": ["revision"],
   "community:inbox.changed": ["reason"],
   "community:presence.update": ["online"],
+  "community:presence.snapshot": ["onlineUserIds"],
   "community:status.update": ["statusText"],
   "community:identity.update": ["avatarVersion"],
   "community:profile.update": ["name"],
