@@ -11,7 +11,7 @@ patchedDependencies:
     hash: 5d889238a799ec8a8284dc08a5c36b92dd99e62d11e636ade1b32fe97f76b007
     path: patches/@base-ui__react@1.9.0.patch
   prosemirror-view@1.43.1:
-    hash: 4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a
+    hash: 93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102
     path: patches/prosemirror-view@1.43.1.patch
 
 importers:
@@ -14460,7 +14460,7 @@ snapshots:
       prosemirror-state: 1.4.4
       prosemirror-tables: 1.8.5
       prosemirror-transform: 1.12.6
-      prosemirror-view: 1.43.1(patch_hash=4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a)
+      prosemirror-view: 1.43.1(patch_hash=93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102)
 
   '@tiptap/react@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
@@ -19516,20 +19516,20 @@ snapshots:
     dependencies:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.6
-      prosemirror-view: 1.43.1(patch_hash=4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a)
+      prosemirror-view: 1.43.1(patch_hash=93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102)
 
   prosemirror-gapcursor@1.4.1:
     dependencies:
       prosemirror-keymap: 1.2.3
       prosemirror-model: 1.25.13
       prosemirror-state: 1.4.4
-      prosemirror-view: 1.43.1(patch_hash=4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a)
+      prosemirror-view: 1.43.1(patch_hash=93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102)
 
   prosemirror-history@1.5.1:
     dependencies:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.6
-      prosemirror-view: 1.43.1(patch_hash=4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a)
+      prosemirror-view: 1.43.1(patch_hash=93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102)
       rope-sequence: 1.3.4
 
   prosemirror-inputrules@1.6.0:
@@ -19556,7 +19556,7 @@ snapshots:
     dependencies:
       prosemirror-model: 1.25.13
       prosemirror-transform: 1.12.6
-      prosemirror-view: 1.43.1(patch_hash=4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a)
+      prosemirror-view: 1.43.1(patch_hash=93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102)
 
   prosemirror-tables@1.8.5:
     dependencies:
@@ -19564,13 +19564,13 @@ snapshots:
       prosemirror-model: 1.25.13
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.6
-      prosemirror-view: 1.43.1(patch_hash=4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a)
+      prosemirror-view: 1.43.1(patch_hash=93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102)
 
   prosemirror-transform@1.12.6:
     dependencies:
       prosemirror-model: 1.25.13
 
-  prosemirror-view@1.43.1(patch_hash=4012ee6b7bde0444217e54b378b4267e3ad5437c7300b5454211a732fbaf2d2a):
+  prosemirror-view@1.43.1(patch_hash=93958abb7d5235234712ab11528fe0839c315bab22ece3757812e19925d22102):
     dependencies:
       prosemirror-model: 1.25.13
       prosemirror-state: 1.4.4
