@@ -100,10 +100,25 @@ async function hydrateDecisionCardRespondersByChannel(
   return merged
 }
 
+async function loadReactionsByMessage(
+  db: Database,
+  messageIds: string[],
+  userId: string,
+): Promise<Record<string, UiReaction[] | undefined>> {
+  if (messageIds.length === 0) return {}
+  if (typeof queries.communityReaction.summarizeReactionsByMessageIds === "function") {
+    return queries.communityReaction.summarizeReactionsByMessageIds(db, messageIds, userId)
+  }
+  const rows = await queries.communityReaction.listReactionsByMessageIds(db, messageIds)
+  return groupReactions(rows, userId)
+}
+
 export async function loadApiMessageContext(db: Database, userId: string, ids: string[], readReplies: () => ReturnType<typeof queries.communityMessage.getMessagesByIdsInChannels>, options: MessageContextOptions = {}) {
-  const [attachments, reactions, replyRows] = await Promise.all([
+  const [attachments, rootReactionsByMessage, replyRows] = await Promise.all([
     options.skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityAttachment.listByMessageIds(db, ids),
-    options.rootReactions === false || options.skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityReaction.listReactionsByMessageIds(db, ids),
+    options.rootReactions === false || options.skipEmpty && !ids.length
+      ? Promise.resolve<Record<string, UiReaction[] | undefined>>({})
+      : loadReactionsByMessage(db, ids, userId),
     readReplies(),
   ])
   const replies = [...new Map(replyRows.map(reply => [`${reply.channelId}:${reply.id}`, reply])).values()]
@@ -111,15 +126,16 @@ export async function loadApiMessageContext(db: Database, userId: string, ids: s
   const relatedIds = related.map(reply => reply.id)
   const cardRows = [...new Map([...(options.rootMessages ?? []), ...related].map(row => [row.id, row])).values()]
   const questionCardIds = cardRows.filter(row => row.type === DECISION_CARD_MESSAGE_TYPE).map(row => row.id)
-  const [replyAttachments, replyReactions, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId, dismissedQuestionMessageIds] = await Promise.all([
+  const [replyAttachments, replyReactionsByMessage, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId, dismissedQuestionMessageIds] = await Promise.all([
     relatedIds.length ? queries.communityAttachment.listByMessageIds(db, relatedIds) : Promise.resolve([]),
-    relatedIds.length ? queries.communityReaction.listReactionsByMessageIds(db, relatedIds) : Promise.resolve([]),
+    relatedIds.length ? loadReactionsByMessage(db, relatedIds, userId) : Promise.resolve<Record<string, UiReaction[] | undefined>>({}),
     cardRows.some(row => row.friendshipId) ? queries.communityFriendship.hydrateApprovalsForDmMessages(db, cardRows.filter(row => row.friendshipId).map(row => row.id), userId) : Promise.resolve(new Map<string, FriendApprovalPayload>()),
     cardRows.some(row => row.type === "bot_creation_request") ? queries.communityBotCreation.hydrateCreationRequestsForDmMessages(db, cardRows.filter(row => row.type === "bot_creation_request").map(row => row.id), userId) : Promise.resolve(new Map<string, BotCreationPayload>()),
     questionCardIds.length > 0 ? hydrateDecisionCardRespondersByChannel(db, cardRows) : Promise.resolve(new Map<string, string[]>()),
     questionCardIds.length > 0 ? queries.communityInbox.listDismissedQuestionMessageIdsForUser(db, userId, questionCardIds) : Promise.resolve(undefined),
   ])
-  const attachmentsByMessage = groupAttachments([...attachments, ...replyAttachments]), reactionsByMessage = groupReactions([...reactions, ...replyReactions], userId)
+  const attachmentsByMessage = groupAttachments([...attachments, ...replyAttachments])
+  const reactionsByMessage: Record<string, UiReaction[] | undefined> = { ...rootReactionsByMessage, ...replyReactionsByMessage }
   return (channelId: string): ApiMessageContext => {
     const replyMap = new Map(replies.filter(reply => reply.channelId === channelId).map(reply => [reply.id, reply]))
     const context: ApiMessageContext = { viewerId: userId, attachmentsByMessage, reactionsByMessage, replyMap, approvalByMessageId, botCreationByMessageId, respondedUserIdsByMessageId, dismissedQuestionMessageIds }
@@ -205,7 +221,11 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext, contract
 }
 
 export async function readCommunityMessageProfiles(db: Database, messages: readonly CommunityMessageResource[], readProfiles: CommunityResourceProfileReader = ids => readCommunityResourceProfiles(db, ids)) {
-  const profiles = await readProfiles(communityMessageProfileIds(messages))
-  CommunityMessageResourcesSchema.parse({ messages, profiles })
+  const requiredIds = communityMessageProfileIds(messages)
+  const profiles = CommunityMessageResourcesSchema.shape.profiles.parse(await readProfiles(requiredIds))
+  const seenIds = new Set(profiles.map(profile => profile.id))
+  if (seenIds.size !== profiles.length || requiredIds.some(id => !seenIds.has(id))) {
+    throw new Error("Message profile missing or duplicated in resource graph")
+  }
   return profiles
 }

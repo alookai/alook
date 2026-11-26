@@ -8,6 +8,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockResolveChannelAccessContext = vi.fn()
+const mockGetChannelForMember = vi.fn()
 const mockListThreadParticipants = vi.fn()
 const mockAddThreadParticipant = vi.fn()
 const mockResolveChannelContentRecipientUserIds = vi.fn()
@@ -24,6 +25,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: {
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
+        getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
       },
       communityMembersResolver: {
         resolveChannelContentRecipientUserIds: (...a: unknown[]) => mockResolveChannelContentRecipientUserIds(...a),
@@ -84,15 +86,17 @@ describe("POST /channels/[id]/participants", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockResolveChannelAccessContext.mockResolvedValue(threadCtx())
-    // Parent-channel audience (same source the read gate/fan-out uses).
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
+    // Single-user parent-channel access check.
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "text" })
     mockAddThreadParticipant.mockResolvedValue({ id: "tp1" })
     mockResolveChannelContentRecipientUserIds.mockResolvedValue(["u1", "u2", "u3"])
   })
 
-  it("any participant adds a parent-channel member as a participant", async () => {
+  it("any participant adds a parent-channel member as a participant without materializing the full parent roster", async () => {
     const res = await POST(postReq({ userId: "u2" }), ctx)
     expect(res.status).toBe(201)
+    expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "c1", "u2")
+    expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
     expect(mockFanOutToUsers).toHaveBeenCalledTimes(1)
     const [recipients, event] = mockFanOutToUsers.mock.calls[0]!
     expect(recipients).toEqual(["u1", "u2", "u3"])
@@ -115,7 +119,7 @@ describe("POST /channels/[id]/participants", () => {
   })
 
   it("rejects adding someone not in the parent channel audience (400)", async () => {
-    mockResolveScopeMemberUserIds.mockResolvedValue(["u1"]) // u2 not in parent
+    mockGetChannelForMember.mockResolvedValue(null) // u2 cannot access parent
     const res = await POST(postReq({ userId: "u2" }), ctx)
     expect(res.status).toBe(400)
     expect(mockAddThreadParticipant).not.toHaveBeenCalled()

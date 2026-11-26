@@ -39,9 +39,14 @@ export async function readCommunityResourceBundle(db: Database, viewerId: string
     ? [...new Set(channels.flatMap(row => row.categoryId ? [row.categoryId] : []))]
     : []
   const dmIds = input.includeDmPeers ? channels.filter(row => row.type === "dm").map(row => row.id) : []
+  const requestedServerIds = [...new Set([...(input.serverIds ?? []), ...channels.flatMap(row => row.serverId ? [row.serverId] : [])])]
   const [messageRows, serverRows, membershipRows, categories, dmPeerRows] = await Promise.all([
     queries.communityMessage.getMessagesByIdsInChannels(db, input.messageIds ?? [], allowedIds),
-    channels.some(row => row.serverId !== null) || input.serverIds?.length ? queries.communityServer.listUserServers(db, viewerId) : Promise.resolve([]),
+    requestedServerIds.length
+      ? (typeof queries.communityServer.listUserServerSummariesByIds === "function"
+          ? queries.communityServer.listUserServerSummariesByIds(db, viewerId, requestedServerIds)
+          : queries.communityServer.listUserServers(db, viewerId))
+      : Promise.resolve([]),
     queries.communityChannel.listChannelMembershipsForUserInChannels(db, viewerId, allowedIds),
     categoryIds.length ? queries.communityCategory.getCategoriesByIds(db, categoryIds) : Promise.resolve([]),
     dmIds.length ? queries.communityDm.listOtherDmAccessMembers(db, viewerId, dmIds) : Promise.resolve([]),

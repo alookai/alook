@@ -10,6 +10,18 @@ import { parseBoundedInt } from "@/lib/community/messages"
 import { parseForumCreatedAtCursor } from "@/lib/community/forum-feed-cursor"
 import { readCommunityForumRows } from "@/lib/community/forum-feed.server"
 
+function parseChildActivityCursor(raw: string | null): { activityAt: string; id: string } | undefined | null {
+  if (!raw) return undefined
+  const separator = raw.indexOf("|")
+  if (separator <= 0 || separator === raw.length - 1 || raw.indexOf("|", separator + 1) !== -1) {
+    return null
+  }
+  return {
+    activityAt: raw.slice(0, separator),
+    id: raw.slice(separator + 1),
+  }
+}
+
 export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
@@ -47,7 +59,7 @@ export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   }
 
   let threads: Awaited<ReturnType<typeof queries.communityChannel.listChildChannels>> | Awaited<ReturnType<typeof queries.communityThread.listForumThreadsByCreatedAt>>
-  const hasMore = false
+  let hasMore = false
   let nextCursor: string | undefined
   if (order === "createdAt") {
     if (!isForum(channel.type)) return writeError("not a forum", 400)
@@ -63,10 +75,22 @@ export const GET = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
     return writeCommunityThreadsRead(db, ctx.userId, channel, page.threads, { messages: [...page.parentMessages, ...page.firstMessages], tags: page.tags, participants: page.participants }, { hasMore: page.hasMore, nextCursor: page.nextCursor ?? null }, contract)
 
   } else {
-    threads = await queries.communityChannel.listChildChannels(db, channelId, {
-    archived,
-    type: "thread",
-  })
+    const pageSize = parseBoundedInt(req.nextUrl.searchParams.get("limit"), 100, 200)
+    const cursor = parseChildActivityCursor(req.nextUrl.searchParams.get("cursor"))
+    if (cursor === null) return writeError("invalid cursor", 400)
+
+    const rawThreads = await queries.communityChannel.listChildChannels(db, channelId, {
+      archived,
+      type: "thread",
+      limit: pageSize + 1,
+      ...(cursor ? { cursor } : {}),
+    })
+    hasMore = rawThreads.length > pageSize
+    threads = hasMore ? rawThreads.slice(0, pageSize) : rawThreads
+    const last = threads[threads.length - 1]
+    if (hasMore && last) {
+      nextCursor = `${last.lastMessageAt ?? last.createdAt}|${last.id}`
+    }
 
     const forum = isForum(channel.type)
     const openerIds = threads.map((child) => child.parentMessageId).filter((id): id is string => !!id)

@@ -1,4 +1,4 @@
-import { eq, and, ne, inArray, count, asc, or, gt, isNull, sql } from "drizzle-orm";
+import { eq, and, ne, inArray, count, asc, or, gt, isNull, notExists, sql } from "drizzle-orm";
 import {
   communityChannel,
   communityChannelMember,
@@ -205,10 +205,45 @@ export async function countMembers(db: Database, serverId: string): Promise<numb
   return rows[0]?.cnt ?? 0;
 }
 
+export type ExcludeChannelMemberFilter = {
+  channelId: string;
+  relation?: "access" | "notify";
+  excludeUserId?: string | null;
+};
+
+function buildExcludeChannelConditions(
+  db: Database,
+  filter: ExcludeChannelMemberFilter,
+) {
+  const relation = filter.relation ?? "access";
+  const result = [
+    notExists(
+      db
+        .select({ id: communityChannelMember.id })
+        .from(communityChannelMember)
+        .where(
+          and(
+            eq(communityChannelMember.channelId, filter.channelId),
+            eq(communityChannelMember.relation, relation),
+            eq(communityChannelMember.userId, communityServerMember.userId),
+          ),
+        ),
+    ),
+  ];
+  if (filter.excludeUserId) {
+    result.push(ne(communityServerMember.userId, filter.excludeUserId));
+  }
+  return result;
+}
+
 export async function listMembersPaginated(
   db: Database,
   serverId: string,
-  opts: { cursor?: { joinedAt: string; id: string }; limit?: number }
+  opts: {
+    cursor?: { joinedAt: string; id: string };
+    limit?: number;
+    excludeChannel?: ExcludeChannelMemberFilter;
+  }
 ): Promise<{
   members: Array<{
     id: string;
@@ -246,6 +281,10 @@ export async function listMembersPaginated(
         )
       )! as ReturnType<typeof eq>
     );
+  }
+
+  if (opts.excludeChannel) {
+    conditions.push(...(buildExcludeChannelConditions(db, opts.excludeChannel) as ReturnType<typeof eq>[]));
   }
 
   conditions.push(isNull(user.deletedAt) as any);
@@ -294,7 +333,11 @@ export async function searchMembers(
   db: Database,
   serverId: string,
   q: string,
-  opts?: { limit?: number; cursor?: { name: string; id: string } }
+  opts?: {
+    limit?: number;
+    cursor?: { name: string; id: string };
+    excludeChannel?: ExcludeChannelMemberFilter;
+  }
 ) {
   const rawLimit = opts?.limit ?? MAX_MEMBERS_PAGE_SIZE;
   const limit = Math.max(1, Math.min(rawLimit, MAX_MEMBERS_PAGE_SIZE));
@@ -304,11 +347,15 @@ export async function searchMembers(
 
   const conditions = [
     eq(communityServerMember.serverId, serverId),
+    isNull(user.deletedAt),
     or(
       sql`${user.name} LIKE ${pattern} ESCAPE '\\'`,
       sql`${user.email} LIKE ${pattern} ESCAPE '\\'`
     )!,
   ];
+  if (opts?.excludeChannel) {
+    conditions.push(...buildExcludeChannelConditions(db, opts.excludeChannel));
+  }
   if (opts?.cursor) {
     conditions.push(
       or(

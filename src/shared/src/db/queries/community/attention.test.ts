@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getServersByIds: vi.fn(),
   listUnreadForumOpeners: vi.fn(),
   listThreadOpenersByChildIds: vi.fn(),
+  loadUserNotificationSettingLookup: vi.fn(),
 }))
 
 vi.mock("./channel", () => ({
@@ -28,6 +29,9 @@ vi.mock("./inbox", () => ({
   listReadableDmSummariesByChannelIds: mocks.listReadableDmSummariesByChannelIds,
   listUnreadForumOpeners: mocks.listUnreadForumOpeners,
   listThreadOpenersByChildIds: mocks.listThreadOpenersByChildIds,
+}))
+vi.mock("./notification-eligibility", () => ({
+  loadUserNotificationSettingLookup: mocks.loadUserNotificationSettingLookup,
 }))
 vi.mock("./friendship", () => ({
   listActionableIncomingRequests: mocks.listActionableIncomingRequests,
@@ -66,6 +70,7 @@ beforeEach(() => {
   mocks.listPendingQuestionMessages.mockResolvedValue([])
   mocks.listReadableDmChannelIds.mockResolvedValue(["dm_1"])
   mocks.listReadableDmSummariesByChannelIds.mockResolvedValue([])
+  mocks.loadUserNotificationSettingLookup.mockResolvedValue({ byChannelId: new Map(), byServerId: new Map() })
 })
 
 describe("getAccountAttentionProjection", () => {

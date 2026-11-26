@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   serverOwners: vi.fn(),
   forumOpeners: vi.fn(),
   threadOpeners: vi.fn(),
+  notificationSettings: vi.fn(),
 }))
 
 vi.mock("../../src/db/queries/community/channel", () => ({
@@ -28,6 +29,9 @@ vi.mock("../../src/db/queries/community/inbox", () => ({
   listReadableDmSummariesByChannelIds: (...args: unknown[]) => mocks.readableDmSummaries(...args),
   listUnreadForumOpeners: (...args: unknown[]) => mocks.forumOpeners(...args),
   listThreadOpenersByChildIds: (...args: unknown[]) => mocks.threadOpeners(...args),
+}))
+vi.mock("../../src/db/queries/community/notification-eligibility", () => ({
+  loadUserNotificationSettingLookup: (...args: unknown[]) => mocks.notificationSettings(...args),
 }))
 vi.mock("../../src/db/queries/community/mention", () => ({
   listUnreadMentions: (...args: unknown[]) => mocks.mentions(...args),
@@ -78,6 +82,7 @@ describe("account attention snapshot", () => {
     mocks.questions.mockResolvedValue([])
     mocks.readableDmIds.mockResolvedValue([])
     mocks.readableDmSummaries.mockResolvedValue([])
+    mocks.notificationSettings.mockResolvedValue({ byChannelId: new Map(), byServerId: new Map() })
     mocks.mentionScopes.mockResolvedValue([{
       channelId: "c1",
       serverId: "s1",

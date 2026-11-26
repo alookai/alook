@@ -10,7 +10,7 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import type { NotificationLevelValue } from "../../../constants/community";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { jsonTextSet } from "../_json-set";
 import { channelReadableSql } from "./channel";
 
 type SqlValue = string | number | SQLWrapper;
@@ -24,6 +24,45 @@ export type NotificationChannelSql = {
 export type NotificationMessageSql = {
   id: SQLWrapper;
 };
+
+export type NotificationSettingLookup = {
+  byChannelId: Map<string, NotificationLevelValue>;
+  byServerId: Map<string, NotificationLevelValue>;
+};
+
+export async function loadUserNotificationSettingLookup(
+  db: Database,
+  userId: string,
+): Promise<NotificationSettingLookup> {
+  const rows = await db
+    .select({
+      serverId: communityNotificationSetting.serverId,
+      channelId: communityNotificationSetting.channelId,
+      level: communityNotificationSetting.level,
+    })
+    .from(communityNotificationSetting)
+    .where(eq(communityNotificationSetting.userId, userId));
+  const byChannelId = new Map<string, NotificationLevelValue>();
+  const byServerId = new Map<string, NotificationLevelValue>();
+  for (const row of rows) {
+    const level = row.level as NotificationLevelValue;
+    if (row.channelId) byChannelId.set(row.channelId, level);
+    else if (row.serverId) byServerId.set(row.serverId, level);
+  }
+  return { byChannelId, byServerId };
+}
+
+export function resolveEffectiveNotificationLevel(
+  lookup: NotificationSettingLookup,
+  channel: { id: string; serverId: string | null; parentChannelId: string | null },
+): NotificationLevelValue {
+  return (
+    lookup.byChannelId.get(channel.id)
+    ?? (channel.parentChannelId ? lookup.byChannelId.get(channel.parentChannelId) : undefined)
+    ?? (channel.serverId ? lookup.byServerId.get(channel.serverId) : undefined)
+    ?? "all"
+  );
+}
 
 export function currentEffectiveLevelSql(
   userId: SqlValue,
@@ -110,44 +149,39 @@ export async function resolveNotificationEligibilityForUsers(
   messageId: string,
 ): Promise<Map<string, NotificationEligibilityState>> {
   const result = new Map<string, NotificationEligibilityState>();
-  if (userIds.length === 0) return result;
+  const uniqueIds = [...new Set(userIds.filter((id) => id.length > 0))];
+  if (uniqueIds.length === 0) return result;
 
   const channelSql = {
     id: communityChannel.id,
     serverId: communityChannel.serverId,
     parentChannelId: communityChannel.parentChannelId,
   };
-  const runChunk = (ids: string[]) => {
-    const attention = hasAttentionSql(user.id, communityMessage.id);
-    return db
-      .select({
-        userId: user.id,
-        currentLevel: currentEffectiveLevelSql(user.id, channelSql),
-        hasAttention: attention,
-        isUnread: sql<boolean>`${communityMessage.seq} > coalesce(${communityReadState.lastReadSeq}, 0)`,
-        isReadable: channelReadableSql(user.id, {
-          id: communityChannel.id,
-          type: communityChannel.type,
-          serverId: communityChannel.serverId,
-          parentChannelId: communityChannel.parentChannelId,
-        }),
-      })
-      .from(user)
-      .innerJoin(communityMessage, eq(communityMessage.id, messageId))
-      .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
-      .leftJoin(
-        communityReadState,
-        and(
-          eq(communityReadState.userId, user.id),
-          eq(communityReadState.channelId, communityMessage.channelId),
-        ),
-      )
-      .where(inArray(user.id, ids));
-  };
-
-  const rows = (
-    await Promise.all(chunk(userIds, D1_MAX_IN_PARAMS - 1).map(runChunk))
-  ).flat();
+  const attention = hasAttentionSql(user.id, communityMessage.id);
+  const rows = await db
+    .select({
+      userId: user.id,
+      currentLevel: currentEffectiveLevelSql(user.id, channelSql),
+      hasAttention: attention,
+      isUnread: sql<boolean>`${communityMessage.seq} > coalesce(${communityReadState.lastReadSeq}, 0)`,
+      isReadable: channelReadableSql(user.id, {
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      }),
+    })
+    .from(user)
+    .innerJoin(communityMessage, eq(communityMessage.id, messageId))
+    .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityReadState,
+      and(
+        eq(communityReadState.userId, user.id),
+        eq(communityReadState.channelId, communityMessage.channelId),
+      ),
+    )
+    .where(inArray(user.id, jsonTextSet(db, uniqueIds)));
   for (const row of rows) {
     result.set(row.userId, {
       currentLevel: row.currentLevel,

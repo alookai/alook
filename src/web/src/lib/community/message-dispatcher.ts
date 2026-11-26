@@ -32,6 +32,7 @@ export type MessageDeliveryPlan = MessageDeliveryBatch & {
   operationId: CommunityDeliveryOperationId
   wakeBotUserIds: string[]
   pushUserIds: string[]
+  pushTargets: Array<{ userId: string; installationId: string }>
 }
 
 const recipientRetryRoute = {
@@ -161,11 +162,18 @@ export async function planCommittedMessage(
     (candidate) => notificationSet.has(candidate.botUserId) && allowed(candidate.botUserId),
   )
   const wakeBotUserIds = unique(eligibleWakeCandidates.map((candidate) => candidate.botUserId))
-  const pushUserIds = unique([
+  const candidatePushUserIds = unique([
     ...unreadPlainUserIds,
     ...unreadMentionUserIds,
     ...mentionUserIds,
   ])
+  const pushTargets = candidatePushUserIds.length > 0
+    ? await withD1Retry(
+        () => queries.communityPushDevice.listActivePushTargetsForUsers(db, candidatePushUserIds),
+        { route: "message-dispatcher:push-devices" },
+      )
+    : []
+  const pushUserIds = unique(pushTargets.map((target) => target.userId))
 
   const relatedContext = (await loadApiMessageContext(db, message.authorId, [], () => Promise.resolve(replyTarget ? [replyTarget] : []), { skipEmpty: true }))(message.channelId)
   const replyMap = relatedContext.replyMap
@@ -191,9 +199,7 @@ export async function planCommittedMessage(
   const messageEvent = messageResult.event
 
   const includeParent = Boolean(channel.parentChannelId)
-  const parentProjectionUserIds = includeParent
-    ? unique(await resolveRecipients(db, channel.parentChannelId!))
-    : []
+  const parentProjectionUserIds = includeParent ? contentUserIds : []
   const parentProjection = includeParent
     ? {
         type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
@@ -207,7 +213,7 @@ export async function planCommittedMessage(
     : undefined
 
   const joinedParticipantUserIds = [...new Set(structural.joinedParticipantUserIds ?? [])]
-  if (joinedParticipantUserIds.some((id) => !channel.serverId || !contentUserIds.includes(id))) throw new Error("committed participant outcome is outside message scope")
+  if (joinedParticipantUserIds.some((id) => !channel.serverId || !contentSet.has(id))) throw new Error("committed participant outcome is outside message scope")
 
   return {
     communityContract: contract,
@@ -220,6 +226,7 @@ export async function planCommittedMessage(
     mentionUserIds,
     wakeBotUserIds,
     pushUserIds,
+    pushTargets,
     ...(joinedParticipantUserIds.length ? { joinedParticipantUserIds, rosterRefreshUserId: joinedParticipantUserIds[0]! } : {}),
     ...(parentProjection
       ? { parentProjection, parentProjectionUserIds }
@@ -240,12 +247,13 @@ async function runCommittedMessageDispatch(
     structural,
     contract,
   )
-  const { operationId, wakeBotUserIds, pushUserIds, ...browserBatch } = plan
-  const pushTasks: AlookQueueTask[] = pushUserIds.map((userId) => ({
+  const { operationId, wakeBotUserIds, pushUserIds, pushTargets, ...browserBatch } = plan
+  const pushTasks: AlookQueueTask[] = pushTargets.map((target) => ({
     version: 1 as const,
     kind: "mobile-push" as const,
     messageId: plan.messageId,
-    userId,
+    userId: target.userId,
+    installationId: target.installationId,
   }))
   const browserDelivery = sendMessageDeliveryBatch(browserBatch, operationId)
   const pushDelivery = enqueueQueueTasks(pushTasks)

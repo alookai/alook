@@ -2,7 +2,15 @@ import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { Database } from "../../src/db"
-import { addReaction, getReactionDetailsActors, listReactionsByMessageIds, removeReaction } from "../../src/db/queries/community/reaction"
+import {
+  addReaction,
+  DEFAULT_REACTION_SAMPLE_LIMIT,
+  getReactionDetailsActors,
+  getReactionDetailsActorsPage,
+  listReactionsByMessageIds,
+  removeReaction,
+  summarizeReactionsByMessageIds,
+} from "../../src/db/queries/community/reaction"
 import { communityChannel, communityMessage } from "../../src/db/community-schema"
 import { user } from "../../src/db/schema"
 import { createMigratedDb } from "../helpers/migrated-db"
@@ -194,5 +202,78 @@ describe("getReactionDetailsActors against real SQLite", () => {
     expect(actors.find((actor) => actor.userId === "access")?.profile).not.toBeNull()
     expect(actors.filter((actor) => actor.userId !== "access").every((actor) => actor.profile === null))
       .toBe(true)
+  })
+})
+
+describe("SQL-aggregated reaction summaries and paginated actor details on migrated SQLite", () => {
+  it("aggregates exact counts, viewer me flag, and bounded sample userIds across hundreds of reactions", async () => {
+    const { db, sqlite } = createMigratedDb()
+    try {
+      sqlite.transaction(() => {
+        const insertUser = sqlite.prepare("INSERT INTO user (id, name, email, discriminator) VALUES (?, ?, ?, ?)")
+        const insertMember = sqlite.prepare("INSERT INTO community_server_member (id, server_id, user_id, joined_at) VALUES (?, 'srv_1', ?, '2026-09-01T00:00:00Z')")
+        const insertReaction = sqlite.prepare("INSERT INTO community_reaction (id, message_id, user_id, emoji, created_at) VALUES (?, 'msg_popular', ?, ?, ?)")
+        insertUser.run("author_1", "Author", "author@react.test", "0000")
+        sqlite.prepare("INSERT INTO community_server (id, name, discriminator, owner_id, created_at) VALUES ('srv_1', 'S', '0001', 'author_1', '2026-09-01T00:00:00Z')").run()
+        sqlite.prepare("INSERT INTO community_channel (id, server_id, name, type, created_at) VALUES ('ch_1', 'srv_1', 'general', 'text', '2026-09-01T00:00:00Z')").run()
+        sqlite.prepare("INSERT INTO community_message (id, author_id, channel_id, seq, content, created_at) VALUES ('msg_popular', 'author_1', 'ch_1', 1, 'launch!', '2026-09-01T00:00:00Z')").run()
+
+        for (let i = 0; i < 120; i++) {
+          const uid = `reactor_${String(i).padStart(3, "0")}`
+          insertUser.run(uid, `User${i}`, `${uid}@react.test`, String(i + 1).padStart(4, "0"))
+          insertMember.run(`sm_${i}`, uid)
+          const ts = `2026-09-02T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`
+          insertReaction.run(`r_up_${i}`, uid, "👍", ts)
+          if (i < 5) insertReaction.run(`r_fire_${i}`, uid, "🔥", ts)
+        }
+      })()
+
+      // Viewer is the 115th reactor (outside the 10-user sample) — me must still be true.
+      const summary = await summarizeReactionsByMessageIds(db, ["msg_popular"], "reactor_115")
+      const entries = summary["msg_popular"] ?? []
+      expect(entries).toHaveLength(2)
+      const thumbs = entries.find((e) => e.emoji === "👍")!
+      expect(thumbs.count).toBe(120)
+      expect(thumbs.me).toBe(true)
+      expect(thumbs.userIds).toHaveLength(DEFAULT_REACTION_SAMPLE_LIMIT)
+
+      const fire = entries.find((e) => e.emoji === "🔥")!
+      expect(fire.count).toBe(5)
+      expect(fire.me).toBe(false)
+      expect(fire.userIds).toHaveLength(5)
+
+      // Paginate emoji-filtered reaction actors using cursor + limit and verify index usage.
+      const plan = sqlite
+        .prepare("EXPLAIN QUERY PLAN SELECT user_id, created_at FROM community_reaction WHERE message_id = ? AND emoji = ? ORDER BY created_at ASC, user_id ASC LIMIT 25")
+        .all("msg_popular", "👍")
+        .map((row: any) => String(row.detail))
+        .join(" | ")
+      expect(plan).toContain("idx_reaction_message_emoji_created")
+
+      const collected: string[] = []
+      let cursor: string | undefined
+      let pages = 0
+      while (true) {
+        const page = await getReactionDetailsActorsPage(
+          db,
+          "msg_popular",
+          { kind: "server", serverId: "srv_1", channelId: "ch_1" },
+          { emoji: "👍", limit: 35, cursor },
+        )
+        pages++
+        collected.push(...page.actors.map((a) => a.userId))
+        if (!page.hasMore) {
+          expect(page.cursor).toBeNull()
+          break
+        }
+        expect(page.cursor).toBeTruthy()
+        cursor = page.cursor!
+      }
+      expect(pages).toBe(4)
+      expect(collected).toHaveLength(120)
+      expect(new Set(collected).size).toBe(120)
+    } finally {
+      sqlite.close()
+    }
   })
 })

@@ -10,6 +10,7 @@ const mockGetMessageInScope = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListMembers = vi.fn()
+const mockFindServerMembersByHandles = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
 const mockGetChannel = vi.fn()
@@ -46,6 +47,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
+        findServerMembersByHandles: (...a: unknown[]) => mockFindServerMembersByHandles(...a),
         listMemberUserIds: (...a: unknown[]) => mockListMemberUserIds(...a),
       },
       communityChannel: {
@@ -411,11 +413,18 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockListMembers.mockResolvedValue([
+    const members = [
       { userId: "author_1", userName: "Author", discriminator: "1111" },
       { userId: "alex_1", userName: "Alex", discriminator: "0001" },
       { userId: "alex_2", userName: "Alex", discriminator: "0002" },
-    ])
+    ]
+    mockListMembers.mockResolvedValue(members)
+    mockFindServerMembersByHandles.mockImplementation(
+      async (_db: unknown, _serverId: string, handles: Array<{ name: string; discriminator: string }>) => {
+        const wanted = new Set(handles.map((h) => `${h.name.toLowerCase()}#${h.discriminator}`))
+        return members.filter((m) => wanted.has(`${m.userName.toLowerCase()}#${m.discriminator}`))
+      },
+    )
   })
 
   it.each([
@@ -447,7 +456,10 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
       body: { content: "hey @Alex#0002, over here" },
     })
 
-    expect(mockListMembers).toHaveBeenCalledWith({}, "srv_1")
+    expect(mockFindServerMembersByHandles).toHaveBeenCalledWith({}, "srv_1", [
+      { name: "Alex", discriminator: "0002" },
+    ])
+    expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual(["alex_2"].map((userId) => ({ userId, kind: "mention" })))
   })
 
@@ -470,11 +482,18 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockListMembers.mockResolvedValue([
+    const members = [
       { userId: "author_1", userName: "Author", discriminator: "1111" },
       { userId: "bob_1", userName: "Bob", discriminator: "0001" },
       { userId: "cara_1", userName: "Cara", discriminator: "0002" },
-    ])
+    ]
+    mockListMembers.mockResolvedValue(members)
+    mockFindServerMembersByHandles.mockImplementation(
+      async (_db: unknown, _serverId: string, handles: Array<{ name: string; discriminator: string }>) => {
+        const wanted = new Set(handles.map((h) => `${h.name.toLowerCase()}#${h.discriminator}`))
+        return members.filter((m) => wanted.has(`${m.userName.toLowerCase()}#${m.discriminator}`))
+      },
+    )
     mockIsChannelPrivate.mockResolvedValue(true)
     // Audience = author + Cara. Bob is a server member but NOT in the channel.
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])

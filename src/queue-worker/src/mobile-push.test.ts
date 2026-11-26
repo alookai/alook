@@ -317,7 +317,7 @@ describe("mobile-push processing", () => {
     },
   )
 
-  it("skips when no active devices remain", async () => {
+  it("skips when no active devices remain without loading message target details", async () => {
     const deps = dependencies()
     deps.listDevices.mockResolvedValue([])
 
@@ -325,6 +325,7 @@ describe("mobile-push processing", () => {
       outcome: "skip",
       reason: "no_active_devices",
     })
+    expect(deps.getTarget).not.toHaveBeenCalled()
     expect(deps.buildPayload).not.toHaveBeenCalled()
   })
 })

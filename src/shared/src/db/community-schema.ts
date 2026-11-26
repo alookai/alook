@@ -138,6 +138,7 @@ export const communityChannelMember = sqliteTable(
   (t) => [
     index("idx_community_channel_member_added_by_lookup").on(t.addedBy),
     unique("uq_channel_member").on(t.channelId, t.userId, t.relation),
+    index("idx_channel_member_channel_relation_user").on(t.channelId, t.relation, t.userId),
     index("idx_channel_member_user").on(t.userId),
   ]
 );
@@ -187,6 +188,7 @@ export const communityMessage = sqliteTable(
   },
   (t) => [
     index("idx_community_message_author_id_lookup").on(t.authorId),
+    index("idx_message_channel_seq").on(t.channelId, t.seq),
     index("idx_message_channel_created").on(t.channelId, t.createdAt),
     index("idx_message_channel_mention_created").on(
       t.channelId,
@@ -400,6 +402,7 @@ export const communityReaction = sqliteTable(
     index("idx_community_reaction_user_id_lookup").on(t.userId),
     unique("uq_reaction_message_user_emoji").on(t.messageId, t.userId, t.emoji),
     index("idx_reaction_message").on(t.messageId),
+    index("idx_reaction_message_emoji_created").on(t.messageId, t.emoji, t.createdAt, t.userId),
   ]
 );
 

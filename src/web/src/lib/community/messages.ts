@@ -174,15 +174,22 @@ export function groupReactions(
   currentUserId: string
 ): Record<string, NonNullable<CommunityMessageResource["reactions"]>> {
   const map: Record<string, NonNullable<CommunityMessageResource["reactions"]>> = {}
+  const byMessageEmoji = new Map<string, Map<string, NonNullable<CommunityMessageResource["reactions"]>[number]>>()
   for (const r of reactions) {
-    const list = (map[r.messageId] ??= [])
-    const existing = list.find((x) => x.emoji === r.emoji)
+    let emojiMap = byMessageEmoji.get(r.messageId)
+    if (!emojiMap) {
+      emojiMap = new Map()
+      byMessageEmoji.set(r.messageId, emojiMap)
+    }
+    const existing = emojiMap.get(r.emoji)
     if (existing) {
       existing.count++
       existing.userIds.push(r.userId)
       if (r.userId === currentUserId) existing.me = true
     } else {
-      list.push({ emoji: r.emoji, count: 1, me: r.userId === currentUserId, userIds: [r.userId] })
+      const entry = { emoji: r.emoji, count: 1, me: r.userId === currentUserId, userIds: [r.userId] }
+      emojiMap.set(r.emoji, entry)
+      ;(map[r.messageId] ??= []).push(entry)
     }
   }
   return map

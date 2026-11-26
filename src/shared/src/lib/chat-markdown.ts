@@ -38,6 +38,21 @@ export function detectChatMentionType(content: string): MentionType | undefined 
   return parsedMentions(content).some((node) => node.everyone) ? "everyone" : undefined
 }
 
+export function extractChatMentionHandles(content: string): Array<{ name: string; discriminator: string }> {
+  const seen = new Set<string>()
+  const handles: Array<{ name: string; discriminator: string }> = []
+  for (const node of parsedMentions(content)) {
+    if (node.everyone || !node.discriminator) continue
+    const name = node.value.startsWith("@") ? node.value.slice(1) : node.value
+    if (!name) continue
+    const key = `${name.toLowerCase()}#${node.discriminator}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    handles.push({ name, discriminator: node.discriminator })
+  }
+  return handles
+}
+
 export function extractChatMentionedUserIds(content: string, candidates: MentionCandidate[]): string[] {
   const byHandle = new Map<string, string>()
   for (const candidate of candidates) {

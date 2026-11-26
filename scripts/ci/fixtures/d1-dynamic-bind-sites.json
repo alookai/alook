@@ -141,10 +141,7 @@
     "key": "src/shared/src/db/queries/automation.ts:updateAccessCode:values:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/agent-inbox.ts:getInboxSnapshotForAgent:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/agent-inbox.ts:listAgentAllowedChannelIds:inArray:1"
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveAgentDeliverableChannelsByPolicy:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:1"
@@ -165,10 +162,13 @@
     "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:6"
   },
   {
-    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runChunk:inArray:1"
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runPolicyGroup:inArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runChunk:inArray:2"
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runPolicyGroup:inArray:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runSnapshotGroup:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/agent-inbox.ts:toAgentMessages:inArray:1"
@@ -177,7 +177,7 @@
     "key": "src/shared/src/db/queries/community/attachment.ts:messageAttachments:inArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/bot-audit-log.ts:pruneBotActivityEventsStatement:notInArray:1"
+    "key": "src/shared/src/db/queries/community/bot-audit-log.ts:pruneBotActivityEventsStatement:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/bot-creation.ts:hydrateCreationRequestsForDmMessages:inArray:1"
@@ -369,9 +369,6 @@
     "key": "src/shared/src/db/queries/community/inbox.ts:listEligibleUnreadChannels:inArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/inbox.ts:listEligibleUnreadDms:inArray:1"
-  },
-  {
     "key": "src/shared/src/db/queries/community/inbox.ts:listPendingQuestionMessages:inArray:1"
   },
   {
@@ -379,6 +376,15 @@
   },
   {
     "key": "src/shared/src/db/queries/community/inbox.ts:listThreadOpenersByChildIds:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listUnreadForumOpeners:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:runAggregation:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:runDmQuery:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/machine-session-epoch.ts:transitionLiveLease:inArray:1"
@@ -418,6 +424,9 @@
   },
   {
     "key": "src/shared/src/db/queries/community/member.ts:removeMemberAndOwnerBots:inArray:3"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/members-resolver.ts:resolveScopeMembers:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentionScopes:inArray:1"
@@ -474,10 +483,19 @@
     "key": "src/shared/src/db/queries/community/message.ts:runChunk:inArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/notification-eligibility.ts:runChunk:inArray:1"
+    "key": "src/shared/src/db/queries/community/notification-eligibility.ts:resolveNotificationEligibilityForUsers:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/push-device.ts:listActivePushTargetsForUsers:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/reaction.ts:listReactionsByMessageIds:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/reaction.ts:summarizeReactionsByMessageIds:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/reaction.ts:summarizeReactionsByMessageIds:inArray:2"
   },
   {
     "key": "src/shared/src/db/queries/community/read-state.ts:advanceReadStateRevisionWhenAnyBuilder:or-map:1"
@@ -505,6 +523,9 @@
   },
   {
     "key": "src/shared/src/db/queries/community/server.ts:getServersByIds:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server.ts:listUserServerSummariesByIds:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/thread.ts:countUnarchivedForumPosts:inArray:1"

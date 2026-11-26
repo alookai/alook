@@ -1,12 +1,14 @@
 "use client"
 
 import { useCallback, useMemo } from "react"
-import { QueryObserver,useQuery,useQueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
+import { useQuery,useQueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
+import { CommunityAcceptedFriendsReadSchema } from "@alook/shared"
+import { apiFetch } from "@/lib/api/client"
+import { loadAndSeedProfiles } from "@/lib/community/account-cache-lifecycle"
+import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend } from "@/lib/community/models/people"
-import { fetchAllServerMembers } from "./fetch-all-server-members"
-import { friendsQueryFn } from "./use-friends"
-import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent,upsertCommunityAcceptedFriendships } from "@/lib/community-db/sync"
 import { useCanonicalProfilesProjection,useFriendshipProjection,useServerMemberProjection } from "@/lib/community-db/projections"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
@@ -16,22 +18,37 @@ type InvitableFriendsResponse = { friends: Friend[] }
 
 async function invitableFriendsQueryFn(serverId: string, context: QueryFunctionContext): Promise<InvitableFriendsWindow> {
   const original = captureCommunityLiveSnapshotToken(context.client)
-  const assert = () => assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
+  const registry = original.registry!
+  const queryKey = communityKeys.invitableFriends(serverId)
+  const resource = context.client.getQueryCache().find({ queryKey, exact: true })
+  const assert = () => {
+    assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
+    if (resource && context.client.getQueryCache().find({ queryKey, exact: true }) !== resource) throw new DOMException("Retired invitable friends", "AbortError")
+  }
   assert()
-  const auxiliaryReadEpoch = await original.registry!.captureAuxiliaryReadEpoch()
+  await registry.ready
+  await Promise.all([registry.collections.friendships.preload(), registry.collections.serverMemberships.preload()])
+  const auxiliaryReadEpoch = await registry.captureAuxiliaryReadEpoch()
   assert()
-  const options = { queryKey: communityKeys.friends(), queryFn: friendsQueryFn, ...(auxiliaryReadEpoch ? { staleTime: 0 } : {}) }
-  const observer = new QueryObserver(context.client, { ...options, enabled: false })
-  const unsubscribe = observer.subscribe(() => undefined)
-  context.signal.addEventListener("abort", unsubscribe, { once: true })
-  try {
-    const [accepted, members] = await Promise.all([context.client.query({ ...options, select: undefined }), fetchAllServerMembers(context.client, serverId, context.signal)])
-    assert()
-    const allowed = new Set(accepted.ids)
-    const friends = [...original.registry!.collections.friendships.values()].filter((row) => row.kind === "accepted" && allowed.has(row.id))
-    const present = new Set(members.map(member => member.userId))
-    return { serverId, friendIds: friends.filter(row => !present.has(row.userId)).map(row => row.id), totalFriends: friends.length, observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
-  } finally { context.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
+  const path = "/api/community/friends/accepted?excludeServerId=" + encodeURIComponent(serverId)
+  const acceptedData = await loadAndSeedProfiles(
+    origin => apiFetch<unknown>(path, { ...origin, signal: context.signal }).then(data => CommunityAcceptedFriendsReadSchema.parse(data)),
+    data => {
+      if (data.stale) throw new Error("stale D1 read")
+      if (data.resources.viewerId !== registry.accountId) throw new Error("Friend profile account mismatch")
+      return data.resources.profiles.map(profile => communityUserProfilePatch(profile.id, profile))
+    },
+    registry,
+    context.signal,
+    original,
+  )
+  assert()
+  if (acceptedData.stale) throw new Error("stale D1 read")
+  const rows = acceptedData.friends.map((row) => ({ ...row, kind: "accepted" as const }))
+  await upsertCommunityAcceptedFriendships(context.client, rows, { token: original, signal: context.signal })
+  assert()
+  const totalFriends = acceptedData.totalFriends ?? rows.length
+  return { serverId, friendIds: rows.map(row => row.id), totalFriends, observed: true, ...(auxiliaryReadEpoch ? { auxiliaryReadEpoch } : {}) }
 }
 
 type InvitableFriendsResult = Omit<UseQueryResult<InvitableFriendsWindow>, "data"> & { data: InvitableFriendsResponse | undefined; friends: Friend[]; totalFriends: number; observed: boolean; isCurrentRead: () => boolean }

@@ -1,6 +1,7 @@
 import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { prepareNativeBatchStatement } from "../helpers/native-batch-prepare"
+import { createMigratedDb } from "../helpers/migrated-db"
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 import * as q from "../../src/db/queries/community/bot-audit-log"
 import { touchBotRefreshContextForAuditEventStatement } from "../../src/db/queries/community/bot"
@@ -346,6 +347,24 @@ describe("listOwnedBotActivityEvents", () => {
     expect(sqlite.prepare(
       "SELECT lastRefreshContextAt FROM user WHERE id = 'bot_1'",
     ).get()).toEqual({ lastRefreshContextAt: null })
+  })
+
+  it("prunes overflow rows via an indexed IN subquery instead of a full-table NOT IN scan", () => {
+    const migrated = createMigratedDb()
+    try {
+      const stmt = q.pruneBotActivityEventsStatement(migrated.db, "bot_1")
+      const { sql: querySql, params } = stmt.toSQL()
+      expect(querySql.toLowerCase()).not.toContain("not in")
+      expect(querySql.toLowerCase()).toContain("offset")
+      const plan = migrated.sqlite
+        .prepare(`EXPLAIN QUERY PLAN ${querySql}`)
+        .all(...params)
+        .map((row: any) => String(row.detail))
+        .join(" | ")
+      expect(plan).toContain("idx_bot_activity_event_bot_created")
+    } finally {
+      migrated.sqlite.close()
+    }
   })
 })
 

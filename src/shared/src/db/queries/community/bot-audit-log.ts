@@ -7,7 +7,7 @@
  * so a soft-deleted bot's activity is not surfaced (see plan §Data model).
  */
 
-import { and, desc, eq, isNull, lt, notInArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { communityBotActivityEvent } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -111,20 +111,16 @@ export function insertBotActivityEventStatement(
  * batch adapter tries to call `.bind()` on it.
  */
 export function pruneBotActivityEventsStatement(db: Database, botId: string) {
-  const keepTopN = db
+  const overflowIds = db
     .select({ id: communityBotActivityEvent.id })
     .from(communityBotActivityEvent)
     .where(eq(communityBotActivityEvent.botId, botId))
     .orderBy(desc(communityBotActivityEvent.createdAt), desc(communityBotActivityEvent.id))
-    .limit(AUDIT_LOG_MAX_ROWS_PER_BOT);
+    .limit(AUDIT_LOG_MAX_ROWS_PER_BOT)
+    .offset(AUDIT_LOG_MAX_ROWS_PER_BOT);
   return db
     .delete(communityBotActivityEvent)
-    .where(
-      and(
-        eq(communityBotActivityEvent.botId, botId),
-        notInArray(communityBotActivityEvent.id, keepTopN)
-      )
-    );
+    .where(inArray(communityBotActivityEvent.id, overflowIds));
 }
 
 /**

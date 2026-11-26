@@ -10,6 +10,7 @@ import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 
 import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
+import { parseBoundedInt } from "@/lib/community/messages"
 import { requestsCommunityContract, COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { readCommunityMembers } from "@/lib/community/member-read"
 import { resolveMessageTarget } from "@/lib/community/message-door"
@@ -42,7 +43,16 @@ export const GET = withAuth(communityActorPolicy(), async (req: NextRequest, ctx
   const target = ctx.actor.kind === "bot" && ref ? { ref } : { id: ctx.params?.id ?? "" }
   const resolved = await resolveMessageTarget(db, ctx.actor.userId, target, ctx.actor.kind)
   if (!resolved.ok) return writeError(resolved.error, resolved.status)
-  return readCommunityMembers(db, resolved.value.target.channelId, ctx.actor.userId, req.nextUrl.searchParams.get("relation"), COMMUNITY_RESOURCE_CONTRACT_VERSION)
+  const limit = parseBoundedInt(req.nextUrl.searchParams.get("limit"), 200, 200)
+  const cursor = req.nextUrl.searchParams.get("cursor")?.trim() || undefined
+  return readCommunityMembers(
+    db,
+    resolved.value.target.channelId,
+    ctx.actor.userId,
+    req.nextUrl.searchParams.get("relation"),
+    COMMUNITY_RESOURCE_CONTRACT_VERSION,
+    { limit, ...(cursor ? { cursor } : {}) },
+  )
 })
 
 /**

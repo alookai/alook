@@ -241,21 +241,20 @@ describe("getUsersByIds bound parameters and result set", () => {
 });
 
 describe("listEligibleUnreadChannels bound parameters", () => {
-  it("95 visible ids use 80-id chunks and keep every statement within D1's limit", async () => {
-    const { db, statements } = makeD1SelectCapture();
+  it("95 visible ids stay constant-bind via json_each and within D1's limit", async () => {
     const visibleChannelIds = Array.from({ length: 95 }, (_, index) => `channel_${index}`);
+    const channelRows = visibleChannelIds.map((id) => [id, "srv_1", null, "text", 0]);
+    const { db, statements } = makeD1Capture([[], channelRows, []]);
 
     await expect(
       inboxQueries.listEligibleUnreadChannels(db as never, "user_1", visibleChannelIds),
     ).resolves.toEqual([]);
 
-    expect(statements).toHaveLength(2);
-    expect(statements.map(({ params }) => params.filter(
-      (value) => typeof value === "string" && value.startsWith("channel_"),
-    ).length)).toEqual([80, 15]);
-    expect(statements.map(({ params }) => params.length)).toEqual([93, 28]);
+    expect(statements.length).toBeGreaterThanOrEqual(2);
+    expect(statements.some(({ sql }) => sql.includes("json_each"))).toBe(true);
     for (const { params } of statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+      expect(params.length).toBeLessThanOrEqual(20);
     }
   });
 
@@ -282,10 +281,10 @@ describe("listEligibleUnreadChannels bound parameters", () => {
 });
 
 describe("listUnreadMessagesForAgent bound parameters", () => {
-  it("90 allowed channels split at the query's 13-fixed-bind budget", async () => {
+  it("90 allowed channels stay constant-bind via json_each without chunking", async () => {
     const channelIds = Array.from({ length: 90 }, (_, index) => `channel_${index}`);
-    const typeRows = channelIds.map((id) => [id, "text"]);
-    const { db, statements } = makeD1Capture([typeRows, [], []]);
+    const metaRows = channelIds.map((id) => [id, "text", "srv_1", null]);
+    const { db, statements } = makeD1Capture([[], metaRows, []]);
 
     await expect(
       agentInboxQueries.listUnreadMessagesForAgent(db as never, "user_1", {
@@ -294,21 +293,19 @@ describe("listUnreadMessagesForAgent bound parameters", () => {
       }),
     ).resolves.toEqual([]);
 
-    expect(statements.map(({ params }) => params.filter(
-      (value) => typeof value === "string" && value.startsWith("channel_"),
-    ).length)).toEqual([90, 87, 3]);
-    expect(statements.map(({ params }) => params.length)).toEqual([90, 100, 16]);
+    expect(statements.some(({ sql }) => sql.includes("json_each"))).toBe(true);
     for (const { params } of statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+      expect(params.length).toBeLessThanOrEqual(20);
     }
   });
 });
 
 describe("getLatestUnreadMessageForAgent bound parameters", () => {
-  it("87 allowed channels fit exactly at the query's 13-fixed-bind budget", async () => {
+  it("87 allowed channels stay constant-bind via json_each", async () => {
     const channelIds = Array.from({ length: 87 }, (_, index) => `channel_${index}`);
-    const typeRows = channelIds.map((id) => [id, "text"]);
-    const { db, statements } = makeD1Capture([typeRows, []]);
+    const metaRows = channelIds.map((id) => [id, "text", "srv_1", null]);
+    const { db, statements } = makeD1Capture([[], metaRows, []]);
 
     await expect(
       agentInboxQueries.getLatestUnreadMessageForAgent(db as never, "user_1", {
@@ -316,18 +313,19 @@ describe("getLatestUnreadMessageForAgent bound parameters", () => {
       }),
     ).resolves.toBeNull();
 
-    expect(statements.map(({ params }) => params.filter(
-      (value) => typeof value === "string" && value.startsWith("channel_"),
-    ).length)).toEqual([87, 87]);
-    expect(statements.map(({ params }) => params.length)).toEqual([87, 100]);
+    expect(statements.some(({ sql }) => sql.includes("json_each"))).toBe(true);
+    for (const { params } of statements) {
+      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+      expect(params.length).toBeLessThanOrEqual(20);
+    }
   });
 
-  it("88 allowed channels split into 87 + 1 instead of emitting 101 binds", async () => {
+  it("88 allowed channels resolve in one constant-bind query instead of chunking", async () => {
     const channelIds = Array.from({ length: 88 }, (_, index) => `channel_${index}`);
-    const typeRows = channelIds.map((id) => [id, "text"]);
+    const metaRows = channelIds.map((id) => [id, "text", "srv_1", null]);
     const { db, statements } = makeD1Capture([
-      typeRows,
-      [["message_older", "2026-09-06T01:00:00.000Z"]],
+      [],
+      metaRows,
       [["message_newer", "2026-09-06T02:00:00.000Z"]],
     ]);
 
@@ -337,12 +335,10 @@ describe("getLatestUnreadMessageForAgent bound parameters", () => {
       }),
     ).resolves.toEqual({ messageId: "message_newer" });
 
-    expect(statements.map(({ params }) => params.filter(
-      (value) => typeof value === "string" && value.startsWith("channel_"),
-    ).length)).toEqual([88, 87, 1]);
-    expect(statements.map(({ params }) => params.length)).toEqual([88, 100, 14]);
+    expect(statements.some(({ sql }) => sql.includes("json_each"))).toBe(true);
     for (const { params } of statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+      expect(params.length).toBeLessThanOrEqual(20);
     }
   });
 });

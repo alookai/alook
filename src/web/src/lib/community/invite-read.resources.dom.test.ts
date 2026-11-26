@@ -22,7 +22,11 @@ vi.mock("@alook/shared", async original => {
     communityMember: { ...actual.queries.communityMember, getMember: (...args: unknown[]) => mocks.member(...args) },
     communityMessage: { ...actual.queries.communityMessage, getMessagesByIdsInChannels: vi.fn(async () => []) },
     communityChannel: { ...actual.queries.communityChannel, listChannelMembershipsForUserInChannels: vi.fn(async () => []) },
-    communityServer: { ...actual.queries.communityServer, listUserServers: (...args: unknown[]) => mocks.servers(...args) },
+    communityServer: {
+      ...actual.queries.communityServer,
+      listUserServers: (...args: unknown[]) => mocks.servers(...args),
+      listUserServerSummariesByIds: (...args: unknown[]) => mocks.servers(...args),
+    },
     user: { ...actual.queries.user, getUsersByIds: (...args: unknown[]) => mocks.users(...args) },
     communityUserProfile: { ...actual.queries.communityUserProfile, getProfilesByUserIds: (...args: unknown[]) => mocks.profiles(...args), getResourceProfiles: async (db: unknown, ids: string[]) => {
       const users = await mocks.users(db, ids)
@@ -71,7 +75,7 @@ it("produces scoped descriptors with full resources and no creator email or seco
   expect(mocks.member).toHaveBeenCalledExactlyOnceWith(mocks.db, "s1", "viewer")
   expect(mocks.list).toHaveBeenCalledExactlyOnceWith(mocks.db, "s1")
   expect(mocks.users).toHaveBeenCalledExactlyOnceWith(mocks.db, ["viewer", "creator"])
-  expect(mocks.servers).toHaveBeenCalledExactlyOnceWith(mocks.db, "viewer")
+  expect(mocks.servers).toHaveBeenCalledExactlyOnceWith(mocks.db, "viewer", ["s1"])
 })
 it("retains an explicitly null deleted creator without a fabricated profile", async () => {
   const rows = await mocks.list()

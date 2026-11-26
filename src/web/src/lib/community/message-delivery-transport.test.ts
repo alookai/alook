@@ -336,4 +336,28 @@ describe("sendMessageDeliveryBatch", () => {
     expect(globalFetch).not.toHaveBeenCalled()
   })
 
+  it("serializes a fitting 1000-recipient batch once without binary-search probes", async () => {
+    const recipients = Array.from({ length: 1000 }, (_, i) => `user_${String(i).padStart(4, "0")}`)
+    const stringifySpy = vi.spyOn(JSON, "stringify")
+    try {
+      await sendMessageDeliveryBatch(batch({
+        contentUserIds: recipients,
+        unreadPlainUserIds: recipients.slice(1, 500),
+        unreadMentionUserIds: [],
+        mentionUserIds: [],
+        joinedParticipantUserIds: undefined,
+        rosterRefreshUserId: undefined,
+        parentProjection: undefined,
+        parentProjectionUserIds: undefined,
+      }))
+      expect(bindingFetch).toHaveBeenCalledTimes(1)
+      const batchStringifyCalls = stringifySpy.mock.calls.filter(
+        ([arg]) => typeof arg === "object" && arg !== null && "messageId" in (arg as Record<string, unknown>),
+      )
+      expect(batchStringifyCalls.length).toBeLessThanOrEqual(2)
+    } finally {
+      stringifySpy.mockRestore()
+    }
+  })
+
 })

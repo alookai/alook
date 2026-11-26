@@ -33,10 +33,15 @@ import { listDmChannelIdsForUser } from "./dm";
 import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
-import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { jsonTextSet } from "../_json-set";
 import { withD1Retry } from "../../resilience";
-import { hasDirectMentionSql, notificationEligibleSql } from "./notification-eligibility";
+import {
+  hasAttentionSql,
+  hasDirectMentionSql,
+  loadUserNotificationSettingLookup,
+  resolveEffectiveNotificationLevel,
+} from "./notification-eligibility";
 
 type RawAgentMessage = {
   id: string;
@@ -489,31 +494,34 @@ export async function listAccessVisibleChannelIdsForUser(
   return [...new Set([...serverChannelIds, ...dmChannelIds])];
 }
 
-async function listAgentAllowedChannelIds(
+type AgentChannelsByPolicy = {
+  allIds: string[];
+  mentionsIds: string[];
+};
+
+async function resolveAgentDeliverableChannelsByPolicy(
   db: Database,
   botUserId: string,
   accessVisibleChannelIds?: string[]
-): Promise<string[]> {
+): Promise<AgentChannelsByPolicy> {
   const visibleChannelIds = accessVisibleChannelIds
     ?? await listAccessVisibleChannelIdsForUser(db, botUserId);
 
-  if (visibleChannelIds.length === 0) return [];
+  const uniqueVisibleIds = [...new Set(visibleChannelIds)];
+  if (uniqueVisibleIds.length === 0) return { allIds: [], mentionsIds: [] };
 
-  // Chunk the `inArray` for D1's 100-param limit; no order/limit → concat.
-  const typeRows = (
-    await Promise.all(
-      chunk(visibleChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
-        db
-          .select({ id: communityChannel.id, type: communityChannel.type })
-          .from(communityChannel)
-          .where(inArray(communityChannel.id, ids))
-      )
-    )
-  ).flat();
-  // Participation-narrowed types = reach `participant-set` (B2 single source),
-  // not a re-derived `isThread || isForumPost`. A participant-set channel is
-  // deliverable to the bot only if it holds a notify row — the SAME reach value
-  // the fan-out recipient set and the send-path enroll key on.
+  const [typeRows, settings] = await Promise.all([
+    db
+      .select({
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      })
+      .from(communityChannel)
+      .where(inArray(communityChannel.id, jsonTextSet(db, uniqueVisibleIds))),
+    loadUserNotificationSettingLookup(db, botUserId),
+  ]);
   const narrowIds = typeRows
     .filter((r) => reachIsParticipantSet(r.type))
     .map((r) => r.id);
@@ -522,85 +530,51 @@ async function listAgentAllowedChannelIds(
       ? new Set(await listParticipatingThreadIds(db, narrowIds, botUserId))
       : new Set<string>();
   const narrowSet = new Set(narrowIds);
-  const serverAllowed = visibleChannelIds.filter((id) => !narrowSet.has(id) || notifiedChannelIds.has(id));
-  return serverAllowed;
+
+  const allIds: string[] = [];
+  const mentionsIds: string[] = [];
+  for (const ch of typeRows) {
+    if (narrowSet.has(ch.id) && !notifiedChannelIds.has(ch.id)) continue;
+    const level = resolveEffectiveNotificationLevel(settings, ch);
+    if (level === "all") allIds.push(ch.id);
+    else if (level === "mentions") mentionsIds.push(ch.id);
+  }
+  return { allIds, mentionsIds };
 }
 
-/**
- * The "message is at/after the bot's join baseline" guard for the channel arm,
- * expressed over the LEFT-JOINed membership rows (see `withJoinBaseline`).
- * Mirrors the human unread baseline (`inbox.ts` `lastMessageAt > joinedAt`): a
- * bot's unread must start at the moment it JOINED, not at seq 0 — otherwise a
- * bot added to a server/channel with backlog gets flooded with all history
- * (the agent predicate keys on `seq > COALESCE(lastReadSeq,0)`, and a fresh
- * member has no read-state row → baseline 0 → every message matches).
- *
- * Baseline precedence: the private-channel access row's `added_at` when present
- * (bot explicitly added to that channel), else the server-member `joined_at`
- * for the channel's server. If neither exists (shouldn't happen for an allowed
- * channel), COALESCE falls to `''` → any ISO `createdAt > ''` is true → fail
- * open to the pre-existing behavior, never wrongly suppressing. Strict `>`: a
- * message whose `createdAt` exactly equals the join timestamp is NOT unread.
- */
 const channelJoinBaselineGuard = sql`${communityMessage.createdAt} > COALESCE(${communityChannelMember.addedAt}, ${communityServerMember.joinedAt}, '')`;
 
-// Both agent-unread statements emit 13 fixed bindings in addition to channel
-// ids. 87 ids hit D1's 100-bind limit exactly; 88 must start a new chunk.
-const AGENT_UNREAD_CHANNEL_CHUNK_SIZE = maxInParams(13);
-
-/**
- * Cross-channel unread fill for `inboxPull`, grouped by channel/DM (not
- * global seq order — `seq` is a per-scope counter, comparing raw values
- * across scopes is meaningless, see plan §7 v4). Always drains one channel's
- * unread completely (in seq order) before starting the next. Excludes the
- * bot's own authored messages. Never mutates read state.
- *
- * Visibility rule: same as the human unread path (`listEligibleUnreadChannels`) —
- * (1) channel messages restricted to `listVisibleChannelIdsForUser(botUserId)`
- * (respects private-category rosters), and
- * (2) child threads additionally require a
- * `community_channel_member(relation='notify')` row for the bot. Both dimensions are folded
- * into ONE `inArray` predicate up front so `.limit(max)` operates on
- * already-visible rows — post-filtering after `limit` (the earlier shape)
- * could silently collapse a page to `[]` and break `hasMore`.
- */
 export async function listUnreadMessagesForAgent(
   db: Database,
   botUserId: string,
   opts: { max: number; visibleChannelIds?: string[] }
 ): Promise<RawAgentMessage[]> {
-  const allowedChannelIds = await listAgentAllowedChannelIds(
+  const { allIds, mentionsIds } = await resolveAgentDeliverableChannelsByPolicy(
     db,
     botUserId,
     opts.visibleChannelIds
   );
-  if (allowedChannelIds.length === 0) return [];
+  if (allIds.length === 0 && mentionsIds.length === 0) return [];
 
-  // D1 caps a statement at 100 bound params, and `allowedChannelIds` is
-  // unbounded (a bot allowed into >100 channels). Chunk the `inArray` and merge:
-  // each chunk runs the SAME order+limit; since chunks partition channel ids,
-  // each chunk's result is a subsequence of the global (channelId, seq) order,
-  // so the global top-`max` is contained in the union of per-chunk top-`max`.
-  // Re-sort the union and slice to `max`. Both sort keys are in the projection.
-  const runChunk = (ids: string[]) =>
+  const runPolicyGroup = (ids: string[], mentionsOnly: boolean) =>
     db
       .select({
         ...AGENT_MESSAGE_COLUMNS,
         lastReadSeq: sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`,
       })
-      .from(communityMessage)
+      .from(communityChannel)
+      .innerJoin(communityMessage, eq(communityMessage.channelId, communityChannel.id))
       .leftJoin(
         communityReadState,
         and(
           eq(communityReadState.userId, botUserId),
-          eq(communityReadState.channelId, communityMessage.channelId)
+          eq(communityReadState.channelId, communityChannel.id)
         )
       )
-      .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
       .leftJoin(
         communityChannelMember,
         and(
-          eq(communityChannelMember.channelId, communityMessage.channelId),
+          eq(communityChannelMember.channelId, communityChannel.id),
           eq(communityChannelMember.userId, botUserId),
           eq(communityChannelMember.relation, "access")
         )
@@ -614,29 +588,21 @@ export async function listUnreadMessagesForAgent(
       )
       .where(
         and(
+          inArray(communityChannel.id, jsonTextSet(db, ids)),
           ne(communityMessage.authorId, botUserId),
           sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-          inArray(communityMessage.channelId, ids),
           channelJoinBaselineGuard,
-          notificationEligibleSql(
-            botUserId,
-            {
-              id: communityChannel.id,
-              serverId: communityChannel.serverId,
-              parentChannelId: communityChannel.parentChannelId,
-            },
-            {
-              id: communityMessage.id,
-            },
-          ),
+          ...(mentionsOnly ? [hasAttentionSql(botUserId, communityMessage.id)] : []),
         )
       )
       .orderBy(asc(communityMessage.channelId), asc(communityMessage.seq))
       .limit(opts.max);
 
-  const merged = (
-    await Promise.all(chunk(allowedChannelIds, AGENT_UNREAD_CHANNEL_CHUNK_SIZE).map(runChunk))
-  ).flat();
+  const [allRows, mentionRows] = await Promise.all([
+    allIds.length > 0 ? runPolicyGroup(allIds, false) : Promise.resolve([]),
+    mentionsIds.length > 0 ? runPolicyGroup(mentionsIds, true) : Promise.resolve([]),
+  ]);
+  const merged = [...allRows, ...mentionRows];
   merged.sort((a, b) =>
     a.channelId === b.channelId
       ? a.seq - b.seq
@@ -649,56 +615,32 @@ export async function listUnreadMessagesForAgent(
     .map(({ lastReadSeq: _lastReadSeq, ...rest }) => rest);
 }
 
-/**
- * Does `botUserId` have any message in `channelId`, beyond seq `seen`, that
- * `inboxPull` would actually DELIVER — i.e. at/after the bot's join baseline
- * and not its own? This is the send route's alignment gate, sharing
- * `listUnreadMessagesForAgent`'s DELIVERABILITY filters (`channelJoinBaselineGuard`
- * + `authorId != bot`) so the gate and the pull can never drift on which
- * messages "count". The `seen` threshold is the gate's own business: the caller
- * passes `seenUpToSeq ?? lastReadSeq ?? 0`, preserving the daemon's forward-seen
- * boundary (a bot may report it has seen past its acked `lastReadSeq`).
- *
- * Why not `getLatestSeqForScope > seen`: that counts the channel's raw `nextSeq`
- * — including pre-join backlog and the bot's own messages — which the pull's
- * baseline + author filters exclude. A bot @mentioned into a channel/thread with
- * history would then read as permanently "unaligned" (gate sees backlog) while
- * `inboxPull` delivers nothing to advance its `lastReadSeq` — a wedge that only
- * luck (a fresh post-join message) breaks. Gating on the deliverable predicate
- * makes the wedge impossible by construction and needs no read-state migration
- * for already-stuck bots: the gate stops counting messages the pull never hands
- * over.
- *
- * Child-thread notification-set narrowing: the pull's allowed set
- * (`listAgentAllowedChannelIds`) additionally drops child threads
- * the bot holds no `relation='notify'` row on — those are never delivered. The
- * gate MUST mirror that same narrowing (via the SAME `listParticipatingThreadIds`
- * predicate, not a re-derived one) or it counts backlog in a scope where the
- * bot holds no `community_channel_member(relation='notify')` row, which the
- * pull will never hand over — the exact "not aligned: N unread"
- * deadlock a bot hit trying to post into a thread it hadn't engaged. This drops
- * ONLY true spectators: a bot @mentioned into a thread gets a `notify` row on the
- * atomic message write (source=mention), so its owed mention
- * still counts as deliverable — the narrowing is not-more-not-less than the pull.
- */
 export async function hasDeliverableUnreadForAgentScope(
   db: Database,
   botUserId: string,
   channelId: string,
   seen: number
 ): Promise<boolean> {
-  // Notification-set narrowing, single-channel form of `listAgentAllowedChannelIds`'s
-  // set-wide step: a child thread without a notify row for the bot is never
-  // deliverable, so its backlog must not register as unread here. Short-circuits
-  // before the deliverable scan — cheaper for the common spectator case too.
-  const typeRows = await db
-    .select({ type: communityChannel.type })
-    .from(communityChannel)
-    .where(eq(communityChannel.id, channelId))
-    .limit(1);
-  const type = typeRows[0]?.type;
+  const [typeRows, settings] = await Promise.all([
+    db
+      .select({
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      })
+      .from(communityChannel)
+      .where(eq(communityChannel.id, channelId))
+      .limit(1),
+    loadUserNotificationSettingLookup(db, botUserId),
+  ]);
+  const channel = typeRows[0];
+  if (!channel) return false;
 
-  if (reachIsParticipantSet(type)) {
+  const level = resolveEffectiveNotificationLevel(settings, channel);
+  if (level !== "all" && level !== "mentions") return false;
+
+  if (reachIsParticipantSet(channel.type)) {
     const participating = await listParticipatingThreadIds(db, [channelId], botUserId);
     if (participating.length === 0) return false;
   }
@@ -728,17 +670,7 @@ export async function hasDeliverableUnreadForAgentScope(
         ne(communityMessage.authorId, botUserId),
         gt(communityMessage.seq, seen),
         channelJoinBaselineGuard,
-        notificationEligibleSql(
-          botUserId,
-          {
-            id: communityChannel.id,
-            serverId: communityChannel.serverId,
-            parentChannelId: communityChannel.parentChannelId,
-          },
-          {
-            id: communityMessage.id,
-          },
-        ),
+        ...(level === "mentions" ? [hasAttentionSql(botUserId, communityMessage.id)] : []),
       )
     )
     .limit(1);
@@ -755,114 +687,97 @@ export type InboxSnapshotRow = {
   hasMention: boolean;
 };
 
-/**
- * Per-channel/DM unread summary for `inboxSnapshot` — non-consuming, no read-
- * state mutation. One row per scope with pending unread.
- *
- * Visibility rule mirrors `listUnreadMessagesForAgent`: (1) channel scopes
- * restricted to `listVisibleChannelIdsForUser(botUserId)`, and (2) scopes of
- * child threads additionally require a
- * `community_channel_member(relation='notify')` row for the bot. Readability,
- * notification eligibility, unread cursor, and join baseline are all applied
- * before GROUP BY; aggregate metadata therefore describes exactly the rows a
- * pull can deliver.
- */
 export async function getInboxSnapshotForAgent(
   db: Database,
   botUserId: string,
   opts?: { accessVisibleChannelIds?: string[] },
 ): Promise<InboxSnapshotRow[]> {
-  const allowedChannelIds = await listAgentAllowedChannelIds(
+  const { allIds, mentionsIds } = await resolveAgentDeliverableChannelsByPolicy(
     db,
     botUserId,
     opts?.accessVisibleChannelIds,
   );
-  if (allowedChannelIds.length === 0) return [];
+  if (allIds.length === 0 && mentionsIds.length === 0) return [];
 
-  const pending = db
-    .select({
-      channelId: communityMessage.channelId,
-      pendingCount: sql<number>`COUNT(*)`.as("pending_count"),
-      firstPendingSeq: sql<number>`MIN(${communityMessage.seq})`.as("first_pending_seq"),
-      latestSeq: sql<number>`MAX(${communityMessage.seq})`.as("latest_seq"),
-      mentionCount: sql<number>`SUM(CASE WHEN ${hasDirectMentionSql(botUserId, communityMessage.id)} THEN 1 ELSE 0 END)`.as("mention_count"),
-    })
-    .from(communityMessage)
-    .leftJoin(
-      communityReadState,
-      and(
-        eq(communityReadState.userId, botUserId),
-        eq(communityReadState.channelId, communityMessage.channelId)
+  const runSnapshotGroup = (ids: string[], mentionsOnly: boolean) => {
+    const pending = db
+      .select({
+        channelId: communityMessage.channelId,
+        pendingCount: sql<number>`COUNT(*)`.as("pending_count"),
+        firstPendingSeq: sql<number>`MIN(${communityMessage.seq})`.as("first_pending_seq"),
+        latestSeq: sql<number>`MAX(${communityMessage.seq})`.as("latest_seq"),
+        mentionCount: sql<number>`SUM(CASE WHEN ${hasDirectMentionSql(botUserId, communityMessage.id)} THEN 1 ELSE 0 END)`.as("mention_count"),
+      })
+      .from(communityChannel)
+      .innerJoin(communityMessage, eq(communityMessage.channelId, communityChannel.id))
+      .leftJoin(
+        communityReadState,
+        and(
+          eq(communityReadState.userId, botUserId),
+          eq(communityReadState.channelId, communityChannel.id)
+        )
       )
-    )
-    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityMessage.channelId),
-        eq(communityChannelMember.userId, botUserId),
-        eq(communityChannelMember.relation, "access")
+      .leftJoin(
+        communityChannelMember,
+        and(
+          eq(communityChannelMember.channelId, communityChannel.id),
+          eq(communityChannelMember.userId, botUserId),
+          eq(communityChannelMember.relation, "access")
+        )
       )
-    )
-    .leftJoin(
-      communityServerMember,
-      and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
-        eq(communityServerMember.userId, botUserId)
+      .leftJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityChannel.serverId),
+          eq(communityServerMember.userId, botUserId)
+        )
       )
-    )
-    .where(
-      and(
-        ne(communityMessage.authorId, botUserId),
-        sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-        inArray(communityMessage.channelId, jsonTextSet(db, allowedChannelIds)),
-        channelJoinBaselineGuard,
-        notificationEligibleSql(
-          botUserId,
-          {
-            id: communityChannel.id,
-            serverId: communityChannel.serverId,
-            parentChannelId: communityChannel.parentChannelId,
-          },
-          {
-            id: communityMessage.id,
-          },
-        ),
+      .where(
+        and(
+          inArray(communityChannel.id, jsonTextSet(db, ids)),
+          ne(communityMessage.authorId, botUserId),
+          sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+          channelJoinBaselineGuard,
+          ...(mentionsOnly ? [hasAttentionSql(botUserId, communityMessage.id)] : []),
+        )
       )
-    )
-    .groupBy(communityMessage.channelId)
-    .as("pending_inbox");
+      .groupBy(communityMessage.channelId)
+      .as("pending_inbox");
 
-  const rows = await db
-    .select({
-      channelId: pending.channelId,
-      pendingCount: pending.pendingCount,
-      firstPendingSeq: pending.firstPendingSeq,
-      latestSeq: pending.latestSeq,
-      mentionCount: pending.mentionCount,
-      sender: {
-        id: user.id,
-        name: user.name,
-        discriminator: user.discriminator,
-      },
-    })
-    .from(pending)
-    .innerJoin(communityMessage, and(
-      eq(communityMessage.channelId, pending.channelId),
-      eq(communityMessage.seq, pending.latestSeq),
-    ))
-    .leftJoin(user, eq(user.id, communityMessage.authorId));
+    return db
+      .select({
+        channelId: pending.channelId,
+        pendingCount: pending.pendingCount,
+        firstPendingSeq: pending.firstPendingSeq,
+        latestSeq: pending.latestSeq,
+        mentionCount: pending.mentionCount,
+        sender: {
+          id: user.id,
+          name: user.name,
+          discriminator: user.discriminator,
+        },
+      })
+      .from(pending)
+      .innerJoin(communityMessage, and(
+        eq(communityMessage.channelId, pending.channelId),
+        eq(communityMessage.seq, pending.latestSeq),
+      ))
+      .leftJoin(user, eq(user.id, communityMessage.authorId));
+  };
 
-  return rows.map((r) => {
-    return {
-      channelId: r.channelId,
-      pendingCount: r.pendingCount,
-      firstPendingSeq: r.firstPendingSeq,
-      latestSeq: r.latestSeq,
-      latestSender: r.sender?.id ? `@${formatHandle(r.sender.name, r.sender.discriminator)}` : "Deleted user",
-      hasMention: r.mentionCount > 0,
-    };
-  });
+  const [allRows, mentionRows] = await Promise.all([
+    allIds.length > 0 ? runSnapshotGroup(allIds, false) : Promise.resolve([]),
+    mentionsIds.length > 0 ? runSnapshotGroup(mentionsIds, true) : Promise.resolve([]),
+  ]);
+
+  return [...allRows, ...mentionRows].map((r) => ({
+    channelId: r.channelId,
+    pendingCount: r.pendingCount,
+    firstPendingSeq: r.firstPendingSeq,
+    latestSeq: r.latestSeq,
+    latestSender: r.sender?.id ? `@${formatHandle(r.sender.name, r.sender.discriminator)}` : "Deleted user",
+    hasMention: r.mentionCount > 0,
+  }));
 }
 
 export async function toInboxRows(
@@ -921,36 +836,32 @@ export async function getLatestUnreadMessageForAgent(
   botUserId: string,
   opts?: { accessVisibleChannelIds?: string[] },
 ): Promise<{ messageId: string } | null> {
-  const allowedChannelIds = await listAgentAllowedChannelIds(
+  const { allIds, mentionsIds } = await resolveAgentDeliverableChannelsByPolicy(
     db,
     botUserId,
     opts?.accessVisibleChannelIds,
   );
-  if (allowedChannelIds.length === 0) return null;
+  if (allIds.length === 0 && mentionsIds.length === 0) return null;
 
-  // Chunk the `inArray` for D1's 100-param limit; each chunk returns its own
-  // newest-by-createdAt winner (LIMIT 1). To pick the GLOBAL winner across
-  // chunks we must compare `createdAt`, so it's added to the projection (the
-  // original selected only `id` and couldn't be merged).
-  const runChunk = (ids: string[]) =>
+  const runPolicyGroup = (ids: string[], mentionsOnly: boolean) =>
     db
       .select({
         id: communityMessage.id,
         createdAt: communityMessage.createdAt,
       })
-      .from(communityMessage)
+      .from(communityChannel)
+      .innerJoin(communityMessage, eq(communityMessage.channelId, communityChannel.id))
       .leftJoin(
         communityReadState,
         and(
           eq(communityReadState.userId, botUserId),
-          eq(communityReadState.channelId, communityMessage.channelId)
+          eq(communityReadState.channelId, communityChannel.id)
         )
       )
-      .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
       .leftJoin(
         communityChannelMember,
         and(
-          eq(communityChannelMember.channelId, communityMessage.channelId),
+          eq(communityChannelMember.channelId, communityChannel.id),
           eq(communityChannelMember.userId, botUserId),
           eq(communityChannelMember.relation, "access")
         )
@@ -964,29 +875,21 @@ export async function getLatestUnreadMessageForAgent(
       )
       .where(
         and(
+          inArray(communityChannel.id, jsonTextSet(db, ids)),
           ne(communityMessage.authorId, botUserId),
           sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-          inArray(communityMessage.channelId, ids),
           channelJoinBaselineGuard,
-          notificationEligibleSql(
-            botUserId,
-            {
-              id: communityChannel.id,
-              serverId: communityChannel.serverId,
-              parentChannelId: communityChannel.parentChannelId,
-            },
-            {
-              id: communityMessage.id,
-            },
-          ),
+          ...(mentionsOnly ? [hasAttentionSql(botUserId, communityMessage.id)] : []),
         )
       )
       .orderBy(desc(communityMessage.createdAt))
       .limit(1);
 
-  const winners = (
-    await Promise.all(chunk(allowedChannelIds, AGENT_UNREAD_CHANNEL_CHUNK_SIZE).map(runChunk))
-  ).flat();
+  const [allWinners, mentionWinners] = await Promise.all([
+    allIds.length > 0 ? runPolicyGroup(allIds, false) : Promise.resolve([]),
+    mentionsIds.length > 0 ? runPolicyGroup(mentionsIds, true) : Promise.resolve([]),
+  ]);
+  const winners = [...allWinners, ...mentionWinners];
   if (winners.length === 0) return null;
   let best = winners[0]!;
   for (const w of winners) if (w.createdAt > best.createdAt) best = w;
