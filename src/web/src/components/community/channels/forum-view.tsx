@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useRef } from "react"
+import { useMemo, useRef } from "react"
 import { ArchiveRestore, Archive, Plus, Tag, Trash2 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,7 +20,7 @@ import { FORUM_ARCHIVE_TAG, getClientPlatform } from "@alook/shared"
 import { FORUM_LIST_SPACING_CLASS, ForumPostList, ForumPostListItem } from "./forum-post-list"
 import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId } from "@/lib/community-db/projections"
 import { useHorizontalOverflowRail } from "@/components/horizontal-overflow-rail"
 
 const POST_ACTION_CLASS = "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
@@ -84,7 +84,15 @@ export function ForumView({
     "col-start-2 row-start-1 z-10 flex self-center items-center gap-1",
     desktopActions && "opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 has-data-popup-open:opacity-100",
   )
-  const profilesByUserId = useCanonicalProfilesByUserId()
+  const profileIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const post of posts) {
+      if (post.authorId) ids.add(post.authorId)
+      for (const participant of post.participants ?? []) ids.add(participant.id)
+    }
+    return [...ids]
+  }, [posts])
+  const profilesByUserId = useCanonicalIdentitiesByUserId(profileIds, profileIds.length > 0)
   const [composing, setComposing] = useAtom(useCreateAtom(false))
   const [deletingForId, setDeletingForId] = useAtom(useCreateAtom<string | null>(null))
   const deletingFor = posts.find((post) => post.id === deletingForId) ?? null

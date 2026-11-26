@@ -3,7 +3,7 @@
 import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { flushSync } from "react-dom"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCommunityHistoryRouter as useRouter } from "@/lib/community/navigation"
@@ -212,7 +212,7 @@ export function useCommunityNavigationController(
     }
   }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router, setEntryIntent, setNavigationPending, setPendingHref])
 
-  return {
+  return useMemo(() => ({
     entryIntent,
     captureIntent,
     publishedHref,
@@ -223,5 +223,16 @@ export function useCommunityNavigationController(
     replace,
     resolveAndPush,
     cancelPendingNavigation,
-  }
+  }), [
+    entryIntent,
+    captureIntent,
+    publishedHref,
+    navigationPending,
+    pendingHref,
+    push,
+    pushImmediate,
+    replace,
+    resolveAndPush,
+    cancelPendingNavigation,
+  ])
 }

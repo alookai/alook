@@ -77,7 +77,9 @@ export function useShellProfileController({
   const searchParams = useSearchParams()
   const billingReturn = readBillingReturn(searchParams.get("billing"))
   const billingRequested = searchParams.get("settings") === "billing" || Boolean(billingReturn)
-  const closeSettings = () => {
+  const [editingProfile, setEditingProfile] = useAtom(useCreateAtom(false))
+  const [profileTarget, setProfile] = useAtom(useCreateAtom<ShellProfileState | null>(null))
+  const closeSettings = useCallback(() => {
     setEditingProfile(false)
     if (billingRequested) {
       const next = new URLSearchParams(searchParams.toString())
@@ -85,19 +87,17 @@ export function useShellProfileController({
       next.delete("billing")
       window.history.replaceState(null, "", `${pathname}${next.size ? `?${next}` : ""}${window.location.hash}`)
     }
-  }
+  }, [billingRequested, pathname, searchParams, setEditingProfile])
   const currentUser = useCurrentUser()
-  const friendsQuery = useFriends()
+  const friendsQuery = useFriends({ includePresence: false })
   const { friends, blocked } = friendsQuery
   const profileServerId = resolveProfileServerId(view, activeServerId)
-  const { members } = useServerMembers(profileServerId)
+  const { members } = useServerMembers(profileTarget ? profileServerId : null)
   const createOrGetDm = useCreateOrGetDm()
   const { accept: acceptDmMessage } = useDmMessageSender()
   const updateProfile = useUpdateProfile()
   const uploadUserAvatar = useUploadUserAvatar()
 
-  const [editingProfile, setEditingProfile] = useAtom(useCreateAtom(false))
-  const [profileTarget, setProfile] = useAtom(useCreateAtom<ShellProfileState | null>(null))
   const [preview, setPreview] = useAtom(useCreateAtom<ImagePreview | null>(null))
   const [attachmentPreview, setAttachmentPreview] = useAtom(useCreateAtom<FileAttachment | null>(null))
   const avatarCropTask = useCreateAtom<(IconCropSource & {
@@ -379,6 +379,16 @@ export function useShellProfileController({
     }
   }
 
+  const closeProfile = useCallback(() => setProfile(null), [setProfile])
+  const closePreview = useCallback(() => setPreview(null), [setPreview])
+  const onAttachmentPreviewOpenChange = useCallback((open: boolean) => {
+    if (!open) setAttachmentPreview(null)
+  }, [setAttachmentPreview])
+  const openUserSettings = useCallback(() => setEditingProfile(true), [setEditingProfile])
+  const onUserSettingsOpenChange = useCallback((open: boolean) => {
+    if (!open) closeSettings()
+  }, [closeSettings])
+
   return {
     currentUser,
     openProfile,
@@ -388,20 +398,16 @@ export function useShellProfileController({
     previewAttachment,
     profile,
     canMessage,
-    closeProfile: () => setProfile(null),
+    closeProfile,
     profileMessage,
     updateOwnStatus,
     preview,
-    closePreview: () => setPreview(null),
+    closePreview,
     attachmentPreview,
-    onAttachmentPreviewOpenChange: (open: boolean) => {
-      if (!open) setAttachmentPreview(null)
-    },
+    onAttachmentPreviewOpenChange,
     editingProfile: editingProfile || billingRequested,
-    openUserSettings: () => setEditingProfile(true),
-    onUserSettingsOpenChange: (open: boolean) => {
-      if (!open) closeSettings()
-    },
+    openUserSettings,
+    onUserSettingsOpenChange,
     userSettingsProps,
     pendingAvatarCrop: pendingAvatarCropProps,
   }

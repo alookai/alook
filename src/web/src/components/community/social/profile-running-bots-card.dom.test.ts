@@ -24,6 +24,7 @@ vi.mock("@/hooks/community/use-bots", () => ({
 
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => mocks.profiles,
+  useCanonicalIdentitiesByUserId: () => mocks.profiles,
 }))
 
 import {

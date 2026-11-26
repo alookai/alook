@@ -76,10 +76,12 @@ type CommunityShellLayoutProps = {
 type PendingDesktopRestore = {
   target: number | string
   animationFrame: number | null
+  attempts: number
 }
 
 const DESKTOP_RESTORE_PIXEL_EPSILON = 1 + (1 / 64)
 const DESKTOP_RESTORE_PERCENTAGE_EPSILON = 0.01
+const MAX_DESKTOP_RESTORE_ATTEMPTS = 5
 
 function constrainDesktopGeometry(target: number | string) {
   const root = document.documentElement
@@ -229,6 +231,7 @@ export function CommunityShellLayout({
           persistedSidebarPercentage,
         ),
         animationFrame: null,
+        attempts: 0,
       }
       constrainDesktopGeometry(pendingDesktopRestoreRef.current.target)
     }
@@ -360,10 +363,17 @@ export function CommunityShellLayout({
       const panelTrackWidth = groupWidth && groupWidth > COMMUNITY_SEPARATOR_WIDTH
         ? groupWidth - COMMUNITY_SEPARATOR_WIDTH
         : undefined
+      const clampedNumericTarget = typeof pendingRestore.target === "number"
+        ? Math.min(
+            COMMUNITY_SIDEBAR_MAX_WIDTH,
+            panelTrackWidth ?? COMMUNITY_SIDEBAR_MAX_WIDTH,
+            Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, pendingRestore.target),
+          )
+        : undefined
       const expectedPercentage = typeof pendingRestore.target === "string"
         ? Number.parseFloat(pendingRestore.target)
-        : panelTrackWidth
-          ? pendingRestore.target / panelTrackWidth * 100
+        : panelTrackWidth && clampedNumericTarget !== undefined
+          ? clampedNumericTarget / panelTrackWidth * 100
           : undefined
       // Let the library observe its unconstrained panel geometry while applying
       // the canonical layout. If it is not ready yet, the constraint is put
@@ -389,15 +399,16 @@ export function CommunityShellLayout({
             ) break
           }
         } else {
-          panelHandle.resize(pendingRestore.target)
+          panelHandle.resize(clampedNumericTarget ?? pendingRestore.target)
         }
       })
       const size = panelHandle.getSize()
-      const expectedWidth = typeof pendingRestore.target === "number"
-        ? pendingRestore.target
+      const expectedWidth = clampedNumericTarget !== undefined
+        ? clampedNumericTarget
         : panelTrackWidth && expectedPercentage !== undefined
           ? Math.min(
               COMMUNITY_SIDEBAR_MAX_WIDTH,
+              panelTrackWidth,
               Math.max(
                 COMMUNITY_SIDEBAR_MIN_WIDTH,
                 expectedPercentage / 100 * panelTrackWidth,
@@ -411,27 +422,24 @@ export function CommunityShellLayout({
           && Math.abs(size.inPixels - expectedWidth) <= DESKTOP_RESTORE_PIXEL_EPSILON
         : Math.abs(appliedPercentage - expectedPercentage)
           <= DESKTOP_RESTORE_PERCENTAGE_EPSILON
-      if (!storeRestored) {
-        constrainDesktopGeometry(pendingRestore.target)
-        pendingRestore.animationFrame = requestAnimationFrame(restore)
-        return
-      }
-
       const measuredWidth = sidebarPanelRef.current?.getBoundingClientRect().width
       const appliedWidth = measuredWidth && measuredWidth > 0
         ? measuredWidth
         : size.inPixels
-      if (
-        expectedWidth !== undefined
+      const widthMismatch = expectedWidth !== undefined
         && Math.abs(appliedWidth - expectedWidth) > DESKTOP_RESTORE_PIXEL_EPSILON
-      ) {
-        constrainDesktopGeometry(pendingRestore.target)
-        pendingRestore.animationFrame = requestAnimationFrame(restore)
-        return
+      if (!storeRestored || widthMismatch) {
+        pendingRestore.attempts += 1
+        if (pendingRestore.attempts < MAX_DESKTOP_RESTORE_ATTEMPTS) {
+          constrainDesktopGeometry(clampedNumericTarget ?? pendingRestore.target)
+          pendingRestore.animationFrame = requestAnimationFrame(restore)
+          return
+        }
       }
       desktopSidebarWidthRef.current = appliedWidth
       setDesktopUserBarWidth(appliedWidth)
       pendingDesktopRestoreRef.current = null
+      releaseDesktopGeometryConstraint()
     }
     queueMicrotask(restore)
     return () => {

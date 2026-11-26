@@ -355,7 +355,7 @@ function ServerRailContent({
     </Tooltip>
   )
   const serverListPending = serversLoading && servers.length === 0 && folders.length === 0
-  const serverItem = (server: Server, inFolder = false) => (
+  const serverItem = (server: Server, inFolder = false, dndEnabled = true) => (
     <SortableServer key={server.id} server={server}
       href={serverHrefs[server.id] ?? serverRootHref(server.id)}
       navigationDisabled={dragSource !== null}
@@ -367,7 +367,7 @@ function ServerRailContent({
       inFolder={inFolder} dragging={dragging({ kind: "server", id: server.id })}
       preview={preview?.target.kind === "server" && preview.target.id === server.id && preview.operation !== "append" ? preview.operation : null}
       combineWith={preview?.operation === "combine" && preview.target.kind === "server" && preview.target.id === server.id && preview.source.kind === "server" ? serverById.get(preview.source.id) : undefined}
-      dnd={dnd} dragDescriptionId={dragInstructionsId}
+      dnd={dndEnabled ? dnd : undefined} dragDescriptionId={dragInstructionsId}
     />
   )
   const items = serverListPending ? <ServerRailSkeleton /> : railTopLevel(renderState).length === 0 ? null : (
@@ -403,8 +403,8 @@ function ServerRailContent({
             <div className={`relative grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`} inert={!open}>
               <div className="min-h-0 overflow-hidden">
                 <div className="flex w-full flex-col items-center gap-2 pt-2">
-                  {children.map((server) => serverItem(server, true))}
-                  <RailEndDropTarget dnd={dnd} target={{ kind: "folder-content", id: folderId }} testId={tid.serverRailFolderEnd(folderId)} active={preview?.operation === "append" && preview.target.kind === "folder-content" && preview.target.id === folderId} />
+                  {children.map((server) => serverItem(server, true, open))}
+                  {open && <RailEndDropTarget dnd={dnd} target={{ kind: "folder-content", id: folderId }} testId={tid.serverRailFolderEnd(folderId)} active={preview?.operation === "append" && preview.target.kind === "folder-content" && preview.target.id === folderId} />}
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
+  memo,
   useId,
   useRef,
   type RefObject,
@@ -44,7 +45,7 @@ type UserBarExtension = {
   onDismiss: () => void
 }
 
-export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening = false, onInboxOpenChange, extension }: {
+export const UserBar = memo(function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening = false, onInboxOpenChange, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
   onOpenProfile?: OpenProfile
@@ -187,7 +188,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       </div>
     </div>
   )
-}
+})
 
 export function UserBarSkeleton() {
   const nativeMobile = useHydratedClient() && isMobile()

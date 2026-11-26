@@ -4736,6 +4736,7 @@
       "application": "Web",
       "candidates": [
         "CommunityPanel",
+        "CommunityPanelSheet",
         "PinnedListSkeleton",
         "ThreadListSkeleton"
       ],
@@ -5473,6 +5474,7 @@
       "candidates": [
         "BotRow",
         "ProfileRunningBotsCard",
+        "ProfileRunningBotsCardLive",
         "ProfileRunningBotsCardView"
       ],
       "kind": "composition",

@@ -63,6 +63,9 @@ export type CommunityWsStoreState = {
     patches: ReadonlyMap<string, CommunityPresence> | readonly [string, CommunityPresence][],
   ) => boolean
   setPresence: (userId: string, presence: CommunityPresence) => boolean
+  setPresenceBatch: (
+    patches: ReadonlyMap<string, CommunityPresence> | readonly [string, CommunityPresence][],
+  ) => boolean
   forgetPresence: (userId: string) => void
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
@@ -114,11 +117,46 @@ export function communityScopeAllowsAccess(
 }
 
 export function createCommunityWsStore(viewerId: string | null, publishPresence?: (patches: ReadonlyMap<string, CommunityPresence>) => void) {
-  const store = createStore(initialState(), ({ setState, get }): Omit<CommunityWsStoreState, keyof ReturnType<typeof initialState>> => {
+  let livePresenceByUserId = new Map<string, CommunityPresence>()
+  let livePresenceRevisions = new Map<string, number>()
+  let livePresenceRevision = 0
+  let pendingChanged = new Map<string, CommunityPresence>()
+  let presenceFlushScheduled = false
+  let presenceFlushEpoch = 0
+
+  const store = createStore(
+    { ...initialState(), presenceByUserId: livePresenceByUserId, presenceRevisionsByUserId: livePresenceRevisions },
+    ({ setState, get }): Omit<CommunityWsStoreState, keyof ReturnType<typeof initialState>> => {
+  const commitPresenceNow = () => {
+    presenceFlushScheduled = false
+    const committedPresence = new Map(livePresenceByUserId)
+    livePresenceByUserId = committedPresence
+    const changed = pendingChanged
+    pendingChanged = new Map()
+    setState((state) => ({
+      ...state,
+      presenceRevision: livePresenceRevision,
+      presenceByUserId: committedPresence,
+      presenceRevisionsByUserId: livePresenceRevisions,
+    }))
+    if (changed.size > 0) publishPresence?.(changed)
+  }
+
+  const schedulePresenceFlush = () => {
+    if (presenceFlushScheduled) return
+    presenceFlushScheduled = true
+    const scheduledEpoch = presenceFlushEpoch
+    queueMicrotask(() => {
+      if (scheduledEpoch !== presenceFlushEpoch || !presenceFlushScheduled) return
+      commitPresenceNow()
+    })
+  }
+
   const writePresence = (
     snapshot: CommunityPresenceSnapshot,
     patches: ReadonlyMap<string, CommunityPresence> | readonly [string, CommunityPresence][],
     guardSnapshot: boolean,
+    coalesce: boolean,
   ) => {
     const state = get()
     if (
@@ -127,28 +165,27 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
       || snapshot.accountEpoch !== state.profileAccountEpoch
     ) return false
     const entries = patches instanceof Map ? patches.entries() : patches
-    const revision = state.presenceRevision + 1
-    let presenceByUserId: Map<string, CommunityPresence> | null = null
-    let revisions: Map<string, number> | null = null
-    const changed = new Map<string, CommunityPresence>()
+    const nextRevision = livePresenceRevision + 1
+    let presenceTouched = false
+    let revisionTouched = false
     for (const [userId, presence] of entries) {
-      const previousRevision = state.presenceRevisionsByUserId.get(userId) ?? 0
+      const previousRevision = livePresenceRevisions.get(userId) ?? 0
       if (guardSnapshot && previousRevision > snapshot.revision) continue
-      if ((presenceByUserId ?? state.presenceByUserId).get(userId) !== presence) {
-        presenceByUserId ??= new Map(state.presenceByUserId)
-        presenceByUserId.set(userId, presence)
-        changed.set(userId, presence)
+      if (livePresenceByUserId.get(userId) !== presence) {
+        livePresenceByUserId.set(userId, presence)
+        pendingChanged.set(userId, presence)
+        presenceTouched = true
       }
       if (!guardSnapshot) {
-        revisions ??= new Map(state.presenceRevisionsByUserId)
-        revisions.set(userId, revision)
+        livePresenceRevisions.set(userId, nextRevision)
+        revisionTouched = true
       }
     }
-    if (presenceByUserId || revisions) setState((state) => ({ ...state, ...{
-      ...(presenceByUserId ? { presenceByUserId } : {}),
-      ...(revisions ? { presenceRevision: revision, presenceRevisionsByUserId: revisions } : {}),
-    } }))
-    if (changed.size > 0) publishPresence?.(changed)
+    if (revisionTouched) livePresenceRevision = nextRevision
+    if (presenceTouched || revisionTouched) {
+      if (coalesce) schedulePresenceFlush()
+      else commitPresenceNow()
+    }
     return true
   }
 
@@ -157,6 +194,12 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
       const state = get()
       if (state.profileViewerId === viewerId) return state.profileAccountEpoch
       const profileAccountEpoch = state.profileAccountEpoch + 1
+      presenceFlushEpoch += 1
+      presenceFlushScheduled = false
+      livePresenceRevision = 0
+      livePresenceByUserId = new Map()
+      livePresenceRevisions = new Map()
+      pendingChanged = new Map()
       setState((state) => ({ ...state, ...{
         profileViewerId: viewerId,
         profileAccountEpoch,
@@ -165,8 +208,8 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
         serverAccessGenerations: new Map(),
         revokedServerIds: new Set(),
         presenceRevision: 0,
-        presenceByUserId: new Map(),
-        presenceRevisionsByUserId: new Map(),
+        presenceByUserId: livePresenceByUserId,
+        presenceRevisionsByUserId: livePresenceRevisions,
       } }))
       return profileAccountEpoch
     },
@@ -174,25 +217,36 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
     beginPresenceSnapshot: () => ({
       viewerId: get().profileViewerId,
       accountEpoch: get().profileAccountEpoch,
-      revision: get().presenceRevision,
+      revision: livePresenceRevision,
     }),
 
-    seedPresence: (snapshot, patches) => writePresence(snapshot, patches, true),
+    seedPresence: (snapshot, patches) => writePresence(snapshot, patches, true, false),
     setPresence: (userId, presence) => writePresence(
       {
         viewerId: get().profileViewerId,
         accountEpoch: get().profileAccountEpoch,
-        revision: get().presenceRevision,
+        revision: livePresenceRevision,
       },
       [[userId, presence]],
       false,
+      true,
+    ),
+    setPresenceBatch: (patches) => writePresence(
+      {
+        viewerId: get().profileViewerId,
+        accountEpoch: get().profileAccountEpoch,
+        revision: livePresenceRevision,
+      },
+      patches,
+      false,
+      false,
     ),
     forgetPresence: (userId) => {
-      const previous = get(), revision = previous.presenceRevision + 1
-      const presenceByUserId = new Map(previous.presenceByUserId), presenceRevisionsByUserId = new Map(previous.presenceRevisionsByUserId)
-      presenceByUserId.delete(userId)
-      presenceRevisionsByUserId.set(userId, revision)
-      setState(state => ({ ...state, presenceByUserId, presenceRevisionsByUserId, presenceRevision: revision }))
+      livePresenceRevision += 1
+      livePresenceByUserId.delete(userId)
+      pendingChanged.delete(userId)
+      livePresenceRevisions.set(userId, livePresenceRevision)
+      commitPresenceNow()
     },
 
   hasSeenMessage: (id) => get().seenMessageIds.has(id),
@@ -319,10 +373,20 @@ export function createCommunityWsStore(viewerId: string | null, publishPresence?
 
   bindReconnectNow: (reconnectNow) => setState((state) => ({ ...state, ...{ reconnectNow } })),
 
-    reset: () => setState((state) => ({ ...state, ...{
-      ...initialState(),
-      profileAccountEpoch: get().profileAccountEpoch + 1,
-    } })),
+    reset: () => {
+      presenceFlushEpoch += 1
+      presenceFlushScheduled = false
+      livePresenceRevision = 0
+      livePresenceByUserId = new Map()
+      livePresenceRevisions = new Map()
+      pendingChanged = new Map()
+      setState((state) => ({ ...state, ...{
+        ...initialState(),
+        presenceByUserId: livePresenceByUserId,
+        presenceRevisionsByUserId: livePresenceRevisions,
+        profileAccountEpoch: get().profileAccountEpoch + 1,
+      } }))
+    },
   }
   })
   store.actions.activateProfileAccount(viewerId)

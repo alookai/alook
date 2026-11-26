@@ -1,4 +1,4 @@
-const UNAVAILABLE_MEMBER = "Member unavailable"
+export const UNAVAILABLE_MEMBER = "Member unavailable"
 
 export function emailPrefix(email?: string | null): string {
   return email?.split("@")[0]?.trim() ?? ""
@@ -23,9 +23,10 @@ export function makeUserNameResolver(
     email?: string | null
   }>,
 ): (userId: string) => string {
-  return (userId: string) => {
-    const row = list.find((r) => (r.userId ?? r.id) === userId)
-    if (!row) return UNAVAILABLE_MEMBER
-    return displayName(row)
+  const namesById = new Map<string, string>()
+  for (const row of list) {
+    const key = row.userId ?? row.id
+    if (key && !namesById.has(key)) namesById.set(key, displayName(row))
   }
+  return (userId: string) => namesById.get(userId) ?? UNAVAILABLE_MEMBER
 }

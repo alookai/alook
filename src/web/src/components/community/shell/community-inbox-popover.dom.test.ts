@@ -22,9 +22,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => mocks.profiles,
+  useCanonicalIdentitiesByUserId: () => mocks.profiles,
   useCanonicalCommunityProfile: (id: string | undefined) => id ? mocks.profiles.get(id) : undefined,
   useCanonicalCategoriesById: () => mocks.categories,
   useCanonicalChannelsById: () => mocks.channels,
+  useChannelsByIds: () => mocks.channels,
   useDmProjection: () => mocks.dms,
 }))
 
@@ -1450,6 +1452,85 @@ describe("InboxPopover inline reply in Unreads", () => {
       })
       expect(scrollViewport.scrollTop).toBe(202)
     } finally {
+      window.ResizeObserver = originalResizeObserver
+    }
+  })
+
+  it("disconnects InboxScrollBody ResizeObserver after initial two-frame settle when unfocused", async () => {
+    const activeObservers = new Set<{ cb: () => void }>()
+    let disconnectCount = 0
+    const originalResizeObserver = window.ResizeObserver
+    class TrackingResizeObserver {
+      private entry: { cb: () => void }
+      constructor(cb: ResizeObserverCallback) {
+        this.entry = { cb: () => cb([], this as unknown as ResizeObserver) }
+      }
+      observe() { activeObservers.add(this.entry) }
+      unobserve() {}
+      disconnect() {
+        disconnectCount += 1
+        activeObservers.delete(this.entry)
+      }
+    }
+    window.ResizeObserver = TrackingResizeObserver as unknown as typeof ResizeObserver
+
+    const rafCallbacks = new Map<number, FrameRequestCallback>()
+    let nextRafId = 0
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
+      const id = ++nextRafId
+      rafCallbacks.set(id, cb)
+      return id
+    })
+    const cancelRafSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id: number) => {
+      rafCallbacks.delete(id)
+    })
+
+    const getScrollOffset = vi.fn(() => 120)
+    let view: ReturnType<typeof render> | null = null
+    try {
+      view = render(
+        React.createElement(InboxPopover, {
+          unreads: [],
+          unreadDms: [],
+          mentions: [],
+          todos: [],
+          marked: [],
+          friendRequests: [],
+          loading: false,
+          hasProjectedUnreads: false,
+          hasProjectedMentions: false,
+          activeTab: "unreads",
+          onActiveTabChange: vi.fn(),
+          getScrollOffset,
+          onScrollOffsetChange: vi.fn(),
+          surface: "extension",
+        }),
+      )
+
+      let flushedFrames = 0
+      while (rafCallbacks.size > 0 && flushedFrames < 4) {
+        const batch = [...rafCallbacks.entries()]
+        rafCallbacks.clear()
+        flushedFrames += 1
+        await act(async () => {
+          for (const [, cb] of batch) cb(flushedFrames * 16)
+        })
+      }
+
+      expect(flushedFrames).toBeGreaterThanOrEqual(2)
+      expect(disconnectCount).toBeGreaterThanOrEqual(1)
+      const callsAfterSettle = getScrollOffset.mock.calls.length
+
+      await act(async () => {
+        for (let i = 0; i < 5; i += 1) {
+          for (const obs of activeObservers) obs.cb()
+        }
+      })
+      expect(getScrollOffset.mock.calls.length - callsAfterSettle).toBe(0)
+    } finally {
+      view?.unmount()
+      rafSpy.mockRestore()
+      cancelRafSpy.mockRestore()
       window.ResizeObserver = originalResizeObserver
     }
   })

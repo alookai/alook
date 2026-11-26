@@ -14,7 +14,7 @@ import type { ServerRailEntry } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CommunityFolder, FoldersResponse } from "@/lib/community/models/navigation"
 import {
-  useServerRailProjection,
+  useServerRailStructure,
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
@@ -65,7 +65,7 @@ export function useFolders(): UseQueryResult<string[]> & {
   folders: CommunityFolder[]
   topOrder?: ServerRailEntry[]
 } {
-  const dbRail = useServerRailProjection()
+  const dbRail = useServerRailStructure()
   const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: communityKeys.folders(),

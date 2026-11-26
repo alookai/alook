@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { useInboxChannelMessages } from "@/hooks/community/use-inbox-channel-messages"
-import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId, useCanonicalMessagesById, useChannelsByIds } from "@/lib/community-db/projections"
 import { projectForumThread } from "@/lib/community/forum-feed-window"
 import type { InboxUnreadMessagesInput } from "@/lib/community/models/inbox"
 import { flattenMessageItems, MESSAGE_GROUPED_ROW_PADDING_PX } from "@/lib/community/message-list-items"
@@ -24,11 +24,27 @@ export function InboxUnreadMessages({
   onSubmitDecisionCard,
 }: InboxUnreadMessagesInput) {
   const query = useInboxChannelMessages(channelId, throughSeq)
-  const channels = useCanonicalChannelsById()
-  const profiles = useCanonicalProfilesByUserId()
-  const mentionById = new Map(mentions.map(mention => [mention.m.id, mention]))
+  const mentionById = useMemo(() => new Map(mentions.map(mention => [mention.m.id, mention])), [mentions])
   const messages = useMemo(() => [...new Map([...query.messages, ...mentions.map(mention => mention.m)].map(message => [message.id, message])).values()]
     .sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0)), [mentions, query.messages])
+  const channelIds = useMemo(() => {
+    const ids = new Set<string>([channelId])
+    for (const message of messages) {
+      if (openForumPosts?.has(message.id) && message.thread) ids.add(message.thread.id)
+    }
+    return [...ids]
+  }, [channelId, messages, openForumPosts])
+  const channels = useChannelsByIds(channelIds)
+  const profileIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const message of messages) {
+      if (!openForumPosts?.has(message.id) || !message.thread) continue
+      if (message.authorId) ids.add(message.authorId)
+      for (const participant of message.thread.participants ?? []) ids.add(participant.id)
+    }
+    return [...ids]
+  }, [messages, openForumPosts])
+  const profiles = useCanonicalIdentitiesByUserId(profileIds, profileIds.length > 0)
   const previewIds = useMemo(() => messages.flatMap(message => {
     if (!openForumPosts?.has(message.id) || !message.thread) return []
     const firstMessageId = channels.get(message.thread.id)?.firstMessageId

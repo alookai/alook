@@ -48,6 +48,7 @@ export function useServerRailDnd(options: Options) {
   const active = useRef(false)
   const preview = useRef<RailInstruction | null>(null)
   const suppressNextClick = useRef(false)
+  const hoverHandlers = useRef(new Map<string | symbol, () => void>())
   const updatePreview = useCallback((next: RailInstruction | null) => {
     if (next && !active.current) return
     const previous = preview.current
@@ -89,12 +90,21 @@ export function useServerRailDnd(options: Options) {
     if (active.current && manager.getMonitor().getTargetIds().length === 0) updatePreview(null)
   }), [manager, updatePreview])
   useLayoutEffect(() => manager.getMonitor().subscribeToOffsetChange(() => {
-    const offset = manager.getMonitor().getSourceClientOffset()
+    const monitor = manager.getMonitor()
+    const offset = monitor.getSourceClientOffset()
     if (active.current && offset) lastOffset.current = offset
+    const topId = monitor.getTargetIds().at(-1)
+    if (topId !== undefined) hoverHandlers.current.get(topId)?.()
   }), [manager])
   useLayoutEffect(() => () => { finish(null, false); returning.set(() => null) }, [finish, returning])
   return useMemo(() => ({
     owner, latest, updatePreview, finish, returning,
+    registerHoverHandler: (handlerId: string | symbol, onOffsetChange: () => void) => {
+      hoverHandlers.current.set(handlerId, onOffsetChange)
+      return () => {
+        if (hoverHandlers.current.get(handlerId) === onOffsetChange) hoverHandlers.current.delete(handlerId)
+      }
+    },
     completeReturn: (value: RailReturn) => { if (returning.get() === value) returning.set(() => null) },
     begin: (entity: RailEntity, element: HTMLElement | null = null): RailDrag | null => {
       if (!latest.current.canStart()) return null
@@ -162,12 +172,15 @@ export function RailDndBinding({ dnd, entity, element, handle }: {
     const monitor = manager.getMonitor()
     if (over && monitor.getTargetIds().at(-1) === handlerId) dnd.updatePreview(instruction(monitor.getItem(), monitor.getClientOffset()?.y))
   }, [dnd, manager, over, handlerId, instruction])
-  useLayoutEffect(() => manager.getMonitor().subscribeToOffsetChange(() => {
-    const monitor = manager.getMonitor()
-    if (monitor.getTargetIds().at(-1) !== handlerId) return
-    const item = monitor.getItem() as RailDrag | null
-    if (item) dnd.updatePreview(instruction(item, monitor.getClientOffset()?.y))
-  }), [manager, handlerId, dnd, instruction])
+  useLayoutEffect(() => {
+    if (handlerId == null) return
+    return dnd.registerHoverHandler(handlerId, () => {
+      const monitor = manager.getMonitor()
+      if (monitor.getTargetIds().at(-1) !== handlerId) return
+      const item = monitor.getItem() as RailDrag | null
+      if (item) dnd.updatePreview(instruction(item, monitor.getClientOffset()?.y))
+    })
+  }, [manager, handlerId, dnd, instruction])
   useEffect(() => {
     drag(handle)
     preview(getEmptyImage(), { captureDraggingState: true })

@@ -6,7 +6,10 @@ import { act, fireEvent, render, screen, waitFor } from "@/test/react-dom-harnes
 import type { ForumThread } from "@/lib/community/models/message"
 import { ForumView } from "./forum-view"
 
-vi.mock("@/lib/community-db/projections", () => ({ useCanonicalProfilesByUserId: () => new Map() }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => new Map(),
+  useCanonicalIdentitiesByUserId: () => new Map(),
+}))
 vi.mock("./forum-post-list", () => ({
   FORUM_LIST_SPACING_CLASS: "px-0 py-2",
   ForumPostList: ({ posts, renderPost }: { posts: ForumThread[]; renderPost: (post: ForumThread, index: number) => React.ReactNode }) => posts.map(renderPost),

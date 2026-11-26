@@ -35,19 +35,18 @@ describe.each(["friends", "server"] as const)("%s presence publication", surface
     apiFetch.mockReturnValueOnce(response.promise)
     const fetching = f.client.query({ queryKey: f.queryKey, queryFn: f.queryFn })
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
-    expect(f.registry.collections.profiles.get("peer")?.presence).toBe("online")
+    expect(f.runtime.ws.get().presenceByUserId.get("peer")).toBe("online")
     response.resolve({ ...payload([], ["peer"]), truncated: true })
     await fetching
     expect(f.runtime.ws.get().presenceByUserId.get("peer")).toBe("offline")
-    expect(f.registry.collections.profiles.get("peer")?.presence).toBe("offline")
-    expect(f.registry.collections.profiles.get("unconfirmed")?.presence).toBe("online")
+    expect(f.runtime.ws.get().presenceByUserId.get("unconfirmed")).toBe("online")
   })
 
   it("does not infer offline from a valid but empty or partial set of confirmed results", async () => {
     const f = await fixture()
     apiFetch.mockResolvedValueOnce(payload([]))
     await f.client.query({ queryKey: f.queryKey, queryFn: f.queryFn })
-    expect(f.registry.collections.profiles.get("peer")?.presence).toBe("online")
+    expect(f.runtime.ws.get().presenceByUserId.get("peer")).toBe("online")
   })
 
   it("does not roll a newer WebSocket update back when an old HTTP response arrives", async () => {
@@ -58,7 +57,7 @@ describe.each(["friends", "server"] as const)("%s presence publication", surface
     f.runtime.ws.actions.setPresence("peer", "offline")
     response.resolve(payload(["peer"]))
     await fetching
-    expect(f.registry.collections.profiles.get("peer")?.presence).toBe("offline")
+    expect(f.runtime.ws.get().presenceByUserId.get("peer")).toBe("offline")
   })
 
   it.each(["stale", "network", "invalid"])("preserves user facts after a %s read", async reason => {
@@ -66,7 +65,7 @@ describe.each(["friends", "server"] as const)("%s presence publication", surface
     if (reason === "network") apiFetch.mockRejectedValueOnce(new Error("unavailable"))
     else apiFetch.mockResolvedValueOnce(reason === "stale" ? { ...payload([], ["peer"]), stale: true } : { ...payload(["peer"], ["peer"]) })
     await expect(f.client.query({ queryKey: f.queryKey, queryFn: f.queryFn })).rejects.toThrow()
-    expect(f.registry.collections.profiles.get("peer")?.presence).toBe("online")
+    expect(f.runtime.ws.get().presenceByUserId.get("peer")).toBe("online")
   })
 
   it.each(["cancel", "account", "permission"])("rejects a response after %s retirement", async reason => {
@@ -79,7 +78,6 @@ describe.each(["friends", "server"] as const)("%s presence publication", surface
     else f.runtime.ws.actions.revokeServerAccess("server")
     response.resolve(payload([], ["peer"]))
     expect(await fetching).toBeTruthy()
-    if (reason !== "account") expect(f.registry.collections.profiles.get("peer")?.presence).toBe("online")
     expect(f.runtime.ws.get().presenceByUserId.get("peer")).toBe("online")
   })
 })
