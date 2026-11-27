@@ -455,9 +455,10 @@ private final class MobilePushBridge {
   }
 }
 
-private enum MobilePushDelegateHooks {
+enum MobilePushDelegateHooks {
   private static let lock = NSLock()
   private static var installedClasses = Set<String>()
+  private static var retainedDelegates: [UIApplicationDelegate] = []
 
   static func install() {
     dispatchPrecondition(condition: .onQueue(.main))
@@ -470,10 +471,24 @@ private enum MobilePushDelegateHooks {
     guard installedClasses.insert(className).inserted else { return }
     installDeviceToken(on: delegateClass)
     installFailure(on: delegateClass)
-    if UIApplication.shared.delegate === delegate {
-      UIApplication.shared.delegate = nil
-      UIApplication.shared.delegate = delegate
-    }
+    refreshDelegateSelectorCache(
+      current: { UIApplication.shared.delegate },
+      assign: { UIApplication.shared.delegate = $0 },
+      expected: delegate,
+      retain: { retainedDelegates.append($0) }
+    )
+  }
+
+  static func refreshDelegateSelectorCache<Delegate: AnyObject>(
+    current: () -> Delegate?,
+    assign: (Delegate?) -> Void,
+    expected: Delegate,
+    retain: (Delegate) -> Void
+  ) {
+    guard current() === expected else { return }
+    retain(expected)
+    assign(nil)
+    assign(expected)
   }
 
   private static func installDeviceToken(on delegateClass: AnyClass) {
