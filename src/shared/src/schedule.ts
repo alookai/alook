@@ -583,3 +583,39 @@ export function expandScheduleOccurrences(
   results.sort((a, b) => a.startAt.localeCompare(b.startAt))
   return results
 }
+
+export function buildScheduleEventPrompt(input: {
+  eventId: string
+  title: string
+  description: string
+  scheduledAtMs: number
+  channelRef: string
+  seq: number
+  channelType: string | null
+}): string {
+  const isForumOpener = input.channelType === "forum"
+  const replyTarget = isForumOpener ? `${input.channelRef}/#${input.seq}` : input.channelRef
+  const replyCommand = isForumOpener
+    ? `$ALOOK_CLI message send --target "${replyTarget}" --remind-after 0 --stdin`
+    : `$ALOOK_CLI message send --target "${input.channelRef}" --reply "#${input.seq}" --remind-after 0 --stdin`
+  const historyCommand = isForumOpener
+    ? `$ALOOK_CLI channel history --channel "${replyTarget}" --limit 10`
+    : `$ALOOK_CLI channel history --channel "${input.channelRef}" --around ${input.seq} --limit 5`
+
+  const lines = [
+    "[Scheduled Task — Execute Now]",
+    `Task: ${input.title} (${input.eventId})`,
+    `Scheduled time (UTC): ${new Date(input.scheduledAtMs).toISOString()}`,
+    `Bound message: ${input.channelRef}#${input.seq}`,
+  ]
+  if (input.description.trim().length > 0) {
+    lines.push("Instructions:", input.description.trim())
+  }
+  lines.push(
+    "Execute this scheduled task now. Do not merely check whether the schedule exists.",
+    `Inspect context if needed: ${historyCommand}`,
+    `Reply to the bound conversation with: ${replyCommand}`,
+    `After finishing this scheduled task, mark it done with: $ALOOK_CLI schedule update ${input.eventId} --ack`,
+  )
+  return lines.join("\n")
+}

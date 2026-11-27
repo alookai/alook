@@ -1,20 +1,16 @@
 import {
-  BOT_WEBHOOK_RESYNC_MAX_PER_BOT,
-  BOT_WEBHOOK_RESYNC_WINDOW_MS,
-  formatHandle,
-  makeRuntimeConfig,
-  queries,
-  resolveModelConfig,
-  withD1Retry,
+  dispatchBotPrivateInboxEvent,
+  resyncBotPrivateInboxForBots,
   type BotWebhookDelivery,
   type BotWebhookLastDelivery,
   type BotWebhookSummary,
   type Database,
+  type StoredBotPrivateInboxEvent,
+  type StoredBotPrivateInboxSummary,
   type StoredBotWebhook,
-  type StoredBotWebhookDelivery,
-  type StoredBotWebhookLastDelivery,
 } from "@alook/shared"
 import { pushBotEventToMachine } from "./bot-push"
+import { syncOwnerScheduleAlarm } from "./schedule.server"
 
 const SECRET_VERSION = "v1"
 
@@ -170,7 +166,7 @@ export function buildBotWebhookUrl(req: Request, token: string): string {
 }
 
 export function toBotWebhookLastDelivery(
-  row: StoredBotWebhookLastDelivery | StoredBotWebhookDelivery | null | undefined,
+  row: StoredBotPrivateInboxSummary | StoredBotPrivateInboxEvent | null | undefined,
 ): BotWebhookLastDelivery | null {
   if (!row) return null
   return {
@@ -183,15 +179,15 @@ export function toBotWebhookLastDelivery(
   }
 }
 
-export function toBotWebhookDelivery(row: StoredBotWebhookDelivery): BotWebhookDelivery {
+export function toBotWebhookDelivery(row: StoredBotPrivateInboxEvent): BotWebhookDelivery {
   return {
     id: row.id,
-    webhookId: row.webhookId,
+    webhookId: row.sourceId,
     eventType: row.eventType,
     summary: row.summary,
     status: row.status,
     lastError: row.lastError,
-    externalDeliveryId: row.externalDeliveryId,
+    externalDeliveryId: row.dedupeKey,
     createdAt: new Date(row.createdAtMs).toISOString(),
     dispatchedAt: row.dispatchedAtMs !== null ? new Date(row.dispatchedAtMs).toISOString() : null,
   }
@@ -199,7 +195,7 @@ export function toBotWebhookDelivery(row: StoredBotWebhookDelivery): BotWebhookD
 
 export function toBotWebhookSummary(
   row: StoredBotWebhook,
-  lastDelivery?: StoredBotWebhookLastDelivery | StoredBotWebhookDelivery | null,
+  lastDelivery?: StoredBotPrivateInboxSummary | StoredBotPrivateInboxEvent | null,
 ): BotWebhookSummary {
   return {
     id: row.id,
@@ -220,108 +216,39 @@ export function toBotWebhookSummary(
 export async function dispatchBotWebhookDelivery(
   db: Database,
   env: Env,
-  delivery: StoredBotWebhookDelivery,
+  delivery: StoredBotPrivateInboxEvent,
 ): Promise<{
   outcome: "dispatched" | "pending" | "failed"
-  delivery: StoredBotWebhookDelivery
+  delivery: StoredBotPrivateInboxEvent
 }> {
-  const botCtx = await withD1Retry(
-    () => queries.communityBot.getBotWakeContext(db, delivery.botUserId),
-    { route: "bot-webhook:bot-wake-context" },
+  const result = await dispatchBotPrivateInboxEvent(
+    db,
+    (machineId, command) => pushBotEventToMachine(env, machineId, command),
+    delivery,
   )
-
-  if (botCtx.state !== "ready") {
-    const status = botCtx.state === "bot_unbound" ? "pending" : "failed"
-    const updated =
-      (await withD1Retry(
-        () =>
-          queries.communityBotWebhook.updateBotWebhookDeliveryStatus(db, delivery.id, {
-            status,
-            lastError: botCtx.state,
-          }),
-        { route: "bot-webhook:update-delivery-unavailable" },
-      )) ?? { ...delivery, status, lastError: botCtx.state }
-    return { outcome: status, delivery: updated }
-  }
-
-  if (botCtx.ownerUserId !== delivery.ownerUserId) {
-    const updated =
-      (await withD1Retry(
-        () =>
-          queries.communityBotWebhook.updateBotWebhookDeliveryStatus(db, delivery.id, {
-            status: "failed",
-            lastError: "owner_mismatch",
-          }),
-        { route: "bot-webhook:update-delivery-owner-mismatch" },
-      )) ?? { ...delivery, status: "failed", lastError: "owner_mismatch" }
-    return { outcome: "failed", delivery: updated }
-  }
-
-  const push = await pushBotEventToMachine(env, botCtx.machineId, {
-    type: "agent:event",
-    agentId: botCtx.botUserId,
-    config: makeRuntimeConfig({
-      runtime: botCtx.runtime,
-      model: resolveModelConfig(botCtx.modelName),
-      reasoningEffort: botCtx.reasoningEffort ?? undefined,
-      runtimeConfigRevision: botCtx.runtimeConfigRevision,
-      agentName: botCtx.name,
-      agentHandle: `@${formatHandle(botCtx.name, botCtx.discriminator)}`,
-    }),
-    launchId: delivery.id,
-    prompt: delivery.promptText,
-  })
-
-  if (push.sent > 0) {
-    const nowMs = Date.now()
-    const updated =
-      (await withD1Retry(
-        () =>
-          queries.communityBotWebhook.updateBotWebhookDeliveryStatus(db, delivery.id, {
-            status: "dispatched",
-            lastError: null,
-            dispatchedAtMs: nowMs,
-          }),
-        { route: "bot-webhook:update-delivery-dispatched" },
-      )) ?? { ...delivery, status: "dispatched", lastError: null, dispatchedAtMs: nowMs }
-    return { outcome: "dispatched", delivery: updated }
-  }
-
-  const updated =
-    (await withD1Retry(
-      () =>
-        queries.communityBotWebhook.updateBotWebhookDeliveryStatus(db, delivery.id, {
-          status: "pending",
-          lastError: "machine_offline",
-        }),
-      { route: "bot-webhook:update-delivery-offline" },
-    )) ?? { ...delivery, status: "pending", lastError: "machine_offline" }
-  return { outcome: "pending", delivery: updated }
+  const outcome =
+    result.outcome === "dispatched"
+      ? "dispatched"
+      : result.outcome === "pending"
+        ? "pending"
+        : "failed"
+  return { outcome, delivery: result.event }
 }
 
-export async function resyncBotWebhookDeliveriesForBots(
+export async function resyncSystemPrivateInboxForBots(
   db: Database,
   env: Env,
   ownerUserId: string,
-  botIds: string[],
-): Promise<{ dispatched: number }> {
-  if (botIds.length === 0) return { dispatched: 0 }
-  const sinceMs = Date.now() - BOT_WEBHOOK_RESYNC_WINDOW_MS
-  let dispatched = 0
-  for (const botId of botIds) {
-    const pending = await withD1Retry(
-      () =>
-        queries.communityBotWebhook.listPendingBotWebhookDeliveriesForBot(db, botId, {
-          sinceMs,
-          limit: BOT_WEBHOOK_RESYNC_MAX_PER_BOT,
-        }),
-      { route: "resync-wakes:bot-webhook-pending" },
-    )
-    for (const delivery of pending) {
-      if (delivery.ownerUserId !== ownerUserId) continue
-      const result = await dispatchBotWebhookDelivery(db, env, delivery)
-      if (result.outcome === "dispatched") dispatched++
-    }
-  }
-  return { dispatched }
+  botIds: readonly string[],
+): Promise<{ attempted: number; dispatched: number; blocked: number }> {
+  return resyncBotPrivateInboxForBots(
+    db,
+    (machineId, command) => pushBotEventToMachine(env, machineId, command),
+    ownerUserId,
+    botIds,
+    {
+      notifyScheduleChange: (ownerId, eventId, reason) =>
+        syncOwnerScheduleAlarm(env, ownerId, { eventId, reason }),
+    },
+  )
 }

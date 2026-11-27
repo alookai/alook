@@ -20,37 +20,24 @@ const mockFindCred = vi.fn();
 const mockListBotsForMachine = vi.fn();
 const mockGetLatestUnreadMessageForAgent = vi.fn();
 const mockDispatchOneUnreadWake = vi.fn();
-const mockListPendingRunsForOwner = vi.fn();
-const mockListPendingWebhookDeliveries = vi.fn();
-const mockGetBotWakeContext = vi.fn();
-const mockUpdateWebhookDeliveryStatus = vi.fn();
+const mockResyncBotPrivateInboxForBots = vi.fn();
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<any>("@alook/shared");
   return {
     ...actual,
     dispatchOneUnreadWake: (...a: unknown[]) => mockDispatchOneUnreadWake(...a),
+    resyncBotPrivateInboxForBots: (...a: unknown[]) => mockResyncBotPrivateInboxForBots(...a),
     queries: {
       communityMachine: {
         findActiveCredentialByBearer: (...a: unknown[]) => mockFindCred(...a),
       },
       communityBot: {
         listBotsForMachine: (...a: unknown[]) => mockListBotsForMachine(...a),
-        getBotWakeContext: (...a: unknown[]) => mockGetBotWakeContext(...a),
       },
       communityAgentInbox: {
         getLatestUnreadMessageForAgent: (...a: unknown[]) =>
           mockGetLatestUnreadMessageForAgent(...a),
-      },
-      communitySchedule: {
-        listPendingRunsForOwner: (...a: unknown[]) =>
-          mockListPendingRunsForOwner(...a),
-      },
-      communityBotWebhook: {
-        listPendingBotWebhookDeliveriesForBot: (...a: unknown[]) =>
-          mockListPendingWebhookDeliveries(...a),
-        updateBotWebhookDeliveryStatus: (...a: unknown[]) =>
-          mockUpdateWebhookDeliveryStatus(...a),
       },
     },
   };
@@ -75,12 +62,8 @@ describe("POST /api/community/daemon/resync-wakes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDispatchOneUnreadWake.mockReset();
-    mockListPendingRunsForOwner.mockReset();
-    mockListPendingRunsForOwner.mockResolvedValue([]);
-    mockListPendingWebhookDeliveries.mockReset();
-    mockListPendingWebhookDeliveries.mockResolvedValue([]);
-    mockGetBotWakeContext.mockReset();
-    mockUpdateWebhookDeliveryStatus.mockReset();
+    mockResyncBotPrivateInboxForBots.mockReset();
+    mockResyncBotPrivateInboxForBots.mockResolvedValue({ attempted: 0, dispatched: 0, blocked: 0 });
     mockBindingFetch.mockReset();
     mockHttpFetch.mockReset();
     mockFindCred.mockResolvedValue({
@@ -200,7 +183,7 @@ describe("resync wake transport", () => {
     vi.stubGlobal("fetch", mockHttpFetch);
     mockFindCred.mockResolvedValue({ credentialId: "cmk_ok", userId: "u_1", machineId: "cm_1" });
     mockListBotsForMachine.mockResolvedValue([{ id: "bot_1" }]);
-    mockListPendingRunsForOwner.mockResolvedValue([]);
+    mockResyncBotPrivateInboxForBots.mockResolvedValue({ attempted: 0, dispatched: 0, blocked: 0 });
     mockGetLatestUnreadMessageForAgent.mockResolvedValue({ messageId: "msg_1" });
     mockDispatchOneUnreadWake.mockImplementation(async (_db, env) => {
       const { attempted } = await sendWakeToMachine(env, "cm_1", command);
@@ -232,60 +215,16 @@ describe("resync wake transport", () => {
     expect(mockHttpFetch).not.toHaveBeenCalled();
   });
 
-  it("counts pending schedule runs flushed during resync-wakes", async () => {
+  it("flushes pending system private inbox events (schedule + webhook) through one unified resync path", async () => {
     mockGetLatestUnreadMessageForAgent.mockResolvedValue(null);
-    mockListPendingRunsForOwner.mockResolvedValue([{ id: "srun_1", botUserId: "bot_1" }]);
-    mockBindingFetch.mockResolvedValue(Response.json({ attempted: 2, dispatched: 2, blocked: 0 }));
+    mockResyncBotPrivateInboxForBots.mockResolvedValue({ attempted: 3, dispatched: 2, blocked: 1 });
     expect(await (await POST(req({ Authorization: "Bearer cmk_ok" }))).json()).toEqual({ attempted: 2 });
-    expect(mockBindingFetch).toHaveBeenCalledWith(
-      "http://internal/owner-schedule/u_1/resync-bots",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("flushes pending bot webhook deliveries during resync-wakes", async () => {
-    mockGetLatestUnreadMessageForAgent.mockResolvedValue(null);
-    mockListPendingWebhookDeliveries.mockResolvedValue([
-      {
-        id: "whd_1",
-        webhookId: "bwh_1",
-        ownerUserId: "u_1",
-        botUserId: "bot_1",
-        externalDeliveryId: "gh-1",
-        eventType: "workflow_run.completed",
-        summary: "CI Gate failure",
-        promptText: "[External Webhook Notification]\nCI failed",
-        status: "pending",
-        lastError: "machine_offline",
-        createdAtMs: Date.now() - 1000,
-        dispatchedAtMs: null,
-      },
-    ]);
-    mockGetBotWakeContext.mockResolvedValue({
-      state: "ready",
-      botUserId: "bot_1",
-      ownerUserId: "u_1",
-      name: "Claudette",
-      discriminator: "5211",
-      machineId: "cm_1",
-      runtime: "claude-code",
-      modelName: "claude-sonnet-4-6",
-      reasoningEffort: null,
-      runtimeConfigRevision: 1,
-    });
-    mockUpdateWebhookDeliveryStatus.mockResolvedValue({ id: "whd_1", status: "dispatched" });
-    mockBindingFetch.mockResolvedValue(Response.json({ sent: 1 }));
-
-    const res = await POST(req({ Authorization: "Bearer cmk_ok" }));
-    expect(await res.json()).toEqual({ attempted: 1 });
-    expect(mockBindingFetch).toHaveBeenCalledWith(
-      "http://internal/community-machine/by-id/cm_1/push",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(mockUpdateWebhookDeliveryStatus).toHaveBeenCalledWith(
+    expect(mockResyncBotPrivateInboxForBots).toHaveBeenCalledWith(
       expect.anything(),
-      "whd_1",
-      expect.objectContaining({ status: "dispatched", lastError: null }),
+      expect.any(Function),
+      "u_1",
+      ["bot_1"],
+      expect.objectContaining({ notifyScheduleChange: expect.any(Function) }),
     );
   });
 

@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, gte, inArray, notInArray } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import type { Database } from "../../index"
-import { communityBotWebhook, communityBotWebhookDelivery } from "../../community-bot-webhook-schema"
+import { communityBotWebhook } from "../../community-bot-webhook-schema"
 import {
   BOT_WEBHOOK_DELIVERY_LIST_DEFAULT,
   BOT_WEBHOOK_DELIVERY_RETENTION,
@@ -9,6 +9,15 @@ import {
   type BotWebhookDeliveryStatus,
   type BotWebhookProvider,
 } from "../../../bot-webhook"
+import {
+  deletePrivateInboxEventsForSource,
+  enqueuePrivateInboxEvent,
+  getLatestPrivateInboxEventForSource,
+  getLatestPrivateInboxEventsBySources,
+  listPrivateInboxEventsForSource,
+  type StoredBotPrivateInboxEvent,
+  type StoredBotPrivateInboxSummary,
+} from "./bot-private-inbox"
 
 export interface StoredBotWebhook {
   id: string
@@ -26,20 +35,8 @@ export interface StoredBotWebhook {
   updatedAtMs: number
 }
 
-export interface StoredBotWebhookDelivery {
-  id: string
-  webhookId: string
-  ownerUserId: string
-  botUserId: string
-  externalDeliveryId: string | null
-  eventType: string
-  summary: string
-  promptText: string
-  status: BotWebhookDeliveryStatus
-  lastError: string | null
-  createdAtMs: number
-  dispatchedAtMs: number | null
-}
+export type StoredBotWebhookDelivery = StoredBotPrivateInboxEvent
+export type StoredBotWebhookLastDelivery = StoredBotPrivateInboxSummary
 
 function parseEventFilter(raw: string | null): string[] | null {
   if (!raw) return null
@@ -70,33 +67,6 @@ function mapWebhookRow(row: typeof communityBotWebhook.$inferSelect): StoredBotW
   }
 }
 
-function mapDeliveryRow(row: typeof communityBotWebhookDelivery.$inferSelect): StoredBotWebhookDelivery {
-  return {
-    id: row.id,
-    webhookId: row.webhookId,
-    ownerUserId: row.ownerUserId,
-    botUserId: row.botUserId,
-    externalDeliveryId: row.externalDeliveryId ?? null,
-    eventType: row.eventType,
-    summary: row.summary,
-    promptText: row.promptText,
-    status: row.status,
-    lastError: row.lastError ?? null,
-    createdAtMs: row.createdAtMs,
-    dispatchedAtMs: row.dispatchedAtMs ?? null,
-  }
-}
-
-export interface StoredBotWebhookLastDelivery {
-  id: string
-  webhookId: string
-  eventType: string
-  summary: string
-  status: BotWebhookDeliveryStatus
-  lastError: string | null
-  createdAtMs: number
-}
-
 export async function listBotWebhooks(
   db: Database,
   ownerUserId: string,
@@ -118,39 +88,11 @@ export async function listBotWebhooks(
     .limit(BOT_WEBHOOK_MAX_PER_BOT)
 
   const webhooks = rows.map(mapWebhookRow)
-  const lastDeliveryByWebhookId: Record<string, StoredBotWebhookLastDelivery> = {}
-  if (webhooks.length === 0) {
-    return { webhooks, lastDeliveryByWebhookId }
-  }
-
-  const webhookIds = webhooks.map((w) => w.id)
-  const deliveries = await db
-    .select({
-      id: communityBotWebhookDelivery.id,
-      webhookId: communityBotWebhookDelivery.webhookId,
-      eventType: communityBotWebhookDelivery.eventType,
-      summary: communityBotWebhookDelivery.summary,
-      status: communityBotWebhookDelivery.status,
-      lastError: communityBotWebhookDelivery.lastError,
-      createdAtMs: communityBotWebhookDelivery.createdAtMs,
-    })
-    .from(communityBotWebhookDelivery)
-    .where(inArray(communityBotWebhookDelivery.webhookId, webhookIds))
-    .orderBy(desc(communityBotWebhookDelivery.createdAtMs), desc(communityBotWebhookDelivery.id))
-
-  for (const row of deliveries) {
-    if (lastDeliveryByWebhookId[row.webhookId] === undefined) {
-      lastDeliveryByWebhookId[row.webhookId] = {
-        id: row.id,
-        webhookId: row.webhookId,
-        eventType: row.eventType,
-        summary: row.summary,
-        status: row.status,
-        lastError: row.lastError ?? null,
-        createdAtMs: row.createdAtMs,
-      }
-    }
-  }
+  const lastDeliveryByWebhookId = await getLatestPrivateInboxEventsBySources(
+    db,
+    "webhook",
+    webhooks.map((w) => w.id),
+  )
 
   return { webhooks, lastDeliveryByWebhookId }
 }
@@ -178,14 +120,8 @@ export async function getBotWebhookById(
 export async function getLatestDeliveryForWebhook(
   db: Database,
   webhookId: string,
-): Promise<StoredBotWebhookDelivery | null> {
-  const rows = await db
-    .select()
-    .from(communityBotWebhookDelivery)
-    .where(eq(communityBotWebhookDelivery.webhookId, webhookId))
-    .orderBy(desc(communityBotWebhookDelivery.createdAtMs), desc(communityBotWebhookDelivery.id))
-    .limit(1)
-  return rows[0] ? mapDeliveryRow(rows[0]) : null
+): Promise<StoredBotWebhookLastDelivery | null> {
+  return getLatestPrivateInboxEventForSource(db, "webhook", webhookId)
 }
 
 export async function getBotWebhookByTokenHash(
@@ -330,7 +266,9 @@ export async function deleteBotWebhook(
       ),
     )
     .returning({ id: communityBotWebhook.id })
-  return rows.length > 0
+  if (rows.length === 0) return false
+  await deletePrivateInboxEventsForSource(db, "webhook", webhookId)
+  return true
 }
 
 export async function createBotWebhookDelivery(
@@ -350,109 +288,30 @@ export async function createBotWebhookDelivery(
   },
 ): Promise<{ inserted: boolean; delivery: StoredBotWebhookDelivery }> {
   const nowMs = input.nowMs ?? Date.now()
-  const id = input.id ?? `whd_${nanoid(16)}`
-  const externalDeliveryId = input.externalDeliveryId?.trim() || null
+  const { inserted, event } = await enqueuePrivateInboxEvent(db, {
+    id: input.id,
+    ownerUserId: input.ownerUserId,
+    botUserId: input.botUserId,
+    sourceKind: "webhook",
+    sourceId: input.webhookId,
+    dedupeKey: input.externalDeliveryId,
+    eventType: input.eventType,
+    summary: input.summary,
+    promptText: input.promptText,
+    status: input.status,
+    lastError: input.lastError,
+    nowMs,
+    retentionLimit: BOT_WEBHOOK_DELIVERY_RETENTION,
+  })
 
-  const insertedRows = await db
-    .insert(communityBotWebhookDelivery)
-    .values({
-      id,
-      webhookId: input.webhookId,
-      ownerUserId: input.ownerUserId,
-      botUserId: input.botUserId,
-      externalDeliveryId,
-      eventType: input.eventType,
-      summary: input.summary,
-      promptText: input.promptText,
-      status: input.status,
-      lastError: input.lastError ?? null,
-      createdAtMs: nowMs,
-      dispatchedAtMs: input.status === "dispatched" ? nowMs : null,
-    })
-    .onConflictDoNothing()
-    .returning()
-
-  if (insertedRows.length === 0 && externalDeliveryId !== null) {
-    const existing = await db
-      .select()
-      .from(communityBotWebhookDelivery)
-      .where(
-        and(
-          eq(communityBotWebhookDelivery.webhookId, input.webhookId),
-          eq(communityBotWebhookDelivery.externalDeliveryId, externalDeliveryId),
-        ),
-      )
-      .limit(1)
-    if (existing[0]) {
-      return { inserted: false, delivery: mapDeliveryRow(existing[0]) }
-    }
-  }
-
-  const delivery = insertedRows[0]
-    ? mapDeliveryRow(insertedRows[0])
-    : {
-        id,
-        webhookId: input.webhookId,
-        ownerUserId: input.ownerUserId,
-        botUserId: input.botUserId,
-        externalDeliveryId,
-        eventType: input.eventType,
-        summary: input.summary,
-        promptText: input.promptText,
-        status: input.status,
-        lastError: input.lastError ?? null,
-        createdAtMs: nowMs,
-        dispatchedAtMs: input.status === "dispatched" ? nowMs : null,
-      }
-
-  await db
-    .update(communityBotWebhook)
-    .set({ lastTriggeredAtMs: nowMs })
-    .where(eq(communityBotWebhook.id, input.webhookId))
-
-  const keep = await db
-    .select({ id: communityBotWebhookDelivery.id })
-    .from(communityBotWebhookDelivery)
-    .where(eq(communityBotWebhookDelivery.webhookId, input.webhookId))
-    .orderBy(desc(communityBotWebhookDelivery.createdAtMs), desc(communityBotWebhookDelivery.id))
-    .limit(BOT_WEBHOOK_DELIVERY_RETENTION)
-
-  if (keep.length >= BOT_WEBHOOK_DELIVERY_RETENTION) {
+  if (inserted) {
     await db
-      .delete(communityBotWebhookDelivery)
-      .where(
-        and(
-          eq(communityBotWebhookDelivery.webhookId, input.webhookId),
-          notInArray(
-            communityBotWebhookDelivery.id,
-            keep.map((row) => row.id),
-          ),
-        ),
-      )
+      .update(communityBotWebhook)
+      .set({ lastTriggeredAtMs: nowMs })
+      .where(eq(communityBotWebhook.id, input.webhookId))
   }
 
-  return { inserted: true, delivery }
-}
-
-export async function updateBotWebhookDeliveryStatus(
-  db: Database,
-  deliveryId: string,
-  patch: {
-    status: BotWebhookDeliveryStatus
-    lastError: string | null
-    dispatchedAtMs?: number | null
-  },
-): Promise<StoredBotWebhookDelivery | null> {
-  const rows = await db
-    .update(communityBotWebhookDelivery)
-    .set({
-      status: patch.status,
-      lastError: patch.lastError,
-      ...(patch.dispatchedAtMs !== undefined ? { dispatchedAtMs: patch.dispatchedAtMs } : {}),
-    })
-    .where(eq(communityBotWebhookDelivery.id, deliveryId))
-    .returning()
-  return rows[0] ? mapDeliveryRow(rows[0]) : null
+  return { inserted, delivery: event }
 }
 
 export async function listBotWebhookDeliveries(
@@ -462,37 +321,5 @@ export async function listBotWebhookDeliveries(
   webhookId: string,
   limit = BOT_WEBHOOK_DELIVERY_LIST_DEFAULT,
 ): Promise<StoredBotWebhookDelivery[]> {
-  const rows = await db
-    .select()
-    .from(communityBotWebhookDelivery)
-    .where(
-      and(
-        eq(communityBotWebhookDelivery.webhookId, webhookId),
-        eq(communityBotWebhookDelivery.ownerUserId, ownerUserId),
-        eq(communityBotWebhookDelivery.botUserId, botUserId),
-      ),
-    )
-    .orderBy(desc(communityBotWebhookDelivery.createdAtMs), desc(communityBotWebhookDelivery.id))
-    .limit(limit)
-  return rows.map(mapDeliveryRow)
-}
-
-export async function listPendingBotWebhookDeliveriesForBot(
-  db: Database,
-  botUserId: string,
-  opts: { sinceMs: number; limit: number },
-): Promise<StoredBotWebhookDelivery[]> {
-  const rows = await db
-    .select()
-    .from(communityBotWebhookDelivery)
-    .where(
-      and(
-        eq(communityBotWebhookDelivery.botUserId, botUserId),
-        eq(communityBotWebhookDelivery.status, "pending"),
-        gte(communityBotWebhookDelivery.createdAtMs, opts.sinceMs),
-      ),
-    )
-    .orderBy(asc(communityBotWebhookDelivery.createdAtMs), asc(communityBotWebhookDelivery.id))
-    .limit(opts.limit)
-  return rows.map(mapDeliveryRow)
+  return listPrivateInboxEventsForSource(db, ownerUserId, botUserId, "webhook", webhookId, limit)
 }

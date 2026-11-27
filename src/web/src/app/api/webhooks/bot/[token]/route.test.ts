@@ -46,7 +46,7 @@ import {
   hashBotWebhookToken,
   newBotWebhookSigningSecret,
   newBotWebhookToken,
-  resyncBotWebhookDeliveriesForBots,
+  resyncSystemPrivateInboxForBots,
 } from "@/lib/community/bot-webhook.server"
 
 const migrationsDir = resolve(import.meta.dirname, "../../../../../../migrations")
@@ -320,7 +320,7 @@ describe("POST /api/webhooks/bot/[token]", () => {
     expect(await queued.json()).toMatchObject({ ok: true, queued: true })
 
     mocks.pushBotEventToMachine.mockResolvedValueOnce({ sent: 1 })
-    const resync = await resyncBotWebhookDeliveriesForBots(mocks.db, mocks.env, "owner_1", ["bot_1"])
+    const resync = await resyncSystemPrivateInboxForBots(mocks.db, mocks.env, "owner_1", ["bot_1"])
     expect(resync.dispatched).toBe(1)
 
     const deliveries = await queries.communityBotWebhook.listBotWebhookDeliveries(

@@ -6,8 +6,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import * as coreSchema from "../../schema"
 import * as communitySchema from "../../community-schema"
 import * as machineSchema from "../../community-machine-schema"
+import * as privateInboxSchema from "../../community-bot-private-inbox-schema"
 import * as webhookSchema from "../../community-bot-webhook-schema"
 import type { Database } from "../../index"
+import {
+  enqueuePrivateInboxEvent,
+  listPendingPrivateInboxEventsForBot,
+  updatePrivateInboxEventStatus,
+} from "./bot-private-inbox"
 import {
   createBotWebhook,
   createBotWebhookDelivery,
@@ -16,13 +22,17 @@ import {
   getBotWebhookByTokenHash,
   listBotWebhookDeliveries,
   listBotWebhooks,
-  listPendingBotWebhookDeliveriesForBot,
   updateBotWebhook,
-  updateBotWebhookDeliveryStatus,
 } from "./bot-webhook"
 import { BOT_WEBHOOK_DELIVERY_RETENTION, BOT_WEBHOOK_MAX_PER_BOT } from "../../../bot-webhook"
 
-const schema = { ...coreSchema, ...communitySchema, ...machineSchema, ...webhookSchema }
+const schema = {
+  ...coreSchema,
+  ...communitySchema,
+  ...machineSchema,
+  ...privateInboxSchema,
+  ...webhookSchema,
+}
 const migrationsDir = resolve(import.meta.dirname, "../../../../../web/migrations")
 
 function createMigratedSqlite(): Sqlite.Database {
@@ -35,7 +45,7 @@ function createMigratedSqlite(): Sqlite.Database {
   return sqlite
 }
 
-describe("community bot webhook D1 queries", () => {
+describe("community bot private inbox & webhook D1 queries", () => {
   let sqlite: Sqlite.Database
   let db: Database
 
@@ -59,7 +69,7 @@ describe("community bot webhook D1 queries", () => {
 
   afterEach(() => sqlite.close())
 
-  it("supports CRUD, owner isolation, dedup, retention pruning, pending resync, and index usage", async () => {
+  it("supports webhook CRUD, unified private inbox dedup/resync across webhook + schedule, retention pruning, and indexed pending plan", async () => {
     const baseMs = Date.parse("2026-11-27T08:00:00.000Z")
     const created = await createBotWebhook(db, {
       ownerUserId: "owner_1",
@@ -106,19 +116,36 @@ describe("community bot webhook D1 queries", () => {
     expect(d1Dup.inserted).toBe(false)
     expect(d1Dup.delivery.id).toBe(d1.delivery.id)
 
-    const pending = await listPendingBotWebhookDeliveriesForBot(db, "bot_1", {
-      sinceMs: baseMs,
-      limit: 20,
+    const s1 = await enqueuePrivateInboxEvent(db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      sourceKind: "schedule",
+      sourceId: "sch_1",
+      sourceRefId: "srun_1",
+      dedupeKey: String(baseMs + 1500),
+      eventType: "schedule.triggered",
+      summary: "Daily standup",
+      promptText: "run standup",
+      status: "pending",
+      nowMs: baseMs + 1500,
     })
-    expect(pending.map((row) => row.id)).toEqual([d1.delivery.id])
+    expect(s1.inserted).toBe(true)
 
-    const dispatched = await updateBotWebhookDeliveryStatus(db, d1.delivery.id, {
+    const pending = await listPendingPrivateInboxEventsForBot(db, "bot_1", 20)
+    expect(pending.map((row) => [row.sourceKind, row.id])).toEqual([
+      ["webhook", d1.delivery.id],
+      ["schedule", s1.event.id],
+    ])
+
+    const dispatched = await updatePrivateInboxEventStatus(db, d1.delivery.id, {
       status: "dispatched",
       lastError: null,
       dispatchedAtMs: baseMs + 3000,
     })
     expect(dispatched?.status).toBe("dispatched")
-    expect(await listPendingBotWebhookDeliveriesForBot(db, "bot_1", { sinceMs: baseMs, limit: 20 })).toEqual([])
+    expect((await listPendingPrivateInboxEventsForBot(db, "bot_1", 20)).map((r) => r.id)).toEqual([
+      s1.event.id,
+    ])
 
     const listed = await listBotWebhooks(db, "owner_1", "bot_1")
     expect(listed.webhooks).toHaveLength(1)
@@ -151,12 +178,15 @@ describe("community bot webhook D1 queries", () => {
     expect(recent[0]?.summary).toBe(`delivery ${BOT_WEBHOOK_DELIVERY_RETENTION + 4}`)
 
     const pendingPlan = sqlite.prepare(
-      `EXPLAIN QUERY PLAN SELECT * FROM community_bot_webhook_delivery WHERE bot_user_id = ? AND status = 'pending' AND created_at_ms >= ? ORDER BY created_at_ms ASC LIMIT 20`,
-    ).all("bot_1", baseMs) as Array<{ detail: string }>
-    expect(pendingPlan.some((row) => row.detail.includes("idx_community_bot_webhook_delivery_bot_pending"))).toBe(true)
+      `EXPLAIN QUERY PLAN SELECT * FROM community_bot_private_inbox WHERE bot_user_id = ? AND status = 'pending' ORDER BY created_at_ms ASC LIMIT 20`,
+    ).all("bot_1") as Array<{ detail: string }>
+    expect(pendingPlan.some((row) => row.detail.includes("idx_community_bot_private_inbox_bot_pending"))).toBe(true)
 
     expect(await deleteBotWebhook(db, "owner_1", "bot_1", created.webhook.id)).toBe(true)
     expect(await listBotWebhookDeliveries(db, "owner_1", "bot_1", created.webhook.id, 10)).toEqual([])
+    expect((await listPendingPrivateInboxEventsForBot(db, "bot_1", 20)).map((r) => r.id)).toEqual([
+      s1.event.id,
+    ])
   })
 
   it("enforces per-bot limit and cascades on bot deletion", async () => {
