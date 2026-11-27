@@ -6,5 +6,5 @@
   "platforms": ["android", "iOS"],
   "local": false,
   "remote": { "urls": ["https://alook.ai"] },
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+  "permissions": ["window-lifecycle"]
 }

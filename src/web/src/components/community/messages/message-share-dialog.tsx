@@ -9,8 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "@/components/icons/lucide";
-import { writeImage } from "@tauri-apps/plugin-clipboard-manager"
-import { isDesktop, isMobile, isTauri } from "@alook/shared"
+import { isDesktop, isMobile, isTauri, tauriInvoke } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -33,20 +32,28 @@ import {
   type PreparedShareImageSession,
 } from "@/lib/community/share-image-session"
 
+const DESKTOP_CLIPBOARD_MAX_BYTES = 10 * 1024 * 1024
+
 function mobileShareImageErrorCode(error: unknown): string | null {
   if (typeof error !== "object" || error === null) return null
   const value = error as { name?: unknown; code?: unknown }
-  return value.name === "MobileShareImageError" && typeof value.code === "string"
-    ? value.code
-    : null
+  if (typeof value.code !== "string") return null
+  if (value.name === "MobileShareImageError" || value.code === "image_too_large") {
+    return value.code
+  }
+  return null
 }
 
 export async function writeShareCardToClipboard(blob: Blob, assertActive?: () => void): Promise<void> {
   assertActive?.()
   if (isTauri() && isDesktop()) {
-    const bytes = await blob.arrayBuffer()
+    if (blob.size <= 0) throw new Error("Empty share card image")
+    if (blob.size > DESKTOP_CLIPBOARD_MAX_BYTES) {
+      throw Object.assign(new Error("Image exceeds the desktop limit"), { code: "image_too_large" })
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer())
     assertActive?.()
-    await writeImage(bytes)
+    await tauriInvoke("desktop_clipboard_write_image", bytes)
     return
   }
 

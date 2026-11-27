@@ -14,7 +14,7 @@
           "remote": {
             "urls": ["http://localhost:3000"]
           },
-          "permissions": ["clipboard-manager:allow-write-image", "desktop-commands"]
+          "permissions": ["desktop-commands"]
         },
         "native-geometry",
         "native-geometry-windows",
@@ -51,7 +51,7 @@
           "platforms": ["android", "iOS"],
           "local": true,
           "remote": { "urls": ["http://localhost:3000"] },
-          "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+          "permissions": ["window-lifecycle"]
         },
         {
           "$schema": "../gen/schemas/desktop-schema.json",
