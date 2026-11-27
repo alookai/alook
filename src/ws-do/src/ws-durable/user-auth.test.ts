@@ -1413,23 +1413,67 @@ describe("WebSocketDurableObject", () => {
 describe("persisted user session lease", () => {
   beforeEach(() => resetHarness())
   afterEach(() => cleanupHarness())
-  it.each(["revoked", "db-failure", "historical"])("does not deliver private events to a %s session", async (mode) => {
+  it.each(["revoked", "historical"])("does not deliver private events to a %s session", async (mode) => {
     const { durable, ctx } = createDO()
     const ws = createMockWebSocket()
     ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true,
       ...(mode === "historical" ? {} : { sessionId: "old-session", sessionValidUntil: 0 }),
     })
     ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
-    if (mode === "db-failure") mockGetValidSessionByIdForUser.mockRejectedValue(new Error("D1 unavailable"))
-    else mockGetValidSessionByIdForUser.mockResolvedValue(null)
+    mockGetValidSessionByIdForUser.mockResolvedValue(null)
     await durable.fetch(new Request("http://internal/community-broadcast", {
       method: "POST", headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), [INTERNAL_USER_TARGET_HEADER]: "user-42" },
-      body: JSON.stringify({ ...{ schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:status.update", userId: "user-42", statusEmoji: null, statusText: "private" }, schemaVersion: BUSINESS_SCHEMA_VERSION }),
+      body: JSON.stringify({ schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:status.update", userId: "user-42", statusEmoji: null, statusText: "private" }),
     }))
     expect(ws.send).not.toHaveBeenCalled()
     expect(ws.close).toHaveBeenCalledWith(1008, "Session expired or revoked")
     expect(ws.deserializeAttachment()).toMatchObject({ authenticated: false })
   })
+
+  it("retries transient D1 errors on session refresh and recovers without disconnecting", async () => {
+    const { withD1Retry } = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+    mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>): Promise<T> =>
+      withD1Retry(fn, { baseDelayMs: 0 }))
+    const { durable, ctx } = createDO()
+    const ws = createMockWebSocket()
+    const expiresAt = new Date(Date.now() + 120_000).toISOString()
+    ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "live-session", sessionValidUntil: 0 })
+    ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+    mockGetValidSessionByIdForUser
+      .mockRejectedValueOnce(makeD1Error("internal_error"))
+      .mockResolvedValueOnce({ expiresAt })
+
+    const res = await durable.fetch(new Request("http://internal/community-broadcast", {
+      method: "POST", headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), [INTERNAL_USER_TARGET_HEADER]: "user-42" },
+      body: JSON.stringify({ schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:status.update", userId: "user-42", statusEmoji: null, statusText: "recovered" }),
+    }))
+    expect(res.status).toBe(200)
+    expect(mockGetValidSessionByIdForUser).toHaveBeenCalledTimes(2)
+    expect(ws.close).not.toHaveBeenCalled()
+    expect(ws.send).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the socket open on sustained D1 session refresh failure while refusing private delivery", async () => {
+    const { durable, ctx } = createDO()
+    const ws = createMockWebSocket()
+    ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "user-42", authenticated: true, sessionId: "live-session", sessionValidUntil: 0 })
+    ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+    mockGetValidSessionByIdForUser.mockRejectedValue(new Error("D1 unavailable"))
+
+    const res = await durable.fetch(new Request("http://internal/community-broadcast", {
+      method: "POST", headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION), [INTERNAL_USER_TARGET_HEADER]: "user-42" },
+      body: JSON.stringify({ schemaVersion: BUSINESS_SCHEMA_VERSION, type: "community:status.update", userId: "user-42", statusEmoji: null, statusText: "private" }),
+    }))
+    expect(res.status).toBe(503)
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.close).not.toHaveBeenCalled()
+    expect(ws.deserializeAttachment()).toMatchObject({ authenticated: true, sessionValidUntil: 0 })
+
+    await durable.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({ type: "connection.ping", nonce: "stay-alive" }))
+    expect(ws.close).not.toHaveBeenCalled()
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "connection.pong", nonce: "stay-alive" }))
+  })
+
   it("refreshes a hibernated valid session and caps its lease at session expiry", async () => {
     const { durable } = createDO()
     const ws = createMockWebSocket()

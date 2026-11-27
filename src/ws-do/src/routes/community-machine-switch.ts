@@ -1,6 +1,6 @@
 import { forwardMachineCommand } from "./machine-command-forwarding"
 
-import type { RouterContext } from "../router-context"
+import { decodePathSegment, type RouterContext } from "../router-context"
 
 export async function handleMachineModelSwitch({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
   // POST /community-machine/by-id/<machineId>/forward-agent-model-switch —
@@ -10,7 +10,8 @@ export async function handleMachineModelSwitch({ request, env, url, traceId, log
   const forwardAgentModelSwitch = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-model-switch$/)
   if (!forwardAgentModelSwitch || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(forwardAgentModelSwitch[1])
+  const machineId = decodePathSegment(forwardAgentModelSwitch[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("forwarding agent:model_switch to machine")
 
@@ -59,7 +60,8 @@ export async function handleMachineProviderSwitch({ request, env, url, traceId, 
   const forwardAgentProviderSwitch = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-provider-switch$/)
   if (!forwardAgentProviderSwitch || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(forwardAgentProviderSwitch[1])
+  const machineId = decodePathSegment(forwardAgentProviderSwitch[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
 
   let payload: unknown
@@ -102,7 +104,8 @@ export async function handleMachineRuntimeConfigUpdate({ request, env, url, trac
   const match = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-runtime-config-update$/)
   if (!match || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(match[1])
+  const machineId = decodePathSegment(match[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
   let payload: unknown
   try {

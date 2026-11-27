@@ -9,6 +9,8 @@ import {
 import { handleFrameForBoundBot } from "./bound-bot-frame"
 import {
   normalizeRestartAttribution,
+  RESTART_PENDING_PREFIX,
+  RESTART_PENDING_TTL_MS,
   restartPendingKey,
   RUNTIME_ERROR_KEY,
 } from "./internal"
@@ -195,9 +197,13 @@ export async function recordPendingRestarts(
   }
   if (!frame || typeof frame !== "object") return
   const parsed = frame as { type?: unknown }
+  const now = Date.now()
   const put = async (launchId: unknown, attribution: RestartAttribution) => {
     if (typeof launchId !== "string" || launchId.length === 0) return
-    await context.ctx.storage.put<RestartAttribution>(restartPendingKey(launchId), attribution)
+    await context.ctx.storage.put<RestartAttribution>(restartPendingKey(launchId), {
+      ...attribution,
+      createdAt: now,
+    })
   }
   if (parsed.type === "agent:reset") {
     await put((parsed as { launchId?: unknown }).launchId, { kind: "session_reset", trigger: "single" })
@@ -222,4 +228,32 @@ export async function recordPendingRestarts(
 
 async function evictPendingReset(context: WsDurableContext, launchId: string): Promise<void> {
   await context.ctx.storage.delete(restartPendingKey(launchId))
+}
+
+export async function clearAllPendingRestarts(context: WsDurableContext): Promise<void> {
+  const storage = context.ctx.storage
+  if (typeof storage.list !== "function") return
+  const entries = await storage.list({ prefix: RESTART_PENDING_PREFIX })
+  for (const key of entries.keys()) {
+    await storage.delete(key)
+  }
+}
+
+export async function pruneExpiredPendingRestarts(
+  context: WsDurableContext,
+  nowMs: number,
+): Promise<void> {
+  const storage = context.ctx.storage
+  if (typeof storage.list !== "function") return
+  const entries = await storage.list<ResetTrigger | RestartAttribution>({ prefix: RESTART_PENDING_PREFIX })
+  for (const [key, value] of entries) {
+    if (
+      typeof value === "object"
+      && value !== null
+      && typeof value.createdAt === "number"
+      && nowMs - value.createdAt >= RESTART_PENDING_TTL_MS
+    ) {
+      await storage.delete(key)
+    }
+  }
 }

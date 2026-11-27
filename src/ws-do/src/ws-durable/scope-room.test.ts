@@ -450,4 +450,56 @@ describe("scope room coordination", () => {
       online: true,
     })
   })
+
+  it("refuses to overwrite persisted room maps when hydration fails and recovers once storage is healthy", async () => {
+    const nowMs = Date.now()
+    const backing = new Map<string, unknown>([
+      ["scope-room:active-viewers", { "user-1": nowMs }],
+      ["scope-room:online-users", { "user-1": nowMs, "user-2": nowMs }],
+    ])
+    let failGet = true
+    const storage = {
+      get: vi.fn(async (key: string) => {
+        if (failGet) throw new Error("transient storage failure")
+        return backing.get(key)
+      }),
+      put: vi.fn(async (key: string, val: unknown) => {
+        backing.set(key, val)
+      }),
+      delete: vi.fn(async (key: string) => {
+        backing.delete(key)
+      }),
+    }
+    const { ctx } = createMockCtx()
+    const roomCtx = { ...ctx, storage } as unknown as DurableObjectState
+    const env = {
+      WS_DO: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({ fetch: vi.fn(async () => Response.json({ sent: 1 })) })),
+      },
+    } as unknown as Env
+    const roomDo = new WebSocketDurableObject(roomCtx, env)
+
+    const failedFocus = await roomDo.fetch(new Request("http://internal/room/focus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: "user-3", active: true, includeSnapshot: true }),
+    }))
+    expect(failedFocus.status).toBe(503)
+    expect(storage.put).not.toHaveBeenCalled()
+    expect(backing.get("scope-room:active-viewers")).toEqual({ "user-1": nowMs })
+    expect(backing.get("scope-room:online-users")).toEqual({ "user-1": nowMs, "user-2": nowMs })
+
+    failGet = false
+    const recoveredFocus = await roomDo.fetch(new Request("http://internal/room/focus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: "user-3", active: true, includeSnapshot: true }),
+    }))
+    expect(recoveredFocus.status).toBe(200)
+    const body = await recoveredFocus.json() as { ok: boolean; onlineUserIds?: string[] }
+    expect(body.ok).toBe(true)
+    expect(body.onlineUserIds?.sort()).toEqual(["user-1", "user-2"])
+    expect(Object.keys(backing.get("scope-room:active-viewers") as Record<string, number>).sort()).toEqual(["user-1", "user-3"])
+  })
 })

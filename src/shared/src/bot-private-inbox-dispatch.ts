@@ -346,6 +346,29 @@ export async function resyncBotPrivateInboxForBots(
   let dispatched = 0
   let blocked = 0
   for (const botId of botIds) {
+    const pendingRuns = await withD1Retry(
+      () => communitySchedule.listPendingRunsForBot(db, ownerUserId, botId, limit),
+      { route: "bot-private-inbox:list-pending-schedule-runs" },
+    )
+    for (const run of pendingRuns) {
+      await withD1Retry(
+        () =>
+          communityBotPrivateInbox.enqueuePrivateInboxEvent(db, {
+            ownerUserId: run.ownerUserId,
+            botUserId: run.botUserId,
+            sourceKind: "schedule",
+            sourceId: run.eventId,
+            sourceRefId: run.id,
+            dedupeKey: String(run.scheduledAtMs),
+            eventType: "schedule.triggered",
+            summary: run.titleSnapshot,
+            promptText: "",
+            status: "pending",
+            nowMs: run.createdAtMs,
+          }),
+        { route: "bot-private-inbox:backfill-schedule-run" },
+      )
+    }
     const pending = await withD1Retry(
       () => communityBotPrivateInbox.listPendingPrivateInboxEventsForBot(db, botId, limit),
       { route: "bot-private-inbox:list-pending-resync" },

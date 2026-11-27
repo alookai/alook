@@ -7,7 +7,9 @@ import * as coreSchema from "../../schema"
 import * as communitySchema from "../../community-schema"
 import * as machineSchema from "../../community-machine-schema"
 import * as scheduleSchema from "../../community-schedule-schema"
+import * as privateInboxSchema from "../../community-bot-private-inbox-schema"
 import type { Database } from "../../index"
+import { listPendingPrivateInboxEventsForBot } from "./bot-private-inbox"
 import {
   claimDueEventOccurrence,
   createScheduleEvent,
@@ -17,12 +19,13 @@ import {
   getScheduleRunById,
   listDueEventsForOwner,
   listOwnerScheduleEvents,
+  listPendingRunsForBot,
   listPendingRunsForOwner,
   updatePendingRunStatus,
   updateScheduleEvent,
 } from "./schedule"
 
-const schema = { ...coreSchema, ...communitySchema, ...machineSchema, ...scheduleSchema }
+const schema = { ...coreSchema, ...communitySchema, ...machineSchema, ...scheduleSchema, ...privateInboxSchema }
 const migrationsDir = resolve(import.meta.dirname, "../../../../../web/migrations")
 
 function createMigratedSqlite(): Sqlite.Database {
@@ -91,6 +94,16 @@ describe("community schedule D1 queries", () => {
     expect(claimedRun!.id).toMatch(/^srun_/)
     expect(claimedRun!.status).toBe("pending")
     expect(await getScheduleRunById(db, claimedRun!.id)).toMatchObject({ id: claimedRun!.id, status: "pending" })
+    const claimedInbox = await listPendingPrivateInboxEventsForBot(db, "bot_1", 10)
+    expect(claimedInbox).toHaveLength(1)
+    expect(claimedInbox[0]).toMatchObject({
+      sourceKind: "schedule",
+      sourceId: created.event.id,
+      sourceRefId: claimedRun!.id,
+      dedupeKey: String(baseMs),
+      status: "pending",
+    })
+    expect((await listPendingRunsForBot(db, "owner_1", "bot_1")).map((r) => r.id)).toEqual([claimedRun!.id])
     expect(await claimDueEventOccurrence(db, due[0]!, baseMs)).toBeNull()
 
     const metaUpdated = await updateScheduleEvent(db, "owner_1", created.event.id, {

@@ -9,3 +9,12 @@ export interface RouterContext {
   traceId: string | undefined
   log: Logger
 }
+
+export function decodePathSegment(raw: string): string | null {
+  try {
+    const decoded = decodeURIComponent(raw)
+    return decoded.length > 0 ? decoded : null
+  } catch {
+    return null
+  }
+}

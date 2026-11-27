@@ -194,7 +194,7 @@ describe("ws-do router", () => {
       expect(res.status).toBe(400)
     })
 
-    it.each([1, 40, 41, 81, 1000])(
+    it.each([1, 40, 41, 81, 400])(
       "limits %i presence targets to sequential batches of at most forty",
       async (targetCount) => {
         let active = 0
@@ -241,6 +241,59 @@ describe("ws-do router", () => {
         )
       },
     )
+
+    it("deduplicates repeated ids before querying DOs or populating response arrays", async () => {
+      doMock.stubFetch.mockImplementation(async (request: Request) => {
+        const uid = new URL(request.url).searchParams.get("userId")
+        return Response.json({ online: uid === "u1" })
+      })
+
+      const res = await handler.fetch(new Request("http://localhost/presence/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ["u1", "u2", "u1", "u2", "u1"] }),
+      }), env as any)
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({ online: ["u1"], offline: ["u2"] })
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it("relays overflow beyond 400 human targets to a relay DO hop so no worker hop hits 1000 subrequests", async () => {
+      const ids = Array.from({ length: 1000 }, (_, i) => `u${i}`)
+      const relayBodies: Array<{ userIds: string[]; hop: number }> = []
+      doMock.stubFetch.mockImplementation(async (request: Request) => {
+        const parsedUrl = new URL(request.url)
+        if (parsedUrl.pathname === "/room/relay-batch-presence") {
+          const payload = await request.json() as { userIds: string[]; hop: number }
+          relayBodies.push(payload)
+          return Response.json({
+            ok: true,
+            online: [],
+            offline: payload.userIds,
+            staleCount: 0,
+            failureCount: 0,
+            failureCounts: { throw: 0, "non-ok": 0, "invalid-json": 0, "invalid-body": 0 },
+            resultCount: payload.userIds.length,
+            maxActive: 40,
+            batchCount: Math.ceil(payload.userIds.length / 40),
+          })
+        }
+        return Response.json({ online: false })
+      })
+
+      const res = await handler.fetch(new Request("http://localhost/presence/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      }), env as any)
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({ online: [], offline: ids })
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(401)
+      expect(doMock.idFromName).toHaveBeenCalledWith("room:relay:batch-presence:1")
+      expect(relayBodies).toEqual([{ userIds: ids.slice(400), hop: 1 }])
+    })
 
     it("keeps online ids in input order when target responses settle out of order", async () => {
       const gates = new Map([

@@ -49,28 +49,46 @@ import { handleUserAgentInterrupt } from "./agent-interrupt"
 
 const USER_SESSION_CHECK_INTERVAL_MS = 60_000
 
-async function refreshUserSession(context: WsDurableContext, ws: WebSocket): Promise<void> {
+type SessionRefreshResult = "ok" | "revoked" | "transient-error"
+
+async function refreshUserSession(context: WsDurableContext, ws: WebSocket): Promise<SessionRefreshResult> {
   const state = ws.deserializeAttachment() as ConnectionState
-  if (state?.type !== "user" || !state.authenticated) return
-  if (!isCurrentBusinessSocket(ws, state) || (state.sessionValidUntil ?? 0) > Date.now()) return
-  try {
-    const session = state.sessionId
-      ? await queries.session.getValidSessionByIdForUser(createDb(context.env.DB), state.sessionId, state.userId)
-      : null
-    if (session) {
-      const current = ws.deserializeAttachment() as ConnectionState
-      if (current?.type === "user" && current.sessionId === state.sessionId && current.authenticated) {
-        ws.serializeAttachment({ ...current, sessionValidUntil: Math.min(Date.now() + USER_SESSION_CHECK_INTERVAL_MS, Date.parse(session.expiresAt)) })
+  if (state?.type !== "user" || !state.authenticated) return "ok"
+  if (!isCurrentBusinessSocket(ws, state) || (state.sessionValidUntil ?? 0) > Date.now()) return "ok"
+  if (state.sessionId) {
+    try {
+      const session = await withD1Retry(
+        () => queries.session.getValidSessionByIdForUser(createDb(context.env.DB), state.sessionId!, state.userId),
+        { route: "ws-do:user-session-refresh" },
+      )
+      if (session) {
+        const current = ws.deserializeAttachment() as ConnectionState
+        if (current?.type === "user" && current.sessionId === state.sessionId && current.authenticated) {
+          ws.serializeAttachment({ ...current, sessionValidUntil: Math.min(Date.now() + USER_SESSION_CHECK_INTERVAL_MS, Date.parse(session.expiresAt)) })
+        }
+        return "ok"
       }
-      return
+    } catch (error) {
+      context.log.warn("user_session_refresh_failed", {
+        userId: state.userId,
+        error: String(error),
+      })
+      return "transient-error"
     }
-  } catch {
-    context.log.warn("user_session_refresh_failed", { userId: state.userId })
   }
   const current = ws.deserializeAttachment() as ConnectionState
-  if (current?.type !== "user" || current.sessionId !== state.sessionId) return
+  if (current?.type !== "user" || current.sessionId !== state.sessionId) return "revoked"
   ws.serializeAttachment({ ...current, authenticated: false })
   ws.close(1008, "Session expired or revoked")
+  return "revoked"
+}
+
+function hasUnverifiedTargetSocket(unverifiedSockets: ReadonlySet<WebSocket>, targetUserId: string): boolean {
+  for (const ws of unverifiedSockets) {
+    const state = ws.deserializeAttachment() as ConnectionState
+    if (state?.type === "user" && state.authenticated && state.userId === targetUserId) return true
+  }
+  return false
 }
 
 export async function handleUserFetch(
@@ -78,8 +96,13 @@ export async function handleUserFetch(
   request: Request,
   url: URL,
 ): Promise<Response | null> {
+  const unverifiedSockets = new Set<WebSocket>()
   if (["/community-broadcast-bundle", "/community-broadcast", "/broadcast", "/check-user-online"].includes(url.pathname)) {
-    for (const ws of context.ctx.getWebSockets()) await refreshUserSession(context, ws)
+    for (const ws of context.ctx.getWebSockets()) {
+      if (await refreshUserSession(context, ws) === "transient-error") {
+        unverifiedSockets.add(ws)
+      }
+    }
   }
   if (url.pathname === "/community-broadcast-bundle" && request.method === "POST") {
     const targetUserId = getInternalCommunityUserTarget(request)
@@ -95,6 +118,9 @@ export async function handleUserFetch(
     }
     for (const ev of bundle.prepared.events) {
       context.channelAccessCache.invalidateForControlEvent(targetUserId, ev)
+    }
+    if (hasUnverifiedTargetSocket(unverifiedSockets, targetUserId)) {
+      return jsonResponse({ operationId: bundle.operationId, error: "session_check_failed" }, 503)
     }
     if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
       return deliverCommunityBundle(context, bundle, targetUserId)
@@ -142,6 +168,9 @@ export async function handleUserFetch(
       return invalidCommunityBrowserEventResponse(event)
     }
     context.channelAccessCache.invalidateForControlEvent(targetUserId, event.event)
+    if (hasUnverifiedTargetSocket(unverifiedSockets, targetUserId)) {
+      return jsonResponse({ error: "session_check_failed" }, 503)
+    }
     if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
       return jsonResponse({ sent: broadcastCommunity(context, event.event, targetUserId, event.contract) })
     }
@@ -174,7 +203,7 @@ export async function handleUserFetch(
 
   if (url.pathname === "/broadcast" && request.method === "POST") {
     const body = await request.text()
-    const sent = broadcast(context, body, getInternalUserTarget(request))
+    const sent = broadcast(context, body, getInternalUserTarget(request), unverifiedSockets)
     return new Response(JSON.stringify({ sent }), {
       headers: { "Content-Type": "application/json" },
     })
@@ -236,7 +265,7 @@ export async function handleWebSocketMessage(
 
   const originalState = ws.deserializeAttachment() as ConnectionState
   if (originalState?.type === "user" && originalState.authenticated && !isCurrentBusinessSocket(ws, originalState)) return
-  await refreshUserSession(context, ws)
+  const sessionRefresh = await refreshUserSession(context, ws)
 
   const state = ws.deserializeAttachment() as ConnectionState
 
@@ -250,7 +279,9 @@ export async function handleWebSocketMessage(
     }
     if (state.type === "user" && isUserWsConnectionPing(parsed)) {
       ws.send(JSON.stringify({ type: "connection.pong", nonce: parsed.nonce }))
-      renewSocketRoomsIfDue(context, ws, state).catch(() => { })
+      if (sessionRefresh === "ok") {
+        renewSocketRoomsIfDue(context, ws, state).catch(() => { })
+      }
     }
     return
   }
@@ -334,6 +365,8 @@ export async function handleWebSocketMessage(
     return
   }
 
+  if (sessionRefresh === "transient-error") return
+
   if (state.type === "user" && !isCurrentBusinessSocket(ws, state)) return
   if (state.type === "user" && msg.type.startsWith("community:") && (parsed as Record<string, unknown>).schemaVersion !== BUSINESS_SCHEMA_VERSION) {
     ws.close(1008, "Unsupported community contract")
@@ -396,9 +429,11 @@ function broadcast(
   context: WsDurableContext,
   message: string,
   targetUserId: string | null,
+  unverifiedSockets?: ReadonlySet<WebSocket>,
 ): number {
   let sent = 0
   for (const ws of context.ctx.getWebSockets()) {
+    if (unverifiedSockets?.has(ws)) continue
     const state = ws.deserializeAttachment() as ConnectionState
     if (!state?.authenticated) continue
     if (state.type === "user") {
