@@ -20,6 +20,8 @@ describe("protected community JSON policy", () => {
     const image = new Response("image", { headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=86400", "ETag": "asset" } })
     expect(await protectCommunityJsonResponse(request, image)).toBe(image)
     expect(rejectUnknownCommunityContract(request)?.status).toBe(400)
+    expect(rejectUnknownCommunityContract(new Request("https://alook.test/api/community/pages/page_1/cover?sourceMessageId=m1"))).toBeNull()
+    expect(rejectUnknownCommunityContract(new Request("https://alook.test/api/community/pages/page_1/cover", { method: "PUT" }))?.status).toBe(400)
     expect(rejectUnknownCommunityContract(new Request("https://alook.test/api/calendar", { headers: { [COMMUNITY_CONTRACT_HEADER]: "4" } }))).toBeNull()
   })
 })
