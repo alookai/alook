@@ -110,6 +110,18 @@ impl CreationGate {
     }
 }
 
+pub(crate) fn decode_locale_name(buffer: &[u16], written: i32) -> Option<String> {
+    if written <= 1 {
+        return None;
+    }
+    let slice = &buffer[..(written as usize).min(buffer.len())];
+    let len = slice.iter().position(|&unit| unit == 0).unwrap_or(slice.len());
+    if len == 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&slice[..len]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +207,19 @@ mod tests {
         assert_eq!(gate.setup_ready(), None);
         assert_eq!(gate.environment_ready(EnvironmentChoice::Prebuilt), None);
         assert!(!gate.building());
+    }
+
+    #[test]
+    fn locale_name_decoding_slices_to_returned_length_without_nul_padding() {
+        let mut buffer = [0u16; 85];
+        for (index, unit) in "en-US".encode_utf16().enumerate() {
+            buffer[index] = unit;
+        }
+        buffer[5] = 0;
+        buffer[6] = 'X' as u16;
+        assert_eq!(decode_locale_name(&buffer, 6).as_deref(), Some("en-US"));
+        assert_eq!(decode_locale_name(&buffer, 0), None);
+        assert_eq!(decode_locale_name(&buffer, -1), None);
+        assert_eq!(decode_locale_name(&[0u16; 8], 1), None);
     }
 }

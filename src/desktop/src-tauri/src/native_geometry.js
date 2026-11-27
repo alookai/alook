@@ -82,7 +82,10 @@ desktop => {
       const request = ++revision
       try {
         let value
-        if (window.AlookNative?.getGeometrySnapshot) value = JSON.parse(window.AlookNative.getGeometrySnapshot())
+        if (window.__alookNativeBridge?.getGeometrySnapshot) {
+          const raw = window.__alookNativeBridge.getGeometrySnapshot()
+          value = typeof raw === 'string' ? JSON.parse(raw) : raw
+        }
         else if (window.webkit?.messageHandlers?.alookGeometry) value = await window.webkit.messageHandlers.alookGeometry.postMessage('snapshot')
         else if (desktop && window.__TAURI__?.core?.invoke) value = await window.__TAURI__.core.invoke('native_geometry_snapshot')
         else return

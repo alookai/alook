@@ -20,4 +20,11 @@ WRY_RUSTWEBVIEWCLIENT_CLASS_EXTENSION = { value = '''
         handler.cancel()
         WebviewRecovery.handleSslError(view, currentUrl, error.url)
     }
+
+    override fun onRenderProcessGone(
+        view: WebView,
+        detail: android.webkit.RenderProcessGoneDetail
+    ): Boolean {
+        return WebviewRecovery.handleRenderProcessGone(view, currentUrl, detail.didCrash())
+    }
 ''', force = true }

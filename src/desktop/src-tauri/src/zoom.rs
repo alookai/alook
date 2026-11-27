@@ -232,9 +232,7 @@ pub fn handle_menu_event(handle: &AppHandle, id: &str) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn desktop_zoom_shortcut(window: WebviewWindow, action: &str) -> Result<(), String> {
-    if window.label() != "main" {
-        return Ok(());
-    }
+    crate::native_command_guard::guard(&window)?;
     let action = shortcut_action(action).ok_or_else(|| "unknown zoom action".to_string())?;
     apply_action(window.app_handle(), action)
 }

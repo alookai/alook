@@ -60,7 +60,7 @@ windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "UI_Notifications",
 
 [target."cfg(target_os = \"linux\")".dependencies]
 notify-rust = "=4.17.0"
-webkit2gtk = { version = "=2.0.2", features = ["v2_6"] }
+webkit2gtk = { version = "=2.0.2", features = ["v2_20"] }
 
 [features]
 default = ["custom-protocol"]

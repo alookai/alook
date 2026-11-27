@@ -4,7 +4,7 @@
   "description": "System-browser access for HTTP(S) links in the main webview",
   "windows": ["main"],
   "platforms": ["linux", "macOS", "windows", "android", "iOS"],
-  "local": true,
+  "local": false,
   "remote": {
     "urls": ["https://alook.ai"]
   },

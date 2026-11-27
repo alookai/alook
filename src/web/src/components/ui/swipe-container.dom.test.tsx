@@ -10,11 +10,16 @@ import { requestNativeBack } from "./native-back-layer"
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }))
 
 const hitTest = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
-const nativeBridge = Object.getOwnPropertyDescriptor(window, "AlookNative")
+const nativeBridge = Object.getOwnPropertyDescriptor(window, "__alookNativeBridge")
+const runtimeDescriptor = Object.getOwnPropertyDescriptor(window, "__ALOOK_NATIVE_RUNTIME__")
 const tauriBridge = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
   vi.restoreAllMocks()
-  for (const [key, descriptor] of [["AlookNative", nativeBridge], ["__TAURI__", tauriBridge]] as const) {
+  for (const [key, descriptor] of [
+    ["__alookNativeBridge", nativeBridge],
+    ["__ALOOK_NATIVE_RUNTIME__", runtimeDescriptor],
+    ["__TAURI__", tauriBridge],
+  ] as const) {
     if (descriptor) Object.defineProperty(window, key, descriptor)
     else Reflect.deleteProperty(window, key)
   }
@@ -240,7 +245,7 @@ describe("shared Drawer interaction", () => {
     }
     const area = screen.getByTestId("swipe-start")
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android WebView")
-    Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => JSON.stringify({ left: 24, right: 24, width: 390 }) } })
+    Object.defineProperty(window, "__alookNativeBridge", { configurable: true, value: { getSystemGestureRegion: () => ({ left: 24, right: 24, width: 390 }) } })
     touch(area, "touchStart", 8)
     touch(area, "touchMove", 290)
     touch(area, "touchEnd", 290)
@@ -253,7 +258,7 @@ describe("shared Drawer interaction", () => {
   it("uses current native system edges in CSS pixels, with a separate application start strip", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android WebView")
     let region = { left: 48, right: 72, width: 780 }
-    Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => JSON.stringify(region) } })
+    Object.defineProperty(window, "__alookNativeBridge", { configurable: true, value: { getSystemGestureRegion: () => region } })
     const root = document.createElement("div"), target = document.createElement("span")
     root.appendChild(target); document.body.appendChild(root)
     const restore = mockElementGeometry(document.documentElement, { clientWidth: 390, clientHeight: 844 })
@@ -342,11 +347,11 @@ describe("shared Drawer interaction", () => {
       expect(canStartSwipe(start)).toBe(true)
       Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
       expect(canStartSwipe(start)).toBe(false)
-      for (const value of ["null", "bad json", '{"left":-1,"right":0,"width":390}', '{"left":200,"right":200,"width":390}']) {
-        Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => value } })
+      for (const value of [null, "null", "bad json", { left: -1, right: 0, width: 390 }, { left: 200, right: 200, width: 390 }]) {
+        Object.defineProperty(window, "__alookNativeBridge", { configurable: true, value: { getSystemGestureRegion: () => value } })
         expect(canStartSwipe(start)).toBe(false)
       }
-      Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => { throw new Error("bridge retired") } } })
+      Object.defineProperty(window, "__alookNativeBridge", { configurable: true, value: { getSystemGestureRegion: () => { throw new Error("bridge retired") } } })
       expect(canStartSwipe(start)).toBe(false)
     } finally { root.remove() }
   })
@@ -396,5 +401,29 @@ describe("shared Drawer interaction", () => {
     expect(selection.toString()).toBe("selected content")
     expect(canStartSwipe(start)).toBe(false)
     selection.removeAllRanges(); restore(); root.remove()
+  })
+
+  it("prefers the native runtime platform descriptor over User-Agent and ignores retired AlookNative", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android WebView")
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    const legacy = vi.fn(() => JSON.stringify({ left: 24, right: 24, width: 390 }))
+    Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: legacy } })
+    const root = document.createElement("div"), target = document.createElement("span")
+    root.appendChild(target); document.body.appendChild(root)
+    const start = { target, root, enabled: true, kind: "page" as const, pointerType: "touch", x: 80, y: 100 }
+    try {
+      // Without __alookNativeBridge, retired AlookNative is ignored and Tauri Android fails closed
+      expect(canStartSwipe(start)).toBe(false)
+      expect(legacy).not.toHaveBeenCalled()
+      // Native runtime descriptor identifying iOS overrides spoofed Android User-Agent
+      Object.defineProperty(window, "__ALOOK_NATIVE_RUNTIME__", {
+        configurable: true,
+        value: Object.freeze({ platform: "ios", formFactor: "mobile" }),
+      })
+      expect(canStartSwipe(start)).toBe(true)
+    } finally {
+      Reflect.deleteProperty(window, "AlookNative")
+      root.remove()
+    }
   })
 })

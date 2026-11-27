@@ -10,8 +10,7 @@
   "local": true,
   "remote": {
     "urls": [
-      "https://alook.ai",
-      "http://alook-recovery.localhost"
+      "https://alook.ai"
     ]
   },
   "permissions": [
