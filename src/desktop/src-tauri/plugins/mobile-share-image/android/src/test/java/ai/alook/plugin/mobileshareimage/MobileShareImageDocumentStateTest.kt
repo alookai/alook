@@ -20,11 +20,18 @@ class MobileShareImageDocumentStateTest {
     private val tokenTwo = "fedcba9876543210fedcba9876543210"
 
     @Test
-    fun launchFailureAndCancellationSettleOnceAndPermitImmediateRetry() {
+    fun launchFailureAndCancellationSettleOnceAndPermitImmediateRetryOnSameOwner() {
         val deleted = mutableListOf<File>()
         val launches = mutableListOf<String>()
+        var shouldFailLaunch = true
         val core = core(deleted = deleted)
-        core.attach(ownerOne, null) { _, _ -> throw IllegalStateException("launch failed") }
+        core.attach(ownerOne, null) { token, filename ->
+            if (shouldFailLaunch) {
+                shouldFailLaunch = false
+                throw IllegalStateException("launch failed")
+            }
+            launches += "$token:$filename"
+        }
 
         val failedLaunch = probe(tokenOne, throwOnReject = true)
         core.begin(failedLaunch.request)
@@ -35,11 +42,10 @@ class MobileShareImageDocumentStateTest {
         assertEquals(1, failedLaunch.releases)
         assertNull(core.liveToken())
 
-        core.attach(ownerTwo, null) { token, filename -> launches += "$token:$filename" }
         val cancelled = probe(tokenTwo)
         core.begin(cancelled.request)
         assertEquals(tokenTwo, core.liveToken())
-        core.deliver(ownerTwo, tokenTwo, null) { error("cancel must not clean an orphan") }
+        core.deliver(ownerOne, tokenTwo, null) { error("cancel must not clean an orphan") }
 
         assertEquals(listOf("$tokenTwo:share.png"), launches)
         assertEquals(listOf("cancelled"), cancelled.terminal.rejectionCodes)
@@ -49,9 +55,26 @@ class MobileShareImageDocumentStateTest {
 
         val retry = probe(tokenOne)
         core.begin(retry.request)
-        core.deliver(ownerTwo, tokenOne, null) { error("retry must not clean an orphan") }
+        core.deliver(ownerOne, tokenOne, null) { error("retry must not clean an orphan") }
         assertEquals(1, retry.terminal.rejectAttempts)
         assertEquals(1, retry.releases)
+    }
+
+    @Test
+    fun finishingDetachCancelsPendingRequestAndReleasesLease() {
+        val deleted = mutableListOf<File>()
+        val core = core(deleted = deleted)
+        core.attach(ownerOne, null) { _, _ -> }
+        val pending = probe(tokenOne)
+        core.begin(pending.request)
+
+        core.detach(ownerOne, finishing = true)
+
+        assertEquals(listOf(pending.staging), deleted)
+        assertEquals(listOf("cancelled"), pending.terminal.rejectionCodes)
+        assertEquals(1, pending.terminal.rejectAttempts)
+        assertEquals(1, pending.releases)
+        assertNull(core.liveToken())
     }
 
     @Test

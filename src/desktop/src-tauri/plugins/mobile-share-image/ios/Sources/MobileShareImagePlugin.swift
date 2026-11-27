@@ -1,6 +1,5 @@
-import CoreGraphics
+import CryptoKit
 import Foundation
-import ImageIO
 import Photos
 import SwiftRs
 import Tauri
@@ -9,12 +8,16 @@ import UniformTypeIdentifiers
 
 struct CopyImageArgs: Decodable {
   let attemptId: String
-  let pngBase64: String
+  let path: String
+  let bytes: UInt64
+  let sha256: String
 }
 
 struct SaveImageArgs: Decodable {
   let attemptId: String
-  let pngBase64: String
+  let path: String
+  let bytes: UInt64
+  let sha256: String
   let filename: String
 }
 
@@ -30,24 +33,10 @@ struct MobileShareImageFailure: Error, Equatable {
 }
 
 private let mobileShareImageMaxBytes = 10 * 1024 * 1024
-private let mobileShareImageMaxDimension = 16_384
-private let mobileShareImageMaxPixels = 16_777_216
-private let mobileShareImageMaxOutputBytes = 64 * 1024 * 1024
+private let mobileShareImageStagingDir = "mobile-share-image-staging"
 
 enum MobileShareImageValidator {
-  struct Dimensions: Equatable {
-    let width: Int
-    let height: Int
-  }
-
   private static let signature: [UInt8] = [137, 80, 78, 71, 13, 10, 26, 10]
-  private static let crcTable: [UInt32] = (0..<256).map { value in
-    var result = UInt32(value)
-    for _ in 0..<8 {
-      result = (result & 1) == 1 ? 0xedb88320 ^ (result >> 1) : result >> 1
-    }
-    return result
-  }
 
   static func validateAttemptId(_ value: String) throws {
     let utf8 = Array(value.utf8)
@@ -61,26 +50,69 @@ enum MobileShareImageValidator {
     }
   }
 
-  static func decode(_ value: String) throws -> Data {
-    let maxEncoded = ((mobileShareImageMaxBytes + 2) / 3) * 4
-    guard !value.isEmpty, value.utf8.count % 4 == 0 else {
-      throw MobileShareImageFailure(code: "invalid_png", message: "Image payload is invalid")
-    }
-    guard value.utf8.count <= maxEncoded else {
-      throw MobileShareImageFailure(code: "image_too_large", message: "Image exceeds the mobile limit")
-    }
-    guard let data = Data(base64Encoded: value, options: []), data.base64EncodedString() == value else {
-      throw MobileShareImageFailure(code: "invalid_png", message: "Image payload is not canonical base64")
-    }
-    guard !data.isEmpty else {
+  static func defaultCachesRoot() -> URL {
+    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+  }
+
+  static func loadValidatedFile(
+    attemptId: String,
+    path: String,
+    expectedBytes: UInt64,
+    sha256: String,
+    cachesRoot: URL = defaultCachesRoot()
+  ) throws -> Data {
+    try validateAttemptId(attemptId)
+    guard expectedBytes > 0 else {
       throw MobileShareImageFailure(code: "invalid_png", message: "Image payload is empty")
     }
-    guard data.count <= mobileShareImageMaxBytes else {
+    guard expectedBytes <= UInt64(mobileShareImageMaxBytes) else {
       throw MobileShareImageFailure(code: "image_too_large", message: "Image exceeds the mobile limit")
     }
-    let dimensions = try validateStructure(data)
-    try forceDecode(data, dimensions: dimensions)
+    guard isCanonicalSha256(sha256) else {
+      throw MobileShareImageFailure(code: "invalid_png", message: "Image digest is invalid")
+    }
+    let resolvedCaches = cachesRoot.resolvingSymlinksInPath().standardizedFileURL
+    let cachesPrefix = resolvedCaches.path.hasSuffix("/") ? resolvedCaches.path : resolvedCaches.path + "/"
+    let resolvedSource = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+    let stagingDir = resolvedSource.deletingLastPathComponent()
+    let stagingParent = stagingDir.deletingLastPathComponent()
+    let stagingGrandparent = stagingParent.deletingLastPathComponent()
+    let isDirectChild = stagingParent.path == resolvedCaches.path
+    let isSingleSubdirChild = stagingGrandparent.path == resolvedCaches.path
+      && !stagingParent.lastPathComponent.isEmpty
+      && stagingParent.lastPathComponent != "."
+      && stagingParent.lastPathComponent != ".."
+    guard resolvedSource.path.hasPrefix(cachesPrefix),
+          resolvedSource.lastPathComponent == "\(attemptId).png",
+          stagingDir.lastPathComponent == mobileShareImageStagingDir,
+          isDirectChild || isSingleSubdirChild
+    else {
+      throw MobileShareImageFailure(code: "invalid_png", message: "Staged image path is invalid")
+    }
+    let data: Data
+    do {
+      data = try Data(contentsOf: resolvedSource)
+    } catch {
+      throw MobileShareImageFailure(code: "write_failed", message: "Could not read staged image")
+    }
+    guard UInt64(data.count) == expectedBytes else {
+      throw MobileShareImageFailure(code: "invalid_png", message: "Staged image size mismatch")
+    }
+    guard data.count >= signature.count, Array(data.prefix(signature.count)) == signature else {
+      throw invalidPNG()
+    }
+    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    guard digest == sha256 else {
+      throw MobileShareImageFailure(code: "invalid_png", message: "Staged image digest mismatch")
+    }
     return data
+  }
+
+  private static func isCanonicalSha256(_ value: String) -> Bool {
+    guard value.utf8.count == 64 else { return false }
+    return value.utf8.allSatisfy { byte in
+      (byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 102)
+    }
   }
 
   static func sanitizeFilename(_ value: String) -> String {
@@ -104,115 +136,6 @@ enum MobileShareImageValidator {
       stem.removeLast()
     }
     return stem.isEmpty ? "alook-message-share.png" : stem + ".png"
-  }
-
-  static func validateStructure(_ data: Data) throws -> Dimensions {
-    let bytes = [UInt8](data)
-    guard bytes.count >= signature.count, Array(bytes[0..<8]) == signature else {
-      throw invalidPNG()
-    }
-    var offset = 8
-    var dimensions: Dimensions?
-    var sawData = false
-    var sawEnd = false
-    while offset < bytes.count {
-      guard offset <= bytes.count - 12 else { throw invalidPNG() }
-      let lengthValue = readUInt32(bytes, at: offset)
-      let dataStart = offset + 8
-      let dataEndValue = UInt64(dataStart) + UInt64(lengthValue)
-      let chunkEndValue = dataEndValue + 4
-      guard chunkEndValue <= UInt64(bytes.count), !sawEnd else { throw invalidPNG() }
-      let dataEnd = Int(dataEndValue)
-      let chunkEnd = Int(chunkEndValue)
-      let type = Array(bytes[(offset + 4)..<(offset + 8)])
-      let storedCRC = readUInt32(bytes, at: dataEnd)
-      guard crc32(bytes, range: (offset + 4)..<dataEnd) == storedCRC else { throw invalidPNG() }
-
-      if type == [73, 72, 68, 82] { // IHDR
-        guard dimensions == nil, offset == 8, lengthValue == 13 else { throw invalidPNG() }
-        let width = Int(readUInt32(bytes, at: dataStart))
-        let height = Int(readUInt32(bytes, at: dataStart + 4))
-        let pixels = UInt64(width) * UInt64(height)
-        guard width > 0, height > 0,
-              width <= mobileShareImageMaxDimension,
-              height <= mobileShareImageMaxDimension,
-              pixels <= UInt64(mobileShareImageMaxPixels)
-        else { throw invalidPNG() }
-        let bitDepth = Int(bytes[dataStart + 8])
-        let colorType = Int(bytes[dataStart + 9])
-        let legal: Bool
-        switch colorType {
-        case 0: legal = [1, 2, 4, 8, 16].contains(bitDepth)
-        case 2, 4, 6: legal = [8, 16].contains(bitDepth)
-        case 3: legal = [1, 2, 4, 8].contains(bitDepth)
-        default: legal = false
-        }
-        guard legal,
-              bytes[dataStart + 10] == 0,
-              bytes[dataStart + 11] == 0,
-              bytes[dataStart + 12] <= 1
-        else { throw invalidPNG() }
-        dimensions = Dimensions(width: width, height: height)
-      } else if type == [73, 68, 65, 84] { // IDAT
-        guard dimensions != nil, !sawEnd else { throw invalidPNG() }
-        sawData = true
-      } else if type == [73, 69, 78, 68] { // IEND
-        guard dimensions != nil, sawData, lengthValue == 0, chunkEnd == bytes.count else {
-          throw invalidPNG()
-        }
-        sawEnd = true
-      } else if type == [97, 99, 84, 76] || // acTL
-                  type == [102, 99, 84, 76] || // fcTL
-                  type == [102, 100, 65, 84] { // fdAT
-        throw invalidPNG()
-      }
-      offset = chunkEnd
-    }
-    guard sawEnd, let dimensions = dimensions else { throw invalidPNG() }
-    return dimensions
-  }
-
-  private static func forceDecode(_ data: Data, dimensions: Dimensions) throws {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-          CGImageSourceGetStatus(source) == .statusComplete,
-          CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
-          CGImageSourceGetCount(source) == 1,
-          let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-          image.width == dimensions.width,
-          image.height == dimensions.height
-    else { throw invalidPNG() }
-    let byteCount = dimensions.width * dimensions.height * 4
-    guard byteCount <= mobileShareImageMaxOutputBytes else { throw invalidPNG() }
-    var pixels = [UInt8](repeating: 0, count: byteCount)
-    let decoded = pixels.withUnsafeMutableBytes { buffer -> Bool in
-      guard let context = CGContext(
-        data: buffer.baseAddress,
-        width: dimensions.width,
-        height: dimensions.height,
-        bitsPerComponent: 8,
-        bytesPerRow: dimensions.width * 4,
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-      ) else { return false }
-      context.draw(image, in: CGRect(x: 0, y: 0, width: dimensions.width, height: dimensions.height))
-      return true
-    }
-    guard decoded else { throw invalidPNG() }
-  }
-
-  private static func readUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
-    UInt32(bytes[offset]) << 24 |
-      UInt32(bytes[offset + 1]) << 16 |
-      UInt32(bytes[offset + 2]) << 8 |
-      UInt32(bytes[offset + 3])
-  }
-
-  private static func crc32(_ bytes: [UInt8], range: Range<Int>) -> UInt32 {
-    var crc = UInt32.max
-    for index in range {
-      crc = crcTable[Int((crc ^ UInt32(bytes[index])) & 0xff)] ^ (crc >> 8)
-    }
-    return crc ^ UInt32.max
   }
 
   private static func invalidPNG() -> MobileShareImageFailure {
@@ -291,6 +214,7 @@ final class MobileShareImageOperations {
   private let main: (@escaping () -> Void) -> Void
   private let pasteboard: MobileShareImagePasteboardWriting
   private let photos: MobileShareImagePhotoLibraryAdding
+  private let cachesRoot: URL
   private let state = DispatchQueue(label: "ai.alook.mobile-share-image.state")
   private var activeAttemptId: String?
 
@@ -298,12 +222,14 @@ final class MobileShareImageOperations {
     worker: DispatchQueue = DispatchQueue(label: "ai.alook.mobile-share-image.worker"),
     main: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
     pasteboard: MobileShareImagePasteboardWriting = SystemMobileShareImagePasteboard(),
-    photos: MobileShareImagePhotoLibraryAdding = SystemMobileShareImagePhotoLibrary()
+    photos: MobileShareImagePhotoLibraryAdding = SystemMobileShareImagePhotoLibrary(),
+    cachesRoot: URL = MobileShareImageValidator.defaultCachesRoot()
   ) {
     self.worker = worker
     self.main = main
     self.pasteboard = pasteboard
     self.photos = photos
+    self.cachesRoot = cachesRoot
   }
 
   func copy(_ args: CopyImageArgs, completion: @escaping Completion) {
@@ -313,7 +239,13 @@ final class MobileShareImageOperations {
     }
     worker.async {
       do {
-        let data = try MobileShareImageValidator.decode(args.pngBase64)
+        let data = try MobileShareImageValidator.loadValidatedFile(
+          attemptId: args.attemptId,
+          path: args.path,
+          expectedBytes: args.bytes,
+          sha256: args.sha256,
+          cachesRoot: self.cachesRoot
+        )
         self.main {
           do {
             try self.pasteboard.setPNG(data)
@@ -345,7 +277,13 @@ final class MobileShareImageOperations {
     }
     worker.async {
       do {
-        let data = try MobileShareImageValidator.decode(args.pngBase64)
+        let data = try MobileShareImageValidator.loadValidatedFile(
+          attemptId: args.attemptId,
+          path: args.path,
+          expectedBytes: args.bytes,
+          sha256: args.sha256,
+          cachesRoot: self.cachesRoot
+        )
         let filename = MobileShareImageValidator.sanitizeFilename(args.filename)
         self.authorizeAndSave(data, filename: filename, attemptId: args.attemptId, completion: completion)
       } catch {

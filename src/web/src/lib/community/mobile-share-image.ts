@@ -1,7 +1,6 @@
 import { tauriInvoke } from "@alook/shared"
 
 export const MOBILE_SHARE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
-export const MOBILE_SHARE_IMAGE_CHUNK_BYTES = 49_152
 
 export type MobileShareImageErrorCode =
   | "untrusted_caller"
@@ -39,19 +38,6 @@ function attemptId(): string {
   bytes[8] = (bytes[8]! & 0x3f) | 0x80
   const value = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
-}
-
-export function encodeMobileShareImageBytes(bytes: Uint8Array): string {
-  const encoded: string[] = []
-  for (let offset = 0; offset < bytes.length; offset += MOBILE_SHARE_IMAGE_CHUNK_BYTES) {
-    const chunk = bytes.subarray(offset, offset + MOBILE_SHARE_IMAGE_CHUNK_BYTES)
-    let binary = ""
-    for (let index = 0; index < chunk.length; index += 1) {
-      binary += String.fromCharCode(chunk[index]!)
-    }
-    encoded.push(btoa(binary))
-  }
-  return encoded.join("")
 }
 
 function normalizeError(error: unknown): MobileShareImageError {
@@ -123,13 +109,11 @@ async function invokeMobileShareImage<T extends MobileShareImageCopyResult | Mob
     assertActive?.()
     const bytes = new Uint8Array(await blob.arrayBuffer())
     assertActive?.()
-    const result = await tauriInvoke<T>(command, {
-      payload: {
-        attemptId: id,
-        pngBase64: encodeMobileShareImageBytes(bytes),
-        ...extra,
-      },
-    })
+    const headers: Record<string, string> = { "x-attempt-id": id }
+    if (extra.filename !== undefined) {
+      headers["x-filename"] = encodeURIComponent(extra.filename)
+    }
+    const result = await tauriInvoke<T>(command, bytes, { headers })
     assertActive?.()
     if (!accepts(result, id)) {
       throw new MobileShareImageError("write_failed", "Native image result did not match the request")

@@ -20,9 +20,20 @@ pub struct FileSaveState {
 }
 #[derive(Default)]
 struct Session {
+    generation: u64,
+    starting: bool,
+    writing: Option<(String, Arc<AtomicBool>)>,
     transfer: Option<Transfer>,
     recent_attempts: VecDeque<String>,
     exporting: Option<(String, Arc<AtomicBool>, Arc<Mutex<()>>)>,
+}
+impl Session {
+    fn is_busy(&self) -> bool {
+        self.starting
+            || self.writing.is_some()
+            || self.transfer.is_some()
+            || self.exporting.is_some()
+    }
 }
 fn root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
@@ -45,77 +56,130 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 pub fn retire(app: &AppHandle) {
-    if let Ok(mut state) = app.state::<FileSaveState>().session.lock() {
-        state.transfer.take();
-        if let Some((id, cancelled, publish_guard)) = &state.exporting {
-            let _publication = publish_guard.lock().ok();
-            cancelled.store(true, Ordering::Release);
-            #[cfg(mobile)]
-            {
-                use tauri_plugin_file_save::FileSaveExt;
-                let app = app.clone();
-                let id = id.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = app.file_save().cancel(id).await;
-                });
-            }
-            #[cfg(desktop)]
-            let _ = id;
+    let mobile_cancel_id = if let Ok(mut state) = app.state::<FileSaveState>().session.lock() {
+        state.generation = state.generation.wrapping_add(1);
+        if let Some(transfer) = state.transfer.take() {
+            transfer.cancelled.store(true, Ordering::Release);
         }
+        if let Some((_, cancelled)) = &state.writing {
+            cancelled.store(true, Ordering::Release);
+        }
+        if let Some((id, cancelled, _publish_guard)) = &state.exporting {
+            cancelled.store(true, Ordering::Release);
+            Some(id.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    #[cfg(mobile)]
+    if let Some(id) = mobile_cancel_id {
+        use tauri_plugin_file_save::FileSaveExt;
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = app.file_save().cancel(id).await;
+        });
     }
+    #[cfg(desktop)]
+    let _ = mobile_cancel_id;
 }
 #[tauri::command]
-pub fn file_save_begin(
+pub async fn file_save_begin(
     window: WebviewWindow,
     state: State<'_, FileSaveState>,
     payload: Begin,
 ) -> Result<Ack, String> {
     native_command_guard::guard(&window)?;
-    let mut state = state.session.lock().map_err(|_| "Save state unavailable")?;
-    if state.transfer.is_some() || state.exporting.is_some() {
-        return Err("Another file is being saved".into());
+    let generation = {
+        let mut session = state.session.lock().map_err(|_| "Save state unavailable")?;
+        if session.is_busy() {
+            return Err("busy".into());
+        }
+        if session.recent_attempts.contains(&payload.attempt_id) {
+            return Err("Save attempt already used".into());
+        }
+        session.starting = true;
+        session.generation
+    };
+    let app = window.app_handle().clone();
+    let ready = state.ready.load(Ordering::Acquire);
+    let created = tauri::async_runtime::spawn_blocking(move || {
+        if !ready {
+            setup(&app)?;
+        }
+        let cache_root = root(&app)?;
+        #[cfg(desktop)]
+        repair_desktop(&cache_root)?;
+        Transfer::begin(&cache_root, payload)
+    })
+    .await
+    .map_err(|_| "Save storage unavailable".to_string())
+    .and_then(|res| res);
+
+    let mut session = state.session.lock().map_err(|_| "Save state unavailable")?;
+    session.starting = false;
+    let transfer = created?;
+    if session.generation != generation {
+        drop(transfer);
+        return Err("Save cancelled".into());
     }
-    if !window
-        .app_handle()
-        .state::<FileSaveState>()
-        .ready
-        .load(Ordering::Acquire)
-    {
-        setup(window.app_handle())?;
-    }
-    #[cfg(desktop)]
-    repair_desktop(&root(window.app_handle())?)?;
-    if state.recent_attempts.contains(&payload.attempt_id) {
-        return Err("Save attempt already used".into());
-    }
-    let transfer = Transfer::begin(&root(window.app_handle())?, payload)?;
-    state
+    session
         .recent_attempts
         .push_back(transfer.metadata.attempt_id.clone());
-    if state.recent_attempts.len() > 256 {
-        state.recent_attempts.pop_front();
+    if session.recent_attempts.len() > 256 {
+        session.recent_attempts.pop_front();
     }
     let ack = transfer.ack();
-    state.transfer = Some(transfer);
+    session.transfer = Some(transfer);
     Ok(ack)
 }
 #[tauri::command]
-pub fn file_save_write_chunk(
+pub async fn file_save_write_chunk(
     window: WebviewWindow,
     state: State<'_, FileSaveState>,
     payload: Chunk,
 ) -> Result<Ack, String> {
     native_command_guard::guard(&window)?;
-    let mut state = state.session.lock().map_err(|_| "Save state unavailable")?;
-    let transfer = state.transfer.as_mut().ok_or("No active save")?;
-    if transfer.metadata.attempt_id != payload.attempt_id {
-        return Err("Unknown save attempt".into());
+    let (mut transfer, generation) = {
+        let mut session = state.session.lock().map_err(|_| "Save state unavailable")?;
+        let Some(existing) = session.transfer.as_ref() else {
+            return Err("No active save".into());
+        };
+        if existing.metadata.attempt_id != payload.attempt_id {
+            return Err("Unknown save attempt".into());
+        }
+        let transfer = session.transfer.take().ok_or("No active save")?;
+        session.writing = Some((
+            transfer.metadata.attempt_id.clone(),
+            transfer.cancelled.clone(),
+        ));
+        (transfer, session.generation)
+    };
+    let written = tauri::async_runtime::spawn_blocking(move || {
+        let result = transfer.write(payload);
+        (transfer, result)
+    })
+    .await
+    .map_err(|_| "File write failed".to_string());
+
+    let mut session = state.session.lock().map_err(|_| "Save state unavailable")?;
+    session.writing = None;
+    let (transfer, result) = written?;
+    if session.generation != generation || transfer.cancelled.load(Ordering::Acquire) {
+        drop(transfer);
+        return Err("Save cancelled".into());
     }
-    let result = transfer.write(payload);
-    if result.is_err() {
-        state.transfer.take();
+    match result {
+        Ok(ack) => {
+            session.transfer = Some(transfer);
+            Ok(ack)
+        }
+        Err(error) => {
+            drop(transfer);
+            Err(error)
+        }
     }
-    result
 }
 #[tauri::command]
 pub async fn file_save_cancel(
@@ -126,17 +190,23 @@ pub async fn file_save_cancel(
     native_command_guard::guard(&window)?;
     let exporting = {
         let state = app.state::<FileSaveState>();
-        let mut state = state.session.lock().map_err(|_| "Save state unavailable")?;
-        if state
+        let mut session = state.session.lock().map_err(|_| "Save state unavailable")?;
+        if session
             .transfer
             .as_ref()
             .is_some_and(|t| t.metadata.attempt_id == attempt_id)
         {
-            state.transfer.take();
+            if let Some(transfer) = session.transfer.take() {
+                transfer.cancelled.store(true, Ordering::Release);
+            }
         }
-        if let Some((id, cancelled, publish_guard)) = &state.exporting {
+        if let Some((id, cancelled)) = &session.writing {
             if id == &attempt_id {
-                let _publication = publish_guard.lock().ok();
+                cancelled.store(true, Ordering::Release);
+            }
+        }
+        if let Some((id, cancelled, _publish_guard)) = &session.exporting {
+            if id == &attempt_id {
                 cancelled.store(true, Ordering::Release);
                 true
             } else {
@@ -165,37 +235,50 @@ pub async fn file_save_commit(
     payload: Commit,
 ) -> Result<Receipt, String> {
     native_command_guard::guard(&window)?;
-    let mut transfer = {
+    let transfer = {
         let state = app.state::<FileSaveState>();
-        let mut state = state.session.lock().map_err(|_| "Save state unavailable")?;
-        if state
+        let mut session = state.session.lock().map_err(|_| "Save state unavailable")?;
+        if session
             .transfer
             .as_ref()
             .is_none_or(|t| t.metadata.attempt_id != payload.attempt_id)
         {
             return Err("Unknown save attempt".into());
         }
-        let transfer = state.transfer.take().ok_or("No active save")?;
-        state.exporting = Some((
+        let transfer = session.transfer.take().ok_or("No active save")?;
+        session.exporting = Some((
             transfer.metadata.attempt_id.clone(),
             transfer.cancelled.clone(),
             transfer.publish_guard.clone(),
         ));
         transfer
     };
-    let result = match transfer.seal(payload) {
+    let sealed = tauri::async_runtime::spawn_blocking(move || {
+        let mut transfer = transfer;
+        let result = transfer.seal(payload);
+        (transfer, result)
+    })
+    .await
+    .map_err(|_| "File write failed".to_string());
+
+    let result = match sealed {
         Err(error) => Err(error),
-        Ok(()) => export(&app, &transfer)
+        Ok((_transfer, Err(error))) => Err(error),
+        Ok((transfer, Ok(()))) => export(&app, &window, &transfer)
             .await
             .map(|destination| transfer.receipt(destination)),
     };
-    if let Ok(mut state) = app.state::<FileSaveState>().session.lock() {
-        state.exporting = None;
+    if let Ok(mut session) = app.state::<FileSaveState>().session.lock() {
+        session.exporting = None;
     }
     result
 }
 #[cfg(mobile)]
-async fn export(app: &AppHandle, transfer: &Transfer) -> Result<Option<String>, String> {
+async fn export(
+    app: &AppHandle,
+    _window: &WebviewWindow,
+    transfer: &Transfer,
+) -> Result<Option<String>, String> {
     use tauri_plugin_file_save::{ExportRequest, FileSaveExt};
     if transfer.cancelled.load(Ordering::Acquire) {
         return Ok(None);
@@ -211,7 +294,13 @@ async fn export(app: &AppHandle, transfer: &Transfer) -> Result<Option<String>, 
             sha256: transfer.receipt(None).sha256,
         })
         .await
-        .map_err(|_| "File export failed")?;
+        .map_err(|error| {
+            if error.to_string().contains("busy") {
+                "busy".to_string()
+            } else {
+                "File export failed".to_string()
+            }
+        })?;
     if result.attempt_id != transfer.metadata.attempt_id {
         return Err("Invalid export receipt".into());
     }
@@ -225,13 +314,22 @@ async fn export(app: &AppHandle, transfer: &Transfer) -> Result<Option<String>, 
     }
 }
 #[cfg(desktop)]
-async fn export(app: &AppHandle, transfer: &Transfer) -> Result<Option<String>, String> {
+async fn export(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    transfer: &Transfer,
+) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let journal = root(app)?;
     let app = app.clone();
+    let parent_window = window.clone();
     let name = transfer.metadata.name.clone();
     let path = tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file().set_file_name(name).blocking_save_file()
+        app.dialog()
+            .file()
+            .set_file_name(name)
+            .set_parent(&parent_window)
+            .blocking_save_file()
     })
     .await
     .map_err(|_| "Save dialog failed")?;
@@ -375,5 +473,21 @@ mod tests {
         assert!(!partial.exists());
         assert_eq!(fs::read(target).unwrap(), b"old");
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn session_cancel_does_not_block_on_held_publish_guard() {
+        let publish_guard = Arc::new(Mutex::new(()));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let _held = publish_guard.lock().unwrap();
+        let mut session = Session {
+            exporting: Some((ID.to_string(), cancelled.clone(), publish_guard.clone())),
+            ..Session::default()
+        };
+        assert!(session.is_busy());
+        if let Some((_, flag, _)) = session.exporting.as_ref() {
+            flag.store(true, Ordering::Release);
+        }
+        session.generation = session.generation.wrapping_add(1);
+        assert!(cancelled.load(Ordering::Acquire));
     }
 }

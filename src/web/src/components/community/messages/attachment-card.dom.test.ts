@@ -4,6 +4,7 @@ import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AttachmentCard } from "./attachment-card"
 import type { FileAttachment } from "@/lib/community/models/message"
+import { SESSION_ACCOUNT_HEADER } from "@/lib/session-account"
 
 const rtlContainer = document.createElement("div")
 function render(element: ReactElement) {
@@ -65,7 +66,11 @@ describe("AttachmentCard", () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
     await waitFor(() => expect(renderer!.getByRole("status")).toHaveTextContent("Download started"), { container: rtlContainer })
-    expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
+    expect(fetch).toHaveBeenCalledWith("/attachments/a1", {
+      credentials: "same-origin",
+      signal: expect.any(AbortSignal),
+      headers: { [SESSION_ACCOUNT_HEADER]: "viewer" },
+    })
     expect(anchorClick).toHaveBeenCalledOnce()
     expect(anchorClick.mock.contexts[0]).toMatchObject({ href: "blob:file", download: "report-€.zip" })
     expect(onPreview).not.toHaveBeenCalled()

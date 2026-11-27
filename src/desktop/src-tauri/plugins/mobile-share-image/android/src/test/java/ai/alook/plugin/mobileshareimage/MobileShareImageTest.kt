@@ -4,7 +4,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.util.zip.CRC32
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -17,27 +19,43 @@ class MobileShareImageTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
-    @Test
-    fun validatesCanonicalPngStructureAndRejectsCrcCorruption() {
-        val png = png(width = 2, height = 3)
-        assertEquals(MobileShareImage.PngDimensions(2, 3), MobileShareImage.validatePngStructure(png))
+    private val attemptId = "123e4567-e89b-42d3-a456-426614174000"
 
-        png[png.lastIndex - 4] = (png[png.lastIndex - 4].toInt() xor 1).toByte()
-        assertFailure("invalid_png") { MobileShareImage.validatePngStructure(png) }
-    }
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     @Test
-    fun rejectsAnimatedTrailingAndDimensionBombPngs() {
+    fun loadsVerifiedStagedPngAndRejectsDigestSizePathAndSignatureMismatch() {
+        val root = temporaryFolder.newFolder("staging")
+        val pngBytes = png(width = 2, height = 3)
+        val digest = sha256(pngBytes)
+        val staged = File(root, "$attemptId.png").apply { writeBytes(pngBytes) }
+
+        assertArrayEquals(
+            pngBytes,
+            MobileShareImage.loadValidatedFile(root, attemptId, staged.absolutePath, pngBytes.size.toLong(), digest),
+        )
+
         assertFailure("invalid_png") {
-            MobileShareImage.validatePngStructure(
-                png(extraChunks = listOf(chunk("acTL", ByteArray(8)))),
-            )
+            MobileShareImage.loadValidatedFile(root, attemptId, staged.absolutePath, pngBytes.size.toLong() + 1, digest)
         }
         assertFailure("invalid_png") {
-            MobileShareImage.validatePngStructure(png() + byteArrayOf(0))
+            MobileShareImage.loadValidatedFile(root, attemptId, staged.absolutePath, pngBytes.size.toLong(), "0".repeat(64))
         }
+
+        val escaped = File(temporaryFolder.root, "$attemptId.png").apply { writeBytes(pngBytes) }
         assertFailure("invalid_png") {
-            MobileShareImage.validatePngStructure(png(width = 16_384, height = 16_384))
+            MobileShareImage.loadValidatedFile(root, attemptId, escaped.absolutePath, pngBytes.size.toLong(), digest)
+        }
+
+        val nonPngBytes = "not-a-png".toByteArray()
+        val nonPng = File(root, "$attemptId.png").apply { writeBytes(nonPngBytes) }
+        assertFailure("invalid_png") {
+            MobileShareImage.loadValidatedFile(root, attemptId, nonPng.absolutePath, nonPngBytes.size.toLong(), sha256(nonPngBytes))
+        }
+
+        assertFailure("image_too_large") {
+            MobileShareImage.loadValidatedFile(root, attemptId, staged.absolutePath, MobileShareImage.MAX_PNG_BYTES.toLong() + 1, digest)
         }
     }
 
