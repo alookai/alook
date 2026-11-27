@@ -19,6 +19,7 @@ function fixture() {
       createUser: async (user) => { users.set(user.id, user); calls.push(["user", user]); return user; },
       updateUser: async (key, patch) => { const next = { ...users.get(key), ...patch }; users.set(key, next); return next; },
       getArtifact: async (key) => artifacts.get(key),
+      trashArtifact: async (key) => { calls.push(["trash", key]); artifacts.get(key).trashedAt = "now"; },
       createArtifact: async (artifact) => { const stored = { ...artifact, trashedAt: null }; artifacts.set(artifact.id, stored); return stored; },
     }),
     services: () => ({ importArchive: async () => { calls.push(["import"]); return { type: "docs", title: "A document" }; } }),
@@ -30,7 +31,7 @@ function fixture() {
     ALOOK_WEB: { fetch: async (req) => {
       calls.push(["exchange", req]);
       assert.equal(req.headers.get("authorization"), `Bearer ${serviceKey}`);
-      return Response.json({ subject: "reader", name: "A person", pageId: "page", artifactId: id });
+      return Response.json({ subject: "reader", name: "A person", pageId: "page", artifactId: id, sourceMessageId: "entry-a" });
     } },
   };
   const deps = { site, startSession: async (user) => { calls.push(["session", user.id]); return "oa_session=opaque; HttpOnly; Path=/; SameSite=Lax"; } };
@@ -160,4 +161,21 @@ test("content-origin editor responses extend frame-ancestors only when already a
   });
   const untouched = allowContentEmbedding(denied, app, [parent]);
   assert.equal(untouched.headers.get("content-security-policy"), "default-src 'none'; frame-ancestors 'none'");
+});
+
+test("whole-resource deletion requires the creator and retains a failed destruction for retry", async () => {
+  const f = fixture();
+  f.artifacts.set(id, { id, ownerUser: alookUserId("creator"), trashedAt: null });
+  f.deps.purgeArtifact = async (_catalog, remove, input) => { await remove(input.id); f.artifacts.delete(input.id); };
+  const req = (subject, credential = serviceKey) => new Request(`${app}/alook/resources/${id}`, { method: "DELETE", headers: { authorization: `Bearer ${credential}`, "x-alook-subject": subject } });
+  assert.equal((await f.run(req("creator", "wrong"))).status, 401);
+  assert.equal((await f.run(req("reader"))).status, 404);
+  const remove = f.site.removeArtifact;
+  f.site.removeArtifact = async () => { throw new Error("storage unavailable"); };
+  assert.equal((await f.run(req("creator"))).status, 503);
+  assert.equal(f.artifacts.get(id).trashedAt, "now");
+  f.site.removeArtifact = remove;
+  assert.equal((await f.run(req("creator"))).status, 200);
+  assert.equal(f.artifacts.has(id), false);
+  assert.equal((await f.run(req("creator"))).status, 200);
 });

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const body = bodySchema.safeParse(raw.ok ? raw.value : null)
   if (!body.success) return NextResponse.json({ error: "Invalid Page comment" }, { status: 400 })
   const db = getPrimaryDb(env.DB)
-  const page = await queries.communityPage.getReadablePageForArtifact(db, body.data.artifactId, body.data.subject)
+  const page = await queries.communityPage.getReadablePageForArtifact(db, body.data.artifactId, body.data.subject, body.data.sourceMessageId)
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 })
   return sendPageComment(db, body.data.subject, env, page, body.data)
 }

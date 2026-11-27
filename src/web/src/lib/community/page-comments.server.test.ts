@@ -6,7 +6,7 @@ vi.mock("@alook/shared", async () => { const actual = await vi.importActual<type
 import { sendPageComment } from "./page-comments.server"
 it("keeps long feedback in an ordinary attachment prepared only after the message door authorizes it", async () => {
   const input = { text: "x".repeat(8000), location: "Section 2", nonce: "request" }
-  const page = { id: "page", artifactId: "artifact", messageId: "source", botId: "bot", channelId: "channel", channelType: "text", createdAt: "now" }
+  const page = { id: "page", artifactId: "artifact", messageId: "source", botId: "original-bot", sourceBotId: "bot", channelId: "channel", channelType: "text", createdAt: "now" }
   await sendPageComment({} as never, "reader", {} as never, page as never, input)
   expect(mocks.upload).not.toHaveBeenCalled()
   const args = mocks.send.mock.calls[0] as unknown[]

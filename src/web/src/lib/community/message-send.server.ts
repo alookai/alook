@@ -255,7 +255,7 @@ export async function handleBotSend(
   }
 
   if (body.page) {
-    const prepared = await preparePagePublication(db, env, botUserId, body.nonce!, body.page.archiveAttachmentId)
+    const prepared = await preparePagePublication(db, botUserId, body.page.id)
     if (!prepared.ok) return NextResponse.json({ error: prepared.error }, { status: prepared.status })
     pagePublication = prepared
   }

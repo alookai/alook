@@ -6,6 +6,7 @@ import {
   DECISION_CARD_MAX_BYTES,
   parseDecisionCardCliInput,
 } from "@alook/shared";
+import { preparePageDirectory } from "./pageDirectory.js";
 import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
@@ -325,6 +326,12 @@ async function dispatchSendAndArmReminder(
   }
 }
 
+async function uploadPageDirectory(api: ServerApi, agent: string, directory: string) {
+  const prepared = await preparePageDirectory(directory);
+  const uploaded = await api.attachmentUpload({ agentId: agent, file: { data: prepared.bytes, filename: "page.zip", contentType: "application/zip" } });
+  return withTransientMutationRetry(() => api.pageCreate({ archiveAttachmentId: uploaded.id }));
+}
+
 async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
   const remindAfterFlag = opts.remindAfter as string;
   const remindAfterMs = parseRemindAfter(remindAfterFlag);
@@ -396,15 +403,14 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
     throw new CliError("message send: --stdin must contain text unless --attachment <id> is present");
   }
 
-  let page: { archiveAttachmentId: string } | undefined;
+  let page: { id: string } | undefined;
   if (opts.page) {
+    const value = String(opts.page);
     const fs = await import("node:fs/promises");
-    const filePath = String(opts.page);
-    const size = (await fs.stat(filePath)).size;
-    if (!/\.zip$/i.test(filePath) || size < 1 || size > 16 * 1024 * 1024) throw new CliError("message send: --page requires a Page zip archive of at most 16 MiB");
-    const data = new Uint8Array(await fs.readFile(filePath));
-    const uploaded = await api.attachmentUpload({ agentId: agent, file: { data, filename: "page.zip", contentType: "application/zip" } });
-    page = { archiveAttachmentId: uploaded.id };
+    const info = await fs.lstat(value).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+    if (info) page = { id: (await uploadPageDirectory(api, agent, value)).id };
+    else if (/^page_[A-Za-z0-9_-]{1,123}$/.test(value)) page = { id: value };
+    else throw new CliError("message send: --page requires an artifact directory or a Page id");
   }
   const nonce = randomUUID();
   return dispatchSendAndArmReminder(api, channel, remindAfterMs, {
@@ -830,7 +836,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
     .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB, or 8 KiB JSON with --ask)")
-    .option("--page <zip>", "publish a Page archive with this message; requires .artifact.json and the artifact files in the zip root")
+    .option("--page <directory-or-id>", "upload an artifact directory or link an existing live Page id")
     .option("--ask", "send a structured decision card from UTF-8 JSON on --stdin with required summary and questions (text channel, thread, or DM)")
     .option(
       "-a, --attachment <id>",
@@ -853,13 +859,14 @@ function buildProgram(stdin: CliInputStream): Command {
       printEnvelope({ success: result });
     });
 
-  program.command("page").description("read or change a published Page through its native file or editor actions")
-    .requiredOption("--id <id>", "Page id from its message card")
-    .requiredOption("--stdin", "operation JSON: actions (native schemas), manifest, read, write (requires if_match), or action")
+  const pageCommand = program.command("page").description("read or change a published Page through its native file or editor actions")
+    .option("--id <id>", "Page id from upload or a message card")
+    .option("--stdin", "operation JSON: actions (native schemas), manifest, read, write (requires if_match), or action")
     .option("--out <path>", "write a read operation's base64 file response to this local path")
     .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
       const opts = this.opts();
+      if (!opts.id || !opts.stdin) throw new CliError("page: --id and --stdin are required for operations");
       const text = await readLiteralInput({ command: "page", stdinSelected: opts.stdin === true, stdin, maxBytes: 2 * 1024 * 1024, strictUtf8: true });
       const operation = AlookPageOperationSchema.parse(JSON.parse(text ?? ""));
       const result = await getApi().page({ id: String(opts.id), operation });
@@ -869,6 +876,31 @@ function buildProgram(stdin: CliInputStream): Command {
         await fs.writeFile(String(opts.out), Buffer.from(result.content, "base64"), { flag: "wx" });
         printEnvelope({ success: { path: opts.out, etag: "etag" in result ? result.etag : undefined } });
       } else printEnvelope({ success: result });
+    });
+
+  pageCommand.command("upload").description("validate and upload an artifact directory; return its reusable live Page id")
+    .requiredOption("--dir <directory>", "directory containing .artifact.json and artifact files")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      printEnvelope({ success: await uploadPageDirectory(getApi(), agentId(program.opts()), String(this.opts().dir)) });
+    });
+
+  pageCommand.command("list").description("list Pages created by this bot, including unused uploads; return the total and message counts")
+    .option("--limit <n>", "page size, 1..100 (default 50)").option("--cursor <cursor>", "nextCursor from the previous result")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const opts = this.opts();
+      const limit = opts.limit === undefined ? undefined : Number(opts.limit);
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) throw new CliError("page list: --limit must be an integer from 1 to 100");
+      printEnvelope({ success: await getApi().pageList({ ...(limit === undefined ? {} : { limit }), ...(opts.cursor ? { cursor: String(opts.cursor) } : {}) }) });
+    });
+  pageCommand.command("delete").description("permanently delete a Page created by this bot and all its message associations")
+    .option("--id <id>", "required Page id to delete")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const id = this.opts().id ?? pageCommand.opts().id;
+      if (!id) throw new CliError("page delete: --id is required");
+      printEnvelope({ success: await getApi().pageDelete({ id: String(id) }) });
     });
 
   const property = message.command("property").description("message property operations").exitOverride();

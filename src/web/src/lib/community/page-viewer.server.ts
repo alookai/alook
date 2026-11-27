@@ -50,14 +50,14 @@ export function pageTicketHash(token: string): string | null {
   return /^[A-Za-z0-9_-]{43}$/.test(token) ? createHash("sha256").update(token).digest("hex") : null
 }
 
-export async function issuePageViewer(db: Database, pageId: string, userId: string, origin: string, nowMs = Date.now()) {
-  const page = await queries.communityPage.getReadablePage(db, pageId, userId)
+export async function issuePageViewer(db: Database, pageId: string, userId: string, origin: string, nowMs = Date.now(), sourceMessageId?: string) {
+  const page = await queries.communityPage.getReadablePage(db, pageId, userId, sourceMessageId)
   if (!page) return null
   const token = randomBytes(32).toString("base64url")
   const hash = pageTicketHash(token)!
   const expiresAt = new Date(nowMs + PAGE_VIEWER_TTL_MS).toISOString()
   await queries.communityPage.createPageViewerTicket(db, {
-    hash, userId, pageId, origin, expiresAt, now: new Date(nowMs).toISOString(),
+    hash, userId, pageId, origin, sourceMessageId: page.messageId, expiresAt, now: new Date(nowMs).toISOString(),
   })
   const url = new URL(`/alook/open/${encodeURIComponent(page.artifactId)}`, origin)
   url.hash = new URLSearchParams({ ticket: token }).toString()

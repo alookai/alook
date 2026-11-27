@@ -22,7 +22,9 @@ export function getAlookPageEmbeds(embeds: readonly unknown[] | undefined): Aloo
   return [...pages.values()];
 }
 
-export const AlookPageCommentSchema = z.strictObject({
+export const AlookPageSourceSchema = z.strictObject({ sourceMessageId: z.string().min(1).max(128).optional() });
+
+export const AlookPageCommentSchema = AlookPageSourceSchema.extend({
   text: z.string().trim().min(1).max(8000),
   location: z.string().trim().min(1).max(1024).optional(),
 });

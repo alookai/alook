@@ -3,7 +3,7 @@ import { AlookPageOperationSchema, queries, readBoundedJsonRequest } from "@aloo
 import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 import { getPrimaryDb } from "@/lib/db"
-import { requireMessageSurfaceCommunicationAccess } from "@/lib/community/permissions"
+import { pageAccessRole } from "@/lib/community/page-access.server"
 import { fetchPageHost, pageHostOrigin } from "@/lib/community/page-viewer.server"
 
 export const POST = withAuth(communityActorPolicy(), async (req, ctx) => {
@@ -16,8 +16,7 @@ export const POST = withAuth(communityActorPolicy(), async (req, ctx) => {
   const page = await queries.communityPage.getPublishedPage(db, ctx.params!.id!, bot.bot.userId)
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 })
   if (parsed.data.kind === "write" || parsed.data.kind === "action") {
-    const access = await requireMessageSurfaceCommunicationAccess(db, page.channelId, bot.bot.userId)
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status })
+    if (await pageAccessRole(db, page.artifactId, bot.bot.userId) !== "editor") return NextResponse.json({ error: "Page is read only" }, { status: 403 })
   }
   const origin = pageHostOrigin(ctx.env.ALOOK_PAGE_ORIGIN)
   if (!origin || !ctx.env.ALOOK_PAGE_HOST || !ctx.env.ALOOK_PAGE_SERVICE_KEY || Buffer.byteLength(ctx.env.ALOOK_PAGE_SERVICE_KEY) < 32) return NextResponse.json({ error: "Page host unavailable" }, { status: 503 })

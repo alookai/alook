@@ -13,7 +13,7 @@ export async function sendPageComment(
   input: { text: string; location?: string; nonce?: string },
   contract: CommunityContract = COMMUNITY_RESOURCE_CONTRACT_VERSION,
 ) {
-  const bot = await queries.user.getUserPublic(db, page.botId)
+  const bot = await queries.user.getUserPublic(db, page.sourceBotId)
   const thread = page.channelType === "forum"
     ? await queries.communityChannel.getThreadChannelByParentMessage(db, page.channelId, page.messageId)
     : null

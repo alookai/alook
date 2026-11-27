@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -29,13 +30,15 @@ export function alookPluginFetch(env: ProductEnv): typeof fetch | undefined {
 }\n`;
 });
 patch("packages/host-cloudflare/src/site.ts", (text) => {
+  text = `import { currentPageSource } from ${JSON.stringify(resolve(here, "src/source-context.mjs"))};\n${text}`;
+  text = replaceOnce(text, "const token = await signPageToken(claims, config.signingKeys);", "const token = await signPageToken({ ...claims, sourceMessageId: currentPageSource() }, config.signingKeys);");
   text = replaceOnce(text, "import { startCloudflarePlugins, type PluginModules }", "import { alookPluginFetch, startCloudflarePlugins, type PluginModules }");
   return replaceOnce(text, "vars: stringVars(env),\n        modules:", "vars: stringVars(env),\n        fetch: alookPluginFetch(env),\n        modules:");
 });
 patch("packages/host-cloudflare/src/worker.ts", (text) => {
   text = `import { deliverPageRequest } from ${JSON.stringify(resolve(here, "src/comments.mjs"))};\n${text}`;
   text = replaceOnce(text, "    host = createProductRoomHost({", "    host = createProductRoomHost({\n      accessMaxAgeMs: 0,");
-  text = replaceOnce(text, "    this.#host = host;", "    host.host.typeApi.wake = (id, body) => deliverPageRequest(env, id, body);\n    host.host.mayAskAgent = (_id, viewer) => viewer.role === 'editor';\n    host.host.dataRefresh = async (id, viewer, request) => { await deliverPageRequest(env, id, { requests: [{ id: crypto.randomUUID(), text: 'Refresh live data' + (request.queries ? ': ' + JSON.stringify(request.queries) : ''), from: { userId: viewer.id, name: viewer.name, role: viewer.role } }] }); return { online: false }; };\n    this.#host = host;");
+  text = replaceOnce(text, "    this.#host = host;", "    host.host.typeApi.wake = (id, body) => deliverPageRequest(env, id, body);\n    host.host.mayAskAgent = (_id, viewer) => viewer.role === 'editor';\n    host.host.dataRefresh = async (id, viewer, request) => { await deliverPageRequest(env, id, { requests: [{ id: crypto.randomUUID(), text: 'Refresh live data' + (request.queries ? ': ' + JSON.stringify(request.queries) : ''), from: { userId: viewer.id, sourceMessageId: viewer.sourceMessageId, name: viewer.name, role: viewer.role } }] }); return { online: false }; };\n    this.#host = host;");
   text = replaceOnce(text, "import { startCloudflarePlugins }", "import { alookPluginFetch, startCloudflarePlugins }");
   text = replaceOnce(text, "const ROOM_IMPORT_MAX_BYTES = 256 * 1024 * 1024;", "const ROOM_IMPORT_MAX_BYTES = 32 * 1024 * 1024;");
   text = replaceOnce(text, "const ROOM_IMPORT_MAX_FILES = 20_000;", "const ROOM_IMPORT_MAX_FILES = 2000;");
@@ -73,13 +76,34 @@ patch("packages/host-cloudflare/src/room.ts", text => {
   }
   private async alookImportNew(bytes: Uint8Array, options: { id: string; limits?: ImportLimits }): Promise<{ type: string; title: string }> {`);
 });
-patch("packages/protocol/src/wake.ts", text => replaceOnce(text, "export interface WakeSender {", "export interface WakeSender {\n  userId?: string;"));
+patch("packages/protocol/src/wake.ts", text => replaceOnce(text, "export interface WakeSender {", "export interface WakeSender {\n  userId?: string;\n  sourceMessageId?: string;"));
 patch("packages/host-cloudflare/src/frames.ts", text => {
-  text = replaceOnce(text, "{ name: string; role: ArtifactRole } | undefined =>", "{ name: string; role: ArtifactRole; userId?: string } | undefined =>");
-  return replaceOnce(text, "{ name: by.name, role: placed?.role ?? 'editor' }", "{ name: by.name, role: placed?.role ?? 'editor', ...(placed?.ref.kind === 'user' ? { userId: placed.ref.id } : {}) }");
+  text = replaceOnce(text, "export interface PlacedPage {", "export interface PlacedPage {\n  sourceMessageId?: string;");
+  text = replaceOnce(text, "{ name: string; role: ArtifactRole } | undefined =>", "{ name: string; role: ArtifactRole; userId?: string; sourceMessageId?: string } | undefined =>");
+  return replaceOnce(text, "{ name: by.name, role: placed?.role ?? 'editor' }", "{ name: by.name, role: placed?.role ?? 'editor', ...(placed?.ref.kind === 'user' ? { userId: placed.ref.id, sourceMessageId: placed.sourceMessageId } : {}) }");
 });
-patch("packages/type-server/src/server.ts", text => replaceOnce(text, "{ name: who.name, role: who.role });", "{ name: who.name, role: who.role, userId: who.id });"));
-patch("packages/type-server/src/db-host.ts", text => replaceOnce(text, "{ name: as.name, role: as.role } : undefined", "{ name: as.name, role: as.role, userId: as.id } : undefined"));
+patch("packages/type-server/src/server.ts", text => {
+  text = replaceOnce(text, "{ name: who.name, role: who.role });", "{ name: who.name, role: who.role, userId: who.id, sourceMessageId: who.sourceMessageId });");
+  return replaceOnce(text, "{ name: who.name, client: author, id: who.id, role: who.role }", "{ name: who.name, client: author, id: who.id, role: who.role, sourceMessageId: who.sourceMessageId }");
+});
+patch("packages/type-server/src/db-host.ts", text => {
+  text = replaceOnce(text, "export interface DbGuest {", "export interface DbGuest {\n  sourceMessageId?: string;");
+  return replaceOnce(text, "{ name: as.name, role: as.role } : undefined", "{ name: as.name, role: as.role, userId: as.id, sourceMessageId: as.sourceMessageId } : undefined");
+});
+patch("packages/runtime/src/capabilities.ts", text => replaceOnce(text, "export interface Viewer {", "export interface Viewer {\n  sourceMessageId?: string;"));
+patch("packages/host/src/core/page-token.ts", text => {
+  text = replaceOnce(text, "export interface PageTokenClaims {", "export interface PageTokenClaims {\n  sourceMessageId?: string;");
+  text = replaceOnce(text, "a: claims.a, p: claims.p,", "sourceMessageId: claims.sourceMessageId, a: claims.a, p: claims.p,");
+  text = replaceOnce(text, "  if (v.s !== undefined", "  if (v.sourceMessageId !== undefined && (typeof v.sourceMessageId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(v.sourceMessageId))) return null;\n  if (v.s !== undefined");
+  return replaceOnce(text, "return { a: v.a, p: v.p,", "return { sourceMessageId: v.sourceMessageId as string | undefined, a: v.a, p: v.p,");
+});
+patch("packages/host-cloudflare/src/room-host.ts", text => {
+  text = replaceOnce(text, "return placed(found, ref, opaque);", "return { ...placed(found, ref, opaque), sourceMessageId: claims.sourceMessageId };");
+  return replaceOnce(text, "return { title: artifact.title, type: artifact.type, viewer, principal: ref };", "return { title: artifact.title, type: artifact.type, viewer: { ...viewer, sourceMessageId: claims.sourceMessageId }, principal: ref };");
+});
+patch("packages/shell/src/lib/api.ts", text => replaceOnce(text,
+  "    let response: Response;",
+  "    const source = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('sourceMessageId');\n    if (source) { const headers = new Headers(init.headers); headers.set('x-alook-source-message', source); init.headers = headers; }\n    let response: Response;"));
 patch("packages/type-server/src/agent.ts", text => {
   text = replaceOnce(text, "  if (daemon && request.deliver === 'send') {", "  if (daemon) {");
   text = replaceOnce(text, "        text: request.text,", "        text: request.deliver === 'stage' ? 'Prepared request; wait for confirmation before acting.\\n\\n' + request.text : request.text,");
@@ -92,16 +116,17 @@ writeFileSync(entry, `
 import BUILD from 'open-artifact:build';
 import PLUGINS from 'open-artifact:plugins';
 import { Site } from './site.ts';
-import { authenticate, startSession } from '@open-artifact/host';
+import { authenticate, startSession, purgeArtifact } from '@open-artifact/host';
 import { actionsOfType } from '@open-artifact/type-server';
 import { frameActions } from '@open-artifact/server-sdk/frame/core';
+import { withPageSource } from ${JSON.stringify(resolve(here, "src/source-context.mjs"))};
 import { handlePageHostRequest } from ${JSON.stringify(resolve(here, "src/host.mjs"))};
 export { ArtifactObject, SiteHubObject } from './worker.ts';
 let site: Site | null = null;
 export default {
   async fetch(request, env, ctx) {
     site ??= new Site(env, BUILD, { pluginModules: PLUGINS });
-    return handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, actionsOfType: type => type === 'page' ? Object.entries(frameActions).map(([name, action]) => ({ name, title: action.title, effect: action.effect, schema: action.schema })) : actionsOfType(type) });
+    return withPageSource(request, () => handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, purgeArtifact, actionsOfType: type => type === 'page' ? Object.entries(frameActions).map(([name, action]) => ({ name, title: action.title, effect: action.effect, schema: action.schema })) : actionsOfType(type) }));
   },
   async scheduled(event, env, ctx) {
     site ??= new Site(env, BUILD, { pluginModules: PLUGINS });
@@ -114,8 +139,11 @@ patch("deploy/cloudflare/build.mjs", (text) => replaceOnce(text,
   "entryPoints: [join(pkg, entry)],",
   `entryPoints: [entry === 'worker.ts' ? ${JSON.stringify(entry)} : join(pkg, entry)],`));
 
-if (!existsSync(resolve(upstream, "dist/daemon/frame-host/client/runtime.js")) || !existsSync(resolve(upstream, "dist/server/editors"))) {
+const recipe = createHash("sha256").update(readFileSync(new URL(import.meta.url))).digest("hex");
+const receipt = resolve(upstream, ".alook-build-recipe");
+if (!existsSync(receipt) || readFileSync(receipt, "utf8") !== recipe || !existsSync(resolve(upstream, "dist/server/editors"))) {
   run("npm", ["run", "build"]);
+  writeFileSync(receipt, recipe);
 }
 run("node", ["build.mjs"], resolve(upstream, "deploy/cloudflare"), {
   OA_PLUGINS_MODULE: resolve(here, "src/plugins.mjs"),

@@ -2507,17 +2507,57 @@ describe("platform feedback stdin", () => {
 it("publishes a Page through the ordinary upload and message send, retaining reminder behavior", async () => {
   const fs = await import("node:fs/promises");
   const folder = await fs.mkdtemp(join(tmpdir(), "page-cli-"));
-  const file = join(folder, "page.zip");
-  await fs.writeFile(file, "synthetic archive");
+  await fs.writeFile(join(folder, ".artifact.json"), JSON.stringify({ type: "page", title: "Test" }));
+  await fs.writeFile(join(folder, "index.html"), "<title>Test</title>");
+  const file = folder;
   const upload = vi.fn(async () => ({ id: "archive-id", filename: "page.zip", contentType: "application/zip", size: 17 }));
   const send = vi.fn(stubApi().send);
-  setApiForTesting(stubApi({ attachmentUpload: upload, send }));
+  const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_existing", type: "page", title: "Test" }));
+  setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, send }));
   try {
     expect(await mainWithStdin(["message", "send", "--page", file, "--target", "/s#0042/general", "--stdin", "--remind-after", "5m"], "Review this Page")).toBe(0);
     expect(upload).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ page: { archiveAttachmentId: "archive-id" }, content: { text: "Review this Page" }, nonce: expect.any(String) }));
+    expect(pageCreate).toHaveBeenCalledWith({ archiveAttachmentId: "archive-id" });
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ page: { id: "page_existing" }, content: { text: "Review this Page" }, nonce: expect.any(String) }));
     expect(mockArmMessageReminder).toHaveBeenCalledWith(expect.objectContaining({ remindAfterMs: 300_000 }));
   } finally { await fs.rm(folder, { recursive: true, force: true }); }
+});
+
+it("reuses a live Page id without a file upload or resource creation", async () => {
+  const upload = vi.fn(); const pageCreate = vi.fn(); const send = vi.fn(stubApi().send);
+  setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, send }));
+  await mainWithStdin(["message", "send", "--page", "page_shared", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], "Shared");
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ page: { id: "page_shared" } }));
+  expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
+});
+
+it("page upload returns a reusable id and invalid directories fail before any network call", async () => {
+  const fs = await import("node:fs/promises"); const folder = await fs.mkdtemp(join(tmpdir(), "page-upload-cli-"));
+  const upload = vi.fn(async () => ({ id: "archive-id", filename: "page.zip", contentType: "application/zip", size: 17 }));
+  const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_uploaded", type: "page", title: "Test" }));
+  setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate }));
+  try {
+    await main(["page", "upload", "--dir", folder]);
+    expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
+    await fs.writeFile(join(folder, ".artifact.json"), JSON.stringify({ type: "page" }));
+    await fs.writeFile(join(folder, "index.html"), "<title>Test</title>");
+    await main(["page", "upload", "--dir", folder]);
+    expect(upload).toHaveBeenCalledOnce(); expect(pageCreate).toHaveBeenCalledWith({ archiveAttachmentId: "archive-id" });
+    expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ success: { id: "page_uploaded" } });
+  } finally { await fs.rm(folder, { recursive: true, force: true }); }
+});
+
+it("lists the bot's own Page total and deletes by id through the canonical resource APIs", async () => {
+  const pageList = vi.fn(async () => ({ total: 3, pages: [] })); const pageDelete = vi.fn(async () => ({ deleted: true as const }));
+  setApiForTesting(stubApi({ pageList, pageDelete }));
+  await main(["page", "list", "--limit", "100", "--cursor", "next-page"]);
+  expect(pageList).toHaveBeenCalledWith({ limit: 100, cursor: "next-page" });
+  expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ success: { total: 3 } });
+  await main(["page", "list", "--limit", "101"]);
+  expect(pageList).toHaveBeenCalledTimes(1);
+  await main(["page", "delete", "--id", "page_owned"]);
+  expect(pageDelete).toHaveBeenCalledWith({ id: "page_owned" });
+  expect(JSON.parse(cap.lines().at(-1)!)).toEqual({ success: { deleted: true } });
 });
 
 it("requires a file version for Page writes before calling the server", async () => {

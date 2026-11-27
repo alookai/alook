@@ -1,10 +1,10 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { NextResponse, type NextRequest } from "next/server"
 import { z } from "zod"
-import { queries, readBoundedJsonRequest } from "@alook/shared"
+import { readBoundedJsonRequest } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
 import { pageServiceAuthorized } from "@/lib/community/page-viewer.server"
-import { requireMessageSurfaceCommunicationAccess } from "@/lib/community/permissions"
+import { pageAccessRole } from "@/lib/community/page-access.server"
 
 const bodySchema = z.strictObject({ subject: z.string().min(1).max(128), artifactId: z.string().min(1).max(128) })
 
@@ -15,7 +15,5 @@ export async function POST(req: NextRequest) {
   const body = bodySchema.safeParse(raw.ok ? raw.value : null)
   if (!body.success) return NextResponse.json({ error: "Invalid Page access request" }, { status: 400 })
   const db = getPrimaryDb(env.DB)
-  const page = await queries.communityPage.getReadablePageForArtifact(db, body.data.artifactId, body.data.subject)
-  const communication = page ? await requireMessageSurfaceCommunicationAccess(db, page.channelId, body.data.subject) : null
-  return NextResponse.json({ role: page ? communication?.ok ? "editor" : "viewer" : null }, { headers: { "Cache-Control": "private, no-store" } })
+  return NextResponse.json({ role: await pageAccessRole(db, body.data.artifactId, body.data.subject) }, { headers: { "Cache-Control": "private, no-store" } })
 }

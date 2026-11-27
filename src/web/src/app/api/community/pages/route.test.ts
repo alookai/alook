@@ -23,6 +23,8 @@ vi.mock("@alook/shared", async () => {
       createPageViewerTicket: (...args: unknown[]) => mocks.register(...args),
       consumePageViewerTicket: (...args: unknown[]) => mocks.consume(...args),
       getReadablePageForArtifact: (...args: unknown[]) => mocks.access(...args),
+      getReadableResource: (...args: unknown[]) => mocks.access(...args),
+      listReadablePageChannels: async () => [{ channelId: "channel" }],
     },
     user: { getUserPublic: (...args: unknown[]) => mocks.user(...args) },
     communityChannel: { getThreadChannelByParentMessage: (...args: unknown[]) => mocks.thread(...args) },
@@ -35,7 +37,7 @@ import { POST as access } from "./access/route"
 import { POST as nativeComment } from "./artifact-comment/route"
 import { POST as comment } from "./[id]/comments/route"
 
-const page = { id: "page", artifactId: "art_page", messageId: "source", botId: "bot", channelId: "channel", channelType: "text", createdAt: "now" }
+const page = { id: "page", artifactId: "art_page", messageId: "source", sourceBotId: "bot", botId: "bot", channelId: "channel", channelType: "text", createdAt: "now" }
 const route = { params: Promise.resolve({ id: "page" }) }
 function request(body: unknown = {}, credential?: string) {
   return new NextRequest("https://alook.invalid/api/community/pages/page", {
@@ -72,7 +74,7 @@ describe("Page viewer authentication", () => {
     const token = new URLSearchParams(url.hash.slice(1)).get("ticket")!
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/)
     expect(result.allowedOrigins).toEqual([url.origin])
-    expect(mocks.read).toHaveBeenCalledWith({}, "page", "reader")
+    expect(mocks.read).toHaveBeenCalledWith({}, "page", "reader", undefined)
     const registered = mocks.register.mock.calls[0]![1]
     expect(registered).toMatchObject({ userId: "reader", pageId: "page", origin: url.origin, hash: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect(JSON.stringify(registered)).not.toContain(token)
@@ -101,7 +103,7 @@ describe("Page viewer authentication", () => {
     expect(mocks.consume).not.toHaveBeenCalled()
     const response = await exchange(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ subject: "reader", name: "A person", pageId: "page", artifactId: "art_page" })
+    expect(await response.json()).toEqual({ subject: "reader", name: "A person", pageId: "page", artifactId: "art_page", sourceMessageId: "source" })
     expect(mocks.consume).toHaveBeenCalledWith({}, expect.stringMatching(/^[0-9a-f]{64}$/), body.origin, expect.any(String))
     mocks.consume.mockResolvedValue(null)
     expect((await exchange(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))).status).toBe(404)
@@ -120,7 +122,7 @@ describe("Page viewer authentication", () => {
     expect((await access(request(body))).status).toBe(401)
     expect(mocks.access).not.toHaveBeenCalled()
     expect(await (await access(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))).json()).toEqual({ role: "editor" })
-    expect(mocks.access).toHaveBeenCalledWith({}, "art_page", "reader")
+    expect(mocks.access).toHaveBeenCalledWith({}, "art_page", "reader", "artifactId")
     mocks.communication.mockResolvedValue({ ok: false, status: 403 })
     expect(await (await access(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))).json()).toEqual({ role: "viewer" })
     mocks.access.mockResolvedValue(null)
@@ -165,7 +167,7 @@ it("native feedback requires the service credential, resolves live source access
   expect((await nativeComment(request(body))).status).toBe(401)
   expect(mocks.send).not.toHaveBeenCalled()
   expect((await nativeComment(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))).status).toBe(201)
-  expect(mocks.access).toHaveBeenCalledWith({}, "art_page", "reader")
+  expect(mocks.access).toHaveBeenCalledWith({}, "art_page", "reader", undefined)
   expect(mocks.send).toHaveBeenCalledWith({}, "reader", mocks.env, { id: "channel" }, expect.objectContaining({ nonce: "native-request", replyToId: "source" }), expect.any(Number))
   mocks.access.mockResolvedValue(null)
   expect((await nativeComment(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))).status).toBe(404)

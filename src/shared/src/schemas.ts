@@ -507,7 +507,7 @@ export const CommunityAgentSendRequestSchema = z
     channel: z.string().min(1),
     content: CommunityAgentMessageContentSchema,
     question: DecisionCardInputSchema.optional(),
-    page: z.strictObject({ archiveAttachmentId: z.string().min(1).max(128) }).optional(),
+    page: z.strictObject({ id: z.string().regex(/^page_[A-Za-z0-9_-]+$/).max(128) }).optional(),
     attachments: z
       .array(z.string().min(1))
       .max(MAX_ATTACHMENTS_PER_MESSAGE)

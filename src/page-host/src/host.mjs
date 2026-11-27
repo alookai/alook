@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { sourceMessageId } from "./source-context.mjs";
 import { alookSubject, alookUserId, alookWebFetch } from "./plugin.mjs";
 
 const artifactIdPattern = /^art_[a-z0-9]{10,40}$/;
@@ -129,13 +130,13 @@ function bootstrap(artifactId, origins) {
 const ticket = new URLSearchParams(location.hash.slice(1)).get('ticket');
 history.replaceState(null, '', location.pathname);
 fetch('/alook/session', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ticket,artifactId:${JSON.stringify(artifactId)}})})
-.then(async response => { if (!response.ok) throw new Error('This Page could not be opened. Return to Alook and try again.'); location.replace('/a/'+${JSON.stringify(artifactId)}); })
+.then(async response => { if (!response.ok) throw new Error('This Page could not be opened. Return to Alook and try again.'); const identity = await response.json(); location.replace('/a/'+${JSON.stringify(artifactId)}+'?'+new URLSearchParams({sourceMessageId:identity.sourceMessageId})); })
 .catch(error => { document.body.textContent=error.message; });`;
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Alook Page</title><body>Opening Page…<script nonce="${nonce}">${script}</script>`;
   return new Response(html, { headers: { ...privateHeaders, "content-type": "text/html; charset=utf-8", "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${origins.join(" ")}` } });
 }
 
-export async function handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, actionsOfType }) {
+export async function handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, actionsOfType, purgeArtifact }) {
   const url = new URL(request.url);
   if (!site.config || site.configError) return json({ error: "Page host unavailable" }, 503);
   try {
@@ -154,7 +155,7 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
       if (!subject) return json({ error: "Unauthorized" }, 401);
       const body = await bodyJson(request, 64 * 1024);
       if (!artifactIdPattern.test(body.id) || typeof body.text !== "string" || !body.text.trim() || body.text.length > 8000) return json({ error: "Invalid Page request" }, 400);
-      const response = await webFetch(env, "/api/community/pages/artifact-comment", { subject, artifactId: body.id, text: body.text });
+      const response = await webFetch(env, "/api/community/pages/artifact-comment", { subject, artifactId: body.id, text: body.text, sourceMessageId: sourceMessageId(request.headers.get("x-alook-source-message")) });
       await response.body?.cancel();
       return response.ok ? json({ via: "link", status: "delivered" }) : json({ error: "Page feedback could not be sent" }, response.status);
     }
@@ -165,11 +166,25 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
       const response = await webFetch(env, "/api/community/pages/viewer-exchange", { ticket: body.ticket, origin: url.origin });
       if (!response.ok) return json({ error: "Page access expired" }, response.status === 404 ? 404 : 503);
       const identity = await bodyJson(response);
-      if (typeof identity.subject !== "string" || !identity.subject || identity.subject.length > 128 || typeof identity.name !== "string" || identity.artifactId !== body.artifactId) return json({ error: "Invalid Page identity" }, 403);
+      if (typeof identity.subject !== "string" || !identity.subject || identity.subject.length > 128 || typeof identity.name !== "string" || identity.artifactId !== body.artifactId || !sourceMessageId(identity.sourceMessageId)) return json({ error: "Invalid Page identity" }, 403);
       const catalog = await site.ready();
       const user = await ensureUser(catalog, identity.subject, identity.name.slice(0, 256));
       const cookie = await startSession(user, request, { catalog, config: site.config, now: () => new Date(), log: () => {} });
-      return json({ ok: true }, 200, { "set-cookie": pageSessionCookie(cookie, url.origin) });
+      return json({ ok: true, sourceMessageId: identity.sourceMessageId }, 200, { "set-cookie": pageSessionCookie(cookie, url.origin) });
+    }
+    const deletion = /^\/alook\/resources\/(art_[a-z0-9]{10,40})$/.exec(url.pathname);
+    if (deletion && request.method === "DELETE") {
+      if (!serviceAuthorized(request, env.ALOOK_PAGE_SERVICE_KEY)) return json({ error: "Unauthorized" }, 401);
+      const subject = request.headers.get("x-alook-subject");
+      if (!subject) return json({ error: "Unauthorized" }, 401);
+      const catalog = await site.ready();
+      const artifact = await catalog.getArtifact(deletion[1]);
+      if (artifact && artifact.ownerUser !== alookUserId(subject)) return json({ error: "Page not found" }, 404);
+      if (artifact) {
+        await catalog.trashArtifact(artifact.id);
+        await purgeArtifact(catalog, id => site.removeArtifact(id), { id: artifact.id, actor: { kind: "user", id: alookUserId(subject) }, reason: "owner" });
+      }
+      return json({ deleted: true });
     }
     const operation = /^\/alook\/operate\/(art_[a-z0-9]{10,40})$/.exec(url.pathname);
     if (operation && request.method === "POST") {
@@ -178,8 +193,13 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
       if (!subject) return json({ error: "Unauthorized" }, 401);
       const catalog = await site.ready();
       const artifact = await catalog.getArtifact(operation[1]);
-      if (!artifact || artifact.ownerUser !== alookUserId(subject) || artifact.trashedAt !== null) return json({ error: "Page not found" }, 404);
+      if (!artifact || artifact.trashedAt !== null) return json({ error: "Page not found" }, 404);
       const body = await bodyJson(request, 2 * 1024 * 1024);
+      const access = await webFetch(env, "/api/community/pages/access", { subject, artifactId: artifact.id });
+      if (!access.ok) { await access.body?.cancel(); return json({ error: "Page access unavailable" }, 503); }
+      const { role } = await bodyJson(access);
+      if (role !== "editor" && role !== "viewer") return json({ error: "Page not found" }, 404);
+      if ((body.kind === "write" || body.kind === "action") && role !== "editor") return json({ error: "Page is read only" }, 403);
       const room = site.room(artifact.id);
       if (body.kind === "actions") return json({ actions: actionsOfType(artifact.type) });
       if (body.kind === "manifest") return json({ files: await room.manifest() });
