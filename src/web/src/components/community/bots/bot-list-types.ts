@@ -43,6 +43,11 @@ export type BotListController = {
   setMembershipsOpen: (open: boolean) => void
   membershipsGeneration: number
   openMemberships: (bot: BotSummary) => void
+  webhooksBot: BotSummary | null
+  webhooksOpen: boolean
+  setWebhooksOpen: (open: boolean) => void
+  webhooksGeneration: number
+  openWebhooks: (bot: BotSummary) => void
   activityBot: BotSummary | null
   activityOpen: boolean
   activityGeneration: number
@@ -85,6 +90,7 @@ export type BotListOverlaySlots = {
   help: React.ReactElement
   edit: React.ReactElement
   memberships: React.ReactElement | null
+  webhooks: React.ReactElement | null
   activity: React.ReactElement
   bug: React.ReactElement | null
   deleteDialog: React.ReactElement

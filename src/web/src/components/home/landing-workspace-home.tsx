@@ -30,7 +30,7 @@ const BOTS: BotSummary[] = ["alli", "cecilia", "claudette", "evan", "devin"].map
   const profile = DEMO_PROFILES.get(`demo-${name}`)!
   return { id: profile.id, name: profile.name!, description: profile.aboutMe!, image: profile.avatar!, avatarVersion: 0, machineId: MACHINE.id, runtime: BOT_BACKENDS[index], modelName: null, reasoningEffort: null, runtimeConfigRevision: 1, isActive: true }
 })
-const emptyOverlays = Object.fromEntries(["billing", "create", "help", "edit", "memberships", "activity", "bug", "deleteDialog", "resetDialog", "resetMachineDialog"].map((key) => [key, <span key={key} />])) as BotListOverlaySlots
+const emptyOverlays = Object.fromEntries(["billing", "create", "help", "edit", "memberships", "webhooks", "activity", "bug", "deleteDialog", "resetDialog", "resetMachineDialog"].map((key) => [key, <span key={key} />])) as BotListOverlaySlots
 
 export function WorkspaceHome({ page, onBack, onDm, onOpenProfile, onMachines }: {
   page: "friends" | "bots" | "machines"
@@ -61,6 +61,7 @@ export function WorkspaceHome({ page, onBack, onDm, onOpenProfile, onMachines }:
     initialError: false, retryInitialLoad: () => {}, retryingInitialLoad: false, isLoading: false, machinesLoading: false, machinesUnknown: false,
     createOpen: false, setCreateOpen: () => {}, editingBot, setEditingBot: edit, editOpen: false, setEditOpen: () => setPanel("Edit bot"),
     membershipBot: null, membershipsOpen: false, setMembershipsOpen: () => {}, membershipsGeneration: 0, openMemberships: openPanel("Servers & channels"),
+    webhooksBot: null, webhooksOpen: false, setWebhooksOpen: () => {}, webhooksGeneration: 0, openWebhooks: openPanel("Webhooks"),
     activityBot: null, activityOpen: false, activityGeneration: 0, openActivity: (bot) => { edit(bot); setPanel("Activity") }, onActivityOpenChange: () => {}, onActivityOpenChangeComplete: () => {},
     bugReportBot: null, setBugReportBot: () => {}, bugReportOpen: false, setBugReportOpen: () => setPanel("Report a problem"),
     confirmDelete: null, setConfirmDelete: (bot) => { edit(bot); setPanel("Delete bot") }, confirmReset: null, setConfirmReset: (bot) => { edit(bot); setPanel("Reset session") },

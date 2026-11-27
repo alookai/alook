@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { AgentHelpGallery } from "@/components/community/onboarding-tiles/agent-help-gallery"
 import { BotMembershipsSheet } from "./bot-memberships-sheet"
+import { BotWebhooksSheet } from "./bot-webhooks-sheet"
 import { BotActivityModal } from "./bot-activity-modal"
 import { BugReportDialog } from "./bug-report-dialog"
 import { CreateBotSheet } from "./create-bot-sheet"
@@ -41,6 +42,7 @@ export function renderBotListOverlaySlots(
       />
     ),
     memberships: controller.membershipBot ? <BotMembershipsSheet key={`memberships:${controller.membershipsGeneration}`} bot={controller.membershipBot} open={controller.membershipsOpen} onOpenChange={controller.setMembershipsOpen} /> : null,
+    webhooks: controller.webhooksBot ? <BotWebhooksSheet key={`webhooks:${controller.webhooksGeneration}`} bot={controller.webhooksBot} open={controller.webhooksOpen} onOpenChange={controller.setWebhooksOpen} /> : null,
     activity: (
       <BotActivityModal
         key={`activity:${controller.activityGeneration}`}

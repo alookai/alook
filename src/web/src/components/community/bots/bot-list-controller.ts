@@ -68,6 +68,15 @@ export function useBotListController(): BotListController {
     setMembershipsGeneration((generation) => generation + 1)
     setMembershipsOpen(true)
   }
+  const [webhooksBotId, setWebhooksBotId] = useAtom(useCreateAtom<string | null>(null))
+  const [webhooksOpen, setWebhooksOpen] = useAtom(useCreateAtom(false))
+  const [webhooksGeneration, setWebhooksGeneration] = useAtom(useCreateAtom(0))
+  const webhooksBot = bots.find((bot) => bot.id === webhooksBotId) ?? null
+  const openWebhooks = (bot: BotSummary) => {
+    setWebhooksBotId(bot.id)
+    setWebhooksGeneration((generation) => generation + 1)
+    setWebhooksOpen(true)
+  }
   const [activityBotId, setActivityBotId] = useAtom(useCreateAtom<string | null>(null))
   const activityBot = bots.find((bot) => bot.id === activityBotId) ?? null
   const setActivityBot = useCallback((bot: BotSummary | null) => setActivityBotId(bot?.id ?? null), [setActivityBotId])
@@ -377,6 +386,11 @@ export function useBotListController(): BotListController {
     setMembershipsOpen,
     membershipsGeneration,
     openMemberships,
+    webhooksBot,
+    webhooksOpen,
+    setWebhooksOpen,
+    webhooksGeneration,
+    openWebhooks,
     activityBot,
     activityOpen,
     activityGeneration,

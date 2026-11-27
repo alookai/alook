@@ -24,6 +24,7 @@ vi.mock("@/components/community/onboarding-tiles/agent-help-gallery", () => ({
 }))
 vi.mock("@/components/community/billing/billing-sheet", () => ({ BillingSheet: host("billing") }))
 vi.mock("./bot-memberships-sheet", () => ({ BotMembershipsSheet: host("memberships") }))
+vi.mock("./bot-webhooks-sheet", () => ({ BotWebhooksSheet: host("webhooks") }))
 vi.mock("./bot-activity-modal", () => ({ BotActivityModal: host("activity") }))
 vi.mock("./bug-report-dialog", () => ({ BugReportDialog: host("bug") }))
 vi.mock("./create-bot-sheet", () => ({ CreateBotSheet: host("create") }))
@@ -97,13 +98,14 @@ describe("renderBotListOverlaySlots", () => {
 
   it("keeps independent overlay identities distinct when their counters and bot ID match", () => {
     const bot = { id: "2", name: "Blake" }
-    const state = controller({ membershipBot: bot, membershipsGeneration: 2, activityGeneration: 2, bugReportBot: bot })
+    const state = controller({ membershipBot: bot, membershipsGeneration: 2, webhooksBot: bot, webhooksGeneration: 2, activityGeneration: 2, bugReportBot: bot })
     const slots = renderBotListOverlaySlots(state)
-    const keys = [slots.memberships!.key, slots.activity.key, slots.bug!.key]
-    expect(new Set(keys).size).toBe(3)
+    const keys = [slots.memberships!.key, slots.webhooks!.key, slots.activity.key, slots.bug!.key]
+    expect(new Set(keys).size).toBe(4)
     const reopened = renderBotListOverlaySlots({ ...state, activityGeneration: 3 })
     expect(reopened.activity.key).not.toBe(slots.activity.key)
     expect(reopened.memberships!.key).toBe(slots.memberships!.key)
+    expect(reopened.webhooks!.key).toBe(slots.webhooks!.key)
     expect(reopened.bug!.key).toBe(slots.bug!.key)
   })
 
@@ -125,6 +127,7 @@ describe("renderBotListOverlaySlots", () => {
       "help",
       "edit",
       "memberships",
+      "webhooks",
       "activity",
       "bug",
       "deleteDialog",

@@ -2,6 +2,10 @@ import { and, asc, desc, eq, gt, isNotNull, lt, lte } from "drizzle-orm"
 import type { Database } from "../../index"
 import { communityScheduleEvent, communityScheduleRun } from "../../community-schedule-schema"
 import {
+  deletePendingPrivateInboxEventsForSource,
+  deletePrivateInboxEventsForSource,
+} from "./bot-private-inbox"
+import {
   advanceNextRunAfterFire,
   computeInitialNextRun,
   normalizeRecurrence,
@@ -353,6 +357,7 @@ export async function updateScheduleEvent(
           eq(communityScheduleRun.status, "pending"),
         ),
       )
+    await deletePendingPrivateInboxEventsForSource(db, "schedule", eventId)
     if (latestRun?.status === "pending") {
       latestRun = await getLatestRunForEvent(db, eventId)
     }
@@ -393,6 +398,7 @@ export async function updateScheduleEvent(
           .returning()
         if (ackedRows[0]) latestRun = mapRunRow(ackedRows[0])
       }
+      await deletePendingPrivateInboxEventsForSource(db, "schedule", eventId)
       if (recurrence === null) {
         nextRunAtMs = null
         occurrenceCount = Math.max(occurrenceCount, 1)
@@ -480,7 +486,9 @@ export async function deleteScheduleEvent(
       ),
     )
     .returning({ id: communityScheduleEvent.id })
-  return deleted.length > 0
+  if (deleted.length === 0) return false
+  await deletePrivateInboxEventsForSource(db, "schedule", eventId)
+  return true
 }
 
 export async function getEarliestNextRunMs(

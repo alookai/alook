@@ -650,3 +650,11 @@ export * from "./community-decision-card";
 export * from "./model-observation";
 export * from "./schedule";
 export type { StoredScheduleEvent, StoredScheduleRun } from "./db/queries/community/schedule";
+export * from "./bot-private-inbox";
+export * from "./bot-private-inbox-dispatch";
+export type {
+  StoredBotPrivateInboxEvent,
+  StoredBotPrivateInboxSummary,
+} from "./db/queries/community/bot-private-inbox";
+export * from "./bot-webhook";
+export type { StoredBotWebhook, StoredBotWebhookDelivery, StoredBotWebhookLastDelivery } from "./db/queries/community/bot-webhook";

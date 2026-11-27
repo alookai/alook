@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 377,
+    "composition": 379,
     "environment": 14,
     "nonvisual": 32,
     "direct": 164
@@ -2208,6 +2208,28 @@
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
     },
     {
+      "source": "src/web/src/components/community/bots/bot-webhooks-sheet.tsx",
+      "application": "Web",
+      "candidates": [
+        "BotWebhooksSheet",
+        "BotWebhooksSheetContent",
+        "CopyableWellField",
+        "CredentialsReveal",
+        "ProviderChooser",
+        "SetupStepsList",
+        "TriggerForm",
+        "TriggerHistoryPanel"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-product-compositions--bots-models-and-privacy",
+          "region": "Activity and memberships > Triggers"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
       "source": "src/web/src/components/community/bots/bug-report-dialog.tsx",
       "application": "Web",
       "candidates": [
@@ -2311,6 +2333,21 @@
         {
           "story": "web-business-product-compositions--bots-models-and-privacy",
           "region": "Reasoning effort: actual effort selector"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/bots/webhook-provider-icon.tsx",
+      "application": "Web",
+      "candidates": [
+        "WebhookProviderIcon"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-product-compositions--bots-models-and-privacy",
+          "region": "Activity and memberships > Triggers: provider marks inside rows and source chooser"
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."

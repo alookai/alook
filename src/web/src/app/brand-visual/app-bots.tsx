@@ -17,6 +17,7 @@ import { BotActivityModal } from "@/components/community/bots/bot-activity-modal
 import { BotActivityHeatmap } from "@/components/community/bots/bot-activity-heatmap"
 import { BotTokenUsageHeatmap } from "@/components/community/bots/bot-token-usage-chart"
 import { BotMembershipsSheet } from "@/components/community/bots/bot-memberships-sheet"
+import { BotWebhooksSheet } from "@/components/community/bots/bot-webhooks-sheet"
 import { BotPiiPanel, BotPiiWorkspace } from "@/components/community/bots/bot-pii-panel"
 import { BotPiiList } from "@/components/community/bots/bot-pii-list"
 import { BotPiiPlayground } from "@/components/community/bots/bot-pii-playground"
@@ -185,6 +186,46 @@ const MEMBERSHIPS = {
   ],
 }
 
+const WEBHOOKS = {
+  webhooks: [
+    {
+      id: "wh-demo-ci",
+      botId: BOT.id,
+      name: "alook CI",
+      provider: "github" as const,
+      hasSigningSecret: true,
+      eventFilter: null,
+      instruction: "Inspect failing CI logs and summarize what broke.",
+      enabled: true,
+      lastTriggeredAt: iso(12),
+      createdAt: iso(60 * 24),
+      updatedAt: iso(12),
+      lastDelivery: {
+        id: "whd-demo-1",
+        status: "dispatched" as const,
+        eventType: "workflow_run.completed",
+        summary: "alookai/alook: CI success (#1488)",
+        lastError: null,
+        createdAt: iso(12),
+      },
+    },
+    {
+      id: "wh-demo-stripe",
+      botId: BOT.id,
+      name: "Stripe",
+      provider: "stripe" as const,
+      hasSigningSecret: false,
+      eventFilter: null,
+      instruction: "",
+      enabled: true,
+      lastTriggeredAt: null,
+      createdAt: iso(60 * 6),
+      updatedAt: iso(60 * 6),
+      lastDelivery: null,
+    },
+  ],
+}
+
 const PII_PLUGINS: PiiPlugin[] = [
   { id: "email", name: "Email addresses", description: "Replaces email addresses with a redaction mark.", enabled: true },
   { id: "phone", name: "Phone numbers", description: "Masks phone numbers in common international formats.", enabled: true },
@@ -225,6 +266,8 @@ function SheetLaunchers() {
   const [activityMounted, setActivityMounted] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [membersMounted, setMembersMounted] = useState(false)
+  const [webhooksOpen, setWebhooksOpen] = useState(false)
+  const [webhooksMounted, setWebhooksMounted] = useState(false)
   const [bug, setBug] = useState<BugReportPhase | null>(null)
   return (
     <>
@@ -241,6 +284,10 @@ function SheetLaunchers() {
             client.setQueryData(communityKeys.botMemberships(BOT.id), MEMBERSHIPS, FRESH)
             setMembersMounted(true); setMembersOpen(true)
           }}>Servers & channels</Button>
+          <Button variant="outline" onClick={() => {
+            client.setQueryData(communityKeys.botWebhooks(BOT.id), WEBHOOKS, FRESH)
+            setWebhooksMounted(true); setWebhooksOpen(true)
+          }}>Triggers</Button>
         </div>
       </Pad></Specimen>
       <Specimen label="Bug report" note="Each dialog phase"><Pad>
@@ -254,6 +301,7 @@ function SheetLaunchers() {
       {editMounted ? <EditBotSheet bot={BOT} open={editOpen} onOpenChange={setEditOpen} /> : null}
       {activityMounted ? <BotActivityModal bot={BOT} open={activityOpen} onOpenChange={setActivityOpen} onOpenChangeComplete={() => {}} /> : null}
       {membersMounted ? <BotMembershipsSheet bot={{ id: BOT.id, name: BOT.name, image: BOT.image }} open={membersOpen} onOpenChange={setMembersOpen} /> : null}
+      {webhooksMounted ? <BotWebhooksSheet bot={{ id: BOT.id, name: BOT.name, image: BOT.image }} open={webhooksOpen} onOpenChange={setWebhooksOpen} /> : null}
       {bug ? (
         <BugReportDialog bot={{ id: BOT.id, name: BOT.name }} open phase={bug} isSubmitting={false}
           reportId={bug === "uploaded" ? "rpt_7F3C2A91" : null} errorCode={bug === "failed" ? "rate_limited" : null}
