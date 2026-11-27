@@ -1,6 +1,5 @@
 "use client"
 
-import { useLayoutEffect } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import {
   BOT_WEBHOOK_GITHUB_DEFAULT_EVENTS,
@@ -686,6 +685,38 @@ export function BotWebhooksSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  return (
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Webhooks"
+      description={
+        <span className="flex min-w-0 items-center gap-2">
+          <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={24} />
+          <span className="min-w-0 truncate" title={bot.name}>
+            {bot.name}
+          </span>
+        </span>
+      }
+      contentTestId={tid.botWebhooksSheet}
+      bodyClassName="flex flex-col gap-6"
+    >
+      <BotWebhooksSheetContent
+        key={`${bot.id}:${open ? "open" : "closed"}`}
+        bot={bot}
+        open={open}
+      />
+    </CommunitySheet>
+  )
+}
+
+function BotWebhooksSheetContent({
+  bot,
+  open,
+}: {
+  bot: { id: string; name: string; image?: string | null }
+  open: boolean
+}) {
   const webhooksApi = useBotWebhooks(bot.id, open)
   const [editing, setEditing] = useAtom(useCreateAtom<BotWebhookSummary | "new" | null>(null))
   const [revealed, setRevealed] = useAtom(useCreateAtom<RevealedCredentials | null>(null))
@@ -693,15 +724,6 @@ export function BotWebhooksSheet({
   const [confirmRotate, setConfirmRotate] = useAtom(useCreateAtom<BotWebhookSummary | null>(null))
   const [confirmDelete, setConfirmDelete] = useAtom(useCreateAtom<BotWebhookSummary | null>(null))
   const [actionError, setActionError] = useAtom(useCreateAtom<string | null>(null))
-
-  useLayoutEffect(() => {
-    setEditing(null)
-    setRevealed(null)
-    setExpandedDeliveriesId(null)
-    setConfirmRotate(null)
-    setConfirmDelete(null)
-    setActionError(null)
-  }, [bot.id, open, setEditing, setRevealed, setExpandedDeliveriesId, setConfirmRotate, setConfirmDelete, setActionError])
 
   const atLimit = webhooksApi.webhooks.length >= BOT_WEBHOOK_MAX_PER_BOT
 
@@ -726,21 +748,6 @@ export function BotWebhooksSheet({
 
   return (
     <>
-      <CommunitySheet
-        open={open}
-        onOpenChange={onOpenChange}
-        title="Webhooks"
-        description={
-          <span className="flex min-w-0 items-center gap-2">
-            <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={24} />
-            <span className="min-w-0 truncate" title={bot.name}>
-              {bot.name}
-            </span>
-          </span>
-        }
-        contentTestId={tid.botWebhooksSheet}
-        bodyClassName="flex flex-col gap-6"
-      >
         {revealed ? (
           <CredentialsReveal
             revealed={revealed}
@@ -988,7 +995,6 @@ export function BotWebhooksSheet({
             ) : null}
           </>
         )}
-      </CommunitySheet>
 
       <ConfirmDialog
         open={Boolean(confirmRotate)}
