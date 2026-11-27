@@ -346,6 +346,18 @@ describe("tauriInvoke", () => {
     expect(mockInvoke).toHaveBeenCalledWith("cli_check", undefined);
     expect(result).toBe("ok");
   });
+
+  it("forwards raw binary payloads and invoke options headers when provided", async () => {
+    const mockInvoke = vi.fn().mockResolvedValue({ status: "copied" });
+    (globalThis as Record<string, unknown>).window = {
+      __TAURI__: { core: { invoke: mockInvoke } },
+    };
+    const bytes = new Uint8Array([137, 80, 78, 71]);
+    const options = { headers: { "x-attempt-id": "123e4567-e89b-42d3-a456-426614174000" } };
+    const result = await tauriInvoke("mobile_share_image_copy", bytes, options);
+    expect(mockInvoke).toHaveBeenCalledWith("mobile_share_image_copy", bytes, options);
+    expect(result).toEqual({ status: "copied" });
+  });
 });
 
 describe("cliCommand", () => {

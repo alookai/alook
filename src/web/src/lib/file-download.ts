@@ -3,9 +3,9 @@
 import { useCallback } from "react"
 import { useApplicationViewSource } from "@/hooks/use-application-view-source"
 import { QueryObserver, queryOptions, useQuery, CancelledError, type QueryKey } from "@tanstack/react-query"
-import { applicationKey, captureApplicationOwner, assertApplicationOwner, type ApplicationOwner } from "./application-owner"
+import { applicationKey, captureApplicationOwner, assertApplicationOwner, invalidateApplicationAuthentication, type ApplicationOwner } from "./application-owner"
 import { downloadUrl, fileSaveMessage, type FileSaveResult } from "./file-save"
-import { isAbortError } from "./errors"
+import { isAbortError, UnauthorizedError } from "./errors"
 
 type FileDownloadTarget = { name: string; url: string }
 export type FileDownloadState = { status: "idle" } | { status: "downloading" } | FileSaveResult
@@ -27,10 +27,19 @@ function downloadOptions(owner: ApplicationOwner, target: FileDownloadTarget) {
       const assertActive = () => assertApplicationOwner(token, signal)
       assertActive()
       try {
-        const receipt = await downloadUrl(target.url, target.name, { signal, assertActive })
+        const receipt = await downloadUrl(target.url, target.name, {
+          signal,
+          assertActive,
+          authenticationAccount: owner.userId,
+          onUnauthorized: () => invalidateApplicationAuthentication(token, signal),
+        })
         assertActive()
         return receipt
-      } catch (error) { assertActive(); throw error }
+      } catch (error) {
+        if (error instanceof UnauthorizedError) throw error
+        assertActive()
+        throw error
+      }
     },
   })
 }
@@ -59,6 +68,7 @@ export async function startFileDownload(owner: ApplicationOwner, target: FileDow
     assertApplicationOwner(token, signal)
     return receipt
   } catch (error) {
+    if (error instanceof UnauthorizedError) throw error
     if (error instanceof CancelledError || isAbortError(error) || signal?.aborted) return { status: "cancelled" }
     throw error
   } finally {
@@ -81,7 +91,9 @@ export function useFileDownload(target: FileDownloadTarget) {
       onComplete?.(receipt)
       return receipt
     } catch (error) {
-      return isAbortError(error) || error instanceof CancelledError ? { status: "cancelled" } as FileSaveResult : { status: "error", message: "Couldn’t save this file" } as FileSaveResult
+      return isAbortError(error) || error instanceof CancelledError || error instanceof UnauthorizedError
+        ? { status: "cancelled" } as FileSaveResult
+        : { status: "error", message: "Couldn’t save this file" } as FileSaveResult
     }
   }, [view, owner, target])
   const cancel = useCallback(() => { void cancelFileDownload(owner, fileDownloadKey(owner, target)).catch(() => undefined) }, [owner, target])

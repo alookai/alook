@@ -20,7 +20,6 @@ let package = Package(
       dependencies: [.byName(name: "Tauri")],
       path: "Sources",
       linkerSettings: [
-        .linkedFramework("ImageIO"),
         .linkedFramework("Photos"),
         .linkedFramework("UIKit"),
         .linkedFramework("UniformTypeIdentifiers"),

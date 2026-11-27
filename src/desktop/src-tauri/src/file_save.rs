@@ -13,7 +13,7 @@ use std::{
 use unicode_normalization::UnicodeNormalization;
 
 pub const CHUNK_BYTES: usize = 65_536;
-const MAX_BYTES: u64 = 9_007_199_254_740_991;
+pub const MAX_BYTES: u64 = 100 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -123,10 +123,12 @@ impl Drop for Transfer {
 }
 impl Transfer {
     pub fn begin(root: &Path, metadata: Begin) -> Result<Self, String> {
+        if metadata.size.is_some_and(|n| n > MAX_BYTES) {
+            return Err("File too large".into());
+        }
         if !valid_id(&metadata.attempt_id)
             || safe_name(&metadata.name) != metadata.name
             || !valid_mime(&metadata.mime)
-            || metadata.size.is_some_and(|n| n > MAX_BYTES)
         {
             return Err("Invalid file metadata".into());
         }
@@ -332,6 +334,36 @@ mod tests {
         assert_eq!(t.receipt(None).status, "cancelled");
         let root = t.path.parent().unwrap().to_owned();
         drop(t);
+        fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn rejects_declared_size_above_practical_cap() {
+        assert_eq!(MAX_BYTES, 100 * 1024 * 1024);
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let root = std::env::temp_dir().join(format!("alook-save-cap-test-{:x?}", random));
+        let err = Transfer::begin(
+            &root,
+            Begin {
+                attempt_id: "00000000-0000-4000-8000-000000000001".into(),
+                name: "huge.bin".into(),
+                mime: "application/octet-stream".into(),
+                size: Some(MAX_BYTES + 1),
+            },
+        )
+        .err();
+        assert_eq!(err.as_deref(), Some("File too large"));
+        let ok = Transfer::begin(
+            &root,
+            Begin {
+                attempt_id: "00000000-0000-4000-8000-000000000001".into(),
+                name: "exact.bin".into(),
+                mime: "application/octet-stream".into(),
+                size: Some(MAX_BYTES),
+            },
+        )
+        .unwrap();
+        drop(ok);
         fs::remove_dir(root).unwrap();
     }
 }

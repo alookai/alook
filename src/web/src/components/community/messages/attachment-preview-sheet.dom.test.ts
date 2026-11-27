@@ -9,6 +9,7 @@ import {
 } from "./attachment-preview-sheet"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { MAX_PDF_ATTACHMENT_PREVIEW_BYTES } from "@/lib/community/attachment-presentation"
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "@/lib/session-account"
 
 const dynamicMock = vi.hoisted(() => ({
   loaders: [] as Array<() => Promise<unknown>>,
@@ -180,7 +181,11 @@ describe("AttachmentPreviewSheet", () => {
       onOpenChange: vi.fn(),
     }))
     await flush()
-    expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({ credentials: "same-origin", signal: expect.any(AbortSignal) }))
+    expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({
+      credentials: "same-origin",
+      signal: expect.any(AbortSignal),
+      headers: { [SESSION_ACCOUNT_HEADER]: "viewer" },
+    }))
     await waitFor(() => expect(renderer.container.querySelector("[data-markdown]")?.textContent).toBe("# Hello"))
     const download = renderer.container.querySelector<HTMLButtonElement>(
       '[data-testid="community-attachment-preview-download"]',
@@ -194,7 +199,11 @@ describe("AttachmentPreviewSheet", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/attachments/a1", {
+      credentials: "same-origin",
+      signal: expect.any(AbortSignal),
+      headers: { [SESSION_ACCOUNT_HEADER]: "viewer" },
+    })
     await waitFor(() => expect(click).toHaveBeenCalledOnce())
     expect(click.mock.contexts[0]).toEqual(expect.objectContaining({ href: "blob:preview", download: "notes.md" }))
     expect(click).toHaveBeenCalledOnce()
@@ -366,5 +375,41 @@ describe("AttachmentPreviewSheet", () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect([...renderer.container.querySelectorAll("p")]
       .some((node) => node.textContent?.includes("too large"))).toBe(true)
+  })
+
+  it("aborts preview on 409 account mismatch without rendering stale bytes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("mismatch", {
+      status: 409,
+      headers: { [SESSION_ACCOUNT_MISMATCH_HEADER]: "1" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+    const renderer = render(React.createElement(AttachmentPreviewSheet, {
+      attachment: file(),
+      open: true,
+      onOpenChange: vi.fn(),
+    }))
+    await flush()
+    expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({
+      headers: { [SESSION_ACCOUNT_HEADER]: "viewer" },
+    }))
+    expect(renderer.container.querySelector("[data-markdown]")).toBeNull()
+  })
+
+  it("redirects to sign-in on 401 preview responses", async () => {
+    const assign = vi.fn()
+    const realWindow = window
+    vi.stubGlobal("window", new Proxy(realWindow, {
+      get(target, key) {
+        return key === "location" ? { origin: "https://alook.test", assign } : Reflect.get(target, key, target)
+      },
+    }))
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("unauthorized", { status: 401 })))
+    render(React.createElement(AttachmentPreviewSheet, {
+      attachment: file(),
+      open: true,
+      onOpenChange: vi.fn(),
+    }))
+    await flush()
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(new URL("/sign-in", "https://alook.test")))
   })
 })

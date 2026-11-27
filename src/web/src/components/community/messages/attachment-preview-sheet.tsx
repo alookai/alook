@@ -2,7 +2,9 @@
 
 import { EmptyState } from "../empty-state"
 import { useQuery } from "@tanstack/react-query"
-import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
+import { applicationKey, assertApplicationOwner, captureApplicationOwner, invalidateApplicationAuthentication, useApplicationOwner } from "@/lib/application-owner"
+import { fetchAttachmentResponse } from "@/lib/file-save"
+import { UnauthorizedError } from "@/lib/errors"
 import dynamic from "next/dynamic"
 import { FileWarning } from "lucide-react";
 import { CircleCheck, Download, Loader2, RefreshCw } from "@/components/icons/lucide";
@@ -170,14 +172,23 @@ export function AttachmentPreviewSheet({
       assert()
       if (!selected || !presentation?.previewKind) throw new Error("No attachment selected")
       try {
-        const response = await fetch(selected.url, { credentials: "same-origin", signal })
+        const response = await fetchAttachmentResponse(selected.url, {
+          signal,
+          assertActive: assert,
+          authenticationAccount: owner.userId,
+          onUnauthorized: () => invalidateApplicationAuthentication(token, signal),
+        })
         assert()
         const result = presentation.previewKind === "pdf"
           ? { status: "ready" as const, kind: "pdf" as const, content: await readAttachmentBytes(response, maxBytes, signal), error: null }
           : { status: "ready" as const, kind: "text" as const, content: await readAttachmentText(response, maxBytes, signal), error: null }
         assert()
         return result
-      } catch (error) { assert(); throw error }
+      } catch (error) {
+        if (error instanceof UnauthorizedError) throw error
+        assert()
+        throw error
+      }
     },
   }, owner.queryClient)
   const preview: PreviewState = !open || !selected ? IDLE_STATE

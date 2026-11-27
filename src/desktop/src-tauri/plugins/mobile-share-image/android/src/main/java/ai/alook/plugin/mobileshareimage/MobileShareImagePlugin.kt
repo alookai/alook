@@ -18,14 +18,18 @@ import java.util.concurrent.Executors
 @InvokeArg
 class SaveImageArgs {
     lateinit var attemptId: String
-    lateinit var pngBase64: String
+    lateinit var path: String
+    var bytes: Long = -1L
+    lateinit var sha256: String
     lateinit var filename: String
 }
 
 @InvokeArg
 class CopyImageArgs {
     lateinit var attemptId: String
-    lateinit var pngBase64: String
+    lateinit var path: String
+    var bytes: Long = -1L
+    lateinit var sha256: String
 }
 
 @TauriPlugin
@@ -50,7 +54,13 @@ class MobileShareImagePlugin(private val activity: Activity) : Plugin(activity) 
         executor.execute {
             var staged: File? = null
             try {
-                val bytes = MobileShareImage.validateBase64(args.pngBase64)
+                val bytes = MobileShareImage.loadValidatedFile(
+                    context,
+                    args.attemptId,
+                    args.path,
+                    args.bytes,
+                    args.sha256,
+                )
                 val token = UUID.randomUUID().toString().replace("-", "")
                 staged = MobileShareImage.stageClipboard(context, bytes, token)
                 val published = staged
@@ -103,7 +113,13 @@ class MobileShareImagePlugin(private val activity: Activity) : Plugin(activity) 
         logNativeReceive(args.attemptId)
         executor.execute {
             try {
-                val bytes = MobileShareImage.validateBase64(args.pngBase64)
+                val bytes = MobileShareImage.loadValidatedFile(
+                    context,
+                    args.attemptId,
+                    args.path,
+                    args.bytes,
+                    args.sha256,
+                )
                 val filename = MobileShareImage.sanitizeFilename(args.filename)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val destination = MobileShareImage.save(context, bytes, args.attemptId)

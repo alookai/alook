@@ -1,6 +1,8 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
-use std::io::Cursor;
+use sha2::{Digest, Sha256};
+use std::fs::{self, OpenOptions};
+use std::io::{Cursor, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use unicode_normalization::UnicodeNormalization;
 
@@ -8,20 +10,30 @@ pub const MAX_PNG_BYTES: usize = 10 * 1024 * 1024;
 const MAX_DIMENSION: u32 = 16_384;
 const MAX_PIXELS: u64 = 16_777_216;
 const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MobileShareImagePayload {
-    pub attempt_id: String,
-    pub png_base64: String,
-    pub filename: Option<String>,
-}
+pub const STAGING_DIR_NAME: &str = "mobile-share-image-staging";
 
 #[derive(Debug)]
 pub struct ValidatedMobileShareImage {
     pub attempt_id: String,
-    pub png_base64: String,
+    pub bytes: Vec<u8>,
+    pub sha256: String,
     pub filename: String,
+}
+
+#[derive(Debug)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+pub struct StagedMobileShareImage {
+    pub attempt_id: String,
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub sha256: String,
+    pub filename: String,
+}
+
+impl Drop for StagedMobileShareImage {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -70,33 +82,56 @@ impl Drop for MobileShareImageLease<'_> {
     }
 }
 
-pub fn validate_payload(
-    payload: MobileShareImagePayload,
+pub fn decode_header_filename(encoded: &str) -> Result<String, MobileShareImageError> {
+    let input = encoded.as_bytes();
+    let mut decoded = Vec::with_capacity(input.len());
+    let mut index = 0;
+    while index < input.len() {
+        if input[index] == b'%' {
+            if index + 2 >= input.len() {
+                return Err(MobileShareImageError::new(
+                    "invalid_png",
+                    "Invalid filename header encoding",
+                ));
+            }
+            let high = hex_nibble(input[index + 1]).ok_or_else(|| {
+                MobileShareImageError::new("invalid_png", "Invalid filename header encoding")
+            })?;
+            let low = hex_nibble(input[index + 2]).ok_or_else(|| {
+                MobileShareImageError::new("invalid_png", "Invalid filename header encoding")
+            })?;
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(input[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).map_err(|_| {
+        MobileShareImageError::new("invalid_png", "Filename header is not valid UTF-8")
+    })
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+pub fn validate_raw_payload(
+    attempt_id: String,
+    bytes: Vec<u8>,
+    filename: Option<String>,
 ) -> Result<ValidatedMobileShareImage, MobileShareImageError> {
-    if !valid_attempt_id(&payload.attempt_id) {
+    if !valid_attempt_id(&attempt_id) {
         return Err(MobileShareImageError::new(
             "invalid_png",
             "Invalid attempt identifier",
         ));
     }
-    let max_encoded = MAX_PNG_BYTES.div_ceil(3) * 4;
-    if payload.png_base64.is_empty() || payload.png_base64.len() % 4 != 0 {
-        return Err(MobileShareImageError::new(
-            "invalid_png",
-            "Image payload is not valid base64",
-        ));
-    }
-    if payload.png_base64.len() > max_encoded {
-        return Err(MobileShareImageError::new(
-            "image_too_large",
-            "Image exceeds the mobile limit",
-        ));
-    }
-    let bytes = STANDARD
-        .decode(payload.png_base64.as_bytes())
-        .map_err(|_| {
-            MobileShareImageError::new("invalid_png", "Image payload is not valid base64")
-        })?;
     if bytes.is_empty() {
         return Err(MobileShareImageError::new(
             "invalid_png",
@@ -110,11 +145,79 @@ pub fn validate_payload(
         ));
     }
     validate_png(&bytes)?;
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
     Ok(ValidatedMobileShareImage {
-        attempt_id: payload.attempt_id,
-        png_base64: payload.png_base64,
-        filename: sanitize_filename(payload.filename.as_deref().unwrap_or_default()),
+        attempt_id,
+        bytes,
+        sha256,
+        filename: sanitize_filename(filename.as_deref().unwrap_or_default()),
     })
+}
+
+pub fn stage_validated_png(
+    cache_root: &Path,
+    validated: ValidatedMobileShareImage,
+) -> Result<StagedMobileShareImage, MobileShareImageError> {
+    let dir = cache_root.join(STAGING_DIR_NAME);
+    fs::create_dir_all(&dir).map_err(|_| {
+        MobileShareImageError::new("write_failed", "Could not prepare image staging directory")
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).map_err(|_| {
+            MobileShareImageError::new("write_failed", "Could not secure image staging directory")
+        })?;
+    }
+    cleanup_stale_staging_files(&dir, Some(&validated.attempt_id));
+    let path = dir.join(format!("{}.png", validated.attempt_id));
+    let _ = fs::remove_file(&path);
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path).map_err(|_| {
+        MobileShareImageError::new("write_failed", "Could not create staged image file")
+    })?;
+    if file.write_all(&validated.bytes).is_err() || file.sync_all().is_err() {
+        drop(file);
+        let _ = fs::remove_file(&path);
+        return Err(MobileShareImageError::new(
+            "write_failed",
+            "Could not write staged image file",
+        ));
+    }
+    drop(file);
+    Ok(StagedMobileShareImage {
+        attempt_id: validated.attempt_id,
+        path,
+        bytes: validated.bytes.len() as u64,
+        sha256: validated.sha256,
+        filename: validated.filename,
+    })
+}
+
+pub fn cleanup_stale_staging_files(dir: &Path, keep_attempt_id: Option<&str>) {
+    let keep_name = keep_attempt_id.map(|id| format!("{id}.png"));
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if keep_name
+            .as_deref()
+            .is_some_and(|keep| name.to_str() == Some(keep))
+        {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_file() {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn valid_attempt_id(value: &str) -> bool {
@@ -277,12 +380,10 @@ mod tests {
         bytes
     }
 
-    fn payload(bytes: Vec<u8>, filename: Option<&str>) -> MobileShareImagePayload {
-        MobileShareImagePayload {
-            attempt_id: ATTEMPT_ID.to_string(),
-            png_base64: STANDARD.encode(bytes),
-            filename: filename.map(str::to_string),
-        }
+    fn error_code(bytes: Vec<u8>, filename: Option<&str>) -> String {
+        validate_raw_payload(ATTEMPT_ID.to_string(), bytes, filename.map(str::to_string))
+            .unwrap_err()
+            .code
     }
 
     fn crc32(bytes: &[u8]) -> u32 {
@@ -318,10 +419,6 @@ mod tests {
         bytes
     }
 
-    fn error_code(payload: MobileShareImagePayload) -> String {
-        validate_payload(payload).unwrap_err().code
-    }
-
     #[test]
     fn lease_is_app_wide_and_released() {
         let state = MobileShareImageState::default();
@@ -349,6 +446,19 @@ mod tests {
     }
 
     #[test]
+    fn decodes_percent_encoded_header_filenames() {
+        assert_eq!(
+            decode_header_filename("caf%C3%A9%20card.png").unwrap(),
+            "café card.png"
+        );
+        assert_eq!(decode_header_filename("card.png").unwrap(), "card.png");
+        assert_eq!(
+            decode_header_filename("bad%ZZ.png").unwrap_err().code,
+            "invalid_png"
+        );
+    }
+
+    #[test]
     fn attempt_id_must_be_a_canonical_v4_uuid() {
         assert!(valid_attempt_id(ATTEMPT_ID));
         for value in [
@@ -364,27 +474,57 @@ mod tests {
     #[test]
     fn accepts_a_complete_png_and_exact_transport_limit() {
         let valid = encode_png(1, 1);
-        assert!(validate_payload(payload(valid.clone(), Some("card.png"))).is_ok());
+        assert!(validate_raw_payload(
+            ATTEMPT_ID.to_string(),
+            valid.clone(),
+            Some("card.png".to_string())
+        )
+        .is_ok());
 
         let filler = MAX_PNG_BYTES - valid.len() - 12;
         let exact = insert_chunk(valid, b"ruSt", &vec![0; filler]);
         assert_eq!(exact.len(), MAX_PNG_BYTES);
-        assert!(validate_payload(payload(exact, None)).is_ok());
+        assert!(validate_raw_payload(ATTEMPT_ID.to_string(), exact, None).is_ok());
     }
 
     #[test]
-    fn validated_payload_retains_every_native_dispatch_field() {
-        let encoded = STANDARD.encode(encode_png(1, 1));
-        let validated = validate_payload(MobileShareImagePayload {
-            attempt_id: ATTEMPT_ID.to_string(),
-            png_base64: encoded.clone(),
-            filename: Some("card".to_string()),
-        })
+    fn validated_payload_stages_to_private_file_and_cleans_up_on_drop() {
+        let png_bytes = encode_png(1, 1);
+        let validated = validate_raw_payload(
+            ATTEMPT_ID.to_string(),
+            png_bytes.clone(),
+            Some("card".to_string()),
+        )
         .unwrap();
 
         assert_eq!(validated.attempt_id, ATTEMPT_ID);
-        assert_eq!(validated.png_base64, encoded);
         assert_eq!(validated.filename, "card.png");
+        assert_eq!(validated.bytes, png_bytes);
+        assert_eq!(validated.sha256.len(), 64);
+
+        let mut random = [0u8; 8];
+        getrandom::fill(&mut random).unwrap();
+        let cache_root = std::env::temp_dir().join(format!("alook-share-stage-test-{random:x?}"));
+        let staging_dir = cache_root.join(STAGING_DIR_NAME);
+        fs::create_dir_all(&staging_dir).unwrap();
+        let stale = staging_dir.join("stale.png");
+        fs::write(&stale, b"stale").unwrap();
+
+        let staged = stage_validated_png(&cache_root, validated).unwrap();
+        assert!(!stale.exists());
+        assert!(staged.path.exists());
+        assert_eq!(staged.bytes, png_bytes.len() as u64);
+        assert_eq!(fs::read(&staged.path).unwrap(), png_bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&staged.path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let staged_path = staged.path.clone();
+        drop(staged);
+        assert!(!staged_path.exists());
+        fs::remove_dir_all(cache_root).unwrap();
     }
 
     #[test]
@@ -401,25 +541,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_oversize_invalid_and_noncanonical_base64_before_native_dispatch() {
-        let oversized = STANDARD.encode(vec![0; MAX_PNG_BYTES + 1]);
+    fn rejects_oversize_and_empty_or_non_png_bytes_before_native_dispatch() {
         assert_eq!(
-            error_code(MobileShareImagePayload {
-                attempt_id: ATTEMPT_ID.to_string(),
-                png_base64: oversized,
-                filename: None,
-            }),
+            error_code(vec![0; MAX_PNG_BYTES + 1], None),
             "image_too_large"
         );
-        for invalid in ["", "AA", "A===", "****", "aGVsbG8="] {
-            assert_eq!(
-                error_code(MobileShareImagePayload {
-                    attempt_id: ATTEMPT_ID.to_string(),
-                    png_base64: invalid.to_string(),
-                    filename: None,
-                }),
-                "invalid_png"
-            );
+        for invalid in [Vec::new(), b"hello".to_vec(), b"\x89PNG\r\n\x1a\n".to_vec()] {
+            assert_eq!(error_code(invalid, None), "invalid_png");
         }
     }
 
@@ -459,7 +587,7 @@ mod tests {
             invalid_interlace,
             oversized_output,
         ] {
-            assert_eq!(error_code(payload(bytes, None)), "invalid_png");
+            assert_eq!(error_code(bytes, None), "invalid_png");
         }
     }
 
@@ -495,7 +623,7 @@ mod tests {
             duplicate_end,
             trailing,
         ] {
-            assert_eq!(error_code(payload(bytes, None)), "invalid_png");
+            assert_eq!(error_code(bytes, None), "invalid_png");
         }
     }
 }

@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct SaveRequest {
     pub attempt_id: String,
-    pub png_base64: String,
+    pub path: String,
+    pub bytes: u64,
+    pub sha256: String,
     pub filename: String,
 }
 
@@ -12,7 +14,9 @@ pub struct SaveRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CopyRequest {
     pub attempt_id: String,
-    pub png_base64: String,
+    pub path: String,
+    pub bytes: u64,
+    pub sha256: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]

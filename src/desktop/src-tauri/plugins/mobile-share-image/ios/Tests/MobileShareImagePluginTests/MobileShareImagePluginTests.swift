@@ -1,33 +1,102 @@
+import CryptoKit
 import XCTest
 @testable import tauri_plugin_mobile_share_image
 
 final class MobileShareImagePluginTests: XCTestCase {
   private let attempt = "123e4567-e89b-42d3-a456-426614174000"
-  private let pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+  private let pngData = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+  private var stagingRoot: URL!
 
-  func testValidatorAcceptsCompletePNGAndRejectsCorruption() throws {
-    try MobileShareImageValidator.validateAttemptId(attempt)
-    let data = try MobileShareImageValidator.decode(pngBase64)
-    XCTAssertEqual(try MobileShareImageValidator.validateStructure(data), .init(width: 1, height: 1))
+  override func setUpWithError() throws {
+    stagingRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("mobile-share-image-tests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
+  }
 
-    var corrupted = data
-    corrupted[corrupted.index(corrupted.startIndex, offsetBy: 32)] ^= 1
-    XCTAssertThrowsError(try MobileShareImageValidator.validateStructure(corrupted)) { error in
-      XCTAssertEqual(error as? MobileShareImageFailure, .init(
-        code: "invalid_png",
-        message: "Image payload is not a valid PNG"
-      ))
+  override func tearDownWithError() throws {
+    if let stagingRoot {
+      try? FileManager.default.removeItem(at: stagingRoot)
     }
   }
 
-  func testValidatorRejectsNonCanonicalBase64NonPNGAndTrailingBytes() throws {
-    for invalid in ["", "AA", "A===", "****", "aGVsbG8="] {
-      XCTAssertThrowsError(try MobileShareImageValidator.decode(invalid))
+  private func sha256Hex(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  private func stageFile(_ data: Data, attemptId: String? = nil) throws -> (path: String, bytes: UInt64, sha256: String) {
+    let id = attemptId ?? attempt
+    let url = stagingRoot.appendingPathComponent("\(id).png")
+    try data.write(to: url, options: .atomic)
+    return (url.path, UInt64(data.count), sha256Hex(data))
+  }
+
+  func testValidatorLoadsVerifiedStagedPNGAndRejectsTamperingOrTraversal() throws {
+    try MobileShareImageValidator.validateAttemptId(attempt)
+    let staged = try stageFile(pngData)
+    let loaded = try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: staged.path,
+      expectedBytes: staged.bytes,
+      sha256: staged.sha256,
+      allowedRoot: stagingRoot
+    )
+    XCTAssertEqual(loaded, pngData)
+
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: staged.path,
+      expectedBytes: staged.bytes + 1,
+      sha256: staged.sha256,
+      allowedRoot: stagingRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
     }
 
-    var trailing = Data(base64Encoded: pngBase64)!
-    trailing.append(0)
-    XCTAssertThrowsError(try MobileShareImageValidator.validateStructure(trailing))
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: staged.path,
+      expectedBytes: staged.bytes,
+      sha256: String(repeating: "0", count: 64),
+      allowedRoot: stagingRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
+    }
+
+    let escaped = stagingRoot.deletingLastPathComponent().appendingPathComponent("\(attempt).png")
+    try pngData.write(to: escaped, options: .atomic)
+    defer { try? FileManager.default.removeItem(at: escaped) }
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: escaped.path,
+      expectedBytes: staged.bytes,
+      sha256: staged.sha256,
+      allowedRoot: stagingRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
+    }
+  }
+
+  func testValidatorRejectsNonPNGSignatureAndOversizeMetadata() throws {
+    let nonPng = try stageFile(Data("hello world".utf8))
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: nonPng.path,
+      expectedBytes: nonPng.bytes,
+      sha256: nonPng.sha256,
+      allowedRoot: stagingRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
+    }
+
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: nonPng.path,
+      expectedBytes: UInt64(10 * 1024 * 1024 + 1),
+      sha256: nonPng.sha256,
+      allowedRoot: stagingRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "image_too_large")
+    }
   }
 
   func testAttemptIdMustBeCanonicalVersionFourUUID() {
@@ -56,7 +125,10 @@ final class MobileShareImagePluginTests: XCTestCase {
     XCTAssertEqual(MobileShareImageValidator.sanitizeFilename(String(repeating: "a", count: 177)).utf8.count, 180)
   }
 
-  func testCopySettlesOnlyAfterMainThreadPasteboardPublicationAndReleasesBusy() {
+  func testCopySettlesOnlyAfterMainThreadPasteboardPublicationAndReleasesBusy() throws {
+    let staged = try stageFile(pngData)
+    let secondAttempt = "223e4567-e89b-42d3-a456-426614174000"
+    let secondStaged = try stageFile(pngData, attemptId: secondAttempt)
     let pasteboard = FakePasteboard()
     let photos = FakePhotos(status: .denied)
     let queued = expectation(description: "main publication queued")
@@ -65,11 +137,12 @@ final class MobileShareImagePluginTests: XCTestCase {
       worker: DispatchQueue(label: "test.copy.worker"),
       main: { block in publication = block; queued.fulfill() },
       pasteboard: pasteboard,
-      photos: photos
+      photos: photos,
+      stagingRoot: stagingRoot
     )
     let success = expectation(description: "copy success")
     var result: Result<MobileShareImageResult, MobileShareImageFailure>?
-    operations.copy(.init(attemptId: attempt, pngBase64: pngBase64)) {
+    operations.copy(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256)) {
       result = $0
       success.fulfill()
     }
@@ -78,7 +151,7 @@ final class MobileShareImagePluginTests: XCTestCase {
     XCTAssertNil(result)
 
     let busy = expectation(description: "second call busy")
-    operations.copy(.init(attemptId: "223e4567-e89b-42d3-a456-426614174000", pngBase64: pngBase64)) {
+    operations.copy(.init(attemptId: secondAttempt, path: secondStaged.path, bytes: secondStaged.bytes, sha256: secondStaged.sha256)) {
       XCTAssertEqual(try? $0.get(), nil)
       if case .failure(let failure) = $0 { XCTAssertEqual(failure.code, "busy") }
       busy.fulfill()
@@ -90,16 +163,18 @@ final class MobileShareImagePluginTests: XCTestCase {
     XCTAssertEqual(try? result?.get().destination, "clipboard")
   }
 
-  func testPhotosDenialRejectsWithoutAdding() {
+  func testPhotosDenialRejectsWithoutAdding() throws {
+    let staged = try stageFile(pngData)
     let photos = FakePhotos(status: .denied)
     let operations = MobileShareImageOperations(
       worker: DispatchQueue(label: "test.photos.denied"),
       main: { $0() },
       pasteboard: FakePasteboard(),
-      photos: photos
+      photos: photos,
+      stagingRoot: stagingRoot
     )
     let settled = expectation(description: "denied")
-    operations.save(.init(attemptId: attempt, pngBase64: pngBase64, filename: "card.png")) { result in
+    operations.save(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256, filename: "card.png")) { result in
       switch result {
       case .failure(let failure): XCTAssertEqual(failure.code, "permission_denied")
       case .success: XCTFail("Expected permission_denied failure")
@@ -110,19 +185,21 @@ final class MobileShareImagePluginTests: XCTestCase {
     XCTAssertEqual(photos.addCalls, 0)
   }
 
-  func testPhotosSuccessWaitsForAuthorizationAndWriteCompletion() {
+  func testPhotosSuccessWaitsForAuthorizationAndWriteCompletion() throws {
+    let staged = try stageFile(pngData)
     let photos = FakePhotos(status: .notDetermined)
     let operations = MobileShareImageOperations(
       worker: DispatchQueue(label: "test.photos.success"),
       main: { $0() },
       pasteboard: FakePasteboard(),
-      photos: photos
+      photos: photos,
+      stagingRoot: stagingRoot
     )
     let authorizationRequested = expectation(description: "authorization requested")
     photos.onRequest = { authorizationRequested.fulfill() }
     let settled = expectation(description: "saved")
     var result: Result<MobileShareImageResult, MobileShareImageFailure>?
-    operations.save(.init(attemptId: attempt, pngBase64: pngBase64, filename: "..card.PNG.png")) {
+    operations.save(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256, filename: "..card.PNG.png")) {
       result = $0
       settled.fulfill()
     }
@@ -136,17 +213,19 @@ final class MobileShareImagePluginTests: XCTestCase {
     XCTAssertEqual(try? result?.get().destination, "photos")
   }
 
-  func testPasteboardFailureReleasesBusyForImmediateRetry() {
+  func testPasteboardFailureReleasesBusyForImmediateRetry() throws {
+    let staged = try stageFile(pngData)
     let pasteboard = FakePasteboard()
     pasteboard.failuresRemaining = 1
     let operations = MobileShareImageOperations(
       worker: DispatchQueue(label: "test.copy.retry"),
       main: { $0() },
       pasteboard: pasteboard,
-      photos: FakePhotos(status: .denied)
+      photos: FakePhotos(status: .denied),
+      stagingRoot: stagingRoot
     )
     let first = expectation(description: "copy failure")
-    operations.copy(.init(attemptId: attempt, pngBase64: pngBase64)) { result in
+    operations.copy(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256)) { result in
       switch result {
       case .failure(let failure): XCTAssertEqual(failure.code, "write_failed")
       case .success: XCTFail("Expected write_failed failure")
@@ -156,7 +235,7 @@ final class MobileShareImagePluginTests: XCTestCase {
     wait(for: [first], timeout: 2)
 
     let second = expectation(description: "copy retry")
-    operations.copy(.init(attemptId: attempt, pngBase64: pngBase64)) { result in
+    operations.copy(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256)) { result in
       XCTAssertEqual(try? result.get().destination, "clipboard")
       second.fulfill()
     }
@@ -164,19 +243,21 @@ final class MobileShareImagePluginTests: XCTestCase {
     XCTAssertEqual(pasteboard.writes, 1)
   }
 
-  func testDuplicatePhotoCompletionSettlesOnceAndReleasesForRetry() {
+  func testDuplicatePhotoCompletionSettlesOnceAndReleasesForRetry() throws {
+    let staged = try stageFile(pngData)
     let photos = FakePhotos(status: .authorized)
     let operations = MobileShareImageOperations(
       worker: DispatchQueue(label: "test.photos.duplicate"),
       main: { $0() },
       pasteboard: FakePasteboard(),
-      photos: photos
+      photos: photos,
+      stagingRoot: stagingRoot
     )
     let firstAdd = expectation(description: "first add")
     photos.onAdd = { firstAdd.fulfill() }
     let firstSettle = expectation(description: "first settle")
     var settleCount = 0
-    operations.save(.init(attemptId: attempt, pngBase64: pngBase64, filename: "card.png")) { _ in
+    operations.save(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256, filename: "card.png")) { _ in
       settleCount += 1
       firstSettle.fulfill()
     }
@@ -188,7 +269,7 @@ final class MobileShareImagePluginTests: XCTestCase {
     let secondAdd = expectation(description: "retry add")
     photos.onAdd = { secondAdd.fulfill() }
     let secondSettle = expectation(description: "retry settle")
-    operations.save(.init(attemptId: attempt, pngBase64: pngBase64, filename: "card.png")) { result in
+    operations.save(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256, filename: "card.png")) { result in
       XCTAssertEqual(try? result.get().destination, "photos")
       secondSettle.fulfill()
     }

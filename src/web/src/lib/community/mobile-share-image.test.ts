@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { tauriInvoke } from "@alook/shared"
 import {
-  MOBILE_SHARE_IMAGE_CHUNK_BYTES,
   MOBILE_SHARE_IMAGE_MAX_BYTES,
   MobileShareImageError,
   copyMobileShareImage,
-  encodeMobileShareImageBytes,
   saveMobileShareImage,
 } from "./mobile-share-image"
 
@@ -15,41 +13,23 @@ function bytes(length: number): Uint8Array {
   return Uint8Array.from({ length }, (_, index) => index % 251)
 }
 
-function decode(value: string): Uint8Array {
-  return Uint8Array.from(atob(value), character => character.charCodeAt(0))
-}
-
 describe("mobile share image transport", () => {
   afterEach(() => {
     vi.mocked(tauriInvoke).mockReset()
     vi.restoreAllMocks()
   })
 
-  it.each([
-    1,
-    2,
-    3,
-    MOBILE_SHARE_IMAGE_CHUNK_BYTES - 1,
-    MOBILE_SHARE_IMAGE_CHUNK_BYTES,
-    MOBILE_SHARE_IMAGE_CHUNK_BYTES + 1,
-    MOBILE_SHARE_IMAGE_CHUNK_BYTES * 2 - 1,
-    MOBILE_SHARE_IMAGE_CHUNK_BYTES * 2,
-    MOBILE_SHARE_IMAGE_CHUNK_BYTES * 2 + 1,
-  ])("round trips %i bytes with final-chunk-only padding", (length) => {
-    const source = bytes(length)
-    const encoded = encodeMobileShareImageBytes(source)
-    expect(decode(encoded)).toEqual(source)
-    expect(encoded.slice(0, -4)).not.toContain("=")
-  })
-
-  it("routes copy through the mobile command with one canonical request", async () => {
-    vi.mocked(tauriInvoke).mockImplementation(async (command, args) => {
-      const payload = (args as { payload: { attemptId: string; pngBase64: string } }).payload
+  it("routes copy through the mobile command with raw binary IPC and attempt header", async () => {
+    vi.mocked(tauriInvoke).mockImplementation(async (command, args, options) => {
+      const headers = options?.headers ?? {}
+      const attemptId = headers["x-attempt-id"]
       expect(command).toBe("mobile_share_image_copy")
-      expect(payload.attemptId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-      expect(decode(payload.pngBase64)).toEqual(bytes(7))
+      expect(attemptId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(headers["x-filename"]).toBeUndefined()
+      expect(args).toBeInstanceOf(Uint8Array)
+      expect(args).toEqual(bytes(7))
       return {
-        attemptId: payload.attemptId,
+        attemptId,
         status: "copied",
         destination: "clipboard",
       }
@@ -61,28 +41,27 @@ describe("mobile share image transport", () => {
     expect(tauriInvoke).toHaveBeenCalledOnce()
   })
 
-  it("routes save with the exact filename and accepts the 10 MiB boundary", async () => {
+  it("routes save with percent-encoded Unicode filename and accepts the 10 MiB boundary", async () => {
     const arrayBuffer = vi.fn(async () => bytes(3).buffer)
     const blob = {
       type: "image/png",
       size: MOBILE_SHARE_IMAGE_MAX_BYTES,
       arrayBuffer,
     } as Blob
-    vi.mocked(tauriInvoke).mockImplementation(async (command, args) => {
-      const payload = (args as {
-        payload: { attemptId: string; filename: string; pngBase64: string }
-      }).payload
+    vi.mocked(tauriInvoke).mockImplementation(async (command, args, options) => {
+      const headers = options?.headers ?? {}
       expect(command).toBe("mobile_share_image_save")
-      expect(payload.filename).toBe("card.png")
-      expect(decode(payload.pngBase64)).toEqual(bytes(3))
+      expect(headers["x-filename"]).toBe(encodeURIComponent("café card.png"))
+      expect(args).toBeInstanceOf(Uint8Array)
+      expect(args).toEqual(bytes(3))
       return {
-        attemptId: payload.attemptId,
+        attemptId: headers["x-attempt-id"],
         status: "saved",
         destination: "photos",
       }
     })
 
-    await expect(saveMobileShareImage(blob, "card.png")).resolves.toMatchObject({
+    await expect(saveMobileShareImage(blob, "café card.png")).resolves.toMatchObject({
       status: "saved",
       destination: "photos",
     })
@@ -106,7 +85,8 @@ describe("mobile share image transport", () => {
     await vi.waitFor(() => expect(tauriInvoke).toHaveBeenCalledOnce())
     expect(settled).toBe(false)
     const call = vi.mocked(tauriInvoke).mock.calls[0]!
-    const id = (call[1] as { payload: { attemptId: string } }).payload.attemptId
+    const id = call[2]?.headers?.["x-attempt-id"]
+    expect(id).toBeTypeOf("string")
     resolve({ attemptId: id, status: "saved", destination: "pictures" })
     await expect(pending).resolves.toEqual({ attemptId: id, status: "saved", destination: "pictures" })
   })

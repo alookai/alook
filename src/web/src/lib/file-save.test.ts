@@ -1,7 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { downloadUrl, saveFile, fileSaveMessage, fileSaveName, FILE_SAVE_CHUNK_BYTES } from "./file-save"
+import {
+  downloadUrl,
+  saveFile,
+  fileSaveMessage,
+  fileSaveName,
+  FILE_SAVE_CHUNK_BYTES,
+  FILE_SAVE_MAX_BYTES,
+} from "./file-save"
+import { UnauthorizedError } from "./errors"
+import { SESSION_ACCOUNT_HEADER, SESSION_ACCOUNT_MISMATCH_HEADER } from "./session-account"
 const bridge = vi.hoisted(() => ({ native: false, invoke: vi.fn() }))
-vi.mock("@alook/shared", () => ({ isTauri: () => bridge.native, tauriInvoke: bridge.invoke }))
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@alook/shared")>(),
+  isTauri: () => bridge.native,
+  tauriInvoke: bridge.invoke,
+}))
 const id = "00000000-0000-4000-8000-000000000001"
 function browser() {
   const anchor = { href: "", download: "", hidden: false, click: vi.fn(), remove: vi.fn() }
@@ -143,5 +156,66 @@ describe("product file save", () => {
     expect(fileSaveName("a\\b\0:c?.txt  ")).toBe("b_c_.txt")
     expect(fileSaveName("...")).toBe("download")
     expect(new TextEncoder().encode(fileSaveName("€".repeat(100))).length).toBeLessThanOrEqual(180)
+  })
+  it("surfaces native busy rejections distinctly from generic save errors", async () => {
+    native()
+    bridge.invoke.mockRejectedValueOnce("busy")
+    const fromRust = await saveFile(new Blob(["a"]), "a.txt")
+    expect(fromRust).toEqual({ status: "error", code: "busy", message: "Another file is already saving" })
+    expect(fileSaveMessage(fromRust)).toBe("Another file is already saving")
+
+    bridge.invoke.mockRejectedValueOnce({ code: "busy" })
+    const fromPlugin = await saveFile(new Blob(["a"]), "a.txt")
+    expect(fromPlugin).toEqual({ status: "error", code: "busy", message: "Another file is already saving" })
+    expect(fileSaveMessage(fromPlugin)).toBe("Another file is already saving")
+  })
+  it("accepts decompressed responses whose body exceeds a stripped compressed content-length", async () => {
+    const anchor = browser()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("decompressed payload", { headers: { "content-length": "4" } })))
+    expect(await downloadUrl("/file", "doc.txt")).toEqual({ status: "started" })
+    expect(anchor.click).toHaveBeenCalledOnce()
+
+    native()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("decompressed payload", { headers: { "content-length": "4" } })))
+    expect((await downloadUrl("/file", "doc.txt")).status).toBe("saved")
+    expect(bridge.invoke).toHaveBeenCalledWith("file_save_begin", { payload: expect.objectContaining({ size: null }) })
+  })
+  it("rejects files larger than the practical save cap before invoking native staging", async () => {
+    native()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("x", {
+      headers: { "content-length": String(FILE_SAVE_MAX_BYTES + 1) },
+    })))
+    expect((await downloadUrl("/file", "huge.bin")).status).toBe("error")
+    expect(bridge.invoke).not.toHaveBeenCalled()
+  })
+  it("fences authenticated attachment fetches with account header, 409 abort, and 401 invalidation", async () => {
+    const RealURL = globalThis.URL
+    browser()
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+    expect(await downloadUrl("/attachments/a1", "a.txt", { authenticationAccount: "user-a" })).toEqual({ status: "started" })
+    expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", {
+      credentials: "same-origin",
+      signal: undefined,
+      headers: { [SESSION_ACCOUNT_HEADER]: "user-a" },
+    })
+
+    fetchMock.mockResolvedValueOnce(new Response("mismatch", {
+      status: 409,
+      headers: { [SESSION_ACCOUNT_MISMATCH_HEADER]: "1" },
+    }))
+    await expect(downloadUrl("/attachments/a1", "a.txt", { authenticationAccount: "user-a" })).rejects.toMatchObject({ name: "AbortError" })
+
+    const assign = vi.fn()
+    vi.stubGlobal("URL", RealURL)
+    vi.stubGlobal("window", { location: { origin: "https://alook.test", assign } })
+    const onUnauthorized = vi.fn().mockResolvedValue(true)
+    fetchMock.mockResolvedValueOnce(new Response("unauthorized", { status: 401 }))
+    await expect(downloadUrl("/attachments/a1", "a.txt", {
+      authenticationAccount: "user-a",
+      onUnauthorized,
+    })).rejects.toBeInstanceOf(UnauthorizedError)
+    expect(onUnauthorized).toHaveBeenCalledOnce()
+    expect(assign).toHaveBeenCalledWith(new RealURL("/sign-in", "https://alook.test"))
   })
 })

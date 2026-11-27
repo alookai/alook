@@ -624,10 +624,11 @@ describe("MessageShareDialog exports", () => {
     await act(async () => copy.click())
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
     expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_copy")
+    expect(invoke.mock.calls[0]![1]).toBeInstanceOf(Uint8Array)
     expect(copy.disabled).toBe(true)
     expect(save.disabled).toBe(true)
     expect(toast.success).not.toHaveBeenCalled()
-    const attemptId = invoke.mock.calls[0]![1].payload.attemptId as string
+    const attemptId = (invoke.mock.calls[0]![2] as { headers: Record<string, string> }).headers["x-attempt-id"]
 
     await act(async () => native.resolve({
       attemptId,
@@ -643,10 +644,10 @@ describe("MessageShareDialog exports", () => {
     ["pictures", "Saved to Pictures/Alook"],
     ["document", "Image saved"],
   ] as const)("maps the mobile %s receipt to exact save feedback", async (destination, feedback) => {
-    const invoke = vi.fn(async (_command: string, args: {
-      payload: { attemptId: string; filename: string }
+    const invoke = vi.fn(async (_command: string, _args: Uint8Array, options: {
+      headers: Record<string, string>
     }) => ({
-      attemptId: args.payload.attemptId,
+      attemptId: options.headers["x-attempt-id"],
       status: "saved",
       destination,
     }))
@@ -657,7 +658,8 @@ describe("MessageShareDialog exports", () => {
 
     expect(invoke).toHaveBeenCalledTimes(1)
     expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_save")
-    expect(invoke.mock.calls[0]![1].payload.filename).toBe("alook-message-Alice.png")
+    expect(invoke.mock.calls[0]![1]).toBeInstanceOf(Uint8Array)
+    expect(decodeURIComponent(invoke.mock.calls[0]![2].headers["x-filename"])).toBe("alook-message-Alice.png")
     expect(toast.success).toHaveBeenCalledWith(feedback)
     expect(toast.error).not.toHaveBeenCalled()
   })
@@ -718,7 +720,7 @@ describe("MessageShareDialog exports", () => {
     })
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
     expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_copy")
-    const attemptId = invoke.mock.calls[0]![1].payload.attemptId as string
+    const attemptId = (invoke.mock.calls[0]![2] as { headers: Record<string, string> }).headers["x-attempt-id"]
     await act(async () => native.resolve({
       attemptId,
       status: "copied",
@@ -739,7 +741,7 @@ describe("MessageShareDialog exports", () => {
       onOpenChange: (open: boolean) => void
     }
     act(() => dialogProps.onOpenChange(false))
-    const attemptId = invoke.mock.calls[0]![1].payload.attemptId as string
+    const attemptId = (invoke.mock.calls[0]![2] as { headers: Record<string, string> }).headers["x-attempt-id"]
     await act(async () => native.resolve({
       attemptId,
       status: "saved",
