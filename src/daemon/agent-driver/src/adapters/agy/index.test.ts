@@ -100,8 +100,10 @@ describe("Antigravity CLI native ACP", () => {
 
   it.each([
     { version: "1.4.12", input: 25, output: 5 },
+    { version: "1.4.15", input: 25, output: 5 },
     { version: "1.5.9", input: 21, output: 8 },
-  ])("normalizes independently observed usage profile $version once", async ({ version, input, output }) => {
+    { version: "1.5.18", input: 21, output: 8 },
+  ])("normalizes verified semver usage profile $version once", async ({ version, input, output }) => {
     const f = fixture({ version });
     try {
       await f.lane.start({ text: "first" });
@@ -111,8 +113,8 @@ describe("Antigravity CLI native ACP", () => {
     } finally { await f.lane.stop(); }
   });
 
-  it("keeps unknown-version usage unavailable without changing verified execution success", async () => {
-    const f = fixture({ version: "1.5.10" });
+  it.each(["1.4.0", "2.0.0", "future"])("keeps unsupported-version (%s) usage unavailable without changing verified execution success", async (version) => {
+    const f = fixture({ version });
     try {
       await f.lane.start({ text: "first" });
       await f.respond(f.prompts[0]!, { stopReason: "end_turn", usage: { inputTokens: 25, outputTokens: 5, cachedReadTokens: 4, thoughtTokens: 3 } });
@@ -543,6 +545,92 @@ describe("Antigravity CLI native ACP", () => {
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("emits internal_progress only when child conversations advance during an active prompt", async () => {
+    const f = fixture({ version: "1.5.18" });
+    let children = [
+      { conversationId: "old-child", stepCount: 10, lastModifiedTime: "2026-11-27 18:00:00.000+00:00" },
+    ];
+    const readActivity = vi.fn(async () => "running" as const);
+    const readChildren = vi.fn(async () => children.map((child) => ({ ...child })));
+    const lane = new AgyAcpLane({ spawn: async () => ({ process: f.process }) }, f.ctx, {
+      activityReader: { activity: readActivity, childProgress: readChildren },
+      activityPollMs: 5,
+    });
+    const events: AdapterEvent[] = [];
+    lane.on("runtime_event", (event) => events.push(event));
+    const subagentProgress = () => events.filter(
+      (event) => event.kind === "internal_progress" && event.source === "agy.native" && event.itemType === "subagent_progress",
+    );
+    try {
+      await lane.start({ text: "launch subagents" });
+      await vi.waitFor(() => expect(readChildren.mock.calls.length).toBeGreaterThanOrEqual(3));
+      expect(subagentProgress()).toHaveLength(0);
+
+      children = [
+        ...children,
+        { conversationId: "sub-1", stepCount: 1, lastModifiedTime: "2026-11-27 18:01:00.000+00:00" },
+      ];
+      await vi.waitFor(() => expect(subagentProgress()).toHaveLength(1));
+
+      const afterSpawn = subagentProgress().length;
+      const callsBeforeStall = readChildren.mock.calls.length;
+      await vi.waitFor(() => expect(readChildren.mock.calls.length).toBeGreaterThanOrEqual(callsBeforeStall + 3));
+      expect(subagentProgress()).toHaveLength(afterSpawn);
+
+      children = [
+        children[0]!,
+        { conversationId: "sub-1", stepCount: 2, lastModifiedTime: "2026-11-27 18:01:05.000+00:00" },
+      ];
+      await vi.waitFor(() => expect(subagentProgress()).toHaveLength(2));
+
+      await f.respond(f.prompts[0]!, { stopReason: "end_turn" });
+      await vi.waitFor(() => expect(endings(events)).toHaveLength(1));
+
+      children = [
+        children[0]!,
+        { conversationId: "sub-1", stepCount: 3, lastModifiedTime: "2026-11-27 18:01:10.000+00:00" },
+      ];
+      const callsAfterIdle = readActivity.mock.calls.length;
+      await vi.waitFor(() => expect(readActivity.mock.calls.length).toBeGreaterThanOrEqual(callsAfterIdle + 3));
+      expect(subagentProgress()).toHaveLength(2);
+    } finally {
+      await lane.stop();
+    }
+  });
+
+  it("delivers subagent internal_progress with the active turnId through the public SDK", async () => {
+    const f = fixture({ version: "1.5.18", pollMs: 5 });
+    let stepCount = 1;
+    vi.spyOn(NativeSessionActivityReader.prototype, "activity").mockResolvedValue("running");
+    vi.spyOn(NativeSessionActivityReader.prototype, "childProgress").mockImplementation(async () => [
+      { conversationId: "sub-sdk", stepCount, lastModifiedTime: `2026-11-27 18:10:0${stepCount}.000+00:00` },
+    ]);
+    vi.spyOn(AgyDriver.prototype, "spawn").mockResolvedValue({ process: f.process, stateHome: f.directory });
+    const host = createFakeAgentDriverHost();
+    const opened = await createAgentDriverSdk({ host }).open({
+      backend: "agy",
+      config: { model: { kind: "default" } },
+      launch: { workingDirectory: f.directory, instructions: { format: "markdown", content: "standing" }, launchId: "subagent-sdk" },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const session = opened.session;
+    const events: Array<{ type: string; turnId?: string; source?: string; itemType?: string }> = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event as never); })();
+    try {
+      await session.start({ id: "first", kind: "user", text: "spawn subagent" });
+      stepCount = 2;
+      await vi.waitFor(() => expect(events.some(
+        (event) => event.type === "internal_progress" && event.source === "agy.native" && event.itemType === "subagent_progress" && typeof event.turnId === "string",
+      )).toBe(true), { timeout: 3_000 });
+      await f.respond(f.prompts[0]!, { stopReason: "end_turn" });
+      await vi.waitFor(() => expect(events.some((event) => event.type === "turn_completed")).toBe(true));
+    } finally {
+      await session.stop({ reason: "shutdown", forceAfterMs: 0 });
+      await session.closed;
+      await collecting;
     }
   });
 });

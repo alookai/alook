@@ -2234,6 +2234,76 @@ describe("AgentProcessManager — session race conditions", () => {
     }
   });
 
+  it("extends the 360s silence budget while agy.native subagent_progress advances and terminates once progress stops", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const { mgr, session } = makeManager({ now: () => currentTime, tickIntervalMs: 5 });
+      const baseSnapshot = session.snapshot.bind(session);
+      session.snapshot = () => ({
+        ...baseSnapshot(),
+        diagnostics: {
+          deliveryPhase: "working",
+          turnSilence: {
+            nativeIdleTimeoutMs: 300_000,
+            daemonGraceMs: 60_000,
+            recoveryGraceMs: 60_000,
+            maxRecoveryExtensions: 1,
+            normalBudgetMs: 360_000,
+          },
+          metrics: {
+            physicalOpenCount: 1,
+            turnCount: 1,
+            commandAdmissionCount: 1,
+            commandAdmissionLatencyTotalMs: 0,
+            queueDwellCount: 0,
+            queueDwellTotalMs: 0,
+            sseReconnectCount: 0,
+            resumeOutcome: "not_requested",
+            terminalOwnerKind: "transport_request",
+          },
+        },
+      });
+      const stop = vi.spyOn(session, "stop");
+      mgr.start();
+      mgr.deliver("a1", { id: "subagent-stall-guard", seq: 1, text: "launch subagents" });
+      session.startResolver?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      currentTime = 200_000;
+      await session.pushAgentEvent({
+        type: "internal_progress",
+        turnId: "test-turn",
+        source: "agy.native",
+        itemType: "subagent_progress",
+      });
+      expect(mgr.snapshot().agents.a1.execution.lease).toMatchObject({ nativeDeadlineAt: 560_000 });
+
+      currentTime = 400_000;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(stop).not.toHaveBeenCalled();
+
+      await session.pushAgentEvent({
+        type: "internal_progress",
+        turnId: "test-turn",
+        source: "agy.native",
+        itemType: "subagent_progress",
+      });
+      expect(mgr.snapshot().agents.a1.execution.lease).toMatchObject({ nativeDeadlineAt: 760_000 });
+
+      currentTime = 759_999;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(stop).not.toHaveBeenCalled();
+
+      currentTime = 760_000;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects stale heartbeat ownership and maps complete semantic events to typed native evidence", async () => {
     let currentTime = 0;
     const { mgr, session } = makeManager({ now: () => currentTime });

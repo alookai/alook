@@ -9,6 +9,70 @@ type PortableSqlite = new(path: string, options: { readonly: boolean; fileMustEx
 type Checkpoint = { index: number; executionId: string | null; lastStepIndex: number };
 type Execution = { executionId: string; reason: number; hasError: boolean; lastStepIndex: number };
 
+type AgySemver = readonly [number, number, number];
+type AgyUsageProfile = {
+  readonly inputIncludesCache: boolean;
+  readonly outputIncludesReasoning: boolean;
+};
+export type NativeChildConversationProgress = {
+  readonly conversationId: string;
+  readonly stepCount: number;
+  readonly lastModifiedTime: string;
+};
+
+const MAX_CHILD_PROGRESS_ROWS = 64;
+
+export function parseAgyVersion(version: string): AgySemver | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/.exec(version.trim());
+  if (!match) return null;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
+    return null;
+  }
+  return [major, minor, patch];
+}
+
+function compareSemver(a: AgySemver, b: AgySemver): number {
+  for (let index = 0; index < 3; index += 1) {
+    if (a[index] !== b[index]) return a[index]! - b[index]!;
+  }
+  return 0;
+}
+
+export function isAgyVersionAtLeast(
+  version: string,
+  min: AgySemver,
+  maxMajorExclusive?: number,
+): boolean {
+  const parsed = parseAgyVersion(version);
+  if (!parsed) return false;
+  if (maxMajorExclusive !== undefined && parsed[0] >= maxMajorExclusive) return false;
+  return compareSemver(parsed, min) >= 0;
+}
+
+export function resolveAgyUsageProfile(version: string): AgyUsageProfile | undefined {
+  const parsed = parseAgyVersion(version);
+  if (!parsed || parsed[0] >= 2) return undefined;
+  if (compareSemver(parsed, [1, 5, 9]) >= 0) {
+    return { inputIncludesCache: false, outputIncludesReasoning: true };
+  }
+  if (compareSemver(parsed, [1, 4, 12]) >= 0) {
+    return { inputIncludesCache: true, outputIncludesReasoning: false };
+  }
+  return undefined;
+}
+
+function readConversationSummaryColumns(db: Database): Set<string> {
+  const rows = db.prepare("PRAGMA table_info(conversation_summaries)").all() as Array<{ name?: unknown }>;
+  const columns = new Set<string>();
+  for (const row of rows) {
+    if (typeof row?.name === "string") columns.add(row.name);
+  }
+  return columns;
+}
+
 export function agyStateHome(env: NodeJS.ProcessEnv, cwd: string): string {
   const home = env.HOME || env.USERPROFILE || homedir();
   return resolve(cwd, env.GEMINI_HOME?.trim().replace(/^~(?=[/\\]|$)/, home) || join(home, ".gemini"));
@@ -120,14 +184,65 @@ export class NativeSessionActivityReader {
     this.path = join(home, "antigravity-cli", "conversation_summaries.db");
   }
   async activity(): Promise<"running" | "idle" | "unknown"> {
-    if (this.version !== "1.5.16") return "unknown";
+    if (!isAgyVersionAtLeast(this.version, [1, 5, 16], 2)) return "unknown";
     const db = await this.openDatabase(this.path);
     try {
+      const columns = readConversationSummaryColumns(db);
+      if (!columns.has("conversation_id") || !columns.has("status") || !columns.has("not_fully_idle")) {
+        return "unknown";
+      }
       const rows = db.prepare("SELECT status,not_fully_idle FROM conversation_summaries WHERE conversation_id = ? LIMIT 1").all(this.sessionId);
       const row = rows[0] as { status?: unknown; not_fully_idle?: unknown } | undefined;
       if (!row || (row.not_fully_idle !== 0 && row.not_fully_idle !== 1)) return "unknown";
       if (row.status === "CASCADE_RUN_STATUS_RUNNING") return "running";
       return row.status === "CASCADE_RUN_STATUS_IDLE" ? row.not_fully_idle ? "running" : "idle" : "unknown";
     } finally { db.close(); }
+  }
+
+  async childProgress(): Promise<readonly NativeChildConversationProgress[] | null> {
+    if (!isAgyVersionAtLeast(this.version, [1, 5, 16], 2)) return null;
+    let db: Database;
+    try { db = await this.openDatabase(this.path); }
+    catch { return null; }
+    try {
+      const columns = readConversationSummaryColumns(db);
+      if (
+        !columns.has("conversation_id")
+        || !columns.has("parent_conversation_id")
+        || !columns.has("step_count")
+        || !columns.has("last_modified_time")
+      ) {
+        return null;
+      }
+      const rows = db.prepare(
+        `SELECT conversation_id,step_count,last_modified_time FROM conversation_summaries WHERE parent_conversation_id = ? ORDER BY last_modified_time DESC LIMIT ${MAX_CHILD_PROGRESS_ROWS}`,
+      ).all(this.sessionId) as Array<{
+        conversation_id?: unknown;
+        step_count?: unknown;
+        last_modified_time?: unknown;
+      }>;
+      const children: NativeChildConversationProgress[] = [];
+      for (const row of rows) {
+        if (typeof row?.conversation_id !== "string" || !row.conversation_id) continue;
+        const stepCount = typeof row.step_count === "number" && Number.isSafeInteger(row.step_count) && row.step_count >= 0
+          ? row.step_count
+          : 0;
+        const lastModifiedTime = typeof row.last_modified_time === "string"
+          ? row.last_modified_time
+          : typeof row.last_modified_time === "number" && Number.isFinite(row.last_modified_time)
+            ? String(row.last_modified_time)
+            : "";
+        children.push({
+          conversationId: row.conversation_id,
+          stepCount,
+          lastModifiedTime,
+        });
+      }
+      return children;
+    } catch {
+      return null;
+    } finally {
+      db.close();
+    }
   }
 }
