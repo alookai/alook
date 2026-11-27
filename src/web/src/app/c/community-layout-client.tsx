@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type ComponentType } from "react"
 import { notFound, usePathname, useRouter, useSearchParams } from "next/navigation"
-import { authClient, useSession } from "@/lib/auth-session"
+import { useSession } from "@/lib/auth-session"
+import { signOut } from "@/lib/auth-client"
 import { capturePersistedAccountIdentity } from "@/lib/persisted-account-identity"
 import { isRejectedSession } from "@/lib/session-rejection"
 import { CommunityAccountPendingFrame } from "@/components/community/shell/community-account-pending-frame"
@@ -73,7 +74,7 @@ function CommunityAccountEntry({ pathname }: { pathname: string }) {
     const redirect = () => router.replace(`/sign-in?${new URLSearchParams({ redirect: destination })}`)
     if (!invalid) { redirect(); return }
     let active = true
-    void authClient.signOut().then(result => {
+    void signOut().then(result => {
       if (!active) return
       if (result.error) setSignOutFailedFor(retry)
       else redirect()

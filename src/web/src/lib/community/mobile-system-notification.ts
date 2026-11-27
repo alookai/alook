@@ -1,5 +1,6 @@
 import { createNotificationActivationDrain } from "./notification-activation-drain";
 import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, isMobile, isTauri, tauriInvoke } from "@alook/shared"
+import { SESSION_ACCOUNT_HEADER } from "@/lib/session-account"
 import { createStore } from "@tanstack/store"
 import { QueryClient } from "@tanstack/react-query"
 
@@ -22,8 +23,77 @@ export type MobileSystemNotificationActivation = {
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const PENDING_UNREGISTRATION_STORAGE_KEY = "alook:mobile-push-pending-unregister:v1"
 const registrationClient = new QueryClient()
 const registrationPolicy = createStore({ suppressed: false })
+
+export type PendingMobilePushUnregistration = {
+  installationId?: string
+  queuedAt: number
+}
+
+function getPendingStorage(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null
+  } catch {
+    return null
+  }
+}
+
+export function readPendingMobileSystemNotificationUnregistration(): PendingMobilePushUnregistration | null {
+  const storage = getPendingStorage()
+  if (!storage) return null
+  try {
+    const raw = storage.getItem(PENDING_UNREGISTRATION_STORAGE_KEY)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (!isObject(parsed) || typeof parsed.queuedAt !== "number" || !Number.isFinite(parsed.queuedAt)) {
+      return null
+    }
+    const installationId = parsed.installationId
+    if (installationId !== undefined) {
+      if (typeof installationId !== "string" || !UUID.test(installationId)) return null
+      return { installationId: installationId.toLowerCase(), queuedAt: parsed.queuedAt }
+    }
+    return { queuedAt: parsed.queuedAt }
+  } catch {
+    return null
+  }
+}
+
+export function queuePendingMobileSystemNotificationUnregistration(installationId?: string): void {
+  if (!isTauri() || !isMobile()) return
+  const storage = getPendingStorage()
+  if (!storage) return
+  const normalizedId = installationId && UUID.test(installationId)
+    ? installationId.toLowerCase()
+    : readPendingMobileSystemNotificationUnregistration()?.installationId
+  const entry: PendingMobilePushUnregistration = {
+    ...(normalizedId ? { installationId: normalizedId } : {}),
+    queuedAt: Date.now(),
+  }
+  try {
+    storage.setItem(PENDING_UNREGISTRATION_STORAGE_KEY, JSON.stringify(entry))
+  } catch {
+    // Best-effort persistence when storage is blocked.
+  }
+}
+
+export function clearPendingMobileSystemNotificationUnregistration(installationId?: string): void {
+  const storage = getPendingStorage()
+  if (!storage) return
+  try {
+    if (installationId) {
+      const existing = readPendingMobileSystemNotificationUnregistration()
+      if (existing?.installationId && existing.installationId !== installationId.toLowerCase()) {
+        return
+      }
+    }
+    storage.removeItem(PENDING_UNREGISTRATION_STORAGE_KEY)
+  } catch {
+    // Ignore storage removal errors.
+  }
+}
 
 function serializeRegistrationMutation<T>(operation: () => Promise<T>): Promise<T> {
   return registrationClient.getMutationCache().build<T, Error, () => Promise<T>, unknown>(registrationClient, { mutationKey: ["native", "notification-registration"], scope: { id: "native-notification-registration" }, gcTime: 0, mutationFn: (run) => run() }).execute(operation)
@@ -207,7 +277,7 @@ export async function dismissMobileSystemNotificationConversation(
 export async function postMobileSystemNotificationRegistration(
   snapshot: MobileSystemNotificationRegistration,
   fetchImpl: typeof fetch = fetch,
-  options: { signal?: AbortSignal; assertActive?: () => void } = {},
+  options: { signal?: AbortSignal; assertActive?: () => void; accountId?: string } = {},
 ): Promise<void> {
   if (!snapshot.providerToken) throw new Error("provider_token_unavailable")
   await serializeRegistrationMutation(async () => {
@@ -217,7 +287,11 @@ export async function postMobileSystemNotificationRegistration(
       method: "POST",
       signal: options.signal,
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+      headers: {
+        "Content-Type": "application/json",
+        [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION),
+        ...(options.accountId ? { [SESSION_ACCOUNT_HEADER]: options.accountId } : {}),
+      },
       body: JSON.stringify({
         installationId: snapshot.installationId,
         platform: snapshot.platform,
@@ -234,17 +308,50 @@ export async function postMobileSystemNotificationRegistration(
   })
 }
 
+export type MobileSystemNotificationUnregistrationProof = {
+  providerToken?: string
+  previousProviderToken?: string
+}
+
 export async function deleteMobileSystemNotificationRegistration(
   installationId: string,
   fetchImpl: typeof fetch = fetch,
-  options: { signal?: AbortSignal; assertActive?: () => void } = {},
+  options: {
+    signal?: AbortSignal
+    assertActive?: () => void
+    accountId?: string
+    providerToken?: string
+    previousProviderToken?: string
+  } = {},
 ): Promise<void> {
   if (!UUID.test(installationId)) throw new Error("invalid_installation_id")
   await serializeRegistrationMutation(async () => {
     options.assertActive?.()
+    const validProviderToken = options.providerToken && isProviderToken(options.providerToken)
+      ? options.providerToken
+      : undefined
+    const validPreviousToken = options.previousProviderToken && isProviderToken(options.previousProviderToken)
+      ? options.previousProviderToken
+      : undefined
+    const proofBody = validProviderToken || validPreviousToken
+      ? JSON.stringify({
+          ...(validProviderToken ? { providerToken: validProviderToken } : {}),
+          ...(validPreviousToken ? { previousProviderToken: validPreviousToken } : {}),
+        })
+      : undefined
     const response = await fetchImpl(
       `/api/community/notifications/devices/${encodeURIComponent(installationId)}`,
-      { method: "DELETE", credentials: "same-origin", signal: options.signal, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } },
+      {
+        method: "DELETE",
+        credentials: "same-origin",
+        signal: options.signal,
+        headers: {
+          [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION),
+          ...(options.accountId ? { [SESSION_ACCOUNT_HEADER]: options.accountId } : {}),
+          ...(proofBody ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(proofBody ? { body: proofBody } : {}),
+      },
     )
     options.assertActive?.()
     if (!response.ok) throw new Error("unregistration_failed")
@@ -253,13 +360,30 @@ export async function deleteMobileSystemNotificationRegistration(
 
 export async function unregisterCurrentMobileSystemNotification(
   fetchImpl: typeof fetch = fetch,
-  options: { signal?: AbortSignal; assertActive?: () => void } = {},
-): Promise<void> {
-  if (!isTauri() || !isMobile()) return
+  options: { signal?: AbortSignal; assertActive?: () => void; accountId?: string } = {},
+): Promise<string | undefined> {
+  if (!isTauri() || !isMobile()) return undefined
   options.assertActive?.()
-  const snapshot = await snapshotMobileSystemNotificationRegistration()
+  let snapshot: MobileSystemNotificationRegistration
+  try {
+    snapshot = await snapshotMobileSystemNotificationRegistration()
+  } catch (error) {
+    queuePendingMobileSystemNotificationUnregistration()
+    throw error
+  }
   options.assertActive?.()
-  await deleteMobileSystemNotificationRegistration(snapshot.installationId, fetchImpl, options)
+  try {
+    await deleteMobileSystemNotificationRegistration(snapshot.installationId, fetchImpl, {
+      ...options,
+      providerToken: snapshot.providerToken,
+      previousProviderToken: snapshot.previousProviderToken,
+    })
+    clearPendingMobileSystemNotificationUnregistration(snapshot.installationId)
+    return snapshot.installationId
+  } catch (error) {
+    queuePendingMobileSystemNotificationUnregistration(snapshot.installationId)
+    throw error
+  }
 }
 
 export type MobileSystemNotificationRegistrationDeps = {
@@ -268,7 +392,22 @@ export type MobileSystemNotificationRegistrationDeps = {
   snapshot: () => Promise<MobileSystemNotificationRegistration>
   register: (snapshot: MobileSystemNotificationRegistration) => Promise<void>
   acknowledge: (providerToken: string) => Promise<void>
-  unregister: (installationId: string) => Promise<void>
+  unregister: (
+    installationId: string,
+    proof?: MobileSystemNotificationUnregistrationProof,
+  ) => Promise<void>
+  readPendingUnregistration?: () => PendingMobilePushUnregistration | null
+  clearPendingUnregistration?: (installationId?: string) => void
+}
+
+function extractUnregistrationProof(
+  snapshot: MobileSystemNotificationRegistration,
+): MobileSystemNotificationUnregistrationProof | undefined {
+  if (!snapshot.providerToken && !snapshot.previousProviderToken) return undefined
+  return {
+    ...(snapshot.providerToken ? { providerToken: snapshot.providerToken } : {}),
+    ...(snapshot.previousProviderToken ? { previousProviderToken: snapshot.previousProviderToken } : {}),
+  }
 }
 
 export function createMobileSystemNotificationRegistrationController(
@@ -278,6 +417,19 @@ export function createMobileSystemNotificationRegistrationController(
     async function runOnce(allowPrompt: boolean) {
         const assert = () => { if (protocol.get().disposed) throw new DOMException("Retired notification registration", "AbortError") }
         assert()
+        const pending = deps.readPendingUnregistration?.() ?? null
+        let cachedSnapshot: MobileSystemNotificationRegistration | undefined
+        if (pending) {
+            cachedSnapshot = await deps.snapshot()
+            assert()
+            const targetInstallationId = pending.installationId ?? cachedSnapshot.installationId
+            const proof = targetInstallationId === cachedSnapshot.installationId
+                ? extractUnregistrationProof(cachedSnapshot)
+                : undefined
+            await deps.unregister(targetInstallationId, proof)
+            assert()
+            deps.clearPendingUnregistration?.(targetInstallationId)
+        }
         let permission = await deps.checkPermission();
         assert()
         if (permission === "prompt" && allowPrompt) {
@@ -286,10 +438,10 @@ export function createMobileSystemNotificationRegistrationController(
         }
         if (permission === "prompt")
             return;
-        const snapshot = await deps.snapshot();
+        const snapshot = cachedSnapshot ?? await deps.snapshot();
         assert()
         if (permission === "denied") {
-            await deps.unregister(snapshot.installationId);
+            await deps.unregister(snapshot.installationId, extractUnregistrationProof(snapshot));
             return;
         }
         if (!snapshot.providerToken)

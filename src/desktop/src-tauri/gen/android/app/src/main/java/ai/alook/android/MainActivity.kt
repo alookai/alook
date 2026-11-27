@@ -1,5 +1,6 @@
 package ai.alook.android
 
+import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.graphics.Rect
 import android.os.Build
@@ -8,7 +9,6 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.Gravity
-import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -18,6 +18,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import ai.alook.plugin.mobileshareimage.MobileShareImageDocumentOwner
@@ -27,8 +28,10 @@ class MainActivity : TauriActivity() {
 
     private var isReady = false
     private var startupFrameReady = false
+    private var pendingCrashNavigationUrl: String? = null
     private var startupBackdrop: ImageView? = null
     @Volatile private var mainWebView: WebView? = null
+    @Volatile private var activeReplyProxy: JavaScriptReplyProxy? = null
     private var systemGestureInsets: Insets? = null
     @Volatile private var systemGestureRegionJson = "null"
     @Volatile private var geometryJson = "null"
@@ -49,47 +52,6 @@ class MainActivity : TauriActivity() {
     companion object {
         const val COLOR_LIGHT = "#FAF6EE"
         const val COLOR_DARK = "#000000"
-
-        const val THEME_OBSERVER_SCRIPT = """
-            (function() {
-                if (window.__alookThemeObserverInstalled) return;
-                window.__alookThemeObserverInstalled = true;
-                function background() {
-                    if (!document.body || !document.body.style) return null;
-                    var published = document.body.style.getPropertyValue('--app-edge-fade-color').trim();
-                    if (!published) return null;
-                    var canvas = document.createElement('canvas');
-                    canvas.width = canvas.height = 1;
-                    var context = canvas.getContext('2d');
-                    if (!context) return null;
-                    context.fillStyle = 'transparent';
-                    context.fillStyle = published;
-                    context.fillRect(0, 0, 1, 1);
-                    var pixels = context.getImageData(0, 0, 1, 1).data;
-                    if (pixels[3] !== 255) return null;
-                    return '#' + Array.from(pixels).slice(0, 3).map(function(value) {
-                        return value.toString(16).padStart(2, '0');
-                    }).join('');
-                }
-                function sync() {
-                    var root = document.documentElement;
-                    var dark = root.classList.contains('dark');
-                    if (!dark && !root.classList.contains('light')) return;
-                    var color = background();
-                    if (window.AlookNative) {
-                        if (color && window.AlookNative.setWindowBackground) window.AlookNative.setWindowBackground(dark, color);
-                        else window.AlookNative.setWindowTheme(dark);
-                    }
-                }
-                document.addEventListener('DOMContentLoaded', sync);
-                window.addEventListener('load', sync);
-                window.addEventListener('alook:theme-color-change', sync);
-                sync();
-                new MutationObserver(sync).observe(document.documentElement, {
-                    attributes: true, attributeFilter: ['class', 'data-tn-mode']
-                });
-            })();
-        """
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,6 +61,12 @@ class MainActivity : TauriActivity() {
         StartupLog.nativeLibraryReady()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         mobileShareImageDocumentOwner.attach(savedInstanceState)
+
+        pendingCrashNavigationUrl = WebviewRecovery.consumePendingCrashNavigationUrl()
+        if (pendingCrashNavigationUrl != null) {
+            startupFrameReady = true
+            isReady = true
+        }
 
         splashScreen.setKeepOnScreenCondition { !isReady }
         splashScreen.setOnExitAnimationListener { provider ->
@@ -142,6 +110,8 @@ class MainActivity : TauriActivity() {
 
     override fun onDestroy() {
         clearStartupAttachListener()
+        pendingCrashNavigationUrl = null
+        activeReplyProxy = null
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = null
         clearStartupBackdrop()
@@ -163,6 +133,7 @@ class MainActivity : TauriActivity() {
         super.onWebViewCreate(webView)
         clearStartupAttachListener()
         clearStartupBackdrop()
+        activeReplyProxy = null
         mainWebView?.removeOnLayoutChangeListener(gestureLayoutListener)
         mainWebView = webView
         webView.setBackgroundColor(Color.TRANSPARENT)
@@ -195,10 +166,62 @@ class MainActivity : TauriActivity() {
             webView.addOnAttachStateChangeListener(listener)
             if (webView.isAttachedToWindow) listener.onViewAttachedToWindow(webView)
         }
-        webView.addJavascriptInterface(ThemeBridge(this, webView), "AlookNative")
+        val isDebug = isDebugBuild()
+        val trustedOrigins = AndroidNativeBridge.allowedOriginRules(isDebug)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(
+                webView,
+                AndroidNativeBridge.BRIDGE_NAME,
+                trustedOrigins,
+            ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
+                if (!isMainFrame || isDestroyed || isFinishing || mainWebView !== view) return@addWebMessageListener
+                if (!AndroidNativeBridge.isAllowedOrigin(sourceOrigin.toString(), isDebug)) return@addWebMessageListener
+                when (val parsed = AndroidNativeBridge.parseMessage(message.data)) {
+                    is AndroidNativeBridge.BridgeMessage.Bootstrap -> {
+                        activeReplyProxy = replyProxy
+                        pushNativeState(replyProxy)
+                    }
+                    is AndroidNativeBridge.BridgeMessage.Theme -> {
+                        val background = parsed.backgroundHex?.let { Color.parseColor(it) }
+                        applyWindowTheme(parsed.dark, background)
+                    }
+                    null -> {}
+                }
+            }
+        }
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(webView, THEME_OBSERVER_SCRIPT, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(
+                webView,
+                AndroidNativeBridge.BRIDGE_AND_THEME_SCRIPT,
+                trustedOrigins,
+            )
+        }
+
+        pendingCrashNavigationUrl?.let { targetUrl ->
+            pendingCrashNavigationUrl = null
+            startupFrameReady = true
+            isReady = true
+            clearStartupBackdrop()
+            clearStartupAttachListener()
+            webView.post {
+                if (mainWebView === webView && !isDestroyed && !isFinishing) {
+                    webView.loadUrl(targetUrl)
+                }
+            }
+        }
+    }
+
+    internal fun handleWebViewRenderProcessGone(deadWebView: WebView) {
+        runOnUiThread {
+            if (isDestroyed || isFinishing || mainWebView !== deadWebView) return@runOnUiThread
+            clearStartupAttachListener()
+            activeReplyProxy = null
+            deadWebView.removeOnLayoutChangeListener(gestureLayoutListener)
+            mainWebView = null
+            (deadWebView.parent as? ViewGroup)?.removeView(deadWebView)
+            deadWebView.destroy()
+            recreate()
         }
     }
 
@@ -297,7 +320,7 @@ class MainActivity : TauriActivity() {
         val nextGeometry = geometry.toJson(windowBounds.height(), chrome.bottom, viewTop)
         if (geometryJson != nextGeometry) {
             geometryJson = nextGeometry
-            webView.evaluateJavascript("window.dispatchEvent(new Event('alook:geometry-change'))", null)
+            pushNativeState()
         }
     }
 
@@ -310,9 +333,28 @@ class MainActivity : TauriActivity() {
         val rootLocation = IntArray(2)
         webView.getLocationInWindow(location)
         root.getLocationInWindow(rootLocation)
-        systemGestureRegionJson = SystemGestureRegion.fromWindow(
+        val nextRegion = SystemGestureRegion.fromWindow(
             root.width, location[0] - rootLocation[0], webView.width, insets.left, insets.right,
         )?.toJson() ?: "null"
+        if (systemGestureRegionJson != nextRegion) {
+            systemGestureRegionJson = nextRegion
+            pushNativeState()
+        }
+    }
+
+    private fun isDebugBuild(): Boolean =
+        (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+    private fun pushNativeState(target: JavaScriptReplyProxy? = activeReplyProxy) {
+        if (isDestroyed || isFinishing || mainWebView == null || target == null) return
+        val payload = AndroidNativeBridge.buildSnapshotPayload(geometryJson, systemGestureRegionJson)
+        runOnUiThread {
+            if (isDestroyed || isFinishing || mainWebView == null) return@runOnUiThread
+            try {
+                target.postMessage(payload)
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     private fun clearStartupAttachListener() {
@@ -331,28 +373,6 @@ class MainActivity : TauriActivity() {
                 isAppearanceLightStatusBars = !dark
                 isAppearanceLightNavigationBars = !dark
             }
-        }
-    }
-
-    class ThemeBridge(private val activity: MainActivity, private val webView: WebView) {
-        @JavascriptInterface
-        fun getGeometrySnapshot(): String = if (activity.mainWebView === webView) activity.geometryJson else "null"
-
-        @JavascriptInterface
-        fun getKeyboardSnapshot(): String = if (activity.mainWebView === webView) "{\"resizesViewport\":true}" else "null"
-
-        @JavascriptInterface
-        fun getSystemGestureRegion(): String = activity.systemGestureRegionJson
-
-        @JavascriptInterface
-        fun setWindowBackground(dark: Boolean, color: String) {
-            if (!color.matches(Regex("^#[0-9a-fA-F]{6}$"))) return
-            activity.applyWindowTheme(dark, Color.parseColor(color))
-        }
-
-        @JavascriptInterface
-        fun setWindowTheme(dark: Boolean) {
-            activity.applyWindowTheme(dark)
         }
     }
 }

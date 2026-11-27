@@ -1,0 +1,20 @@
+{
+  "identifier": "native-geometry-windows",
+  "description": "Read-only native geometry for the trusted main and Windows recovery documents",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "windows"
+  ],
+  "local": true,
+  "remote": {
+    "urls": [
+      "https://alook.ai",
+      "http://alook-recovery.localhost"
+    ]
+  },
+  "permissions": [
+    "allow-native-geometry-snapshot"
+  ]
+}

@@ -27,6 +27,7 @@ import {
 import {
   acknowledgeMobileSystemNotificationRegistration,
   checkMobileSystemNotificationPermission,
+  clearPendingMobileSystemNotificationUnregistration,
   createMobileSystemNotificationActivationController,
   createMobileSystemNotificationRegistrationController,
   deleteMobileSystemNotificationRegistration,
@@ -34,6 +35,7 @@ import {
   dismissMobileSystemNotificationConversation,
   listenMobileSystemNotificationSignals,
   postMobileSystemNotificationRegistration,
+  readPendingMobileSystemNotificationUnregistration,
   requestMobileSystemNotificationPermission,
   resumeMobileSystemNotificationRegistration,
   snapshotMobileSystemNotificationRegistration,
@@ -372,9 +374,11 @@ export function useNativeSystemNotifications(
       checkPermission: () => nativeRead(client, key("mobile", "permission"), original, () => checkMobileSystemNotificationPermission(), true),
       requestPermission: () => nativeCommand(client, key("mobile", "request-permission"), original, requestMobileSystemNotificationPermission),
       snapshot: () => nativeRead(client, key("mobile", "registration"), original, () => snapshotMobileSystemNotificationRegistration(), true),
-      register: (snapshot) => nativeCommand(client, key("mobile", "register"), original, () => postMobileSystemNotificationRegistration(snapshot, fetch, { signal: original.signal, assertActive: original }), true),
+      register: (snapshot) => nativeCommand(client, key("mobile", "register"), original, () => postMobileSystemNotificationRegistration(snapshot, fetch, { signal: original.signal, assertActive: original, accountId: viewerUserId }), true),
       acknowledge: (token) => nativeCommand(client, key("mobile", "acknowledge"), original, () => acknowledgeMobileSystemNotificationRegistration(token), true),
-      unregister: (id) => nativeCommand(client, key("mobile", "unregister", id), original, () => deleteMobileSystemNotificationRegistration(id, fetch, { signal: original.signal, assertActive: original }), true),
+      unregister: (id, proof) => nativeCommand(client, key("mobile", "unregister", id), original, () => deleteMobileSystemNotificationRegistration(id, fetch, { signal: original.signal, assertActive: original, accountId: viewerUserId, ...proof }), true),
+      readPendingUnregistration: readPendingMobileSystemNotificationUnregistration,
+      clearPendingUnregistration: clearPendingMobileSystemNotificationUnregistration,
     })
     const activation = createMobileSystemNotificationActivationController({
       take: () => nativeCommand(client, key("mobile", "take"), original, takeMobileSystemNotificationActivation),

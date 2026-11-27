@@ -7,12 +7,12 @@ export const HTML_PREVIEW_CSP = [
   "style-src https: 'unsafe-inline'",
   "img-src https: data: blob:",
   "font-src https: data:",
-  "connect-src https:",
+  "connect-src 'none'",
   "media-src https: data: blob:",
   "object-src 'none'",
   "frame-src 'none'",
   "base-uri 'none'",
-  "form-action https:",
+  "form-action 'none'",
   "frame-ancestors 'self'",
 ].join("; ")
 
@@ -55,6 +55,7 @@ const BASE_CSS = "html{background:transparent;color:var(--foreground);font-famil
 const BOOTSTRAP = String.raw`(() => {
   const framed = window.parent !== window;
   const themeStyle = document.getElementById("alook-preview-theme");
+  const fontStyle = document.getElementById("alook-preview-fonts");
   let lastHeight = 0;
   let lastScrollTop = -1;
   let lastScrollHeight = -1;
@@ -126,7 +127,10 @@ const BOOTSTRAP = String.raw`(() => {
       const value = data.variables[key];
       if (/^--[a-z-]+$/.test(key) && typeof value === "string" && value.length < 1024 && !/[;{}<>]/.test(value)) css += key + ":" + value + ";";
     }
-    themeStyle.textContent = css + "}" + (typeof data.fontSheet === "string" && data.fontSheet.length <= 1500000 ? data.fontSheet : "");
+    themeStyle.textContent = css + "}";
+    if (fontStyle && typeof data.fontSheet === "string" && data.fontSheet.length <= 1500000) {
+      fontStyle.textContent = data.fontSheet;
+    }
     document.documentElement.classList.toggle("dark", data.dark === true);
     schedule();
   });
@@ -155,7 +159,7 @@ export function prepareHtmlPreview(html: string): string {
       throw new HtmlPreviewValidationError("Use content height instead of viewport height units")
     }
   }
-  const prefix = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${BASE_CSS}</style><style id="alook-preview-theme"></style><script>${BOOTSTRAP}</script>`
+  const prefix = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${BASE_CSS}</style><style id="alook-preview-theme"></style><style id="alook-preview-fonts"></style><script>${BOOTSTRAP}</script>`
   const doctype = /^\s*<!doctype[^>]*>/i.exec(html)
   return doctype
     ? html.slice(0, doctype[0].length) + prefix + html.slice(doctype[0].length)

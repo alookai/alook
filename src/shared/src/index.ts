@@ -433,6 +433,7 @@ export type {
   CommunityMachineUpdated,
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
+  CommunityScheduleChanged,
   CommunityWsEvent,
   CommunityResourceWsEvent,
   CommunityBrowserEventEnvelope,
@@ -648,3 +649,5 @@ export * from "./community-feedback";
 export * from "./community-decision-card";
 export * from "./community-page";
 export * from "./model-observation";
+export * from "./schedule";
+export type { StoredScheduleEvent, StoredScheduleRun } from "./db/queries/community/schedule";

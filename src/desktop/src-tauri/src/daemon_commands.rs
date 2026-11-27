@@ -46,7 +46,7 @@ struct DaemonConfig {
 
 #[cfg(desktop)]
 fn daemon_config() -> DaemonConfig {
-    daemon_config_for(cfg!(debug_assertions))
+    daemon_config_for(tauri::is_dev())
 }
 
 #[cfg(desktop)]
@@ -576,31 +576,36 @@ async fn probe_runtime_command(
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn daemon_runtime_capability() -> DaemonRuntimeCapability {
+pub async fn daemon_runtime_capability(
+    window: tauri::WebviewWindow,
+) -> Result<DaemonRuntimeCapability, String> {
+    crate::native_command_guard::guard(&window)?;
     let environment = match resolve_environment().await {
         Ok(environment) => environment,
         Err(reason) => {
-            return DaemonRuntimeCapability {
+            return Ok(DaemonRuntimeCapability {
                 available: false,
                 reason: Some(reason),
                 node_version: None,
-            }
+            })
         }
     };
     let (node, npm) = tokio::join!(
         probe_runtime_command("node", environment.clone()),
         probe_runtime_command("npm", environment),
     );
-    evaluate_runtime_capability(node, npm)
+    Ok(evaluate_runtime_capability(node, npm))
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_pair(
+    window: tauri::WebviewWindow,
     machine_key: String,
     machine_id: Option<String>,
 ) -> Result<CommandResult, String> {
-    let args = daemon_pair_args(&machine_key, machine_id.as_deref(), cfg!(debug_assertions))?;
+    crate::native_command_guard::guard(&window)?;
+    let args = daemon_pair_args(&machine_key, machine_id.as_deref(), tauri::is_dev())?;
     let output = run_daemon(&args).await?;
     if output.success {
         Ok(CommandResult {

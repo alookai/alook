@@ -47,3 +47,4 @@ export * as billing from "./queries/billing";
 
 export * as communityFeedback from "./queries/community/feedback";
 export * as communityPage from "./queries/community/page";
+export * as communitySchedule from "./queries/community/schedule";

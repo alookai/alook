@@ -28,6 +28,10 @@ import {
 import { appleOauthHardeningPlugin } from "@/lib/apple-oauth-hardening"
 import { getOtpSubject, renderOtpEmail, type OtpType } from "./email-templates"
 import { syncResendSignupContact } from "./resend-contacts"
+import {
+  notificationDeviceInstallationIdSchema,
+  PUSH_INSTALLATION_ID_HEADER,
+} from "@/lib/community/notification-device-schema"
 
 
 const log = createLogger({ service: "auth" })
@@ -343,6 +347,26 @@ export function createAuth(env: Env) {
               secure: isProd,
               sameSite: "lax",
             })
+          },
+        },
+        delete: {
+          after: async (session, ctx) => {
+            const rawInstallationId = ctx?.request?.headers.get(PUSH_INSTALLATION_ID_HEADER)?.trim()
+            if (!rawInstallationId) return
+            const parsedInstallationId = notificationDeviceInstallationIdSchema.safeParse(rawInstallationId)
+            if (!parsedInstallationId.success) return
+            try {
+              await queries.communityPushDevice.disablePushDevice(
+                getPrimaryDb(env.DB),
+                {
+                  userId: session.userId,
+                  installationId: parsedInstallationId.data,
+                  now: new Date().toISOString(),
+                },
+              )
+            } catch {
+              // Best-effort cleanup scoped strictly to this signing-out installation.
+            }
           },
         },
       },

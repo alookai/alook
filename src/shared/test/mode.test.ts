@@ -139,6 +139,48 @@ describe("isDesktop", () => {
     (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS)" };
     expect(isDesktop()).toBe(false);
   });
+
+  it("returns false in Tauri on iPadOS 13+ desktop-class Macintosh UA with touch points", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+      platform: "MacIntel",
+      maxTouchPoints: 5,
+    };
+    expect(isDesktop()).toBe(false);
+  });
+
+  it("returns true in Tauri on macOS desktop with zero touch points", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+    };
+    expect(isDesktop()).toBe(true);
+  });
+
+  it("prefers the immutable native runtime formFactor over UA heuristics", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __TAURI__: {},
+      __ALOOK_NATIVE_RUNTIME__: { formFactor: "desktop" },
+    };
+    (globalThis as Record<string, unknown>).navigator = {
+      userAgent: "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)",
+      maxTouchPoints: 5,
+    };
+    expect(isDesktop()).toBe(true);
+
+    (globalThis as Record<string, unknown>).window = {
+      __TAURI__: {},
+      __ALOOK_NATIVE_RUNTIME__: { formFactor: "mobile" },
+    };
+    (globalThis as Record<string, unknown>).navigator = {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      maxTouchPoints: 0,
+    };
+    expect(isDesktop()).toBe(false);
+  });
 });
 
 describe("isMobile", () => {
@@ -171,6 +213,39 @@ describe("isMobile", () => {
     (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
     (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (iPad; CPU OS)" };
     expect(isMobile()).toBe(true);
+  });
+
+  it("returns true in Tauri on iPadOS 13+ desktop-class Macintosh UA with touch points", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+      platform: "MacIntel",
+      maxTouchPoints: 5,
+    };
+    expect(isMobile()).toBe(true);
+  });
+
+  it("prefers the immutable native runtime formFactor over UA heuristics", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __TAURI__: {},
+      __ALOOK_NATIVE_RUNTIME__: { formFactor: "mobile" },
+    };
+    (globalThis as Record<string, unknown>).navigator = {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      maxTouchPoints: 0,
+    };
+    expect(isMobile()).toBe(true);
+    expect(getClientPlatform()).toBe("mobile");
+
+    (globalThis as Record<string, unknown>).window = {
+      __TAURI__: {},
+      __ALOOK_NATIVE_RUNTIME__: { formFactor: "desktop" },
+    };
+    (globalThis as Record<string, unknown>).navigator = {
+      userAgent: "Mozilla/5.0 (Linux; Android 15)",
+    };
+    expect(isMobile()).toBe(false);
+    expect(getClientPlatform()).toBe("desktop");
   });
 
   it("returns false in Tauri with desktop user agent", () => {

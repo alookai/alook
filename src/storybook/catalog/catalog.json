@@ -8,10 +8,10 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 371,
-    "environment": 13,
+    "composition": 377,
+    "environment": 14,
     "nonvisual": 32,
-    "direct": 163
+    "direct": 166
   },
   "entries": [
     {
@@ -4416,6 +4416,144 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/community/schedule/me-schedule-route.tsx",
+      "application": "Web",
+      "candidates": [
+        "MeSchedulePage"
+      ],
+      "kind": "environment",
+      "examples": [],
+      "reason": "Community route host wiring /c/me/schedule to live read query hooks, bot-chat starter, and router; its full UI renders in ScheduleWorkspace stories."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-actor.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScheduleActorAvatar"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-schedule--agenda-view",
+          "region": "Bot avatar rendered on schedule tasks, filter options, bot picker, and detail sheet"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-agenda-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScheduleAgendaView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-schedule--agenda-view",
+          "region": "Chronological frameless Agenda ledger with bot and bound message metadata"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-bot-notice.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScheduleBotNotice"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-schedule--week-view",
+          "region": "Frameless header notice strip prompting users to ask a bot to set up its schedule"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-detail-sheet.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScheduleDetailSheet"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-schedule--agenda-view",
+          "region": "Click any scheduled task row to inspect read-only bot details, execution status, and bound message jump"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-skeleton.tsx",
+      "application": "Web",
+      "candidates": [
+        "SchedulePageSkeleton"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-schedule--loading-skeleton",
+          "region": "SchedulePageSkeleton frameless loading shell"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-status.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScheduleRecurrenceBadge",
+        "ScheduleRunStatusBadge",
+        "ScheduleSourceRefPill",
+        "ScheduleSourceStatusBadge",
+        "ScheduleStatusDot"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-schedule--agenda-view",
+          "region": "Recurrence, source-unavailable warning, and 4-state execution status badges"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-week-view.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScheduleWeekView"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-schedule--week-view",
+          "region": "Frameless 7-day Week time grid on desktop and pinned day strip on mobile"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/schedule/schedule-workspace.tsx",
+      "application": "Web",
+      "candidates": [
+        "ScheduleWorkspace"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-schedule--week-view",
+          "region": "Home Schedule workspace in Week view with bot filter, bot prompt notice, and date-picker popover"
+        },
+        {
+          "story": "web-business-schedule--agenda-view",
+          "region": "Home Schedule workspace in frameless Agenda ledger view"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/community/server-icon.tsx",
       "application": "Web",
       "candidates": [
@@ -8662,6 +8800,22 @@
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
     },
     {
+      "source": "src/web/src/components/ui/calendar.tsx",
+      "application": "Web",
+      "candidates": [
+        "Calendar",
+        "CalendarDayButton"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-foundations-calendar--default",
+          "region": "Alook-stylized shadcn single-date Calendar picker"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
       "source": "src/web/src/components/ui/card.tsx",
       "application": "Web",
       "candidates": [
@@ -9850,6 +10004,24 @@
       "source": "src/storybook/stories/business/reference-links.stories.tsx"
     },
     {
+      "id": "web-business-schedule--week-view",
+      "title": "Web/Business/Schedule",
+      "name": "Week View",
+      "source": "src/storybook/stories/business/schedule.stories.tsx"
+    },
+    {
+      "id": "web-business-schedule--agenda-view",
+      "title": "Web/Business/Schedule",
+      "name": "Agenda View",
+      "source": "src/storybook/stories/business/schedule.stories.tsx"
+    },
+    {
+      "id": "web-business-schedule--loading-skeleton",
+      "title": "Web/Business/Schedule",
+      "name": "Loading Skeleton",
+      "source": "src/storybook/stories/business/schedule.stories.tsx"
+    },
+    {
       "id": "web-business-shell-details--running-bots",
       "title": "Web/Business/Shell details",
       "name": "Running Bots",
@@ -10064,6 +10236,12 @@
       "title": "Web/Foundations/Button",
       "name": "Long Label",
       "source": "src/storybook/stories/foundations/button.stories.tsx"
+    },
+    {
+      "id": "web-foundations-calendar--default",
+      "title": "Web/Foundations/Calendar",
+      "name": "Default",
+      "source": "src/storybook/stories/foundations/calendar.stories.tsx"
     },
     {
       "id": "web-foundations-card--default",

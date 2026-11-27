@@ -6,6 +6,7 @@ import { cloneElement, useLayoutEffect, useRef, useState, type ReactElement } fr
 import { SwipeRoot, SwipePortal, SwipeViewport, SwipePopup } from "@/components/ui/swipe-container"
 import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
 import { tid } from "@/lib/community/testids"
+import { COMMUNITY_USER_BAR_HEIGHT_CSS } from "./shell-frame-geometry"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
 
 type Content = ReactElement<{ active?: UserBarExtensionKind; interactive?: boolean; animate?: boolean; focusOnOpen?: boolean; onInitialFocus?: () => void }>
@@ -17,7 +18,15 @@ function focusPanel(host: HTMLDivElement | null, content: Content) {
   content.props.onInitialFocus?.()
 }
 
-export function UserBarExtensionDrawer({ children, onDismiss }: { children: Content | null; onDismiss: () => void }) {
+export function UserBarExtensionDrawer({
+  children,
+  onDismiss,
+  userBarHeightCss = COMMUNITY_USER_BAR_HEIGHT_CSS,
+}: {
+  children: Content | null
+  onDismiss: () => void
+  userBarHeightCss?: string
+}) {
   useNativeKeyboard()
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const [retained, setRetained] = useAtom(useCreateAtom(children))
@@ -46,7 +55,7 @@ export function UserBarExtensionDrawer({ children, onDismiss }: { children: Cont
               if (children?.props.focusOnOpen) focusPanel(host, children)
               return false
             }} finalFocus={false}
-              data-slot="user-bar-swipe" className="community-user-bar-drawer" style={{ marginBottom: "var(--alook-keyboard-progress, 0px)" }} inert={!open}>
+              data-slot="user-bar-swipe" className="community-user-bar-drawer" style={{ marginBottom: `max(0px, calc(var(--alook-keyboard-progress, 0px) - ${userBarHeightCss}))` }} inert={!open}>
               {content && cloneElement(content, { interactive: open, animate: false, focusOnOpen: false })}
             </SwipePopup>
           </SwipeViewport>

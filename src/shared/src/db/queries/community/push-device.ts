@@ -109,18 +109,39 @@ export async function registerPushDevice(
   };
 }
 
+export interface DisablePushDeviceInput {
+  userId: string;
+  installationId: string;
+  providerTokenHash?: string;
+  previousProviderTokenHash?: string;
+  now: string;
+}
+
 export async function disablePushDevice(
   db: Database,
-  input: { userId: string; installationId: string; now: string },
+  input: DisablePushDeviceInput,
 ): Promise<boolean> {
+  const ownershipProof = or(
+    eq(communityPushDevice.userId, input.userId),
+    input.providerTokenHash
+      ? eq(communityPushDevice.providerTokenHash, input.providerTokenHash)
+      : undefined,
+    input.previousProviderTokenHash
+      ? eq(
+          communityPushDevice.providerTokenHash,
+          input.previousProviderTokenHash,
+        )
+      : undefined,
+  );
+
   const rows = await db
     .update(communityPushDevice)
     .set({ disabledAt: input.now, updatedAt: input.now })
     .where(
       and(
-        eq(communityPushDevice.userId, input.userId),
         eq(communityPushDevice.installationId, input.installationId),
         isNull(communityPushDevice.disabledAt),
+        ownershipProof,
       ),
     )
     .returning({ id: communityPushDevice.id });

@@ -58,16 +58,20 @@ describe("business document replacement", () => {
     expect(old.navigate).toHaveBeenCalledWith(businessUpdateUrl("https://alook.test/c/me", BUSINESS_SCHEMA_VERSION, WEB_BUILD_ID))
   })
 
-  it("bounds a missing old-page listener and replaces that document once", async () => {
+  it("does not force-navigate an unresponsive background window when identity probe times out", async () => {
     vi.useFakeTimers()
-    const old = client()
-    const upgrade = upgradeBusinessWindow(old, "https://alook.test")
+    const unresponsive = client()
+    const upgrade = upgradeBusinessWindow(unresponsive, "https://alook.test")
     await vi.advanceTimersByTimeAsync(1500)
-    expect(await upgrade).toBe(true)
+    expect(await upgrade).toBe(false)
+    expect(unresponsive.navigate).not.toHaveBeenCalled()
+
+    const forced = client()
+    expect(await upgradeBusinessWindow(forced, "https://alook.test", true)).toBe(true)
+    expect(forced.navigate).toHaveBeenCalledWith(businessUpdateUrl("https://alook.test/c/me", BUSINESS_SCHEMA_VERSION, WEB_BUILD_ID))
+
     const attempted = client(undefined, businessUpdateUrl("https://alook.test/c/me", BUSINESS_SCHEMA_VERSION, WEB_BUILD_ID)!)
-    const again = upgradeBusinessWindow(attempted, "https://alook.test")
-    await vi.advanceTimersByTimeAsync(1500)
-    expect(await again).toBe(false)
+    expect(await upgradeBusinessWindow(attempted, "https://alook.test", true)).toBe(false)
     expect(attempted.navigate).not.toHaveBeenCalled()
   })
 

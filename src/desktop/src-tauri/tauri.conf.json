@@ -3,7 +3,7 @@
   "version": "0.1.72",
   "identifier": "ai.alook.desktop",
   "build": {
-    "devUrl": "http://localhost:3000/c",
+    "devUrl": "http://localhost:3000",
     "frontendDist": "alook-recovery://localhost/bootstrap"
   },
   "bundle": {
@@ -49,6 +49,7 @@
       "capabilities": [
         "desktop-capability",
         "native-geometry",
+        "native-geometry-windows",
         "native-caption",
         "external-links",
         "native-oauth",

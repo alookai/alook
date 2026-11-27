@@ -51,6 +51,7 @@ export const communityContentAccessKinds = {
   "community:bot.pii": "control",
   "community:machine.removed": "control",
   "community:bot.audit_event": "control",
+  "community:schedule.changed": "control",
 } as const satisfies Record<CommunityWsEvent["type"], AccessKind>
 
 type Scope = { id: string; serverId?: string; parentChannelId?: string }

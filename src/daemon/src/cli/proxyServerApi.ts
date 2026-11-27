@@ -1,7 +1,15 @@
 import { LOCAL_MEMORY_COMMIT_PATH } from "../memory/commit.js";
 import { communityProxyRoutes } from "../credentials/route-policy.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
-import { type BotFeedbackInput, type PlatformMachineRequest, type PlatformBotRequest } from "@alook/shared";
+import {
+  type BotFeedbackInput,
+  type PlatformBotRequest,
+  type PlatformMachineRequest,
+  type ScheduleCreateRequest,
+  type ScheduleEvent,
+  type ScheduleListResponse,
+  type ScheduleUpdateRequest,
+} from "@alook/shared";
 /**
  * Proxy-routed `ServerApi` client — the agent's REAL data-plane path.
  *
@@ -627,10 +635,64 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return platformCall("/bots/creation-requests", "POST", { requestId: req.requestId, bots: req.bots });
   }
 
+  async function callScheduleList(req: {
+    from?: string;
+    to?: string;
+    creatorHandle?: string;
+  }): Promise<ScheduleListResponse> {
+    const params = new URLSearchParams();
+    if (req.from) params.set("from", req.from);
+    if (req.to) params.set("to", req.to);
+    if (req.creatorHandle) params.set("creatorHandle", req.creatorHandle);
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    const res = await fetchImpl(`${base}/api/community/schedule/events${suffix}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    return parseJsonResponse<ScheduleListResponse>(res, "scheduleList");
+  }
+
+  async function callScheduleCreate(req: ScheduleCreateRequest): Promise<{ event: ScheduleEvent }> {
+    const res = await fetchImpl(`${base}/api/community/schedule/events`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(req),
+    });
+    return parseJsonResponse<{ event: ScheduleEvent }>(res, "scheduleCreate");
+  }
+
+  async function callScheduleUpdate(req: { id: string; patch: ScheduleUpdateRequest }): Promise<{ event: ScheduleEvent }> {
+    const res = await fetchImpl(`${base}/api/community/schedule/events/${encodeURIComponent(req.id)}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(req.patch),
+    });
+    return parseJsonResponse<{ event: ScheduleEvent }>(res, "scheduleUpdate");
+  }
+
+  async function callScheduleDelete(req: { id: string }): Promise<{ deleted: true }> {
+    const res = await fetchImpl(`${base}/api/community/schedule/events/${encodeURIComponent(req.id)}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${config.voucher}` },
+    });
+    await parseJsonResponse<void>(res, "scheduleDelete");
+    return { deleted: true };
+  }
+
   return {
     platformFeedback: (req: BotFeedbackInput) => platformCall("/platform/feedback", "POST", req),
     platformMachine: callPlatformMachine,
     platformBot: callPlatformBot,
+    scheduleList: callScheduleList,
+    scheduleCreate: callScheduleCreate,
+    scheduleUpdate: callScheduleUpdate,
+    scheduleDelete: callScheduleDelete,
     listServers: (_r: { agentId: AgentId }) => callListServers(),
     joinServer: callJoinServer,
     leaveServer: callLeaveServer,

@@ -210,7 +210,7 @@ export const nativeOauthAttempt = sqliteTable(
           AND ${t.openedAt} IS NOT NULL AND ${t.readyAt} IS NOT NULL AND ${t.consumedAt} IS NULL
           AND ${t.failedAt} IS NULL AND ${t.cancelledAt} IS NULL AND ${t.replacedAt} IS NULL
           AND ${t.handoffCodeHash} IS NOT NULL AND ${t.handoffExpiresAt} IS NOT NULL
-          AND ${t.handoffExpiresAt} = ${t.readyAt} + 120000
+          AND ${t.handoffExpiresAt} = min(${t.readyAt} + 120000, ${t.attemptExpiresAt})
           AND ${t.authKind} IS NOT NULL AND ${t.failureCode} IS NULL
         ) OR (
           ${t.status} = 'consumed'

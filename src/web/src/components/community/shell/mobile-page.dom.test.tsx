@@ -146,9 +146,9 @@ describe("mobile page dismissal", () => {
     const restore = mockElementGeometry(popup, { width: 390, height: 600, offsetWidth: 390, offsetHeight: 600, clientWidth: 390, clientHeight: 600 })
     const restoreWidth = mockElementGeometry(document.documentElement, { clientWidth: 390, clientHeight: 844 })
     const originalHit = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
-    const originalBridge = Object.getOwnPropertyDescriptor(window, "AlookNative")
+    const originalBridge = Object.getOwnPropertyDescriptor(window, "__alookNativeBridge")
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => area })
-    Object.defineProperty(window, "AlookNative", { configurable: true, value: { getSystemGestureRegion: () => '{"left":48,"right":48,"width":780}' } })
+    Object.defineProperty(window, "__alookNativeBridge", { configurable: true, value: { getSystemGestureRegion: () => ({ left: 48, right: 48, width: 780 }) } })
     const pointer = (type: "pointerDown" | "pointerMove" | "pointerUp", x: number) => fireEvent[type](area, { pointerType: "touch", pointerId: 1, clientX: x, clientY: 100 })
     const touch = (type: "touchstart" | "touchmove" | "touchcancel", x: number) => {
       const point = { clientX: x, clientY: 100, identifier: 0, target: area }
@@ -196,8 +196,8 @@ describe("mobile page dismissal", () => {
       restore(); restoreWidth()
       if (originalHit) Object.defineProperty(document, "elementFromPoint", originalHit)
       else Reflect.deleteProperty(document, "elementFromPoint")
-      if (originalBridge) Object.defineProperty(window, "AlookNative", originalBridge)
-      else Reflect.deleteProperty(window, "AlookNative")
+      if (originalBridge) Object.defineProperty(window, "__alookNativeBridge", originalBridge)
+      else Reflect.deleteProperty(window, "__alookNativeBridge")
     }
   })
 

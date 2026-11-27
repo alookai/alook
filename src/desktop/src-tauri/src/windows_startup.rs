@@ -134,8 +134,10 @@ pub(crate) fn begin(app: &AppHandle) {
         options.set_scroll_bar_style(COREWEBVIEW2_SCROLLBAR_STYLE_DEFAULT);
         let language = GetUserDefaultUILanguage();
         let mut name = [0u16; MAX_LOCALE_NAME as usize];
-        LCIDToLocaleName(language as u32, Some(&mut name), LOCALE_ALLOW_NEUTRAL_NAMES);
-        options.set_language(String::from_utf16_lossy(&name));
+        let written = LCIDToLocaleName(language as u32, Some(&mut name), LOCALE_ALLOW_NEUTRAL_NAMES);
+        if let Some(locale) = crate::windows_startup_state::decode_locale_name(&name, written) {
+            options.set_language(locale);
+        }
     }
     let options = ICoreWebView2EnvironmentOptions::from(options);
     let owner = app.clone();
@@ -269,6 +271,7 @@ fn create_main(app: &AppHandle, choice: EnvironmentChoice, allow_mapping: bool) 
     }
     let environment = ENVIRONMENT.with(|environment| environment.borrow().clone());
     let built = WebviewWindowBuilder::from_config(app, &config).and_then(|builder| {
+        let builder = builder.on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
         match (choice, environment) {
             (EnvironmentChoice::Prebuilt, Some(environment)) => {
                 builder.with_environment(environment).build()

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -466,34 +467,87 @@ export function useHtmlPreviewBridge({
   recordHeight: (height: number) => void
   reportScrollMetrics: (metrics: HtmlPreviewScrollMetrics) => void
 }) {
-  const [loaded, setLoaded] = useState(false)
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
+  const [prevMounted, setPrevMounted] = useState(mounted)
+  const [bridgeState, setBridgeState] = useState<{
+    attempt: number
+    loaded: boolean
+    status: "loading" | "ready" | "error"
+  }>({ attempt: 0, loaded: false, status: "loading" })
+  if (prevMounted !== mounted) {
+    setPrevMounted(mounted)
+    setBridgeState((prev) => ({ ...prev, loaded: false, status: "loading" }))
+  }
+
+  const { attempt, loaded, status } = bridgeState
   const readyRef = useRef(false)
-  const error = status === "error"
+  const frameListeningRef = useRef(false)
+  const sentFontSheetRef = useRef<string | undefined>(undefined)
+  const latestRef = useRef({
+    resolvedTheme,
+    fontSheet,
+    recordHeight,
+    reportScrollMetrics,
+  })
+  useLayoutEffect(() => {
+    latestRef.current = { resolvedTheme, fontSheet, recordHeight, reportScrollMetrics }
+  }, [resolvedTheme, fontSheet, recordHeight, reportScrollMetrics])
+
+  const postTheme = useCallback(() => {
+    const contentWindow = frameRef.current?.contentWindow
+    if (!contentWindow) return
+    const style = getComputedStyle(frameRef.current ?? document.documentElement)
+    const variables = Object.fromEntries(
+      HTML_PREVIEW_THEME_VARIABLES.map((key) => [`--${key}`, style.getPropertyValue(`--${key}`).trim()]),
+    )
+    variables["--font-sans"] = style.getPropertyValue("--font-dm-sans").trim() || style.fontFamily
+    variables["--font-mono"] = style.getPropertyValue("--font-dm-mono").trim() || "ui-monospace, monospace"
+    const currentFontSheet = latestRef.current.fontSheet
+    const payload: {
+      type: "alook-html-theme"
+      dark: boolean
+      variables: Record<string, string>
+      fontSheet?: string
+    } = {
+      type: "alook-html-theme",
+      dark: latestRef.current.resolvedTheme === "dark",
+      variables,
+    }
+    if (frameListeningRef.current && currentFontSheet && sentFontSheetRef.current !== currentFontSheet) {
+      payload.fontSheet = currentFontSheet
+      sentFontSheetRef.current = currentFontSheet
+    }
+    contentWindow.postMessage(payload, "*")
+  }, [frameRef])
 
   useEffect(() => {
-    if (!mounted || error) return
-    function theme() {
-      const style = getComputedStyle(frameRef.current ?? document.documentElement)
-      const variables = Object.fromEntries(HTML_PREVIEW_THEME_VARIABLES.map((key) => [`--${key}`, style.getPropertyValue(`--${key}`).trim()]))
-      variables["--font-sans"] = style.getPropertyValue("--font-dm-sans").trim() || style.fontFamily
-      variables["--font-mono"] = style.getPropertyValue("--font-dm-mono").trim() || "ui-monospace, monospace"
-      frameRef.current?.contentWindow?.postMessage({ type: "alook-html-theme", dark: resolvedTheme === "dark", variables, fontSheet }, "*")
-    }
-    const timeout = setTimeout(() => { if (!readyRef.current) setStatus("error") }, 15_000)
+    if (!mounted) return
+    readyRef.current = false
+    frameListeningRef.current = false
+    sentFontSheetRef.current = undefined
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      if (!readyRef.current) {
+        timedOut = true
+        setBridgeState((prev) => (prev.attempt === attempt ? { ...prev, status: "error" } : prev))
+      }
+    }, 15_000)
     const unsubscribeMessage = subscribeHtmlPreviewMessage((event) => {
-      if (!frameRef.current?.contentWindow || event.source !== frameRef.current.contentWindow) return
+      if (timedOut || !frameRef.current?.contentWindow || event.source !== frameRef.current.contentWindow) return
       const data = event.data as Record<string, unknown>
-      if (data.type === "alook-html-theme-request") theme()
+      if (data.type === "alook-html-theme-request") {
+        frameListeningRef.current = true
+        postTheme()
+      }
       if (data.type === "alook-html-ready") {
         clearTimeout(timeout)
         readyRef.current = true
-        setStatus("ready")
-        theme()
+        frameListeningRef.current = true
+        setBridgeState((prev) => (prev.attempt === attempt ? { ...prev, status: "ready" } : prev))
+        postTheme()
       }
       if (data.type === "alook-html-height"
         && typeof data.height === "number" && Number.isFinite(data.height) && data.height > 0) {
-        recordHeight(data.height)
+        latestRef.current.recordHeight(data.height)
       }
       if (
         data.type === "alook-html-scroll"
@@ -504,23 +558,41 @@ export function useHtmlPreviewBridge({
         && Number.isFinite(data.scrollHeight)
         && Number.isFinite(data.clientHeight)
       ) {
-        reportScrollMetrics({
+        latestRef.current.reportScrollMetrics({
           scrollTop: data.scrollTop,
           scrollHeight: data.scrollHeight,
           clientHeight: data.clientHeight,
         })
       }
     })
-    theme()
-    const themeFrame = requestAnimationFrame(theme)
+    postTheme()
+    const themeFrame = requestAnimationFrame(postTheme)
     return () => {
       readyRef.current = false
+      frameListeningRef.current = false
+      sentFontSheetRef.current = undefined
       clearTimeout(timeout)
       cancelAnimationFrame(themeFrame)
       unsubscribeMessage()
     }
-  }, [mounted, error, frameRef, resolvedTheme, fontSheet, recordHeight, reportScrollMetrics])
+  }, [mounted, attempt, frameRef, postTheme])
 
-  const effectiveStatus = !mounted ? (error ? "error" : "loading") : status
-  return { loaded: mounted && loaded, setLoaded, status: effectiveStatus, error }
+  useEffect(() => {
+    if (!mounted || !frameListeningRef.current) return
+    postTheme()
+    const themeFrame = requestAnimationFrame(postTheme)
+    return () => cancelAnimationFrame(themeFrame)
+  }, [mounted, resolvedTheme, fontSheet, postTheme])
+
+  const setLoaded = useCallback((value: boolean) => {
+    setBridgeState((prev) => (prev.loaded === value ? prev : { ...prev, loaded: value }))
+  }, [])
+
+  const retry = useCallback(() => {
+    setBridgeState((prev) => ({ attempt: prev.attempt + 1, loaded: false, status: "loading" }))
+  }, [])
+
+  const effectiveStatus = mounted ? status : "loading"
+  const error = effectiveStatus === "error"
+  return { attempt, loaded: mounted && loaded, setLoaded, status: effectiveStatus, error, retry }
 }

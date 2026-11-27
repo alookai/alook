@@ -1,8 +1,9 @@
+use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, File, OpenOptions, TryLockError},
+    fs::{self, File, OpenOptions, Permissions, TryLockError},
     io,
     os::unix::{
-        fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
+        fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
         net::UnixListener as NativeListener,
     },
     path::{Path, PathBuf},
@@ -21,6 +22,77 @@ const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
 const RETRY_INTERVAL: Duration = Duration::from_millis(20);
 const MAX_MESSAGE_BYTES: usize = 262_144;
 const ACKNOWLEDGMENT: &[u8] = b"ALOOK-SI-1";
+const MAX_SUN_PATH_BYTES: usize = 103;
+
+extern "C" {
+    fn geteuid() -> u32;
+}
+
+fn current_euid() -> u32 {
+    unsafe { geteuid() }
+}
+
+fn verify_peer_uid(peer_uid: u32, expected_uid: u32) -> io::Result<()> {
+    if peer_uid == expected_uid {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "activation peer uid mismatch",
+        ))
+    }
+}
+
+fn verify_stream_peer(stream: &UnixStream) -> io::Result<()> {
+    let cred = stream.peer_cred()?;
+    verify_peer_uid(cred.uid(), current_euid())
+}
+
+fn prepare_socket_directory(base: &Path) -> io::Result<PathBuf> {
+    let dir = base.join("alook-si");
+    if let Ok(metadata) = fs::symlink_metadata(&dir) {
+        if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "invalid activation socket directory",
+            ));
+        }
+        verify_peer_uid(metadata.uid(), current_euid())?;
+        fs::set_permissions(&dir, Permissions::from_mode(0o700))?;
+        return Ok(dir);
+    }
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    builder.create(&dir)?;
+    let metadata = fs::symlink_metadata(&dir)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "invalid activation socket directory",
+        ));
+    }
+    verify_peer_uid(metadata.uid(), current_euid())?;
+    fs::set_permissions(&dir, Permissions::from_mode(0o700))?;
+    Ok(dir)
+}
+
+fn socket_path_in(base: &Path, identifier: &str) -> io::Result<PathBuf> {
+    let dir = prepare_socket_directory(base)?;
+    let digest = Sha256::digest(identifier.as_bytes());
+    let mut short_hash = String::with_capacity(16);
+    for byte in &digest[..8] {
+        use std::fmt::Write as _;
+        let _ = write!(&mut short_hash, "{byte:02x}");
+    }
+    let socket = dir.join(format!("si-{short_hash}.sock"));
+    if socket.as_os_str().as_encoded_bytes().len() > MAX_SUN_PATH_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "activation socket path too long",
+        ));
+    }
+    Ok(socket)
+}
 
 type Callback<R> = dyn FnMut(&AppHandle<R>, Vec<String>, String) + Send + Sync;
 
@@ -116,8 +188,7 @@ where
         .setup(|app, _| {
             let directory = app.path().app_local_data_dir()?;
             fs::create_dir_all(&directory)?;
-            let identifier = app.config().identifier.replace(['.', '-'].as_ref(), "_");
-            let socket = PathBuf::from(format!("/tmp/{identifier}_si.sock"));
+            let socket = socket_path_in(&std::env::temp_dir(), &app.config().identifier)?;
             let message = current_message()?;
             match tauri::async_runtime::block_on(admit(
                 &directory.join("single-instance.lock"),
@@ -182,6 +253,9 @@ fn start_receiver<R: Runtime>(
                     return;
                 }
             };
+            if verify_stream_peer(&stream).is_err() {
+                continue;
+            }
             let Ok(Ok((args, cwd))) = timeout(CONNECTION_TIMEOUT, read_message(&mut stream)).await
             else {
                 continue;
@@ -257,7 +331,9 @@ async fn admit(
     let mut lock = Ownership::new(open_lock(lock_path)?);
     let deadline = Instant::now() + budget;
     loop {
-        let owns = lock.try_acquire()?;
+        if lock.try_acquire()? {
+            return bind_primary(lock, socket).map(Admission::Primary);
+        }
         match timeout_at(deadline, notify(socket, message)).await {
             Ok(Ok(())) => return Ok(Admission::Secondary),
             Ok(Err(error))
@@ -273,9 +349,6 @@ async fn admit(
                 ))
             }
         }
-        if owns {
-            return bind_primary(lock, socket).map(Admission::Primary);
-        }
         timeout_at(deadline, sleep(RETRY_INTERVAL))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "receiver not ready"))?;
@@ -284,7 +357,10 @@ async fn admit(
 
 fn bind_primary(lock: Ownership, socket: &Path) -> io::Result<Primary> {
     match fs::symlink_metadata(socket) {
-        Ok(metadata) if metadata.file_type().is_socket() => fs::remove_file(socket)?,
+        Ok(metadata) if metadata.file_type().is_socket() => {
+            verify_peer_uid(metadata.uid(), current_euid())?;
+            fs::remove_file(socket)?;
+        }
         Ok(_) => {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -295,6 +371,7 @@ fn bind_primary(lock: Ownership, socket: &Path) -> io::Result<Primary> {
         Err(error) => return Err(error),
     }
     let listener = NativeListener::bind(socket)?;
+    fs::set_permissions(socket, Permissions::from_mode(0o600))?;
     let metadata = fs::symlink_metadata(socket)?;
     let owner = Arc::new(Owner {
         _lock: lock,
@@ -308,6 +385,7 @@ fn bind_primary(lock: Ownership, socket: &Path) -> io::Result<Primary> {
 
 async fn notify(socket: &Path, message: &[u8]) -> io::Result<()> {
     let mut stream = UnixStream::connect(socket).await?;
+    verify_stream_peer(&stream)?;
     stream.write_all(message).await?;
     stream.shutdown().await?;
     let mut reply = Vec::new();

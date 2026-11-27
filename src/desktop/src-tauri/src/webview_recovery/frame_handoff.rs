@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum LocalDocument {
     Bootstrap,
     Recovery,
@@ -23,6 +23,16 @@ impl FrameHandoff {
         Self {
             document: LocalDocument::Bootstrap,
         }
+    }
+
+    #[cfg(target_os = "ios")]
+    pub(super) fn from_document(document: LocalDocument) -> Self {
+        Self { document }
+    }
+
+    #[cfg(target_os = "ios")]
+    pub(super) fn document(self) -> LocalDocument {
+        self.document
     }
 
     pub(super) fn continuation_allowed(
@@ -98,10 +108,16 @@ pub(super) fn consume_local_frame(
 
 static FOREGROUND: std::sync::OnceLock<std::sync::Mutex<ForegroundClock>> =
     std::sync::OnceLock::new();
+static WATCH_STOPPED: AtomicBool = AtomicBool::new(false);
 const WAIT_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub(crate) fn set_foreground(foreground: bool) {
     foreground_clock().set_foreground(std::time::Instant::now(), foreground);
+}
+
+#[cfg(desktop)]
+pub(crate) fn stop_bootstrap_watch() {
+    WATCH_STOPPED.store(true, Ordering::Release);
 }
 
 fn foreground_clock() -> std::sync::MutexGuard<'static, ForegroundClock> {
@@ -157,18 +173,23 @@ impl FrameWaitBudget {
 }
 
 pub(crate) fn watch_bootstrap(window: &tauri::WebviewWindow) {
+    WATCH_STOPPED.store(false, Ordering::Release);
     let pending = window.clone();
     let spawned = std::thread::Builder::new()
         .name("alook-bootstrap-watch".into())
         .spawn(move || {
             let mut budget = FrameWaitBudget::default();
             loop {
-                if STARTUP.abandoned.load(Ordering::Acquire)
+                if WATCH_STOPPED.load(Ordering::Acquire)
+                    || STARTUP.abandoned.load(Ordering::Acquire)
                     || STARTUP.frame_ready.load(Ordering::Acquire)
                 {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(250));
+                if WATCH_STOPPED.load(Ordering::Acquire) {
+                    break;
+                }
                 let now = std::time::Instant::now();
                 let waiting = STARTUP.hooks_ready.load(Ordering::Acquire)
                     && STARTUP.bootstrap_finished.load(Ordering::Acquire);

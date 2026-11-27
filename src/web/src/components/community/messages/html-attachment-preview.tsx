@@ -5,6 +5,7 @@ import { useSelector } from "@tanstack/react-store"
 import { useMemo, useRef } from "react"
 import { LoaderCircle } from "@/components/icons/lucide";
 import { useTheme } from "next-themes"
+import { Button } from "@/components/ui/button"
 import { collectHtmlPreviewFonts, loadHtmlPreviewFonts } from "@/lib/community/html-preview-fonts"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import { HTML_PREVIEW_SANDBOX } from "@/lib/community/html-preview-policy"
@@ -59,7 +60,7 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
       return css
     },
   }, owner.queryClient).data
-  const { loaded, setLoaded, status, error } = useHtmlPreviewBridge({
+  const { attempt, loaded, setLoaded, status, error, retry } = useHtmlPreviewBridge({
     mounted,
     frameRef: frame,
     resolvedTheme,
@@ -68,8 +69,6 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
     reportScrollMetrics,
   })
   const url = `${attachment.url}?preview=html&v=${encodeURIComponent(process.env.NEXT_PUBLIC_APP_VERSION ?? "")}`
-
-  if (error) return null
 
   const showOverlayScrollbar = status === "ready" && canScroll
   const appliedScrollFade = status === "ready" ? scrollFade : "none"
@@ -92,7 +91,19 @@ function HtmlPreviewDocument({ attachment }: { attachment: FileAttachment & { id
       {status === "loading" && <div role="status" aria-label="Loading preview" className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
         <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
       </div>}
-      {mounted && <iframe
+      {error && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+        >
+          <span>Preview didn&apos;t finish loading.</span>
+          <Button type="button" variant="outline" size="sm" onClick={retry}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {mounted && !error && <iframe
+        key={attempt}
         ref={frame}
         title={attachment.name}
         data-testid={tid.htmlPreviewFrame(id)}

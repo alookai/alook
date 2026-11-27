@@ -27,18 +27,18 @@ async function timestamp(name: string) {
 }
 
 describe("owned public worker cache family", () => {
-  it("keeps both existing worker names while sizing every version in the owned family", async () => {
+  it("keeps both existing worker names while sizing clearable caches and excluding active precache", async () => {
     const { storage } = fixture()
     expect(publicWorkerCacheNames()).toEqual({ cacheId: "alook-public-v1", precache: "alook-public-precache-v1" })
-    await expect(getPublicWorkerCacheSizeBytes()).resolves.toBe(18)
-    expect(storage.open.mock.calls.map(([name]) => name)).toEqual(["alook-public-precache-v0", "alook-public-precache-v1", "alook-public-v99-runtime"])
+    await expect(getPublicWorkerCacheSizeBytes()).resolves.toBe(12)
+    expect(storage.open.mock.calls.map(([name]) => name)).toEqual(["alook-public-precache-v0", "alook-public-v99-runtime"])
   })
 
-  it("clears arbitrary past/current/future owned names and leaves unrelated caches", async () => {
+  it("clears outdated precaches and runtime caches while preserving active precache and unrelated caches", async () => {
     const { entries, storage } = fixture()
     await clearPublicWorkerCaches()
-    expect([...entries.keys()]).toEqual(["unrelated-cache"])
-    expect(storage.delete).toHaveBeenCalledTimes(3)
+    expect([...entries.keys()]).toEqual(["alook-public-precache-v1", "unrelated-cache"])
+    expect(storage.delete).toHaveBeenCalledTimes(2)
     expect(storage.open).not.toHaveBeenCalled()
   })
 
@@ -68,13 +68,13 @@ describe("owned public worker cache family", () => {
     expect(release).toBeTypeOf("function")
     release()
     await expect(clearing).rejects.toThrow("old cache occupied")
-    expect([...entries.keys()]).toEqual(["alook-public-precache-v0", "unrelated-cache"])
+    expect([...entries.keys()]).toEqual(["alook-public-precache-v0", "alook-public-precache-v1", "unrelated-cache"])
   })
 
   it("skips an entry removed during sizing without consuming another response", async () => {
     const { entries } = fixture()
     entries.get("alook-public-precache-v0")!.clear()
-    await expect(getPublicWorkerCacheSizeBytes()).resolves.toBe(12)
+    await expect(getPublicWorkerCacheSizeBytes()).resolves.toBe(6)
   })
 
   it("has no public cache to clear when the browser has no CacheStorage API", async () => {
@@ -89,7 +89,7 @@ describe("owned public worker cache family", () => {
     storage.keys.mockRejectedValue(unavailable)
     await expect(getPublicWorkerCacheSizeBytes()).rejects.toBe(unavailable)
     await expect(clearPublicWorkerCaches()).rejects.toBe(unavailable)
-    storage.keys.mockResolvedValue(["alook-public-precache-v1"])
+    storage.keys.mockResolvedValue(["alook-public-v1-blog-code"])
     const failed = new Error("cache deletion failed")
     storage.delete.mockRejectedValue(failed)
     await expect(clearPublicWorkerCaches()).rejects.toBe(failed)
@@ -118,7 +118,7 @@ describe("owned public worker cache family", () => {
     expect(await Promise.all(removed.map(expired => expired()))).toEqual([true, true, true, true])
     expect(await unrelated()).toBe(false)
     expect(await unknown()).toBe(false)
-    expect([...entries.keys()]).toEqual(["unrelated-cache"])
+    expect([...entries.keys()]).toEqual(["alook-public-precache-v1", "unrelated-cache"])
   })
 
   it("clears current orphan timestamps even when their Cache Storage entries are absent", async () => {
@@ -165,7 +165,7 @@ describe("owned public worker cache family", () => {
     vi.spyOn(CacheExpiration.prototype, "delete").mockRejectedValueOnce(failed)
     await expect(clearPublicWorkerCaches()).rejects.toBe(failed)
     expect(await other()).toBe(true)
-    expect([...entries.keys()]).toEqual(["unrelated-cache"])
+    expect([...entries.keys()]).toEqual(["alook-public-precache-v1", "unrelated-cache"])
   })
 
   it("still clears metadata when a Cache Storage deletion fails", async () => {
@@ -182,7 +182,7 @@ describe("owned public worker cache family", () => {
     const failed = new Error("IndexedDB access denied")
     vi.spyOn(indexedDB, "open").mockImplementation(() => { throw failed })
     await expect(clearPublicWorkerCaches()).rejects.toBe(failed)
-    expect([...entries.keys()]).toEqual(["unrelated-cache"])
+    expect([...entries.keys()]).toEqual(["alook-public-precache-v1", "unrelated-cache"])
   })
 
   it("does not change business IndexedDB contents while clearing public runtime metadata", async () => {

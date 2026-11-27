@@ -34,7 +34,7 @@ describe("desktop native OAuth security configuration", () => {
     expect(oauth.windows).toEqual(["main"])
     expect(oauth.platforms).toEqual(expect.arrayContaining(["linux", "macOS", "windows"]))
     expect(oauth.remote?.urls).toEqual(isProduction ? ["https://alook.ai"] : ["http://localhost:3000"])
-    expect(oauth.local).toBe(true)
+    expect(oauth.local).toBe(!isProduction)
   })
   it("requires explicit command ACL while preserving preexisting desktop custom commands", () => {
     const build = read("build.rs")

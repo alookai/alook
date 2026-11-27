@@ -27,6 +27,7 @@ export type CommunityWsReconcilePolicy =
   | "ephemeral-typing"
   | "machines"
   | "bot-audits"
+  | "schedule"
 
 export type CommunityWsLifecycleRecoveryTrigger =
   | "focus"

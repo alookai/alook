@@ -860,7 +860,7 @@ describe("Native message external-link opener", () => {
       identifier: "external-links",
       windows: ["main"],
       platforms: expectedPlatforms,
-      local: true,
+      local: false,
       remote: { urls: ["https://alook.ai"] },
       permissions: expectedPermission,
     })
@@ -888,7 +888,14 @@ describe("Native message external-link opener", () => {
 
     expect(capabilities).toContain("external-links")
     expect(capabilities.filter((capability) => capability === "external-links")).toHaveLength(1)
-    expect(inlineOpener).toBeUndefined()
+    expect(inlineOpener).toMatchObject({
+      identifier: "external-links-dev",
+      windows: ["main"],
+      platforms: expectedPlatforms,
+      local: true,
+      remote: { urls: ["http://localhost:3000"] },
+      permissions: expectedPermission,
+    })
   })
 
   it("does not grant default schemes, paths, reveal, shell, or CSP expansion", () => {
@@ -1282,26 +1289,42 @@ describe("Desktop image clipboard", () => {
     expect(desktopRustEntry.match(/tauri_plugin_clipboard_manager::init/g)).toHaveLength(1)
   })
 
-  it("authorizes configured app documents through one local image-write capability", () => {
+  it("authorizes configured app documents through explicit production and development capabilities", () => {
     expect(desktopConfig.build).toMatchObject({
-      devUrl: "http://localhost:3000/c",
+      devUrl: "http://localhost:3000",
       frontendDist: "alook-recovery://localhost/bootstrap",
     })
     expect(desktopCapability).toMatchObject({
       identifier: "desktop-capability",
       windows: ["main"],
       platforms: ["linux", "macOS", "windows"],
-      local: true,
+      local: false,
       remote: { urls: ["https://alook.ai"] },
       permissions: [writeImagePermission, "desktop-commands"],
     })
     expect(desktopDevConfig.app.security.capabilities).toEqual([
       "desktop-capability",
+      expect.objectContaining({
+        identifier: "desktop-capability-dev",
+        local: true,
+        windows: ["main"],
+        platforms: ["linux", "macOS", "windows"],
+        remote: { urls: ["http://localhost:3000"] },
+        permissions: [writeImagePermission, "desktop-commands"],
+      }),
       "native-geometry",
+      "native-geometry-windows",
       "native-caption",
       "native-geometry-dev",
       "native-caption-dev",
       "external-links",
+      expect.objectContaining({
+        identifier: "external-links-dev",
+        local: true,
+        windows: ["main"],
+        platforms: ["linux", "macOS", "windows", "android", "iOS"],
+        remote: { urls: ["http://localhost:3000"] },
+      }),
       expect.objectContaining({
         identifier: "window-lifecycle-dev",
         local: true,

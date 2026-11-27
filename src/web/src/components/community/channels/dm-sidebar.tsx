@@ -6,7 +6,7 @@ import { dmHref } from "@/lib/community/community-route"
 import { memo, useCallback, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { type LucideIcon } from "lucide-react";
-import { Users, Ban, Monitor, Bot, Shield, MessagesSquare } from "@/components/icons/lucide";
+import { Users, Ban, Monitor, Bot, Shield, CalendarDays, MessagesSquare } from "@/components/icons/lucide";
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -63,8 +63,8 @@ const DmSidebarRow = memo(function DmSidebarRow({
 })
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy,
-  friendsActive, machinesActive, botsActive, privacyActive,
+  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots, onShowPrivacy, onShowSchedule,
+  friendsActive, machinesActive, botsActive, privacyActive, scheduleActive,
   friendRequestCount = 0,
   loadError,
 }: {
@@ -78,14 +78,16 @@ export const DmSidebar = memo(function DmSidebar({
   onShowMachines?: () => void
   onShowBots?: () => void
   onShowPrivacy?: () => void
+  onShowSchedule?: () => void
   friendsActive?: boolean
   friendRequestCount?: number
   machinesActive?: boolean
   botsActive?: boolean
   privacyActive?: boolean
+  scheduleActive?: boolean
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
-  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive)
+  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive && !privacyActive && !scheduleActive)
   const requestCount = compactRequestCount(friendRequestCount)
   const shortcuts: Array<{
     href: string; label: string; Icon: LucideIcon; active?: boolean; onActivate: () => void
@@ -96,6 +98,7 @@ export const DmSidebar = memo(function DmSidebar({
     ...(onShowMachines ? [{ href: "/c/me/machines", label: "Machines", Icon: Monitor, active: machinesActive, onActivate: onShowMachines, testId: tid.machineGuideIntroSource }] : []),
     ...(onShowBots ? [{ href: "/c/me/bots", label: "My Bots", Icon: Bot, active: botsActive, onActivate: onShowBots }] : []),
     ...(onShowPrivacy ? [{ href: "/c/me/privacy", label: "Privacy", Icon: Shield, active: privacyActive, onActivate: onShowPrivacy }] : []),
+    ...(onShowSchedule ? [{ href: "/c/me/schedule", label: "Schedule", Icon: CalendarDays, active: scheduleActive, onActivate: onShowSchedule, testId: tid.scheduleShortcut }] : []),
   ]
   const activeShortcut = shortcuts.findIndex((shortcut) => shortcut.active)
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
@@ -202,6 +205,7 @@ export function DmSidebarSkeleton() {
     >
       <div className="shrink-0 px-2 pt-4">
         <div className="flex flex-col gap-1">
+          <Skeleton className="h-9 w-full rounded-md" />
           <Skeleton className="h-9 w-full rounded-md" />
           <Skeleton className="h-9 w-full rounded-md" />
           <Skeleton className="h-9 w-full rounded-md" />
