@@ -21,6 +21,7 @@ import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use
 
 import { acquireIconCropSource, type IconCropSource } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { AlookPageEmbed } from "@/lib/community/open-artifact"
 import type {
   OwnerProfileRef,
   Profile,
@@ -100,6 +101,7 @@ export function useShellProfileController({
 
   const [preview, setPreview] = useAtom(useCreateAtom<ImagePreview | null>(null))
   const [attachmentPreview, setAttachmentPreview] = useAtom(useCreateAtom<FileAttachment | null>(null))
+  const [activePage, setActivePage] = useAtom(useCreateAtom<AlookPageEmbed | null>(null))
   const avatarCropTask = useCreateAtom<(IconCropSource & {
     assertActive: ReturnType<typeof source.capture>
   }) | null>(null)
@@ -230,6 +232,10 @@ export function useShellProfileController({
   const previewAttachment = useCallback(
     (attachment: FileAttachment) => setAttachmentPreview(attachment),
     [setAttachmentPreview],
+  )
+  const openPage = useCallback(
+    (page: AlookPageEmbed) => setActivePage(page),
+    [setActivePage],
   )
 
   const updateOwnStatus = async (statusEmoji: string | null, statusText: string | null) => {
@@ -384,6 +390,9 @@ export function useShellProfileController({
   const onAttachmentPreviewOpenChange = useCallback((open: boolean) => {
     if (!open) setAttachmentPreview(null)
   }, [setAttachmentPreview])
+  const onActivePageOpenChange = useCallback((open: boolean) => {
+    if (!open) setActivePage(null)
+  }, [setActivePage])
   const openUserSettings = useCallback(() => setEditingProfile(true), [setEditingProfile])
   const onUserSettingsOpenChange = useCallback((open: boolean) => {
     if (!open) closeSettings()
@@ -396,6 +405,7 @@ export function useShellProfileController({
     openBotAudit,
     previewImage,
     previewAttachment,
+    openPage,
     profile,
     canMessage,
     closeProfile,
@@ -405,6 +415,8 @@ export function useShellProfileController({
     closePreview,
     attachmentPreview,
     onAttachmentPreviewOpenChange,
+    activePage,
+    onActivePageOpenChange,
     editingProfile: editingProfile || billingRequested,
     openUserSettings,
     onUserSettingsOpenChange,

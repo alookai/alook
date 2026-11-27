@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
   const handlers = {
     previewImage: vi.fn(),
     previewAttachment: vi.fn(),
+    openPage: vi.fn(),
     openProfile: vi.fn(),
     navigate: vi.fn(),
     cancelPendingNavigation: vi.fn(),
@@ -63,6 +64,7 @@ const mocks = vi.hoisted(() => {
     profile: {
       previewImage: handlers.previewImage,
       previewAttachment: handlers.previewAttachment,
+      openPage: handlers.openPage,
       openProfile: handlers.openProfile,
     },
     inbox: {},
@@ -607,6 +609,7 @@ describe("ShellFrame orchestration", () => {
       "goBackMobile",
       "navigate",
       "navigatePath",
+      "openPage",
       "openProfile",
       "previewAttachment",
       "previewImage",

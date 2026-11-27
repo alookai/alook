@@ -31,6 +31,9 @@ vi.mock("../messages/image-lightbox", () => ({
 vi.mock("../messages/attachment-preview-sheet", () => ({
   AttachmentPreviewSheet: host("attachment-sheet"),
 }))
+vi.mock("../messages/open-artifact-sheet", () => ({
+  OpenArtifactSheet: host("open-artifact-sheet"),
+}))
 vi.mock("../image-crop-dialog", () => ({
   ImageCropDialog: host("crop-dialog"),
 }))
@@ -52,6 +55,8 @@ const controller = {
   closePreview: vi.fn(),
   attachmentPreview: { id: "a1", filename: "notes.txt" },
   onAttachmentPreviewOpenChange: vi.fn(),
+  activePage: { kind: "alook_page", id: "pg_1", type: "doc", title: "Launch Plan" },
+  onActivePageOpenChange: vi.fn(),
   editingProfile: true,
   onUserSettingsOpenChange: vi.fn(),
   userSettingsProps: { onClose: vi.fn(), userId: "self", userName: "Self" },
@@ -85,12 +90,14 @@ describe("ShellFrameOverlays", () => {
     expect(types.filter((type) => type === "profile-card")).toHaveLength(1)
     expect(types.filter((type) => type === "image-lightbox")).toHaveLength(1)
     expect(types.filter((type) => type === "attachment-sheet")).toHaveLength(1)
+    expect(types.filter((type) => type === "open-artifact-sheet")).toHaveLength(1)
     expect(types.filter((type) => type === "user-settings")).toHaveLength(1)
     expect(types.filter((type) => type === "crop-dialog")).toHaveLength(1)
     expect(types.filter((type) => type === "extra-dialog")).toHaveLength(1)
     expect(types.indexOf("profile-card")).toBeLessThan(types.indexOf("image-lightbox"))
     expect(types.indexOf("image-lightbox")).toBeLessThan(types.indexOf("attachment-sheet"))
-    expect(types.indexOf("attachment-sheet")).toBeLessThan(types.indexOf("dialog-root"))
+    expect(types.indexOf("attachment-sheet")).toBeLessThan(types.indexOf("open-artifact-sheet"))
+    expect(types.indexOf("open-artifact-sheet")).toBeLessThan(types.indexOf("dialog-root"))
     expect(types.indexOf("dialog-root")).toBeLessThan(types.indexOf("crop-dialog"))
     expect(types.indexOf("crop-dialog")).toBeLessThan(types.indexOf("extra-dialog"))
 
@@ -137,6 +144,7 @@ describe("ShellFrameOverlays", () => {
       profile: null,
       preview: null,
       attachmentPreview: null,
+      activePage: null,
       editingProfile: false,
       pendingAvatarCrop: null,
     } as never

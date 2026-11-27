@@ -364,6 +364,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     getCommunityRuntime(queryClient).ui.actions.registerUiHandlers({
       previewImage: profile.previewImage,
       previewAttachment: profile.previewAttachment,
+      openPage: profile.openPage,
       openProfile: profile.openProfile,
       goBackMobile,
       navigatePath: navigation.push,
@@ -371,7 +372,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       navigate: rail.navigate,
       cancelPendingNavigation: navigation.cancelPendingNavigation,
     })
-  }, [goBackMobile, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
+  }, [goBackMobile, profile.openPage, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
 
   const routeContextValue = useMemo(
     () => ({ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }),
