@@ -82,13 +82,22 @@ try {
   await writeFile(join(folder, "node_modules", "private.js"), "must not upload");
   await writeFile(join(folder, ".env"), "MUST_NOT_UPLOAD=1");
   const zipPath = join(dir, "native-page.zip");
+  const coverPath = join(dir, "native-cover.png");
+  await writeFile(coverPath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64"));
   let uploadCount = 0;
   let registerCount = 0;
+  let coverCount = 0;
   proxy = createServer(async (req, res) => {
     try {
       const request = new Request(`http://localhost${req.url}`, { method: req.method, headers: req.headers, ...(["GET", "HEAD"].includes(req.method) ? {} : { body: req, duplex: "half" }) });
       if (req.method === "GET" && req.url.startsWith("/api/community/pages?")) {
         res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ total: registerCount, pages: [] }));
+      } else if (req.method === "PUT" && req.url === "/api/community/pages/page_native/cover") {
+        coverCount++;
+        assert.equal(req.headers["content-type"], "image/png");
+        assert.ok((await request.arrayBuffer()).byteLength > 0);
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ id: "page_native", etag: '"native-cover"' }));
       } else if (req.method === "DELETE" && req.url === "/api/community/pages/page_native") {
         const response = await mf.dispatchFetch(`${app}/alook/resources/${artifactId}`, { method: "DELETE", headers: { authorization: `Bearer ${key}`, "x-alook-subject": "native-bot" } });
         res.statusCode = response.status; res.setHeader("content-type", "application/json"); res.end(await response.text());
@@ -118,12 +127,12 @@ try {
   const tokenFile = join(dir, "proxy-token"); await writeFile(tokenFile, "synthetic-proxy-token", { mode: 0o600 });
   const cliEnv = { ...process.env, ALOOK_PROXY_URL: `http://127.0.0.1:${proxy.address().port}`, ALOOK_PROXY_TOKEN_FILE: tokenFile, ALOOK_AGENT_ID: "native-bot" };
   const cli = (...args) => promisify(execFile)(process.execPath, [resolve(root, "src/daemon/dist/cli/index.js"), ...args], { env: cliEnv, cwd: dir });
-  const invalid = await cli("page", "upload", "--dir", dir);
+  const invalid = await cli("page", "upload", "--dir", dir, "--cover", coverPath);
   assert.ok(JSON.parse(invalid.stdout).error);
   assert.equal(uploadCount, 0);
-  const uploaded = await cli("page", "upload", "--dir", folder);
+  const uploaded = await cli("page", "upload", "--dir", folder, "--cover", coverPath);
   assert.deepEqual(JSON.parse(uploaded.stdout), { success: { kind: "alook_page", id: "page_native", type: "page", title: "Native Page" } });
-  assert.equal(uploadCount, 1); assert.equal(registerCount, 1);
+  assert.equal(uploadCount, 1); assert.equal(registerCount, 1); assert.equal(coverCount, 1);
   console.log("Built CLI directory validation, filtering, upload and actual pinned Worker/D1/DO import: PASS");
   const proof = ticket();
   const session = await mf.dispatchFetch(`${app}/alook/session`, {
@@ -222,7 +231,7 @@ try {
     allowed = true; artifactId = "art_docsnative123456"; sources.add("docs-entry");
     const docsFolder = join(dir, "docs"); await mkdir(docsFolder);
     await writeFile(join(docsFolder, ".artifact.json"), JSON.stringify({ type: "docs", title: "Native Docs" }));
-    const uploadedDocs = JSON.parse((await cli("page", "upload", "--dir", docsFolder)).stdout);
+    const uploadedDocs = JSON.parse((await cli("page", "upload", "--dir", docsFolder, "--cover", coverPath)).stdout);
     assert.equal(uploadedDocs.success?.type, "docs", JSON.stringify(uploadedDocs));
     const docsSession = await mf.dispatchFetch(`${app}/alook/session`, { method: "POST", headers: { origin: app, "content-type": "application/json" }, body: JSON.stringify({ ticket: ticket("docs-entry"), artifactId }) });
     assert.equal(docsSession.status, 200);

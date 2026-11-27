@@ -2,17 +2,14 @@ import { expect, it } from "vitest";
 import { mkdtemp, writeFile, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { findPageCover, preparePageCover } from "./pageCover";
+import { preparePageCover } from "./pageCover";
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64");
-it("discovers root cover conventions, honors explicit input and returns exact raster bytes", async () => {
+it("returns exact raster bytes for a valid PNG cover file", async () => {
  const dir = await mkdtemp(join(tmpdir(), "page-cover-"));
  try {
-  expect(await findPageCover(dir)).toBeUndefined();
-  await writeFile(join(dir, "preview.png"), png);
-  expect(await findPageCover(dir)).toEqual({ data: new Uint8Array(png), contentType: "image/png" });
-  await writeFile(join(dir, "cover.png"), "<svg/>");
-  await expect(findPageCover(dir)).rejects.toThrow("PNG");
-  expect(await findPageCover(dir, join(dir, "preview.png"))).toEqual({ data: new Uint8Array(png), contentType: "image/png" });
+  const file = join(dir, "cover.png");
+  await writeFile(file, png);
+  expect(await preparePageCover(file)).toEqual({ data: new Uint8Array(png), contentType: "image/png" });
  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 it("rejects unsupported, oversized and symbolic image files", async () => {

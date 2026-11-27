@@ -160,7 +160,7 @@ function messagingSection(): string {
       "Do not download and upload it again. Reuse works across channels, DMs, and threads while you can still read the file. " +
       "Upload only a new or changed file.",
     `- Alook Page: for cloud artifacts or apps that need persisted state, ongoing edits, or collaboration (not one-off inline HTML visuals without saved state), read @alook-page.md to choose the right surface and artifact \`type\`. ` +
-      `Pass \`--page <dir>\` on \`message send\`, or upload once with \`${CLI} page upload --dir <dir>\` and attach or forward its \`page_id\` with \`--page <page_id>\`.`,
+      `Upload once with \`${CLI} page upload --dir <dir> --cover <img-path>\` and attach or forward its \`page_id\` with \`--page <page_id>\` on \`message send\`.`,
     `- Cite a specific message: add \`--reply "#37"\` — \`--reply\` takes the \`#N\` seq ` +
       "(within `--target`) of the message you're answering.",
     "",
@@ -297,7 +297,7 @@ function cliCommandsSection(): string {
     "### Messaging",
     "",
     `1. \`${CLI} inbox pull\` — fetch unread messages and advance their read waterlines.`,
-    `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> [--ask] [--page <dir|id>] [--page-cover <img-path>] --stdin\` — Send to a ` +
+    `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> [--ask] [--page <page_id>] --stdin\` — Send to a ` +
       `channel, DM, or thread. ` +
       `For plain messages, pass up to 1 KiB of UTF-8 text through stdin and use \`--attachment <id>\` for files (repeatable, order matters). ` +
       `\`--remind-after\` accepts \`0\` or a whole-number duration from \`1m\` to \`24h\`.`,
@@ -376,12 +376,11 @@ function cliCommandsSection(): string {
     "",
     "See @alook-page.md for when to use an Alook Page vs inline HTML and which artifact `type` to pick. CLI usage for creating, sharing, inspecting, editing, and deleting artifacts:",
     "",
-    `1. \`${CLI} page upload --dir <dir> [--cover <img-path>]\` — validate and auto-zip a local artifact directory (requires root \`.artifact.json\`; generic \`page\` requires \`index.html\`; auto-excludes \`.git\`, \`node_modules\`, \`.DS_Store\`; limits: 16 MiB compressed, 32 MiB unpacked, 2,000 files) and return its reusable \`page_id\`. Automatically uploads root \`cover.{png,jpg,jpeg,webp}\` / \`preview.{png,jpg,jpeg,webp}\` or \`--cover\` (≤ 2 MiB) as the card homepage preview.`,
-    `2. \`${CLI} message send --target <ref> --page <dir|page_id> [--page-cover <img-path>] --remind-after <0|Nm|Nh> --stdin\` — upload and publish a directory directly, or attach/forward an existing \`page_id\` across channels without re-uploading (all linked cards share one live cloud Page; reader comments return to the opening conversation).`,
-    `3. \`${CLI} page cover --id <id> --file <img-path>\` — set or replace the homepage cover image (PNG, JPEG, or WebP, ≤ 2 MiB) for a Page created by this bot.`,
-    `4. \`${CLI} page list [--limit <1..100>] [--cursor <cursor>]\` — list Pages created by this bot (including unused uploads) with \`total\` and each Page's \`messageCount\`.`,
-    `5. \`${CLI} page --id <id> --stdin [--out <path>]\` — read or live-edit an accessible Page via JSON on stdin: \`{"kind":"manifest"}\`, \`{"kind":"read","path":"..."}\` (use \`--out\` to write a file locally), \`{"kind":"write","writes":[{"path":"...","content":"<base64>","if_match":"<etag>"}]}\` (use JSON \`null\` for \`if_match\` when creating a new file), \`{"kind":"actions"}\` (inspect native editor action schemas), or \`{"kind":"action","name":"...","args":{...}}\`.`,
-    `6. \`${CLI} page delete --id <id>\` — permanently delete a Page created by this bot, destroy its cloud data and cover, and unlink all messages (deleting a message removes only that link).`,
+    `1. \`${CLI} page upload --dir <dir> --cover <img-path>\` — validate and auto-zip a local artifact directory (requires root \`.artifact.json\`; generic \`page\` requires \`index.html\`; auto-excludes \`.git\`, \`node_modules\`, \`.DS_Store\`; limits: 16 MiB compressed, 32 MiB unpacked, 2,000 files), upload its required homepage cover screenshot (\`--cover <img-path>\`, PNG/JPEG/WebP, ≤ 2 MiB), and return its reusable \`page_id\`.`,
+    `2. \`${CLI} message send --target <ref> --page <page_id> --remind-after <0|Nm|Nh> --stdin\` — attach or forward an uploaded \`page_id\` across channels without re-uploading (all linked cards share one live cloud Page; reader comments return to the opening conversation).`,
+    `3. \`${CLI} page list [--limit <1..100>] [--cursor <cursor>]\` — list Pages created by this bot (including unused uploads) with \`total\` and each Page's \`messageCount\`.`,
+    `4. \`${CLI} page --id <id> --stdin [--out <path>]\` — read or live-edit an accessible Page via JSON on stdin: \`{"kind":"manifest"}\`, \`{"kind":"read","path":"..."}\` (use \`--out\` to write a file locally), \`{"kind":"write","writes":[{"path":"...","content":"<base64>","if_match":"<etag>"}]}\` (use JSON \`null\` for \`if_match\` when creating a new file), \`{"kind":"actions"}\` (inspect native editor action schemas), or \`{"kind":"action","name":"...","args":{...}}\`.`,
+    `5. \`${CLI} page delete --id <id>\` — permanently delete a Page created by this bot, destroy its cloud data and cover, and unlink all messages (deleting a message removes only that link).`,
     "",
     "### Settings",
     "",

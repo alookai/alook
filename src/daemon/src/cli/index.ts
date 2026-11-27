@@ -7,7 +7,7 @@ import {
   parseDecisionCardCliInput,
 } from "@alook/shared";
 import { preparePageDirectory } from "./pageDirectory.js";
-import { findPageCover, preparePageCover } from "./pageCover.js";
+import { preparePageCover } from "./pageCover.js";
 import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
@@ -327,15 +327,13 @@ async function dispatchSendAndArmReminder(
   }
 }
 
-async function uploadPageDirectory(api: ServerApi, agent: string, directory: string, coverFile?: string) {
-  const cover = await findPageCover(directory, coverFile);
+async function uploadPageDirectory(api: ServerApi, agent: string, directory: string, coverFile: string) {
+  const cover = await preparePageCover(coverFile);
   const prepared = await preparePageDirectory(directory);
   const uploaded = await api.attachmentUpload({ agentId: agent, file: { data: prepared.bytes, filename: "page.zip", contentType: "application/zip" } });
   const page = await withTransientMutationRetry(() => api.pageCreate({ archiveAttachmentId: uploaded.id }));
-  if (cover) {
-    try { await withTransientMutationRetry(() => api.pageCover({ id: page.id, ...cover })); }
-    catch (error) { throw new CliError(`Page ${page.id} was created; cover upload failed: ${(error as Error).message}. Retry with page cover --id ${page.id} --file <image>`); }
-  }
+  try { await withTransientMutationRetry(() => api.pageCover({ id: page.id, ...cover })); }
+  catch (error) { throw new CliError(`Page ${page.id} was created; cover upload failed: ${(error as Error).message}. Delete it with page delete --id ${page.id} and re-upload.`); }
   return page;
 }
 
@@ -352,7 +350,7 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   const replyToSeq = parseReplySeqOption("message send", opts.reply);
 
   if (opts.ask === true) {
-    if (opts.page || opts.pageCover) throw new CliError("message send: cannot combine --ask with --page or --page-cover");
+    if (opts.page) throw new CliError("message send: cannot combine --ask with --page");
     if (attachmentIds.length > 0) {
       throw new CliError("message send --ask: cannot combine --ask with --attachment");
     }
@@ -410,21 +408,13 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
     throw new CliError("message send: --stdin must contain text unless --attachment <id> is present");
   }
 
-  if (opts.pageCover && !opts.page) throw new CliError("message send: --page-cover requires --page");
   let page: { id: string } | undefined;
   if (opts.page) {
     const value = String(opts.page);
-    const fs = await import("node:fs/promises");
-    const info = await fs.lstat(value).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
-    if (info) page = { id: (await uploadPageDirectory(api, agent, value, opts.pageCover as string | undefined)).id };
-    else if (/^page_[A-Za-z0-9_-]{1,123}$/.test(value)) {
-      if (opts.pageCover) {
-        const cover = await preparePageCover(String(opts.pageCover));
-        await withTransientMutationRetry(() => api.pageCover({ id: value, ...cover }));
-      }
-      page = { id: value };
+    if (!/^page_[A-Za-z0-9_-]{1,123}$/.test(value)) {
+      throw new CliError("message send: --page requires a Page id from page upload --dir <dir> --cover <image>");
     }
-    else throw new CliError("message send: --page requires an artifact directory or a Page id");
+    page = { id: value };
   }
   const nonce = randomUUID();
   return dispatchSendAndArmReminder(api, channel, remindAfterMs, {
@@ -850,8 +840,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
     .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB, or 8 KiB JSON with --ask)")
-    .option("--page <directory-or-id>", "upload an artifact directory or link an existing live Page id")
-    .option("--page-cover <image>", "real homepage screenshot for --page (PNG, JPEG or WebP, max 2 MiB)")
+    .option("--page <id>", "attach an uploaded live Page by id (from page upload)")
     .option("--ask", "send a structured decision card from UTF-8 JSON on --stdin with required summary and questions (text channel, thread, or DM)")
     .option(
       "-a, --attachment <id>",
@@ -893,23 +882,12 @@ function buildProgram(stdin: CliInputStream): Command {
       } else printEnvelope({ success: result });
     });
 
-  pageCommand.command("upload").description("validate and upload an artifact directory; return its reusable live Page id")
+  pageCommand.command("upload").description("validate and upload an artifact directory with its homepage cover; return its reusable live Page id")
     .requiredOption("--dir <directory>", "directory containing .artifact.json and artifact files")
-    .option("--cover <image>", "real homepage screenshot; defaults to root cover/preview.png, .jpg, .jpeg or .webp")
+    .requiredOption("--cover <image>", "required real homepage screenshot (PNG, JPEG or WebP, max 2 MiB)")
     .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
-      printEnvelope({ success: await uploadPageDirectory(getApi(), agentId(program.opts()), String(this.opts().dir), this.opts().cover as string | undefined) });
-    });
-
-  pageCommand.command("cover").description("replace the real homepage screenshot of a Page created by this bot")
-    .option("--id <id>", "required Page id")
-    .requiredOption("--file <image>", "PNG, JPEG or WebP, max 2 MiB")
-    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(async function (this: Command) {
-      const id = this.opts().id ?? pageCommand.opts().id;
-      if (!id) throw new CliError("page cover: --id is required");
-      const cover = await preparePageCover(String(this.opts().file));
-      printEnvelope({ success: await withTransientMutationRetry(() => getApi().pageCover({ id: String(id), ...cover })) });
+      printEnvelope({ success: await uploadPageDirectory(getApi(), agentId(program.opts()), String(this.opts().dir), String(this.opts().cover)) });
     });
 
   pageCommand.command("list").description("list Pages created by this bot, including unused uploads; return the total and message counts")

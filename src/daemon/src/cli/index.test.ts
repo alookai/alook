@@ -2504,20 +2504,31 @@ describe("platform feedback stdin", () => {
   });
 });
 
-it("publishes a Page through the ordinary upload and message send, retaining reminder behavior", async () => {
+it("uploads a Page via page upload and attaches only its id on message send, retaining reminder behavior", async () => {
   const fs = await import("node:fs/promises");
   const folder = await fs.mkdtemp(join(tmpdir(), "page-cli-"));
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64");
+  const coverPath = join(folder, "cover.png");
   await fs.writeFile(join(folder, ".artifact.json"), JSON.stringify({ type: "page", title: "Test" }));
   await fs.writeFile(join(folder, "index.html"), "<title>Test</title>");
-  const file = folder;
+  await fs.writeFile(coverPath, png);
   const upload = vi.fn(async () => ({ id: "archive-id", filename: "page.zip", contentType: "application/zip", size: 17 }));
   const send = vi.fn(stubApi().send);
   const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_existing", type: "page", title: "Test" }));
-  setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, send }));
+  const pageCover = vi.fn(async () => ({ id: "page_existing", etag: "revision" }));
+  setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, pageCover, send }));
   try {
-    expect(await mainWithStdin(["message", "send", "--page", file, "--target", "/s#0042/general", "--stdin", "--remind-after", "5m"], "Review this Page")).toBe(0);
+    await mainWithStdin(["message", "send", "--page", folder, "--target", "/s#0042/general", "--stdin", "--remind-after", "5m"], "Review this Page");
+    expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("Page id") });
+    expect(upload).not.toHaveBeenCalled();
+    expect(pageCreate).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+
+    expect(await main(["page", "upload", "--dir", folder, "--cover", coverPath])).toBe(0);
     expect(upload).toHaveBeenCalledOnce();
     expect(pageCreate).toHaveBeenCalledWith({ archiveAttachmentId: "archive-id" });
+    expect(pageCover).toHaveBeenCalledWith({ id: "page_existing", data: new Uint8Array(png), contentType: "image/png" });
+    expect(await mainWithStdin(["message", "send", "--page", "page_existing", "--target", "/s#0042/general", "--stdin", "--remind-after", "5m"], "Review this Page")).toBe(0);
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ page: { id: "page_existing" }, content: { text: "Review this Page" }, nonce: expect.any(String) }));
     expect(mockArmMessageReminder).toHaveBeenCalledWith(expect.objectContaining({ remindAfterMs: 300_000 }));
   } finally { await fs.rm(folder, { recursive: true, force: true }); }
@@ -2531,18 +2542,26 @@ it("reuses a live Page id without a file upload or resource creation", async () 
   expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
 });
 
-it("page upload returns a reusable id and invalid directories fail before any network call", async () => {
+it("page upload requires --cover, returns a reusable id, and invalid directories fail before any network call", async () => {
   const fs = await import("node:fs/promises"); const folder = await fs.mkdtemp(join(tmpdir(), "page-upload-cli-"));
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64");
+  const coverPath = join(folder, "cover.png");
   const upload = vi.fn(async () => ({ id: "archive-id", filename: "page.zip", contentType: "application/zip", size: 17 }));
   const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_uploaded", type: "page", title: "Test" }));
-  setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate }));
+  const pageCover = vi.fn(async () => ({ id: "page_uploaded", etag: "revision" }));
+  setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, pageCover }));
   try {
+    await fs.writeFile(coverPath, png);
     await main(["page", "upload", "--dir", folder]);
+    expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("--cover") });
+    expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
+    await main(["page", "upload", "--dir", folder, "--cover", coverPath]);
     expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
     await fs.writeFile(join(folder, ".artifact.json"), JSON.stringify({ type: "page" }));
     await fs.writeFile(join(folder, "index.html"), "<title>Test</title>");
-    await main(["page", "upload", "--dir", folder]);
+    await main(["page", "upload", "--dir", folder, "--cover", coverPath]);
     expect(upload).toHaveBeenCalledOnce(); expect(pageCreate).toHaveBeenCalledWith({ archiveAttachmentId: "archive-id" });
+    expect(pageCover).toHaveBeenCalledOnce();
     expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ success: { id: "page_uploaded" } });
   } finally { await fs.rm(folder, { recursive: true, force: true }); }
 });
@@ -2570,23 +2589,25 @@ it("requires a file version for Page writes before calling the server", async ()
   expect(page).toHaveBeenCalledWith({ id: "page_1", operation: { kind: "write", writes: [{ path: "index.html", content: "YQ==", if_match: "prior-etag" }] } });
 });
 
-it("uploads discovered covers after creating a Page and supports explicit cover replacement", async () => {
+it("uploads required cover only during page upload and rejects removed cover commands/flags", async () => {
  const fs = await import("node:fs/promises"); const dir = await fs.mkdtemp(join(tmpdir(), "page-cli-cover-"));
  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64");
  const pageCover = vi.fn(async () => ({ id: "page_created", etag: "revision" })); const send = vi.fn(stubApi().send);
  const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_created", type: "page", title: "Test" }));
  const upload = vi.fn(async () => ({ id: "archive" })); setApiForTesting(stubApi({ pageCreate, pageCover, attachmentUpload: upload, send }));
  try {
-  await fs.writeFile(join(dir, ".artifact.json"), JSON.stringify({ type: "page", title: "Test" })); await fs.writeFile(join(dir, "index.html"), "<h1>Hello</h1>"); await fs.writeFile(join(dir, "cover.png"), png);
-  expect(await main(["page", "upload", "--dir", dir])).toBe(0);
+  const coverPath = join(dir, "cover.png");
+  await fs.writeFile(join(dir, ".artifact.json"), JSON.stringify({ type: "page", title: "Test" })); await fs.writeFile(join(dir, "index.html"), "<h1>Hello</h1>"); await fs.writeFile(coverPath, png);
+  expect(await main(["page", "upload", "--dir", dir, "--cover", coverPath])).toBe(0);
   expect(pageCover).toHaveBeenCalledWith({ id: "page_created", data: new Uint8Array(png), contentType: "image/png" });
   expect(pageCreate.mock.invocationCallOrder[0]).toBeLessThan(pageCover.mock.invocationCallOrder[0]!);
-  expect(await main(["page", "cover", "--id", "page_created", "--file", join(dir, "cover.png")])).toBe(0);
-  expect(await mainWithStdin(["message", "send", "--target", "/demo#0042/general", "--page", "page_created", "--page-cover", join(dir, "cover.png"), "--stdin", "--remind-after", "0"])).toBe(0);
-  expect(pageCover).toHaveBeenCalledTimes(3); expect(send).toHaveBeenCalledOnce(); expect(upload).toHaveBeenCalledOnce();
-  expect(await main(["page", "upload", "--dir", dir, "--cover", join(dir, "cover.png")])).toBe(0);
-  expect(await mainWithStdin(["message", "send", "--target", "/demo#0042/general", "--page", dir, "--page-cover", join(dir, "cover.png"), "--stdin", "--remind-after", "0"])).toBe(0);
-  expect(pageCover).toHaveBeenCalledTimes(5);
+  expect(await mainWithStdin(["message", "send", "--target", "/demo#0042/general", "--page", "page_created", "--stdin", "--remind-after", "0"], "Look")).toBe(0);
+  expect(send).toHaveBeenCalledOnce(); expect(upload).toHaveBeenCalledOnce(); expect(pageCover).toHaveBeenCalledOnce();
+  await mainWithStdin(["message", "send", "--target", "/demo#0042/general", "--page", "page_created", "--page-cover", coverPath, "--stdin", "--remind-after", "0"], "Look");
+  expect(JSON.parse(cap.lines().at(-1)!)).toHaveProperty("error");
+  await main(["page", "cover", "--id", "page_created", "--file", coverPath]);
+  expect(JSON.parse(cap.lines().at(-1)!)).toHaveProperty("error");
+  expect(pageCover).toHaveBeenCalledOnce();
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 it("validates covers before network and reports the created Page id when a later cover upload fails", async () => {
@@ -2594,11 +2615,12 @@ it("validates covers before network and reports the created Page id when a later
  const upload = vi.fn(async () => ({ id: "archive" })); const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_partial", type: "page", title: "Test" }));
  const pageCover = vi.fn(async () => { throw new Error("forbidden"); }); setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, pageCover }));
  try {
-  await fs.writeFile(join(dir, ".artifact.json"), JSON.stringify({ type: "page" })); await fs.writeFile(join(dir, "index.html"), "Hello"); await fs.writeFile(join(dir, "cover.png"), "<svg/>");
-  await main(["page", "upload", "--dir", dir]); expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("PNG") }); expect(upload).not.toHaveBeenCalled();
-  await fs.writeFile(join(dir, "cover.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64"));
-  await main(["page", "upload", "--dir", dir]);
-  expect(cap.lines().join("")).toContain("page_partial was created"); expect(cap.lines().join("")).toContain("page cover --id page_partial");
+  const coverPath = join(dir, "cover.png");
+  await fs.writeFile(join(dir, ".artifact.json"), JSON.stringify({ type: "page" })); await fs.writeFile(join(dir, "index.html"), "Hello"); await fs.writeFile(coverPath, "<svg/>");
+  await main(["page", "upload", "--dir", dir, "--cover", coverPath]); expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("PNG") }); expect(upload).not.toHaveBeenCalled();
+  await fs.writeFile(coverPath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64"));
+  await main(["page", "upload", "--dir", dir, "--cover", coverPath]);
+  expect(cap.lines().join("")).toContain("page_partial was created"); expect(cap.lines().join("")).toContain("page delete --id page_partial");
   expect(pageCreate).toHaveBeenCalledOnce();
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });

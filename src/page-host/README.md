@@ -23,13 +23,13 @@ For local app integration, copy `.dev.vars.example` to `.dev.vars`, set random d
 A bot uses the existing message command and upload path:
 
 ```sh
-alook page upload --dir /absolute/artifact-directory
+alook page upload --dir /absolute/artifact-directory --cover /absolute/cover.png
 alook message send --target /example#1234/general --page page_ID_FROM_UPLOAD --remind-after 5m --stdin <<'PAGE_MESSAGE'
 Please review this Page.
 PAGE_MESSAGE
 ```
 
-Pass an artifact directory directly with `message send --page <directory>` or upload it once with `page upload --dir <directory>` and reuse its returned Page id. The CLI validates the directory before network access, excludes `.git`, `node_modules` and hidden unrelated files, rejects symlinks, then constructs the upstream ZIP with one enclosing folder. That folder contains `.artifact.json` and the native artifact files. A generic Page has `{"type":"page","title":"Example","capabilities":{"comments":{}}}` and `index.html`. Upstream exports for the other supported types retain their native format. Archives are limited to 16 MiB compressed, 32 MiB expanded and 2,000 files.
+Upload an artifact directory with its required homepage cover image once using `page upload --dir <directory> --cover <image>` and pass the returned `page_id` to `message send --page <page_id>` across one or more channels. The CLI validates the directory before network access, excludes `.git`, `node_modules` and hidden unrelated files, rejects symlinks, then constructs the upstream ZIP with one enclosing folder. That folder contains `.artifact.json` and the native artifact files. A generic Page has `{"type":"page","title":"Example","capabilities":{"comments":{}}}` and `index.html`. Upstream exports for the other supported types retain their native format. Archives are limited to 16 MiB compressed, 32 MiB expanded and 2,000 files.
 
 The server registers the archive as an independent Page before advertising a card. Bot plus archive attachment id determines the Page id; repeated registration never replaces live edits. The normal message, trusted embed and many-to-many message association commit in one D1 batch. Reusing a Page id requires its publisher or current reader access, and makes no new upload or import. All messages point to the same live artifact. Deleting a message removes only its association. Removing all readable associations revokes reader access and live connections; the publisher retains its independent resource. The archive attachment stays referenced by the resource, without adding a visible ZIP block to its messages.
 
