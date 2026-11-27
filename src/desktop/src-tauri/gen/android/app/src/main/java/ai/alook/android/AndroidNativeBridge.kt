@@ -2,6 +2,83 @@ package ai.alook.android
 
 object AndroidNativeBridge {
     const val BRIDGE_NAME = "alookNativeBridge"
+    const val DEFAULT_KEYBOARD_EASING = "cubic-bezier(0.2, 0, 0, 1)"
+    const val LEGACY_RESIZE_KEYBOARD_JSON = "{\"resizesViewport\":true}"
+    private const val MAX_KEYBOARD_DURATION_MS = 1000L
+
+    data class KeyboardOverlayPacket(
+        val targetInset: Int,
+        val viewportWidth: Int,
+        val durationMs: Long,
+        val easing: String = DEFAULT_KEYBOARD_EASING,
+        val phase: String,
+        val sequence: Long,
+    ) {
+        fun toJson(): String {
+            val safeInset = targetInset.coerceAtLeast(0)
+            val safeWidth = viewportWidth.coerceAtLeast(0)
+            val safeDuration = durationMs.coerceIn(0L, MAX_KEYBOARD_DURATION_MS)
+            val safePhase = if (phase == "animating") "animating" else "settled"
+            val safeEasing = easing.ifBlank { DEFAULT_KEYBOARD_EASING }
+            val safeSequence = sequence.coerceAtLeast(0L)
+            return "{\"mode\":\"overlay-gpu\",\"targetInset\":$safeInset,\"viewportWidth\":$safeWidth,\"durationMs\":$safeDuration,\"easing\":\"$safeEasing\",\"phase\":\"$safePhase\",\"sequence\":$safeSequence}"
+        }
+    }
+
+    fun settledOverlayKeyboardJson(targetInset: Int, viewportWidth: Int, sequence: Long): String =
+        KeyboardOverlayPacket(
+            targetInset = targetInset,
+            viewportWidth = viewportWidth,
+            durationMs = 0L,
+            easing = DEFAULT_KEYBOARD_EASING,
+            phase = "settled",
+            sequence = sequence,
+        ).toJson()
+
+    fun resolveImeAnimationTargetInset(
+        currentAppliedImeBottom: Int,
+        preAnimationImeInset: Int,
+        upperBoundBottom: Int,
+    ): Int {
+        val applied = currentAppliedImeBottom.coerceAtLeast(0)
+        val previous = preAnimationImeInset.coerceAtLeast(0)
+        if (applied != previous) return applied
+        return if (previous == 0) upperBoundBottom.coerceAtLeast(0) else 0
+    }
+
+    class ImeAnimationTracker<T : Any> {
+        private val active = LinkedHashSet<T>()
+        private val preAnimationInsets = HashMap<T, Int>()
+
+        val isActive: Boolean
+            get() = active.isNotEmpty()
+
+        fun onPrepare(animation: T, currentAppliedImeBottom: Int) {
+            active.add(animation)
+            preAnimationInsets[animation] = currentAppliedImeBottom.coerceAtLeast(0)
+        }
+
+        fun onStart(
+            animation: T,
+            currentAppliedImeBottom: Int,
+            upperBoundBottom: Int,
+        ): Int {
+            active.add(animation)
+            val previous = preAnimationInsets[animation] ?: currentAppliedImeBottom.coerceAtLeast(0)
+            return resolveImeAnimationTargetInset(currentAppliedImeBottom, previous, upperBoundBottom)
+        }
+
+        fun onEnd(animation: T): Boolean {
+            val removed = active.remove(animation)
+            preAnimationInsets.remove(animation)
+            return removed && active.isEmpty()
+        }
+
+        fun clear() {
+            active.clear()
+            preAnimationInsets.clear()
+        }
+    }
 
     private val PRODUCTION_ORIGINS = setOf(
         "https://alook.ai",
@@ -47,8 +124,12 @@ object AndroidNativeBridge {
         }
     }
 
-    fun buildSnapshotPayload(geometryJson: String, systemGestureRegionJson: String): String =
-        "{\"geometry\":$geometryJson,\"keyboard\":{\"resizesViewport\":true},\"systemGestureRegion\":$systemGestureRegionJson}"
+    fun buildSnapshotPayload(
+        geometryJson: String,
+        systemGestureRegionJson: String,
+        keyboardJson: String = LEGACY_RESIZE_KEYBOARD_JSON,
+    ): String =
+        "{\"geometry\":$geometryJson,\"keyboard\":$keyboardJson,\"systemGestureRegion\":$systemGestureRegionJson}"
 
     const val BRIDGE_AND_THEME_SCRIPT = """
         (function() {
@@ -59,10 +140,11 @@ object AndroidNativeBridge {
             if (!Object.prototype.hasOwnProperty.call(window, '__alookNativeBridge')) {
                 var state = {
                     geometry: null,
-                    keyboard: Object.freeze({ resizesViewport: true }),
+                    keyboard: null,
                     systemGestureRegion: null
                 };
                 var lastGeometrySerialized = 'null';
+                var lastKeyboardSerialized = 'null';
                 channel.onmessage = function(event) {
                     if (!event || typeof event.data !== 'string') return;
                     var packet;
@@ -84,6 +166,11 @@ object AndroidNativeBridge {
                     }
                     if (Object.prototype.hasOwnProperty.call(packet, 'keyboard') && packet.keyboard && typeof packet.keyboard === 'object') {
                         state.keyboard = Object.freeze(packet.keyboard);
+                        var kbSerialized = JSON.stringify(state.keyboard);
+                        if (kbSerialized !== lastKeyboardSerialized) {
+                            lastKeyboardSerialized = kbSerialized;
+                            window.dispatchEvent(new CustomEvent('alook:keyboard-change', { detail: state.keyboard }));
+                        }
                     }
                     if (Object.prototype.hasOwnProperty.call(packet, 'systemGestureRegion')) {
                         state.systemGestureRegion = packet.systemGestureRegion && typeof packet.systemGestureRegion === 'object'

@@ -1,12 +1,18 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
-import { useNativeKeyboard } from "./use-native-keyboard"
+import { registerNativeKeyboardSettle, useNativeKeyboard, type KeyboardSettleEvent, type OverlayGpuKeyboardPacket } from "./use-native-keyboard"
 
 const originalAndroid = Object.getOwnPropertyDescriptor(window, "__alookNativeBridge")
 const original = Object.getOwnPropertyDescriptor(window, "webkit")
 const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
+  vi.useRealTimers()
   document.documentElement.style.removeProperty("--alook-keyboard-progress")
+  document.documentElement.style.removeProperty("--alook-keyboard-bottom")
+  document.documentElement.style.removeProperty("--alook-kb-translate-y")
+  document.documentElement.style.removeProperty("--alook-kb-transition")
+  document.documentElement.style.removeProperty("--app-safe-area-bottom")
+  document.documentElement.removeAttribute("data-alook-kb-animating")
   if (originalAndroid) Object.defineProperty(window, "__alookNativeBridge", originalAndroid)
   else Reflect.deleteProperty(window, "__alookNativeBridge")
   if (original) Object.defineProperty(window, "webkit", original)
@@ -304,5 +310,235 @@ it("ignores retired global AlookNative bridge objects", async () => {
     expect(legacy).not.toHaveBeenCalled()
   } finally {
     Reflect.deleteProperty(window, "AlookNative")
+  }
+})
+
+function overlayPacket(overrides: Partial<OverlayGpuKeyboardPacket> = {}): OverlayGpuKeyboardPacket {
+  return {
+    mode: "overlay-gpu",
+    targetInset: 0,
+    viewportWidth: 400,
+    durationMs: 0,
+    easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+    phase: "settled",
+    sequence: 0,
+    ...overrides,
+  }
+}
+
+it("glides with GPU CSS variables at t=0 on expand and uses t=0 FLIP on dismiss without top gap", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 })
+  document.documentElement.style.setProperty("--app-safe-area-bottom", "34px")
+  const post = vi.fn(async () => overlayPacket({ sequence: 0 }))
+  install(post)
+  const settles: KeyboardSettleEvent[] = []
+  let flipStartSnapshot: { translateY: string; transition: string; layoutProgress: string; visualProgress: string } | null = null
+  const unregister = registerNativeKeyboardSettle((event) => {
+    settles.push(event)
+    if (event.deltaInsetPx < 0) {
+      flipStartSnapshot = {
+        translateY: document.documentElement.style.getPropertyValue("--alook-kb-translate-y"),
+        transition: document.documentElement.style.getPropertyValue("--alook-kb-transition"),
+        layoutProgress: document.documentElement.style.getPropertyValue("--alook-kb-layout-progress"),
+        visualProgress: document.documentElement.style.getPropertyValue("--alook-kb-visual-progress"),
+      }
+    }
+  })
+  const view = renderHook(useNativeKeyboard)
+  try {
+    await waitFor(() => expect(view.result.current).toEqual({ bottomInset: 0, viewportWidth: 400, mode: "overlay-gpu" }))
+    expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 334, durationMs: 250, phase: "animating", sequence: 1 }),
+      }))
+    })
+    expect(document.documentElement.getAttribute("data-alook-kb-animating")).toBe("true")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("-300px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-layout-progress")).toBe("0px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-visual-progress")).toBe("300px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-transition"))
+      .toBe("transform 250ms cubic-bezier(0.32, 0.72, 0, 1)")
+    expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+    expect(settles).toEqual([])
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 334, durationMs: 0, phase: "settled", sequence: 2 }),
+      }))
+    })
+    expect(document.documentElement.getAttribute("data-alook-kb-animating")).toBeNull()
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("0px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-layout-progress")).toBe("300px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-visual-progress")).toBe("300px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-transition")).toBe("none")
+    expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress"))
+      .toBe(`max(0px, calc(${334 / 400 * 100}vw - var(--app-safe-area-bottom)))`)
+    expect(settles).toEqual([{ previousInsetPx: 0, nextInsetPx: 300, deltaInsetPx: 300, sequence: 2 }])
+    expect(view.result.current).toEqual({ bottomInset: 334, viewportWidth: 400, mode: "overlay-gpu" })
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 0, durationMs: 220, phase: "animating", sequence: 3 }),
+      }))
+    })
+    expect(flipStartSnapshot).toEqual({
+      translateY: "-300px",
+      transition: "none",
+      layoutProgress: "0px",
+      visualProgress: "300px",
+    })
+    expect(document.documentElement.getAttribute("data-alook-kb-animating")).toBe("true")
+    expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-layout-progress")).toBe("0px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-visual-progress")).toBe("0px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("0px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-transition"))
+      .toBe("transform 220ms cubic-bezier(0.32, 0.72, 0, 1)")
+    expect(settles).toEqual([
+      { previousInsetPx: 0, nextInsetPx: 300, deltaInsetPx: 300, sequence: 2 },
+      { previousInsetPx: 300, nextInsetPx: 0, deltaInsetPx: -300, sequence: 3 },
+    ])
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 0, durationMs: 0, phase: "settled", sequence: 4 }),
+      }))
+    })
+    expect(document.documentElement.getAttribute("data-alook-kb-animating")).toBeNull()
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("0px")
+    expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+    expect(settles).toHaveLength(2)
+    expect(view.result.current).toEqual({ bottomInset: 0, viewportWidth: 400, mode: "overlay-gpu" })
+  } finally {
+    unregister()
+    view.unmount()
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
+  }
+})
+
+it("handles mid-dismiss re-open, mid-expand shrink FLIP, transitionend dedupe, out-of-order sequences, and safety timer settle", async () => {
+  vi.useFakeTimers()
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 })
+  install(async () => overlayPacket({ sequence: 0 }))
+  const settles: KeyboardSettleEvent[] = []
+  let lastFlipStartTranslateY = ""
+  const unregister = registerNativeKeyboardSettle((event) => {
+    settles.push(event)
+    if (event.deltaInsetPx < 0) {
+      lastFlipStartTranslateY = document.documentElement.style.getPropertyValue("--alook-kb-translate-y")
+    }
+  })
+  const view = renderHook(useNativeKeyboard)
+  const layer = document.createElement("div")
+  layer.setAttribute("data-alook-kb-gpu-layer", "true")
+  document.body.appendChild(layer)
+  try {
+    await act(async () => { await Promise.resolve() })
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 300, durationMs: 250, phase: "animating", sequence: 1 }),
+      }))
+    })
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("-300px")
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 0, durationMs: 200, phase: "animating", sequence: 2 }),
+      }))
+    })
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("0px")
+    expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 280, durationMs: 250, phase: "animating", sequence: 3 }),
+      }))
+    })
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("-280px")
+
+    act(() => {
+      const event = new Event("transitionend", { bubbles: true })
+      Object.defineProperty(event, "propertyName", { value: "transform" })
+      layer.dispatchEvent(event)
+    })
+    expect(settles).toEqual([{ previousInsetPx: 0, nextInsetPx: 280, deltaInsetPx: 280, sequence: 3 }])
+    expect(document.documentElement.getAttribute("data-alook-kb-animating")).toBeNull()
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 280, durationMs: 0, phase: "settled", sequence: 4 }),
+      }))
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 0, durationMs: 0, phase: "settled", sequence: 2 }),
+      }))
+    })
+    expect(settles).toHaveLength(1)
+    expect(view.result.current).toEqual({ bottomInset: 280, viewportWidth: 400, mode: "overlay-gpu" })
+
+    // Dismiss via FLIP (commits layout 0 immediately), then interrupt mid-dismiss by re-opening to 280
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 0, durationMs: 200, phase: "animating", sequence: 5 }),
+      }))
+    })
+    expect(lastFlipStartTranslateY).toBe("-280px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("0px")
+    expect(settles).toHaveLength(2)
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+        detail: overlayPacket({ targetInset: 280, durationMs: 220, phase: "animating", sequence: 6 }),
+      }))
+    })
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("-280px")
+    expect(document.documentElement.style.getPropertyValue("--alook-kb-visual-progress")).toBe("280px")
+
+    act(() => { vi.advanceTimersByTime(340) })
+    expect(document.documentElement.getAttribute("data-alook-kb-animating")).toBeNull()
+    expect(settles).toEqual([
+      { previousInsetPx: 0, nextInsetPx: 280, deltaInsetPx: 280, sequence: 3 },
+      { previousInsetPx: 280, nextInsetPx: 0, deltaInsetPx: -280, sequence: 5 },
+      { previousInsetPx: 0, nextInsetPx: 280, deltaInsetPx: 280, sequence: 6 },
+    ])
+
+    // Mid-expand from 280 -> 340 interrupted to 0 uses live computed translateY (-40px -> -320px FLIP start)
+    const computedSpy = vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      transform: "matrix(1, 0, 0, 1, 0, -40)",
+      getPropertyValue: () => "",
+    } as unknown as CSSStyleDeclaration)
+    try {
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: overlayPacket({ targetInset: 340, durationMs: 200, phase: "animating", sequence: 7 }),
+        }))
+      })
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: overlayPacket({ targetInset: 0, durationMs: 200, phase: "animating", sequence: 8 }),
+        }))
+      })
+      expect(lastFlipStartTranslateY).toBe("-320px")
+      act(() => { vi.advanceTimersByTime(320) })
+      expect(document.documentElement.getAttribute("data-alook-kb-animating")).toBeNull()
+      expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+      expect(settles).toEqual([
+        { previousInsetPx: 0, nextInsetPx: 280, deltaInsetPx: 280, sequence: 3 },
+        { previousInsetPx: 280, nextInsetPx: 0, deltaInsetPx: -280, sequence: 5 },
+        { previousInsetPx: 0, nextInsetPx: 280, deltaInsetPx: 280, sequence: 6 },
+        { previousInsetPx: 280, nextInsetPx: 0, deltaInsetPx: -280, sequence: 8 },
+      ])
+    } finally {
+      computedSpy.mockRestore()
+    }
+  } finally {
+    layer.remove()
+    unregister()
+    view.unmount()
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
   }
 })

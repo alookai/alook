@@ -12,6 +12,9 @@ import {
 } from "@/test/message-scroll-fixture"
 import type { MessageRequestResult, NewPositionRequest } from "@/lib/community/message-position"
 import type { useConversationScroll } from "./use-conversation-scroll"
+import { NativeKeyboardSync } from "@/hooks/use-native-keyboard"
+import { createElement } from "react"
+import { render } from "@/test/react-dom-harness"
 
 type BoundaryReached = NonNullable<Parameters<typeof useConversationScroll>[0]["onNewBoundaryReached"]>
 
@@ -872,5 +875,142 @@ describe("useConversationScroll", () => {
     expect(scrollFixture.latest.readingTail).toBe(true)
     expect(scrollFixture.latest.belowCount).toBe(0)
     h.view.unmount()
+  })
+
+  it("compensates scrollTop synchronously on overlay-gpu keyboard settle without false user takeover or resize rollback", async () => {
+    const originalWebkit = Object.getOwnPropertyDescriptor(window, "webkit")
+    const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 })
+    Object.defineProperty(window, "webkit", {
+      configurable: true,
+      value: {
+        messageHandlers: {
+          alookKeyboard: {
+            postMessage: async () => ({
+              mode: "overlay-gpu",
+              targetInset: 0,
+              viewportWidth: 400,
+              durationMs: 0,
+              easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+              phase: "settled",
+              sequence: 0,
+            }),
+          },
+        },
+      },
+    })
+    const kbSync = render(createElement(NativeKeyboardSync))
+    const onTakeover = vi.fn()
+    const h = mount({ onUserTakeover: onTakeover })
+    try {
+      await act(async () => { await Promise.resolve() })
+      const baseHeight = scrollFixture.height
+      const pinnedBefore = h.root.scrollTop
+
+      scrollFixture.height = baseHeight - 200
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: {
+            mode: "overlay-gpu",
+            targetInset: 200,
+            viewportWidth: 400,
+            durationMs: 0,
+            easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+            phase: "settled",
+            sequence: 1,
+          },
+        }))
+      })
+      expect(h.root.scrollTop).toBe(pinnedBefore + 200)
+      resize()
+      expect(h.root.scrollTop).toBe(pinnedBefore + 200)
+      expect(scrollFixture.latest.followingTail).toBe(true)
+      expect(onTakeover).not.toHaveBeenCalled()
+
+      scrollFixture.height = baseHeight
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: {
+            mode: "overlay-gpu",
+            targetInset: 0,
+            viewportWidth: 400,
+            durationMs: 0,
+            easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+            phase: "settled",
+            sequence: 2,
+          },
+        }))
+      })
+      expect(h.root.scrollTop).toBe(pinnedBefore)
+      resize()
+      expect(h.root.scrollTop).toBe(pinnedBefore)
+      expect(onTakeover).not.toHaveBeenCalled()
+
+      h.move(260)
+      onTakeover.mockClear()
+      const historyBefore = h.root.scrollTop
+      scrollFixture.height = baseHeight - 150
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: {
+            mode: "overlay-gpu",
+            targetInset: 150,
+            viewportWidth: 400,
+            durationMs: 0,
+            easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+            phase: "settled",
+            sequence: 3,
+          },
+        }))
+      })
+      expect(h.root.scrollTop).toBe(historyBefore + 150)
+      resize()
+      expect(h.root.scrollTop).toBe(historyBefore + 150)
+      expect(onTakeover).not.toHaveBeenCalled()
+
+      // Dismiss FLIP: browser grows clientHeight and auto-clamps scrollTop near bottom; settle avoids double-subtraction
+      const openMax = h.root.scrollHeight - scrollFixture.height
+      const nearBottomTop = openMax - 90
+      h.move(openMax)
+      h.move(nearBottomTop)
+      onTakeover.mockClear()
+      scrollFixture.height = baseHeight
+      const expandedMax = h.root.scrollHeight - baseHeight
+      h.root.scrollTop = expandedMax
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: {
+            mode: "overlay-gpu",
+            targetInset: 0,
+            viewportWidth: 400,
+            durationMs: 220,
+            easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+            phase: "animating",
+            sequence: 4,
+          },
+        }))
+      })
+      expect(h.root.scrollTop).toBe(nearBottomTop - 150)
+      resize()
+      expect(h.root.scrollTop).toBe(nearBottomTop - 150)
+      expect(onTakeover).not.toHaveBeenCalled()
+    } finally {
+      h.view.unmount()
+      kbSync.unmount()
+      document.documentElement.style.removeProperty("--alook-keyboard-progress")
+      document.documentElement.style.removeProperty("--alook-keyboard-bottom")
+      document.documentElement.style.removeProperty("--alook-kb-layout-progress")
+      document.documentElement.style.removeProperty("--alook-kb-visual-progress")
+      document.documentElement.style.removeProperty("--alook-kb-translate-y")
+      document.documentElement.style.removeProperty("--alook-kb-transition")
+      document.documentElement.removeAttribute("data-alook-kb-animating")
+      if (originalWebkit) Object.defineProperty(window, "webkit", originalWebkit)
+      else Reflect.deleteProperty(window, "webkit")
+      if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
+      else Reflect.deleteProperty(window, "__TAURI__")
+      if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
+    }
   })
 })

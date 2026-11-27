@@ -17,6 +17,7 @@ import androidx.core.graphics.Insets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebViewCompat
@@ -35,6 +36,13 @@ class MainActivity : TauriActivity() {
     private var systemGestureInsets: Insets? = null
     @Volatile private var systemGestureRegionJson = "null"
     @Volatile private var geometryJson = "null"
+    @Volatile private var keyboardJson = AndroidNativeBridge.settledOverlayKeyboardJson(0, 0, 0L)
+    private val imeAnimationTracker = AndroidNativeBridge.ImeAnimationTracker<WindowInsetsAnimationCompat>()
+    private var lastAppliedImeInset = 0
+    private var lastSentKeyboardInset = 0
+    private var lastSentKeyboardViewportWidth = 0
+    private var lastSentKeyboardSettled = true
+    private var keyboardSequence = 0L
     private var geometryInsets: WindowInsetsCompat? = null
     private var availableInsets: WindowInsetsCompat? = null
     private var insetsHost: View? = null
@@ -82,13 +90,60 @@ class MainActivity : TauriActivity() {
 
         insetsHost = rootView
         rootView.addOnLayoutChangeListener(hostLayoutListener)
+        ViewCompat.setWindowInsetsAnimationCallback(
+            rootView,
+            object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) == 0) return
+                    imeAnimationTracker.onPrepare(animation, lastAppliedImeInset)
+                }
+
+                override fun onStart(
+                    animation: WindowInsetsAnimationCompat,
+                    bounds: WindowInsetsAnimationCompat.BoundsCompat,
+                ): WindowInsetsAnimationCompat.BoundsCompat {
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                        val targetInset = imeAnimationTracker.onStart(
+                            animation,
+                            lastAppliedImeInset,
+                            bounds.upperBound.bottom,
+                        )
+                        val durationMs = animation.durationMillis.coerceIn(0L, 1000L)
+                        emitKeyboardState(targetInset, durationMs, if (durationMs > 0L) "animating" else "settled")
+                    }
+                    return bounds
+                }
+
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>,
+                ): WindowInsetsCompat = insets
+
+                override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) == 0) return
+                    if (!imeAnimationTracker.onEnd(animation)) return
+                    val finalIme = (availableInsets ?: ViewCompat.getRootWindowInsets(rootView))
+                        ?.getInsets(WindowInsetsCompat.Type.ime())
+                        ?.bottom
+                        ?: lastAppliedImeInset
+                    lastAppliedImeInset = finalIme
+                    emitKeyboardState(finalIme, 0L, "settled")
+                }
+            },
+        )
         ViewCompat.setOnApplyWindowInsetsListener(rootView) { _, insets ->
             geometryInsets = insets
             systemGestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures())
             availableInsets = insets
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val imeChanged = imeBottom != lastAppliedImeInset
+            lastAppliedImeInset = imeBottom
             resizeWebView()
             syncGeometry()
             syncSystemGestureRegion()
+            if (!imeAnimationTracker.isActive && imeChanged) {
+                emitKeyboardState(imeBottom, 0L, "settled")
+            }
             insets
         }
     }
@@ -117,11 +172,19 @@ class MainActivity : TauriActivity() {
         clearStartupBackdrop()
         systemGestureRegionJson = "null"
         geometryJson = "null"
+        keyboardJson = AndroidNativeBridge.settledOverlayKeyboardJson(0, 0, 0L)
+        imeAnimationTracker.clear()
+        lastAppliedImeInset = 0
+        lastSentKeyboardInset = 0
+        lastSentKeyboardViewportWidth = 0
+        lastSentKeyboardSettled = true
+        keyboardSequence = 0L
         geometryInsets = null
         availableInsets = null
         insetsHost?.let {
             it.removeOnLayoutChangeListener(hostLayoutListener)
             ViewCompat.setOnApplyWindowInsetsListener(it, null)
+            ViewCompat.setWindowInsetsAnimationCallback(it, null)
         }
         insetsHost = null
         mobileShareImageDocumentOwner.detach()
@@ -287,7 +350,6 @@ class MainActivity : TauriActivity() {
     private fun resizeWebView() {
         val webView = mainWebView ?: return
         val parent = webView.parent as? ViewGroup ?: return
-        val insets = availableInsets ?: ViewCompat.getRootWindowInsets(webView) ?: return
         val root = webView.rootView
         val location = IntArray(2)
         val rootLocation = IntArray(2)
@@ -296,7 +358,7 @@ class MainActivity : TauriActivity() {
         val height = WebViewAvailableHeight.fromWindow(
             nativeWindowBounds().height(), parent.height - parent.paddingBottom,
             location[1] - rootLocation[1] + webView.top, webView.top,
-            insets.getInsets(WindowInsetsCompat.Type.ime()).bottom,
+            0,
         ) ?: return
         val params = webView.layoutParams
         if (params.height != height) {
@@ -349,9 +411,44 @@ class MainActivity : TauriActivity() {
     private fun isDebugBuild(): Boolean =
         (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
+    private fun currentKeyboardViewportWidth(): Int =
+        mainWebView?.width?.takeIf { it > 0 } ?: nativeWindowBounds().width().coerceAtLeast(0)
+
+    private fun emitKeyboardState(targetInset: Int, durationMs: Long, phase: String) {
+        val clampedInset = targetInset.coerceAtLeast(0)
+        val viewportWidth = currentKeyboardViewportWidth()
+        if (viewportWidth <= 0) return
+        val settled = phase == "settled"
+        if (settled && lastSentKeyboardSettled &&
+            clampedInset == lastSentKeyboardInset &&
+            viewportWidth == lastSentKeyboardViewportWidth &&
+            keyboardSequence > 0L
+        ) {
+            return
+        }
+        keyboardSequence += 1L
+        lastSentKeyboardInset = clampedInset
+        lastSentKeyboardViewportWidth = viewportWidth
+        lastSentKeyboardSettled = settled
+        keyboardJson = AndroidNativeBridge.KeyboardOverlayPacket(
+            targetInset = clampedInset,
+            viewportWidth = viewportWidth,
+            durationMs = if (settled) 0L else durationMs,
+            easing = AndroidNativeBridge.DEFAULT_KEYBOARD_EASING,
+            phase = phase,
+            sequence = keyboardSequence,
+        ).toJson()
+        pushNativeState()
+    }
+
     private fun pushNativeState(target: JavaScriptReplyProxy? = activeReplyProxy) {
         if (isDestroyed || isFinishing || mainWebView == null || target == null) return
-        val payload = AndroidNativeBridge.buildSnapshotPayload(geometryJson, systemGestureRegionJson)
+        val width = currentKeyboardViewportWidth()
+        if (keyboardSequence == 0L && width > 0) {
+            lastSentKeyboardViewportWidth = width
+            keyboardJson = AndroidNativeBridge.settledOverlayKeyboardJson(lastAppliedImeInset, width, 0L)
+        }
+        val payload = AndroidNativeBridge.buildSnapshotPayload(geometryJson, systemGestureRegionJson, keyboardJson)
         runOnUiThread {
             if (isDestroyed || isFinishing || mainWebView == null) return@runOnUiThread
             try {
