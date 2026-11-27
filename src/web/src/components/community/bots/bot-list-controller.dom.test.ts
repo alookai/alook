@@ -361,6 +361,32 @@ describe("useBotListController", () => {
     expect(latest.membershipBot).toBeNull()
   })
 
+  it("opens fresh webhooks views and resolves the selected bot from current data", () => {
+    mocks.target = null
+    const first = bot("b1", "mac1")
+    const second = bot("b2", "mac2")
+    mocks.bots = [first, second]
+    const renderer = render()
+    expect(latest.webhooksOpen).toBe(false)
+    expect(latest.webhooksBot).toBeNull()
+    const generation = latest.webhooksGeneration
+    act(() => latest.openWebhooks(first))
+    expect(latest.webhooksOpen).toBe(true)
+    expect(latest.webhooksBot?.id).toBe(first.id)
+    expect(latest.webhooksGeneration).toBe(generation + 1)
+    act(() => latest.setWebhooksOpen(false))
+    expect(latest.webhooksOpen).toBe(false)
+    act(() => latest.openWebhooks(second))
+    expect(latest.webhooksBot?.id).toBe(second.id)
+    expect(latest.webhooksGeneration).toBe(generation + 2)
+    mocks.bots = [first, { ...second, name: "Renamed bot" }]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.webhooksBot?.name).toBe("Renamed bot")
+    mocks.bots = [first]
+    act(() => renderer.rerender(React.createElement(Probe)))
+    expect(latest.webhooksBot).toBeNull()
+  })
+
   it("retains non-URL state and both ref-backed lifecycles across loading/data rerenders", () => {
     mocks.target = null
     const renderer = render()

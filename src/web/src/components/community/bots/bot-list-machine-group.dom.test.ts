@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/components/icons/lucide", () => ({
   Activity: "activity-icon",
   ChevronDown: "chevron-icon",
+  Link2: "link-icon",
   Monitor: "monitor-icon",
   MoreVertical: "more-icon",
   Network: "network-icon",
@@ -91,6 +92,7 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     setCollapsedMachines: noop,
     setConfirmResetMachine: noop,
     openMemberships: noop,
+    openWebhooks: noop,
     openActivity: noop,
     onActivityOpenChange: noop,
     setEditingBot: noop,
@@ -363,6 +365,7 @@ describe("renderBotMachineGroup", () => {
 
   it("keeps menu order, testids, and selected-bot action projections", () => {
     const openMemberships = vi.fn()
+    const openWebhooks = vi.fn()
     const openActivity = vi.fn()
     const setEditingBot = vi.fn()
     const setEditOpen = vi.fn()
@@ -374,6 +377,7 @@ describe("renderBotMachineGroup", () => {
     const item = bot()
     const renderer = render(renderBotMachineGroup(group({ bots: [item] }), controller({
       openMemberships,
+      openWebhooks,
       openActivity,
       setEditingBot,
       setEditOpen,
@@ -389,6 +393,7 @@ describe("renderBotMachineGroup", () => {
     expect(items.map(text)).toEqual([
       " Chat",
       " Servers & channels",
+      " Webhooks",
       " View activity",
       " Edit",
       " Restart",
@@ -396,16 +401,19 @@ describe("renderBotMachineGroup", () => {
       " Deactivate",
       " Delete",
     ])
-    expect(items[4]).toHaveAttribute("data-testid", "bot-reset-session-item")
-    expect(items[5]).toHaveAttribute("data-testid", "bot-report-problem-item")
-    expect([0, 3, 5, 6].map((index) => items[index]!.firstElementChild?.localName))
+    expect(items[2]).toHaveAttribute("data-testid", tid.botWebhooksMenu("b1"))
+    expect(items[5]).toHaveAttribute("data-testid", "bot-reset-session-item")
+    expect(items[6]).toHaveAttribute("data-testid", "bot-report-problem-item")
+    expect([0, 4, 6, 7].map((index) => items[index]!.firstElementChild?.localName))
       .toEqual(["span", "span", "span", "span"])
-    expect(items[2]!.querySelectorAll("activity-icon")).toHaveLength(1)
-    expect(items[4]!.querySelectorAll("reset-icon")).toHaveLength(1)
-    expect(items[7]).toHaveAttribute("data-variant", "destructive")
+    expect(items[2]!.querySelectorAll("link-icon")).toHaveLength(1)
+    expect(items[3]!.querySelectorAll("activity-icon")).toHaveLength(1)
+    expect(items[5]!.querySelectorAll("reset-icon")).toHaveLength(1)
+    expect(items[8]).toHaveAttribute("data-variant", "destructive")
     for (const item of items) fireEvent.click(item)
     expect(chatWithBot).toHaveBeenCalledWith(item)
     expect(openMemberships).toHaveBeenCalledWith(item)
+    expect(openWebhooks).toHaveBeenCalledWith(item)
     expect(openActivity).toHaveBeenCalledWith(item)
     expect(setEditingBot).toHaveBeenCalledWith(item)
     expect(setEditOpen).toHaveBeenCalledWith(true)

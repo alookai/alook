@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 377,
+    "composition": 378,
     "environment": 14,
     "nonvisual": 32,
     "direct": 164
@@ -2203,6 +2203,25 @@
         {
           "story": "web-business-product-compositions--bots-models-and-privacy",
           "region": "Token usage: original thirty-day heatmap"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/bots/bot-webhooks-sheet.tsx",
+      "application": "Web",
+      "candidates": [
+        "BotWebhooksSheet",
+        "CopyableCredentialField",
+        "CredentialsReveal",
+        "DeliveriesPanel",
+        "WebhookForm"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-product-compositions--bots-models-and-privacy",
+          "region": "Activity and memberships > Webhooks"
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
