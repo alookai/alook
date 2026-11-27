@@ -73,7 +73,15 @@ export function OpenArtifactSheet({
   onOpenChange: (open: boolean) => void
 }) {
   const [fullscreen, setFullscreen] = useState(false)
+  const [openSession, setOpenSession] = useState<{ key: string | null; nonce: number }>({
+    key: null,
+    nonce: 0,
+  })
   const currentPageId = open ? page?.id ?? null : null
+  const activeKey = currentPageId ? `${currentPageId}` : null
+  if (activeKey !== openSession.key) {
+    setOpenSession({ key: activeKey, nonce: openSession.nonce + 1 })
+  }
   const [closeGuard, setCloseGuard] = useState<{
     pageId: string | null
     leaveLosesWork: boolean
@@ -113,12 +121,13 @@ export function OpenArtifactSheet({
     handleCloseConfirmed()
   }, [currentPageId, handleCloseConfirmed, leaveLosesWork, onOpenChange])
 
-  const pageKey = page ? `${page.id}:${open ? "open" : "closed"}` : "none"
+  const pageKey = activeKey ? `${activeKey}:${openSession.nonce}` : "none"
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange} modal>
       <OpenArtifactSheetSurface
         key={pageKey}
+        openNonce={openSession.nonce}
         page={page}
         open={open}
         fullscreen={fullscreen}
@@ -136,6 +145,7 @@ export function OpenArtifactSheet({
 }
 
 function OpenArtifactSheetSurface({
+  openNonce,
   page,
   open,
   fullscreen,
@@ -146,6 +156,7 @@ function OpenArtifactSheetSurface({
   onRequestClose,
   onLeaveLosesWorkChange,
 }: {
+  openNonce: number
   page: AlookPageEmbed | null
   open: boolean
   fullscreen: boolean
@@ -176,12 +187,18 @@ function OpenArtifactSheetSurface({
   const themeScheme: OpenArtifactThemeScheme = resolvedTheme === "dark" ? "dark" : "light"
   const typeInfo = describePageType(page?.type ?? "page")
 
+  // One-time viewer tickets must never auto-refetch on window focus or reconnect,
+  // which would replace the iframe URL and discard in-progress edits. A fresh ticket
+  // is fetched only on a new open session (openNonce) or explicit Retry.
   const tokenQuery = useQuery({
-    queryKey: applicationKey(owner, "open-artifact-viewer-token", open ? page?.id ?? null : null),
+    queryKey: applicationKey(owner, "open-artifact-viewer-token", open ? page?.id ?? null : null, openNonce),
     enabled: open && page !== null,
-    staleTime: 0,
+    staleTime: Infinity,
     gcTime: 0,
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     queryFn: async ({ signal }) => {
       const token = captureApplicationOwner(owner)
       const assert = () => assertApplicationOwner(token, signal)

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { focusManager, onlineManager } from "@tanstack/react-query"
 import { act, fireEvent, screen, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity } from "@/test/community-owner-harness"
 import { ApiError } from "@/lib/errors"
@@ -261,5 +262,52 @@ describe("OpenArtifactSheet", () => {
 
     fireEvent.click(screen.getByLabelText("Close page"))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("does not refetch one-time viewer token on window focus or reconnect, and fetches a fresh ticket on reopen", async () => {
+    const fetchSpy = vi.spyOn(apiClient, "apiFetch")
+    fetchSpy.mockResolvedValueOnce({
+      embedUrl: "https://oa.alook.ai/a/pg_launch?ticket=first",
+      allowedOrigins: ["https://oa.alook.ai"],
+      expiresAt: "2026-11-27T13:00:00Z",
+    })
+    fetchSpy.mockResolvedValueOnce({
+      embedUrl: "https://oa.alook.ai/a/pg_launch?ticket=second",
+      allowedOrigins: ["https://oa.alook.ai"],
+      expiresAt: "2026-11-27T13:05:00Z",
+    })
+
+    const onOpenChange = vi.fn()
+    const view = renderCommunity(
+      <OpenArtifactSheet page={samplePage} open onOpenChange={onOpenChange} />,
+    )
+
+    const initialFrame = await waitFor(() => screen.getByTestId(tid.openArtifactFrame) as HTMLIFrameElement)
+    expect(initialFrame.getAttribute("src")).toBe("https://oa.alook.ai/a/pg_launch?ticket=first")
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+      onlineManager.setOnline(false)
+      onlineManager.setOnline(true)
+      window.dispatchEvent(new Event("focus"))
+      window.dispatchEvent(new Event("online"))
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId(tid.openArtifactFrame)).toBe(initialFrame)
+    expect(initialFrame.getAttribute("src")).toBe("https://oa.alook.ai/a/pg_launch?ticket=first")
+
+    view.rerender(<OpenArtifactSheet page={null} open={false} onOpenChange={onOpenChange} />)
+    view.rerender(<OpenArtifactSheet page={samplePage} open onOpenChange={onOpenChange} />)
+
+    const reopenedFrame = await waitFor(() => screen.getByTestId(tid.openArtifactFrame) as HTMLIFrameElement)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(reopenedFrame.getAttribute("src")).toBe("https://oa.alook.ai/a/pg_launch?ticket=second")
   })
 })
