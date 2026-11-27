@@ -31,6 +31,7 @@ export function TextChannelSurface({
   canManagePins,
   anchorMessageId,
   onNavigateParent,
+  canShowLeaveChannel,
   onLeaveChannel,
   notificationLevel,
   onSetNotificationLevel,
@@ -54,6 +55,7 @@ export function TextChannelSurface({
   canManagePins: boolean
   anchorMessageId: string | null
   onNavigateParent?: () => void
+  canShowLeaveChannel?: boolean
   onLeaveChannel?: () => Promise<void>
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
@@ -128,6 +130,7 @@ export function TextChannelSurface({
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
               mobileBack={onNavigateParent}
+              showLeave={canShowLeaveChannel}
               onLeave={onLeaveChannel ? async () => { await onLeaveChannel(); onNavigateParent?.() } : undefined}
             />
           )}
