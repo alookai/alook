@@ -5,9 +5,10 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import { isPresenceOnline } from "@alook/shared"
+import { isPresenceOnline, isTauri } from "@alook/shared"
 import { Check, CircleAlert } from "@/components/icons/lucide";
 import { toast } from "sonner"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
 import {
   buildPairCommand,
@@ -298,17 +299,32 @@ export function OnboardingMachineDialog({
                 Choose another tool
               </Button>
               {joinSupport.data ? (
-                <a
-                  href={`/c/channels/${joinSupport.data.serverId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-testid={tid.onboardingOpenSupport}
-                  data-variant="default"
-                  data-size="default"
-                  className={buttonVariants({ className: "h-11 w-full sm:h-9 sm:w-auto" })}
-                >
-                  Open Alook Support
-                </a>
+                (() => {
+                  const supportHref = `/c/channels/${joinSupport.data.serverId}`
+                  const nativeApp = isTauri()
+                  return (
+                    <a
+                      href={supportHref}
+                      target={nativeApp ? undefined : "_blank"}
+                      rel={nativeApp ? undefined : "noopener noreferrer"}
+                      data-testid={tid.onboardingOpenSupport}
+                      data-variant="default"
+                      data-size="default"
+                      className={buttonVariants({ className: "h-11 w-full sm:h-9 sm:w-auto" })}
+                      onClick={(event) => {
+                        if (!nativeApp) return
+                        const navigatePath = getCommunityRuntime(queryClient).ui.get().uiHandlers.navigatePath
+                        onExit?.()
+                        if (navigatePath) {
+                          event.preventDefault()
+                          navigatePath(supportHref)
+                        }
+                      }}
+                    >
+                      Open Alook Support
+                    </a>
+                  )
+                })()
               ) : (
                 <Button
                   type="button"

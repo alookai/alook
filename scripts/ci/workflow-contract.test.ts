@@ -831,13 +831,19 @@ describe("Native message external-link opener", () => {
   const expectedPlatforms = ["linux", "macOS", "windows", "android", "iOS"]
   const expectedPermission = [{
     identifier: "opener:allow-open-url",
-    allow: [{ url: "http://*" }, { url: "https://*" }],
+    allow: [
+      { url: "http://*" },
+      { url: "https://*" },
+      { url: "mailto:*" },
+      { url: "tel:*" },
+    ],
   }]
   const scopedUrlAllowed = (href: string, capability: ExternalLinksCapability) => {
     const patterns = capability.permissions.flatMap((permission) => (
       permission.allow?.map((entry) => entry.url) ?? []
     ))
-    return patterns.includes(`${new URL(href).protocol}//*`)
+    const protocol = new URL(href).protocol
+    return patterns.includes(`${protocol}//*`) || patterns.includes(`${protocol}*`)
   }
 
   it("registers the official opener plugin in the common desktop/mobile builder", () => {
@@ -855,7 +861,7 @@ describe("Native message external-link opener", () => {
     expect(registration).toBeLessThan(desktopOnlyPlugins)
   })
 
-  it("grants only scoped HTTP(S) URL opening to the production five-platform app webview", () => {
+  it("grants only scoped HTTP(S), mailto, and tel URL opening to the production five-platform app webview", () => {
     expect(externalLinksCapability).toMatchObject({
       identifier: "external-links",
       windows: ["main"],
@@ -869,15 +875,16 @@ describe("Native message external-link opener", () => {
       "http://example.com:8080/path/to/story?source=chat#section",
       "https://example.com:9443/a/b?query=yes#fragment",
       "https://alook.ai/c/invite/abcdef?from=dm",
-    ].every((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(true)
-    expect([
       "mailto:friend@example.com",
       "tel:+15551234567",
+    ].every((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(true)
+    expect([
       "file:///tmp/private",
+      "javascript:alert(1)",
     ].some((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(false)
   })
 
-  it("reuses the same minimal HTTP(S) scope for the local development app webview", () => {
+  it("reuses the same minimal external-link scope for the local development app webview", () => {
     const capabilities = desktopDevConfig.app?.security?.capabilities ?? []
     const inlineOpener = capabilities.find((capability): capability is ExternalLinksCapability => (
       typeof capability !== "string"
@@ -909,8 +916,8 @@ describe("Native message external-link opener", () => {
       "opener:allow-open-path",
       "opener:allow-reveal-item-in-dir",
       "shell:",
-      "mailto:",
-      "tel:",
+      "file:",
+      "javascript:",
     ]) {
       expect(capabilityText).not.toContain(rejected)
     }

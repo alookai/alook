@@ -15,13 +15,14 @@ vi.mock("@alook/shared", () => ({
 }))
 vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: mocks.theme }) }))
 
-import { readTauriWindowBackground, TauriThemeSync } from "./tauri-theme-sync"
+import { readTauriWindowBackground, resetTauriSplashscreenSyncForTest, TauriThemeSync } from "./tauri-theme-sync"
 
 let meta: HTMLMetaElement
 let pixels: number[]
 let drawn: string
 
 beforeEach(() => {
+  resetTauriSplashscreenSyncForTest()
   mocks.invoke.mockReset().mockResolvedValue(undefined)
   mocks.desktop = mocks.tauri = true
   mocks.theme = "light"
@@ -61,9 +62,10 @@ describe("desktop published surface synchronization", () => {
     pixels = [255, 253, 248, 255]
     await act(async () => { window.dispatchEvent(new Event("alook:theme-color-change")) })
     expect(drawn).toBe("rgb(255, 253, 248)")
-    expect(mocks.invoke.mock.calls.slice(-2)).toEqual([
-      ["set_window_theme", { dark: false, background: [255, 253, 248] }],
+    expect(mocks.invoke.mock.calls).toEqual([
+      ["set_window_theme", { dark: false, background: [224, 213, 192] }],
       ["close_splashscreen"],
+      ["set_window_theme", { dark: false, background: [255, 253, 248] }],
     ])
 
     view.unmount()
@@ -72,7 +74,7 @@ describe("desktop published surface synchronization", () => {
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
-  it("replaces the theme listener when the resolved theme changes", async () => {
+  it("replaces the theme listener when the resolved theme changes without repeating close_splashscreen", async () => {
     const view = await mount()
     mocks.theme = "dark"
     document.body.style.setProperty("--app-edge-fade-color", "rgb(13, 13, 13)")
@@ -82,7 +84,6 @@ describe("desktop published surface synchronization", () => {
     await act(async () => { window.dispatchEvent(new Event("alook:theme-color-change")) })
     expect(mocks.invoke.mock.calls).toEqual([
       ["set_window_theme", { dark: true, background: [13, 13, 13] }],
-      ["close_splashscreen"],
     ])
   })
 

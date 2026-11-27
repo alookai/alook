@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -6,7 +5,7 @@ use std::sync::{
 use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem, HELP_SUBMENU_ID},
-    AppHandle, Emitter, Manager,
+    AppHandle, Manager,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_notification::NotificationExt;
@@ -21,6 +20,7 @@ const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const AUTO_CHECK_INITIAL_DELAY: Duration = Duration::from_secs(30);
 const AUTO_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const DEFAULT_UPDATE_LABEL: &str = "Check for Updates…";
+const RESTART_TO_FINISH_LABEL: &str = "Restart Alook to Finish Update";
 
 #[cfg(debug_assertions)]
 const SIMULATE_AVAILABLE_MENU_ID: &str = "simulate-update-available";
@@ -33,6 +33,7 @@ const SIMULATE_FAILURE_MENU_ID: &str = "simulate-update-failure";
 
 static LAST_AUTOMATIC_PROMPT_VERSION: Mutex<Option<String>> = Mutex::new(None);
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+static INSTALLED_READY_TO_RESTART: AtomicBool = AtomicBool::new(false);
 static UPDATE_MENU_ITEMS: Mutex<Vec<MenuItem<tauri::Wry>>> = Mutex::new(Vec::new());
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,13 +86,6 @@ struct UpdateMenuLayout {
     check_position: usize,
     separator_position: usize,
     simulator_position: usize,
-}
-
-#[derive(Serialize, Clone)]
-struct UpdateProgress {
-    percent: f64,
-    downloaded: u64,
-    total: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -364,6 +358,14 @@ pub fn register_tray_update_item(item: MenuItem<tauri::Wry>) {
     register_update_menu_item(item);
 }
 
+fn should_restart_on_menu_click(installed_ready: bool) -> bool {
+    installed_ready
+}
+
+fn should_skip_auto_check(installed_ready: bool) -> bool {
+    installed_ready
+}
+
 pub fn handle_menu_event(handle: &AppHandle, id: &str) -> bool {
     let Some(action) = menu_action(id) else {
         return false;
@@ -371,10 +373,14 @@ pub fn handle_menu_event(handle: &AppHandle, id: &str) -> bool {
 
     match action {
         UpdateMenuAction::Check => {
-            let app = handle.clone();
-            tauri::async_runtime::spawn(async move {
-                install_update(&app).await;
-            });
+            if should_restart_on_menu_click(INSTALLED_READY_TO_RESTART.load(Ordering::SeqCst)) {
+                handle.restart();
+            } else {
+                let app = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    install_update(&app).await;
+                });
+            }
         }
         UpdateMenuAction::OpenRepository => {
             if let Err(error) = handle
@@ -455,7 +461,7 @@ fn publish_update_prompt(handle: &AppHandle, pending_update: PendingUpdate) {
 }
 
 fn present_update_prompt(handle: &AppHandle, prompt: UpdatePrompt) {
-    set_update_available(&prompt.available_version);
+    set_update_menu(&update_label(&prompt.available_version), false);
     crate::commands::show_main_window(handle);
     let version = prompt.available_version.clone();
     let app = handle.clone();
@@ -499,12 +505,18 @@ fn respond_to_update_prompt(
 ) -> Result<(), String> {
     let state = handle.state::<UpdatePromptState>();
     let Some(mut pending_update) = state.consume_response(version, response)? else {
+        if response == UpdatePromptResponse::Later {
+            set_update_available(version);
+        } else {
+            set_update_menu(DEFAULT_UPDATE_LABEL, true);
+        }
         return Ok(());
     };
 
     if pending_update.update_guard.is_none() {
         let Some(update_guard) = UpdateInProgressGuard::acquire(&UPDATE_IN_PROGRESS) else {
             state.restore_if_empty(pending_update);
+            set_update_available(version);
             show_update_in_progress(handle);
             return Err("an update is already in progress".to_string());
         };
@@ -545,7 +557,6 @@ async fn download_and_install(
         .body(format!("Downloading Alook {version}…"))
         .show();
 
-    let app = handle.clone();
     let mut downloaded = 0_u64;
     let mut displayed_bucket = 0_u8;
     let result = update
@@ -558,14 +569,6 @@ async fn download_and_install(
                     displayed_bucket = bucket;
                     set_update_menu(&format!("Downloading Update… {:.0}%", percent), false);
                 }
-                let _ = app.emit(
-                    "update://progress",
-                    UpdateProgress {
-                        percent,
-                        downloaded,
-                        total,
-                    },
-                );
             },
             || {},
         )
@@ -573,7 +576,8 @@ async fn download_and_install(
 
     match result {
         Ok(()) => {
-            set_update_menu("Restart Alook to Finish Update", false);
+            INSTALLED_READY_TO_RESTART.store(true, Ordering::SeqCst);
+            set_update_menu(RESTART_TO_FINISH_LABEL, true);
             let app = handle.clone();
             handle
                 .dialog()
@@ -610,6 +614,9 @@ pub fn auto_check_updates(handle: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(AUTO_CHECK_INITIAL_DELAY);
         loop {
+            if should_skip_auto_check(INSTALLED_READY_TO_RESTART.load(Ordering::SeqCst)) {
+                return;
+            }
             let app = handle.clone();
             let found = tauri::async_runtime::block_on(async {
                 let updater = app
@@ -619,6 +626,9 @@ pub fn auto_check_updates(handle: AppHandle) {
                     .ok()?;
                 updater.check().await.ok()?
             });
+            if should_skip_auto_check(INSTALLED_READY_TO_RESTART.load(Ordering::SeqCst)) {
+                return;
+            }
 
             if let Some(mut update) = found {
                 update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
@@ -1007,5 +1017,18 @@ mod tests {
         let source = include_str!("updater.rs");
         assert!(source.contains("Alook Update Available"));
         assert!(source.contains("Open the Alook menu to update"));
+    }
+
+    #[test]
+    fn installed_update_enables_restart_menu_short_circuits_auto_check_and_drops_dead_progress_event() {
+        let source = include_str!("updater.rs");
+        assert!(!should_restart_on_menu_click(false));
+        assert!(should_restart_on_menu_click(true));
+        assert!(!should_skip_auto_check(false));
+        assert!(should_skip_auto_check(true));
+        assert!(source.contains("INSTALLED_READY_TO_RESTART.store(true, Ordering::SeqCst)"));
+        assert!(source.contains("set_update_menu(RESTART_TO_FINISH_LABEL, true)"));
+        assert!(source.contains("set_update_menu(&update_label(&prompt.available_version), false)"));
+        assert!(!source.contains(&["update://", "progress"].concat()));
     }
 }

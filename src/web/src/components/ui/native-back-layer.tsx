@@ -18,14 +18,23 @@ type Registration = {
 
 const NativeBackContext = React.createContext<BackOwner | null>(null)
 const owners = new WeakMap<Document, Set<Registration>>()
+const ownerListeners = new WeakMap<Document, Set<() => void>>()
 const registrations = new WeakMap<BackOwner, Registration>()
 let order = 0
+
+function notify(document: Document) {
+  const listeners = ownerListeners.get(document)
+  if (!listeners) return
+  for (const listener of Array.from(listeners)) listener()
+}
 
 function release(owner: BackOwner, element?: HTMLElement) {
   const current = registrations.get(owner)
   if (!current || (element && current.element !== element)) return
-  owners.get(current.element.ownerDocument)?.delete(current)
+  const doc = current.element.ownerDocument
+  owners.get(doc)?.delete(current)
   registrations.delete(owner)
+  notify(doc)
 }
 
 function activate(owner: BackOwner, element: HTMLElement, request: () => BackResult, eligible = () => true) {
@@ -33,6 +42,7 @@ function activate(owner: BackOwner, element: HTMLElement, request: () => BackRes
   if (current?.element === element && current.phase === "open") {
     current.request = request
     current.eligible = eligible
+    notify(element.ownerDocument)
     return
   }
   release(owner)
@@ -44,13 +54,15 @@ function activate(owner: BackOwner, element: HTMLElement, request: () => BackRes
     owners.set(element.ownerDocument, active)
   }
   active.add(registration)
+  notify(element.ownerDocument)
 }
 
 function startClosing(owner: BackOwner, element: HTMLElement) {
   const current = registrations.get(owner)
   if (!current) return
-  if (current.element.ownerDocument !== element.ownerDocument) {
-    owners.get(current.element.ownerDocument)?.delete(current)
+  const previousDoc = current.element.ownerDocument
+  if (previousDoc !== element.ownerDocument) {
+    owners.get(previousDoc)?.delete(current)
     let active = owners.get(element.ownerDocument)
     if (!active) {
       active = new Set()
@@ -60,6 +72,8 @@ function startClosing(owner: BackOwner, element: HTMLElement) {
   }
   current.element = element
   current.phase = "closing"
+  if (previousDoc !== element.ownerDocument) notify(previousDoc)
+  notify(element.ownerDocument)
 }
 
 function isDescendant(owner: BackOwner, parent: BackOwner) {
@@ -87,6 +101,22 @@ function topNativeBackOwner(document: Document) {
     }
   }
   return top
+}
+
+export function hasNativeBackOwner(document: Document): boolean {
+  return topNativeBackOwner(document) !== null
+}
+
+export function subscribeNativeBackOwners(document: Document, listener: () => void): () => void {
+  let listeners = ownerListeners.get(document)
+  if (!listeners) {
+    listeners = new Set()
+    ownerListeners.set(document, listeners)
+  }
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
 export function requestNativeBack(document: Document): BackResult {

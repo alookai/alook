@@ -28,11 +28,21 @@ type TauriOpenerWindow = Window & {
   }
 }
 
-function isAbsoluteHttpUrl(href: string | undefined): href is string {
-  if (!href) return false
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
+const SAFE_TEL_URL = /^tel:[0-9+().\-\s,;ext=#*]+$/i
+
+function isAllowedExternalLinkUrl(href: string | undefined): href is string {
+  if (!href || CONTROL_CHARACTERS.test(href)) return false
   try {
-    const protocol = new URL(href).protocol
-    return protocol === "http:" || protocol === "https:"
+    const url = new URL(href)
+    if (url.protocol === "http:" || url.protocol === "https:") return true
+    if (url.protocol === "mailto:") {
+      return url.pathname.trim().length > 0
+    }
+    if (url.protocol === "tel:") {
+      return SAFE_TEL_URL.test(href) && /\d/.test(url.pathname)
+    }
+    return false
   } catch {
     return false
   }
@@ -48,7 +58,7 @@ export function messageExternalLinkTargetFromEventTarget(
     } | null | undefined
   const authoredHref = anchor?.getAttribute?.("href") ?? undefined
   const href = anchor?.href
-  return isAbsoluteHttpUrl(authoredHref) && typeof href === "string" && isAbsoluteHttpUrl(href)
+  return isAllowedExternalLinkUrl(authoredHref) && typeof href === "string" && isAllowedExternalLinkUrl(href)
     ? { href }
     : null
 }
@@ -75,7 +85,7 @@ export async function copyMessageExternalLink(
       : navigator.clipboard?.writeText.bind(navigator.clipboard) ?? null
     : options.writeText
 
-  if (!isAbsoluteHttpUrl(target.href) || !writeText) {
+  if (!isAllowedExternalLinkUrl(target.href) || !writeText) {
     onError()
     return false
   }
@@ -100,7 +110,7 @@ export function openMessageExternalLink(
   } = {},
 ): Promise<void> {
   const onError = options.onError ?? (() => toast.error(MESSAGE_EXTERNAL_LINK_ERROR))
-  if (!isAbsoluteHttpUrl(target.href)) {
+  if (!isAllowedExternalLinkUrl(target.href)) {
     onError()
     return Promise.resolve()
   }
@@ -152,7 +162,7 @@ export function handleMessageExternalLinkClick(
   } = {},
 ): Promise<void> | null {
   const tauri = options.tauri ?? isTauri()
-  if (!tauri || event.defaultPrevented || !isAbsoluteHttpUrl(href)) return null
+  if (!tauri || event.defaultPrevented || !isAllowedExternalLinkUrl(href)) return null
 
   event.preventDefault()
   event.stopPropagation()

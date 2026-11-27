@@ -53,7 +53,12 @@ vi.mock("@/components/community/shell/community-sheet", () => ({
   ),
 }))
 
-import { buildPairCommand, PairMachineSheet, PairMachineSteps } from "./pair-machine-sheet"
+import {
+  buildPairCommand,
+  DESKTOP_CONNECT_TIMEOUT_MS,
+  PairMachineSheet,
+  PairMachineSteps,
+} from "./pair-machine-sheet"
 import { tid } from "@/lib/community/testids"
 
 describe("PairMachineSheet desktop daemon integration", () => {
@@ -185,6 +190,42 @@ describe("PairMachineSheet desktop daemon integration", () => {
       machineKey: "cmt_reconnect_token",
       machineId: "cm_abcdefgh",
     }))
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Reconnecting machine…")
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith("Machine reconnected")
+  })
+
+  it("re-enables retry with a timeout hint when the daemon starts without confirming over WebSocket", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const renderer = render(React.createElement(PairMachineSheet, {
+        open: true,
+        onOpenChange: vi.fn(),
+        pendingTokenId: "cmt_timeout_token",
+        setPendingTokenId: vi.fn(),
+        connectedHostname: null,
+      }))
+
+      const connect = await renderer.findByTestId(tid.machinePairDesktopConnect)
+      fireEvent.click(connect)
+      await waitFor(() => expect(renderer.getByTestId(tid.machinePairDesktopConnect)).toBeDisabled())
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DESKTOP_CONNECT_TIMEOUT_MS)
+      })
+
+      const retryButton = renderer.getByTestId(tid.machinePairDesktopConnect)
+      expect(retryButton).toBeEnabled()
+      expect(retryButton).toHaveTextContent("Retry connection")
+      expect(renderer.getByTestId(tid.machinePairRuntimeHint).textContent)
+        .toContain("hasn't connected yet")
+
+      fireEvent.click(retryButton)
+      await waitFor(() => expect(
+        mocks.invoke.mock.calls.filter(([command]) => command === "daemon_pair"),
+      ).toHaveLength(2))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("surfaces a daemon launch error without removing command and copy fallback", async () => {

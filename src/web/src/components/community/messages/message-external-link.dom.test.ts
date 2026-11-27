@@ -37,7 +37,9 @@ describe("handleMessageExternalLinkClick", () => {
     "https://github.com/alookai/alook/pull/598?view=files#diff",
     "https://alook.ai/blog/native-links?from=message#intro",
     "https://alook.ai/c/invite/abcdef?from=dm",
-  ])("opens an absolute Tauri HTTP(S) URL exactly once without WebView navigation: %s", async (href) => {
+    "mailto:friend@example.com?subject=Hello",
+    "tel:+1-555-123-4567",
+  ])("opens an allowed Tauri external URL exactly once without WebView navigation: %s", async (href) => {
     const event = clickEvent()
     const order: string[] = []
     event.preventDefault.mockImplementation(() => { order.push("prevent") })
@@ -62,8 +64,11 @@ describe("handleMessageExternalLinkClick", () => {
   it.each([
     ["ordinary Web", false, "https://example.com"],
     ["relative App route", true, "/c/channels/server/channel"],
-    ["mailto", true, "mailto:friend@example.com"],
-    ["tel", true, "tel:+15551234567"],
+    ["empty mailto", true, "mailto:"],
+    ["non-numeric tel", true, "tel:abc"],
+    ["control char in mailto", true, "mailto:friend@example.com\r\nbcc:bad@example.com"],
+    ["javascript scheme", true, "javascript:alert(1)"],
+    ["file scheme", true, "file:///tmp/private"],
     ["invalid URL", true, "not a URL"],
   ])("leaves %s to its existing browser or App behavior", (_case, tauri, href) => {
     const event = clickEvent()
@@ -147,6 +152,15 @@ describe("messageExternalLinkTargetFromEventTarget", () => {
   })
 
   it.each([
+    "mailto:friend@example.com",
+    "tel:+15551234567",
+  ])("resolves validated %s external targets", (href) => {
+    expect(messageExternalLinkTargetFromEventTarget({
+      closest: () => ({ href, getAttribute: () => href }),
+    } as unknown as EventTarget)).toEqual({ href })
+  })
+
+  it.each([
     ["non-link", { closest: () => null }],
     ["browser-normalized relative app route", {
       closest: () => ({
@@ -154,10 +168,10 @@ describe("messageExternalLinkTargetFromEventTarget", () => {
         getAttribute: () => "/c/me",
       }),
     }],
-    ["mailto", {
+    ["file scheme", {
       closest: () => ({
-        href: "mailto:friend@example.com",
-        getAttribute: () => "mailto:friend@example.com",
+        href: "file:///tmp/private",
+        getAttribute: () => "file:///tmp/private",
       }),
     }],
     ["invalid", {

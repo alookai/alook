@@ -124,8 +124,13 @@ describe("GET /api/desktop/update/[target]/[arch]/[current_version]", () => {
     ["linux", "x86_64", "appimage", "Alook_2.0.0_amd64.AppImage"],
     ["linux", "x86_64", "deb", "Alook_2.0.0_amd64.deb"],
     ["linux", "x86_64", "rpm", "Alook-2.0.0-1.x86_64.rpm"],
+    ["linux", "aarch64", "appimage", "Alook_2.0.0_aarch64.AppImage"],
+    ["linux", "aarch64", "deb", "Alook_2.0.0_arm64.deb"],
+    ["linux", "aarch64", "rpm", "Alook-2.0.0-1.aarch64.rpm"],
     ["windows", "x86_64", "msi", "Alook_2.0.0_x64_en-US.msi"],
     ["windows", "x86_64", "nsis", "Alook_2.0.0_x64-setup.exe"],
+    ["windows", "aarch64", "msi", "Alook_2.0.0_arm64_en-US.msi"],
+    ["windows", "aarch64", "nsis", "Alook_2.0.0_arm64-setup.exe"],
   ])(
     "returns the exact Tauri v2 %s-%s-%s artifact and signature",
     async (target, arch, bundleType, assetName) => {
@@ -138,6 +143,9 @@ describe("GET /api/desktop/update/[target]/[arch]/[current_version]", () => {
       const res = await requestUpdate(target, arch, "1.0.0", bundleType);
 
       expect(res.status).toBe(200);
+      expect(mockFetch.mock.calls[1]?.[1]).toEqual(
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       expect(await res.json()).toEqual({
         version: "2.0.0",
         notes: "Release notes",
