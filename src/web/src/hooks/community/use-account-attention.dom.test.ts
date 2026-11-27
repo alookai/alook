@@ -214,7 +214,7 @@ describe("closed-Inbox account attention message hydration", () => {
     owner.hook.unmount()
   })
 
-  it("hydrates both channels when a later hint cancels an earlier account-index read", async () => {
+  it("hydrates both channels and coalesces a later hint into one trailing attention read without aborting in-flight work", async () => {
     const owner = await mountOwner(snapshot())
     const other = { ...message, id: "other", channelId: "other-channel" }
     const reads: Array<{ signal: AbortSignal; release: (value: AccountAttentionSnapshot) => void }> = []
@@ -227,9 +227,10 @@ describe("closed-Inbox account attention message hydration", () => {
     scheduleAccountAttentionReconcile(owner.client, { channelId: "channel" })
     await waitFor(() => expect(reads).toHaveLength(1))
     scheduleAccountAttentionReconcile(owner.client, { channelId: other.channelId })
-    await waitFor(() => expect(reads).toHaveLength(2))
-    expect(reads[0].signal.aborted).toBe(true)
+    expect(reads[0].signal.aborted).toBe(false)
+    expect(reads).toHaveLength(1)
     reads[0].release(snapshot())
+    await waitFor(() => expect(reads).toHaveLength(2))
     reads[1].release(snapshot())
     await waitFor(() => {
       expect(owner.registry.collections.messages.get(message.id)).toMatchObject(message)

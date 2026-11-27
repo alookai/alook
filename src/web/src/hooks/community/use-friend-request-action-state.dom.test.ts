@@ -112,4 +112,31 @@ describe("Native friend-request action projection", () => {
     await act(async () => { await registry.cleanup(); client.clear() })
     expect(client.getMutationCache().getAll()).toHaveLength(0)
   })
+
+  it("memoizes items and action handlers across identical rerenders without per-row filtering", async () => {
+    const { wrapper, client, registry } = await fixture()
+    const rows = Array.from({ length: 200 }, (_, i) => ({ id: `fr-${i}`, userId: `u-${i}` }))
+    const onAccept = vi.fn(async () => undefined)
+    const onReject = vi.fn(async () => undefined)
+    const view = renderHook(
+      ({ tick }: { tick: number }) => ({ tick, state: useFriendRequestActionState({ rows, onAccept, onReject }) }),
+      { wrapper, initialProps: { tick: 0 } },
+    )
+    const firstItemsRef = view.result.current.state.items
+    const firstActRef = view.result.current.state.act
+    const filterSpy = vi.spyOn(Array.prototype, "filter")
+    try {
+      await act(async () => {
+        view.rerender({ tick: 1 })
+      })
+      expect(view.result.current.state.items).toBe(firstItemsRef)
+      expect(view.result.current.state.act).toBe(firstActRef)
+      expect(filterSpy.mock.calls.length).toBeLessThan(10)
+    } finally {
+      filterSpy.mockRestore()
+      view.unmount()
+      await registry.cleanup()
+      client.clear()
+    }
+  })
 })

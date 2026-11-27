@@ -45,7 +45,7 @@ describe("useCommunityWs — presence", () => {
     capturedOnMessage!(currentCommunityEventFixture(event))
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_pres")).toBe("online")
-    expect(registry.collections.profiles.get("u_pres")?.presence).toBe("online")
+    expect(registry.collections.profiles.get("u_pres")?.id).toBe("u_pres")
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({
       online: ["friend_existing"],
     })
@@ -60,10 +60,10 @@ describe("useCommunityWs — presence", () => {
     writeCommunityProfilePatches([communityUserProfilePatch("u_me", profileResourceFixture({ id: "u_me" }))], registry)
     getCapturedRuntime().ws.actions.setPresence("u_me", "offline")
     await mountHook({ viewerUserId: "u_me" })
-    expect(registry.collections.profiles.get("u_me")?.presence).toBe("offline")
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_me")).toBe("offline")
     expect(capturedUseUserWsOptions?.onAuthenticated).toEqual(expect.any(Function))
     await act(async () => { await capturedUseUserWsOptions!.onAuthenticated!() })
-    expect(registry.collections.profiles.get("u_me")?.presence).toBe("online")
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_me")).toBe("online")
   })
 
   it("applies an exact offline delta without mutating presence query snapshots", async () => {
@@ -97,6 +97,18 @@ describe("useCommunityWs — presence", () => {
     } satisfies CommunityPresenceUpdate))
 
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toBeUndefined()
+  })
+
+  it("presence.snapshot seeds all online users in one frame", async () => {
+    await mountHook()
+    capturedOnMessage!(currentCommunityEventFixture({
+      type: "community:presence.snapshot",
+      onlineUserIds: ["snap-1", "snap-2", "snap-3"],
+    }))
+
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("snap-1")).toBe("online")
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("snap-2")).toBe("online")
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("snap-3")).toBe("online")
   })
 
 })

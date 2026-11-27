@@ -20,6 +20,7 @@
 
 import { type SQL, aliasedTable, and, desc, eq, exists, gt, gte, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { user } from "../../schema";
+import { jsonTextSet } from "../_json-set";
 import {
   communityBotBinding,
   communityAgentRunnerKey,
@@ -43,7 +44,6 @@ import type { Database } from "../../index";
 import { communityBotSyntheticEmail } from "../../../constants";
 import { withUniqueDiscriminator } from "../user";
 import { nanoid } from "nanoid";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import type { ReasoningEffort } from "../../../runtime-config";
 import { CommunityMachineRuntimeSchema, type CommunityMachineRuntime } from "../../../schemas";
 import { getBotCapacitySummary } from "../product-plan";
@@ -688,42 +688,34 @@ export async function findWakeCandidates(
   machineId: string;
   runtime: string;
 }>> {
-  if (opts.recipients.length === 0) return [];
+  const uniqueRecipients = [...new Set(opts.recipients.filter((id) => id.length > 0))];
+  if (uniqueRecipients.length === 0) return [];
   const scopeCond = eq(communityReadState.channelId, opts.channelId);
 
-  // `recipients` is a message's fan-out audience — unbounded for a large public
-  // channel. Chunk the `inArray` for D1's 100-param limit; no order/limit, and
-  // the seq filter runs in JS below, so concat is loss-free.
-  const rows = (
-    await Promise.all(
-      chunk(opts.recipients, D1_MAX_IN_PARAMS).map((ids) =>
-        db
-          .select({
-            botUserId: user.id,
-            name: user.name,
-            discriminator: user.discriminator,
-            instruction: communityBotBinding.instruction,
-            machineId: communityBotBinding.machineId,
-            runtime: communityBotBinding.runtime,
-            lastReadSeq: communityReadState.lastReadSeq,
-          })
-          .from(user)
-          .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
-          .leftJoin(communityReadState, and(eq(communityReadState.userId, user.id), scopeCond))
-          .where(
-            and(
-              inArray(user.id, ids),
-              eq(user.isBot, true),
-              isNull(user.deletedAt),
-              eq(communityBotBinding.isActive, true),
-            )
-          )
+  const rows = await db
+    .select({
+      botUserId: user.id,
+      name: user.name,
+      discriminator: user.discriminator,
+      isBot: user.isBot,
+      deletedAt: user.deletedAt,
+      instruction: communityBotBinding.instruction,
+      machineId: communityBotBinding.machineId,
+      runtime: communityBotBinding.runtime,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(communityBotBinding)
+    .innerJoin(user, eq(user.id, communityBotBinding.userId))
+    .leftJoin(communityReadState, and(eq(communityReadState.userId, communityBotBinding.userId), scopeCond))
+    .where(
+      and(
+        inArray(communityBotBinding.userId, jsonTextSet(db, uniqueRecipients)),
+        eq(communityBotBinding.isActive, true),
       )
-    )
-  ).flat();
+    );
 
   return rows
-    .filter((r) => (r.lastReadSeq ?? 0) < opts.newSeq)
+    .filter((r) => r.isBot && r.deletedAt === null && (r.lastReadSeq ?? 0) < opts.newSeq)
     .map((r) => ({
       botUserId: r.botUserId,
       name: r.name,

@@ -8,8 +8,9 @@ import { normalizeThreadResources } from "@/lib/community/forum-feed-window"
 import { projectPostedMessage } from "@/lib/community/message-wire"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { BUSINESS_SCHEMA_VERSION, validateCommunityWsEvent, CommunityChannelResourceSchema, AccountAttentionSnapshotSchema, CommunityMessageResourceSchema, type CommunityWsEvent } from "@alook/shared"
+import { BUSINESS_SCHEMA_VERSION, WS_EVENTS, validateCommunityWsEvent, CommunityChannelResourceSchema, AccountAttentionSnapshotSchema, CommunityMessageResourceSchema, type CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
+import { canonicalChannelRow, serverMembershipKey } from "./schema"
 import { rememberMessageAccessScope } from "./message-access-scope"
 import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import {
@@ -3493,5 +3494,92 @@ describe("decision card responder preservation in community-db sync", () => {
     )
     restoreDecisionCardRespondedOptimistically(db, daveSnapshot!)
     expect(extractDecisionCardFromEmbeds(db.collections.messages.get("card_1")?.embeds).card?.respondedUserIds).toEqual(["u_gus", "u_alice", "u_carol", "u_bob", "u_dave"])
+  })
+})
+
+describe("revision tracking and typing membership lookup", () => {
+  it("keeps revision tracking mutable without O(N^2) map clones and looks up typing membership in O(1)", async () => {
+    const db = await registry()
+
+    let mapEntriesIterated = 0
+    const origMapIter = Map.prototype[Symbol.iterator]
+    const spyIter = vi.spyOn(Map.prototype, Symbol.iterator).mockImplementation(function (this: Map<unknown, unknown>) {
+      mapEntriesIterated += this.size
+      return origMapIter.call(this)
+    })
+
+    const batchEntriesCopied: number[] = []
+    try {
+      for (let batch = 0; batch < 4; batch++) {
+        const beforeEntries = mapEntriesIterated
+        for (let i = 0; i < 500; i++) {
+          const idx = batch * 500 + i
+          projectCommunityWsEventToDb(db.queryClient, {
+            type: WS_EVENTS.MEMBER_UPDATE,
+            serverId: "srv-1",
+            memberId: `mem-${idx}`,
+            userId: `u-${idx}`,
+            changes: { role: "member" },
+          } as CommunityWsEvent, BUSINESS_SCHEMA_VERSION)
+        }
+        batchEntriesCopied.push(mapEntriesIterated - beforeEntries)
+      }
+    } finally {
+      spyIter.mockRestore()
+    }
+
+    const memberRows = Array.from({ length: 1000 }, (_, i) => ({
+      id: serverMembershipKey("srv-scan", `u-scan-${i}`),
+      serverId: "srv-scan",
+      userId: `u-scan-${i}`,
+      memberId: `m-scan-${i}`,
+      role: "member" as const,
+      viewer: i === 0,
+      nickname: null,
+    }))
+    await writeCommunityCollectionRows(db, "serverMemberships", memberRows, (r) => r.id)
+    await writeCommunityCollectionRows(db, "channels", [
+      canonicalChannelRow({
+        id: "ch-scan",
+        serverId: "srv-scan",
+        type: "text",
+        name: "general",
+        topic: "",
+        categoryId: null,
+        parentChannelId: null,
+        parentMessageId: null,
+        creatorId: "u-scan-0",
+        position: 0,
+        archived: false,
+        createdAt: "2026-11-26T00:00:00.000Z",
+        lastMessageAt: null,
+        messageCount: 0,
+      }),
+    ], (r) => r.id)
+
+    let someIterations = 0
+    const origSome = Array.prototype.some
+    const someSpy = vi.spyOn(Array.prototype, "some").mockImplementation(function (
+      this: unknown[],
+      fn: (value: unknown, index: number, arr: unknown[]) => unknown,
+      thisArg?: unknown,
+    ) {
+      return origSome.call(this, (value, index, arr) => {
+        someIterations += 1
+        return fn.call(thisArg, value, index, arr)
+      })
+    })
+    const membershipGetSpy = vi.spyOn(db.collections.serverMemberships, "get")
+    try {
+      const present = getCanonicalCommunityTypingMembership(db.queryClient, "ch-scan", "u-scan-999")
+      expect(present).toBe(true)
+      expect(mapEntriesIterated).toBe(0)
+      expect(batchEntriesCopied).toEqual([0, 0, 0, 0])
+      expect(someIterations).toBe(0)
+      expect(membershipGetSpy).toHaveBeenCalledWith(serverMembershipKey("srv-scan", "u-scan-999"))
+    } finally {
+      someSpy.mockRestore()
+      membershipGetSpy.mockRestore()
+    }
   })
 })

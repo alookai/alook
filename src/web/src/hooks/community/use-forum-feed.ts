@@ -12,7 +12,7 @@ import { conversationListScopeKey } from "@/lib/community/conversation-qualifica
 import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId, useCanonicalMessagesById, useChildChannelsByParentId } from "@/lib/community-db/projections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityForumFeed } from "@/lib/community-db/sync"
 import { forumTagFromUrl, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import { messageProfileIds, type ForumThread, type Msg } from "@/lib/community/models/message"
@@ -20,8 +20,10 @@ import type { ChannelRow } from "@/lib/community-db/schema"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useForumTags } from "./use-channel-panels"
 import { useStoredForumTag } from "./use-stored-forum-tag"
-import { useConversationResource } from "./use-conversation-entry"
+import { createSharedConversationResource, useConversationResource } from "./use-conversation-entry"
 import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectForumThread, type ForumFeedPage } from "@/lib/community/forum-feed-window"
+
+const MAX_FORUM_FEED_PAGES = 6
 
 export { removeForumPostFromFeed } from "@/lib/community/forum-feed-window"
 export type { ForumFeedPage } from "@/lib/community/forum-feed-window"
@@ -62,9 +64,19 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
     const page = normalizeThreadResources(channelId, transport)
     const freshThreads = page.threads.filter((thread) => !protocol.get().publishedIds.has(thread.id))
     const ids = new Set(freshThreads.map((thread) => thread.id)), openerIds = new Set(freshThreads.map((thread) => thread.parentMessageId))
-    const roots = page.included.messages.filter((message) => openerIds.has(message.id) || ids.has(message.channelId))
-    const replyIds = new Set(roots.flatMap(message => message.replyToId ? [message.replyToId] : []))
-    const messages = page.included.messages.filter((message) => roots.includes(message) || replyIds.has(message.id) && roots.some(root => root.replyToId === message.id && root.channelId === message.channelId))
+    const rootSet = new Set<typeof page.included.messages[number]>()
+    const replyChannelsById = new Map<string, Set<string>>()
+    for (const message of page.included.messages) {
+      if (openerIds.has(message.id) || ids.has(message.channelId)) {
+        rootSet.add(message)
+        if (message.replyToId) {
+          let channels = replyChannelsById.get(message.replyToId)
+          if (!channels) { channels = new Set(); replyChannelsById.set(message.replyToId, channels) }
+          channels.add(message.channelId)
+        }
+      }
+    }
+    const messages = page.included.messages.filter((message) => rootSet.has(message) || replyChannelsById.get(message.id)?.has(message.channelId) === true)
     const users = new Set([...page.included.members.filter((member) => ids.has(member.channelId)).map((member) => member.userId), ...messages.flatMap(messageProfileIds)])
     await publishCommunityForumFeed(queryClient, channelId, { ...page, threads: freshThreads, included: {
       messages,
@@ -79,7 +91,7 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
   })
 }
 
-export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<string, Msg>, channels: ReadonlyMap<string, ChannelRow>, profiles: ReturnType<typeof useCanonicalProfilesByUserId>, filter: string | null = null): ForumThread[] {
+export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<string, Msg>, channels: ReadonlyMap<string, ChannelRow>, profiles: ReturnType<typeof useCanonicalIdentitiesByUserId>, filter: string | null = null): ForumThread[] {
   const byId = new Map<string, ForumThread>()
   for (const page of pages) for (const window of page.threads) {
     if (byId.has(window.id)) continue
@@ -97,7 +109,7 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
 
 export function useForumFeed(serverId: string, channelId: string, options?: { routeTag?: string | null; onSelectTag?: (tag: string) => void }) {
   const presented = useConversationPresentation()
-  const queryClient = useQueryClient(), channels = useCanonicalChannelsById(), profiles = useCanonicalProfilesByUserId()
+  const queryClient = useQueryClient()
   const persistedTag = useStoredForumTag(channelId)
   const routeTag = forumTagFromUrl(options?.routeTag)
   const [fallbackSelection, setFallbackSelection] = useAtom(useCreateAtom<{ channelId: string | null; tag: string }>({ channelId: null, tag: "All" }))
@@ -120,39 +132,52 @@ export function useForumFeed(serverId: string, channelId: string, options?: { ro
   } })
   useEffect(() => { if (selectionReady && !pendingTagCommands && tagsQuery.isSuccess && !tagsQuery.isFetching && tagsQuery.data.observed === true && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [selectionReady, pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.isFetching, tagsQuery.data, selectTag])
   const selectedTag = tag === "All" ? null : tag
-  const entry = useConversationResource(selectionReady ? { channelId, serverId, tag: selectedTag } : null, null, "forum")
-  const queryKey = communityKeys.forumFeed(entry.canRead ? channelId : "__none__", selectedTag)
-  const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
-    enabled: presented && selectionReady && entry.canRead && !entry.verificationFetching && (!entry.verificationFailed || entry.displayWindow !== undefined), subscribed: selectionReady && entry.canRead, staleTime: 5_000,
+  const entryTarget = useMemo(
+    () => (selectionReady ? { channelId, serverId, tag: selectedTag } : null),
+    [channelId, selectedTag, selectionReady, serverId],
+  )
+  const entry = useConversationResource(entryTarget, null, "forum")
+  const sharedResource = useMemo(
+    () => createSharedConversationResource(entryTarget, null, true, entry),
+    [entry, entryTarget],
+  )
+  const canRead = entry.canRead
+  const queryKey = communityKeys.forumFeed(canRead ? channelId : "__none__", selectedTag)
+  const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, maxPages: MAX_FORUM_FEED_PAGES, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
+    enabled: presented && selectionReady && canRead && !entry?.verificationFetching && (!entry?.verificationFailed || entry?.displayWindow !== undefined), subscribed: selectionReady && canRead, staleTime: 5_000,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
-  const displayCandidate = selectionReady && entry.canRead && entry.displayWindow !== undefined
+  const displayCandidate = selectionReady && canRead && entry?.displayWindow !== undefined
+  const channels = useChildChannelsByParentId(channelId, displayCandidate)
+  const participantIds = useMemo(() => [...new Set(displayCandidate ? query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.participantIds)) ?? [] : [])], [displayCandidate, query.data?.pages])
+  const profiles = useCanonicalIdentitiesByUserId(participantIds, displayCandidate && participantIds.length > 0)
   const messageIds = useMemo(() => [...new Set(displayCandidate ? query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => [...(thread.openerMessageId ? [thread.openerMessageId] : []), ...(channels.get(thread.id)?.firstMessageId ? [channels.get(thread.id)!.firstMessageId!] : [])])) ?? [] : [])], [displayCandidate, query.data?.pages, channels])
   const messages = useCanonicalMessagesById(messageIds)
   const displayReady = displayCandidate && query.data !== undefined && messageIds.every(id => messages?.has(id))
     && query.data.pages.every(page => page.threads.every(thread => channels.has(thread.id) && thread.participantIds.every(id => profiles.has(id))))
   const posts = useMemo(() => displayReady ? mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag) : [], [displayReady, query.data?.pages, messages, channels, profiles, selectedTag])
-  const projectionScope = JSON.stringify([queryKey, entry.scope ? conversationListScopeKey({ proof: entry.scope.proof, tag: selectedTag }) : null])
+  const projectionScope = JSON.stringify([queryKey, entry?.scope ? conversationListScopeKey({ proof: entry.scope.proof, tag: selectedTag }) : null])
   const hasWindowData = query.data !== undefined
   const [retryAttempt, setRetryAttempt] = useState(0)
   const [projectionFailure, setProjectionFailure] = useState<{ scope: string; attempt: number; error: Error } | null>(null)
   useEffect(() => {
-    if (!presented || !entry.canRead || !hasWindowData || displayReady) return
+    if (!presented || !canRead || !hasWindowData || displayReady) return
     const controller = new AbortController()
     void withConversationReadDeadline(controller.signal, () => new Promise<never>(() => {})).catch(error => {
       if (!controller.signal.aborted && error instanceof ConversationReadTimeoutError) setProjectionFailure({ scope: projectionScope, attempt: retryAttempt, error })
     })
     return () => controller.abort()
-  }, [presented, entry.canRead, hasWindowData, projectionScope, retryAttempt, displayReady])
+  }, [presented, canRead, hasWindowData, projectionScope, retryAttempt, displayReady])
   const initialLoadError = !displayReady && projectionFailure?.scope === projectionScope && projectionFailure?.attempt === retryAttempt
     ? projectionFailure.error : null
-  const pending = !displayReady && !initialLoadError && !query.isError && !entry.verificationFailed && !entry.denied
+  const pending = !displayReady && !initialLoadError && !query.isError && !entry?.verificationFailed && !entry?.denied
   const refetchQuery = query.refetch
   const refetch = useCallback((...args: Parameters<typeof refetchQuery>) => {
     setRetryAttempt(attempt => attempt + 1)
     return refetchQuery(...args)
   }, [refetchQuery])
   const fetchNextPage = query.fetchNextPage
-  const fetchOlder = useCallback(() => { if (presented && displayReady && entry.windowReady) void fetchNextPage({ cancelRefetch: false }) }, [fetchNextPage, presented, displayReady, entry.windowReady])
+  const entryWindowReady = entry?.windowReady ?? false
+  const fetchOlder = useCallback(() => { if (presented && displayReady && entryWindowReady) void fetchNextPage({ cancelRefetch: false }) }, [fetchNextPage, presented, displayReady, entryWindowReady])
   return { ...query, refetch, isPending: pending, isLoading: pending, displayReady, initialLoadError,
-    posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: displayReady && entry.windowReady && query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder }
+    posts, tag, selectionReady, selectTag, tagsKnown: tagsQuery.data !== undefined, tagsError, retryTags: tagsQuery.refetch, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: displayReady && entryWindowReady && query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder, sharedResource }
 }

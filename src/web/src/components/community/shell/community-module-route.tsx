@@ -1,7 +1,7 @@
 "use client"
 
 import { useMeRouteMemory } from "@/hooks/community/use-me-route-memory"
-import { Suspense, useEffect } from "react"
+import { Suspense, useEffect, useMemo } from "react"
 import { CommunityModuleRouteContext, useCommunityRouter } from "@/contexts/community/module-route"
 import { normalizeCommunityHref, resolveCommunityModulePlan } from "@/lib/community/community-route"
 import { CommunityPendingFrame } from "./community-pending-frame"
@@ -23,6 +23,15 @@ export function CommunityModuleRoute({ href, routeCommitted }: { href: string; r
   const target = normalizeCommunityHref(href)
   const plan = resolveCommunityModulePlan(target.href)
   useMeRouteMemory(target.pathname, routeCommitted)
+  const landingServerId = plan.main.kind === "server-landing" ? plan.main.serverId : null
+  const serverRouteContextValue = useMemo(
+    () => landingServerId ? { serverId: landingServerId, serverParam: encodeURIComponent(landingServerId) } : null,
+    [landingServerId],
+  )
+  const moduleRouteContextValue = useMemo(
+    () => ({ href: target.href, routeCommitted }),
+    [routeCommitted, target.href],
+  )
   const content = plan.route === "community-root-redirect" ? <CommunityRootRoute />
     : plan.route === "onboarding-preview" ? <CommunityRouteRedirect href={plan.canonicalHref!} />
     : plan.main.kind === "server-conversation" ? (
@@ -35,14 +44,14 @@ export function CommunityModuleRoute({ href, routeCommitted }: { href: string; r
       : plan.main.kind === "machines" ? <MachinesRoute />
         : plan.main.kind === "me-root" ? <MeRootRoute />
           : plan.main.kind === "server-landing" ? (
-            <CommunityServerRouteContext value={{ serverId: plan.main.serverId, serverParam: encodeURIComponent(plan.main.serverId) }}>
+            <CommunityServerRouteContext value={serverRouteContextValue!}>
               <ServerConversationRoute serverId={plan.main.serverId} serverParam={encodeURIComponent(plan.main.serverId)}
                 channelId={null} href={target.href} routeCommitted={routeCommitted}>
                 {plan.route === "server-settings-redirect" ? <ServerSettingsRoute /> : <ServerLandingRoute />}
               </ServerConversationRoute>
             </CommunityServerRouteContext>
           ) : plan.route === "message-resolution" ? <MessageRoute messageId={decodeURIComponent(target.pathname.split("/")[3]!)} /> : null
-  return <CommunityModuleRouteContext value={{ href: target.href, routeCommitted }}>
+  return <CommunityModuleRouteContext value={moduleRouteContextValue}>
     <Suspense fallback={<CommunityPendingFrame href={target.href} reserveBackSlot={target.surface === "detail"} />}>
       {content}
     </Suspense>

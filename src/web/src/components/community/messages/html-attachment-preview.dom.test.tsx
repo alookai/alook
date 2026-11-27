@@ -348,4 +348,59 @@ describe("HTML preview full message compositions", () => {
     expect(view.container.textContent).toContain("before")
     expect(view.container.textContent).toContain("after")
   })
+
+  it("demounts off-screen iframes while preserving reserved height and shares viewport listeners across previews", () => {
+    const callbacks = new Set<IntersectionObserverCallback>()
+    const ioInstances: number[] = []
+    class SharedIO {
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+      constructor(callback: IntersectionObserverCallback) {
+        ioInstances.push(ioInstances.length)
+        callbacks.add(callback)
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", SharedIO)
+    const addWindowListener = vi.spyOn(window, "addEventListener")
+    const secondFile = { ...file, id: "a2", url: "/api/community/channels/c1/attachments/a2" }
+    const view = setup(
+      <>
+        <HtmlAttachmentPreview attachment={file} />
+        <HtmlAttachmentPreview attachment={secondFile} />
+      </>,
+    )
+
+    expect(ioInstances).toHaveLength(1)
+    const firstRoot = view.getByTestId(tid.htmlPreview("a1"))
+    const secondRoot = view.getByTestId(tid.htmlPreview("a2"))
+
+    act(() => {
+      for (const cb of callbacks) {
+        cb([
+          { target: firstRoot, isIntersecting: true } as unknown as IntersectionObserverEntry,
+          { target: secondRoot, isIntersecting: true } as unknown as IntersectionObserverEntry,
+        ], {} as IntersectionObserver)
+      }
+    })
+
+    const frame1 = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    expect(view.getByTestId(tid.htmlPreviewFrame("a2"))).toBeInTheDocument()
+    frameMessage(frame1, { type: "alook-html-height", height: 260 })
+    expect(frame1.style.height).toBe("260px")
+
+    const messageListeners = addWindowListener.mock.calls.filter(([type]) => String(type) === "message")
+    const resizeListeners = addWindowListener.mock.calls.filter(([type]) => String(type) === "resize")
+    expect(messageListeners).toHaveLength(1)
+    expect(resizeListeners).toHaveLength(1)
+
+    act(() => {
+      for (const cb of callbacks) {
+        cb([{ target: firstRoot, isIntersecting: false } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
+      }
+    })
+    expect(view.queryByTestId(tid.htmlPreviewFrame("a1"))).toBeNull()
+    expect(firstRoot.style.height).toBe("260px")
+    expect(view.getByTestId(tid.htmlPreviewFrame("a2"))).toBeInTheDocument()
+  })
 })

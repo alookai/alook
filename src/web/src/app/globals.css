@@ -2150,24 +2150,6 @@
   line-height: 24px;
 }
 
-.chat-composer .tiptap p.is-editor-empty:first-child {
-  position: relative;
-  min-width: 0;
-}
-
-.chat-composer .tiptap p.is-editor-empty:first-child::before {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  display: block;
-  float: none;
-  height: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .chat-composer .tiptap>p:first-child {
   margin-top: 0;
 }
@@ -2176,25 +2158,34 @@
   margin-bottom: 0;
 }
 
-/* Rotating capability-hint placeholder overlay. Sits over the empty editor's
-   first-line text origin, mirroring the muted ::before placeholder look. It is
-   absolutely positioned so it adds zero layout height (no composer jump), and
-   pointer-events:none so clicks fall through to the editor underneath. */
+/* Composer placeholder overlay. Sits over the empty editor's first-line text
+   origin as a sibling outside ProseMirror so first-character input / dictation
+   never mutates the composing <p> element. Absolutely positioned so it adds
+   zero layout height, and pointer-events:none so clicks fall through. */
 .chat-placeholder-overlay {
   position: absolute;
   top: 0;
   left: 0;
-  right: 8px;
-  /* matches EditorContent pr-2 so long hints ellipsize, not wrap */
+  right: 0;
   line-height: 24px;
   /* matches .chat-input-line-height / .tiptap */
   color: var(--muted-foreground);
   opacity: 0.5;
   pointer-events: none;
+  user-select: none;
   /* Single line: never wrap (no height change); ellipsize on overflow. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.chat-placeholder-overlay[data-placeholder]::before {
+  content: attr(data-placeholder);
+}
+
+.chat-placeholder-overlay[data-visible="false"] {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .chat-placeholder-overlay>span {

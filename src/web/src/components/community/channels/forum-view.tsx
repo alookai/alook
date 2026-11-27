@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useRef } from "react"
+import { useMemo, useRef } from "react"
 import { ArchiveRestore, Archive, Plus, Tag, Trash2 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,7 +20,7 @@ import { FORUM_ARCHIVE_TAG, getClientPlatform } from "@alook/shared"
 import { FORUM_LIST_SPACING_CLASS, ForumPostList, ForumPostListItem } from "./forum-post-list"
 import { useHydratedClient } from "@/hooks/use-hydrated-client"
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId } from "@/lib/community-db/projections"
 import { useHorizontalOverflowRail } from "@/components/horizontal-overflow-rail"
 
 const POST_ACTION_CLASS = "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
@@ -84,10 +84,20 @@ export function ForumView({
     "col-start-2 row-start-1 z-10 flex self-center items-center gap-1",
     desktopActions && "opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 has-data-popup-open:opacity-100",
   )
-  const profilesByUserId = useCanonicalProfilesByUserId()
+  const profileIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const post of posts) {
+      if (post.authorId) ids.add(post.authorId)
+      for (const participant of post.participants ?? []) ids.add(participant.id)
+    }
+    return [...ids]
+  }, [posts])
+  const profilesByUserId = useCanonicalIdentitiesByUserId(profileIds, profileIds.length > 0)
   const [composing, setComposing] = useAtom(useCreateAtom(false))
   const [deletingForId, setDeletingForId] = useAtom(useCreateAtom<string | null>(null))
+  const [editingTagsState, setEditingTagsState] = useAtom(useCreateAtom<{ postId: string; anchor: HTMLElement | null } | null>(null))
   const deletingFor = posts.find((post) => post.id === deletingForId) ?? null
+  const editingTagsFor = editingTagsState ? (posts.find((post) => post.id === editingTagsState.postId) ?? null) : null
   const setDeletingFor = (post: ForumThread | null) => setDeletingForId(post?.id ?? null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
   const filterTags = [...new Set(availableTags)]
@@ -209,29 +219,24 @@ export function ForumView({
               const savingTags = savingTagsFor === p.id
               const actions = canEdit || canDelete ? (
               <div
-                className={cn(postActionsClassName, deletingForId === p.id && "opacity-100")}
+                className={cn(postActionsClassName, (deletingForId === p.id || editingTagsState?.postId === p.id) && "opacity-100")}
                 onClick={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
               >
                 {canEdit && (
-                  <PostTagDialog
-                    trigger={(
-                      <Button variant="ghost" size="icon"
-                        type="button"
-                        data-testid={tid.forumThreadTagBtn(p.id)}
-                        onClick={(event) => event.stopPropagation()}
-                        className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
-                        aria-label="Edit tags"
-                      >
-                        <Tag className="size-4" />
-                      </Button>
-                    )}
-                    postName={p.name}
-                    current={p.tags}
-                    allTags={availableTags}
-                    saving={savingTagsFor === p.id}
-                    onSave={(tags) => onEditPostTags?.(p.id, tags)}
-                  />
+                  <Button variant="ghost" size="icon"
+                    type="button"
+                    data-testid={tid.forumThreadTagBtn(p.id)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setEditingTagsState({ postId: p.id, anchor: event.currentTarget })
+                    }}
+                    className={cn(POST_ACTION_CLASS, "hover:bg-accent hover:text-foreground")}
+                    aria-label="Edit tags"
+                    aria-expanded={editingTagsState?.postId === p.id}
+                  >
+                    <Tag className="size-4" />
+                  </Button>
                 )}
                 {canEdit && (
                   <Button variant="ghost" size="icon"
@@ -270,6 +275,26 @@ export function ForumView({
               return <ForumPostItem key={p.id} post={p} profilesByUserId={profilesByUserId} onOpen={() => onOpenPost(p.id)} actions={actions} />
         }}
       />
+
+      {editingTagsFor && (
+        <PostTagDialog
+          key={editingTagsFor.id}
+          open
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) {
+              const anchor = editingTagsState?.anchor
+              setEditingTagsState(null)
+              queueMicrotask(() => anchor?.focus())
+            }
+          }}
+          anchor={editingTagsState?.anchor}
+          postName={editingTagsFor.name}
+          current={editingTagsFor.tags}
+          allTags={availableTags}
+          saving={savingTagsFor === editingTagsFor.id}
+          onSave={(tags) => onEditPostTags?.(editingTagsFor.id, tags)}
+        />
+      )}
 
       {deletingFor && (
         <ConfirmDialog

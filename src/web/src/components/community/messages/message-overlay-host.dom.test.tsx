@@ -15,6 +15,7 @@ vi.mock("@/hooks/community/use-inbox", () => ({
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: () => ({ userId: "u1", name: "Alice", discriminator: "", avatar: "A", avatarVersion: 0 }),
+  useCanonicalCommunityIdentity: () => ({ userId: "u1", name: "Alice", discriminator: "", avatar: "A", avatarVersion: 0 }),
 }))
 vi.mock("./emoji-picker-interactive", async () => {
   const ReactModule = await import("react")

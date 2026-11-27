@@ -292,6 +292,7 @@ export function ThreadChannelSurface({
             presentError: controller.feed.presentError,
             localSubmitVersion: controller.localSubmitVersion,
             unreadCount: controller.feed.unreadCount,
+            typingScope: controller.typingScope,
             typingUsers: controller.typingUsers,
           }}
           footerProps={{

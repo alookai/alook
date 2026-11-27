@@ -1,7 +1,8 @@
 import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { CommunityConversationEntryReadSchema } from "@alook/shared"
 import { test, expect } from "./_fixtures/case-fixture"
-import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
+import { composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, installInputCapability, sendMessage } from "./_fixtures/actions"
+import { DEFAULT_KEYBOARD_OPEN_HEIGHT, DEFAULT_MOBILE_VIEWPORT, installMobileKeyboard } from "./_fixtures/mobile-keyboard"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import {
   beginScrollTraceAnalysis,
@@ -511,5 +512,486 @@ test.describe("composer and viewport scroll anchors", () => {
     }
     await alice.page.setViewportSize(VIEWPORT)
     await waitForStableTail(scroller, "dm-keyboard-profile-closed-after-send")
+  })
+
+  test("mobile 390x844 virtual keyboard dismissal on Send keeps post-submit scroll pinned to bottom without pill flash", async ({ caseActors }) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { serverId, composerChannelId } = await seedScrollCase(actors)
+    const alice = await actors.asUser("alice")
+
+    await installInputCapability(alice.page, false)
+    const keyboard = await installMobileKeyboard(alice.page, {
+      mode: "viewport",
+      width: DEFAULT_MOBILE_VIEWPORT.width,
+      closedHeight: DEFAULT_MOBILE_VIEWPORT.height,
+      openHeight: DEFAULT_KEYBOARD_OPEN_HEIGHT,
+      steps: 5,
+      stepDelayMs: 16,
+      initialDelayMs: 16,
+    })
+
+    try {
+      await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+      const scroller = alice.page.getByTestId(tid.messageScroller)
+      const editable = composerEditable(alice.page)
+      const sendButton = alice.page.getByTestId(tid.composerSend)
+      await expect(editable).toBeVisible()
+      await waitForStableTail(scroller, "mobile-kb-initial-tail")
+      await ignoreNextDevToolsPointerCapture(alice.page)
+
+      const startPillWatch = async (testId: string) => {
+        await alice.page.evaluate((pillTestId) => {
+          const win = window as unknown as {
+            __pillWatch?: {
+              stop: () => { visibleCount: number; sawHidden: boolean; reappearedAfterHide: boolean }
+            }
+          }
+          win.__pillWatch?.stop()
+          let active = true
+          let visibleCount = 0
+          let sawHidden = false
+          let reappearedAfterHide = false
+          const isVisible = () => {
+            const el = document.querySelector<HTMLElement>(`[data-testid="${pillTestId}"]`)
+            if (!el) return false
+            const style = window.getComputedStyle(el)
+            const rect = el.getBoundingClientRect()
+            return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0 && rect.height > 0 && rect.width > 0
+          }
+          const sample = () => {
+            if (!active) return
+            if (isVisible()) {
+              visibleCount += 1
+              if (sawHidden) reappearedAfterHide = true
+            } else {
+              sawHidden = true
+            }
+          }
+          const observer = new MutationObserver(sample)
+          observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+          const tick = () => {
+            if (!active) return
+            sample()
+            window.requestAnimationFrame(tick)
+          }
+          window.requestAnimationFrame(tick)
+          win.__pillWatch = {
+            stop: () => {
+              active = false
+              observer.disconnect()
+              sample()
+              return { visibleCount, sawHidden, reappearedAfterHide }
+            },
+          }
+        }, testId)
+      }
+
+      const stopPillWatch = async () => (
+        alice.page.evaluate(() => {
+          const win = window as unknown as {
+            __pillWatch?: {
+              stop: () => { visibleCount: number; sawHidden: boolean; reappearedAfterHide: boolean }
+            }
+          }
+          return win.__pillWatch?.stop() ?? { visibleCount: 0, sawHidden: true, reappearedAfterHide: false }
+        })
+      )
+
+      const expectMessageVisibleAtTail = async (messageId: string, label: string) => {
+        await waitForStableTail(scroller, label)
+        const geometry = await scroller.evaluate((element, id) => {
+          const scrollerRect = element.getBoundingClientRect()
+          const msg = element.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)
+          const msgRect = msg?.getBoundingClientRect() ?? null
+          const occlusion = Number((element as HTMLElement).dataset.composerOcclusion ?? 0)
+          return {
+            tailGap: element.scrollHeight - element.clientHeight - element.scrollTop,
+            clientHeight: element.clientHeight,
+            msgFound: !!msgRect,
+            msgBottom: msgRect?.bottom ?? null,
+            readableBottom: scrollerRect.bottom - occlusion,
+          }
+        }, messageId)
+        expect(geometry.tailGap, `${label} tailGap`).toBeLessThanOrEqual(1)
+        expect(geometry.msgFound, `${label} msgFound`).toBe(true)
+        expect(geometry.msgBottom!, `${label} msgBottom`).toBeLessThanOrEqual(geometry.readableBottom + 2)
+      }
+
+      await editable.click()
+      await keyboard.waitForState("open")
+      expect(alice.page.viewportSize()).toEqual({
+        width: DEFAULT_MOBILE_VIEWPORT.width,
+        height: DEFAULT_KEYBOARD_OPEN_HEIGHT,
+      })
+      await waitForStableTail(scroller, "mobile-kb-open-at-bottom")
+
+      const bottomContent = [
+        `mobile bottom submit ${Date.now()}`,
+        "line two ensures message height exceeds CONVERSATION_TAIL_SPACE_PX",
+        "line three verifies keyboard dismiss resize never locks above the new message",
+        "line four confirms full bottom visibility",
+      ].join("\n")
+      await editable.fill(bottomContent)
+      await expect(sendButton).toBeVisible()
+      await expect(sendButton).toBeEnabled()
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+
+      await startPillWatch(tid.scrollToPresent)
+      const bottomPost = alice.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${composerChannelId}/messages`
+      ))
+      await sendButton.click()
+      const bottomResponse = await bottomPost
+      expect(bottomResponse.status()).toBe(201)
+      const bottomResult = await bottomResponse.json() as { message: PostedMessageIdentity }
+      await keyboard.waitForState("closed")
+      expect(alice.page.viewportSize()).toEqual(DEFAULT_MOBILE_VIEWPORT)
+      await expectMessageVisibleAtTail(bottomResult.message.id, "mobile-kb-bottom-after-close")
+      const bottomPill = await stopPillWatch()
+      expect(bottomPill.visibleCount).toBe(0)
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+
+      await establishScrollDistancePrecondition(scroller, "mobile-kb-history", 360)
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+      await editable.click()
+      await keyboard.waitForState("open")
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+
+      const historyContent = [
+        `mobile history submit ${Date.now()}`,
+        "line two verifies jumping-to-target/present survives concurrent keyboard dismissal",
+        "line three ensures new message lands fully at bottom without pill re-flash",
+      ].join("\n")
+      await editable.fill(historyContent)
+      await expect(sendButton).toBeEnabled()
+
+      await startPillWatch(tid.scrollToPresent)
+      const historyPost = alice.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${composerChannelId}/messages`
+      ))
+      await sendButton.click()
+      const historyResponse = await historyPost
+      expect(historyResponse.status()).toBe(201)
+      const historyResult = await historyResponse.json() as { message: PostedMessageIdentity }
+      await keyboard.waitForState("closed")
+      expect(alice.page.viewportSize()).toEqual(DEFAULT_MOBILE_VIEWPORT)
+      await expectMessageVisibleAtTail(historyResult.message.id, "mobile-kb-history-after-close")
+      const historyPill = await stopPillWatch()
+      expect(historyPill.sawHidden).toBe(true)
+      expect(historyPill.reappearedAfterHide).toBe(false)
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+    } finally {
+      await keyboard.dispose()
+    }
+  })
+
+  test("mobile keyboard inset mode drives alook:keyboard-change CSS variables across focus and Send", async ({ caseActors }) => {
+    test.setTimeout(90_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { serverId, composerChannelId } = await seedScrollCase(actors)
+    const alice = await actors.asUser("alice")
+
+    await installInputCapability(alice.page, false)
+    const keyboard = await installMobileKeyboard(alice.page, {
+      mode: "inset",
+      width: DEFAULT_MOBILE_VIEWPORT.width,
+      closedHeight: DEFAULT_MOBILE_VIEWPORT.height,
+      insetHeight: 324,
+      steps: 4,
+      initialDelayMs: 16,
+    })
+
+    try {
+      await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+      const scroller = alice.page.getByTestId(tid.messageScroller)
+      const editable = composerEditable(alice.page)
+      const sendButton = alice.page.getByTestId(tid.composerSend)
+      await expect(editable).toBeVisible()
+      await waitForStableTail(scroller, "mobile-inset-initial-tail")
+      await ignoreNextDevToolsPointerCapture(alice.page)
+
+      await editable.click()
+      await keyboard.waitForState("open")
+      const openVars = await alice.page.evaluate(() => ({
+        bottom: document.documentElement.style.getPropertyValue("--alook-keyboard-bottom"),
+        progress: document.documentElement.style.getPropertyValue("--alook-keyboard-progress"),
+      }))
+      expect(openVars.bottom).toMatch(/vw$/)
+      expect(openVars.bottom).not.toBe("0vw")
+      expect(openVars.progress).toContain("calc(")
+
+      const content = `mobile inset submit ${Date.now()}\nsecond line for inset close verification`
+      await editable.fill(content)
+      const post = alice.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${composerChannelId}/messages`
+      ))
+      await sendButton.click()
+      const response = await post
+      expect(response.status()).toBe(201)
+      const result = await response.json() as { message: PostedMessageIdentity }
+      await keyboard.waitForState("closed")
+      const closedVars = await alice.page.evaluate(() => ({
+        bottom: document.documentElement.style.getPropertyValue("--alook-keyboard-bottom"),
+        progress: document.documentElement.style.getPropertyValue("--alook-keyboard-progress"),
+      }))
+      expect(closedVars.bottom).toBe("0vw")
+      expect(closedVars.progress).toBe("")
+      await waitForStableTail(scroller, "mobile-inset-after-close")
+      await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
+      await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeHidden()
+    } finally {
+      await keyboard.dispose()
+    }
+  })
+
+  test("preserves browser-inserted 1st-character Text node, selection, and mounted placeholder on direct insertText", async ({ caseActors }) => {
+    test.setTimeout(90_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { serverId, composerChannelId } = await seedScrollCase(actors)
+    const alice = await actors.asUser("alice")
+
+    await installInputCapability(alice.page, false)
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${composerChannelId}`)
+
+    const composerInput = alice.page.getByTestId(tid.composerInput)
+    const editable = composerEditable(alice.page)
+    await expect(editable).toBeVisible()
+    await expect(composerInput).toHaveText("")
+    await editable.click()
+    await expect(editable).toBeFocused()
+
+    const report = await alice.page.evaluate(async (composerInputTestId) => {
+      const wait = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms))
+      const inputEl = document.querySelector<HTMLElement>(`[data-testid="${composerInputTestId}"]`)!
+      const editableEl = inputEl.querySelector<HTMLElement & {
+        editor?: {
+          setOptions: (...args: unknown[]) => unknown
+          commands: { clearContent: () => boolean }
+          view: { setProps: (...args: unknown[]) => unknown }
+        }
+      }>(".tiptap")!
+      const editor = editableEl.editor!
+      const placeholderEl = inputEl.querySelector<HTMLElement>('[data-slot="composer-placeholder"]')!
+
+      const selMethods = ["collapse", "extend", "removeAllRanges", "addRange", "setBaseAndExtent"] as const
+      const origSel = new Map<string, (...args: unknown[]) => unknown>()
+      const selCalls: string[] = []
+      for (const method of selMethods) {
+        const fn = Selection.prototype[method] as (...args: unknown[]) => unknown
+        origSel.set(method, fn)
+        ;(Selection.prototype as unknown as Record<string, (...args: unknown[]) => unknown>)[method] = function (...args: unknown[]) {
+          selCalls.push(method)
+          return fn.apply(this, args)
+        }
+      }
+
+      let setOptionsCalls = 0
+      let setPropsCalls = 0
+      let textNodeRemovals = 0
+      let brRemovals = 0
+      let placeholderRemovals = 0
+      const origSetOptions = editor.setOptions.bind(editor)
+      editor.setOptions = (...args: unknown[]) => {
+        setOptionsCalls += 1
+        return origSetOptions(...args)
+      }
+      const origSetProps = editor.view.setProps.bind(editor.view)
+      editor.view.setProps = (...args: unknown[]) => {
+        setPropsCalls += 1
+        return origSetProps(...args)
+      }
+
+      const tiptapObs = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.removedNodes) {
+            if (node.nodeType === Node.TEXT_NODE) textNodeRemovals += 1
+            if (node.nodeName === "BR") brRemovals += 1
+          }
+        }
+      })
+      const wrapperObs = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.removedNodes) {
+            if (node === placeholderEl) placeholderRemovals += 1
+          }
+        }
+      })
+      tiptapObs.observe(editableEl, { childList: true, subtree: true })
+      wrapperObs.observe(inputEl, { childList: true, subtree: true })
+
+      const findTextNode = () => {
+        const paragraph = editableEl.querySelector("p")
+        if (!paragraph) return null
+        for (const node of paragraph.childNodes) {
+          if (node.nodeType === Node.TEXT_NODE) return node
+        }
+        return null
+      }
+      const reset = () => {
+        tiptapObs.takeRecords()
+        wrapperObs.takeRecords()
+        selCalls.length = 0
+        setOptionsCalls = 0
+        setPropsCalls = 0
+        textNodeRemovals = 0
+        brRemovals = 0
+        placeholderRemovals = 0
+      }
+
+      const insertDirectText = (text: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- native direct insertText reproduces mobile voice dictation commit
+        document.execCommand("insertText", false, text)
+        // Chromium/Blink synchronously removes an empty paragraph's trailing <br> during
+        // execCommand("insertText"). Drain those synchronous browser mutations so brRemovals
+        // strictly tracks ProseMirror's reconciliation while keeping textNodeRemovals complete.
+        for (const record of tiptapObs.takeRecords()) {
+          for (const node of record.removedNodes) {
+            if (node.nodeType === Node.TEXT_NODE) textNodeRemovals += 1
+          }
+        }
+      }
+
+      try {
+        const initialVisible = placeholderEl.getAttribute("data-visible")
+        const initialInputText = inputEl.textContent
+
+        reset()
+        insertDirectText("你")
+        await wait(50)
+        const node1 = findTextNode()
+        const char1 = {
+          text: editableEl.textContent,
+          textNodeRemovals,
+          brRemovals,
+          selCalls: [...selCalls],
+          placeholderRemovals,
+          setOptionsCalls,
+          setPropsCalls,
+          placeholderStillMounted: inputEl.contains(placeholderEl),
+          placeholderVisible: placeholderEl.getAttribute("data-visible"),
+          focused: document.activeElement === editableEl,
+        }
+
+        reset()
+        insertDirectText("好")
+        await wait(50)
+        const node2 = findTextNode()
+        const char2 = {
+          text: editableEl.textContent,
+          sameTextNode: node1 !== null && node1 === node2,
+          textNodeRemovals,
+          brRemovals,
+          selCalls: [...selCalls],
+          placeholderRemovals,
+        }
+
+        editor.commands.clearContent()
+        await wait(50)
+        const clearedVisible = placeholderEl.getAttribute("data-visible")
+        const clearedInputText = inputEl.textContent
+        editableEl.focus()
+        const rawCollapse = origSel.get("collapse")!
+        rawCollapse.call(window.getSelection(), editableEl.querySelector("p"), 0)
+        await wait(30)
+
+        reset()
+        insertDirectText("测")
+        await wait(50)
+        const afterClearChar1 = {
+          text: editableEl.textContent,
+          textNodeRemovals,
+          brRemovals,
+          selCalls: [...selCalls],
+          placeholderRemovals,
+          placeholderStillMounted: inputEl.contains(placeholderEl),
+          placeholderVisible: placeholderEl.getAttribute("data-visible"),
+          focused: document.activeElement === editableEl,
+        }
+
+        // Verify <p> offset-1 Selection with preserved trailing <br> through real DOMObserver flush.
+        editor.commands.clearContent()
+        await wait(50)
+        const paragraph = editableEl.querySelector("p")!
+        const trailingBr = paragraph.querySelector("br.ProseMirror-trailingBreak")
+        editableEl.focus()
+        reset()
+        const pSelTextNode = document.createTextNode("试")
+        paragraph.insertBefore(pSelTextNode, trailingBr)
+        rawCollapse.call(window.getSelection(), paragraph, 1)
+        await wait(50)
+        const elementSelectionChar1 = {
+          text: editableEl.textContent,
+          sameTextNode: paragraph.firstChild === pSelTextNode,
+          trailingBrPreserved: trailingBr !== null && paragraph.contains(trailingBr),
+          textNodeRemovals,
+          brRemovals,
+          selCalls: [...selCalls],
+        }
+
+        return {
+          initialVisible,
+          initialInputText,
+          char1,
+          char2,
+          clearedVisible,
+          clearedInputText,
+          afterClearChar1,
+          elementSelectionChar1,
+        }
+      } finally {
+        tiptapObs.disconnect()
+        wrapperObs.disconnect()
+        for (const [method, fn] of origSel) {
+          ;(Selection.prototype as unknown as Record<string, (...args: unknown[]) => unknown>)[method] = fn
+        }
+      }
+    }, tid.composerInput)
+
+    expect(report.initialVisible).toBe("true")
+    expect(report.initialInputText).toBe("")
+    expect(report.char1).toEqual({
+      text: "你",
+      textNodeRemovals: 0,
+      brRemovals: 0,
+      selCalls: [],
+      placeholderRemovals: 0,
+      setOptionsCalls: 0,
+      setPropsCalls: 0,
+      placeholderStillMounted: true,
+      placeholderVisible: "false",
+      focused: true,
+    })
+    expect(report.char2).toEqual({
+      text: "你好",
+      sameTextNode: true,
+      textNodeRemovals: 0,
+      brRemovals: 0,
+      selCalls: [],
+      placeholderRemovals: 0,
+    })
+    expect(report.clearedVisible).toBe("true")
+    expect(report.clearedInputText).toBe("")
+    expect(report.afterClearChar1).toEqual({
+      text: "测",
+      textNodeRemovals: 0,
+      brRemovals: 0,
+      selCalls: [],
+      placeholderRemovals: 0,
+      placeholderStillMounted: true,
+      placeholderVisible: "false",
+      focused: true,
+    })
+    expect(report.elementSelectionChar1).toEqual({
+      text: "试",
+      sameTextNode: true,
+      trailingBrPreserved: true,
+      textNodeRemovals: 0,
+      brRemovals: 0,
+      selCalls: [],
+    })
   })
 })

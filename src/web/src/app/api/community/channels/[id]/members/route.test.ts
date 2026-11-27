@@ -18,6 +18,7 @@ const mockGetUsersByIds = vi.fn()
 const mockResolveScopeMembers = vi.fn()
 const mockGetMembersByUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
+const mockFanOutToUsers = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockListThreadParticipants = vi.fn()
 const mockListThreadParticipantUserIds = vi.fn()
@@ -76,6 +77,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+  fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
 }))
 
 // Dual-actor: crk_ bearer → bot (folded channelMember), else human.
@@ -208,7 +210,7 @@ describe("GET /channels/[id]/members", () => {
     const res = await GET(getReq("t1", "notify"), { params: { id: "t1" } } as any)
     expect(res.status).toBe(200)
     // A thread reads participants, NOT the access audience.
-    expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "t1")
+    expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "t1", { limit: 201 })
     expect(mockResolveScopeMembers).not.toHaveBeenCalled()
     expect(mockGetMembersByUserIds).toHaveBeenCalledWith(expect.anything(), "s1", ["u1"])
   })
@@ -228,7 +230,7 @@ describe("GET /channels/[id]/members", () => {
     ])
     const res = await GET(getReq("p1", "notify"), { params: { id: "p1" } } as any)
     const body = await res.json()
-    expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "p1")
+    expect(mockListThreadParticipants).toHaveBeenCalledWith(expect.anything(), "p1", { limit: 201 })
     expect(mockResolveScopeMembers).not.toHaveBeenCalled()
     // The post creator (u2) is badged — NOT the forum owner (u1).
     expect(body.members.find((m: any) => m.userId === "u2").isCreator).toBe(true)

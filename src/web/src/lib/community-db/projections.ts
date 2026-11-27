@@ -9,7 +9,7 @@ import { forumSidebarWindowComplete, type ForumSidebarWindow } from "@/lib/commu
 
 import { createContext, createElement, useContext, useEffect, useMemo, useCallback, useSyncExternalStore, type Context, type ReactNode } from "react"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
-import { DbProvider, and, eq, inArray, useLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
+import { DbProvider, and, eq, inArray, isNull, useLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { serverRailTopOrder, sortServerRailRows, notifLevelDisplay } from "@alook/shared"
@@ -124,10 +124,35 @@ function useCollectionRows<N extends CommunityCollectionName>(name: N, where?: C
   return data
 }
 
+const EMPTY_ATTENTION_SCOPES: readonly AttentionScopeRow[] = Object.freeze([])
+
+function useStableIds(ids?: readonly string[]): readonly string[] | undefined {
+  const key = ids === undefined ? undefined : ids.join("\0")
+  return useMemo(() => {
+    if (key === undefined) return undefined
+    if (key === "") return []
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const id of key.split("\0")) {
+      if (!seen.has(id)) {
+        seen.add(id)
+        result.push(id)
+      }
+    }
+    return result
+  }, [key])
+}
+
 function useServerRows(serverId?: string) {
   return useCollectionRows("servers", ({ row }) => serverId === undefined ? eq(1, 1) : eq(row.id, serverId))
 }
-function useServerMembershipRows() { return useCollectionRows("serverMemberships") }
+function useViewerServerMembershipRows(viewerId: string | null | undefined) {
+  return useCollectionQuery(
+    "serverMemberships",
+    ({ row }) => and(eq(row.viewer, true), eq(row.userId, viewerId ?? "")),
+    !!viewerId,
+  ).data
+}
 function useFolderRows() { return useCollectionRows("folders") }
 function useFolderItemRows() { return useCollectionRows("folderItems") }
 function useNotificationSettingRows() { return useCollectionRows("notificationSettings") }
@@ -137,28 +162,30 @@ function useChannelRows(serverId?: string, type?: ChannelRow["type"]) {
     type === undefined ? eq(1, 1) : eq(row.type, type),
   ))
 }
-function useChannelMembershipRows(channelIds?: string[]) {
-  return useCollectionRows("channelMemberships", ({ row }) => channelIds === undefined ? eq(1, 1) : inArray(row.channelId, channelIds))
+function useChannelMembershipRows(channelIds?: readonly string[]) {
+  const stableIds = useStableIds(channelIds)
+  return useCollectionRows("channelMemberships", ({ row }) => stableIds === undefined ? eq(1, 1) : inArray(row.channelId, [...stableIds]))
 }
-export function useServerRailProjection() {
-  const rows = {
-    registry: useOptionalCommunityDbRegistry(),
-    servers: useServerRows(),
-    serverMemberships: useServerMembershipRows(),
-    serverRail: useCollectionRows("serverRail"),
-    attention: useAttentionScopes(),
-    folders: useFolderRows(),
-    folderItems: useFolderItemRows(),
-  }
-  const structure = useMemo(() => {
-    if (!rows.registry || !rows.servers || !rows.serverMemberships) return undefined
-    const viewerId = rows.registry.accountId
-    const allowed = new Set(
-      rows.serverMemberships
-        .filter((membership) => membership.viewer && membership.userId === viewerId)
-        .map((membership) => membership.serverId),
-    )
-    const servers: Server[] = rows.servers
+
+export function useServerRailStructure() {
+  const registry = useOptionalCommunityDbRegistry()
+  const servers = useServerRows()
+  const serverMemberships = useViewerServerMembershipRows(registry?.accountId)
+  const serverRail = useCollectionRows("serverRail")
+  const folders = useFolderRows()
+  const folderItems = useFolderItemRows()
+  const viewerId = registry?.accountId
+  const allowedServerIdsKey = serverMemberships === undefined
+    ? undefined
+    : serverMemberships
+      .filter((membership) => membership.viewer && membership.userId === viewerId)
+      .map((membership) => membership.serverId)
+      .sort()
+      .join("\0")
+  return useMemo(() => {
+    if (!registry || !servers || allowedServerIdsKey === undefined) return undefined
+    const allowed = new Set(allowedServerIdsKey === "" ? [] : allowedServerIdsKey.split("\0"))
+    const sortedServers: Server[] = servers
       .map((server, fallbackPosition) => ({ server, fallbackPosition }))
       .sort((left, right) => (
         (left.server.position ?? left.fallbackPosition)
@@ -179,14 +206,14 @@ export function useServerRailProjection() {
         isOwner: server.isOwner,
         icon: server.icon,
       }))
-    const byServer = new Map(servers.map((server) => [server.id, server]))
+    const byServer = new Map(sortedServers.map((server) => [server.id, server]))
     const itemsByFolder = new Map<string, FolderItemRow[]>()
-    for (const item of rows.folderItems ?? []) {
+    for (const item of folderItems ?? []) {
       const items = itemsByFolder.get(item.folderId) ?? []
       items.push(item)
       itemsByFolder.set(item.folderId, items)
     }
-    const folders: CommunityFolder[] = (rows.folders ?? [])
+    const projectedFolders: CommunityFolder[] = (folders ?? [])
       .map((folder) => ({
         id: folder.id,
         name: folder.name,
@@ -204,25 +231,30 @@ export function useServerRailProjection() {
           }),
       }))
     const state = {
-      serverIds: servers.map((server) => server.id),
-      folderIds: folders.map((folder) => folder.id),
-      folders: Object.fromEntries(folders.map((folder) => [folder.id, { id: folder.id, name: folder.name, serverIds: folder.servers.map((server) => server.id) }])),
-      topOrder: rows.serverRail?.find((row) => row.id === "account")?.entries,
+      serverIds: sortedServers.map((server) => server.id),
+      folderIds: projectedFolders.map((folder) => folder.id),
+      folders: Object.fromEntries(projectedFolders.map((folder) => [folder.id, { id: folder.id, name: folder.name, serverIds: folder.servers.map((server) => server.id) }])),
+      topOrder: serverRail?.find((row) => row.id === "account")?.entries,
     }
     const topOrder = serverRailTopOrder(state)
-    const byFolder = new Map(folders.map((folder) => [folder.id, folder]))
-    return { servers: sortServerRailRows(state, servers), folders: topOrder.flatMap((entry) => entry.kind === "folder" ? [byFolder.get(entry.id)!] : []), topOrder }
-  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems, rows.serverRail])
+    const byFolder = new Map(projectedFolders.map((folder) => [folder.id, folder]))
+    return { servers: sortServerRailRows(state, sortedServers), folders: topOrder.flatMap((entry) => entry.kind === "folder" ? [byFolder.get(entry.id)!] : []), topOrder }
+  }, [registry, servers, allowedServerIdsKey, folders, folderItems, serverRail])
+}
+
+export function useServerRailProjection() {
+  const structure = useServerRailStructure()
+  const attention = useAttentionScopes()
   return useMemo(() => {
     if (!structure) return undefined
-    const attention = projectCommunityAttention(rows.attention)
+    const projected = projectCommunityAttention(attention)
     const servers = structure.servers.map(server => {
-      const summary = attention.servers.get(server.id)
+      const summary = projected.servers.get(server.id)
       const unread = summary?.unread ?? false, mentions = summary?.mentions ?? 0
       return unread === server.unread && mentions === server.mentions ? server : { ...server, unread, mentions }
     })
     return servers.every((server, index) => server === structure.servers[index]) ? structure : { ...structure, servers }
-  }, [structure, rows.attention])
+  }, [structure, attention])
 }
 
 export function useServerTreeProjection(serverId: string | null) {
@@ -238,7 +270,7 @@ export function useServerTreeProjection(serverId: string | null) {
   const servers = useCollectionQuery("servers", ({ row }) => eq(row.id, serverId ?? ""))
   const categories = useCollectionQuery("categories", ({ row }) => eq(row.serverId, serverId ?? ""))
   const channels = useCollectionQuery("channels", ({ row }) => eq(row.serverId, serverId ?? ""))
-  const attention = useAttentionScopes()
+  const attention = useServerAttentionScopes(serverId)
   const ready = servers.isReady && categories.isReady && channels.isReady
   const rows = { servers: servers.data, categories: categories.data, channels: channels.data }
   const structure = useMemo(() => {
@@ -306,47 +338,84 @@ export function useServerTreeProjection(serverId: string | null) {
   }, [structure, attention, serverId])
 }
 
-export function useDmProjection() {
+export function useDmProjection(options?: { includePresence?: boolean }) {
+  const includePresence = options?.includePresence ?? true
   const registry = useOptionalCommunityDbRegistry()
+  const previewProfiles = useCommunityPreviewProfiles()
   const channels = useChannelRows(undefined, "dm")
   const channelIds = useMemo(() => (channels ?? []).map((channel) => channel.id), [channels])
   const channelMemberships = useChannelMembershipRows(channelIds)
-  const userIds = useMemo(() => (channelMemberships ?? []).filter((membership) => (
-    membership.relation === "access" && membership.userId !== registry?.accountId
-  )).map((membership) => membership.userId), [channelMemberships, registry?.accountId])
-  const profiles = useCollectionQuery("profiles", ({ row }) => inArray(row.id, userIds)).data
-  const attention = useAttentionScopes()
-  const rows = { registry, channels, channelMemberships, profiles }
+  const peerUserIds = useMemo(() => {
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const membership of channelMemberships ?? []) {
+      if (membership.relation === "access" && membership.userId !== registry?.accountId && !seen.has(membership.userId)) {
+        seen.add(membership.userId)
+        result.push(membership.userId)
+      }
+    }
+    return result
+  }, [channelMemberships, registry?.accountId])
+  const stablePeerUserIds = useStableIds(peerUserIds) ?? []
+  const profiles = useCollectionQuery("profiles", ({ row }) => inArray(row.id, [...stablePeerUserIds])).data
+  const livePresence = useSelector(
+    registry?.runtime.ws ?? absentPresence,
+    (state) => !includePresence || previewProfiles
+      ? null
+      : stablePeerUserIds.map((id) => [id, state.presenceByUserId.get(id)] as const),
+    {
+      compare: (left, right) =>
+        left === right || (!!left && !!right && left.length === right.length
+          && left.every(([id, presence], index) => id === right[index]?.[0] && presence === right[index]?.[1])),
+    },
+  )
+  const attention = useDmAttentionScopes()
   return useMemo(() => {
-    const viewerId = rows.registry?.accountId
-    if (!viewerId || !rows.channels || !rows.channelMemberships || !rows.profiles) return undefined
-    const channelMemberships = rows.channelMemberships
-    const profileById = new Map(rows.profiles.map((profile) => [profile.id, profile]))
-    const result = sortDmsByActivity(rows.channels
+    const viewerId = registry?.accountId
+    if (!viewerId || !channels || !channelMemberships || (!profiles && !previewProfiles)) return undefined
+    const peerByChannelId = new Map<string, string>()
+    for (const membership of channelMemberships) {
+      if (membership.relation === "access" && membership.userId !== viewerId && !peerByChannelId.has(membership.channelId)) {
+        peerByChannelId.set(membership.channelId, membership.userId)
+      }
+    }
+    const attentionByChannelId = new Map<string, AttentionScopeRow>()
+    for (const scope of attention) {
+      if (!attentionByChannelId.has(scope.channelId)) attentionByChannelId.set(scope.channelId, scope)
+    }
+    const profileById = new Map<string, CommunityProfile>(
+      previewProfiles
+        ? [...previewProfiles.entries()]
+        : (profiles ?? []).map((profile) => [profile.id, { ...profile, id: profile.id }]),
+    )
+    if (!previewProfiles && livePresence) {
+      for (const [userId, presence] of livePresence) {
+        if (presence === undefined) continue
+        const prior = profileById.get(userId)
+        if (prior) profileById.set(userId, { ...prior, presence })
+      }
+    }
+    return sortDmsByActivity(channels
       .filter((channel) => channel.type === "dm")
       .flatMap((channel): DM[] => {
-        const peerMembership = channelMemberships.find((membership) => (
-          membership.channelId === channel.id
-          && membership.relation === "access"
-          && membership.userId !== viewerId
-        ))
-        if (!peerMembership) return []
-        const profile = profileById.get(peerMembership.userId)
-        if (!profile) return []
-        const scope = attention.find((scope) => scope.channelId === channel.id)
+        const peerUserId = peerByChannelId.get(channel.id)
+        if (!peerUserId) return []
+        const rawProfile = profileById.get(peerUserId)
+        if (!rawProfile) return []
+        const profile = readCommunityProfile(rawProfile, peerUserId)
+        const scope = attentionByChannelId.get(channel.id)
         return [{
-          ...readCommunityProfile(profile, profile.id),
+          ...profile,
           id: channel.id,
-          userId: profile.id,
-          status: readCommunityProfile(profile, profile.id).presence,
+          userId: peerUserId,
+          status: profile.presence,
           preview: channel.preview ?? "",
           ...(channel.lastMessageAt ? { activityAt: channel.lastMessageAt } : {}),
           unread: scope?.ordinaryUnread ?? false,
           ...(scope ? { lastUnreadSeq: scope.lastUnreadSeq } : {}),
         }]
       }))
-    return result
-  }, [attention, rows.registry, rows.channels, rows.channelMemberships, rows.profiles])
+  }, [attention, registry, channels, channelMemberships, profiles, previewProfiles, livePresence])
 }
 
 export function useRouteChannelProjection(channelId: string | null) {
@@ -389,6 +458,17 @@ function useCollectionById<N extends "categories" | "channels" | "servers">(name
 }
 
 export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> { return useCollectionById("channels") }
+
+export function useChildChannelsByParentId(parentChannelId: string | null | undefined, enabled = true): ReadonlyMap<string, ChannelRow> {
+  const { data } = useCollectionQuery("channels", ({ row }) => eq(row.parentChannelId, parentChannelId ?? ""), enabled && !!parentChannelId)
+  return useMemo(() => new Map((data ?? []).map((row) => [row.id, row])), [data])
+}
+
+export function useChannelsByIds(channelIds: readonly string[], enabled = true): ReadonlyMap<string, ChannelRow> {
+  const stableIds = useStableIds(channelIds) ?? []
+  const { data } = useCollectionQuery("channels", ({ row }) => inArray(row.id, [...stableIds]), enabled && stableIds.length > 0)
+  return useMemo(() => new Map((data ?? []).map((row) => [row.id, row])), [data])
+}
 
 export function useCanonicalCategoriesById() { return useCollectionById("categories") }
 
@@ -446,14 +526,64 @@ export function useNotificationSettingsProjection() {
   }, [rows.notificationSettings])
 }
 
-export function useCanonicalProfilesProjection(userIds?: readonly string[]) {
+export function useCanonicalIdentitiesProjection(userIds?: readonly string[], enabled = true) {
   const previewProfiles = useCommunityPreviewProfiles()
-  const projection = useCollectionQuery("profiles", ({ row }) => userIds === undefined ? eq(1, 1) : inArray(row.id, [...userIds]))
-  const { registry } = projection
-  const resourceProfiles: ReadonlyMap<string, CommunityResourceProfile> = useMemo(() => new Map((projection.data ?? []).map(profile => [profile.id, profile])), [projection.data])
-  const livePresence = useSelector(registry?.runtime.ws ?? absentPresence, (state) => previewProfiles ? null : userIds === undefined ? [...state.presenceByUserId] : userIds.map((id) => [id, state.presenceByUserId.get(id)] as const), { compare: (left, right) => left === right || (!!left && !!right && left.length === right.length && left.every(([id, presence], index) => id === right[index]?.[0] && presence === right[index]?.[1])) })
+  const stableIds = useStableIds(userIds)
+  const projection = useCollectionQuery(
+    "profiles",
+    ({ row }) => stableIds === undefined ? eq(1, 1) : inArray(row.id, [...stableIds]),
+    enabled,
+  )
+  const resourceProfiles: ReadonlyMap<string, CommunityResourceProfile> = useMemo(
+    () => new Map((projection.data ?? []).map(profile => [profile.id, profile])),
+    [projection.data],
+  )
   const data: ReadonlyMap<string, CommunityProfile> = useMemo(() => {
     if (previewProfiles) return previewProfiles
+    return resourceProfiles
+  }, [previewProfiles, resourceProfiles])
+  return { ...projection, data, resourceProfiles, isReady: !!previewProfiles || projection.isReady, isError: !previewProfiles && projection.isError, isEnabled: !!previewProfiles || projection.isEnabled }
+}
+
+export function useCanonicalIdentitiesByUserId(userIds?: readonly string[], enabled = true): ReadonlyMap<string, CommunityProfile> {
+  return useCanonicalIdentitiesProjection(userIds, enabled).data
+}
+
+export function useCanonicalCommunityIdentity(userId: string | null | undefined): CommunityProfile | undefined {
+  const preview = useCommunityPreviewProfiles()
+  const { data } = useCollectionQuery("profiles", ({ row }) => eq(row.id, userId ?? ""), !!userId)
+  const profile = data?.[0]
+  return useMemo(() => {
+    if (!userId) return undefined
+    if (preview) return preview.get(userId)
+    return profile
+  }, [userId, preview, profile])
+}
+
+export function useCanonicalProfileLookup(): (userId: string) => boolean {
+  const registry = useOptionalCommunityDbRegistry()
+  const preview = useCommunityPreviewProfiles()
+  return useCallback(
+    (userId: string) => preview ? preview.has(userId) : registry?.collections.profiles.has(userId) ?? false,
+    [preview, registry],
+  )
+}
+
+export function useCanonicalProfilesProjection(userIds?: readonly string[], enabled = true) {
+  const previewProfiles = useCommunityPreviewProfiles()
+  const stableIds = useStableIds(userIds)
+  const active = enabled && (stableIds === undefined || stableIds.length > 0)
+  const projection = useCollectionQuery(
+    "profiles",
+    ({ row }) => stableIds === undefined ? eq(1, 1) : inArray(row.id, [...stableIds]),
+    active,
+  )
+  const { registry } = projection
+  const resourceProfiles: ReadonlyMap<string, CommunityResourceProfile> = useMemo(() => new Map((projection.data ?? []).map(profile => [profile.id, profile])), [projection.data])
+  const livePresence = useSelector(active ? (registry?.runtime.ws ?? absentPresence) : absentPresence, (state) => !active || previewProfiles ? null : stableIds === undefined ? [...state.presenceByUserId] : stableIds.map((id) => [id, state.presenceByUserId.get(id)] as const), { compare: (left, right) => left === right || (!!left && !!right && left.length === right.length && left.every(([id, presence], index) => id === right[index]?.[0] && presence === right[index]?.[1])) })
+  const data: ReadonlyMap<string, CommunityProfile> = useMemo(() => {
+    if (previewProfiles) return previewProfiles
+    if (!active) return new Map<string, CommunityProfile>()
     const merged = new Map<string, CommunityProfile>()
     for (const profile of projection.data ?? []) {
       merged.set(profile.id, { ...profile, id: profile.id })
@@ -465,12 +595,12 @@ export function useCanonicalProfilesProjection(userIds?: readonly string[]) {
       merged.set(userId, value)
     }
     return merged
-  }, [projection.data, livePresence, previewProfiles])
-  return { ...projection, data, resourceProfiles, isReady: !!previewProfiles || projection.isReady, isError: !previewProfiles && projection.isError, isEnabled: !!previewProfiles || projection.isEnabled }
+  }, [active, projection.data, livePresence, previewProfiles])
+  return { ...projection, data, resourceProfiles, isReady: !!previewProfiles || !active || projection.isReady, isError: !previewProfiles && active && projection.isError, isEnabled: !!previewProfiles || (!active && enabled) || projection.isEnabled }
 }
 
-export function useCanonicalProfilesByUserId(userIds?: readonly string[]): ReadonlyMap<string, CommunityProfile> {
-  return useCanonicalProfilesProjection(userIds).data
+export function useCanonicalProfilesByUserId(userIds?: readonly string[], enabled = true): ReadonlyMap<string, CommunityProfile> {
+  return useCanonicalProfilesProjection(userIds, enabled).data
 }
 
 export function getMemberReadState(
@@ -488,7 +618,8 @@ export function getMemberReadState(
 }
 
 export function useServerMemberProjection(serverId: string | null, userIds: readonly string[]) {
-  return useCollectionQuery("serverMemberships", ({ row }) => and(eq(row.serverId, serverId), inArray(row.userId, [...userIds])), !!serverId)
+  const stableIds = useStableIds(userIds) ?? []
+  return useCollectionQuery("serverMemberships", ({ row }) => and(eq(row.serverId, serverId), inArray(row.userId, [...stableIds])), !!serverId)
 }
 
 export function useServerMemberRows(serverId: string | null, userIds: readonly string[]) {
@@ -520,7 +651,17 @@ export function useCanonicalCommunityProfile(userId: string | null | undefined) 
 
 export function useAttentionScopes(): readonly AttentionScopeRow[] {
   const { data } = useCollectionQuery("attentionScopes")
-  return data ?? []
+  return data ?? EMPTY_ATTENTION_SCOPES
+}
+
+export function useServerAttentionScopes(serverId: string | null, enabled = true): readonly AttentionScopeRow[] {
+  const { data } = useCollectionQuery("attentionScopes", ({ row }) => eq(row.serverId, serverId ?? ""), enabled && !!serverId)
+  return data ?? EMPTY_ATTENTION_SCOPES
+}
+
+export function useDmAttentionScopes(enabled = true): readonly AttentionScopeRow[] {
+  const { data } = useCollectionQuery("attentionScopes", ({ row }) => isNull(row.serverId), enabled)
+  return data ?? EMPTY_ATTENTION_SCOPES
 }
 
 export function useAttentionItems(): readonly AttentionItemRow[] {
@@ -532,18 +673,18 @@ export function useChannelRefDirectoryProjection(): ChannelRefDirectory | undefi
   const rows = { servers: useServerRows(), channels: useChannelRows() }
   return useMemo(() => {
     if (!rows.servers || !rows.channels) return undefined
-    const channels = rows.channels
+    const channelsByServer = new Map<string, Array<{ id: string; name: string; type: "text" | "forum" }>>()
+    for (const channel of rows.channels) {
+      if (!channel.serverId || (channel.type !== "text" && channel.type !== "forum")) continue
+      let list = channelsByServer.get(channel.serverId)
+      if (!list) { list = []; channelsByServer.set(channel.serverId, list) }
+      list.push({ id: channel.id, name: channel.name ?? "", type: channel.type })
+    }
     return rows.servers.map((server) => ({
       id: server.id,
       name: server.name,
       discriminator: server.discriminator,
-      channels: channels
-        .filter((channel) => channel.serverId === server.id)
-        .flatMap((channel) => (
-          channel.type === "text" || channel.type === "forum"
-            ? [{ id: channel.id, name: channel.name ?? "", type: channel.type }]
-            : []
-        )),
+      channels: channelsByServer.get(server.id) ?? [],
     }))
   }, [rows.channels, rows.servers])
 }
@@ -558,7 +699,7 @@ function useForumSidebarRows(serverId: string) {
   const messageProjection = useCollectionQuery("messages", ({ row }) => inArray(row.id, openerIds))
   const ready = serverProjection.isReady && channelProjection.isReady && membershipProjection.isReady && messageProjection.isReady
   return { registry: channelProjection.registry, ready, servers: serverProjection.data, channels,
-    channelMemberships: membershipProjection.data, messages: messageProjection.data, attention: useAttentionScopes() }
+    channelMemberships: membershipProjection.data, messages: messageProjection.data, attention: useServerAttentionScopes(serverId) }
 }
 
 export function useServerSidebarProjection(

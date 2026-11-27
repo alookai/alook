@@ -1,0 +1,157 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 214c6a030441ec78b7f200c8943f8f8f6983f100..ce7b029366deb021158cc2fd5c47c403e6520226 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -127,6 +127,7 @@ function isOnEdge(node, offset, parent) {
+   }
+ }
+ function hasNodeDesc(dom) {
++  if (isText(dom)) return false;
+   var isBlock = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
+   var desc;
+   for (var cur = dom; cur; cur = cur.parentNode) if (desc = cur.pmViewDesc) break;
+@@ -1393,7 +1394,7 @@ var NodeViewDesc = function (_ViewDesc4) {
+       var dom = spec && spec.dom,
+         contentDOM = spec && spec.contentDOM;
+       if (node.isText) {
+-        if (!dom) dom = document.createTextNode(node.text);else if (!isText(dom)) throw new RangeError("Text must be rendered as a DOM text node");
++        if (!dom) dom = !spec && adoptBrowserTextNode(parent, node, outerDeco, view, pos) || document.createTextNode(node.text);else if (!isText(dom)) throw new RangeError("Text must be rendered as a DOM text node");
+       } else if (!dom) {
+         var _spec = prosemirrorModel.DOMSerializer.renderSpec(document, node.type.spec.toDOM(node), null, node.attrs);
+         dom = _spec.dom;
+@@ -1409,6 +1410,39 @@ var NodeViewDesc = function (_ViewDesc4) {
+     }
+   }]);
+ }(ViewDesc);
++function adoptBrowserTextNode(parent, node, outerDeco, view, pos) {
++  if (outerDeco.length || !parent || !parent.contentDOM || !view.domSel) return null;
++  var sel = view.state && view.state.selection;
++  if (!sel || sel.from < pos || sel.to > pos + node.nodeSize) return null;
++  var contentDOM = parent.contentDOM;
++  var selRange = view.domSel.readRange();
++  var candidates = [];
++  var addCandidate = function (n) {
++    if (n && n.nodeType == 3 && !n.pmViewDesc && n.parentNode == contentDOM && candidates.indexOf(n) < 0) candidates.push(n);
++  };
++  var addFromEndpoint = function (domNode, offset) {
++    if (!domNode) return;
++    if (domNode.nodeType == 3) {
++      addCandidate(domNode);
++    } else if (domNode == contentDOM) {
++      if (offset > 0) addCandidate(contentDOM.childNodes[offset - 1]);
++      if (offset < contentDOM.childNodes.length) addCandidate(contentDOM.childNodes[offset]);
++    }
++  };
++  if (selRange) {
++    addFromEndpoint(selRange.focusNode, selRange.focusOffset);
++    addFromEndpoint(selRange.anchorNode, selRange.anchorOffset);
++  }
++  if (view.domObserver && view.domObserver.lastChangedTextNode) addCandidate(view.domObserver.lastChangedTextNode);
++  if (!candidates.length) return null;
++  for (var i = 0; i < candidates.length; i++) {
++    if (candidates[i].nodeValue == node.text) return candidates[i];
++  }
++  var adopted = candidates[0];
++  adopted.nodeValue = node.text;
++  if (view.trackWrites == adopted) view.trackWrites = null;
++  return adopted;
++}
+ function docViewDesc(doc, outerDeco, innerDeco, dom, view, prevOuterDeco) {
+   if (!prevOuterDeco) applyOuterDeco(dom, outerDeco, doc);else patchOuterDeco(dom, dom, computeOuterDeco(prevOuterDeco, doc, false), computeOuterDeco(outerDeco, doc, false));
+   var docView = new NodeViewDesc(undefined, doc, outerDeco, innerDeco, dom, dom, dom);
+@@ -1883,6 +1917,8 @@ var ViewTreeUpdater = function () {
+       if (!lastChild || !(lastChild instanceof TextViewDesc) || /\n$/.test(lastChild.node.text) || this.view.requiresGeckoHackNode && /\s$/.test(lastChild.node.text)) {
+         if ((safari || chrome) && lastChild && lastChild.dom.contentEditable == "false") this.addHackNode("IMG", parent);
+         this.addHackNode("BR", this.top);
++      } else if (this.index < this.top.children.length && this.top.children[this.index].matchesHack("BR") && this.top.children[this.index].dom.parentNode == this.top.contentDOM && this.top.children[this.index].dom.nextSibling == null && lastChild.dom.nextSibling == this.top.children[this.index].dom) {
++        this.index++;
+       }
+     }
+   }, {
+diff --git a/dist/index.js b/dist/index.js
+index 94d7e7b94410235ffa16e3b626d036963b96c1a7..a1d5054435f34a496bcbcfd1eb8366d79582fdc4 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -127,6 +127,8 @@ function isOnEdge(node, offset, parent) {
+     }
+ }
+ function hasNodeDesc(dom, isBlock = false) {
++    if (isText(dom))
++        return false;
+     let desc;
+     for (let cur = dom; cur; cur = cur.parentNode)
+         if (desc = cur.pmViewDesc)
+@@ -1190,7 +1192,7 @@ class NodeViewDesc extends ViewDesc {
+         let dom = spec && spec.dom, contentDOM = spec && spec.contentDOM;
+         if (node.isText) {
+             if (!dom)
+-                dom = document.createTextNode(node.text);
++                dom = (!spec && adoptBrowserTextNode(parent, node, outerDeco, view, pos)) || document.createTextNode(node.text);
+             else if (!isText(dom))
+                 throw new RangeError("Text must be rendered as a DOM text node");
+         }
+@@ -1404,6 +1406,50 @@ class NodeViewDesc extends ViewDesc {
+ }
+ // Create a view desc for the top-level document node, to be exported
+ // and used by the view class.
++function adoptBrowserTextNode(parent, node, outerDeco, view, pos) {
++    if (outerDeco.length || !parent || !parent.contentDOM || !view.domSel)
++        return null;
++    let sel = view.state && view.state.selection;
++    if (!sel || sel.from < pos || sel.to > pos + node.nodeSize)
++        return null;
++    let contentDOM = parent.contentDOM;
++    let selRange = view.domSel.readRange();
++    let candidates = [];
++    let addCandidate = (n) => {
++        if (n && n.nodeType == 3 && !n.pmViewDesc && n.parentNode == contentDOM && candidates.indexOf(n) < 0)
++            candidates.push(n);
++    };
++    let addFromEndpoint = (domNode, offset) => {
++        if (!domNode)
++            return;
++        if (domNode.nodeType == 3) {
++            addCandidate(domNode);
++        }
++        else if (domNode == contentDOM) {
++            if (offset > 0)
++                addCandidate(contentDOM.childNodes[offset - 1]);
++            if (offset < contentDOM.childNodes.length)
++                addCandidate(contentDOM.childNodes[offset]);
++        }
++    };
++    if (selRange) {
++        addFromEndpoint(selRange.focusNode, selRange.focusOffset);
++        addFromEndpoint(selRange.anchorNode, selRange.anchorOffset);
++    }
++    if (view.domObserver && view.domObserver.lastChangedTextNode)
++        addCandidate(view.domObserver.lastChangedTextNode);
++    if (!candidates.length)
++        return null;
++    for (let i = 0; i < candidates.length; i++) {
++        if (candidates[i].nodeValue == node.text)
++            return candidates[i];
++    }
++    let adopted = candidates[0];
++    adopted.nodeValue = node.text;
++    if (view.trackWrites == adopted)
++        view.trackWrites = null;
++    return adopted;
++}
+ function docViewDesc(doc, outerDeco, innerDeco, dom, view, prevOuterDeco) {
+     if (!prevOuterDeco)
+         applyOuterDeco(dom, outerDeco, doc);
+@@ -1884,6 +1930,13 @@ class ViewTreeUpdater {
+                 this.addHackNode("IMG", parent);
+             this.addHackNode("BR", this.top);
+         }
++        else if (this.index < this.top.children.length &&
++            this.top.children[this.index].matchesHack("BR") &&
++            this.top.children[this.index].dom.parentNode == this.top.contentDOM &&
++            this.top.children[this.index].dom.nextSibling == null &&
++            lastChild.dom.nextSibling == this.top.children[this.index].dom) {
++            this.index++;
++        }
+     }
+     addHackNode(nodeName, parent) {
+         if (parent == this.top && this.index < parent.children.length && parent.children[this.index].matchesHack(nodeName)) {

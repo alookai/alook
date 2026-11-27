@@ -56,7 +56,7 @@ import {
   type MobileReplyGesture,
 } from "./mobile-message-gesture"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
-import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
+import { useCanonicalCommunityIdentity } from "@/lib/community-db/projections"
 import { MessageReactions } from "./message-reactions"
 import { useMessageReactionMotion } from "./message-update-motion"
 import { RemoteContentImage, RemoteIdentityImage } from "@/components/remote-image/remote-image"
@@ -245,8 +245,8 @@ function MessageImpl({
   // default without subscribing at all.
   hoverCapable?: boolean
 }) {
-  const authorProfile = useCanonicalCommunityProfile(m.authorId)
-  const replyAuthorProfile = useCanonicalCommunityProfile(m.replyTo?.authorId)
+  const authorProfile = useCanonicalCommunityIdentity(m.authorId)
+  const replyAuthorProfile = useCanonicalCommunityIdentity(m.replyTo?.authorId)
   const authorName = m.authorId
     ? (authorProfile?.name ?? "Deleted user")
     : (m.authorName ?? "Deleted user")

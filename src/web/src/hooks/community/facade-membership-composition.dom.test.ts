@@ -33,38 +33,39 @@ function buckets(url: string) {
   throw new Error("unexpected " + url)
 }
 describe("membership facade composition", () => {
-  it("pages the canonical server roster before subtracting channel members", async () => {
+  it("fetches server-excluded addable channel members in a single request", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
-      if (new URL(url, "https://alook.test").searchParams.get("cursor") === "next") return serverMembersReadFixture("s1", [bob])
-      if (url.includes("/servers/s1/members?")) return serverMembersReadFixture("s1", [alice], { hasMore: true, cursor: "next" })
-      if (url === "/api/community/channels/c1/members?relation=access") return CommunityMembersReadSchema.parse({ contractVersion: BUSINESS_SCHEMA_VERSION, channelId: "c1", relation: "access", members: [{ channelId: "c1", userId: alice.userId, relation: "access", memberId: alice.id, role: alice.role, source: alice.source, isCreator: alice.isCreator }], profiles: [{ id: alice.userId, name: alice.name, discriminator: alice.discriminator, avatar: alice.avatar, avatarVersion: alice.avatarVersion }] })
+      const parsed = new URL(url, "https://alook.test")
+      if (parsed.pathname === "/api/community/servers/s1/members" && parsed.searchParams.get("excludeChannelId") === "c1") {
+        return serverMembersReadFixture("s1", [bob])
+      }
       return buckets(url)
     })
     const rendered = renderHook(() => useAddableMembers("s1", "c1"), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.members).toEqual([{ userId: "bob", name: "Bob", discriminator: "0002", avatar: "b", avatarVersion: 0 }]))
-    expect(apiFetchMock.mock.calls.filter(([url]) => String(url).includes("/servers/s1/members?"))).toHaveLength(2)
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(client.getQueryData(communityKeys.channelAddableMembers("c1"))).toEqual({ serverId: "s1", relation: "access", members: [{ id: bob.id, userId: bob.userId }], observed: true })
-    expect(registry.collections.serverMemberships.get("s1:alice")).toMatchObject({ memberId: alice.id })
+    expect(registry.collections.serverMemberships.get("s1:bob")).toMatchObject({ memberId: bob.id })
     expect(registry.collections.profiles.get("bob")?.name).toBe("Bob")
   })
 
-  it("subtracts canonical server members from accepted friends", async () => {
+  it("fetches server-excluded accepted friends in a single request", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
-      if (url === "/api/community/friends/accepted") return friendBucketScenarioFixture("friends", [{ ...alice, id: "friend_1" }, { ...bob, id: "friend_2" }])
-      if (url.includes("/api/community/servers/s1/members?")) return serverMembersReadFixture("s1", [alice])
+      if (url === "/api/community/friends/accepted?excludeServerId=s1") {
+        return { ...friendBucketScenarioFixture("friends", [{ ...bob, id: "friend_2" }]), totalFriends: 2 }
+      }
       return buckets(url)
     })
     const rendered = renderHook(() => useInvitableFriends("s1"), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.friends.map((friend) => friend.userId)).toEqual(["bob"]))
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(client.getQueryData(communityKeys.invitableFriends("s1"))).toEqual({ serverId: "s1", friendIds: ["friend_2"], totalFriends: 2, observed: true })
-    expect(registry.collections.friendships.get("friend_1")).toMatchObject({ userId: "alice", kind: "accepted" })
     expect(registry.collections.friendships.get("friend_2")).toMatchObject({ userId: "bob", kind: "accepted" })
   })
 
   it("rejects a stale accepted-friends read instead of caching a false-empty candidate set", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
-      if (url === "/api/community/friends/accepted") return staleFriendBucketFixture("friends")
-      if (url.includes("/api/community/servers/s1/members?")) return serverMembersReadFixture("s1", [])
+      if (url === "/api/community/friends/accepted?excludeServerId=s1") return staleFriendBucketFixture("friends")
       return buckets(url)
     })
     const rendered = renderHook(() => useInvitableFriends("s1"), { wrapper: Owner })
@@ -75,14 +76,15 @@ describe("membership facade composition", () => {
 
   it("keeps last-good candidates when a QueryClient refetch gets a stale response", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
-      if (url === "/api/community/friends/accepted") return friendBucketScenarioFixture("friends", [{ ...bob, id: "friend_2" }])
-      if (url.includes("/api/community/servers/s1/members?")) return serverMembersReadFixture("s1", [])
+      if (url === "/api/community/friends/accepted?excludeServerId=s1") {
+        return { ...friendBucketScenarioFixture("friends", [{ ...bob, id: "friend_2" }]), totalFriends: 1 }
+      }
       return buckets(url)
     })
     const rendered = renderHook(() => useInvitableFriends("s1"), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.friends).toHaveLength(1))
     const lastGood = client.getQueryData(communityKeys.invitableFriends("s1"))
-    apiFetchMock.mockImplementation(async (url: string) => url === "/api/community/friends/accepted" ? staleFriendBucketFixture("friends") : url.includes("/members?") ? serverMembersReadFixture("s1", []) : buckets(url))
+    apiFetchMock.mockImplementation(async (url: string) => url === "/api/community/friends/accepted?excludeServerId=s1" ? staleFriendBucketFixture("friends") : buckets(url))
     await act(async () => { await rendered.result.current.refetch() })
     await waitFor(() => expect(rendered.result.current.error).toMatchObject({ message: "stale D1 read" }))
     expect(client.getQueryData(communityKeys.invitableFriends("s1"))).toBe(lastGood)

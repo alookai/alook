@@ -4,7 +4,7 @@ import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, WS_EVENTS, isThread, PARTICIPANT_SOURCE } from "@alook/shared"
-import { broadcastToUserSafe } from "@/lib/community/fanout"
+import { fanOutToUsers } from "@/lib/community/fanout"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 // GET (the participant-list READ) was retired: the unified `/members` endpoint
@@ -43,17 +43,13 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
     return writeError("userId is required", 400)
   }
 
-  // The target must be able to see the parent channel. Resolve its audience via
-  // the SAME source fan-out/read-gate uses (`resolveScopeMemberUserIds`), so the
-  // "can this user see the parent" definition can't drift between add-validation
-  // and who-actually-gets-messages (public → all server members; private → the
-  // channel roster).
+  // The target must be able to see the parent channel. Verify single-user
+  // membership/readability via the same SQL access predicate used by channel
+  // reads instead of materializing the full parent roster.
   const parentId = channel.parentChannelId
   if (!parentId) return writeError("thread has no parent channel", 400)
-  const parentAudience = new Set(
-    await queries.communityMembersResolver.resolveScopeMemberUserIds(db, parentId)
-  )
-  if (!parentAudience.has(targetUserId)) {
+  const readableParent = await queries.communityChannel.getChannelForMember(db, parentId, targetUserId)
+  if (!readableParent) {
     return writeError("user is not a member of the parent channel", 400)
   }
 
@@ -73,9 +69,7 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
       userId: targetUserId,
     } as const
     const recipients = await queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId)
-    await Promise.all(
-      [...new Set(recipients)].map((userId) => broadcastToUserSafe(userId, event)),
-    )
+    await fanOutToUsers([...new Set(recipients)], event)
   }
 
   return writeJSON({ ok: true }, 201)

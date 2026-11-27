@@ -18,6 +18,7 @@ import {
   listThreadOpenersByChildIds,
   listUnreadForumOpeners,
 } from "./inbox"
+import { loadUserNotificationSettingLookup } from "./notification-eligibility"
 import { listUnreadMentions, listUnreadMentionScopes } from "./mention"
 import { listActionableIncomingRequests } from "./friendship"
 import { getServersByIds } from "./server"
@@ -43,14 +44,15 @@ export async function getAccountAttentionProjection(
 ): Promise<AccountAttentionProjection> {
   const limit = Math.max(1, Math.min(requestedLimit, MAX_ATTENTION_ITEM_LIMIT))
   const todoLimit = Math.max(1, Math.min(limit, MAX_ATTENTION_TODO_LIMIT))
-  const [visibleChannelIds, readableDmChannelIds] = await Promise.all([
+  const [visibleChannelIds, readableDmChannelIds, notificationSettings] = await Promise.all([
     listVisibleChannelIdsForUser(db, userId),
     listReadableDmChannelIds(db, userId),
+    loadUserNotificationSettingLookup(db, userId),
   ])
   const readableDmIdSet = new Set(readableDmChannelIds)
   const [channelRows, dmRows, friendRows, mentionScopeRows, allMentionRows, rawPendingQuestionRows] = await Promise.all([
-    listEligibleUnreadChannels(db, userId, visibleChannelIds),
-    listEligibleUnreadDms(db, userId),
+    listEligibleUnreadChannels(db, userId, visibleChannelIds, { settings: notificationSettings }),
+    listEligibleUnreadDms(db, userId, { settings: notificationSettings, dmChannelIds: readableDmChannelIds }),
     listActionableIncomingRequests(db, userId),
     listUnreadMentionScopes(db, userId, visibleChannelIds),
     listUnreadMentions(db, userId, {
@@ -125,11 +127,12 @@ export async function getAccountAttentionProjection(
     readableDmIdSet.has(row.channelId) ? [] : [row.channelId]
   )))]
   const [allForumOpeners, childThreadOpeners, extraQuestionDmRows] = await Promise.all([
-    listUnreadForumOpeners(db, userId, forumParentIds),
-    listThreadOpenersByChildIds(db, userId, unreadChildIds),
+    listUnreadForumOpeners(db, userId, forumParentIds, { limit: limit + 1, settings: notificationSettings }),
+    listThreadOpenersByChildIds(db, userId, unreadChildIds, { settings: notificationSettings }),
     listReadableDmSummariesByChannelIds(db, userId, missingQuestionDmIds),
   ])
-  const displayedForumOpeners = allForumOpeners
+  const forumOpenersTruncated = allForumOpeners.length > limit
+  const displayedForumOpeners = allForumOpeners.slice(0, limit)
   const childThreadOpenerByChildId = new Map(
     childThreadOpeners.map((opener) => [opener.childChannelId, opener]),
   )
@@ -388,7 +391,7 @@ export async function getAccountAttentionProjection(
     scopes,
     items,
     limit,
-    truncated: exactMentionCount > limit,
+    truncated: exactMentionCount > limit || forumOpenersTruncated,
     todosTruncated: hasMoreTodos,
     included: {
       servers: includedServers,

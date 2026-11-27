@@ -1,6 +1,6 @@
 import { invalidateBotSurfaces } from "@/hooks/community/use-bots"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 import {
   DECISION_CARD_MESSAGE_TYPE,
   isAssignedDecisionCardForUser,
@@ -27,7 +27,6 @@ import {
 } from "@/lib/community/profile-seed"
 
 import {
-  invalidateChannelMembers,
   invalidateForumSidebar,
   invalidateFriends,
   invalidatePins,
@@ -53,7 +52,6 @@ export function handleMessageCreate(
   event: CommunityMessageCreate,
   {
     queryClient,
-    communityStore,
     wsStore,
     sub,
     viewerUserIdRef,
@@ -134,13 +132,6 @@ export function handleMessageCreate(
       event.parentChannelId,
       event.message.createdAt,
     )
-  }
-
-  if (
-    (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) &&
-    (event.parentChannelId || (communityStore.get().currentChannelId === event.channelId && readCurrentCommunityChannelMeta(queryClient)?.parentChannelId))
-  ) {
-    invalidateChannelMembers(projection, event.channelId)
   }
 
   // 3) Live channel-sidebar unread dot is NO LONGER flipped here.

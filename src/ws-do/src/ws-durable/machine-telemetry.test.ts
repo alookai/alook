@@ -76,7 +76,7 @@ describe("WebSocketDurableObject", () => {
           credentialHash: "0".repeat(64),
         })
         mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
-        mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+        mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
 
         const ws = createMockWebSocket()
         ws.serializeAttachment({
@@ -194,7 +194,7 @@ describe("WebSocketDurableObject", () => {
           credentialHash: "0".repeat(64),
         })
         mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
-        mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+        mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
         mockGetProfile.mockResolvedValue({ statusEmoji: null, statusText: "" })
 
         const ws = createMockWebSocket()
@@ -217,7 +217,7 @@ describe("WebSocketDurableObject", () => {
           credentialHash: "0".repeat(64),
         })
         mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
-        mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+        mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
         // Prior is the idle PRESET (pipeline-owned) — must remain writable.
         mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
 
@@ -241,7 +241,7 @@ describe("WebSocketDurableObject", () => {
           credentialHash: "0".repeat(64),
         })
         mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
-        mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+        mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
         // Prior is a running PRESET — an idle frame must be allowed to overwrite it.
         mockGetProfile.mockResolvedValue({ statusEmoji: "⚡", statusText: "Working on it" })
 

@@ -401,21 +401,73 @@ describe("ComposerView", () => {
     }
   })
 
-  it("scopes single-line placeholder containment to chat composers", () => {
+  it("scopes single-line placeholder containment to the chat placeholder overlay without mutating ProseMirror paragraphs", () => {
     const css = resolvedRawInput0
     const globalRule = css.match(
       /\.tiptap p\.is-editor-empty:first-child::before\s*\{([^}]*)\}/,
     )?.[1]
-    const chatRule = css.match(
-      /\.chat-composer \.tiptap p\.is-editor-empty:first-child::before\s*\{([^}]*)\}/,
+    const overlayRule = css.match(
+      /\.chat-placeholder-overlay\s*\{([^}]*)\}/,
+    )?.[1]
+    const overlayBeforeRule = css.match(
+      /\.chat-placeholder-overlay\[data-placeholder\]::before\s*\{([^}]*)\}/,
+    )?.[1]
+    const overlayHiddenRule = css.match(
+      /\.chat-placeholder-overlay\[data-visible="false"\]\s*\{([^}]*)\}/,
     )?.[1]
     expect(globalRule).toBeDefined()
     expect(globalRule).not.toContain("text-overflow")
     expect(globalRule).not.toContain("white-space")
-    expect(chatRule).toContain("position: absolute")
-    expect(chatRule).toContain("overflow: hidden")
-    expect(chatRule).toContain("text-overflow: ellipsis")
-    expect(chatRule).toContain("white-space: nowrap")
+    expect(css).not.toMatch(/\.chat-composer \.tiptap p\.is-editor-empty:first-child/)
+    expect(overlayRule).toContain("position: absolute")
+    expect(overlayRule).toContain("pointer-events: none")
+    expect(overlayRule).toContain("overflow: hidden")
+    expect(overlayRule).toContain("text-overflow: ellipsis")
+    expect(overlayRule).toContain("white-space: nowrap")
+    expect(overlayBeforeRule).toContain("content: attr(data-placeholder)")
+    expect(overlayHiddenRule).toContain("opacity: 0")
+    expect(overlayHiddenRule).toContain("visibility: hidden")
+  })
+
+  it("keeps the non-interactive empty sibling placeholder overlay mounted and toggles visibility via data-visible without polluting composerInput textContent", () => {
+    const view = render(createElement(ComposerView, baseProps({
+      placeholder: "Message /general",
+      showPlaceholder: true,
+    })))
+    const composerInput = view.getByTestId(tid.composerInput)
+    const overlay = view.container.querySelector('[data-slot="composer-placeholder"]')
+    expect(overlay).not.toBeNull()
+    expect(overlay).toHaveAttribute("aria-hidden", "true")
+    expect(overlay).toHaveAttribute("data-placeholder", "Message /general")
+    expect(overlay).toHaveAttribute("data-visible", "true")
+    expect(overlay).toHaveClass("chat-placeholder-overlay")
+    expect(overlay?.textContent).toBe("")
+    expect(composerInput.textContent).toBe("")
+    expect(overlay?.closest("[data-editor-content]")).toBeNull()
+
+    view.rerender(createElement(ComposerView, baseProps({
+      placeholder: "Message /design-review",
+      showPlaceholder: true,
+    })))
+    expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(overlay)
+    expect(overlay).toHaveAttribute("data-placeholder", "Message /design-review")
+    expect(overlay).toHaveAttribute("data-visible", "true")
+    expect(composerInput.textContent).toBe("")
+
+    view.rerender(createElement(ComposerView, baseProps({
+      placeholder: "Message /design-review",
+      showPlaceholder: false,
+    })))
+    expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBe(overlay)
+    expect(overlay).toHaveAttribute("data-visible", "false")
+    expect(composerInput.textContent).toBe("")
+
+    view.rerender(createElement(ComposerView, baseProps({
+      placeholder: "Message /design-review",
+      showPlaceholder: true,
+      editorContent: createElement("p", null, "Preview draft"),
+    })))
+    expect(view.container.querySelector('[data-slot="composer-placeholder"]')).toBeNull()
   })
 
   it("keeps popup, reply, icon-only pending, drag, editor, and control order", async () => {

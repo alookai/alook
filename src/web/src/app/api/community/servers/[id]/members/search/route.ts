@@ -3,7 +3,7 @@ import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { parseCommunityServerMembersRead, queries, MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
-import { requireServerMember } from "@/lib/community/permissions"
+import { requireChannelAccess, requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { mapMemberForApi } from "@/lib/community/member-payload"
 import {
@@ -34,9 +34,28 @@ export const GET = withAuth(humanAuthPolicy, async (req, ctx) => {
   )
   if (cursor === null) return writeError("invalid cursor", 400)
 
+  const excludeChannelId = url.searchParams.get("excludeChannelId")?.trim() || null
+  const rawExcludeRelation = url.searchParams.get("excludeRelation")
+  if (rawExcludeRelation !== null && rawExcludeRelation !== "access" && rawExcludeRelation !== "notify") {
+    return writeError("invalid excludeRelation", 400)
+  }
+  let excludeChannel: { channelId: string; relation: "access" | "notify"; excludeUserId?: string | null } | undefined
+  if (excludeChannelId) {
+    const channelAccess = await requireChannelAccess(db, excludeChannelId, ctx.userId)
+    if (!channelAccess.ok) return writeError(channelAccess.error, channelAccess.status)
+    if (channelAccess.value.channel.serverId !== serverId) {
+      return writeError("channel does not belong to this server", 400)
+    }
+    const relation = rawExcludeRelation ?? "access"
+    excludeChannel = relation === "notify"
+      ? { channelId: channelAccess.value.channel.id, relation: "notify" }
+      : { channelId: channelAccess.value.anchor.id, relation: "access", excludeUserId: channelAccess.value.anchor.creatorId }
+  }
+
   const page = await queries.communityMember.searchMembers(db, serverId, q, {
     limit,
     cursor,
+    ...(excludeChannel ? { excludeChannel } : {}),
   })
   // No bot gating here — `searchMembers` never selected the bot columns and this
   // route never emitted `isBot`/`ownerUserId`. Byte-identical to before.

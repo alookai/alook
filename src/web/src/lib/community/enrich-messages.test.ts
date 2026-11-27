@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   listAttachments: vi.fn(),
   listReactions: vi.fn(),
+  summarizeReactions: vi.fn(),
   getReplies: vi.fn(),
   listChildren: vi.fn(),
   listForumChildren: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@alook/shared", async () => {
       communityReaction: {
         ...actual.queries.communityReaction,
         listReactionsByMessageIds: (...args: unknown[]) => mocks.listReactions(...args),
+        summarizeReactionsByMessageIds: (...args: unknown[]) => mocks.summarizeReactions(...args),
       },
       communityMessage: {
         ...actual.queries.communityMessage,
@@ -66,6 +68,7 @@ describe("enrichMessages attachment projection", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.listReactions.mockResolvedValue([])
+    mocks.summarizeReactions.mockResolvedValue({})
     mocks.listChildren.mockResolvedValue([])
     mocks.listForumChildren.mockResolvedValue([])
     mocks.listTags.mockResolvedValue([])
@@ -81,6 +84,7 @@ describe("enrichMessages attachment projection", () => {
     expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], relatedMessages: [], profiles: [], latestSeq: 9 })
     expect(mocks.listAttachments).not.toHaveBeenCalled()
     expect(mocks.listReactions).not.toHaveBeenCalled()
+    expect(mocks.summarizeReactions).not.toHaveBeenCalled()
     expect(mocks.getReplies).not.toHaveBeenCalled()
     expect(mocks.hydrateApprovals).not.toHaveBeenCalled()
     expect(mocks.listChildren).not.toHaveBeenCalled()

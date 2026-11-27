@@ -1,7 +1,7 @@
 
 import { createCommunityWsStore } from "./ws"
 const nativeStore = createCommunityWsStore(null)
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   SEEN_DELIVERY_OPERATION_MAX,
   SEEN_DELIVERY_OPERATION_TRIM_TO,
@@ -119,7 +119,36 @@ describe("useCommunityWsStore", () => {
 
   it("keeps audit facts outside the transient owner", () => {
     expect(nativeStore.get()).not.toHaveProperty("botAuditEvents")
-  })})
+  })
+
+  it("coalesces rapid setPresence bursts into one subscriber notification without quadratic map clones", async () => {
+    activate()
+    let notifications = 0
+    const unsub = nativeStore.subscribe(() => {
+      notifications += 1
+    })
+    let mapEntriesCopied = 0
+    const origMapIter = Map.prototype[Symbol.iterator]
+    const mapIterSpy = vi.spyOn(Map.prototype, Symbol.iterator).mockImplementation(function (this: Map<unknown, unknown>) {
+      mapEntriesCopied += this.size
+      return origMapIter.call(this)
+    })
+
+    try {
+      for (let i = 0; i < 500; i += 1) {
+        nativeStore.actions.setPresence(`u-${i}`, "online")
+      }
+      expect(nativeStore.get().presenceByUserId.get("u-499")).toBe("online")
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    } finally {
+      mapIterSpy.mockRestore()
+      unsub.unsubscribe()
+    }
+
+    expect(notifications).toBe(1)
+    expect(mapEntriesCopied).toBeLessThanOrEqual(1000)
+  })
+})
 
 describe("current scoped denial facts",()=>{
   it("keeps a classified denial through same-generation cleanup and replaces it only with a current classified cause",()=>{

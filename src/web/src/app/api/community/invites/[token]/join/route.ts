@@ -63,9 +63,14 @@ export const POST = withAuth(communityActorPolicy(), async (_req, ctx) => {
     return writeError("Invalid or expired invite", 400)
   }
 
+  const online = actor.kind === "bot"
+    ? await queries.communityMachine.isBotOnline(db, actor.userId)
+    : true
+
   const memberEvent: CommunityMemberJoin = {
     type: WS_EVENTS.MEMBER_JOIN,
     serverId: result.invite.serverId,
+    online,
     member: {
       id: result.member.id,
       userId: result.member.userId,

@@ -31,7 +31,7 @@ import {
 import { BotMarkSticker } from "./bot-mark-sticker"
 import { ProfileRunningBotsCard } from "./profile-running-bots-card"
 import styles from "./profile-card.module.css"
-import { useRunningOwnedBots } from "@/hooks/community/use-running-owned-bots"
+import { useRunningOwnedBots, type RunningOwnedBot } from "@/hooks/community/use-running-owned-bots"
 import { useBots } from "@/hooks/community/use-bots"
 import {
   resolveAuditPreviewPlacement,
@@ -93,12 +93,18 @@ type ProfileCardProps = {
   // Static card surface for contexts such as product previews. The regular
   // profile interaction still uses the anchored popover / mobile sheet.
   secondaryCard?: ReactNode
+  runningBots?: RunningOwnedBot[]
   embedded?: boolean
   extension?: boolean
 }
 
 export function ProfileCard(props: ProfileCardProps) {
-  if (props.isSelf && props.data.userId) return <SelfProfileCard {...props} />
+  if (props.isSelf && props.data.userId) {
+    if (props.runningBots !== undefined) {
+      return <ProfileCardContent {...props} hasSelfRunningBots={props.runningBots.length > 0} />
+    }
+    return <SelfProfileCard {...props} />
+  }
   return <ProfileCardContent {...props} hasSelfRunningBots={false} />
 }
 
@@ -113,13 +119,13 @@ function OwnedBotMarkSticker(props: ComponentProps<typeof BotMarkSticker>) {
 
 function SelfProfileCard(props: ProfileCardProps) {
   const { runningBots } = useRunningOwnedBots()
-  return <ProfileCardContent {...props} hasSelfRunningBots={runningBots.length > 0} />
+  return <ProfileCardContent {...props} runningBots={runningBots} hasSelfRunningBots={runningBots.length > 0} />
 }
 
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 // Identity, about, status, and presence are read from the global profile map
 // whenever a userId is present. Static cards use their supplied display data.
-function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, secondaryCard, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
+function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, secondaryCard, runningBots, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
   hasSelfRunningBots: boolean
 }) {
   const registry = useOptionalCommunityDbRegistry()
@@ -369,6 +375,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
 
   const secondaryCards = secondaryCard ?? (showSelfRunningBots ? (
     <ProfileRunningBotsCard
+      runningBots={runningBots}
       onOpenBotAudit={onOpenBotAudit}
     />
   ) : showOwnedBotCard && data.userId ? (

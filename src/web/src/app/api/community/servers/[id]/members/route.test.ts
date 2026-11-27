@@ -7,7 +7,9 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetMember = vi.fn()
 const mockListMembersPaginated = vi.fn()
+const mockSearchMembers = vi.fn()
 const mockCountMembers = vi.fn()
+const mockResolveChannelAccessContext = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -16,9 +18,13 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
+      communityChannel: {
+        resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
+      },
       communityMember: {
         getMember: (...a: unknown[]) => mockGetMember(...a),
         listMembersPaginated: (...a: unknown[]) => mockListMembersPaginated(...a),
+        searchMembers: (...a: unknown[]) => mockSearchMembers(...a),
         countMembers: (...a: unknown[]) => mockCountMembers(...a),
       },
     },
@@ -246,5 +252,50 @@ describe("GET /api/community/servers/[id]/members — cursor envelope", () => {
     const res2 = await GET(getReq(), ctx)
     const body2 = await res2.json() as Record<string, unknown>
     expect(Object.keys(body2).sort()).toEqual(["cursor", "hasMore", "limit", "members", "serverId", "total", "viewerId"])
+  })
+
+  it("authorizes excludeChannelId within the same server and passes excludeChannel to listMembersPaginated", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "ch_priv", serverId: "srv_1", type: "text", creatorId: "u_owner", parentChannelId: null },
+      anchor: { id: "ch_priv", serverId: "srv_1", type: "text", creatorId: "u_owner", parentChannelId: null },
+      role: "member",
+      isPrivate: true,
+      isChannelMember: true,
+      isCreator: false,
+    })
+    mockListMembersPaginated.mockResolvedValue({ members: [buildRow(2)], hasMore: false, cursor: undefined })
+    mockCountMembers.mockResolvedValue(5)
+
+    const res = await GET(getReq("?excludeChannelId=ch_priv&limit=50"), ctx)
+    expect(res.status).toBe(200)
+    expect(mockListMembersPaginated).toHaveBeenCalledWith(expect.anything(), "srv_1", {
+      cursor: undefined,
+      limit: 50,
+      excludeChannel: { channelId: "ch_priv", relation: "access", excludeUserId: "u_owner" },
+    })
+
+    // Cross-server channel is rejected with 400.
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "ch_other", serverId: "srv_other", type: "text", creatorId: "u_owner", parentChannelId: null },
+      anchor: { id: "ch_other", serverId: "srv_other", type: "text", creatorId: "u_owner", parentChannelId: null },
+      role: "member",
+      isPrivate: false,
+      isChannelMember: false,
+      isCreator: false,
+    })
+    const foreignRes = await GET(getReq("?excludeChannelId=ch_other"), ctx)
+    expect(foreignRes.status).toBe(400)
+
+    // Unauthorized private channel fails closed with 403.
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "ch_secret", serverId: "srv_1", type: "text", creatorId: "u_other", parentChannelId: null },
+      anchor: { id: "ch_secret", serverId: "srv_1", type: "text", creatorId: "u_other", parentChannelId: null },
+      role: "member",
+      isPrivate: true,
+      isChannelMember: false,
+      isCreator: false,
+    })
+    const forbiddenRes = await GET(getReq("?excludeChannelId=ch_secret"), ctx)
+    expect(forbiddenRes.status).toBe(403)
   })
 })

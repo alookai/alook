@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const mocks = vi.hoisted(() => ({
   authorize: vi.fn(),
   actors: vi.fn(),
+  actorsPage: vi.fn(),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: () => ({}) }))
@@ -19,6 +20,7 @@ vi.mock("@alook/shared", async () => {
       communityReaction: {
         ...actual.queries.communityReaction,
         getReactionDetailsActors: (...args: unknown[]) => mocks.actors(...args),
+        getReactionDetailsActorsPage: (...args: unknown[]) => mocks.actorsPage(...args),
       },
     },
   }
@@ -114,5 +116,35 @@ describe("GET reaction details", () => {
     await expect(response.json()).resolves.toMatchObject({
       actors: [{ userId: "user_1", profile: { avatar: null } }],
     })
+  })
+
+  it("supports emoji-filtered cursor pagination and rejects malformed cursors", async () => {
+    mocks.actorsPage.mockResolvedValue({
+      actors: [{ userId: "user_1", profile: null }],
+      hasMore: true,
+      cursor: "2026-09-01T00:00:00Z|user_1",
+    })
+    const paginatedReq = new NextRequest(
+      "http://localhost/api/community/messages/message_1/reactions?emoji=%F0%9F%91%8D&limit=25&cursor=2026-09-01T00%3A00%3A00Z%7Cuser_0",
+    )
+    const response = await GET(paginatedReq, context)
+    expect(response.status).toBe(200)
+    expect(mocks.actorsPage).toHaveBeenCalledWith(
+      {},
+      "message_1",
+      { kind: "server", serverId: "server_1", channelId: "channel_1" },
+      { emoji: "👍", limit: 25, cursor: "2026-09-01T00:00:00Z|user_0" },
+    )
+    await expect(response.json()).resolves.toMatchObject({
+      emoji: "👍",
+      hasMore: true,
+      cursor: "2026-09-01T00:00:00Z|user_1",
+    })
+
+    const badCursorReq = new NextRequest(
+      "http://localhost/api/community/messages/message_1/reactions?emoji=%F0%9F%91%8D&cursor=malformed",
+    )
+    const badRes = await GET(badCursorReq, context)
+    expect(badRes.status).toBe(400)
   })
 })

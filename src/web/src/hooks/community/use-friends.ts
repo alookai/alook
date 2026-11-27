@@ -11,7 +11,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
-import { useCanonicalProfilesByUserId, useFriendshipRows } from "@/lib/community-db/projections"
+import { useCanonicalIdentitiesByUserId, useCanonicalProfilesByUserId, useFriendshipRows } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityFriendships } from "@/lib/community-db/sync"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
@@ -79,7 +79,7 @@ export const friendsQueryFn = async (context: QueryFunctionContext) => {
   return { ids: rows.map(row => row.id) }
 }
 
-export function useFriends(options?: { enabled?: boolean }): UseQueryResult<{ ids: string[] }> & {
+export function useFriends(options?: { enabled?: boolean; includePresence?: boolean }): UseQueryResult<{ ids: string[] }> & {
   friends: Friend[]
   pending: PendingRequest[]
   blocked: BlockedUser[]
@@ -92,8 +92,12 @@ export function useFriends(options?: { enabled?: boolean }): UseQueryResult<{ id
     enabled: options?.enabled,
     placeholderData: keepPreviousData,
   })
-  const profilesByUserId = useCanonicalProfilesByUserId()
+  const includePresence = options?.includePresence ?? true
   const rows = useFriendshipRows()
+  const friendUserIds = useMemo(() => rows.map((row) => row.userId), [rows])
+  const profilesWithPresence = useCanonicalProfilesByUserId(includePresence ? friendUserIds : [], includePresence && friendUserIds.length > 0)
+  const identityProfiles = useCanonicalIdentitiesByUserId(includePresence ? [] : friendUserIds, !includePresence && friendUserIds.length > 0)
+  const profilesByUserId = includePresence ? profilesWithPresence : identityProfiles
   const { friends, pending, blocked } = useMemo(() => {
     const friends: Friend[] = [], pending: PendingRequest[] = [], blocked: BlockedUser[] = []
     const rank = new Map(query.data?.ids.map((id, index) => [id, index]))

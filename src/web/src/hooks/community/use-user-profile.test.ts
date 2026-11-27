@@ -26,7 +26,10 @@ it.each([404, 500])("handles an authoritative %s without confusing a failed refr
   if (status === 404) {
     expect(registry.collections.profiles.get(profile.id)).toBeUndefined()
     expect(runtime.ws.get().presenceByUserId.has(profile.id)).toBe(false)
-  } else expect(registry.collections.profiles.get(profile.id)).toMatchObject({ name: "Alice", presence: "online" })
+  } else {
+    expect(registry.collections.profiles.get(profile.id)).toMatchObject({ name: "Alice" })
+    expect(runtime.ws.get().presenceByUserId.get(profile.id)).toBe("online")
+  }
 })
 
 it.each(["identity", "presence"])("does not let an older 404 retire a newer %s event", async field => {

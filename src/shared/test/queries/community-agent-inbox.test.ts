@@ -598,8 +598,9 @@ describe("listUnreadMessagesForAgent", () => {
       [], // 3. viewer memberChannelIds
       [], // 4. DM access channels
       [], // 5. blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_1", type: "text" }], // 6. types of visible channels
-      [{ ...rawMsg(), lastReadSeq: 0 }], // 7. messages (no narrow types → no participant query)
+      [{ id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null }], // 6. deliverable channel metadata
+      [], // 7. preloaded notification settings
+      [{ ...rawMsg(), lastReadSeq: 0 }], // 8. messages (no narrow types → no participant query)
     ]);
     const result = await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
     expect(result).toEqual([rawMsg()]);
@@ -613,13 +614,15 @@ describe("listUnreadMessagesForAgent", () => {
       [],
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_1", type: "text" }],
+      [{ id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
       [],
     ]);
     await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 17 });
-    // The 7th builder is the message query — that's where `.limit` lands.
-    const chainResult = db.select.mock.results[6]!.value;
-    expect(chainResult.limit).toHaveBeenCalledWith(17);
+    const messageChain = db.select.mock.results
+      .map((r: { value: any }) => r.value)
+      .find((value: any) => value?.limit?.mock?.calls?.length > 0);
+    expect(messageChain.limit).toHaveBeenCalledWith(17);
   });
 
   it("joins read-state + channel + channel-member + server-member on the messages SQL (visibility & participation are pre-narrowed)", async () => {
@@ -629,31 +632,23 @@ describe("listUnreadMessagesForAgent", () => {
       [],
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_1", type: "text" }],
+      [{ id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
       [],
     ]);
     await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 50 });
 
-    const chainResult = db.select.mock.results[6]!.value;
-    // read-state + channel + channel-member (relation='access') + server-member.
-    // No dm-conversation join — DMs are channels now, resolved via the
-    // channel-member join. The channel + channel-member + server-member joins
-    // back the `createdAt > joinedAt` baseline guard so a freshly joined bot
-    // isn't flooded with pre-join history. Visibility/participation is still
-    // pre-narrowed in `listAgentAllowedChannelIds` up front.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);
+    const chainResult = db.select.mock.results
+      .map((r: { value: any }) => r.value)
+      .find((value: any) => value?.limit?.mock?.calls?.length > 0);
+    expect(chainResult.innerJoin).toHaveBeenCalledTimes(1);
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(3);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
   });
 
   it("excludes thread channels the bot isn't a participant of from the allowed set", async () => {
-    // ch_a is a plain text channel (always allowed); ch_b_thread is a thread
-    // the bot doesn't participate in. `listAgentAllowedChannelIds` drops
-    // ch_b_thread BEFORE the messages SQL runs, so the WHERE never lets a
-    // ch_b_thread row through — the earlier post-filter-after-.limit shape
-    // could collapse the page to [] when the top-N rows were all
-    // non-participating threads.
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [
@@ -664,9 +659,10 @@ describe("listUnreadMessagesForAgent", () => {
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
       [
-        { id: "ch_a", type: "text" },
-        { id: "ch_b_thread", type: "thread" },
+        { id: "ch_a", type: "text", serverId: "srv_1", parentChannelId: null },
+        { id: "ch_b_thread", type: "thread", serverId: "srv_1", parentChannelId: "ch_a" },
       ],
+      [], // preloaded notification settings
       [], // listParticipatingThreadIds: bot participates in neither
       [{ ...rawMsg({ id: "m_a", channelId: "ch_a" }), lastReadSeq: 0 }],
     ]);
@@ -681,14 +677,16 @@ describe("listUnreadMessagesForAgent", () => {
       .resolves.toBe(1);
 
     const unreadDb = createSequentialDb([
-      [{ id: "thread_visible_unnotified", type: "thread" }],
-      [],
+      [{ id: "thread_visible_unnotified", type: "thread", serverId: "srv_1", parentChannelId: "ch_parent" }],
+      [], // preloaded notification settings
+      [], // listParticipatingThreadIds: not participating → returns early without querying messages
     ]);
     await expect(agentInbox.listUnreadMessagesForAgent(unreadDb, "bot_1", {
       max: 50,
       visibleChannelIds,
     })).resolves.toEqual([]);
-    expect(unreadDb.select).toHaveBeenCalledTimes(2);
+    // 1 channel metadata + 1 jsonTextSet subquery + 1 settings + 1 participant check = 4 select calls, 0 message queries
+    expect(unreadDb.select).toHaveBeenCalledTimes(4);
   });
 
   it("keeps thread channels when the bot IS a participant", async () => {
@@ -702,9 +700,10 @@ describe("listUnreadMessagesForAgent", () => {
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
       [
-        { id: "ch_a", type: "text" },
-        { id: "ch_b_thread", type: "thread" },
+        { id: "ch_a", type: "text", serverId: "srv_1", parentChannelId: null },
+        { id: "ch_b_thread", type: "thread", serverId: "srv_1", parentChannelId: "ch_a" },
       ],
+      [], // preloaded notification settings
       [{ channelId: "ch_b_thread" }], // participant (notify) row exists
       [{ ...rawMsg({ id: "m_b", channelId: "ch_b_thread" }), lastReadSeq: 0 }],
     ]);
@@ -754,17 +753,15 @@ describe("getLatestUnreadMessageForAgent", () => {
       [],
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_1", type: "text" }],
-      [{ id: "m_latest" }],
+      [{ id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
+      [{ id: "m_latest", createdAt: "2026-07-01T00:00:00.000Z" }],
     ]);
     const result = await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
     expect(result).toEqual({ messageId: "m_latest" });
   });
 
   it("excludes thread channels the bot isn't a participant of from the messages SQL entirely", async () => {
-    // ch_thread is filtered out of `allowedChannelIds` by the pre-narrowing
-    // pass, so the messages SQL's WHERE ... inArray(channelId, allowed) can
-    // never surface a ch_thread row. `m_text` is the newest allowed row.
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [
@@ -775,11 +772,12 @@ describe("getLatestUnreadMessageForAgent", () => {
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
       [
-        { id: "ch_thread", type: "thread" },
-        { id: "ch_text", type: "text" },
+        { id: "ch_thread", type: "thread", serverId: "srv_1", parentChannelId: "ch_text" },
+        { id: "ch_text", type: "text", serverId: "srv_1", parentChannelId: null },
       ],
+      [], // preloaded notification settings
       [], // bot isn't a participant of ch_thread → dropped from allowed set
-      [{ id: "m_text" }], // messages SQL only ever sees ch_text
+      [{ id: "m_text", createdAt: "2026-07-01T00:00:00.000Z" }], // messages SQL only ever sees ch_text
     ]);
     const result = await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
     expect(result).toEqual({ messageId: "m_text" });
@@ -792,11 +790,14 @@ describe("getLatestUnreadMessageForAgent", () => {
       [],
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_1", type: "text" }],
+      [{ id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
       [],
     ]);
     await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
-    const chainResult = db.select.mock.results[6]!.value;
+    const chainResult = db.select.mock.results
+      .map((r: { value: any }) => r.value)
+      .find((value: any) => value?.limit?.mock?.calls?.length > 0);
     expect(chainResult.orderBy).toHaveBeenCalledTimes(1);
     expect(chainResult.limit).toHaveBeenCalledWith(1);
   });
@@ -808,14 +809,16 @@ describe("getLatestUnreadMessageForAgent", () => {
       [],
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_1", type: "text" }],
+      [{ id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
       [],
     ]);
     await agentInbox.getLatestUnreadMessageForAgent(db, "bot_1");
-    const chainResult = db.select.mock.results[6]!.value;
-    // read-state + channel + channel-member + server-member. No dm-conversation
-    // join — DMs are channels now.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);
+    const chainResult = db.select.mock.results
+      .map((r: { value: any }) => r.value)
+      .find((value: any) => value?.limit?.mock?.calls?.length > 0);
+    expect(chainResult.innerJoin).toHaveBeenCalledTimes(1);
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(3);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
@@ -866,7 +869,7 @@ describe("getInboxSnapshotForAgent", () => {
   });
 
   it("preserves 101 snapshot rows with a missing boundary identity", async () => {
-    const channelTypes = Array.from({ length: 101 }, (_, i) => ({ id: `ch_${i}`, type: "text" }));
+    const channelTypes = Array.from({ length: 101 }, (_, i) => ({ id: `ch_${i}`, type: "text", serverId: "srv_1", parentChannelId: null }));
     const joined = channelTypes.map(({ id }, i) => ({
       channelId: id, pendingCount: i + 1, firstPendingSeq: i + 2,
       latestSeq: i + 3, mentionCount: i % 2,
@@ -874,7 +877,7 @@ describe("getInboxSnapshotForAgent", () => {
         id: `sender_${i}`, name: `Sender${i}`, discriminator: String(i).padStart(4, "0"),
       },
     }));
-    const db = createSequentialDb([channelTypes.slice(0, 100), channelTypes.slice(100), [], joined]);
+    const db = createSequentialDb([channelTypes, [], [], joined]);
     const out = await agentInbox.getInboxSnapshotForAgent(db, "bot_1", {
       accessVisibleChannelIds: channelTypes.map(({ id }) => id),
     });
@@ -889,8 +892,12 @@ describe("getInboxSnapshotForAgent", () => {
 
   it("projects latestSender and hasMention from the joined snapshot", async () => {
     const db = createSequentialDb([
-      [{ id: "ch_1", type: "text" }, { id: "ch_2", type: "text" }],
-      [],
+      [
+        { id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null },
+        { id: "ch_2", type: "text", serverId: "srv_1", parentChannelId: null },
+      ],
+      [], // preloaded notification settings
+      [], // grouped subquery slot
       [
         { channelId: "ch_1", pendingCount: 3, firstPendingSeq: 5, latestSeq: 7,
           mentionCount: 1, sender: { id: "u_1", name: "Alice", discriminator: "1234" } },
@@ -910,24 +917,18 @@ describe("getInboxSnapshotForAgent", () => {
   });
 
   it("excludes thread channels the bot isn't a participant of from the allowed set", async () => {
-    // ch_thread is filtered out of `allowedChannelIds` up front, so the
-    // aggregation SQL's WHERE ... inArray(channelId, allowed) never surfaces
-    // it. No post-filter needed → no risk of an aggregation row silently
-    // disappearing after being counted.
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [
-        // Top-level thread-typed channel so it survives the visibility pass;
-        // the shape only tests the participation narrowing, not
-        // parent-anchored visibility (covered elsewhere).
         { id: "ch_thread", type: "thread", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null },
       ],
       [],
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_thread", type: "thread" }],
+      [{ id: "ch_thread", type: "thread", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
       [], // participant lookup: not a participant → ch_thread dropped from allowed
-      [], // aggregation SQL: allowedChannelIds is [], WHERE has 1=0, no rows survive
+      [], // aggregation SQL skipped
     ]);
     const result = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
     expect(result).toEqual([]);
@@ -940,15 +941,17 @@ describe("getInboxSnapshotForAgent", () => {
       [],
       [], // DM access channels
       [], // blocked-DM anti-join inner builder; same SQL statement
-      [{ id: "ch_1", type: "text" }],
+      [{ id: "ch_1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
       [],
     ]);
     await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
 
-    const chainResult = db.select.mock.results[6]!.value;
-    // read-state + channel + channel-member + server-member. No dm-conversation
-    // join — DMs are channels now.
-    expect(chainResult.leftJoin).toHaveBeenCalledTimes(4);
+    const chainResult = db.select.mock.results
+      .map((r: { value: any }) => r.value)
+      .find((value: any) => value?.groupBy?.mock?.calls?.length > 0);
+    expect(chainResult.innerJoin).toHaveBeenCalledTimes(1);
+    expect(chainResult.leftJoin).toHaveBeenCalledTimes(3);
     expect(chainResult.leftJoin.mock.invocationCallOrder[0]).toBeLessThan(
       chainResult.where.mock.invocationCallOrder[0]
     );
@@ -1127,55 +1130,114 @@ describe("listMessagesBySeq", () => {
 });
 
 describe("hasDeliverableUnreadForAgentScope", () => {
-  // Call order (see the query's body):
-  //  1. channel-type lookup (participation-narrowing pre-check)
-  //  2. `listParticipatingThreadIds` — ONLY when (1) is thread
-  //  3. the deliverable-unread existence scan (limit 1)
-  // For a plain (non-thread) channel, (2) is skipped: (1)=type, (2)=scan.
   it("returns true when a deliverable message beyond `seen` exists", async () => {
-    const db = createSequentialDb([[{ type: "text" }], [{ seq: 7 }]]);
+    const db = createSequentialDb([
+      [{ id: "c1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
+      [{ seq: 7 }],
+    ]);
     const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 3);
     expect(result).toBe(true);
   });
 
   it("returns false when nothing is deliverable beyond `seen` (pre-join backlog / own / already read)", async () => {
-    const db = createSequentialDb([[{ type: "text" }], []]);
+    const db = createSequentialDb([
+      [{ id: "c1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
+      [],
+    ]);
     const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 0);
     expect(result).toBe(false);
   });
 
   it("probes with limit(1) — existence check, not a full scan", async () => {
-    const db = createSequentialDb([[{ type: "text" }], []]);
+    const db = createSequentialDb([
+      [{ id: "c1", type: "text", serverId: "srv_1", parentChannelId: null }],
+      [], // preloaded notification settings
+      [],
+    ]);
     await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "c1", 0);
-    // The scan is the 2nd select for a non-thread channel (type lookup is 1st).
-    const chainResult = db.select.mock.results[1]!.value;
+    // The existence scan is the 3rd select (metadata, settings, scan).
+    const chainResult = db.select.mock.results[2]!.value;
     expect(chainResult.limit).toHaveBeenCalledWith(1);
   });
 
-  // The deadlock this fix closes: a thread the bot doesn't participate in has
-  // unread backlog the pull will NEVER deliver, so the gate must NOT count it
-  // (else send is wedged on "not aligned" forever). Participation narrowing
-  // returns false BEFORE the deliverable scan — mirroring the pull's allowed set.
   it("returns false for a non-participated thread even with unread beyond `seen` (never-drop deadlock fix)", async () => {
-    // (1) type=thread → (2) listParticipatingThreadIds returns [] (not a
-    // participant). Short-circuits false; the deliverable scan never runs.
-    const db = createSequentialDb([[{ type: "thread" }], []]);
+    const db = createSequentialDb([
+      [{ id: "thread_x", type: "thread", serverId: "srv_1", parentChannelId: "c1" }],
+      [], // preloaded notification settings
+      [], // listParticipatingThreadIds returns [] (not a participant)
+    ]);
     const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "thread_x", 0);
     expect(result).toBe(false);
-    // Only two selects: type lookup + participation. No scan (would be a 3rd).
-    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(db.select).toHaveBeenCalledTimes(3);
   });
 
-  // The other side of the coin (Aigneis's never-drop invariant): a bot
-  // @mentioned into a thread gets a `relation='notify'` row on the send hot
-  // path, so it IS a participant — its owed message must still count as
-  // deliverable. Narrowing is not-more-not-less than the pull.
   it("returns true for a participated thread with a deliverable message (mention isn't dropped)", async () => {
-    // (1) type=thread → (2) participation returns the channel id (notify row
-    // exists) → (3) the deliverable scan finds an unread message.
-    const db = createSequentialDb([[{ type: "thread" }], [{ channelId: "thread_x" }], [{ seq: 4 }]]);
+    const db = createSequentialDb([
+      [{ id: "thread_x", type: "thread", serverId: "srv_1", parentChannelId: "c1" }],
+      [], // preloaded notification settings
+      [{ channelId: "thread_x" }], // participation row exists
+      [{ seq: 4 }],
+    ]);
     const result = await agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "thread_x", 0);
     expect(result).toBe(true);
-    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(db.select).toHaveBeenCalledTimes(4);
+  });
+
+  it("enforces preloaded notification settings across unread pull, snapshot, latest, and scope alignment on migrated SQLite", async () => {
+    const { db, sqlite } = createMigratedDb();
+    try {
+      sqlite.exec(`
+        INSERT INTO user (id, name, email, discriminator, isBot) VALUES
+          ('bot_1', 'BotOne', 'bot1@bot.test', '0002', 1),
+          ('human_1', 'Alice', 'alice@user.test', '0001', 0);
+        INSERT INTO community_server (id, name, discriminator, owner_id, created_at) VALUES
+          ('srv_1', 'Studio', '0001', 'human_1', '2026-09-01T00:00:00Z');
+        INSERT INTO community_server_member (id, server_id, user_id, role, joined_at) VALUES
+          ('sm_bot', 'srv_1', 'bot_1', 'member', '2026-09-01T00:00:00Z'),
+          ('sm_human', 'srv_1', 'human_1', 'owner', '2026-09-01T00:00:00Z');
+        INSERT INTO community_channel (id, server_id, name, type, created_at) VALUES
+          ('ch_all', 'srv_1', 'general', 'text', '2026-09-01T00:00:00Z'),
+          ('ch_mentions', 'srv_1', 'alerts', 'text', '2026-09-01T00:00:00Z'),
+          ('ch_muted', 'srv_1', 'muted', 'text', '2026-09-01T00:00:00Z'),
+          ('ch_legacy_none', 'srv_1', 'legacy-muted', 'text', '2026-09-01T00:00:00Z');
+        INSERT INTO community_notification_setting (id, user_id, server_id, channel_id, level) VALUES
+          ('ns_m', 'bot_1', NULL, 'ch_mentions', 'mentions'),
+          ('ns_n', 'bot_1', NULL, 'ch_muted', 'nothing'),
+          ('ns_legacy', 'bot_1', NULL, 'ch_legacy_none', 'none');
+        INSERT INTO community_message (id, author_id, channel_id, seq, content, created_at) VALUES
+          ('m_all', 'human_1', 'ch_all', 1, 'hello', '2026-09-02T00:01:00Z'),
+          ('m_men_plain', 'human_1', 'ch_mentions', 1, 'noise', '2026-09-02T00:02:00Z'),
+          ('m_men_ping', 'human_1', 'ch_mentions', 2, '@BotOne#0002 check', '2026-09-02T00:03:00Z'),
+          ('m_muted', 'human_1', 'ch_muted', 1, 'ignored', '2026-09-02T00:04:00Z'),
+          ('m_legacy_none', 'human_1', 'ch_legacy_none', 1, 'legacy ignored', '2026-09-02T00:04:30Z');
+        INSERT INTO community_mention (id, message_id, user_id, kind, read) VALUES
+          ('men_ping', 'm_men_ping', 'bot_1', 'mention', 0),
+          ('men_muted', 'm_muted', 'bot_1', 'mention', 0),
+          ('men_legacy', 'm_legacy_none', 'bot_1', 'mention', 0);
+      `);
+
+      const unread = await agentInbox.listUnreadMessagesForAgent(db, "bot_1", { max: 20 });
+      expect(unread.map((m) => m.id)).toEqual(["m_all", "m_men_ping"]);
+
+      const snapshot = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
+      expect(snapshot.map((s) => ({ channelId: s.channelId, pendingCount: s.pendingCount, hasMention: s.hasMention }))
+        .sort((a, b) => a.channelId.localeCompare(b.channelId)))
+        .toEqual([
+          { channelId: "ch_all", pendingCount: 1, hasMention: false },
+          { channelId: "ch_mentions", pendingCount: 1, hasMention: true },
+        ]);
+
+      await expect(agentInbox.getLatestUnreadMessageForAgent(db, "bot_1"))
+        .resolves.toEqual({ messageId: "m_men_ping" });
+
+      await expect(agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "ch_all", 0)).resolves.toBe(true);
+      await expect(agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "ch_mentions", 0)).resolves.toBe(true);
+      await expect(agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "ch_muted", 0)).resolves.toBe(false);
+      await expect(agentInbox.hasDeliverableUnreadForAgentScope(db, "bot_1", "ch_legacy_none", 0)).resolves.toBe(false);
+    } finally {
+      sqlite.close();
+    }
   });
 });

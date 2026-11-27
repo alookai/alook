@@ -701,6 +701,8 @@ export function useConversationScroll({
     if (Math.abs(root.scrollTop - clamped) > 0.5) {
       root.scrollTop = clamped
       programmaticScrollRef.current = { target: root.scrollTop, smooth: false }
+    } else if (programmaticScrollRef.current?.smooth) {
+      programmaticScrollRef.current = null
     }
     prevGeometryRef.current = {
       clientHeight: root.clientHeight,
@@ -772,10 +774,17 @@ export function useConversationScroll({
             else next = "visible"
           }
         } else if (ctx.newDividerSeq !== undefined) {
-          const seqs = ctx.items.flatMap((item) => item.kind === "message" && item.m.seq !== undefined ? [item.m.seq] : [])
-          if (seqs.length > 0) {
-            if (ctx.newDividerSeq < Math.min(...seqs)) next = "above"
-            else if (ctx.newDividerSeq > Math.max(...seqs)) next = "below"
+          let minSeq = Infinity
+          let maxSeq = -Infinity
+          for (const item of ctx.items) {
+            if (item.kind === "message" && item.m.seq !== undefined) {
+              if (item.m.seq < minSeq) minSeq = item.m.seq
+              if (item.m.seq > maxSeq) maxSeq = item.m.seq
+            }
+          }
+          if (minSeq <= maxSeq) {
+            if (ctx.newDividerSeq < minSeq) next = "above"
+            else if (ctx.newDividerSeq > maxSeq) next = "below"
           }
         }
       }
@@ -848,7 +857,7 @@ export function useConversationScroll({
     bumpState()
   }, [bumpState, finishNewOp, setOutcomeOnce, writeReadReady])
 
-  const settleJumpIfLanded = useCallback((allowNotify = true) => {
+  const settleJumpIfLanded = useCallback((allowNotify = true, fromViewportChange = false) => {
     const root = scrollRef.current
     const ctx = propsRef.current
     const state = stateRef.current
@@ -878,7 +887,7 @@ export function useConversationScroll({
     if (needsMove) {
       if (state.behavior === "smooth") {
         const activeSmooth = programmaticScrollRef.current
-        if (!activeSmooth?.smooth || Math.abs(activeSmooth.target - top) > 1) {
+        if (!activeSmooth?.smooth || fromViewportChange || Math.abs(activeSmooth.target - top) > 1) {
           writeScrollTopSmooth(root, top, "smooth")
         }
       } else {
@@ -891,6 +900,13 @@ export function useConversationScroll({
       root.scrollTop = clampScrollTop(root, top)
     }
     programmaticScrollRef.current = null
+    prevGeometryRef.current = {
+      clientHeight: root.clientHeight,
+      clientWidth: root.clientWidth,
+      scrollHeight: root.scrollHeight,
+      scrollTop: root.scrollTop,
+      tailPaddingEnd: ctx.tailPaddingEnd,
+    }
     const wasReadReady = readReadyRef.current
     initialSettledRef.current = true
     entryResolvedRef.current = true
@@ -942,21 +958,23 @@ export function useConversationScroll({
     const state = stateRef.current
     const prevGeo = prevGeometryRef.current
     const maxScroll = Math.max(0, root.scrollHeight - root.clientHeight)
+    const viewportChanged = !!prevGeo && (
+      prevGeo.clientHeight !== root.clientHeight
+      || prevGeo.clientWidth !== root.clientWidth
+      || prevGeo.tailPaddingEnd !== ctx.tailPaddingEnd
+    )
 
     if (state.mode === "jumping-to-target") {
-      settleJumpIfLanded(true)
+      if (!presentOpRef.current) settleJumpIfLanded(true, viewportChanged)
       return
     }
 
     if (state.mode === "pinned-to-bottom") {
       if (ctx.hasMoreNewer && ctx.dataState === "ready" && initialSettledRef.current) return
-      const viewportChanged = !!prevGeo && (
-        prevGeo.clientHeight !== root.clientHeight
-        || prevGeo.clientWidth !== root.clientWidth
-        || prevGeo.tailPaddingEnd !== ctx.tailPaddingEnd
-      )
-      if (!viewportChanged && programmaticScrollRef.current?.smooth) {
-        if (Math.abs(programmaticScrollRef.current.target - maxScroll) > 1) {
+      if (programmaticScrollRef.current?.smooth && !followSuspendedRef.current) {
+        if (viewportChanged) {
+          writeScrollTopInstant(root, maxScroll)
+        } else if (Math.abs(programmaticScrollRef.current.target - maxScroll) > 1) {
           writeScrollTopSmooth(root, maxScroll, "smooth")
         }
         syncTailFlags(root)
@@ -1604,7 +1622,7 @@ export function useConversationScroll({
         || prevGeo.clientWidth !== root.clientWidth
         || prevGeo.tailPaddingEnd !== ctx.tailPaddingEnd
       )
-      if (viewportChangedBeforeScroll && stateRef.current.mode !== "jumping-to-target") {
+      if (viewportChangedBeforeScroll && (stateRef.current.mode !== "jumping-to-target" || !presentOpRef.current)) {
         compensateAnchor(true)
         syncTailFlags(root)
         updateNewDividerVisibility(true)
@@ -1733,8 +1751,13 @@ export function useConversationScroll({
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     if (footer) ro.observe(footer)
+    const accessorySlot = footer?.querySelector<HTMLElement>('[data-slot="community-composer-accessory-slot"]') ?? null
     const footerMo = footer && typeof MutationObserver !== "undefined"
-      ? new MutationObserver(() => {
+      ? new MutationObserver((mutations) => {
+        if (accessorySlot && mutations.length > 0
+          && mutations.every((mutation) => accessorySlot.contains(mutation.target))) {
+          return
+        }
         const prevGeo = prevGeometryRef.current
         if (!prevGeo || prevGeo.clientHeight !== root.clientHeight
           || prevGeo.clientWidth !== root.clientWidth

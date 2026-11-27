@@ -1,9 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import {
   communityChannel,
   communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
+import { jsonTextSet } from "../_json-set";
 import type { CommunityRole } from "../../../utils/community-roles";
 import {
   canManageServer,
@@ -76,9 +77,24 @@ export async function resolveChannelContentRecipientUserIds(
 ): Promise<string[]> {
   const type = await runQuery("channel-type", () => getChannelType(db, channelId));
   if (!isStoredChannelType(type)) return [];
-  const candidates = type === "dm"
-    ? await runQuery("dm-members", () => listChannelMemberUserIds(db, channelId))
-    : await runQuery("scope-members", () => resolveScopeMemberUserIds(db, channelId));
+  if (type === "dm") {
+    return runQuery("dm-members", () => listChannelMemberUserIds(db, channelId));
+  }
+  const channel = await runQuery("scope-members", async () => {
+    const rows = await db
+      .select({ serverId: communityChannel.serverId })
+      .from(communityChannel)
+      .where(eq(communityChannel.id, channelId))
+      .limit(1);
+    return rows[0] ?? null;
+  });
+  if (!channel) return [];
+  const isPrivate = await runQuery("scope-members", () => isChannelPrivate(db, channelId));
+  if (!isPrivate) {
+    return runQuery("scope-members", () => listMemberUserIds(db, channel.serverId));
+  }
+  const candidates = await runQuery("scope-members", () => getPrivateChannelAudienceUserIds(db, channelId));
+  if (candidates.length === 0) return [];
   return runQuery("readable-members", () => filterChannelReadableUserIds(db, channelId, candidates));
 }
 
@@ -121,11 +137,9 @@ export async function resolveScopeMemberUserIds(
  */
 export async function resolveScopeMembers(
   db: Database,
-  scopeId: string
+  scopeId: string,
+  opts?: { limit?: number; cursor?: string }
 ): Promise<ScopeMember[]> {
-  const userIds = await resolveScopeMemberUserIds(db, scopeId);
-  if (userIds.length === 0) return [];
-
   const target = await db
     .select({
       id: communityChannel.id,
@@ -138,46 +152,67 @@ export async function resolveScopeMembers(
     .limit(1);
   if (target.length === 0) return [];
   const serverId = target[0]!.serverId;
+  const isPrivate = await isChannelPrivate(db, scopeId);
+
+  if (!isPrivate) {
+    const conditions = [eq(communityServerMember.serverId, serverId)];
+    if (opts?.cursor) {
+      conditions.push(gt(communityServerMember.userId, opts.cursor));
+    }
+    const baseQuery = db
+      .select({ userId: communityServerMember.userId, role: communityServerMember.role })
+      .from(communityServerMember)
+      .where(and(...conditions))
+      .orderBy(asc(communityServerMember.userId));
+    const rows = opts?.limit !== undefined ? await baseQuery.limit(opts.limit) : await baseQuery;
+    return rows.map((r) => {
+      const role = (r.role as CommunityRole) ?? "member";
+      return {
+        userId: r.userId,
+        role,
+        source: canManageServer(role) ? "admin" : "inherited",
+      };
+    });
+  }
+
+  const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
+  const explicit = new Set<string>(await listChannelMemberUserIds(db, anchorId));
+  const anchorCreatorId =
+    anchorId === target[0]!.id
+      ? target[0]!.creatorId
+      : (await db
+          .select({ creatorId: communityChannel.creatorId })
+          .from(communityChannel)
+          .where(eq(communityChannel.id, anchorId))
+          .limit(1))[0]?.creatorId;
+  if (anchorCreatorId) explicit.add(anchorCreatorId);
+
+  let userIds = [...explicit];
+  if (opts?.cursor !== undefined || opts?.limit !== undefined) {
+    userIds.sort();
+    if (opts.cursor !== undefined) {
+      const cursor = opts.cursor;
+      userIds = userIds.filter((id) => id > cursor);
+    }
+    if (opts.limit !== undefined) {
+      userIds = userIds.slice(0, opts.limit);
+    }
+  }
+  if (userIds.length === 0) return [];
 
   const roleRows = await db
     .select({ userId: communityServerMember.userId, role: communityServerMember.role })
     .from(communityServerMember)
-    .where(eq(communityServerMember.serverId, serverId));
+    .where(and(
+      eq(communityServerMember.serverId, serverId),
+      inArray(communityServerMember.userId, jsonTextSet(db, userIds)),
+    ));
   const roleByUser = new Map<string, CommunityRole>();
   for (const r of roleRows) roleByUser.set(r.userId, r.role as CommunityRole);
 
-  const isPrivate = await isChannelPrivate(db, scopeId);
-
-  // "explicit" = the anchor's added members ∪ the anchor's own creator. The
-  // anchor is `parentChannelId ?? id`, so a forum/channel uses its own roster.
-  // For a PRIVATE unit every resolved user is `explicit` (admins are no longer
-  // auto-included — the audience is exactly members ∪ creator). For a PUBLIC
-  // unit the audience is all server members, tagged admin/inherited.
-  const explicit = new Set<string>();
-  if (isPrivate) {
-    const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
-    for (const id of await listChannelMemberUserIds(db, anchorId)) explicit.add(id);
-    const anchorCreatorId =
-      anchorId === target[0]!.id
-        ? target[0]!.creatorId
-        : (await db
-            .select({ creatorId: communityChannel.creatorId })
-            .from(communityChannel)
-            .where(eq(communityChannel.id, anchorId))
-            .limit(1))[0]?.creatorId;
-    if (anchorCreatorId) explicit.add(anchorCreatorId);
-  }
-
-  return userIds.map((userId) => {
-    const role = roleByUser.get(userId) ?? "member";
-    let source: MemberSource;
-    if (!isPrivate) {
-      source = canManageServer(role) ? "admin" : "inherited";
-    } else if (explicit.has(userId)) {
-      source = "explicit";
-    } else {
-      source = "admin";
-    }
-    return { userId, role, source };
-  });
+  return userIds.map((userId) => ({
+    userId,
+    role: roleByUser.get(userId) ?? "member",
+    source: "explicit",
+  }));
 }

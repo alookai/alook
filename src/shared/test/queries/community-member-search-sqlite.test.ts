@@ -21,7 +21,8 @@ describe("searchMembers literal prefixes against real SQLite", () => {
         avatarObjectKey TEXT,
         isBot INTEGER NOT NULL DEFAULT 0,
         ownerUserId TEXT,
-        discriminator TEXT NOT NULL DEFAULT '0000'
+        discriminator TEXT NOT NULL DEFAULT '0000',
+        deletedAt TEXT
       );
       CREATE TABLE community_server_member (
         id TEXT PRIMARY KEY,
@@ -73,5 +74,19 @@ describe("searchMembers literal prefixes against real SQLite", () => {
   ])("treats %s as a literal prefix", async (query, expected) => {
     const page = await searchMembers(db, "srv_1", query)
     expect(page.members.map((member) => member.userName)).toEqual(expected)
+  })
+
+  it("excludes soft-deleted users from search results", async () => {
+    sqlite.prepare(`
+      INSERT INTO user (id, name, email, discriminator, deletedAt)
+      VALUES ('u_deleted', 'PlainGhost', 'ghost@example.com', '9999', '2026-02-01T00:00:00.000Z')
+    `).run()
+    sqlite.prepare(`
+      INSERT INTO community_server_member (id, server_id, user_id, joined_at)
+      VALUES ('m_deleted', 'srv_1', 'u_deleted', '2026-01-01T00:00:00.000Z')
+    `).run()
+
+    const page = await searchMembers(db, "srv_1", "Plain")
+    expect(page.members.map((member) => member.userName)).toEqual(["PlainAlice", "PlainBob"])
   })
 })

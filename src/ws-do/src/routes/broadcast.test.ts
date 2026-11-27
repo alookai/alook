@@ -266,14 +266,14 @@ describe("ws-do router", () => {
       await expect((doMock.stubFetch.mock.calls[0][0] as Request).json()).resolves.toEqual(encoded.envelope)
     })
 
-    it("accepts the exact worst-case 837,347-byte strict bulk body", async () => {
+    it("accepts a worst-case 400-target strict bulk body", async () => {
       doMock.stubFetch.mockImplementation(async () => Response.json({ sent: 1 }))
       const body = JSON.stringify({
-        userIds: Array.from({ length: 1000 }, (_, index) => worstEscapingTarget(index)),
+        userIds: Array.from({ length: 400 }, (_, index) => worstEscapingTarget(index)),
         message: maximumAuditEnvelope(),
-        excludeUserId: worstEscapingTarget(1000),
+        excludeUserId: worstEscapingTarget(400),
       })
-      expect(utf8ByteLength(body)).toBe(COMMUNITY_BULK_BODY_MAX_BYTES)
+      expect(utf8ByteLength(body)).toBeLessThanOrEqual(COMMUNITY_BULK_BODY_MAX_BYTES)
 
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/users",
@@ -281,12 +281,12 @@ describe("ws-do router", () => {
       ), env as any)
 
       expect(res.status).toBe(200)
-      await expect(res.json()).resolves.toEqual({ sent: 1000 })
-      expect(doMock.stubFetch).toHaveBeenCalledTimes(1000)
+      await expect(res.json()).resolves.toEqual({ sent: 400 })
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(400)
     })
 
     it.each([
-      ["too many raw targets", { userIds: Array.from({ length: 1001 }, () => "u"), message: communityPresenceEvent }],
+      ["too many raw targets", { userIds: Array.from({ length: 401 }, () => "u"), message: communityPresenceEvent }],
       ["oversized target", { userIds: ["x".repeat(129)], message: communityPresenceEvent }],
       ["extra outer field", { userIds: ["u1"], message: communityPresenceEvent, extra: true }],
     ])("rejects strict community bulk with %s", async (_label, body) => {
@@ -346,9 +346,9 @@ describe("ws-do router", () => {
       expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
 
-    it("rejects 1,001 raw duplicate ids before dedupe or Durable Object access", async () => {
+    it("rejects 401 raw duplicate ids before dedupe or Durable Object access", async () => {
       const res = await handler.fetch(makeBulkRequest(JSON.stringify({
-        userIds: Array.from({ length: 1001 }, () => "duplicate"),
+        userIds: Array.from({ length: 401 }, () => "duplicate"),
         message: { type: "event" },
       })), env as any)
 
@@ -357,18 +357,18 @@ describe("ws-do router", () => {
       expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
 
-    it("accepts exactly 1,000 raw ids", async () => {
+    it("accepts exactly 400 raw ids", async () => {
       doMock.stubFetch.mockImplementation(async () =>
         new Response(JSON.stringify({ sent: 1 }), { status: 200 }),
       )
       const res = await handler.fetch(makeBulkRequest(JSON.stringify({
-        userIds: Array.from({ length: 1000 }, (_, index) => `u${index}`),
+        userIds: Array.from({ length: 400 }, (_, index) => `u${index}`),
         message: { type: "event" },
       })), env as any)
 
       expect(res.status).toBe(200)
-      await expect(res.json()).resolves.toEqual({ sent: 1000 })
-      expect(doMock.stubFetch).toHaveBeenCalledTimes(1000)
+      await expect(res.json()).resolves.toEqual({ sent: 400 })
+      expect(doMock.stubFetch).toHaveBeenCalledTimes(400)
     })
 
     it("returns sent zero for an empty target list without namespace access", async () => {
@@ -553,6 +553,59 @@ describe("ws-do router", () => {
           durationMs: expect.any(Number),
         }),
       )
+    })
+
+    it("rejects bulk broadcasts above 400 users and delivers distinct per-user envelopes via /broadcast/community/deliveries", async () => {
+      const overLimitRaw = await handler.fetch(makeBulkRequest(JSON.stringify({
+        userIds: Array.from({ length: 401 }, (_, i) => `u-${i}`),
+        message: { type: "test" },
+      })), env as any)
+      expect(overLimitRaw.status).toBe(400)
+
+      const overLimitCommunity = await handler.fetch(new Request("http://localhost/broadcast/community/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION),
+        },
+        body: JSON.stringify({
+          userIds: Array.from({ length: 401 }, (_, i) => `u-${i}`),
+          message: communityPresenceEvent,
+        }),
+      }), env as any)
+      expect(overLimitCommunity.status).toBe(400)
+
+      const deliveredBodies: Array<{ target: string | null; body: Record<string, unknown> }> = []
+      doMock.stubFetch.mockImplementation(async (req: Request) => {
+        deliveredBodies.push({
+          target: req.headers.get(INTERNAL_USER_TARGET_HEADER),
+          body: await req.json() as Record<string, unknown>,
+        })
+        return new Response(JSON.stringify({ sent: 1 }), { status: 200 })
+      })
+
+      const deliveries = Array.from({ length: 10 }, (_, i) => {
+        const encoded = encodeCommunityBrowserEvent({
+          type: "community:read_state.advanced",
+          revision: i + 1,
+          inboxChanged: true,
+        })
+        if (!encoded.ok) throw new Error(encoded.reason)
+        return { userId: `u-${i}`, event: encoded.envelope }
+      })
+      const deliveriesRes = await handler.fetch(new Request("http://localhost/broadcast/community/deliveries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION),
+        },
+        body: JSON.stringify({ deliveries }),
+      }), env as any)
+      expect(deliveriesRes.status).toBe(200)
+      await expect(deliveriesRes.json()).resolves.toEqual({ sent: 10 })
+      expect(deliveredBodies).toHaveLength(10)
+      expect(deliveredBodies[0]).toMatchObject({ target: "u-0", body: { revision: 1 } })
+      expect(deliveredBodies[9]).toMatchObject({ target: "u-9", body: { revision: 10 } })
     })
   })
 })

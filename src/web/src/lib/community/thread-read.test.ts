@@ -71,7 +71,7 @@ describe("complete thread read resource", () => {
     expect(communityReadSchemas().threads.parse(await response.json())).toMatchObject({ threads: [], included: { messages: [], tags: [], members: [], profiles: [], participantCounts: [] }, page: { nextCursor: null, hasMore: false } })
     expect(mocks.replies).toHaveBeenCalledWith(db, [], ["forum"])
     expect(mocks.attachments).toHaveBeenCalledWith(db, [])
-    expect(mocks.reactions).toHaveBeenCalledWith(db, [])
+    expect(mocks.reactions).not.toHaveBeenCalled()
   })
 
   it("deduplicates profiles while preserving the scoped participant counts", async () => {

@@ -26,7 +26,6 @@ const mocks = vi.hoisted(() => ({
   toastInfo: vi.fn(),
   toastError: vi.fn(),
   starterConfigure: vi.fn(),
-  placeholderConfigure: vi.fn(),
   buildPasteDom: vi.fn(),
   fromSchema: vi.fn(),
   parseSlice: vi.fn(),
@@ -43,11 +42,6 @@ vi.mock("@tiptap/react", () => ({
 vi.mock("@tiptap/starter-kit", () => ({
   default: {
     configure: (...args: unknown[]) => mocks.starterConfigure(...args),
-  },
-}))
-vi.mock("@tiptap/extension-placeholder", () => ({
-  default: {
-    configure: (...args: unknown[]) => mocks.placeholderConfigure(...args),
   },
 }))
 vi.mock("@tiptap/pm/model", () => ({
@@ -68,7 +62,9 @@ vi.mock("@/hooks/use-hover-capable", () => ({
 }))
 vi.mock("@/lib/community/composer-draft", () => ({
   clearComposerDraft: (...args: unknown[]) => mocks.clearDraft(...args),
+  flushComposerDraft: vi.fn(),
   readComposerDraft: (...args: unknown[]) => mocks.readDraft(...args),
+  scheduleComposerDraftWrite: (...args: unknown[]) => mocks.writeDraft(...args),
   writeComposerDraft: (...args: unknown[]) => mocks.writeDraft(...args),
 }))
 vi.mock("@/lib/community/composer-attachment-session", () => ({
@@ -115,10 +111,15 @@ let controllerView: ReturnType<typeof useComposerController>
 let controllerClient: ReturnType<typeof useQueryClient>
 
 type EditorOptions = {
+  extensions: unknown[]
   editorProps: {
-    attributes: Record<string, string>
+    attributes: () => Record<string, string>
     handleKeyDown: (_view: unknown, event: KeyboardEvent) => boolean
-    handleDOMEvents: { paste: (_view: unknown, event: ClipboardEvent) => boolean }
+    handleDOMEvents: {
+      compositionstart: () => boolean
+      compositionend: () => boolean
+      paste: (_view: unknown, event: ClipboardEvent) => boolean
+    }
     handlePaste: (_view: unknown, event: ClipboardEvent, slice?: unknown) => boolean
     clipboardTextParser: (text: string, context: never) => unknown
   }
@@ -248,7 +249,6 @@ describe("useComposerController", () => {
     mocks.serializeDocument.mockImplementation((currentEditor: TestEditor) =>
       currentEditor.getText({ blockSeparator: "\n\n" }),
     )
-    mocks.placeholderConfigure.mockReturnValue({ name: "placeholder" })
     mocks.fromSchema.mockReturnValue({ parseSlice: mocks.parseSlice })
     mocks.useEditor.mockImplementation((options) => {
       editorOptions = options
@@ -270,15 +270,17 @@ describe("useComposerController", () => {
       handleDragOver: vi.fn(),
       handleDrop: handleDropRaw,
     }))
+    const mentionExtension = { name: "mention" }
+    const channelRefExtension = { name: "channel-ref" }
     mocks.useSuggestions.mockImplementation(() => ({
       mentionPopup: { items: [], selectedIndex: 0, command: null, getRect: null },
       mentionPresentation: { status: "ready" },
       mentionPopupRef,
-      mentionExtension: { name: "mention" },
+      mentionExtension,
       channelRefPopup: { items: [], selectedIndex: 0, command: null, getRect: null },
       channelRefPresentation: { status: "loading" },
       channelRefPopupRef,
-      channelRefExtension: { name: "channel-ref" },
+      channelRefExtension,
       resetPopups,
     }))
     mocks.detectMentionType.mockReturnValue("everyone")
@@ -639,10 +641,12 @@ describe("useComposerController", () => {
     expect(attachment.name).toBe("copy-2.md")
   })
 
-  it("retains one TipTap editor instance while render-time configuration reruns", async () => {
+  it("keeps extensions and editorProps referentially stable across rerenders", async () => {
     const accept = vi.fn(() => true)
     const renderer = render(createElement(Harness, acceptedProps(accept)))
     const firstEditor = controllerView.editor
+    const firstExtensions = editorOptions.extensions
+    const firstEditorProps = editorOptions.editorProps
     renderer.rerender(
       createElement(Harness, {
         ...acceptedProps(accept),
@@ -661,10 +665,10 @@ describe("useComposerController", () => {
     const secondEditor = controllerView.editor
     expect(secondEditor).toBe(firstEditor)
     expect(mocks.useEditor).toHaveBeenCalledTimes(2)
-    expect(mocks.composerDocumentExtensions).toHaveBeenCalledTimes(2)
+    expect(mocks.composerDocumentExtensions).toHaveBeenCalledTimes(1)
     expect(mocks.composerDocumentExtensions).toHaveBeenNthCalledWith(1, false)
-    expect(mocks.composerDocumentExtensions).toHaveBeenNthCalledWith(2, false)
-    expect(mocks.placeholderConfigure).toHaveBeenCalledTimes(2)
+    expect(editorOptions.extensions).toBe(firstExtensions)
+    expect(editorOptions.editorProps).toBe(firstEditorProps)
   })
 
   it("keeps one live input-capability contract across coarse and hover-capable inputs", async () => {
@@ -771,13 +775,16 @@ describe("useComposerController", () => {
     expect(view().sendDisabled).toBe(false)
   })
 
-  it("updates the live placeholder without replacing or resetting the editor", async () => {
+  it("updates the live placeholder overlay and aria-label without dispatching ProseMirror transactions or changing editorProps", async () => {
+    editor.isEmpty = true
     const props = acceptedProps(() => true)
     const renderer = render(createElement(Harness, props))
     const firstEditor = controllerView.editor
-    const livePlaceholder = mocks.placeholderConfigure.mock.calls[0]?.[0]
-      .placeholder as () => string
-    expect(livePlaceholder()).toBe("Message /general")
+    const firstEditorProps = editorOptions.editorProps
+    expect(controllerView.placeholder).toBe("Message /general")
+    expect(controllerView.showPlaceholder).toBe(true)
+    expect(setDomAttribute).toHaveBeenCalledWith("aria-label", "Message /general")
+    expect(editorOptions.editorProps.attributes()["aria-label"]).toBe("Message /general")
     expect(dispatch).not.toHaveBeenCalled()
 
     await act(async () => {
@@ -786,9 +793,11 @@ describe("useComposerController", () => {
       )
     })
     expect(controllerView.editor).toBe(firstEditor)
-    expect(livePlaceholder()).toBe("Message /renamed-channel")
-    expect(dispatch).toHaveBeenCalledTimes(1)
-    expect(dispatch).toHaveBeenLastCalledWith(transaction)
+    expect(controllerView.placeholder).toBe("Message /renamed-channel")
+    expect(setDomAttribute).toHaveBeenLastCalledWith("aria-label", "Message /renamed-channel")
+    expect(editorOptions.editorProps).toBe(firstEditorProps)
+    expect(editorOptions.editorProps.attributes()["aria-label"]).toBe("Message /renamed-channel")
+    expect(dispatch).not.toHaveBeenCalled()
 
     await act(async () => {
       renderer.rerender(
@@ -799,28 +808,28 @@ describe("useComposerController", () => {
         }),
       )
     })
-    expect(livePlaceholder()).toBe("Custom composer prompt")
-    expect(dispatch).toHaveBeenCalledTimes(2)
+    expect(controllerView.placeholder).toBe("Custom composer prompt")
+    expect(setDomAttribute).toHaveBeenLastCalledWith("aria-label", "Custom composer prompt")
+    expect(dispatch).not.toHaveBeenCalled()
 
     await act(async () => {
-      renderer.rerender(
-        createElement(Harness, {
-          ...props,
-          channel: "final-channel",
-          placeholder: "Custom composer prompt",
-        }),
-      )
+      editorOptions.editorProps.handleDOMEvents.compositionstart()
     })
-    expect(livePlaceholder()).toBe("Custom composer prompt")
-    expect(dispatch).toHaveBeenCalledTimes(2)
+    expect(controllerView.showPlaceholder).toBe(false)
+    expect(editorOptions.editorProps).toBe(firstEditorProps)
+
+    await act(async () => {
+      editorOptions.editorProps.handleDOMEvents.compositionend()
+    })
+    expect(controllerView.showPlaceholder).toBe(true)
 
     await act(async () => {
       renderer.rerender(
         createElement(Harness, { ...props, channel: "final-channel" }),
       )
     })
-    expect(livePlaceholder()).toBe("Message /final-channel")
-    expect(dispatch).toHaveBeenCalledTimes(3)
+    expect(controllerView.placeholder).toBe("Message /final-channel")
+    expect(dispatch).not.toHaveBeenCalled()
     expect(clearContent).not.toHaveBeenCalled()
     expect(setContent).not.toHaveBeenCalled()
     expect(focus).not.toHaveBeenCalled()

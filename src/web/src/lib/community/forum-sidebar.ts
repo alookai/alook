@@ -67,6 +67,7 @@ export function forumSidebarCandidates(
 ) {
   const participating = viewerNotifyChannelIds(memberships, viewerId)
   const messageById = new Map(messages.map((message) => [message.id, message]))
+  const unreadScopes = projectCommunityAttention(attention).scopes
   const parents = channels.filter((channel) => channel.serverId === serverId && supportsSidebarThreads(channel.type))
   const parentIds = new Set(parents.map((channel) => channel.id))
   return channels.flatMap((channel) => {
@@ -76,7 +77,7 @@ export function forumSidebarCandidates(
     const activityAt = forumSidebarActivityAt(channel), activityMs = Date.parse(activityAt)
     const expiresAt = Number.isFinite(activityMs) ? new Date(activityMs + FORUM_SIDEBAR_ACTIVITY_WINDOW_MS).toISOString() : activityAt
     return [{ id: channel.id, parentChannelId: channel.parentChannelId, parentMessageId: channel.parentMessageId,
-      title: messageById.get(channel.parentMessageId)?.content ?? channel.name ?? "", activityAt, expiresAt, unread: attention.some((scope) => scope.scopeId === channel.id && (scope.ordinaryUnread || scope.attentionCount > 0)) }]
+      title: messageById.get(channel.parentMessageId)?.content ?? channel.name ?? "", activityAt, expiresAt, unread: unreadScopes.has(channel.id) }]
   }).sort(compareForumSidebarThreads)
 }
 

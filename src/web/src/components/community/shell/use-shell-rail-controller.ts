@@ -192,6 +192,8 @@ export function useShellRailController({
     navigation.push(serverDestination(serverId))
   }, [navigation, serverDestination])
 
+  const navigationKey = navigation.navigationPending ? navigation.pendingHref ?? navigation.publishedHref : navigation.publishedHref
+  const serversLoading = serversQuery.isPending && servers.length === 0
   return {
     railProps: {
       servers: railServers,
@@ -199,9 +201,9 @@ export function useShellRailController({
       serverHrefs,
       folders,
       topOrder: foldersQuery.topOrder,
-      navigationKey: navigation.navigationPending ? navigation.pendingHref ?? navigation.publishedHref : navigation.publishedHref,
+      navigationKey,
       activeServerId: projectedActiveServerId,
-      serversLoading: serversQuery.isPending && servers.length === 0,
+      serversLoading,
       view: projectedView,
       onHome,
       onServerNavigate,

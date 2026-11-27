@@ -20,26 +20,40 @@ function projectEmbed(value: unknown): UiEmbed | undefined {
   return parsed.success ? omitUndefined(parsed.data) : undefined
 }
 
-function projectMessageRichContent(value: unknown): Pick<Msg, "attachments" | "embeds" | "decisionCard"> {
+type RichContentProjection = Pick<Msg, "attachments" | "embeds" | "decisionCard">
+const NO_REPLY_TARGET: object = {}
+const richContentCache = new WeakMap<CommunityMessageResource, RichContentProjection>()
+const presentedMessageCache = new WeakMap<CommunityMessageResource, WeakMap<object, Msg>>()
+
+function projectMessageRichContent(value: CommunityMessageResource): RichContentProjection {
+  const cached = richContentCache.get(value)
+  if (cached) return cached
   const { attachments, embeds } = richContentSchema.parse(value)
   const extracted = extractDecisionCardFromEmbeds(embeds)
   const genericEmbeds = extracted.otherEmbeds?.flatMap((entry) => {
     const embed = projectEmbed(entry)
     return embed ? [embed] : []
   })
-  return {
+  const projected: RichContentProjection = {
     ...(attachments ? { attachments: attachments.map(presentMessageAttachment) } : {}),
     ...(embeds
       ? { embeds: genericEmbeds ?? [] }
       : {}),
     ...(extracted.card ? { decisionCard: extracted.card } : {}),
   }
+  richContentCache.set(value, projected)
+  return projected
 }
 
 export function presentCanonicalMessage(message: CommunityMessageResource, replyTarget?: CommunityMessageResource): Msg {
+  const resolvedReply = message.replyTo && replyTarget?.id === message.replyTo.id && replyTarget.channelId === message.channelId ? replyTarget : undefined
+  const replyKey: object = resolvedReply ?? NO_REPLY_TARGET
+  let byReply = presentedMessageCache.get(message)
+  const cached = byReply?.get(replyKey)
+  if (cached) return cached
+
   const { channelId: _channelId, replyToId: _replyToId, clientNonce, authorAvatar, attachments: _attachments, embeds: _embeds, thread, replyTo, ...fields } = message
-  const resolvedReply = replyTo && replyTarget?.id === replyTo.id && replyTarget.channelId === message.channelId ? replyTarget : undefined
-  return {
+  const presented: Msg = {
     ...fields,
     ...(replyTo ? { replyTo: { ...replyTo, text: !replyTo.deleted && resolvedReply ? messagePreview(resolvedReply) : "", ...(!replyTo.deleted && !resolvedReply ? { loading: true } : {}) } } : {}),
     ...(authorAvatar === undefined ? {} : { authorAvatar: authorAvatar ?? avatarInitial(message.authorName ?? "") }),
@@ -47,6 +61,12 @@ export function presentCanonicalMessage(message: CommunityMessageResource, reply
     ...(thread ? { thread: presentMessageThread(thread) } : {}),
     ...projectMessageRichContent(message),
   }
+  if (!byReply) {
+    byReply = new WeakMap()
+    presentedMessageCache.set(message, byReply)
+  }
+  byReply.set(replyKey, presented)
+  return presented
 }
 
 function presentMessageThread(thread: NonNullable<CommunityMessageResource["thread"]>): NonNullable<Msg["thread"]> {

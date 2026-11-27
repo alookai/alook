@@ -1,6 +1,8 @@
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import { communityPushDevice } from "../../community-schema";
+import { user } from "../../schema";
 import type { Database } from "../../index";
+import { jsonTextSet } from "../_json-set";
 
 export type PushDevicePlatform = "ios" | "android";
 export type PushProviderEnvironment = "sandbox" | "production";
@@ -156,4 +158,39 @@ export async function listActivePushDevices(
     providerEnvironment:
       row.providerEnvironment as PushProviderEnvironment,
   }));
+}
+
+export interface ActivePushTarget {
+  userId: string;
+  installationId: string;
+}
+
+export async function listActivePushTargetsForUsers(
+  db: Database,
+  userIds: readonly string[],
+): Promise<ActivePushTarget[]> {
+  const uniqueIds = [...new Set(userIds.filter((id) => id.length > 0))];
+  if (uniqueIds.length === 0) return [];
+  const rows = await db
+    .select({
+      userId: communityPushDevice.userId,
+      installationId: communityPushDevice.installationId,
+      isBot: user.isBot,
+      deletedAt: user.deletedAt,
+    })
+    .from(communityPushDevice)
+    .innerJoin(user, eq(user.id, communityPushDevice.userId))
+    .where(
+      and(
+        inArray(communityPushDevice.userId, jsonTextSet(db, uniqueIds)),
+        isNull(communityPushDevice.disabledAt),
+      ),
+    )
+    .orderBy(asc(communityPushDevice.createdAt), asc(communityPushDevice.id));
+  return rows
+    .filter((row) => !row.isBot && row.deletedAt === null)
+    .map((row) => ({
+      userId: row.userId,
+      installationId: row.installationId,
+    }));
 }

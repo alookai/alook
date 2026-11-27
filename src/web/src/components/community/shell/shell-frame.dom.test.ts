@@ -738,6 +738,7 @@ describe("ShellFrame orchestration", () => {
 
     it.each(["profile", "update", "dismiss"])("cancels pending opening before the %s extension action", (action) => {
       const shell = renderInboxLifecycle("/c/channels/s1/c1")
+      mocks.handlers.openProfile.mockClear()
       act(() => shell.context.navigation.push(destination))
       fireEvent.click(screen.getByTestId(tid.inboxTrigger))
       act(() => {
@@ -748,6 +749,34 @@ describe("ShellFrame orchestration", () => {
       })
       shell.update({ frameHref: "/c/channels/s1", publishedHref: destination })
       expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+      if (action === "profile") expect(mocks.handlers.openProfile).not.toHaveBeenCalled()
+    })
+
+    it.each(["mobile", "desktop"] as const)("dismisses open Inbox on %s onUserBarOpenProfile instead of opening profile until the next click", (breakpoint) => {
+      const shell = renderInboxLifecycle("/c/channels/s1", breakpoint)
+      mocks.handlers.openProfile.mockClear()
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      expectVisibleInbox()
+
+      act(() => {
+        const view = mocks.viewProps.current as Parameters<typeof ShellFrameView>[0]
+        view.onUserBarOpenProfile("Viewer")
+      })
+      expect(screen.queryByTestId(tid.userBarExtension)).toBeNull()
+      expect(mocks.openChanges).toHaveBeenLastCalledWith(false)
+      expect(mocks.handlers.openProfile).not.toHaveBeenCalled()
+
+      ;(mocks.profile as Record<string, unknown>).profile = { data: { userId: "viewer" } }
+      try {
+        act(() => {
+          const view = mocks.viewProps.current as Parameters<typeof ShellFrameView>[0]
+          view.onUserBarOpenProfile("Viewer")
+        })
+        expect(mocks.handlers.openProfile).toHaveBeenCalledOnce()
+        expect((mocks.viewProps.current as Parameters<typeof ShellFrameView>[0]).userBarExtension.active).toBe("profile")
+      } finally {
+        delete (mocks.profile as Record<string, unknown>).profile
+      }
     })
 
     it("discards a pending user-bar request on account change", () => {

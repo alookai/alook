@@ -147,6 +147,8 @@ describe("ProfileCard surface contracts", () => {
 
     const profile = renderer.getByTestId("community-profile-card")
     expect(profile).toHaveTextContent("Ren")
+    expect(profile).toHaveClass("rounded-t-xl", "border-x", "border-t", "border-border/40")
+    expect(profile).not.toHaveClass("rounded-xl")
     expect(renderer.container.querySelectorAll("sheet-root")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("popover-root")).toHaveLength(0)
   })

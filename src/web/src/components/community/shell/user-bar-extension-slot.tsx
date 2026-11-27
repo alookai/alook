@@ -7,22 +7,11 @@ import type { MachineSummary } from "@/hooks/community/use-machines"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { COMMUNITY_USER_BAR_HEIGHT_CSS } from "./shell-frame-geometry"
-import type {
-  UserBarExtensionKind,
-  UserBarUpdateState,
+import {
+  USER_BAR_INTERACTIVE_SELECTOR,
+  type UserBarExtensionKind,
+  type UserBarUpdateState,
 } from "./user-bar-extension-state"
-
-const EXTERNAL_INTERACTIVE_SELECTOR = [
-  "button:not(:disabled)",
-  "a[href]",
-  "input:not(:disabled)",
-  "select:not(:disabled)",
-  "textarea:not(:disabled)",
-  "[contenteditable='true']",
-  "[role='button']",
-  "[role='link']",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",")
 
 type Props = {
   id?: string
@@ -77,10 +66,12 @@ export function UserBarExtensionSlot({
       onDismiss()
     }
     const onClick = (event: MouseEvent) => {
-      if (!(event.target instanceof Element)) return
-      if (ref.current?.contains(event.target)) return
-      if (event.target.closest(`[data-testid='${tid.userBar}']`)) return
-      if (event.target.closest(EXTERNAL_INTERACTIVE_SELECTOR)) onDismissOutside()
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (ref.current?.contains(target)) return
+      const interactiveTarget = target.closest(USER_BAR_INTERACTIVE_SELECTOR)
+      if (interactiveTarget?.closest(`[data-testid='${tid.userBar}']`)) return
+      if (interactiveTarget) onDismissOutside()
       else onDismiss()
     }
     document.addEventListener("keydown", onKeyDown)

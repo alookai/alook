@@ -6,7 +6,7 @@ import { getPrimaryDb } from "@/lib/db"
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers"
 import { createServerForUser } from "./create-server.server"
 import { sendAutomationMessage } from "./automation-message.server"
-import { broadcastToUserSafe, fanOutToServerMembers, fanOutToUsers } from "./fanout"
+import { broadcastDeliveriesSafe, fanOutToServerMembers, fanOutToUsers } from "./fanout"
 import { canonicalUserImage } from "./storage"
 
 const ServerReceipt = z.object({ server: z.object({ id: z.string(), name: z.string(), discriminator: z.string() }) })
@@ -39,7 +39,8 @@ export async function runAutomationSetup(req: NextRequest, ctx: AutomationSetupC
       if (!owned) throw writeError("Owned bot not found", 404)
       bot.handle = formatHandle(owned.name, owned.discriminator)
       const member = await queries.communityMember.addMember(db, { serverId: server.id, userId: bot.id })
-      await fanOutToServerMembers(server.id, { type: WS_EVENTS.MEMBER_JOIN, serverId: server.id, member: {
+      const botOnline = await queries.communityMachine.isBotOnline(db, bot.id)
+      await fanOutToServerMembers(server.id, { type: WS_EVENTS.MEMBER_JOIN, serverId: server.id, online: botOnline, member: {
         id: member.id, userId: bot.id, name: owned.name, discriminator: owned.discriminator,
         avatar: canonicalUserImage(bot.id, owned.image, owned.avatarVersion), avatarVersion: owned.avatarVersion,
         role: ROLES.MEMBER, joinedAt: member.joinedAt,
@@ -61,9 +62,12 @@ export async function runAutomationSetup(req: NextRequest, ctx: AutomationSetupC
         const deleted = await queries.communityDeleteMedia.deleteServerWithMedia(db, { serverId: createdServer.id, ownerId: ctx.userId })
         await Promise.allSettled([
           fanOutToUsers(recipients, { type: WS_EVENTS.SERVER_DELETE, serverId: createdServer.id }),
-          ...deleted.readStateRevisions.map(revision => broadcastToUserSafe(revision.userId, {
-            type: WS_EVENTS.READ_STATE_ADVANCED, revision: revision.revision, inboxChanged: true,
-          })),
+          broadcastDeliveriesSafe(deleted.readStateRevisions.map(revision => ({
+            userId: revision.userId,
+            event: {
+              type: WS_EVENTS.READ_STATE_ADVANCED, revision: revision.revision, inboxChanged: true,
+            },
+          }))),
         ])
       } catch { remainingServer = createdServer.handle }
     }

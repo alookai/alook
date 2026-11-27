@@ -13,6 +13,7 @@ import { user } from "../../schema";
 import type { Database } from "../../index";
 import { nanoid } from "nanoid";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { jsonTextSet } from "../_json-set";
 import { MENTION_KIND } from "../../../constants/community";
 import { withUniqueDiscriminator } from "../user";
 import { parseNameAndTag } from "../../../lib/discriminator";
@@ -248,6 +249,42 @@ export async function listUserServers(db: Database, userId: string) {
     .leftJoin(mentionCounts, eq(mentionCounts.serverId, communityServer.id))
     .orderBy(asc(communityServerMember.joinedAt), asc(communityServer.id));
   return sortServerRailRows(await readServerRailSnapshot(db, userId), rows);
+}
+
+export async function listUserServerSummariesByIds(
+  db: Database,
+  userId: string,
+  serverIds: readonly string[],
+) {
+  const uniqueIds = [...new Set(serverIds.filter((id) => id.length > 0))];
+  if (uniqueIds.length === 0) return [];
+  const [rows, rail] = await Promise.all([
+    db
+      .select({
+        id: communityServer.id,
+        name: communityServer.name,
+        discriminator: communityServer.discriminator,
+        description: communityServer.description,
+        icon: communityServer.icon,
+        official: communityServer.official,
+        ownerId: communityServer.ownerId,
+        createdAt: communityServer.createdAt,
+        role: communityServerMember.role,
+        memberId: communityServerMember.id,
+      })
+      .from(communityServer)
+      .innerJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityServer.id),
+          eq(communityServerMember.userId, userId),
+        ),
+      )
+      .where(inArray(communityServer.id, jsonTextSet(db, uniqueIds)))
+      .orderBy(asc(communityServerMember.joinedAt), asc(communityServer.id)),
+    readServerRailSnapshot(db, userId),
+  ]);
+  return sortServerRailRows(rail, rows);
 }
 
 /**

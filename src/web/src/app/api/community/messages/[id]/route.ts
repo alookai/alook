@@ -13,8 +13,9 @@ import {
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
 import {
-  broadcastToUserSafe,
+  broadcastDeliveriesSafe,
   fanOutToServerMembers,
+  fanOutToUsers,
 } from "@/lib/community/fanout"
 import { readCommunityMessageResource, readCommunityMessageProfiles } from "@/lib/community/message-payload"
 import { CommunityMessageReadSchema, COMMUNITY_RESOURCE_CONTRACT_VERSION, type CommunityContract } from "@alook/shared"
@@ -121,10 +122,13 @@ export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest,
   })
 
   if (result.deleted) {
-    await Promise.all(result.readStateRevisions.map((revision) => broadcastToUserSafe(revision.userId, {
-      type: WS_EVENTS.READ_STATE_ADVANCED,
-      revision: revision.revision,
-      inboxChanged: true,
+    await broadcastDeliveriesSafe(result.readStateRevisions.map((revision) => ({
+      userId: revision.userId,
+      event: {
+        type: WS_EVENTS.READ_STATE_ADVANCED,
+        revision: revision.revision,
+        inboxChanged: true,
+      },
     })))
     const event = {
       type: WS_EVENTS.CHANNEL_DELETE,
@@ -134,7 +138,7 @@ export const DELETE = withAuth(communityActorPolicy(), async (_req: NextRequest,
       parentMessageId: openerId,
     } as const
     if (audience) {
-      await Promise.all(audience.map((userId) => broadcastToUserSafe(userId, event)))
+      await fanOutToUsers(audience, event)
     } else {
       await fanOutToServerMembers(forum.serverId, event)
     }

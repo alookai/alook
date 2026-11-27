@@ -7,6 +7,7 @@ import { Message } from "./message"
 vi.mock("@/lib/community-db/projections", async (original) => ({
   ...await original<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: () => undefined,
+  useCanonicalCommunityIdentity: () => undefined,
 }))
 
 function mount() {

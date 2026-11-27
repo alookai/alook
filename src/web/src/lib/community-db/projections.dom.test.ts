@@ -28,7 +28,7 @@ import {
 } from "./projections"
 import { ingestMessages, ingestServerDetail, ingestServers, restoreCommunityCollections } from "./sync"
 import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
-import { canonicalChannelRow, profileSchema } from "./schema"
+import { canonicalChannelMembershipRow, canonicalChannelRow, profileSchema, serverMembershipKey, serverMembershipSchema, type AttentionScopeRow, type ChannelRow } from "./schema"
 import { writeCommunityCollectionRows } from "./write"
 
 describe("community DB projections", () => {
@@ -667,5 +667,224 @@ describe("community DB projections", () => {
       view.unmount()
       await registry.cleanup()
     }
+  })
+
+  it("keeps DM projections stable across unrelated presence updates and server attention changes", async () => {
+    const client = new QueryClient(), registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+
+    const profiles = [
+      profileSchema.parse({ id: "viewer", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 1 }),
+      ...Array.from({ length: 500 }, (_, i) =>
+        profileSchema.parse({ id: `u-${i}`, name: `User${i}`, discriminator: String(i + 1).padStart(4, "0"), avatar: "U", avatarVersion: 1 }),
+      ),
+    ]
+    const dmChannels = Array.from({ length: 300 }, (_, i) =>
+      canonicalChannelRow(channelResourceFixture({
+        id: `dm-${i}`,
+        serverId: null,
+        type: "dm",
+        name: null,
+        lastMessageAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+      })),
+    )
+    const dmMemberships = dmChannels.flatMap((dm, i) => [
+      canonicalChannelMembershipRow(dm.id, "viewer", "access", { source: "explicit" }),
+      canonicalChannelMembershipRow(dm.id, `u-${i}`, "access", { source: "explicit" }),
+    ])
+    const attentionScopes: AttentionScopeRow[] = Array.from({ length: 200 }, (_, i) => ({
+      scopeId: `srv-ch-${i}`,
+      channelId: `srv-ch-${i}`,
+      serverId: "s-other",
+      parentChannelId: null,
+      ordinaryUnread: false,
+      lastUnreadSeq: 0,
+      lastAttentionSeq: null,
+      attentionCount: 0,
+    }))
+
+    await writeCommunityCollectionRows(registry, "profiles", profiles, (r) => r.id)
+    await writeCommunityCollectionRows(registry, "channels", dmChannels, (r) => r.id)
+    await writeCommunityCollectionRows(registry, "channelMemberships", dmMemberships, (r) => r.id)
+    await writeCommunityCollectionRows(registry, "attentionScopes", attentionScopes, (r) => r.scopeId)
+
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const view = renderHook(() => useDmProjection(), { wrapper })
+    const localeCompareSpy = vi.spyOn(String.prototype, "localeCompare")
+    try {
+      await waitFor(() => expect(view.result.current?.length).toBe(300))
+      const before = view.result.current
+      localeCompareSpy.mockClear()
+
+      await act(async () => {
+        registry.runtime.ws.actions.setPresence("u-499", "online")
+        await Promise.resolve()
+      })
+      expect(view.result.current).toBe(before)
+      expect(localeCompareSpy).not.toHaveBeenCalled()
+
+      await act(async () => {
+        const nextAttention = attentionScopes.map((s, i) =>
+          i === 0 ? { ...s, ordinaryUnread: true, lastUnreadSeq: 5 } : s,
+        )
+        await writeCommunityCollectionRows(registry, "attentionScopes", nextAttention, (r) => r.scopeId)
+      })
+      expect(view.result.current).toBe(before)
+      expect(localeCompareSpy).not.toHaveBeenCalled()
+    } finally {
+      localeCompareSpy.mockRestore()
+      view.unmount()
+      await registry.cleanup()
+    }
+  })
+
+  it("keeps server rail and tree projections isolated from non-viewer memberships and other servers' attention", async () => {
+    const client = new QueryClient(), registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+
+    const servers = Array.from({ length: 40 }, (_, i) => ({
+      id: `s-${i}`,
+      name: `Srv ${i}`,
+      initial: "S",
+      active: false,
+      unread: false,
+      mentions: 0,
+      ownerId: "viewer",
+    }))
+    ingestServers(registry, serverRailResponseFixture({ servers }, "viewer"))
+    ingestServerDetail(
+      registry,
+      serverDirectoryFixture({
+        id: "s-0",
+        name: "Srv 0",
+        categories: [{ id: "cat-0", name: "General", channels: [{ id: "ch-0", name: "general", active: false, unread: false }] }],
+      }),
+    )
+
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    let railRenders = 0
+    let treeRenders = 0
+    const view = renderHook(() => {
+      railRenders += 1
+      treeRenders += 1
+      return {
+        rail: useServerRailProjection(),
+        tree: useServerTreeProjection("s-0"),
+      }
+    }, { wrapper })
+
+    try {
+      await waitFor(() => {
+        expect(view.result.current.rail?.servers).toHaveLength(40)
+        expect(view.result.current.tree?.id).toBe("s-0")
+      })
+      const railBefore = view.result.current.rail?.servers
+      const railRendersBefore = railRenders
+      await act(async () => {
+        await writeCommunityCollectionRows(
+          registry,
+          "serverMemberships",
+          [
+            ...registry.collections.serverMemberships.values(),
+            serverMembershipSchema.parse({
+              id: serverMembershipKey("s-0", "other-member-999"),
+              memberId: "mem-999",
+              serverId: "s-0",
+              userId: "other-member-999",
+              role: "member",
+              viewer: false,
+            }),
+          ],
+          (r) => r.id,
+        )
+      })
+      expect(railRenders - railRendersBefore).toBe(0)
+      expect(view.result.current.rail?.servers).toBe(railBefore)
+      view.unmount()
+
+      let isolatedTreeRenders = 0
+      const treeView = renderHook(() => {
+        isolatedTreeRenders += 1
+        return useServerTreeProjection("s-0")
+      }, { wrapper })
+      try {
+        await waitFor(() => expect(treeView.result.current?.id).toBe("s-0"))
+        const isolatedBefore = isolatedTreeRenders
+        await act(async () => {
+          await writeCommunityCollectionRows(
+            registry,
+            "attentionScopes",
+            [{
+              scopeId: "other-s1-ch",
+              channelId: "other-s1-ch",
+              serverId: "s-1",
+              parentChannelId: null,
+              ordinaryUnread: true,
+              lastUnreadSeq: 3,
+              lastAttentionSeq: null,
+              attentionCount: 1,
+            }],
+            (r) => r.scopeId,
+          )
+        })
+        expect(isolatedTreeRenders - isolatedBefore).toBe(0)
+      } finally {
+        treeView.unmount()
+      }
+      void treeRenders
+    } finally {
+      view.unmount()
+      await registry.cleanup()
+    }
+  })
+
+  it("groups channel ref directory in O(S+C) without per-server channel array filters", async () => {
+    const client = new QueryClient(), registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+
+    const dirServers = Array.from({ length: 100 }, (_, i) => ({
+      id: `ds-${i}`,
+      name: `S${i}`,
+      initial: "S",
+      active: false,
+      unread: false,
+      mentions: 0,
+      ownerId: "viewer",
+    }))
+    ingestServers(registry, serverRailResponseFixture({ servers: dirServers }, "viewer"))
+    const dirChannels: ChannelRow[] = []
+    for (let s = 0; s < 100; s += 1) {
+      for (let c = 0; c < 10; c += 1) {
+        dirChannels.push(canonicalChannelRow(channelResourceFixture({ id: `dc-${s}-${c}`, serverId: `ds-${s}`, type: "text", position: c })))
+      }
+    }
+    await writeCommunityCollectionRows(registry, "channels", dirChannels, (r) => r.id)
+
+    let fullChannelArrayFilterCalls = 0
+    const origFilter = Array.prototype.filter
+    const filterSpy = vi.spyOn(Array.prototype, "filter").mockImplementation(function (
+      this: unknown[],
+      predicate: (value: unknown, index: number, array: unknown[]) => unknown,
+      thisArg?: unknown,
+    ) {
+      if (this.length === dirChannels.length && typeof this[0] === "object" && this[0] !== null && "serverId" in this[0]) {
+        fullChannelArrayFilterCalls += 1
+      }
+      return origFilter.call(this, predicate, thisArg)
+    })
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    let dirView: ReturnType<typeof renderHook<ReturnType<typeof useChannelRefDirectoryProjection>, unknown>> | null = null
+    try {
+      dirView = renderHook(() => useChannelRefDirectoryProjection(), { wrapper })
+      await waitFor(() => expect(dirView!.result.current).toHaveLength(100))
+    } finally {
+      filterSpy.mockRestore()
+      dirView?.unmount()
+      await registry.cleanup()
+    }
+    expect(fullChannelArrayFilterCalls).toBeLessThan(10)
   })
 })

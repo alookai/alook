@@ -143,6 +143,52 @@ it("persists scoped read cursors and revisions on the migrated schema", async ()
   }
 });
 
+it("marks 600 channels read in bounded set-based statements while skipping already-read channels", async () => {
+  const { db, sqlite } = createMigratedDb();
+  try {
+    const userId = "reader_mass";
+    await db.insert(user).values([
+      { id: userId, email: "reader-mass@example.test", name: "ReaderMass" },
+      { id: "sender_mass", email: "sender-mass@example.test", name: "SenderMass" },
+    ]).run();
+
+    const totalChannels = 600;
+    const channelIds = Array.from({ length: totalChannels }, (_, i) => `mass_ch_${String(i).padStart(3, "0")}`);
+    sqlite.transaction(() => {
+      const insertCh = sqlite.prepare("INSERT INTO community_channel (id, type, created_at) VALUES (?, 'text', '2026-09-01T00:00:00Z')");
+      const insertMsg = sqlite.prepare("INSERT INTO community_message (id, author_id, channel_id, seq, content, created_at) VALUES (?, 'sender_mass', ?, ?, 'hi', ?)");
+      const insertRs = sqlite.prepare("INSERT INTO community_read_state (id, user_id, channel_id, last_read_message_id, last_read_at, last_read_seq) VALUES (?, ?, ?, ?, ?, ?)");
+      for (let i = 0; i < totalChannels; i++) {
+        const chId = channelIds[i]!;
+        insertCh.run(chId);
+        const msgId = `msg_${i}`;
+        const ts = `2026-09-07T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`;
+        insertMsg.run(msgId, chId, 5, ts);
+        // First 550 channels are already read at seq 5; last 50 are unread.
+        if (i < 550) {
+          insertRs.run(`rs_${i}`, userId, chId, msgId, ts, 5);
+        }
+      }
+    })();
+
+    const batchSpy = vi.spyOn(db, "batch");
+    const first = await readStateQueries.markAllServerChannelsRead(db, userId, channelIds);
+    expect(first).toEqual({ count: 600, changed: true, revision: 1 });
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    // 600 targets chunked at 250 = 3 set-based INSERT..SELECT statements + 2 revision statements = 5 total.
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(5);
+
+    const storedCount = (sqlite.prepare("SELECT COUNT(*) AS cnt FROM community_read_state WHERE user_id = ? AND last_read_seq = 5").get(userId) as { cnt: number }).cnt;
+    expect(storedCount).toBe(600);
+
+    // Re-running when all 600 channels are already read produces changed: false and leaves revision untouched.
+    const second = await readStateQueries.markAllServerChannelsRead(db, userId, channelIds);
+    expect(second).toEqual({ count: 600, changed: false, revision: 1 });
+  } finally {
+    sqlite.close();
+  }
+});
+
 describe("markReadToMessageBuilder — channel branch", () => {
   it("returns a builder synchronously (no await, no Promise) so it composes into db.batch", () => {
     const db = createInsertBuilderMock();
@@ -318,7 +364,7 @@ describe("markAllServerChannelsRead", () => {
     spy.mockRestore();
   });
 
-  it("returns the count of non-empty channels; inserts aligned rows for channels with no existing read state", async () => {
+  it("returns the count of non-empty channels; batches set-based read-state upserts in a single statement", async () => {
     const db = makeMassMarkDbMock(11);
     const messageModule = await import("../../src/db/queries/community/message");
     // c_a and c_b have messages; c_c_empty has none.
@@ -334,30 +380,13 @@ describe("markAllServerChannelsRead", () => {
       revision: 11,
     });
     expect(db.batch).toHaveBeenCalledTimes(1);
-    expect(db.batch.mock.calls[0]![0]).toHaveLength(4);
+    // [advanceRevisionWhenChanged, setBasedInsertSelect, readRevision]
+    expect(db.batch.mock.calls[0]![0]).toHaveLength(3);
     expect(db.__deletes).toHaveLength(0);
-    const rows = db.__inserts.filter((row: any) => row.channelId);
-    expect(rows).toHaveLength(2);
-    // The invariant per-row: lastReadAt === message.createdAt, lastReadMessageId === message.id.
-    const byChannel = Object.fromEntries(rows.map((r) => [r.channelId, r]));
-    expect(byChannel["c_a"]).toMatchObject({
-      userId: "u_1",
-      channelId: "c_a",
-      lastReadAt: "2026-07-05T10:00:00Z",
-      lastReadMessageId: "m_a_latest",
-      lastReadSeq: 10,
-    });
-    expect(byChannel["c_b"]).toMatchObject({
-      userId: "u_1",
-      channelId: "c_b",
-      lastReadAt: "2026-07-05T11:00:00Z",
-      lastReadMessageId: "m_b_latest",
-      lastReadSeq: 11,
-    });
     spy.mockRestore();
   });
 
-  it("uses the same guarded upsert for existing rows and fresh rows", async () => {
+  it("uses the same guarded set-based upsert for existing rows and fresh rows", async () => {
     const db = makeMassMarkDbMock();
     const messageModule = await import("../../src/db/queries/community/message");
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
@@ -367,15 +396,10 @@ describe("markAllServerChannelsRead", () => {
 
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
     expect(result).toMatchObject({ count: 2, changed: true, revision: 7 });
-    const sets = db.__conflicts.slice(0, 2).map((conflict: any) => conflict.set);
-    const aTuple = sets.find((s) => s.lastReadMessageId === "m_a_new");
-    const bTuple = sets.find((s) => s.lastReadMessageId === "m_b_new");
-    expect(aTuple).toBeDefined();
-    expect(bTuple).toBeDefined();
-    expect(aTuple!.lastReadAt).toBe("2026-07-05T10:00:00Z");
-    expect(bTuple!.lastReadAt).toBe("2026-07-05T11:00:00Z");
-    expect(aTuple!.lastReadSeq).toBe(20);
-    expect(bTuple!.lastReadSeq).toBe(21);
+    expect(db.__conflicts[0]).toMatchObject({
+      target: [communityReadState.userId, communityReadState.channelId],
+    });
+    expect(db.__conflicts[0]!.setWhere).toBeDefined();
     spy.mockRestore();
   });
 

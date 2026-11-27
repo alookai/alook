@@ -233,12 +233,11 @@ describe("useCommunityWs — member events", () => {
     expect(getCapturedRuntime().ws.get()).not.toHaveProperty("profilesByUserId")
   })
 
-  it("exact-refetches only the joined server's active presence seed", async () => {
-    await mountHook()
+  it("seeds the joined member's presence directly without refetching the server presence snapshot", async () => {
+    await mountHook({ viewerUserId: "u_me" })
     const affectedKey = communityKeys.presence("srv_1")
     const otherKey = communityKeys.presence("srv_2")
-    let online: string[] = []
-    const affectedQuery = vi.fn(async (): Promise<PresenceResponse> => ({ online }))
+    const affectedQuery = vi.fn(async (): Promise<PresenceResponse> => ({ online: [] }))
     const otherQuery = vi.fn(async (): Promise<PresenceResponse> => ({
       online: ["u_other"],
     }))
@@ -252,11 +251,11 @@ describe("useCommunityWs — member events", () => {
     })
     const unsubscribe = observer.subscribe(() => undefined)
     const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    online = ["u_online"]
 
     capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.join",
       serverId: "srv_1",
+      online: true,
       member: { avatar: null,
         id: "mem_online",
         userId: "u_online",
@@ -268,23 +267,18 @@ describe("useCommunityWs — member events", () => {
       },
     } satisfies CommunityMemberJoin))
 
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: affectedKey,
-      exact: true,
-      refetchType: "active",
-    })
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: affectedKey }),
+    )
     expect(invalidateSpy).not.toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: otherKey }),
     )
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryData(affectedKey)).toEqual({
-        online: ["u_online"],
-      })
-    })
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_online")).toBe("online")
 
     capturedOnMessage!(currentCommunityEventFixture({
       type: "community:member.join",
       serverId: "srv_1",
+      online: false,
       member: { avatar: null,
         id: "mem_offline",
         userId: "u_offline",
@@ -296,15 +290,9 @@ describe("useCommunityWs — member events", () => {
       },
     } satisfies CommunityMemberJoin))
 
-    await vi.waitFor(() => {
-      expect(affectedQuery).toHaveBeenCalledTimes(3)
-    })
-    const refreshedSeed = capturedQueryClient.getQueryData<PresenceResponse>(affectedKey)
-    expect(refreshedSeed).toEqual({ online: ["u_online"] })
+    expect(getCapturedRuntime().ws.get().presenceByUserId.get("u_offline")).toBe("offline")
+    expect(affectedQuery).toHaveBeenCalledTimes(1)
     expect(otherQuery).toHaveBeenCalledTimes(1)
-    expect(capturedQueryClient.getQueryData(otherKey)).toEqual({
-      online: ["u_other"],
-    })
     unsubscribe()
   })
 
@@ -1096,5 +1084,131 @@ describe("membership metadata and access lifetime", () => {
       id: "late", seq: 2, authorId: "author", authorName: "Author", authorAvatarVersion: 0, content: "late", type: "chat", createdAt: "2026-09-06T00:00:00.000Z",
     }) }))
     expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "child", serverId: "server" }).liveIds.length).toBe(0)
+  })
+
+  it("seeds presence from member.join without refetching server presence", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    let presenceFetches = 0
+    const presenceKey = communityKeys.presence("srv-1")
+    const observer = new QueryObserver(capturedQueryClient, {
+      queryKey: presenceKey,
+      queryFn: async () => {
+        presenceFetches += 1
+        return { online: ["u-1"], offline: ["u-2"] }
+      },
+      staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    try {
+      await capturedQueryClient.query({
+        queryKey: presenceKey,
+        queryFn: async () => {
+          presenceFetches += 1
+          return { online: ["u-1"], offline: ["u-2"] }
+        },
+        staleTime: Infinity,
+      })
+      expect(presenceFetches).toBe(1)
+
+      for (let i = 1; i <= 5; i++) {
+        capturedOnMessage!(currentCommunityEventFixture({
+          type: "community:member.join",
+          serverId: "srv-1",
+          online: i % 2 === 1,
+          member: {
+            id: `mem-new-${i}`,
+            userId: `u-new-${i}`,
+            role: "member",
+            name: `NewUser${i}`,
+            discriminator: String(i).padStart(4, "0"),
+            avatar: null,
+            avatarVersion: 0,
+            joinedAt: "2026-11-26T00:00:00.000Z",
+          },
+        } satisfies CommunityMemberJoin))
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30))
+
+      expect(presenceFetches).toBe(1)
+      expect(getCapturedRuntime().ws.get().presenceByUserId.get("u-new-1")).toBe("online")
+      expect(getCapturedRuntime().ws.get().presenceByUserId.get("u-new-2")).toBe("offline")
+      expect(getCapturedRuntime().ws.get().presenceByUserId.get("u-new-5")).toBe("online")
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it("suppresses attention, server, directory, and addable-member refetches on non-viewer leave and notify membership changes", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const counts = {
+      attention: 0,
+      serverDetail: 0,
+      channelRefDir: 0,
+      channelMembersNotify: 0,
+      channelAddable: 0,
+      threadParticipants: 0,
+    }
+    const unsubscribers: Array<() => void> = []
+    const observe = (queryKey: readonly unknown[], fn: () => Promise<unknown>) => {
+      capturedQueryClient.setQueryData(queryKey, { seeded: true })
+      const obs = new QueryObserver(capturedQueryClient, {
+        queryKey,
+        queryFn: fn,
+        staleTime: Infinity,
+      })
+      unsubscribers.push(obs.subscribe(() => undefined))
+    }
+    try {
+      observe(communityKeys.accountAttention(), async () => {
+        counts.attention += 1
+        return { loaded: true, readRevision: 0 }
+      })
+      observe(communityKeys.server("srv-0"), async () => {
+        counts.serverDetail += 1
+        return { id: "srv-0" }
+      })
+      observe(communityKeys.channelRefDirectory(), async () => {
+        counts.channelRefDir += 1
+        return { servers: [] }
+      })
+      observe(communityKeys.channelMembers("th-other", "notify"), async () => {
+        counts.channelMembersNotify += 1
+        return { members: [] }
+      })
+      observe(communityKeys.channelAddableMembers("th-other"), async () => {
+        counts.channelAddable += 1
+        return { members: [] }
+      })
+      observe(communityKeys.threadParticipants("th-other"), async () => {
+        counts.threadParticipants += 1
+        return { participants: [] }
+      })
+
+      capturedOnMessage!(currentCommunityEventFixture({
+        type: "community:member.leave",
+        serverId: "srv-0",
+        userId: "other-user",
+      } satisfies CommunityMemberLeave))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(counts.attention).toBe(0)
+
+      capturedOnMessage!(currentCommunityEventFixture({
+        type: "community:channel.membership.change",
+        serverId: "srv-0",
+        channelId: "th-other",
+        userId: "other-user",
+        relation: "notify",
+        present: false,
+      }))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(counts.serverDetail).toBe(0)
+      expect(counts.channelRefDir).toBe(0)
+      expect(counts.channelAddable).toBe(0)
+      expect(counts.attention).toBe(0)
+      expect(counts.channelMembersNotify).toBe(1)
+      expect(counts.threadParticipants).toBe(1)
+    } finally {
+      for (const unsub of unsubscribers) unsub()
+    }
   })
 })

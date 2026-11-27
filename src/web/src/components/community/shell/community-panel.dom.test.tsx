@@ -3,15 +3,30 @@ import { describe, expect, it, vi } from "vitest"
 import { fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
+const projectionCalls = vi.hoisted(() => ({
+  profiles: 0,
+  identities: 0,
+}))
+
 vi.mock("./community-sheet", () => ({
   CommunitySheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
-vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
-  useCanonicalProfilesByUserId: () => new Map([
+vi.mock("@/lib/community-db/projections", async (importOriginal) => {
+  const canonical = new Map([
     ["user_1", { id: "user_1", name: "Canonical long author name", avatar: "A" }],
-  ]),
-}))
+  ])
+  return {
+    ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
+    useCanonicalProfilesByUserId: () => {
+      projectionCalls.profiles += 1
+      return canonical
+    },
+    useCanonicalIdentitiesByUserId: () => {
+      projectionCalls.identities += 1
+      return canonical
+    },
+  }
+})
 
 import { CommunityPanel } from "./community-panel"
 
@@ -83,5 +98,24 @@ describe("auxiliary panel read states", () => {
     expect(retry).toHaveBeenCalledOnce()
     fireEvent.click(view.getByText("Saved thread"))
     expect(open).toHaveBeenCalledExactlyOnceWith("cached-thread")
+  })
+
+  it("skips profile and identity subscriptions while closed", () => {
+    projectionCalls.profiles = 0
+    projectionCalls.identities = 0
+    const view = render(
+      <CommunityPanel
+        open={false}
+        onOpenChange={vi.fn()}
+        kind={null}
+        members={[]}
+        pinned={[]}
+        threads={[]}
+        onOpenThread={vi.fn()}
+      />,
+    )
+    expect(projectionCalls.profiles).toBe(0)
+    expect(projectionCalls.identities).toBe(0)
+    view.unmount()
   })
 })

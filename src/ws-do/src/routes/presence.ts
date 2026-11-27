@@ -1,7 +1,9 @@
+import { createDb, queries, readOrStale } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 import { settleInBatches } from "../settle-in-batches"
 
 const presenceBatchSize = 40
+const MAX_PRESENCE_IDS = 1000
 
 type BatchPresenceTargetResult =
   | { kind: "online" }
@@ -41,7 +43,6 @@ async function checkBatchPresenceTarget(env: Env, userId: string): Promise<Batch
 }
 
 export async function handleBatchPresence({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
-
   if (url.pathname !== "/presence/users" || request.method !== "POST") return null
 
   let body: unknown
@@ -52,7 +53,7 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
   }
   const ids = (body as { ids?: unknown })?.ids
   if (!Array.isArray(ids)) return new Response("ids must be an array", { status: 400 })
-  if (ids.length > 1000) return new Response("too many ids", { status: 400 })
+  if (ids.length > MAX_PRESENCE_IDS) return new Response("too many ids", { status: 400 })
   if (!ids.every((id): id is string => typeof id === "string")) {
     return new Response("ids must be strings", { status: 400 })
   }
@@ -61,9 +62,31 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
   reqLog.debug("bulk presence check")
 
   const startedAt = Date.now()
+  const uniqueIds = [...new Set(ids)]
+  const botLookup = env.DB
+    ? await readOrStale(
+        () => queries.communityMachine.getBotPresenceStates(createDb(env.DB), uniqueIds),
+        { botUserIds: new Set<string>(), onlineBotUserIds: new Set<string>() },
+        { route: "ws-do/batch-presence-bots" },
+      )
+    : { value: { botUserIds: new Set<string>(), onlineBotUserIds: new Set<string>() }, stale: false }
+
+  const online: string[] = []
+  const offline: string[] = []
+  const humanIds: string[] = []
+
+  for (const id of ids) {
+    if (botLookup.value.botUserIds.has(id)) {
+      if (botLookup.value.onlineBotUserIds.has(id)) online.push(id)
+      else offline.push(id)
+    } else {
+      humanIds.push(id)
+    }
+  }
+
   let active = 0
   let maxActive = 0
-  const results = await settleInBatches(ids, async (id) => {
+  const results = await settleInBatches(humanIds, async (id) => {
     active += 1
     maxActive = Math.max(maxActive, active)
     try {
@@ -72,9 +95,8 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
       active -= 1
     }
   }, presenceBatchSize)
-  const online: string[] = []
-  const offline: string[] = []
-  let offlineCount = 0
+
+  let offlineCount = offline.length
   let staleCount = 0
   let failureCount = 0
   const failureCounts: Record<BatchPresenceFailureKind, number> = {
@@ -84,20 +106,21 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
     "invalid-body": 0,
   }
   for (const [index, result] of results.entries()) {
+    const id = humanIds[index]!
     if (result.status === "rejected") {
       failureCount += 1
       failureCounts.throw += 1
       reqLog.warn("bulk_presence_target_failed", {
-        userId: ids[index],
+        userId: id,
         failureKind: "throw",
       })
       continue
     }
 
     if (result.value.kind === "online") {
-      online.push(ids[index])
+      online.push(id)
     } else if (result.value.kind === "offline") {
-      offline.push(ids[index])
+      offline.push(id)
       offlineCount += 1
     } else if (result.value.kind === "stale") {
       staleCount += 1
@@ -105,7 +128,7 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
       failureCount += 1
       failureCounts[result.value.kind] += 1
       reqLog.warn("bulk_presence_target_failed", {
-        userId: ids[index],
+        userId: id,
         failureKind: result.value.kind,
         status: result.value.status,
       })
@@ -114,6 +137,8 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
 
   reqLog.info("bulk_presence_check_complete", {
     targetCount: ids.length,
+    botCount: ids.length - humanIds.length,
+    humanCount: humanIds.length,
     resultCount: results.length,
     successCount: online.length + offlineCount,
     onlineCount: online.length,
@@ -123,18 +148,29 @@ export async function handleBatchPresence({ request, env, url, traceId, log }: R
     failureCounts,
     maxActive,
     batchSize: presenceBatchSize,
-    batchCount: Math.ceil(ids.length / presenceBatchSize),
+    batchCount: Math.ceil(humanIds.length / presenceBatchSize),
     durationMs: Date.now() - startedAt,
   })
   return Response.json({ online, offline })
 }
 
 export async function handleSinglePresence({ request, env, url }: RouterContext): Promise<Response | null> {
-  // Per-user presence — dead in-tree, kept for rollout safety.
   const presenceCheck = url.pathname.match(/^\/presence\/user\/(.+)$/)
   if (!presenceCheck || request.method !== "GET") return null
 
-  const uid = presenceCheck[1]
+  const uid = presenceCheck[1]!
+  if (env.DB) {
+    const { value, stale } = await readOrStale(
+      () => queries.communityMachine.getBotPresenceStates(createDb(env.DB), [uid]),
+      { botUserIds: new Set<string>(), onlineBotUserIds: new Set<string>() },
+      { route: "ws-do/single-presence-bot" },
+    )
+    if (stale) return Response.json({ online: false, stale: true })
+    if (value.botUserIds.has(uid)) {
+      return Response.json({ online: value.onlineBotUserIds.has(uid) })
+    }
+  }
+
   const doId = env.WS_DO.idFromName("user:" + uid)
   const stub = env.WS_DO.get(doId)
   return stub.fetch(

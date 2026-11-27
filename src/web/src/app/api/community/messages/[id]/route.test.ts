@@ -35,7 +35,9 @@ const mockGetMessageByChannelAndSeq = vi.fn()
 const mockToAgentMessage = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockFanOutToServerMembers = vi.fn()
+const mockFanOutToUsers = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
+const mockBroadcastDeliveriesSafe = vi.fn()
 
 const replicaDb = { __db: "replica" }
 const primaryDb = { __db: "primary" }
@@ -51,7 +53,9 @@ vi.mock("@/lib/community/resolve-ref", () => ({
 }))
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
+  fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+  broadcastDeliveriesSafe: (...a: unknown[]) => mockBroadcastDeliveriesSafe(...a),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -534,13 +538,12 @@ describe("DELETE /api/community/messages/[id]", () => {
     const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
 
     expect(res.status).toBe(204)
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(2)
-    expect(mockBroadcastToUserSafe.mock.calls.map((call) => call[0])).toEqual(["u1", "u2"])
-    expect(mockBroadcastToUserSafe.mock.calls[0]![1]).toMatchObject({
+    expect(mockFanOutToUsers).toHaveBeenCalledTimes(1)
+    expect(mockFanOutToUsers).toHaveBeenCalledWith(["u1", "u2"], expect.objectContaining({
       channelId: "child_1",
       parentChannelId: "forum_1",
       parentMessageId: "opener_1",
-    })
+    }))
     expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
   })
 

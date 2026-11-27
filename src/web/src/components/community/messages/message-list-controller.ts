@@ -12,7 +12,33 @@ import { hashKey } from "@tanstack/react-query"
 import { messageRailTailPaddingEnd } from "@/lib/community/conversation-layout"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
 import { READ_VISIBILITY_THRESHOLD } from "@/hooks/community/use-read-observer"
+import { useLatestRef } from "@/hooks/community/use-latest-ref"
 import { useConversationFooterSlot } from "./conversation-footer-shell"
+
+function escapeAttrValue(value: string): string {
+  return value.replace(/["\\\n\r\f]/g, "\\$&")
+}
+
+function maxMessageSeq(messages: readonly { seq?: number }[], floor: number): number {
+  let max = floor
+  for (const message of messages) {
+    const seq = message.seq ?? 0
+    if (seq > max) max = seq
+  }
+  return max
+}
+
+function rowMessageBodyFromWrapper(wrapper: HTMLElement): HTMLElement | null {
+  const row = wrapper.firstElementChild as HTMLElement | null
+  if (!row) return null
+  const candidate = row.firstElementChild as HTMLElement | null
+  if (candidate?.hasAttribute("data-msg-id")) return candidate
+  const key = row.dataset.messageRowKey
+  if (key && (key.startsWith("rail:") || key.startsWith("date:") || key.startsWith("new:") || key.startsWith("divider:"))) {
+    return null
+  }
+  return wrapper.querySelector<HTMLElement>("[data-msg-id]")
+}
 
 export function useMessageListController({
   channelId,
@@ -70,7 +96,8 @@ export function useMessageListController({
     resolvedChannelId,
     positionScope?.tag ?? null,
   ])
-  const observedSeq = Math.max(latestSeq ?? 0, ...messages.map(message => message.seq ?? 0))
+  const observedSeq = maxMessageSeq(messages, latestSeq ?? 0)
+  const messagesRef = useLatestRef(messages)
   const createLookback = () => ({ owner: {}, scopeKey, entry: positionEntry,
     initialized: newBoundary !== undefined || newDividerBefore !== undefined,
     target: newBoundary !== undefined ? newBoundary.target?.id ?? null : newDividerBefore ?? null,
@@ -250,19 +277,64 @@ export function useMessageListController({
     const root = scrollRef.current
     if (!root || active === false || !readPositionReady) return 0
     const viewport = root.getBoundingClientRect()
-    const peers = new Map(messages.filter(message => message.authorId && message.authorId !== viewerUserId)
-      .map(message => [message.id, message.seq ?? 0]))
+    const viewportBottom = viewport.bottom - capsuleHeight
+    const peers = new Map<string, number>()
+    for (const message of messagesRef.current) {
+      if (message.authorId && message.authorId !== viewerUserId && message.seq) {
+        peers.set(message.id, message.seq)
+      }
+    }
+    if (peers.size === 0) return 0
     let through = 0
-    for (const body of root.querySelectorAll<HTMLElement>("[data-msg-id]")) {
+    const checkBody = (body: HTMLElement) => {
       const seq = peers.get(body.dataset.msgId ?? "")
-      if (!seq || seq <= through) continue
+      if (!seq || seq <= through) return
       const rect = body.getBoundingClientRect()
-      const visibleArea = Math.max(0, Math.min(rect.bottom, viewport.bottom - capsuleHeight) - Math.max(rect.top, viewport.top))
+      const visibleArea = Math.max(0, Math.min(rect.bottom, viewportBottom) - Math.max(rect.top, viewport.top))
         * Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left))
       if (rect.width > 0 && rect.height > 0 && visibleArea / (rect.width * rect.height) >= READ_VISIBILITY_THRESHOLD) through = seq
     }
+    const rowsEl = root.querySelector?.<HTMLElement>("[data-message-rows]")
+    if (rowsEl && rowsEl.children.length > 0) {
+      const children = rowsEl.children
+      let firstIdx = 0
+      while (firstIdx < children.length && !(children[firstIdx] as HTMLElement).hasAttribute("data-index")) {
+        firstIdx += 1
+      }
+      let lastIdx = children.length - 1
+      while (lastIdx >= firstIdx && !(children[lastIdx] as HTMLElement).hasAttribute("data-index")) {
+        lastIdx -= 1
+      }
+      if (firstIdx <= lastIdx) {
+        let lo = firstIdx
+        let hi = lastIdx
+        let firstCandidate = lastIdx + 1
+        while (lo <= hi) {
+          const mid = (lo + hi) >>> 1
+          const wrapper = children[mid] as HTMLElement
+          if (wrapper.getBoundingClientRect().bottom > viewport.top) {
+            firstCandidate = mid
+            hi = mid - 1
+          } else {
+            lo = mid + 1
+          }
+        }
+        const start = Math.max(firstIdx, firstCandidate - 1)
+        for (let i = start; i <= lastIdx; i++) {
+          const wrapper = children[i] as HTMLElement
+          const wrapperRect = wrapper.getBoundingClientRect()
+          if (wrapperRect.top >= viewportBottom) break
+          const body = rowMessageBodyFromWrapper(wrapper)
+          if (body) checkBody(body)
+        }
+        return through
+      }
+    }
+    for (const body of root.querySelectorAll<HTMLElement>("[data-msg-id]")) {
+      checkBody(body)
+    }
     return through
-  }, [active, messages, capsuleHeight, readPositionReady, scrollRef, viewerUserId])
+  }, [active, capsuleHeight, messagesRef, readPositionReady, scrollRef, viewerUserId])
   const lookbackView = useRef<{ owner: object; throughSeq: number; readingTail: boolean; readable: boolean; dividerVisibility: typeof newDividerVisibility; visiblePeerSeq: () => number } | null>(null)
   useLayoutEffect(() => {
     lookbackView.current = { owner: lookback.owner, throughSeq: observedSeq, readingTail,
@@ -423,11 +495,11 @@ export function useMessageListController({
   const jumpClearTimerRef = useRef<number | null>(null)
   const jumpVisibilityFrameRef = useRef<number | null>(null)
   const jumpTo = useCallback((id: string, behavior: ScrollBehavior = messageScrollBehavior()) => {
-    if (!messages.some(message => message.id === id)) { onOpenContextId?.(id); return }
+    if (!messagesRef.current.some(message => message.id === id)) { onOpenContextId?.(id); return }
     setJumped(id)
     setJumpRevision((value) => value + 1)
     jumpToIndex(id, behavior)
-  }, [messages, onOpenContextId, jumpToIndex, setJumped, setJumpRevision])
+  }, [messagesRef, onOpenContextId, jumpToIndex, setJumped, setJumpRevision])
   useEffect(() => {
     if (!jumped) return
     const id = jumped
@@ -448,10 +520,9 @@ export function useMessageListController({
     const waitUntilVisible = () => {
       if (!active) return
       const root = scrollRef.current
-      const row = root
-        ? Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
-          .find((element) => element.dataset.msgId === id)
-        : undefined
+      const row = root && typeof (root as { querySelector?: unknown }).querySelector === "function"
+        ? root.querySelector<HTMLElement>(`[data-msg-id="${escapeAttrValue(id)}"]`) ?? undefined
+        : Array.from(root?.querySelectorAll<HTMLElement>("[data-msg-id]") ?? []).find((element) => element.dataset.msgId === id)
       if (root && row) {
         const rootRect = root.getBoundingClientRect()
         const rowRect = row.getBoundingClientRect()

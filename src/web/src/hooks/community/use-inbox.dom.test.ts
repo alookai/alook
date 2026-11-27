@@ -1101,4 +1101,42 @@ describe("useInboxAttention", () => {
       harness.dispose()
     }
   })
+
+  it("skips marked list recomputation on unrelated websocket seen-message events when disabled", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
+    })
+    const registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+    const markedItems = Array.from({ length: 200 }, (_, i) => ({
+      channelId: "ch-1",
+      serverId: "s-1",
+      m: { id: `m-${i}` },
+    }))
+    client.setQueryData(communityKeys.inboxMarked(), { marked: markedItems })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const view = renderHook(() => useInboxMarked(false), { wrapper })
+    let markedFilterCalls = 0
+    const origFilter = Array.prototype.filter
+    const filterSpy = vi.spyOn(Array.prototype, "filter").mockImplementation(function (
+      this: unknown[],
+      predicate: (value: unknown, index: number, array: unknown[]) => unknown,
+      thisArg?: unknown,
+    ) {
+      if (this === markedItems || this.length === markedItems.length) markedFilterCalls += 1
+      return origFilter.call(this, predicate, thisArg)
+    })
+    try {
+      await act(async () => {
+        registry.runtime.ws.actions.markSeenMessage("unrelated-seen-message")
+      })
+      expect(markedFilterCalls).toBe(0)
+    } finally {
+      filterSpy.mockRestore()
+      view.unmount()
+      await registry.cleanup()
+      client.clear()
+    }
+  })
 })

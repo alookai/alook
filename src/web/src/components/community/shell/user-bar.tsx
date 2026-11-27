@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
+  memo,
   useId,
   useRef,
   type RefObject,
@@ -24,10 +25,11 @@ import { UserBarExtensionSlot } from "./user-bar-extension-slot"
 import { UserBarPopover } from "./user-bar-popover"
 import { useHydratedClient } from "./use-hydrated-client"
 import styles from "./user-bar.module.css"
-import type {
-  UserBarExtensionKind,
-  UserBarUpdatePhase,
-  UserBarUpdateState,
+import {
+  USER_BAR_INTERACTIVE_SELECTOR,
+  type UserBarExtensionKind,
+  type UserBarUpdatePhase,
+  type UserBarUpdateState,
 } from "./user-bar-extension-state"
 
 type UserBarExtension = {
@@ -43,7 +45,7 @@ type UserBarExtension = {
   onDismiss: () => void
 }
 
-export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening = false, onInboxOpenChange, extension }: {
+export const UserBar = memo(function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening = false, onInboxOpenChange, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
   onOpenProfile?: OpenProfile
@@ -71,7 +73,17 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
     inboxOpen
     || Boolean(extension && extension.active !== "none")
   )
-  const closeInboxForAction = () => {
+  const hasOpenExtension = Boolean(
+    inboxOpen
+    || inboxOpening
+    || (extension && extension.active !== "none"),
+  )
+  const dismissOpenSlot = () => {
+    setPendingExtensionFocus("none")
+    if (extension && extension.active !== "none") {
+      extension.onDismiss()
+      return
+    }
     if (inboxOpen || inboxOpening) onInboxOpenChange?.(false)
   }
   const dismissExtensionWithFocus = () => {
@@ -117,6 +129,14 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       data-testid={tid.userBar}
       style={nativeMobile ? { paddingBottom: "0.25rem" } : undefined}
       className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0 sm:px-2 sm:pb-3"
+      onClick={(e) => {
+        if (extension && extension.active !== "none") return
+        if (!(inboxOpen || inboxOpening)) return
+        if (!(e.target instanceof Element)) return
+        if (e.target.closest(`[data-testid='${tid.userBarExtension}']`)) return
+        if (e.target.closest(USER_BAR_INTERACTIVE_SELECTOR)?.closest(`[data-testid='${tid.userBar}']`)) return
+        dismissOpenSlot()
+      }}
     >
       {mobile
         ? <UserBarExtensionDrawer onDismiss={dismissExtensionWithFocus}>{extensionContent}</UserBarExtensionDrawer>
@@ -155,7 +175,8 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
           inboxOpen={inboxOpen}
           inboxOpening={inboxOpening}
           onInboxOpenChange={onInboxOpenChange}
-          closeInboxForAction={closeInboxForAction}
+          hasOpenExtension={hasOpenExtension}
+          dismissOpenSlot={dismissOpenSlot}
           profileTriggerRef={profileTriggerRef}
           profileNameTriggerRef={profileNameTriggerRef}
           lastProfileTriggerRef={lastProfileTriggerRef}
@@ -167,7 +188,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       </div>
     </div>
   )
-}
+})
 
 export function UserBarSkeleton() {
   const nativeMobile = useHydratedClient() && isMobile()
@@ -179,14 +200,14 @@ export function UserBarSkeleton() {
       className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0 sm:px-2 sm:pb-3"
     >
       <div className={cn(styles.base, "flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2")}>
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
+        <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
           <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-full")} /></div>
           <div className={cn(styles.name, "flex min-w-0 flex-1 items-center sm:@max-[156px]/user-bar:hidden")}>
             <Skeleton className="h-3.5 w-full rounded" />
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
-            <div className={styles.target}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
+            <div className={cn(styles.target, styles.actionTarget)}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
+            <div className={cn(styles.target, styles.actionTarget)}><Skeleton className={cn(styles.visual, "rounded-lg")} /></div>
           </div>
         </div>
       </div>
@@ -194,7 +215,7 @@ export function UserBarSkeleton() {
   )
 }
 
-function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
+function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening, onInboxOpenChange, hasOpenExtension, dismissOpenSlot, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
   extensionId: string
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
@@ -207,7 +228,8 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
   inboxOpen?: boolean
   inboxOpening: boolean
   onInboxOpenChange?: (open: boolean) => void
-  closeInboxForAction: () => void
+  hasOpenExtension: boolean
+  dismissOpenSlot: () => void
   profileTriggerRef: RefObject<HTMLButtonElement | null>
   profileNameTriggerRef: RefObject<HTMLButtonElement | null>
   lastProfileTriggerRef: RefObject<HTMLButtonElement | null>
@@ -231,13 +253,16 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
       ? LoaderCircle
       : Download
   return (
-    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
+    <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
       <button ref={profileTriggerRef} onClick={(e) => {
+        if (hasOpenExtension) {
+          dismissOpenSlot()
+          return
+        }
         lastProfileTriggerRef.current = e.currentTarget
-        if (extension && extension.active !== "profile") {
+        if (extension) {
           onRequestExtensionFocus("profile")
         }
-        if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
       }} className={cn(styles.target, "rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-offset-muted focus-visible:outline-none sm:focus-visible:ring-offset-4")} aria-label={hasRunningBots
         ? `Open profile. ${runningBotCount} running ${runningBotCount === 1 ? "bot" : "bots"}.`
@@ -263,11 +288,14 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
         </span>
       </button>
       <button ref={profileNameTriggerRef} onClick={(e) => {
+        if (hasOpenExtension) {
+          dismissOpenSlot()
+          return
+        }
         lastProfileTriggerRef.current = e.currentTarget
-        if (extension && extension.active !== "profile") {
+        if (extension) {
           onRequestExtensionFocus("profile")
         }
-        if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
       }} className={cn(styles.name, "min-w-0 flex-1 text-left rounded sm:@max-[156px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")} aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? extensionId : undefined}>
         <div data-testid={tid.userBarName} className="truncate text-sm font-medium leading-tight">{user.name}</div>
@@ -278,7 +306,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
             ref={updateBadgeRef}
             type="button"
             data-testid={tid.daemonUpdateBadge}
-            className={cn(styles.target, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+            className={cn(styles.target, styles.actionTarget, styles.squareButton, styles.update, "rounded-lg text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
             aria-label={updateBadgeLabel}
             onClick={() => {
               onRequestExtensionFocus("update")
@@ -304,6 +332,7 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
                 ? "relative size-7 rounded-full max-sm:mx-2 max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']"
                 : cn(
                   styles.target,
+                  styles.actionTarget,
                   styles.squareButton,
                   styles.inbox,
                   "rounded-lg text-muted-foreground aria-expanded:text-foreground",
@@ -334,12 +363,12 @@ function Inner({ extensionId, breakpoint, user, onOpenProfile, onEditProfile, in
         })() : null}
         <Button variant="ghost" size="icon-sm"
           onClick={() => {
-            if (extension) extension.onDismiss()
-            else closeInboxForAction()
+            dismissOpenSlot()
             onEditProfile?.()
           }}
           className={cn(
             styles.target,
+            styles.actionTarget,
             styles.squareButton,
             "rounded-lg text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             mobile && "active:text-foreground",

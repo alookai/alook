@@ -256,4 +256,26 @@ describe("single-message creation payload hydration", () => {
     expect(message.message.botCreation).toEqual(payload)
     expect(message.message.botCreation).not.toHaveProperty("canDecide")
   })
+
+  it("validates profiles and graph completeness without re-parsing each message resource", async () => {
+    const { readCommunityMessageProfiles } = await import("./message-payload")
+    const { CommunityMessageResourceSchema } = await import("@alook/shared")
+    const mapped = mapMessageForApi(baseRow, emptyApiCtx, BUSINESS_SCHEMA_VERSION, "channel")
+    const parseSpy = vi.spyOn(CommunityMessageResourceSchema, "parse")
+    try {
+      const profiles = await readCommunityMessageProfiles(
+        {} as never,
+        [mapped],
+        async () => [{ id: mapped.authorId, name: "Alice", discriminator: "0001", avatar: null, avatarVersion: 0 }],
+      )
+      expect(profiles).toHaveLength(1)
+      expect(parseSpy).not.toHaveBeenCalled()
+
+      await expect(
+        readCommunityMessageProfiles({} as never, [mapped], async () => []),
+      ).rejects.toThrow("Message profile missing or duplicated")
+    } finally {
+      parseSpy.mockRestore()
+    }
+  })
 })

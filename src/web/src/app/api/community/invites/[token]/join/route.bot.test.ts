@@ -35,7 +35,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       ...actual.queries,
-      communityMachine: { findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a) },
+      communityMachine: {
+        findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a),
+        isBotOnline: vi.fn(async () => true),
+      },
       user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
       communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
       communityInvite: {

@@ -222,6 +222,7 @@ export function serverPropsEqual(prev: SortableServerProps, next: SortableServer
     prev.navigationDisabled === next.navigationDisabled &&
     prev.active === next.active &&
     prev.inFolder === next.inFolder &&
+    prev.dnd === next.dnd &&
     prev.dragging === next.dragging &&
     prev.preview === next.preview &&
     prev.combineWith?.id === next.combineWith?.id &&

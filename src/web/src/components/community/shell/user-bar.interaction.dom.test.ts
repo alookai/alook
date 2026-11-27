@@ -2,6 +2,7 @@ import { createElement, startTransition, StrictMode, Suspense, useLayoutEffect, 
 import { describe, expect, it, vi } from "vitest"
 import { act, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { UserBar, UserBarSkeleton } from "./user-bar"
+import styles from "./user-bar.module.css"
 import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { tid } from "@/lib/community/testids"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
@@ -146,18 +147,19 @@ describe("UserBar Inbox switching", () => {
       expect(panelFocusCalls.length).toBeGreaterThan(0)
       for (const args of panelFocusCalls) expect(args).toEqual([{ preventScroll: true }])
       await user.click(screen.getByRole("button", { name: "User", exact: true }))
+      expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("dialog", { name: "Your profile" })).not.toBeInTheDocument()
+      await user.click(screen.getByRole("button", { name: "User", exact: true }))
       const profileDialog = screen.getByRole("dialog", { name: "Your profile" })
       expect(profileDialog).toBeVisible()
-      expect(profileDialog).toBe(dialog)
       await waitFor(() => expect(profileDialog).toHaveFocus())
-      expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
       await user.click(trigger)
       const reopenedInbox = screen.getByRole("dialog", { name: "Inbox" })
       expect(reopenedInbox).toBeVisible()
-      expect(reopenedInbox).toBe(dialog)
+      expect(reopenedInbox).toBe(profileDialog)
       await waitFor(() => expect(reopenedInbox).toHaveFocus())
-      const allPanelFocusCalls = focus.mock.calls.filter((_, index) => focus.mock.contexts[index] === dialog)
-      expect(allPanelFocusCalls.length).toBeGreaterThanOrEqual(3)
+      const allPanelFocusCalls = focus.mock.calls.filter((_, index) => focus.mock.contexts[index] === profileDialog)
+      expect(allPanelFocusCalls.length).toBeGreaterThanOrEqual(2)
       for (const args of allPanelFocusCalls) expect(args).toEqual([{ preventScroll: true }])
       await user.click(trigger)
       expect(trigger).toHaveAttribute("aria-expanded", "false")
@@ -314,7 +316,8 @@ describe("UserBar Inbox switching", () => {
     await user.click(trigger)
     expect(screen.getByRole("dialog", { name: "Inbox" })).toHaveFocus()
     await user.click(screen.getByRole("button", { name: "User", exact: true }))
-    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "User", exact: true }))
     expect(screen.getByRole("dialog", { name: "Your profile" })).toHaveFocus()
     const nameTrigger = screen.getByRole("button", { name: "User", exact: true })
     if (hideName) nameTrigger.style.display = "none"
@@ -330,7 +333,113 @@ describe("UserBar Inbox switching", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
-  it.each(["avatar", "name"])("closes before the %s profile action exactly once", async (kind) => {
+  it.each(["mobile", "desktop"] as const)("dismisses any open %s extension slot on avatar, username, or blank User Bar click before opening profile", async (breakpoint) => {
+    const updateState = {
+      phase: "expanded" as const,
+      targetMachineIds: ["m1"],
+      acceptedMachineIds: [],
+      failedMachineIds: [],
+      pendingMachineIds: [],
+    }
+    const openProfileSpy = vi.fn()
+    const openUpdateSpy = vi.fn()
+    const editProfileSpy = vi.fn()
+    function Harness({ initial }: { initial: UserBarExtensionKind }) {
+      const [active, setActive] = useState<UserBarExtensionKind>(initial)
+      const inbox = createElement("button", null, "Inbox item")
+      return createElement(UserBar, {
+        breakpoint,
+        user: { id: "u1", name: "User", avatar: "U" },
+        inbox,
+        hasUnread: false,
+        inboxOpen: active === "inbox",
+        onInboxOpenChange: (open) => setActive(open ? "inbox" : "none"),
+        onOpenProfile: (...args) => {
+          openProfileSpy(...args)
+          setActive("profile")
+        },
+        onEditProfile: editProfileSpy,
+        extension: {
+          active,
+          inbox,
+          profile: createElement("button", null, "Edit status"),
+          update: updateState,
+          updateBadgePhase: active === "update" ? null : "collapsedBadge",
+          eligibleMachines: [],
+          onOpenUpdate: () => {
+            openUpdateSpy()
+            setActive("update")
+          },
+          onRequestUpdate: vi.fn(),
+          onDismiss: () => setActive("none"),
+        },
+      })
+    }
+
+    const user = setupUser()
+    for (const initial of ["inbox", "profile", "update"] as const) {
+      for (const targetKind of ["avatar", "name", "blank"] as const) {
+        openProfileSpy.mockClear()
+        const view = render(createElement(Harness, { initial }))
+        expect(screen.getByRole("dialog")).toBeInTheDocument()
+        const clickTarget = targetKind === "avatar"
+          ? screen.getByRole("button", { name: "Open profile", exact: true })
+          : targetKind === "name"
+            ? screen.getByRole("button", { name: "User", exact: true })
+            : screen.getByTestId(tid.userBar).querySelector<HTMLElement>('[data-slot="community-user-bar-base"]')!
+        await user.click(clickTarget)
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+        expect(openProfileSpy).not.toHaveBeenCalled()
+
+        if (targetKind !== "blank") {
+          await user.click(clickTarget)
+          expect(screen.getByRole("dialog", { name: "Your profile" })).toBeInTheDocument()
+          expect(openProfileSpy).toHaveBeenCalledOnce()
+        }
+        view.unmount()
+      }
+    }
+
+    openUpdateSpy.mockClear()
+    editProfileSpy.mockClear()
+    const view = render(createElement(Harness, { initial: "inbox" }))
+    await user.click(screen.getByTestId(tid.daemonUpdateBadge))
+    expect(openUpdateSpy).toHaveBeenCalledOnce()
+    expect(screen.getByRole("dialog", { name: "Machine update" })).toBeInTheDocument()
+    await user.click(screen.getByTestId(tid.userSettingsOpen))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(editProfileSpy).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
+  it.each(["mobile", "desktop"] as const)("cancels pending %s inboxOpening on avatar, username, or blank User Bar click without opening profile", async (breakpoint) => {
+    const user = setupUser()
+    for (const targetKind of ["avatar", "name", "blank"] as const) {
+      const onInboxOpenChange = vi.fn()
+      const onOpenProfile = vi.fn()
+      const view = render(createElement(UserBar, {
+        breakpoint,
+        user: { id: "u1", name: "User", avatar: "U" },
+        inbox: createElement("span", null, "Inbox content"),
+        hasUnread: false,
+        inboxOpen: false,
+        inboxOpening: true,
+        onInboxOpenChange,
+        onOpenProfile,
+      }))
+      const clickTarget = targetKind === "avatar"
+        ? screen.getByRole("button", { name: "Open profile", exact: true })
+        : targetKind === "name"
+          ? screen.getByRole("button", { name: "User", exact: true })
+          : screen.getByTestId(tid.userBar).querySelector<HTMLElement>('[data-slot="community-user-bar-base"]')!
+      await user.click(clickTarget)
+      expect(onInboxOpenChange).toHaveBeenCalledExactlyOnceWith(false)
+      expect(onOpenProfile).not.toHaveBeenCalled()
+      view.unmount()
+    }
+  })
+
+  it.each(["avatar", "name"])("dismisses open Inbox without opening profile on %s click", async (kind) => {
     const user = setupUser()
     const { order, onInboxOpenChange, onOpenProfile } = renderBar()
     const avatarButton = screen.getByTestId("user-avatar").closest("button")
@@ -341,9 +450,9 @@ describe("UserBar Inbox switching", () => {
 
     await user.click(button!)
 
-    expect(order).toEqual(["close", "profile"])
+    expect(order).toEqual(["close"])
     expect(onInboxOpenChange).toHaveBeenCalledOnce()
-    expect(onOpenProfile).toHaveBeenCalledOnce()
+    expect(onOpenProfile).not.toHaveBeenCalled()
   })
 
   it("closes before Settings exactly once", async () => {
@@ -386,4 +495,40 @@ describe("UserBar Inbox switching", () => {
     }))
     expect(trigger).toHaveAttribute("data-variant", "ghost")
   })
+
+  it.each(["mobile", "desktop"] as const)(
+    "keeps fixed avatar-to-name gap and compact avatar layout box on %s UserBar and UserBarSkeleton",
+    async (breakpoint) => {
+      const onOpenProfile = vi.fn()
+      const user = setupUser()
+      const view = render(createElement("div", null,
+        createElement(UserBar, {
+          breakpoint,
+          user: { id: "u1", name: "Alice", avatar: "A" },
+          inbox: createElement("div", null, "Inbox content"),
+          hasUnread: false,
+          onOpenProfile,
+        }),
+        createElement(UserBarSkeleton),
+      ))
+
+      const liveRow = view.getByTestId(tid.userBar).querySelector('[data-slot="community-user-bar-base"] > div')!
+      const skeletonRow = view.getByTestId(tid.initialUserBarPending).firstElementChild!.firstElementChild!
+      for (const row of [liveRow, skeletonRow]) {
+        expect(row.className).toContain("gap-2")
+        expect(row.className).not.toContain("sm:@max-[224px]/user-bar:gap-1")
+      }
+
+      const avatarButton = view.getByRole("button", { name: "Open profile", exact: true })
+      const settingsButton = view.getByTestId(tid.userSettingsOpen)
+      const inboxButton = view.getByTestId(tid.inboxTrigger)
+      expect(avatarButton).toHaveClass(styles.target)
+      expect(avatarButton).not.toHaveClass(styles.actionTarget)
+      expect(settingsButton).toHaveClass(styles.target, styles.actionTarget)
+      expect(inboxButton).toHaveClass(styles.target, styles.actionTarget)
+
+      await user.click(avatarButton)
+      expect(onOpenProfile).toHaveBeenCalledOnce()
+    },
+  )
 })

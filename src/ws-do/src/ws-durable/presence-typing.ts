@@ -1,4 +1,5 @@
 import {
+  COMMUNITY_FOCUS_SET_EVENT,
   createDb,
   queries,
   withD1Retry,
@@ -9,11 +10,20 @@ import {
   visibilityIsDmParticipant,
   type Database,
 } from "@alook/shared"
-import type { UserConnectionState, WsDurableContext } from "./internal"
+import type { ConnectionState, UserConnectionState, WsDurableContext } from "./internal"
 import { createInternalBrowserBroadcastRequest } from "../internal-user-broadcast"
+import { logCommunityBrowserEventRejected } from "../community-browser-event-ingress"
+import { settleInBatches } from "../settle-in-batches"
 import {
-  logCommunityBrowserEventRejected,
-} from "../community-browser-event-ingress"
+  channelRoomDoName,
+  checkHumansOnlineWithRelay,
+  fanOutToRecipientsWithRelay,
+  serverRoomDoName,
+} from "./scope-room"
+
+const MAX_FOCUSED_CHANNELS_PER_SOCKET = 4
+const BOT_PRESENCE_D1_CHUNK_SIZE = 1000
+const FOCUS_RENEW_INTERVAL_MS = 10 * 60 * 1000
 
 function normalizeBrowserPayload(
   context: WsDurableContext,
@@ -38,17 +48,18 @@ async function canCommunicateInTypingScope(
   channelType: string,
   channelId: string,
   senderUserId: string,
-): Promise<boolean> {
-  if (!visibilityIsDmParticipant(channelType)) return true
+): Promise<{ ok: true; dmPeerUserId?: string } | { ok: false }> {
+  if (!visibilityIsDmParticipant(channelType)) return { ok: true }
   const peer = await queries.communityDm.getDMPeer(db, channelId, senderUserId)
-  if (!peer) return false
+  if (!peer) return { ok: false }
   const blocked = await queries.communityFriendship.isBlocked(
     db,
     senderUserId,
     peer.otherUserId,
   )
-  if (blocked) return false
-  return queries.communityFriendship.areFriends(db, senderUserId, peer.otherUserId)
+  if (blocked) return { ok: false }
+  const friends = await queries.communityFriendship.areFriends(db, senderUserId, peer.otherUserId)
+  return friends ? { ok: true, dmPeerUserId: peer.otherUserId } : { ok: false }
 }
 
 async function serializeTypingFanOut(
@@ -140,6 +151,227 @@ export function handleClientTypingStop(
   ))
 }
 
+function sendPresenceSnapshotFrame(ws: WebSocket, onlineUserIds: readonly string[]): void {
+  const uniqueIds = [...new Set(onlineUserIds)]
+  if (uniqueIds.length === 0) return
+  const encoded = encodeCommunityBrowserEvent({
+    type: WS_EVENTS.PRESENCE_SNAPSHOT,
+    onlineUserIds: uniqueIds,
+  })
+  if (encoded.ok) ws.send(encoded.body)
+}
+
+async function postRoomFocus(
+  context: WsDurableContext,
+  roomName: string,
+  userId: string,
+  active: boolean,
+  includeSnapshot = false,
+): Promise<string[]> {
+  try {
+    const doId = context.env.WS_DO.idFromName(roomName)
+    const stub = context.env.WS_DO.get(doId)
+    const resp = await stub.fetch(new Request("http://internal/room/focus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, active, includeSnapshot }),
+    }))
+    if (!resp.ok || !includeSnapshot) return []
+    const data = await resp.json() as { onlineUserIds?: unknown }
+    return Array.isArray(data.onlineUserIds)
+      ? data.onlineUserIds.filter((id): id is string => typeof id === "string")
+      : []
+  } catch {
+    return []
+  }
+}
+
+function otherSocketStillFocusesServer(
+  context: WsDurableContext,
+  excludingWs: WebSocket,
+  userId: string,
+  serverId: string,
+): boolean {
+  return context.ctx.getWebSockets().some((ws) => {
+    if (ws === excludingWs) return false
+    const attachment = ws.deserializeAttachment() as ConnectionState
+    return attachment?.type === "user"
+      && attachment.authenticated
+      && attachment.userId === userId
+      && attachment.focusedServerId === serverId
+  })
+}
+
+function otherSocketStillFocusesChannel(
+  context: WsDurableContext,
+  excludingWs: WebSocket,
+  userId: string,
+  channelId: string,
+): boolean {
+  return context.ctx.getWebSockets().some((ws) => {
+    if (ws === excludingWs) return false
+    const attachment = ws.deserializeAttachment() as ConnectionState
+    return attachment?.type === "user"
+      && attachment.authenticated
+      && attachment.userId === userId
+      && Boolean(attachment.focusedChannelIds?.includes(channelId))
+  })
+}
+
+export function handleClientFocusSet(
+  context: WsDurableContext,
+  ws: WebSocket,
+  state: UserConnectionState,
+  parsed: unknown,
+): false | Promise<void> {
+  const msg = parsed as { type?: unknown; serverId?: unknown; channelIds?: unknown }
+  if (msg.type !== COMMUNITY_FOCUS_SET_EVENT) return false
+
+  return (async () => {
+    const db = createDb(context.env.DB)
+    const requestedServerId = typeof msg.serverId === "string" && msg.serverId.length > 0 ? msg.serverId : null
+    const rawChannelIds = Array.isArray(msg.channelIds)
+      ? [...new Set(msg.channelIds.filter((id): id is string => typeof id === "string" && id.length > 0))].slice(0, MAX_FOCUSED_CHANNELS_PER_SOCKET)
+      : []
+
+    let authorizedServerId: string | null = null
+    if (requestedServerId) {
+      const member = await withD1Retry(
+        () => queries.communityMember.getMember(db, requestedServerId, state.userId),
+        { route: "ws-do:focus-server-member" },
+      )
+      if (member) authorizedServerId = requestedServerId
+    }
+
+    let authorizedChannelIds: string[] = []
+    if (rawChannelIds.length > 0) {
+      const now = Date.now()
+      const missing: string[] = []
+      const allowed = new Set<string>()
+      for (const id of rawChannelIds) {
+        if (context.channelAccessCache.getReadable(state.userId, id, now)) {
+          allowed.add(id)
+        } else {
+          missing.push(id)
+        }
+      }
+      if (missing.length > 0) {
+        const rows = await withD1Retry(
+          () => queries.communityChannel.listReadableChannelsForUser(db, state.userId, missing),
+          { route: "ws-do:focus-channel-access" },
+        )
+        context.channelAccessCache.setReadable(state.userId, rows, now)
+        for (const row of rows) allowed.add(row.id)
+      }
+      authorizedChannelIds = rawChannelIds.filter((id) => allowed.has(id))
+    }
+
+    const current = ws.deserializeAttachment() as ConnectionState
+    if (current?.type !== "user" || !current.authenticated || current.userId !== state.userId) return
+
+    const previousServerId = current.focusedServerId ?? null
+    const previousChannelIds = new Set(current.focusedChannelIds ?? [])
+    const nextChannelSet = new Set(authorizedChannelIds)
+
+    ws.serializeAttachment({
+      ...current,
+      focusedServerId: authorizedServerId,
+      focusedChannelIds: authorizedChannelIds,
+      focusRenewedAt: Date.now(),
+    } as ConnectionState)
+
+    const operations: Promise<unknown>[] = []
+    if (previousServerId && previousServerId !== authorizedServerId && !otherSocketStillFocusesServer(context, ws, state.userId, previousServerId)) {
+      operations.push(postRoomFocus(context, serverRoomDoName(previousServerId), state.userId, false))
+    }
+    for (const prevChannelId of previousChannelIds) {
+      if (!nextChannelSet.has(prevChannelId) && !otherSocketStillFocusesChannel(context, ws, state.userId, prevChannelId)) {
+        operations.push(postRoomFocus(context, channelRoomDoName(prevChannelId), state.userId, false))
+      }
+    }
+
+    let serverOnlineIds: string[] = []
+    if (authorizedServerId && authorizedServerId !== previousServerId) {
+      operations.push(
+        postRoomFocus(context, serverRoomDoName(authorizedServerId), state.userId, true, true)
+          .then((ids) => { serverOnlineIds = ids }),
+      )
+    }
+    for (const nextChannelId of authorizedChannelIds) {
+      if (!previousChannelIds.has(nextChannelId)) {
+        operations.push(postRoomFocus(context, channelRoomDoName(nextChannelId), state.userId, true))
+      }
+    }
+
+    await Promise.allSettled(operations)
+    if (serverOnlineIds.length > 0) {
+      sendPresenceSnapshotFrame(ws, serverOnlineIds)
+    }
+  })()
+}
+
+export async function renewSocketRoomsIfDue(
+  context: WsDurableContext,
+  ws: WebSocket,
+  state: UserConnectionState,
+): Promise<void> {
+  const now = Date.now()
+  if (state.focusRenewedAt !== undefined && now - state.focusRenewedAt < FOCUS_RENEW_INTERVAL_MS) {
+    return
+  }
+  const current = ws.deserializeAttachment() as ConnectionState
+  if (current?.type !== "user" || !current.authenticated || current.userId !== state.userId) return
+  if (current.focusRenewedAt !== undefined && now - current.focusRenewedAt < FOCUS_RENEW_INTERVAL_MS) {
+    return
+  }
+  ws.serializeAttachment({ ...current, focusRenewedAt: now } as ConnectionState)
+
+  const focusOperations: Promise<unknown>[] = []
+  if (current.focusedServerId) {
+    focusOperations.push(postRoomFocus(context, serverRoomDoName(current.focusedServerId), current.userId, true, false))
+  }
+  for (const channelId of current.focusedChannelIds ?? []) {
+    focusOperations.push(postRoomFocus(context, channelRoomDoName(channelId), current.userId, true, false))
+  }
+
+  let serverIds: string[] = []
+  try {
+    serverIds = await queries.communityMember.listServerIdsForUser(createDb(context.env.DB), current.userId)
+  } catch { }
+
+  await Promise.allSettled([
+    ...focusOperations,
+    settleInBatches(serverIds, async (serverId) => {
+      const roomDoId = context.env.WS_DO.idFromName(serverRoomDoName(serverId))
+      const roomStub = context.env.WS_DO.get(roomDoId)
+      await roomStub.fetch(new Request("http://internal/room/presence-renew", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: current.userId }),
+      }))
+    }, context.subrequestBatchSize),
+  ])
+}
+
+export async function unregisterSocketFocus(
+  context: WsDurableContext,
+  ws: WebSocket,
+  state: UserConnectionState,
+): Promise<void> {
+  const operations: Promise<unknown>[] = []
+  if (state.focusedServerId && !otherSocketStillFocusesServer(context, ws, state.userId, state.focusedServerId)) {
+    operations.push(postRoomFocus(context, serverRoomDoName(state.focusedServerId), state.userId, false))
+  }
+  for (const channelId of state.focusedChannelIds ?? []) {
+    if (!otherSocketStillFocusesChannel(context, ws, state.userId, channelId)) {
+      operations.push(postRoomFocus(context, channelRoomDoName(channelId), state.userId, false))
+    }
+  }
+  if (operations.length > 0) {
+    await Promise.allSettled(operations)
+  }
+}
+
 export async function notifyUserDO(
   context: WsDurableContext,
   userId: string,
@@ -166,10 +398,7 @@ export async function fanOutTyping(
   const normalized = normalizeBrowserPayload(context, event)
   if (!normalized.ok) return
   const outboundEvent = normalized.payload
-  // Typing is a communication write. Membership, block, and friendship reads
-  // must observe the primary immediately after an unfriend/block.
   const db = createPrimaryDb(context.env.DB)
-  let recipientUserIds: string[] = []
 
   const membership = await withD1Retry(
     () => queries.communityChannel.getChannelForMember(db, channelId, senderUserId),
@@ -183,30 +412,27 @@ export async function fanOutTyping(
     () => queries.communityThread.isThreadParticipant(db, channelId, senderUserId),
     { route: "ws-do:agent-typing-participation" },
   )) return
-  const mayCommunicate = await withD1Retry(
+  const communication = await withD1Retry(
     () => canCommunicateInTypingScope(db, membership.type, channelId, senderUserId),
     { route: "ws-do:agent-typing-communication" },
   )
-  if (!mayCommunicate) return
-  recipientUserIds = await withD1Retry(
-    () => queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId),
-    { route: "ws-do:agent-typing-recipients" },
-  )
-  recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
-  if (recipientUserIds.length === 0) return
+  if (!communication.ok) return
 
-  for (let i = 0; i < recipientUserIds.length; i += context.subrequestBatchSize) {
-    const batch = recipientUserIds.slice(i, i + context.subrequestBatchSize)
-    await Promise.all(
-      batch.map((userId) => {
-        const doId = context.env.WS_DO.idFromName("user:" + userId)
-        const stub = context.env.WS_DO.get(doId)
-        return stub.fetch(
-          createInternalBrowserBroadcastRequest(userId, outboundEvent),
-        ).catch(() => { })
-      })
-    )
+  if (membership.type === "dm") {
+    if (!communication.dmPeerUserId || communication.dmPeerUserId === senderUserId) return
+    const doId = context.env.WS_DO.idFromName("user:" + communication.dmPeerUserId)
+    const stub = context.env.WS_DO.get(doId)
+    await stub.fetch(createInternalBrowserBroadcastRequest(communication.dmPeerUserId, outboundEvent)).catch(() => { })
+    return
   }
+
+  const roomDoId = context.env.WS_DO.idFromName(channelRoomDoName(channelId))
+  const roomStub = context.env.WS_DO.get(roomDoId)
+  await roomStub.fetch(new Request("http://internal/room/typing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderUserId, event: outboundEvent }),
+  })).catch(() => { })
 }
 
 export async function fanOutTypingStop(
@@ -223,34 +449,31 @@ export async function fanOutTypingStop(
     context.log.warn("fanOutTypingStop: sender not a channel member", { senderUserId, channelId })
     return
   }
-  const mayCommunicate = await withD1Retry(
+  const communication = await withD1Retry(
     () => canCommunicateInTypingScope(db, membership.type, channelId, senderUserId),
     { route: "ws-do:agent-typing-stop-communication" },
   )
-  if (!mayCommunicate) return
-  let recipientUserIds = await withD1Retry(
-    () => queries.communityMembersResolver.resolveChannelContentRecipientUserIds(db, channelId),
-    { route: "ws-do:agent-typing-stop-recipients" },
-  )
-  recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
-  if (recipientUserIds.length === 0) return
+  if (!communication.ok) return
   const event = {
     type: WS_EVENTS.TYPING_STOP,
     channelId,
     userId: senderUserId,
   }
-  for (let i = 0; i < recipientUserIds.length; i += context.subrequestBatchSize) {
-    const batch = recipientUserIds.slice(i, i + context.subrequestBatchSize)
-    await Promise.all(
-      batch.map((userId) => {
-        const doId = context.env.WS_DO.idFromName("user:" + userId)
-        const stub = context.env.WS_DO.get(doId)
-        return stub.fetch(
-          createInternalBrowserBroadcastRequest(userId, event),
-        ).catch(() => { })
-      })
-    )
+  if (membership.type === "dm") {
+    if (!communication.dmPeerUserId || communication.dmPeerUserId === senderUserId) return
+    const doId = context.env.WS_DO.idFromName("user:" + communication.dmPeerUserId)
+    const stub = context.env.WS_DO.get(doId)
+    await stub.fetch(createInternalBrowserBroadcastRequest(communication.dmPeerUserId, event)).catch(() => { })
+    return
   }
+
+  const roomDoId = context.env.WS_DO.idFromName(channelRoomDoName(channelId))
+  const roomStub = context.env.WS_DO.get(roomDoId)
+  await roomStub.fetch(new Request("http://internal/room/typing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderUserId, event }),
+  })).catch(() => { })
 }
 
 export async function broadcastPresence(
@@ -261,6 +484,21 @@ export async function broadcastPresence(
   await broadcastToAudience(context, userId, { type: WS_EVENTS.PRESENCE_UPDATE, userId, online })
 }
 
+async function listDirectPresencePeerIds(
+  db: Database,
+  userId: string,
+): Promise<string[]> {
+  const [friendIds, dmPeerIds] = await Promise.all([
+    queries.communityFriendship.getFriendUserIds(db, userId),
+    queries.communityDm.listDmPeerUserIds(db, userId),
+  ])
+  const unique = new Set<string>(friendIds)
+  for (const peerId of dmPeerIds) {
+    if (peerId && peerId !== userId) unique.add(peerId)
+  }
+  return [...unique]
+}
+
 export async function broadcastToAudience(
   context: WsDurableContext,
   userId: string,
@@ -268,40 +506,40 @@ export async function broadcastToAudience(
 ): Promise<void> {
   const normalized = normalizeBrowserPayload(context, payload)
   if (!normalized.ok) return
-  const outboundPayload = normalized.payload
-  const audience = await getPresenceAudience(context, userId)
-  if (audience.length === 0) return
-  for (let i = 0; i < audience.length; i += context.subrequestBatchSize) {
-    const batch = audience.slice(i, i + context.subrequestBatchSize)
-    await Promise.allSettled(
-      batch.map((memberId) => {
-        const doId = context.env.WS_DO.idFromName("user:" + memberId)
-        const stub = context.env.WS_DO.get(doId)
-        return stub.fetch(createInternalBrowserBroadcastRequest(memberId, outboundPayload))
-      })
-    )
-  }
-}
-
-async function getCoMembers(context: WsDurableContext, userId: string): Promise<string[]> {
+  const outboundPayload = normalized.payload as { type?: string; online?: boolean }
   const db = createDb(context.env.DB)
-  return queries.communityMember.getCoMemberUserIds(db, userId)
-}
+  const [serverIds, peerIds] = await Promise.all([
+    queries.communityMember.listServerIdsForUser(db, userId),
+    listDirectPresencePeerIds(db, userId),
+  ])
 
-async function getFriendIds(context: WsDurableContext, userId: string): Promise<string[]> {
-  const db = createDb(context.env.DB)
-  return queries.communityFriendship.getFriendUserIds(db, userId)
+  await settleInBatches(serverIds, async (serverId) => {
+    const roomDoId = context.env.WS_DO.idFromName(serverRoomDoName(serverId))
+    const roomStub = context.env.WS_DO.get(roomDoId)
+    if (outboundPayload.type === WS_EVENTS.PRESENCE_UPDATE && typeof outboundPayload.online === "boolean") {
+      await roomStub.fetch(new Request("http://internal/room/presence-change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, online: outboundPayload.online }),
+      }))
+      return
+    }
+    await roomStub.fetch(new Request("http://internal/room/server-broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, event: outboundPayload }),
+    }))
+  }, context.subrequestBatchSize)
+
+  await fanOutToRecipientsWithRelay(context, peerIds, outboundPayload)
 }
 
 export async function getPresenceAudience(
   context: WsDurableContext,
   userId: string,
 ): Promise<string[]> {
-  const [coMembers, friends] = await Promise.all([
-    getCoMembers(context, userId),
-    getFriendIds(context, userId),
-  ])
-  return [...new Set([...coMembers, ...friends])]
+  const db = createDb(context.env.DB)
+  return listDirectPresencePeerIds(db, userId)
 }
 
 export async function sendPresenceSnapshot(
@@ -309,33 +547,20 @@ export async function sendPresenceSnapshot(
   ws: WebSocket,
   userId: string,
 ): Promise<void> {
-  const audience = await getPresenceAudience(context, userId)
-  if (audience.length === 0) return
-  const onlineIds: string[] = []
-  for (let i = 0; i < audience.length; i += context.subrequestBatchSize) {
-    const batch = audience.slice(i, i + context.subrequestBatchSize)
-    const checks = await Promise.allSettled(
-      batch.map(async (memberId) => {
-        const doId = context.env.WS_DO.idFromName("user:" + memberId)
-        const stub = context.env.WS_DO.get(doId)
-        const resp = await stub.fetch(
-          new Request(`http://internal/check-user-online?userId=${encodeURIComponent(memberId)}`)
-        )
-        const data = await resp.json() as { online: boolean; stale?: boolean }
-        if (data.stale) return null
-        return data.online ? memberId : null
-      })
-    )
-    for (const r of checks) {
-      if (r.status === "fulfilled" && r.value) onlineIds.push(r.value)
-    }
+  const db = createDb(context.env.DB)
+  const peerIds = await listDirectPresencePeerIds(db, userId)
+  if (peerIds.length === 0) return
+
+  const botUserIds = new Set<string>()
+  const onlineBotUserIds = new Set<string>()
+  for (let i = 0; i < peerIds.length; i += BOT_PRESENCE_D1_CHUNK_SIZE) {
+    const chunk = peerIds.slice(i, i + BOT_PRESENCE_D1_CHUNK_SIZE)
+    const state = await queries.communityMachine.getBotPresenceStates(db, chunk)
+    for (const id of state.botUserIds) botUserIds.add(id)
+    for (const id of state.onlineBotUserIds) onlineBotUserIds.add(id)
   }
-  for (const id of onlineIds) {
-    const encoded = encodeCommunityBrowserEvent({
-      type: WS_EVENTS.PRESENCE_UPDATE,
-      userId: id,
-      online: true,
-    })
-    if (encoded.ok) ws.send(encoded.body)
-  }
+
+  const humanPeerIds = peerIds.filter((id) => !botUserIds.has(id))
+  const onlineHumanIds = await checkHumansOnlineWithRelay(context, humanPeerIds)
+  sendPresenceSnapshotFrame(ws, [...onlineBotUserIds, ...onlineHumanIds])
 }

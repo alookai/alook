@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import type { Editor } from "@tiptap/react"
 import { formatHandle } from "@alook/shared"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalCommunityIdentity, useCanonicalProfileLookup } from "@/lib/community-db/projections"
 import type { Member } from "@/lib/community/models/people"
 import type { ComposerProps, ComposerReplyTarget } from "./composer-types"
 import { prependReplyMention } from "./prepend-reply-mention"
@@ -17,8 +17,10 @@ export function useComposerReplyMention({
   members: Member[]
   suppressSuggestions: (operation: () => void) => void
 }) {
-  const replyProfiles = useCanonicalProfilesByUserId()
   const active = useConversationActivity()
+  const needsReplyLookup = active && !!replyingTo && !isForumThreadBody && channelType !== "dm"
+  const authorProfile = useCanonicalCommunityIdentity(needsReplyLookup ? replyingTo?.authorId : null)
+  const hasCanonicalProfile = useCanonicalProfileLookup()
   const previousReplyingToRef = useRef<ComposerReplyTarget | undefined>(undefined)
   useEffect(() => {
     if (!replyingTo) {
@@ -29,20 +31,19 @@ export function useComposerReplyMention({
     if (previousReplyingToRef.current === replyingTo || !editor || isForumThreadBody) return
     if (channelType !== "dm") {
       const authorId = replyingTo.authorId
-      const profile = authorId ? replyProfiles.get(authorId) : undefined
-      if (authorId && (!profile?.name || !profile.discriminator)) {
+      if (authorId && (!authorProfile?.name || !authorProfile.discriminator)) {
         suppressSuggestions(() => editor.commands.focus("end"))
         return
       }
-      if (authorId && profile?.name && profile.discriminator) {
+      if (authorId && authorProfile?.name && authorProfile.discriminator) {
         prependReplyMention(editor, {
           id: authorId,
-          label: formatHandle(profile.name, profile.discriminator),
+          label: formatHandle(authorProfile.name, authorProfile.discriminator),
         }, [authorId, ...members.filter((member) => member.userId === authorId).map((member) => member.id)],
-        (id) => replyProfiles.has(id) ? id : members.find((member) => member.id === id)?.userId)
+        (id) => id === authorId || hasCanonicalProfile(id) ? id : members.find((member) => member.id === id)?.userId)
       }
     }
     previousReplyingToRef.current = replyingTo
     suppressSuggestions(() => editor.commands.focus("end"))
-  }, [active, replyingTo, replyProfiles, members, editor, channelType, isForumThreadBody, suppressSuggestions])
+  }, [active, replyingTo, authorProfile, hasCanonicalProfile, members, editor, channelType, isForumThreadBody, suppressSuggestions])
 }

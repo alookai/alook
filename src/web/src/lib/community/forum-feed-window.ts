@@ -46,10 +46,16 @@ export function normalizeThreadResources(channelId: string, value: unknown): Com
   const data = communityReadSchemas().threads.parse(value)
   if (data.channelId !== channelId || data.channel.id !== channelId
     || data.threads.some(thread => thread.parentChannelId !== channelId || thread.serverId !== data.channel.serverId)) throw new Error("Thread resource scope mismatch")
-  const previews = data.threads.flatMap(thread => {
-    const first = data.included.messages.filter(message => message.channelId === thread.id).sort((a, b) => a.seq - b.seq)[0]
-    return first ? [first] : []
-  })
+  const firstByChannelId = new Map<string, CommunityMessageResource>()
+  for (const message of data.included.messages) {
+    const existing = firstByChannelId.get(message.channelId)
+    if (!existing || message.seq < existing.seq) firstByChannelId.set(message.channelId, message)
+  }
+  const previews: CommunityMessageResource[] = []
+  for (const thread of data.threads) {
+    const first = firstByChannelId.get(thread.id)
+    if (first) previews.push(first)
+  }
   return { ...data, included: { ...data.included, previews } }
 }
 
@@ -61,9 +67,15 @@ export type ForumFeedPage = Pick<CommunityThreadsRead["page"], "hasMore"> & {
 }
 
 export function forumFeedWindow(page: CommunityThreadResources): ForumFeedPage {
+  const membersByChannelId = new Map<string, Array<CommunityMemberRelation["userId"]>>()
+  for (const member of page.included.members) {
+    const list = membersByChannelId.get(member.channelId)
+    if (list) list.push(member.userId)
+    else membersByChannelId.set(member.channelId, [member.userId])
+  }
   return {
     serverId: page.channel.serverId ?? "", parentType: page.channel.type,
-    threads: page.threads.map((thread) => ({ id: thread.id, openerMessageId: thread.parentMessageId ?? null, participantIds: page.included.members.filter((member) => member.channelId === thread.id).map((member) => member.userId) })),
+    threads: page.threads.map((thread) => ({ id: thread.id, openerMessageId: thread.parentMessageId ?? null, participantIds: membersByChannelId.get(thread.id) ?? [] })),
     hasMore: page.page.hasMore, ...(page.page.nextCursor ? { nextCursor: page.page.nextCursor } : {}),
   }
 }

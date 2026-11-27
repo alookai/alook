@@ -177,6 +177,17 @@ function materializedOrder(a: MaterializedEntry, b: MaterializedEntry): number {
   return 0
 }
 
+const nonFailedMessageCache = new WeakMap<Msg, Msg>()
+
+function withNotFailed(message: Msg): Msg {
+  if (message.failed === false) return message
+  const cached = nonFailedMessageCache.get(message)
+  if (cached) return cached
+  const next: Msg = { ...message, failed: false }
+  nonFailedMessageCache.set(message, next)
+  return next
+}
+
 export function materializeMessageStream(
   baseMessages: CanonicalMessage[],
   overlay: MessageOverlayIds,
@@ -194,7 +205,7 @@ export function materializeMessageStream(
   for (const id of overlay.liveIds) {
     const message = canonical.get(id)
     if (message) upsertMaterialized(byId, idByIdentity, {
-      message: { ...presentCanonicalMessage(message, message.replyToId ? canonical.get(message.replyToId) : undefined), failed: false },
+      message: withNotFailed(presentCanonicalMessage(message, message.replyToId ? canonical.get(message.replyToId) : undefined)),
     })
   }
   for (const message of baseMessages) {

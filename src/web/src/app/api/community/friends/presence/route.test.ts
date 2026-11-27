@@ -84,14 +84,18 @@ describe("GET /api/community/friends/presence", () => {
   it("caps the fan-out at PRESENCE_MEMBER_CAP friend ids", async () => {
     const ids = Array.from({ length: PRESENCE_MEMBER_CAP + 10 }, (_, i) => `f${i}`)
     mockGetFriendUserIds.mockResolvedValue(ids)
-    mockWsDoWorkerFetch.mockResolvedValue(
+    mockWsDoWorkerFetch.mockImplementation(async () =>
       new Response(JSON.stringify({ online: [], offline: [] }), { status: 200 })
     )
 
     await GET(getReq())
 
-    const [, init] = mockWsDoWorkerFetch.mock.calls[0] as [string, RequestInit]
-    const sentIds = JSON.parse(init.body as string).ids as string[]
+    const sentIds: string[] = []
+    for (const [, init] of mockWsDoWorkerFetch.mock.calls as Array<[string, RequestInit]>) {
+      const chunkIds = JSON.parse(init.body as string).ids as string[]
+      expect(chunkIds.length).toBeLessThanOrEqual(400)
+      sentIds.push(...chunkIds)
+    }
     expect(sentIds).toHaveLength(PRESENCE_MEMBER_CAP)
   })
 

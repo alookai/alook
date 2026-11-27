@@ -3,6 +3,8 @@ import {
   draftStorageKey,
   readComposerDraft,
   writeComposerDraft,
+  scheduleComposerDraftWrite,
+  flushComposerDraft,
   clearComposerDraft,
 } from "./composer-draft"
 
@@ -129,5 +131,102 @@ describe("composer-draft", () => {
   it("returns null when window is undefined (SSR)", () => {
     vi.stubGlobal("window", undefined)
     expect(readComposerDraft("srv/chan")).toBeNull()
+  })
+
+  it("coalesces rapid scheduled draft updates into a single storage write while reading the latest pending doc synchronously", () => {
+    vi.useFakeTimers()
+    try {
+      const setItem = localStorage.setItem as ReturnType<typeof vi.fn>
+      setItem.mockClear()
+      for (let i = 1; i <= 50; i += 1) {
+        scheduleComposerDraftWrite("srv/rapid", {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: `draft-${i}` }] }],
+        })
+      }
+      expect(setItem).not.toHaveBeenCalled()
+      expect(readComposerDraft("srv/rapid")).toEqual({
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "draft-50" }] }],
+      })
+
+      vi.advanceTimersByTime(300)
+      expect(setItem).toHaveBeenCalledTimes(1)
+      expect(storage["c-composer-draft:srv/rapid"]).toContain("draft-50")
+
+      scheduleComposerDraftWrite("srv/rapid", {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "flushed" }] }],
+      })
+      expect(setItem).toHaveBeenCalledTimes(1)
+      flushComposerDraft("srv/rapid")
+      expect(setItem).toHaveBeenCalledTimes(2)
+      expect(storage["c-composer-draft:srv/rapid"]).toContain("flushed")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("flushes pending scheduled drafts on beforeunload, pagehide, and hidden visibilitychange and removes listeners once empty", () => {
+    vi.useFakeTimers()
+    const windowListeners = new Map<string, Set<EventListener>>()
+    const documentListeners = new Map<string, Set<EventListener>>()
+    let visibilityState: DocumentVisibilityState = "visible"
+    vi.stubGlobal("window", {
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        const set = windowListeners.get(type) ?? new Set<EventListener>()
+        set.add(listener)
+        windowListeners.set(type, set)
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        windowListeners.get(type)?.delete(listener)
+      }),
+    })
+    vi.stubGlobal("document", {
+      get visibilityState() { return visibilityState },
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        const set = documentListeners.get(type) ?? new Set<EventListener>()
+        set.add(listener)
+        documentListeners.set(type, set)
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        documentListeners.get(type)?.delete(listener)
+      }),
+    })
+    try {
+      scheduleComposerDraftWrite("srv/reload", {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "before-reload" }] }],
+      })
+      expect(windowListeners.get("beforeunload")?.size).toBe(1)
+      expect(windowListeners.get("pagehide")?.size).toBe(1)
+      expect(documentListeners.get("visibilitychange")?.size).toBe(1)
+      expect(storage["c-composer-draft:srv/reload"]).toBeUndefined()
+
+      for (const listener of [...(windowListeners.get("beforeunload") ?? [])]) listener({} as Event)
+      expect(storage["c-composer-draft:srv/reload"]).toContain("before-reload")
+      expect(windowListeners.get("beforeunload")?.size).toBe(0)
+      expect(windowListeners.get("pagehide")?.size).toBe(0)
+      expect(documentListeners.get("visibilitychange")?.size).toBe(0)
+
+      scheduleComposerDraftWrite("srv/nav", {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "before-pagehide" }] }],
+      })
+      for (const listener of [...(windowListeners.get("pagehide") ?? [])]) listener({} as Event)
+      expect(storage["c-composer-draft:srv/nav"]).toContain("before-pagehide")
+      expect(windowListeners.get("pagehide")?.size).toBe(0)
+
+      scheduleComposerDraftWrite("srv/hide", {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "before-hide" }] }],
+      })
+      visibilityState = "hidden"
+      for (const listener of [...(documentListeners.get("visibilitychange") ?? [])]) listener({} as Event)
+      expect(storage["c-composer-draft:srv/hide"]).toContain("before-hide")
+      expect(documentListeners.get("visibilitychange")?.size).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -24,7 +24,7 @@ export function FriendsPageSkeleton({
           </div>
         </header>
       </div>
-      <ScrollArea className="min-h-0 flex-1" contentClassName="flex min-h-full flex-col p-4">
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4" contentClassName="flex min-h-full flex-col p-4">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col`}>
           <Skeleton className="mb-4 h-11 w-full rounded-md" />
           <div className="flex min-h-0 flex-col">

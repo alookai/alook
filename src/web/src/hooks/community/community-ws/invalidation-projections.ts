@@ -40,15 +40,6 @@ export function invalidateServersList(
   })
 }
 
-export function invalidateChannelMembers(
-  projection: CommunityWsProjectionTransaction,
-  channelId: string,
-) {
-  projection.invalidate("channel-members", {
-    queryKey: communityKeys.channelMembers(channelId),
-  })
-}
-
 export function invalidateThreads(
   projection: CommunityWsProjectionTransaction,
   channelId: string,
@@ -86,17 +77,6 @@ export function invalidateInbox(
   projection: CommunityWsProjectionTransaction,
 ) {
   projection.invalidate("attention", { queryKey: communityKeys.accountAttention(), exact: true })
-}
-
-export function invalidatePresence(
-  projection: CommunityWsProjectionTransaction,
-  serverId: string,
-) {
-  projection.invalidate("presence", {
-    queryKey: communityKeys.presence(serverId),
-    exact: true,
-    refetchType: "active",
-  })
 }
 
 export function invalidateInvitableFriends(

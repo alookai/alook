@@ -396,4 +396,20 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockListForumThreadsByCreatedAt).not.toHaveBeenCalled()
     expect(mockGetMessagesByIds).not.toHaveBeenCalled()
   })
+
+  it("paginates default-ordered child threads with limit and cursor and rejects malformed cursors", async () => {
+    mockListChildChannels.mockResolvedValue([
+      childRow({ id: "t3", lastMessageAt: "2026-08-10T03:00:00.000Z", createdAt: "2026-08-08T03:00:00.000Z" }),
+      childRow({ id: "t2", lastMessageAt: "2026-08-10T02:00:00.000Z", createdAt: "2026-08-08T02:00:00.000Z" }),
+      childRow({ id: "t1", lastMessageAt: "2026-08-10T01:00:00.000Z", createdAt: "2026-08-08T01:00:00.000Z" }),
+    ])
+    const res = await GET(req("http://localhost/api/community/channels/c1/threads?limit=2"), ctx)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.threads.map((t: { id: string }) => t.id)).toEqual(["t3", "t2"])
+    expect(body.page).toEqual({ hasMore: true, nextCursor: "2026-08-10T02:00:00.000Z|t2" })
+
+    const bad = await GET(req("http://localhost/api/community/channels/c1/threads?cursor=badcursor"), ctx)
+    expect(bad.status).toBe(400)
+  })
 })

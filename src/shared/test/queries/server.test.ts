@@ -51,6 +51,9 @@ it("keeps server metadata, invites, folders and unread sources scoped on SQLite"
     await expect(serverQueries.updateServerIconIfCurrent(db, { serverId: "joined", expectedIcon: null, nextIcon: "stale" })).resolves.toBeNull();
     await expect(serverQueries.updateServerIconIfCurrent(db, { serverId: "joined", expectedIcon: "first", nextIcon: "second" })).resolves.toMatchObject({ icon: "second" });
     await expect(serverQueries.getServersByIds(db, ["joined", "missing"])).resolves.toMatchObject([{ id: "joined", icon: "second" }]);
+    await expect(serverQueries.listUserServerSummariesByIds(db, "reader", ["joined", "foreign"])).resolves.toMatchObject([
+      { id: "joined", name: "Joined", role: "owner", icon: "second" },
+    ]);
 
     const targetInvite = await inviteQueries.createInvite(db, { serverId: "joined", createdBy: "reader" });
     const otherInvite = await inviteQueries.createInvite(db, { serverId: "foreign", createdBy: "author" });

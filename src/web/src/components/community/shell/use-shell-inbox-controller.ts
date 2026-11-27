@@ -2,7 +2,7 @@
 import { completeCommunityPublication } from "@/lib/community-db/sync"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { createElement, useCallback, useRef, type ComponentProps } from "react"
+import { createElement, useCallback, useMemo, useRef, type ComponentProps } from "react"
 import { channelHref } from "@/lib/community/community-route"
 import type { InboxTodo, Marked, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
@@ -342,7 +342,39 @@ export function useShellInboxController({
     }
   }, [cancelPendingNavigation, inbox, pushInboxHref])
 
-  const popoverProps: ComponentProps<typeof InboxPopover> = {
+  const refetchMarked = inboxMarked.refetch
+  const onRetryMarked = useCallback(() => { void refetchMarked() }, [refetchMarked])
+  const refetchAttention = attention.refetch
+  const onRetryAttention = useCallback(() => { void refetchAttention() }, [refetchAttention])
+  const friendRequestAct = friendRequestActions.act
+  const friendRequestRetry = friendRequestActions.retry
+  const onAcceptFriendRequest = useCallback(
+    (item: Parameters<typeof friendRequestAct>[0]) => { void friendRequestAct(item, "accept") },
+    [friendRequestAct],
+  )
+  const onRejectFriendRequest = useCallback(
+    (item: Parameters<typeof friendRequestAct>[0]) => { void friendRequestAct(item, "reject") },
+    [friendRequestAct],
+  )
+  const onRetryFriendRequest = useCallback(
+    (item: Parameters<typeof friendRequestRetry>[0]) => { void friendRequestRetry(item) },
+    [friendRequestRetry],
+  )
+  const onMarkedTabSelected = useCallback(() => setMarkedTabOpened(true), [setMarkedTabOpened])
+  const markAllMutate = markAllInboxRead.mutate
+  const onMarkAllRead = useCallback(() => { markAllMutate() }, [markAllMutate])
+  const markChannelMutateAsync = markChannelRead.mutateAsync
+  const onMarkChannelRead = useCallback(
+    (channelId: string, throughSeq: number) => markChannelMutateAsync({ channelId, throughSeq }),
+    [markChannelMutateAsync],
+  )
+  const renderUnreadMessages = useCallback(
+    (input: Parameters<NonNullable<ComponentProps<typeof InboxPopover>["renderUnreadMessages"]>>[0]) => createElement(InboxUnreadMessages, input),
+    [],
+  )
+  const onUnmark = useCallback((messageId: string) => unmarkMessageMutate({ messageId }), [unmarkMessageMutate])
+
+  const popoverProps = useMemo<ComponentProps<typeof InboxPopover>>(() => ({
     friendRequests: friendRequestActions.items,
     unreads: unreadFeed,
     unreadDms,
@@ -353,11 +385,11 @@ export function useShellInboxController({
     markedLoading: !inboxMarked.isDisplayReady && !inboxMarked.isInitialError,
     markedError: inboxMarked.isInitialError,
     markedRetrying: inboxMarked.isFetching,
-    onRetryMarked: () => { void inboxMarked.refetch() },
+    onRetryMarked,
     loading,
     attentionError: attention.isInitialError,
     attentionRetrying: attention.isFetching,
-    onRetryAttention: () => { void attention.refetch() },
+    onRetryAttention,
     hasProjectedUnreads: attention.hasUnread,
     hasProjectedMentions: attention.hasMention,
     viewerUserId: viewerId,
@@ -370,30 +402,73 @@ export function useShellInboxController({
     onDismissTodo: dismissTodo,
     onOpenMarked: openMarked,
     onOpenFriendRequests: openFriendRequests,
-    onAcceptFriendRequest: (item) => { void friendRequestActions.act(item, "accept") },
-    onRejectFriendRequest: (item) => { void friendRequestActions.act(item, "reject") },
-    onRetryFriendRequest: (item) => { void friendRequestActions.retry(item) },
+    onAcceptFriendRequest,
+    onRejectFriendRequest,
+    onRetryFriendRequest,
     activeTab,
     onActiveTabChange: changeActiveTab,
-    onMarkedTabSelected: () => setMarkedTabOpened(true),
+    onMarkedTabSelected,
     getScrollOffset,
     onScrollOffsetChange: setScrollOffset,
-    onMarkAllRead: () => { markAllInboxRead.mutate() },
-    onMarkChannelRead: (channelId, throughSeq) => markChannelRead.mutateAsync({ channelId, throughSeq }),
+    onMarkAllRead,
+    onMarkChannelRead,
     onReplyChannel: replyChannel,
     onSubmitDecisionCard: submitUnreadDecisionCard,
     channelReadActions: markChannelRead.actions,
-    renderUnreadMessages: (input) => createElement(InboxUnreadMessages, input),
-    onUnmark: (messageId) => unmarkMessageMutate({ messageId }),
-  }
+    renderUnreadMessages,
+    onUnmark,
+  }), [
+    activeTab,
+    attention.hasMention,
+    attention.hasUnread,
+    attention.isFetching,
+    attention.isInitialError,
+    attention.todosTruncated,
+    changeActiveTab,
+    dismissTodo,
+    friendRequestActions.items,
+    getScrollOffset,
+    inboxMarked.isDisplayReady,
+    inboxMarked.isFetching,
+    inboxMarked.isInitialError,
+    inboxMarked.marked,
+    loading,
+    markChannelRead.actions,
+    mentions,
+    onAcceptFriendRequest,
+    onMarkAllRead,
+    onMarkChannelRead,
+    onMarkedTabSelected,
+    onRejectFriendRequest,
+    onRetryAttention,
+    onRetryFriendRequest,
+    onRetryMarked,
+    onUnmark,
+    openDm,
+    openFriendRequests,
+    openMarked,
+    openServerChannel,
+    openThread,
+    openTodo,
+    renderUnreadMessages,
+    replyChannel,
+    replyTodo,
+    setScrollOffset,
+    submitTodo,
+    submitUnreadDecisionCard,
+    todos,
+    unreadDms,
+    unreadFeed,
+    viewerId,
+  ])
   const unreadCount = attention.exactAttentionCount
 
-  return {
+  return useMemo(() => ({
     popoverProps,
     unreadCount,
     unreadCountPartial: attention.todosTruncated,
     hasUnread: unreadCount > 0,
     open: inbox.open,
     onOpenChange: inbox.onOpenChange,
-  }
+  }), [attention.todosTruncated, inbox.onOpenChange, inbox.open, popoverProps, unreadCount])
 }

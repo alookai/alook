@@ -2,6 +2,7 @@ import { handleMachinePii } from "./routes/community-machine-pii"
 import { handleMachineModels } from "./routes/community-machine-models"
 import { handleAuditBroadcast } from "./routes/audit-broadcast"
 import {
+  handleCommunityDeliveriesBroadcast,
   handleCommunityUserBroadcast,
   handleCommunityUsersBroadcast,
   handleUserBroadcast,
@@ -54,6 +55,8 @@ export default {
     response = await handleCommunityUserBroadcast(context)
     if (response) return response
     response = await handleCommunityUsersBroadcast(context)
+    if (response) return response
+    response = await handleCommunityDeliveriesBroadcast(context)
     if (response) return response
     response = await handleMessageDelivery(context)
     if (response) return response

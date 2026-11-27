@@ -21,7 +21,7 @@ import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
 
-import { extractChatMentionedUserIds } from "./chat-markdown"
+import { extractChatMentionHandles } from "./chat-markdown"
 
 const log = createLogger({ service: "community-message-handler" })
 
@@ -355,31 +355,22 @@ export async function createCommunityMessage(params: {
           )
         : null
 
-      const hasAtMention = typeof content === "string" && content.includes("@")
-      if (hasAtMention) {
-        const allMembers = await withD1Retry(
-          () => queries.communityMember.listMembers(db, target.serverId),
-          { route: "message-handler:list-members" },
+      const mentionedHandles = typeof content === "string" && content.includes("@")
+        ? extractChatMentionHandles(content)
+        : []
+      if (mentionedHandles.length > 0) {
+        const matchedMembers = await withD1Retry(
+          () => queries.communityMember.findServerMembersByHandles(db, target.serverId, mentionedHandles),
+          { route: "message-handler:find-members-by-handles" },
         )
-
-        const members = audienceIds
-          ? allMembers.filter((m) => audienceIds.has(m.userId))
-          : allMembers
-        if (mentionType === "everyone") {
-          for (const m of members) {
-            if (m.userId !== authorId) mentionTargets.add(m.userId)
-          }
+        for (const member of matchedMembers) {
+          if (member.userId === authorId) continue
+          if (audienceIds && !audienceIds.has(member.userId)) continue
+          mentionTargets.add(member.userId)
+          explicitMentionTargets.add(member.userId)
         }
-        if (content) {
-          const candidates = members
-            .filter((m) => m.userId !== authorId && m.userName)
-            .map((m) => ({ userId: m.userId, name: m.userName as string, discriminator: m.discriminator }))
-          for (const id of extractChatMentionedUserIds(content, candidates)) {
-            mentionTargets.add(id)
-            explicitMentionTargets.add(id)
-          }
-        }
-      } else if (mentionType === "everyone") {
+      }
+      if (mentionType === "everyone") {
         const userIds = audienceIds
           ? [...audienceIds]
           : await withD1Retry(

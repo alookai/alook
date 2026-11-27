@@ -153,5 +153,6 @@ export function useChannelRouteModel(
     metadataError,
     retryingMetadata,
     retryMetadata,
+    sharedResource: metaQuery.sharedResource,
   }
 }

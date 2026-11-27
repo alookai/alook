@@ -70,6 +70,7 @@ async function sendAttempt(
   env: Env,
   batch: MessageDeliveryBatch,
   operationId: CommunityDeliveryOperationId,
+  serializedBody?: string,
 ): Promise<string[]> {
   const requested = allTargetUserIds(batch)
   let response: Response
@@ -84,7 +85,7 @@ async function sendAttempt(
           "content-type": "application/json",
           [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: operationId,
         },
-        body: serializeMessageDeliveryBatch(batch),
+        body: serializedBody ?? serializeMessageDeliveryBatch(batch),
       },
       { logPrefix: "message_delivery", log, label: batch.messageId },
     )
@@ -119,23 +120,29 @@ async function sendAttempt(
   return failed
 }
 
+type PreparedDeliveryChunk = {
+  batch: MessageDeliveryBatch
+  serializedBody: string
+}
+
 async function sendChunk(
   env: Env,
-  initial: MessageDeliveryBatch,
+  initial: PreparedDeliveryChunk,
   operationId: CommunityDeliveryOperationId,
 ): Promise<void> {
-  let pending = initial
+  let pending = initial.batch
+  let pendingBody: string | undefined = initial.serializedBody
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const startedAt = Date.now()
     let failed: string[]
     try {
-      failed = await sendAttempt(env, pending, operationId)
+      failed = await sendAttempt(env, pending, operationId, pendingBody)
     } catch (error) {
       if (!(error instanceof RetryableMessageDeliveryError) || attempt === maxAttempts) throw error
       continue
     }
     const attemptSummary = {
-      messageId: initial.messageId,
+      messageId: initial.batch.messageId,
       attempt,
       targetCount: allTargetUserIds(pending).length,
       failedCount: failed.length,
@@ -150,13 +157,14 @@ async function sendChunk(
     if (attempt === maxAttempts) {
       throw new Error(`message delivery exhausted for ${failed.length} user(s)`)
     }
-    pending = selectTargets(initial, new Set(failed))
+    pending = selectTargets(initial.batch, new Set(failed))
+    pendingBody = undefined
   }
 }
 
 async function settleChunks(
   env: Env,
-  chunks: MessageDeliveryBatch[],
+  chunks: PreparedDeliveryChunk[],
   operationId: CommunityDeliveryOperationId,
 ): Promise<void> {
   let next = 0
@@ -192,24 +200,35 @@ export async function sendMessageDeliveryBatch(
   if (original.communityContract !== BUSINESS_SCHEMA_VERSION) throw new Error("Community delivery protocol mismatch")
   const batch = original
   const targets = allTargetUserIds(batch)
-  const chunks: MessageDeliveryBatch[] = []
+  const chunks: PreparedDeliveryChunk[] = []
   let index = 0
   while (index < targets.length) {
     const maxEnd = Math.min(index + MESSAGE_DELIVERY_MAX_USERS, targets.length)
-    let low = index + 1
-    let high = maxEnd
-    let accepted: MessageDeliveryBatch | null = null
+    let accepted: PreparedDeliveryChunk | null = null
     let acceptedEnd = index
-    while (low <= high) {
-      const middle = Math.floor((low + high) / 2)
-      const candidate = selectTargets(batch, new Set(targets.slice(index, middle)))
-      try {
-        serializeMessageDeliveryBatch(candidate)
-        accepted = candidate
-        acceptedEnd = middle
-        low = middle + 1
-      } catch {
-        high = middle - 1
+    const fullCandidate = selectTargets(batch, new Set(targets.slice(index, maxEnd)))
+    try {
+      accepted = {
+        batch: fullCandidate,
+        serializedBody: serializeMessageDeliveryBatch(fullCandidate),
+      }
+      acceptedEnd = maxEnd
+    } catch {
+      let low = index + 1
+      let high = maxEnd - 1
+      while (low <= high) {
+        const middle = Math.floor((low + high) / 2)
+        const candidate = selectTargets(batch, new Set(targets.slice(index, middle)))
+        try {
+          accepted = {
+            batch: candidate,
+            serializedBody: serializeMessageDeliveryBatch(candidate),
+          }
+          acceptedEnd = middle
+          low = middle + 1
+        } catch {
+          high = middle - 1
+        }
       }
     }
     if (!accepted) {

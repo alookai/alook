@@ -49,7 +49,7 @@ import type { z } from "zod"
 import { communityRowData, writeCommunityCollectionRows, writeCommunityCollectionChanges, readCommunityCollectionRow, withCommunityCollectionWrites, afterCommunityCollectionWrites, parseCommunityCollectionRows } from "./write"
 import { canonicalChannelMessages, canonicalMessageResources } from "./resources"
 import type { CommunityRestoredCollections } from "@/lib/query-persister"
-import { normalizeThreadResources, type CommunityThreadResources } from "@/lib/community/forum-feed-window"
+import type { CommunityThreadResources } from "@/lib/community/forum-feed-window"
 import { directoryWindowComplete, directoryWindowProfileIds, projectDirectoryWindow, readLiveDirectoryWindow } from "@/lib/community/directory-window-persistence"
 import type { AuxiliaryWindowScope } from "@/lib/community/auxiliary-window-contract"
 import { retireBotChannelDirectories, retireBotDirectoryScopes } from "@/lib/community/bot-directory-lifecycle"
@@ -79,7 +79,9 @@ type CanonicalWriteContext =
   | { kind: "event" }
   | { kind: "query"; requestRevision: number; profileSnapshot: CommunityProfileSeedSnapshot }
 
-const canonicalRevisionStates = new WeakMap<QueryClient, ReturnType<typeof createStore<CanonicalRevisionState>>>()
+const MAX_TRACKED_ENTITY_REVISIONS = 4096
+
+const canonicalRevisionStates = new WeakMap<QueryClient, CanonicalRevisionState>()
 const canonicalWriteContexts = new WeakMap<QueryClient, CanonicalWriteContext>()
 
 function writeCanonicalProfilePatches(registry: CommunityDbRegistry, patches: readonly CommunityProfilePatch[], resourceSeed = false) {
@@ -87,25 +89,37 @@ function writeCanonicalProfilePatches(registry: CommunityDbRegistry, patches: re
   return writeCommunityProfilePatches(patches, registry, context?.kind === "query" ? { snapshot: context.profileSnapshot } : { event: context?.kind === "event", resourceSeed })
 }
 
-function canonicalRevisionStore(queryClient: QueryClient) {
+function canonicalRevisionState(queryClient: QueryClient) {
   let state = canonicalRevisionStates.get(queryClient)
   if (!state) {
-    state = createStore<CanonicalRevisionState>({ revision: 0, entityRevisions: new Map(), fieldRevisions: new Map(), pendingOperations: new Map(), restoreReplacements: [] })
+    state = { revision: 0, entityRevisions: new Map(), fieldRevisions: new Map(), pendingOperations: new Map(), restoreReplacements: [] }
     canonicalRevisionStates.set(queryClient, state)
   }
   return state
 }
 
-function canonicalRevisionState(queryClient: QueryClient) {
-  return canonicalRevisionStore(queryClient).get()
+function setBoundedRevisionEntry(state: CanonicalRevisionState, entityKey: string, revision: number, fields: readonly string[]) {
+  state.entityRevisions.delete(entityKey)
+  state.entityRevisions.set(entityKey, revision)
+  let fieldMap = state.fieldRevisions.get(entityKey)
+  if (!fieldMap) {
+    fieldMap = new Map()
+  } else {
+    state.fieldRevisions.delete(entityKey)
+  }
+  for (const field of fields) fieldMap.set(field, revision)
+  state.fieldRevisions.set(entityKey, fieldMap)
+  while (state.entityRevisions.size > MAX_TRACKED_ENTITY_REVISIONS) {
+    const oldestKey = state.entityRevisions.keys().next().value as string | undefined
+    if (!oldestKey) break
+    state.entityRevisions.delete(oldestKey)
+    state.fieldRevisions.delete(oldestKey)
+    state.pendingOperations.delete(oldestKey)
+  }
 }
 
 function updateCanonicalRevisions(queryClient: QueryClient, update: (state: CanonicalRevisionState) => void) {
-  canonicalRevisionStore(queryClient).setState((previous) => {
-    const state = { ...previous, entityRevisions: new Map(previous.entityRevisions), fieldRevisions: new Map(previous.fieldRevisions), pendingOperations: new Map(previous.pendingOperations) }
-    update(state)
-    return state
-  })
+  update(canonicalRevisionState(queryClient))
 }
 
 function canonicalEntityKey(name: CollectionName, key: string) {
@@ -119,7 +133,7 @@ function canonicalMembershipPresence(
   name: "channelMemberships" | "serverMemberships",
   key: string,
 ) {
-  if (collectionRows(registry, name).some((row) => row.id === key)) return true
+  if (registry.collections[name].get(key) !== undefined || readCommunityCollectionRow(registry, name, key) !== undefined) return true
   if (canonicalRevisionState(registry.queryClient).pendingOperations.get(canonicalEntityKey(name, key))?.some((operation) => operation.kind === "delete")) return false
   return undefined
 }
@@ -132,8 +146,8 @@ export function getCanonicalCommunityTypingMembership(
 ): boolean | undefined {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry?.runtime.lifecycle.get().active) return undefined
-  const channels = collectionRows(registry, "channels")
-  const channel = channels.find((row) => row.id === channelId)
+  const readChannel = (id: string) => registry.collections.channels.get(id) ?? readCommunityCollectionRow(registry, "channels", id)
+  const channel = readChannel(channelId)
   const accessScope = registry.runtime.ws.get().channelAccessScopes.get(channelId)
   const serverId = channel?.serverId ?? accessScope?.serverId
   const parentChannelId = channel?.parentChannelId ?? accessScope?.parentChannelId
@@ -142,14 +156,17 @@ export function getCanonicalCommunityTypingMembership(
     if (presence !== undefined) return presence
     if (completeRoster?.channelId === id && completeRoster.relation === relation) return false
     const roster = queryClient.getQueryData<{ serverId: string | null; relation: "access" | "notify"; members: readonly { userId: string }[] }>(communityKeys.channelMembers(id, relation))
-    const rosterChannel = channels.find((row) => row.id === id)
+    const rosterChannel = readChannel(id)
     if (roster?.relation === relation && (!rosterChannel || roster.serverId === rosterChannel.serverId)
       && !roster.members.some((member) => member.userId === userId)) return false
     return undefined
   }
   const serverPresence = serverId ? canonicalMembershipPresence(registry, "serverMemberships", serverMembershipKey(serverId, userId)) : undefined
-  const anchor = parentChannelId ? channels.find((row) => row.id === parentChannelId) : channel
-  const category = anchor?.categoryId ? collectionRows(registry, "categories").find((row) => row.id === anchor.categoryId && row.serverId === serverId) : undefined
+  const anchor = parentChannelId ? readChannel(parentChannelId) : channel
+  const categoryRow = anchor?.categoryId
+    ? (registry.collections.categories.get(anchor.categoryId) ?? readCommunityCollectionRow(registry, "categories", anchor.categoryId))
+    : undefined
+  const category = categoryRow && categoryRow.serverId === serverId ? categoryRow : undefined
   const publicAnchor = !!serverId && !!anchor && (anchor.categoryId === null || category?.private === false)
   const accessPresence = publicAnchor && serverPresence !== undefined ? serverPresence
     : parentChannelId ? relationPresence(parentChannelId, "access") : relationPresence(channelId, "access")
@@ -192,14 +209,10 @@ function recordEventWrites(
 ) {
   if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
   updateCanonicalRevisions(registry.queryClient, (state) => {
-   for (const key of new Set(keys)) {
-    state.revision += 1
-    const entityKey = canonicalEntityKey(name, key)
-    state.entityRevisions.set(entityKey, state.revision)
-    const revisions = new Map(state.fieldRevisions.get(entityKey))
-    for (const field of fields) revisions.set(field, state.revision)
-    state.fieldRevisions.set(entityKey, revisions)
-   }
+    for (const key of new Set(keys)) {
+      state.revision += 1
+      setBoundedRevisionEntry(state, canonicalEntityKey(name, key), state.revision, fields)
+    }
   })
 }
 
@@ -213,25 +226,22 @@ function recordEventPatches<T extends object>(
 ) {
   if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
   updateCanonicalRevisions(registry.queryClient, (state) => {
-   for (const key of new Set(keys)) {
-    state.revision += 1
-    const entityKey = canonicalEntityKey(name, key)
-    state.entityRevisions.set(entityKey, state.revision)
-    const revisions = new Map(state.fieldRevisions.get(entityKey))
-    for (const field of fields) revisions.set(field, state.revision)
-    state.fieldRevisions.set(entityKey, revisions)
-    if (presentKeys.has(key)) {
-      state.pendingOperations.delete(entityKey)
-      continue
+    for (const key of new Set(keys)) {
+      state.revision += 1
+      const entityKey = canonicalEntityKey(name, key)
+      setBoundedRevisionEntry(state, entityKey, state.revision, fields)
+      if (presentKeys.has(key)) {
+        state.pendingOperations.delete(entityKey)
+        continue
+      }
+      const pending = state.pendingOperations.get(entityKey) ?? []
+      pending.push({
+        revision: state.revision,
+        kind: "patch",
+        apply: patch as unknown as (row: object) => object,
+      })
+      state.pendingOperations.set(entityKey, pending)
     }
-    const pending = [...(state.pendingOperations.get(entityKey) ?? [])]
-    pending.push({
-      revision: state.revision,
-      kind: "patch",
-      apply: patch as unknown as (row: object) => object,
-    })
-    state.pendingOperations.set(entityKey, pending)
-   }
   })
 }
 
@@ -242,18 +252,15 @@ function recordEventDeletes(
 ) {
   if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
   updateCanonicalRevisions(registry.queryClient, (state) => {
-   for (const key of new Set(keys)) {
-    state.revision += 1
-    const entityKey = canonicalEntityKey(name, key)
-    state.entityRevisions.set(entityKey, state.revision)
-    const revisions = new Map(state.fieldRevisions.get(entityKey))
-    revisions.set("*", state.revision)
-    state.fieldRevisions.set(entityKey, revisions)
-    state.pendingOperations.set(entityKey, [{
-      revision: state.revision,
-      kind: "delete",
-    }])
-   }
+    for (const key of new Set(keys)) {
+      state.revision += 1
+      const entityKey = canonicalEntityKey(name, key)
+      setBoundedRevisionEntry(state, entityKey, state.revision, ["*"])
+      state.pendingOperations.set(entityKey, [{
+        revision: state.revision,
+        kind: "delete",
+      }])
+    }
   })
 }
 
@@ -2419,25 +2426,40 @@ export function publishCommunityMessageReaction(queryClient: QueryClient, messag
 
 export function publishCommunityForumFeed(queryClient: QueryClient, forumChannelId: string, input: CommunityThreadResources, proof: CommunityFreshQueryProof) {
   return withCommunityQueryProof(queryClient, proof, (registry) => notifyManager.batch(() => {
-    const { previews: _previews, ...included } = input.included
-    const page = normalizeThreadResources(forumChannelId, { ...input, included })
-    validateCommunityMessagePublication(registry, page.included.messages, page.included.profiles)
-    const rows = page.threads.map((thread) => {
-      const first = page.included.previews.find((message) => message.channelId === thread.id)
+    if (input.channelId !== forumChannelId || input.channel.id !== forumChannelId
+      || input.threads.some(thread => thread.parentChannelId !== forumChannelId || thread.serverId !== input.channel.serverId)) {
+      throw new Error("Thread resource scope mismatch")
+    }
+    validateCommunityMessagePublication(registry, input.included.messages, input.included.profiles)
+    const previewByChannelId = new Map<string, CommunityMessageResource>()
+    for (const message of input.included.previews) {
+      if (!previewByChannelId.has(message.channelId)) previewByChannelId.set(message.channelId, message)
+    }
+    const tagsByMessageId = new Map<string, string[]>()
+    for (const row of input.included.tags) {
+      const list = tagsByMessageId.get(row.messageId)
+      if (list) list.push(row.tag)
+      else tagsByMessageId.set(row.messageId, [row.tag])
+    }
+    const participantCountByChannelId = new Map<string, number>()
+    for (const row of input.included.participantCounts) {
+      participantCountByChannelId.set(row.channelId, row.count)
+    }
+    const rows = input.threads.map((thread) => {
+      const first = previewByChannelId.get(thread.id)
       return canonicalChannelRow({
-        ...thread, type: "thread", serverId: page.channel.serverId, parentChannelId: forumChannelId,
+        ...thread, type: "thread", serverId: input.channel.serverId, parentChannelId: forumChannelId,
         pending: false,
-        tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
-
-        firstMessageId: page.channel.type === "forum" ? first?.id || null : null,
-        participantCount: page.included.participantCounts.find((row) => row.channelId === thread.id)?.count ?? 0,
+        tags: thread.parentMessageId ? (tagsByMessageId.get(thread.parentMessageId) ?? []) : [],
+        firstMessageId: input.channel.type === "forum" ? first?.id || null : null,
+        participantCount: participantCountByChannelId.get(thread.id) ?? 0,
       }, registry.collections.channels.get(thread.id))
     })
     upsertRows(registry, "channels", rows)
-    ingestResourceProfiles(registry, page.included.profiles, proof)
-    void publishCommunityEmbeddedMessages(queryClient, { entries: page.included.messages.map((message) => ({ channelId: message.channelId, message })), profiles: page.included.profiles, proof })
-    if (page.channel.serverId) void publishCommunityMembersSnapshot(queryClient, page.channel.serverId, page.included.members.flatMap(member => member.memberId === null || member.role === null ? [] : [{ id: member.memberId, userId: member.userId, role: member.role }]), proof)
-    upsertRows(registry, "channelMemberships", page.included.members.map((member) => canonicalChannelMembershipRow(member.channelId, member.userId, member.relation, { source: member.source })))
+    ingestResourceProfiles(registry, input.included.profiles, proof)
+    void publishCommunityEmbeddedMessages(queryClient, { entries: input.included.messages.map((message) => ({ channelId: message.channelId, message })), profiles: input.included.profiles, proof })
+    if (input.channel.serverId) void publishCommunityMembersSnapshot(queryClient, input.channel.serverId, input.included.members.flatMap(member => member.memberId === null || member.role === null ? [] : [{ id: member.memberId, userId: member.userId, role: member.role }]), proof)
+    upsertRows(registry, "channelMemberships", input.included.members.map((member) => canonicalChannelMembershipRow(member.channelId, member.userId, member.relation, { source: member.source })))
   }))
 }
 
@@ -2463,6 +2485,14 @@ export function publishCommunityFriendships(queryClient: QueryClient, rows: Frie
     replaceRows(registry, "friendships", rows.filter((row) => (state.entityRevisions.get(canonicalEntityKey("friendships", `user:${row.userId}`)) ?? 0) <= proof.token.canonicalRevision), () => true)
     const pending = new Set(collectionRows(registry, "friendships").filter((row) => row.kind === "incoming" || row.kind === "outgoing").map((row) => row.id))
     retireCanonicalFriendRequests(registry, previous.filter((row) => !pending.has(row.id)).map((row) => row.id))
+  }))
+}
+
+export function upsertCommunityAcceptedFriendships(queryClient: QueryClient, rows: FriendshipRow[], proof: CommunityFreshQueryProof) {
+  return withCommunityQueryProof(queryClient, proof, (registry) => notifyManager.batch(() => {
+    const state = canonicalRevisionState(queryClient)
+    const accepted = rows.filter((row) => (state.entityRevisions.get(canonicalEntityKey("friendships", `user:${row.userId}`)) ?? 0) <= proof.token.canonicalRevision)
+    upsertRows(registry, "friendships", accepted)
   }))
 }
 

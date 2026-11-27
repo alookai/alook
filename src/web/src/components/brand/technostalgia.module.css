@@ -924,10 +924,13 @@
 }
 
 .theme [data-testid="community-profile-card"] {
-  border: var(--tn-stroke) solid var(--tn-line) !important;
-  border-radius: 20px !important;
   background: var(--tn-surface) !important;
   box-shadow: none !important;
+}
+
+.theme [data-testid="community-profile-card"]:not([class~="rounded-t-xl"]) {
+  border: var(--tn-stroke) solid var(--tn-line) !important;
+  border-radius: 20px !important;
 }
 
 .theme [data-testid="community-profile-card"] [class*="ring-popover"] {
@@ -1291,9 +1294,10 @@
   padding-inline: 8px !important;
 }
 
-/* A profile card shown inside another surface (UserBar extension) drops its
- * own frame instead of nesting a card inside a card. */
-.theme :is([data-slot="community-user-bar-overlay"], [data-slot="popover-content"]) [data-testid="community-profile-card"] {
+/* A profile card shown inside a desktop popover drops its own frame instead of
+ * nesting a card inside a card; mobile UserBar slot profile owns its joined
+ * top/side border/40 hairline and square bottom corners directly. */
+.theme [data-slot="popover-content"] [data-testid="community-profile-card"] {
   border: 0 !important;
 }
 
@@ -3118,7 +3122,7 @@
 }
 
 :global(body).theme:has([data-community-shell]) :global(.tiptap) p[class~="is-editor-empty"]:first-child::before,
-:global(body).theme:has([data-community-shell]) :global(.chat-placeholder-overlay) {
+:global(body).theme:has([data-community-shell]) :global(.chat-placeholder-overlay):not([data-visible="false"]) {
   color: var(--muted-foreground);
   opacity: 1;
 }

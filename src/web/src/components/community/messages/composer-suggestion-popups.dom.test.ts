@@ -390,4 +390,161 @@ describe("Composer suggestion popups", () => {
     expect(renderer.container.querySelectorAll('span[class="text-muted-foreground"]'))
       .toHaveLength(0)
   })
+
+  it("virtualizes large mention candidate lists into a bounded option window", () => {
+    const items: MentionPopupState["items"] = Array.from({ length: 500 }, (_, index) => ({
+      kind: "member" as const,
+      id: `member-${index}`,
+      userId: `user-${index}`,
+      label: `Member${index}#0001`,
+      name: `Member${index}`,
+      discriminator: "0001",
+      avatar: "M",
+      status: "online" as const,
+    }))
+    const view = render(createElement(CommunityMentionList, {
+      state: {
+        items,
+        query: "",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: () => rect(500),
+      },
+      presentation: { status: "ready" },
+    }))
+    const renderedOptions = view.container.querySelectorAll('[role="option"]')
+    expect(renderedOptions.length).toBeGreaterThan(0)
+    expect(renderedOptions.length).toBeLessThan(40)
+  })
+
+  it("scrolls virtualized mention and channel lists downward using virtualizer offsets instead of button offsetTop", async () => {
+    const { nextListScrollTop: realNextListScrollTop } = await vi.importActual<typeof import("@/lib/community/popup-scroll")>("@/lib/community/popup-scroll")
+    mocks.nextScrollTop.mockImplementation((...args: Parameters<typeof realNextListScrollTop>) =>
+      realNextListScrollTop(...args))
+    // Mirror real browser geometry inside `position: absolute; transform: translateY(...)`
+    // wrappers where each row button's own offsetTop is 0.
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get() { return 0 },
+    })
+
+    const mentionItems: MentionPopupState["items"] = Array.from({ length: 300 }, (_, index) => ({
+      kind: "member" as const,
+      id: `member-${index}`,
+      userId: `user-${index}`,
+      label: `Member${index}#0001`,
+      name: `Member${index}`,
+      discriminator: "0001",
+      avatar: "M",
+      status: "online" as const,
+    }))
+    listScrollTop = 0
+    const mentionView = render(createElement(CommunityMentionList, {
+      state: {
+        items: mentionItems,
+        query: "",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: () => rect(500),
+      },
+      presentation: { status: "ready" },
+    }))
+    expect(listScrollTop).toBe(0)
+
+    let previousTop = listScrollTop
+    for (const selectedIndex of [3, 6, 12]) {
+      mentionView.rerender(createElement(CommunityMentionList, {
+        state: {
+          items: mentionItems,
+          query: "",
+          selectedIndex,
+          command: vi.fn(),
+          getRect: () => rect(500),
+        },
+        presentation: { status: "ready" },
+      }))
+      expect(listScrollTop).toBeGreaterThan(previousTop)
+      previousTop = listScrollTop
+    }
+    // Index 12 at 40px rows starts at 480, ends at 520; with clientHeight=100 and margin=4 => 424.
+    expect(listScrollTop).toBe(424)
+    mentionView.unmount()
+
+    const channelItems: ChannelRefPopupState["items"] = Array.from({ length: 300 }, (_, index) => ({
+      id: `channel-${index}`,
+      name: `room-${index}`,
+      serverId: "server-1",
+      serverName: "One",
+      serverDiscriminator: "0001",
+    }))
+    listScrollTop = 0
+    const channelView = render(createElement(ChannelRefList, {
+      state: {
+        items: channelItems,
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: () => rect(500),
+      },
+    }))
+    expect(listScrollTop).toBe(0)
+
+    previousTop = listScrollTop
+    for (const selectedIndex of [3, 6, 12]) {
+      channelView.rerender(createElement(ChannelRefList, {
+        state: {
+          items: channelItems,
+          selectedIndex,
+          command: vi.fn(),
+          getRect: () => rect(500),
+        },
+      }))
+      expect(listScrollTop).toBeGreaterThan(previousTop)
+      previousTop = listScrollTop
+    }
+    // Index 12 at 36px rows starts at 432, ends at 468; with clientHeight=100 and margin=4 => 372.
+    expect(listScrollTop).toBe(372)
+    channelView.unmount()
+  })
+
+  it("does not snap scrollTop back to the selected top item when pagination appends more mention candidates", () => {
+    const getRect = () => rect(500)
+    const command = vi.fn()
+    const makeItems = (count: number): MentionPopupState["items"] => Array.from({ length: count }, (_, index) => ({
+      kind: "member" as const,
+      id: `member-${index}`,
+      userId: `user-${index}`,
+      label: `Member${index}#0001`,
+      name: `Member${index}`,
+      discriminator: "0001",
+      avatar: "M",
+      status: "online" as const,
+    }))
+    const view = render(createElement(CommunityMentionList, {
+      state: {
+        items: makeItems(8),
+        query: "",
+        selectedIndex: 0,
+        command,
+        getRect,
+      },
+      presentation: { status: "ready" },
+    }))
+    mocks.nextScrollTop.mockClear()
+    listScrollTop = 180
+
+    view.rerender(createElement(CommunityMentionList, {
+      state: {
+        items: makeItems(12),
+        query: "",
+        selectedIndex: 0,
+        command,
+        getRect,
+      },
+      presentation: { status: "ready" },
+    }))
+    expect(mocks.nextScrollTop).not.toHaveBeenCalled()
+    expect(listScrollTop).toBe(180)
+    expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(12)
+    view.unmount()
+  })
 })

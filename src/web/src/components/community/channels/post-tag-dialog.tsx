@@ -17,7 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverContent, PopoverPopup, PopoverPortal, PopoverPositioner, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -161,13 +161,19 @@ function PostTagEditorBody({
 
 export function PostTagDialog({
   trigger,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  anchor,
   postName,
   current,
   allTags,
   onSave,
   saving,
 }: {
-  trigger: ReactElement
+  trigger?: ReactElement
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  anchor?: HTMLElement | null
   postName: string
   current: string[]
   allTags: string[]
@@ -177,8 +183,14 @@ export function PostTagDialog({
   const breakpoint = useBreakpoint()
   const shell: ResolvedShell | null = breakpoint === "unknown" ? null : breakpoint
   const activeShellRef = useRef<ResolvedShell | null>(shell)
+  const controlled = controlledOpen !== undefined
 
-  const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [uncontrolledOpen, setUncontrolledOpen] = useAtom(useCreateAtom(false))
+  const open = controlled ? controlledOpen : uncontrolledOpen
+  const setOpen = (next: boolean) => {
+    if (!controlled) setUncontrolledOpen(next)
+    controlledOnOpenChange?.(next)
+  }
   const [baseline, setBaseline] = useAtom(useCreateAtom<string[]>(current))
   const [selected, setSelected] = useAtom(useCreateAtom<string[]>(current))
   const [draft, setDraft] = useAtom(useCreateAtom(""))
@@ -218,8 +230,10 @@ export function PostTagDialog({
   useEffect(() => {
     const wasOpen = previousOpenRef.current
     previousOpenRef.current = open
-    if (wasOpen && !open) triggerRef.current?.focus()
-  }, [open])
+    if (wasOpen && !open) {
+      (triggerRef.current ?? anchor)?.focus()
+    }
+  }, [anchor, open])
 
   const begin = () => {
     if (open) return
@@ -329,12 +343,12 @@ export function PostTagDialog({
     />
   )
 
-  if (!shell) return trigger
+  if (!shell) return trigger ?? null
 
   if (shell === "mobile") {
     return (
       <Dialog open={open} onOpenChange={(nextOpen) => onShellOpenChange("mobile", nextOpen)}>
-        <DialogTrigger ref={triggerRef} render={trigger} />
+        {trigger && <DialogTrigger ref={triggerRef} render={trigger} />}
         <DialogContent
           ref={surfaceRef}
           data-own-padding=""
@@ -381,19 +395,38 @@ export function PostTagDialog({
 
   return (
     <Popover open={open} onOpenChange={(nextOpen) => onShellOpenChange("desktop", nextOpen)}>
-      <PopoverTrigger ref={triggerRef} render={trigger} />
-      <PopoverContent
-        ref={surfaceRef}
-        tabIndex={-1}
-        side="bottom"
-        align="end"
-        className="w-64 space-y-3 p-3"
-        data-testid={tid.forumTagDialog}
-        aria-label={`Edit tags for ${postName}`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        {body(false)}
-      </PopoverContent>
+      {trigger ? (
+        <>
+          <PopoverTrigger ref={triggerRef} render={trigger} />
+          <PopoverContent
+            ref={surfaceRef}
+            tabIndex={-1}
+            side="bottom"
+            align="end"
+            className="w-64 space-y-3 p-3"
+            data-testid={tid.forumTagDialog}
+            aria-label={`Edit tags for ${postName}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {body(false)}
+          </PopoverContent>
+        </>
+      ) : (
+        <PopoverPortal>
+          <PopoverPositioner anchor={anchor ?? undefined} side="bottom" align="end" sideOffset={4}>
+            <PopoverPopup
+              ref={surfaceRef}
+              tabIndex={-1}
+              className="w-64 space-y-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md outline-none"
+              data-testid={tid.forumTagDialog}
+              aria-label={`Edit tags for ${postName}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {body(false)}
+            </PopoverPopup>
+          </PopoverPositioner>
+        </PopoverPortal>
+      )}
     </Popover>
   )
 }

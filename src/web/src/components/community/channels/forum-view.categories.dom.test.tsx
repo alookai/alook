@@ -4,7 +4,10 @@ import type { ForumThread } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import { ForumView } from "./forum-view"
 
-vi.mock("@/lib/community-db/projections", () => ({ useCanonicalProfilesByUserId: () => new Map() }))
+vi.mock("@/lib/community-db/projections", () => ({
+  useCanonicalProfilesByUserId: () => new Map(),
+  useCanonicalIdentitiesByUserId: () => new Map(),
+}))
 
 const post: ForumThread = {
   id: "post", name: "Post", messageCount: 1, lastMessageAt: "2026-10-22T10:00:00Z",

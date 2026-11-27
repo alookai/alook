@@ -11,12 +11,18 @@ import { useComposerController } from "./use-composer-controller"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 
 const profiles = vi.hoisted(() => ({ value: new Map<string, { id: string; name: string; discriminator: string }>() }))
-vi.mock("@/lib/community-db/projections", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
-  useCanonicalProfilesByUserId: (userIds?: readonly string[]) => userIds === undefined
+vi.mock("@/lib/community-db/projections", async (importOriginal) => {
+  const readProfiles = (userIds?: readonly string[]) => userIds === undefined
     ? profiles.value
-    : new Map([...profiles.value].filter(([id]) => userIds.includes(id))),
-}))
+    : new Map([...profiles.value].filter(([id]) => userIds.includes(id)))
+  return {
+    ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
+    useCanonicalProfilesByUserId: readProfiles,
+    useCanonicalIdentitiesByUserId: (userIds?: readonly string[], enabled = true) => enabled ? readProfiles(userIds) : new Map(),
+    useCanonicalCommunityIdentity: (userId?: string | null) => userId ? profiles.value.get(userId) : undefined,
+    useCanonicalProfileLookup: () => (userId: string) => profiles.value.has(userId),
+  }
+})
 
 const author = { id: "author", label: "Same#1234" }
 const mentionNode = (id = author.id, label = author.label): JSONContent => ({ type: "mention", attrs: { id, label } })

@@ -100,6 +100,11 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   }
   const lead = eventBots.find(({ bot }) => bot.id === body.leadBotId)!
 
+  const { onlineBotUserIds } = await queries.communityMachine.getBotPresenceStates(
+    db,
+    eventBots.map(({ bot }) => bot.id),
+  )
+
   for (const { bot } of eventBots) {
     let member = await queries.communityMember.getMember(db, serverId, bot.id)
     if (!member) {
@@ -117,6 +122,7 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
       const joinEvent: CommunityMemberJoin = {
         type: WS_EVENTS.MEMBER_JOIN,
         serverId,
+        online: onlineBotUserIds.has(bot.id),
         member: {
           id: member.id,
           userId: bot.id,

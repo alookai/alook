@@ -419,6 +419,8 @@ export type {
   FriendApprovalPayload,
   FriendApprovalProfile,
   CommunityPresenceUpdate,
+  CommunityPresenceSnapshot,
+  CommunityFocusSetFrame,
   CommunityStatusUpdate,
   CommunityIdentityUpdate,
   CommunityProfileUpdate,
@@ -458,6 +460,7 @@ export {
   validateCommunityWsEvent,
   decodeCommunityBrowserEvent,
   encodeCommunityBrowserEvent,
+  COMMUNITY_FOCUS_SET_EVENT,
   WS_EVENTS,
 } from "./community-ws-events";
 export type {

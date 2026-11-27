@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createMockWebSocket } from "../__mocks__/cf"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
-import { cleanupHarness, createDO, flushAsyncWork, mockD1WithSession, mockGetChannelForMember, mockGetChannelType, mockGetCoMemberUserIds, mockGetDMPeer, mockIsBlocked, mockIsThreadParticipant, mockAreFriends, mockGetFriendUserIds, mockGetUserInternal, mockGetValidSessionWithIdentity, mockIsBotOnline, mockListBotsForMachine, mockListChannelMemberUserIds, mockListMembers, mockListThreadParticipantUserIds, mockLogWarn, mockResolveScopeMemberUserIds, mockResolveChannelRecipientUserIds, mockStubFetch, mockWithD1Retry, resetHarness } from "./test-harness"
+import { cleanupHarness, createDO, flushAsyncWork, mockD1WithSession, mockGetChannelForMember, mockGetChannelType, mockGetCoMemberUserIds, mockGetDMPeer, mockIsBlocked, mockIsThreadParticipant, mockAreFriends, mockGetFriendUserIds, mockGetUserInternal, mockGetValidSessionWithIdentity, mockIsBotOnline, mockListBotsForMachine, mockListChannelMemberUserIds, mockListMembers, mockListServerIdsForUser, mockListThreadParticipantUserIds, mockLogWarn, mockResolveScopeMemberUserIds, mockResolveChannelRecipientUserIds, mockStubFetch, mockWithD1Retry, resetHarness } from "./test-harness"
 import { publishMachinePresence } from "./machine-presence"
 import { getPresenceAudience, broadcastPresence, sendPresenceSnapshot } from "./presence-typing"
+import { ChannelAccessCache } from "./channel-access-cache"
+import { createScopeRoomState } from "./scope-room"
 import { BUSINESS_SCHEMA_VERSION, createLogger, TYPING_INDICATOR_THROTTLE_MS } from "@alook/shared"
 
 function createPresenceDomain() {
@@ -13,6 +15,8 @@ function createPresenceDomain() {
     typingDedup: new Map<string, Map<string, number>>(),
     typingFanoutChains: new Map<string, Promise<void>>(),
     typingDedupMs: TYPING_INDICATOR_THROTTLE_MS, subrequestBatchSize: 40,
+    channelAccessCache: new ChannelAccessCache(),
+    scopeRoom: createScopeRoomState(),
   } }
 }
 
@@ -162,43 +166,36 @@ describe("WebSocketDurableObject", () => {
     })
   })
 
-  describe("fetch — /check-user-online (bot-aware, keyed by ?userId=)", () => {
-    // This DO instance is keyed by `user:<id>` (idFromName) but can't read
-    // its own name back off `ctx` on this worker's pinned compatibility_date,
-    // so every caller passes `?userId=` explicitly and the handler branches on it.
-    it("answers via isBotOnline for a bot id, bypassing the live-socket check entirely", async () => {
+  describe("fetch — /check-user-online (memory-only, keyed by ?userId=)", () => {
+    it("answers strictly from in-memory authenticated sockets without touching D1", async () => {
       const { durable, ctx } = createDO()
-      mockGetUserInternal.mockResolvedValue({ isBot: true } as any)
-      mockIsBotOnline.mockResolvedValue(true)
-        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
 
       const res = await durable.fetch(new Request("http://internal/check-user-online?userId=bot-1"))
 
-      expect(await res.json()).toEqual({ online: true })
-      expect(mockGetUserInternal).toHaveBeenCalledWith({}, "bot-1")
-      expect(mockIsBotOnline).toHaveBeenCalledWith({}, "bot-1")
+      expect(await res.json()).toEqual({ online: false })
+      expect(mockGetUserInternal).not.toHaveBeenCalled()
+      expect(mockIsBotOnline).not.toHaveBeenCalled()
     })
 
-    it("answers false for a bot id with no bound machine or an offline one", async () => {
+    it("answers false when no authenticated socket exists", async () => {
       const { durable } = createDO()
-      mockGetUserInternal.mockResolvedValue({ isBot: true } as any)
-      mockIsBotOnline.mockResolvedValue(false)
 
       const res = await durable.fetch(new Request("http://internal/check-user-online?userId=bot-1"))
 
       expect(await res.json()).toEqual({ online: false })
     })
 
-    it("falls back to the live-socket check for a human id (regression: query-param change must not break humans)", async () => {
+    it("returns online: true for a matching authenticated socket with zero D1 reads", async () => {
       const { durable, ctx } = createDO()
-      mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
       const wsAuth = createMockWebSocket()
       wsAuth.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "human-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
 
       const res = await durable.fetch(new Request("http://internal/check-user-online?userId=human-1"))
 
       expect(await res.json()).toEqual({ online: true })
+      expect(mockGetUserInternal).not.toHaveBeenCalled()
       expect(mockIsBotOnline).not.toHaveBeenCalled()
     })
 
@@ -206,7 +203,7 @@ describe("WebSocketDurableObject", () => {
       const { durable, ctx } = createDO()
       const wsAuth = createMockWebSocket()
       wsAuth.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "u1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
-        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
 
       const res = await durable.fetch(new Request("http://internal/check-user-online"))
 
@@ -222,7 +219,6 @@ describe("WebSocketDurableObject", () => {
 
     it("sweeps a historical mismatch and never reports the victim online", async () => {
       const { durable, ctx } = createDO()
-      mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
       const attacker = createMockWebSocket()
       attacker.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "attacker", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([attacker])
@@ -245,37 +241,24 @@ describe("WebSocketDurableObject", () => {
       expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
-
-    it("degrades to { online: false, stale: true } when D1 throws on the bot-online lookup", async () => {
-      // Fail-closed via `readOrStale`: getUserInternal (or isBotOnline)
-      // throwing on retry-exhaust must NOT surface as a 500 — the caller
-      // reads `{ online: false, stale: true }` and moves on.
-      const { durable } = createDO()
-      mockGetUserInternal.mockRejectedValue(new Error("D1 down"))
-
-      const res = await durable.fetch(new Request("http://internal/check-user-online?userId=bot-1"))
-      expect(res.status).toBe(200)
-      expect(await res.json()).toEqual({ online: false, stale: true })
-    })
   })
 
-  describe("presence audience — co-members ∪ friends (deduped)", () => {
-    it("getPresenceAudience merges co-members and friends without duplicates", async () => {
+  describe("presence audience — scoped server rooms + friends", () => {
+    it("getPresenceAudience returns direct friends without querying global co-members", async () => {
       const { context } = createPresenceDomain()
       mockGetCoMemberUserIds.mockResolvedValue(["member-a", "shared-b"])
       mockGetFriendUserIds.mockResolvedValue(["shared-b", "friend-c"])
 
       const audience = await getPresenceAudience(context, "user-1")
 
-      expect(new Set(audience)).toEqual(new Set(["member-a", "shared-b", "friend-c"]))
-      expect(audience).toHaveLength(3)
-      expect(mockGetCoMemberUserIds).toHaveBeenCalledWith({}, "user-1")
+      expect(new Set(audience)).toEqual(new Set(["shared-b", "friend-c"]))
+      expect(audience).toHaveLength(2)
+      expect(mockGetCoMemberUserIds).not.toHaveBeenCalled()
       expect(mockGetFriendUserIds).toHaveBeenCalledWith({}, "user-1")
     })
 
-    it("getPresenceAudience returns [] when the user has no co-members and no friends", async () => {
+    it("getPresenceAudience returns [] when the user has no friends", async () => {
       const { context } = createPresenceDomain()
-      mockGetCoMemberUserIds.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue([])
 
       const audience = await getPresenceAudience(context, "user-1")
@@ -285,7 +268,7 @@ describe("WebSocketDurableObject", () => {
 
     it("broadcastPresence fans out to a friend who shares no server", async () => {
       const { context, env } = createPresenceDomain()
-      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockListServerIdsForUser.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue(["friend-c"])
       mockStubFetch.mockClear()
 
@@ -297,9 +280,9 @@ describe("WebSocketDurableObject", () => {
       expect(req.url).toBe("http://internal/community-broadcast")
     })
 
-    it("broadcastPresence no-ops (no fetches) when co-members and friends are both empty", async () => {
+    it("broadcastPresence no-ops (no fetches) when servers and friends are both empty", async () => {
       const { context } = createPresenceDomain()
-      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockListServerIdsForUser.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue([])
       mockStubFetch.mockClear()
 
@@ -308,9 +291,8 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
-    it("sendPresenceSnapshot reports an online friend who shares no server", async () => {
+    it("sendPresenceSnapshot reports online friends in a single batched snapshot frame", async () => {
       const { context } = createPresenceDomain()
-      mockGetCoMemberUserIds.mockResolvedValue([])
       mockGetFriendUserIds.mockResolvedValue(["friend-c"])
       mockStubFetch.mockResolvedValue(
         new (globalThis.Response as any)(JSON.stringify({ online: true })),
@@ -320,14 +302,14 @@ describe("WebSocketDurableObject", () => {
       await sendPresenceSnapshot(context, ws as any, "user-1")
 
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true, schemaVersion: BUSINESS_SCHEMA_VERSION }),
+        JSON.stringify({ type: "community:presence.snapshot", onlineUserIds: ["friend-c"], schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
     })
 
-    it("authentication snapshot sends only fulfilled non-stale online audience entries", async () => {
+    it("authentication snapshot sends only fulfilled non-stale online friend entries in one frame", async () => {
       const { durable, env } = createDO()
       mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-1", name: "User", discriminator: "0001" })
-      mockGetCoMemberUserIds.mockResolvedValue(["online", "offline", "stale", "rejected"])
+      mockGetFriendUserIds.mockResolvedValue(["online", "offline", "stale", "rejected"])
       ;(env.WS_DO.idFromName as ReturnType<typeof vi.fn>).mockImplementation((name: string) => name)
       ;(env.WS_DO.get as ReturnType<typeof vi.fn>).mockImplementation((id: string) => ({
         fetch: vi.fn(async (request: Request) => {
@@ -359,19 +341,10 @@ describe("WebSocketDurableObject", () => {
 
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION }))
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "online", online: true, schemaVersion: BUSINESS_SCHEMA_VERSION }),
+        JSON.stringify({ type: "community:presence.snapshot", onlineUserIds: ["online"], schemaVersion: BUSINESS_SCHEMA_VERSION }),
       )
       expect(ws.send).toHaveBeenCalledTimes(2)
     })
-
-    // Regression (post-Fix-3 hotfix): a fresh bot has no server membership,
-    // so co-members alone can be empty for it even while its bound machine
-    // is genuinely online. The fix lives one layer down, in
-    // `getFriendUserIds` itself (see `community-friendship.test.ts`) — the
-    // owner↔own-bot implicit friendship it already returns for `listFriends`
-    // /`areFriends` now also flows through here, so `getPresenceAudience`
-    // needs no bot-specific branch at all; it just trusts whatever
-    // `getFriendUserIds` (mocked as `mockGetFriendUserIds` above) says.
   })
 
   describe("typed machine presence and generic user delivery", () => {
@@ -393,8 +366,8 @@ describe("WebSocketDurableObject", () => {
         { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
         { id: "bot-2", name: "Bot Two", discriminator: "0002", description: "" },
       ])
-      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
-      mockGetFriendUserIds.mockResolvedValue([])
+      mockListServerIdsForUser.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
       mockStubFetch.mockClear()
 
       await publishMachinePresence(context, "owner-1", {
@@ -422,8 +395,8 @@ describe("WebSocketDurableObject", () => {
       mockListBotsForMachine.mockResolvedValue([
         { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
       ])
-      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
-      mockGetFriendUserIds.mockResolvedValue([])
+      mockListServerIdsForUser.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
       mockStubFetch.mockClear()
 
       await publishMachinePresence(context, "owner-1", {
@@ -511,8 +484,8 @@ describe("WebSocketDurableObject", () => {
       mockListBotsForMachine.mockResolvedValue([
         { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
       ])
-      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
-      mockGetFriendUserIds.mockResolvedValue([])
+      mockListServerIdsForUser.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue(["viewer-1"])
 
       await expect(
         publishMachinePresence(context, "owner-1", {
@@ -601,9 +574,9 @@ describe("WebSocketDurableObject", () => {
           await durable.webSocketMessage(ws as any, JSON.stringify({ type: "community:typing.start", channelId, schemaVersion: BUSINESS_SCHEMA_VERSION }))
           await flushAsyncWork()
           for (const [request] of mockStubFetch.mock.calls.slice(before)) {
-            const event = await (request as Request).json() as { channelId: string; userId: string; type: string }
-            expect(event.type).toBe("community:typing.start")
-            deliveries.push({ at: timestamp, channelId: event.channelId, userId: event.userId })
+            const payload = await (request as Request).json() as { event: { channelId: string; userId: string; type: string } }
+            expect(payload.event.type).toBe("community:typing.start")
+            deliveries.push({ at: timestamp, channelId: payload.event.channelId, userId: payload.event.userId })
           }
         }
         await start(first, "channel-1")
@@ -679,12 +652,9 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
-    it("fans out to other server members when sender IS a channel member", async () => {
+    it("routes server-channel typing via the channel room DO without querying full membership", async () => {
       const { durable, env } = createDO()
       mockGetChannelForMember.mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
-      // Recipient resolution now goes through the shared member resolver — a
-      // public channel resolves to every server member (sender included).
-      mockResolveScopeMemberUserIds.mockResolvedValueOnce(["member-1", "member-2", "sender-1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
@@ -696,24 +666,15 @@ describe("WebSocketDurableObject", () => {
       await flush()
 
       expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-1", "sender-1")
-      expect(mockResolveScopeMemberUserIds).toHaveBeenCalledWith(expect.anything(), {
-        scope: "channel",
-        scopeId: "chan-1",
-      })
-      expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(expect.anything(), "chan-1")
-      // Sender is excluded from recipients — only the other 2 members get a broadcast POST.
-      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
-      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-2")
-      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
-      expect(mockStubFetch).toHaveBeenCalledTimes(2)
+      expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+      expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("room:channel:chan-1")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 
-    it("private channel: fans out to the channel audience, not all server members", async () => {
+    it("private channel: routes typing to the channel room DO without listing all members", async () => {
       const { durable, env } = createDO()
       mockGetChannelForMember.mockResolvedValueOnce({ id: "chan-p", serverId: "server-1" })
-      // The resolver applies the public/private split internally — a private
-      // channel resolves to its audience (creator + added member + admin).
-      mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "member-1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
@@ -724,24 +685,18 @@ describe("WebSocketDurableObject", () => {
       )
       await flush()
 
-      expect(mockResolveScopeMemberUserIds).toHaveBeenCalledWith(expect.anything(), {
-        scope: "channel",
-        scopeId: "chan-p",
-      })
-      expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledWith(expect.anything(), "chan-p")
+      expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+      expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
       expect(mockListMembers).not.toHaveBeenCalled()
-      // Only the non-sender audience member gets a broadcast POST.
-      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
-      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("room:channel:chan-p")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 
-    it("thread: typing reaches readable nonparticipants", async () => {
+    it("thread: typing checks thread participation and routes to the thread channel room DO", async () => {
       const { durable, env } = createDO()
       mockIsThreadParticipant.mockResolvedValue(true)
       mockGetChannelForMember.mockResolvedValueOnce({ id: "t-1", serverId: "server-1", type: "thread" })
       mockGetChannelType.mockResolvedValueOnce("thread")
-      mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "reader-1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
@@ -754,9 +709,8 @@ describe("WebSocketDurableObject", () => {
 
       expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled()
       expect(mockIsThreadParticipant).toHaveBeenCalledWith(expect.anything(), "t-1", "sender-1")
-      expect(mockResolveScopeMemberUserIds).toHaveBeenCalled()
-      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:reader-1")
-      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("room:channel:t-1")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 
@@ -764,7 +718,6 @@ describe("WebSocketDurableObject", () => {
       const { durable } = createDO()
       mockIsThreadParticipant.mockResolvedValue(true)
       mockGetChannelForMember.mockResolvedValue({ id: "t-1", serverId: "server-1", type: "thread" })
-      mockResolveChannelRecipientUserIds.mockResolvedValue(["sender-1", "reader-1"])
       let clock = 10_000
       const now = vi.spyOn(Date, "now").mockImplementation(() => clock)
       const ws = createMockWebSocket()
@@ -779,7 +732,7 @@ describe("WebSocketDurableObject", () => {
         await durable.webSocketMessage(ws as any, start)
         await flushAsyncWork()
         expect(mockStubFetch).toHaveBeenCalledTimes(1)
-        expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(1)
+        expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
         expect(mockIsThreadParticipant).toHaveBeenCalledTimes(2)
         await durable.webSocketMessage(ws as any, JSON.stringify({ type: "community:typing.stop", channelId: "t-1", schemaVersion: BUSINESS_SCHEMA_VERSION }))
         await flushAsyncWork()
@@ -791,8 +744,8 @@ describe("WebSocketDurableObject", () => {
         expect(mockStubFetch).toHaveBeenCalledTimes(3)
         expect(mockIsThreadParticipant).toHaveBeenCalledTimes(3)
         expect(mockD1WithSession).toHaveBeenCalledWith("first-primary")
-        const events = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => JSON.parse(await (request as Request).text())))
-        expect(events.map((event) => event.type)).toEqual(["community:typing.start", "community:typing.stop", "community:typing.start"])
+        const bodies = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => JSON.parse(await (request as Request).text())))
+        expect(bodies.map((body) => body.event.type)).toEqual(["community:typing.start", "community:typing.stop", "community:typing.start"])
       } finally {
         now.mockRestore()
       }
@@ -885,14 +838,13 @@ describe("WebSocketDurableObject", () => {
       expect(mockStubFetch).not.toHaveBeenCalled()
     })
 
-    it("keeps membership retry separate while recipient retry re-runs the complete shared resolver", async () => {
+    it("keeps membership retry separate and skips recipient-list D1 reads on server channels", async () => {
       const { durable } = createDO()
-      mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
-      mockResolveChannelRecipientUserIds
+      mockGetChannelForMember
         .mockRejectedValueOnce(new Error("SQLITE_BUSY"))
-        .mockResolvedValueOnce(["sender-1", "peer-1"])
+        .mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
       mockWithD1Retry.mockImplementation(async (fn, opts) => {
-        if ((opts as { route?: string }).route !== "ws-do:agent-typing-recipients") return fn()
+        if ((opts as { route?: string }).route !== "ws-do:agent-typing-membership") return fn()
         try { return await fn() } catch { return fn() }
       })
       const ws = createMockWebSocket()
@@ -904,27 +856,28 @@ describe("WebSocketDurableObject", () => {
       )
       await flushAsyncWork()
 
-      expect(mockGetChannelForMember).toHaveBeenCalledTimes(1)
-      expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(2)
-      expect(mockWithD1Retry.mock.calls.map((call) => (call[1] as { route?: string }).route)).toEqual([
-        "ws-do:agent-typing-membership",
-        "ws-do:agent-typing-communication",
-        "ws-do:agent-typing-recipients",
-      ])
+      expect(mockGetChannelForMember).toHaveBeenCalledTimes(2)
+      expect(mockResolveChannelRecipientUserIds).not.toHaveBeenCalled()
       const request = mockStubFetch.mock.calls[0]![0] as Request
-      expect(JSON.parse(await request.text())).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
-        type: "community:typing.start",
-        channelId: "chan-1",
-        userId: "sender-1",
+      expect(JSON.parse(await request.text())).toEqual({
+        senderUserId: "sender-1",
+        event: {
+          type: "community:typing.start",
+          channelId: "chan-1",
+          userId: "sender-1",
+        },
       })
     })
 
-    it("keeps typing delivery concurrency bounded by the class-owned batch size of forty", async () => {
+    it("keeps room typing delivery concurrency bounded by the class-owned batch size of forty", async () => {
       const { durable, env } = createDO()
-      mockGetChannelForMember.mockResolvedValue({ id: "chan-1", serverId: "server-1" })
-      mockResolveChannelRecipientUserIds.mockResolvedValue(
-        Array.from({ length: 81 }, (_, index) => `recipient-${index}`),
-      )
+      for (let index = 0; index < 81; index++) {
+        await durable.fetch(new Request("http://internal/room/focus", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: `recipient-${index}`, active: true }),
+        }))
+      }
       let active = 0
       let maximum = 0
       const fetch = vi.fn(async () => {
@@ -935,14 +888,19 @@ describe("WebSocketDurableObject", () => {
         return new Response(JSON.stringify({ sent: 1 }))
       })
       ;(env.WS_DO.get as ReturnType<typeof vi.fn>).mockReturnValue({ fetch })
-      const ws = createMockWebSocket()
-      ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
-      await durable.webSocketMessage(
-        ws as any,
-        JSON.stringify({ type: "community:typing.start", channelId: "chan-1", schemaVersion: BUSINESS_SCHEMA_VERSION }),
-      )
-      await flushAsyncWork()
+      await durable.fetch(new Request("http://internal/room/typing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderUserId: "sender-1",
+          event: {
+            type: "community:typing.start",
+            channelId: "chan-1",
+            userId: "sender-1",
+          },
+        }),
+      }))
 
       expect(fetch).toHaveBeenCalledTimes(81)
       expect(maximum).toBe(40)
@@ -953,7 +911,6 @@ describe("WebSocketDurableObject", () => {
       mockGetChannelForMember
         .mockRejectedValueOnce(new Error("D1 unavailable"))
         .mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
-      mockResolveScopeMemberUserIds.mockResolvedValue(["sender-1", "recipient-1"])
       const ws = createMockWebSocket()
       ws.serializeAttachment({ communityContract: BUSINESS_SCHEMA_VERSION, type: "user", userId: "sender-1", authenticated: true, sessionId: "test-session", sessionValidUntil: Date.now() + 60_000 })
 
@@ -971,10 +928,13 @@ describe("WebSocketDurableObject", () => {
       })
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
       const request = mockStubFetch.mock.calls[0]![0] as Request
-      expect(JSON.parse(await request.text())).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
-        type: "community:typing.stop",
-        channelId: "chan-1",
-        userId: "sender-1",
+      expect(JSON.parse(await request.text())).toEqual({
+        senderUserId: "sender-1",
+        event: {
+          type: "community:typing.stop",
+          channelId: "chan-1",
+          userId: "sender-1",
+        },
       })
     })
 
@@ -1033,13 +993,15 @@ describe("WebSocketDurableObject", () => {
       expect(typingDedup.get("chan-1")).toEqual(new Map([["other-1", 11_000]]))
       expect(typingDedup.get("chan-2")).toEqual(new Map([["sender-1", 12_000]]))
       expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-1", "sender-1")
-      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:recipient-1")
-      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("room:channel:chan-1")
       const request = mockStubFetch.mock.calls[0]![0] as Request
-      expect(JSON.parse(await request.text())).toEqual({ schemaVersion: BUSINESS_SCHEMA_VERSION,
-        type: "community:typing.stop",
-        channelId: "chan-1",
-        userId: "sender-1",
+      expect(JSON.parse(await request.text())).toEqual({
+        senderUserId: "sender-1",
+        event: {
+          type: "community:typing.stop",
+          channelId: "chan-1",
+          userId: "sender-1",
+        },
       })
     })
 
@@ -1092,9 +1054,9 @@ describe("WebSocketDurableObject", () => {
         await Promise.all(deliveries)
 
         const frames = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => (
-          JSON.parse(await (request as Request).text()) as { type: string }
+          JSON.parse(await (request as Request).text()) as { event: { type: string } }
         )))
-        expect(frames.map((frame) => frame.type)).toEqual([
+        expect(frames.map((frame) => frame.event.type)).toEqual([
           "community:typing.start",
           "community:typing.stop",
           "community:typing.start",
