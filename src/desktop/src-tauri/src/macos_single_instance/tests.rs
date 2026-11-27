@@ -366,6 +366,8 @@ fn normal_release_unlocks_even_with_a_surviving_duplicate_descriptor() {
 fn nul_arguments_require_an_acknowledged_delivery() {
     let directory = Directory::new();
     tauri::async_runtime::block_on(async {
+        let lock = open_lock(&directory.path("owner.lock")).unwrap();
+        lock.try_lock().unwrap();
         let socket = directory.path("unconfirmed.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let unconfirmed_receiver = tauri::async_runtime::spawn(async move {
@@ -385,6 +387,7 @@ fn nul_arguments_require_an_acknowledged_delivery() {
         let value = unconfirmed_receiver.await.unwrap();
         assert_eq!(value.0, ["alook", "--open", "wire"]);
         assert!(socket.exists());
+        drop(lock);
         open_lock(&directory.path("owner.lock"))
             .unwrap()
             .try_lock()
@@ -401,13 +404,76 @@ fn nul_arguments_require_an_acknowledged_delivery() {
         .unwrap() else {
             panic!("primary missing")
         };
+        assert_eq!(fs::symlink_metadata(&socket).unwrap().mode() & 0o777, 0o600);
         let mut sender = std::os::unix::net::UnixStream::connect(&socket).unwrap();
         sender.write_all(&message("wire-client")).unwrap();
-        drop(sender);
+        sender.shutdown(std::net::Shutdown::Write).unwrap();
         let (mut stream, _) = primary.listener.accept().await.unwrap();
+        verify_stream_peer(&stream).unwrap();
         let value = read_message(&mut stream).await.unwrap();
+        drop(sender);
         assert_eq!(value.0, ["alook", "--open", "wire-client"]);
     });
+}
+
+#[test]
+fn primary_lock_holder_ignores_pre_squatted_socket_and_never_forwards_args() {
+    let directory = Directory::new();
+    tauri::async_runtime::block_on(async {
+        let lock_path = directory.path("owner.lock");
+        let socket = directory.path("squatted.sock");
+        let squatter = UnixListener::bind(&socket).unwrap();
+        let leaked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let leaked_flag = leaked.clone();
+        let squatter_task = tauri::async_runtime::spawn(async move {
+            if timeout(Duration::from_millis(200), squatter.accept())
+                .await
+                .is_ok()
+            {
+                leaked_flag.store(true, Ordering::SeqCst);
+            }
+        });
+        let Admission::Primary(primary) = admit(
+            &lock_path,
+            &socket,
+            &message("oauth-secret-callback"),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap() else {
+            panic!("lock owner must bind as primary without notifying a pre-squatted socket")
+        };
+        squatter_task.await.unwrap();
+        assert!(!leaked.load(Ordering::SeqCst));
+        assert_eq!(fs::symlink_metadata(&socket).unwrap().mode() & 0o777, 0o600);
+        drop(primary);
+    });
+}
+
+#[test]
+fn socket_path_uses_private_directory_short_name_and_peer_uid_verification() {
+    let directory = Directory::new();
+    let long_id = "ai.alook.desktop.with.a.very.long.bundle.identifier.for.path.bounds.check";
+    let socket = socket_path_in(&directory.0, long_id).unwrap();
+    assert!(!socket.starts_with("/tmp/ai_alook"));
+    assert!(socket.as_os_str().as_encoded_bytes().len() <= MAX_SUN_PATH_BYTES);
+    let parent = socket.parent().unwrap();
+    assert_eq!(fs::symlink_metadata(parent).unwrap().mode() & 0o777, 0o700);
+    assert!(verify_peer_uid(current_euid(), current_euid()).is_ok());
+    let other_uid = current_euid().wrapping_add(1);
+    assert!(matches!(
+        verify_peer_uid(other_uid, current_euid()),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+    ));
+
+    let symlink_base = Directory::new();
+    let target_dir = symlink_base.path("target");
+    fs::create_dir(&target_dir).unwrap();
+    std::os::unix::fs::symlink(&target_dir, symlink_base.path("alook-si")).unwrap();
+    assert!(matches!(
+        socket_path_in(&symlink_base.0, "ai.alook.desktop"),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+    ));
 }
 
 #[test]

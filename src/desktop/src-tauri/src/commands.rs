@@ -182,6 +182,7 @@ pub fn create_qa_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error:
     }
     let window = tauri::WebviewWindowBuilder::from_config(app, &config)?
         .data_store_identifier(store)
+        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
         .build()?;
     crate::system_notifications::diagnose_qa_store(&window);
     Ok(())
@@ -360,17 +361,19 @@ fn try_close_splashscreen(
 
 #[cfg(desktop)]
 #[tauri::command]
-pub fn close_splashscreen(app: AppHandle) {
+pub fn close_splashscreen(window: tauri::WebviewWindow) -> Result<(), &'static str> {
+    crate::native_command_guard::guard(&window)?;
+    let app = window.app_handle().clone();
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         try_close_splashscreen(&handle, None);
     });
+    Ok(())
 }
 
 #[cfg(desktop)]
-#[tauri::command]
-pub fn set_window_theme(
-    window: tauri::WebviewWindow,
+pub(crate) fn apply_window_theme(
+    window: &tauri::WebviewWindow,
     dark: bool,
     background: Option<tauri::window::Color>,
 ) {
@@ -384,6 +387,18 @@ pub fn set_window_theme(
             }
         });
     let _ = window.set_background_color(Some(color));
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+pub fn set_window_theme(
+    window: tauri::WebviewWindow,
+    dark: bool,
+    background: Option<tauri::window::Color>,
+) -> Result<(), &'static str> {
+    crate::native_command_guard::guard(&window)?;
+    apply_window_theme(&window, dark, background);
+    Ok(())
 }
 
 #[cfg(desktop)]

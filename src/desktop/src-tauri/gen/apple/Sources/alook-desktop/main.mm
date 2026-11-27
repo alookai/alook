@@ -397,6 +397,7 @@ static void alookFinishStartupOverlay(UIViewController *viewController) {
 
 static NSString *const kThemeObserverScript =
     @"(function(){"
+    "if(window.top!==window)return;"
     "if(window.__alookThemeObserverInstalled)return;"
     "window.__alookThemeObserverInstalled=true;"
     "function background(){"
@@ -422,6 +423,30 @@ static NSString *const kThemeObserverScript =
     "{attributes:true,attributeFilter:['class','data-tn-mode']});"
     "})();";
 
+static BOOL alookIsTrustedMessageOrigin(WKFrameInfo *frameInfo) {
+    if (frameInfo == nil || !frameInfo.isMainFrame) return NO;
+    WKSecurityOrigin *origin = frameInfo.securityOrigin;
+    if (origin == nil) return NO;
+    NSString *protocol = origin.protocol.lowercaseString;
+    NSString *host = origin.host.lowercaseString;
+    NSInteger port = origin.port;
+    if ([protocol isEqualToString:@"https"] && [host isEqualToString:@"alook.ai"] &&
+        (port == 0 || port == 443)) {
+        return YES;
+    }
+    if ([protocol isEqualToString:@"alook-recovery"] && [host isEqualToString:@"localhost"] &&
+        port == 0) {
+        return YES;
+    }
+#ifdef DEBUG
+    if ([protocol isEqualToString:@"http"] && [host isEqualToString:@"localhost"] &&
+        port == 3000) {
+        return YES;
+    }
+#endif
+    return NO;
+}
+
 @interface AlookThemeHandler : NSObject <WKScriptMessageHandler>
 @property (nonatomic, weak) UIViewController *viewController;
 @property (nonatomic, weak) WKWebView *webView;
@@ -434,7 +459,7 @@ static NSString *const kThemeObserverScript =
     WKWebView *webView = self.webView;
     UIViewController *controller = self.viewController;
     if (webView == nil || controller == nil || message.webView != webView ||
-        !message.frameInfo.isMainFrame || webView.superview != controller.view ||
+        !alookIsTrustedMessageOrigin(message.frameInfo) || webView.superview != controller.view ||
         objc_getAssociatedObject(webView, kAlookThemeHandlerKey) != self ||
         ![message.name isEqualToString:@"alookTheme"]) return;
     NSDictionary *payload = [message.body isKindOfClass:NSDictionary.class] ? message.body : nil;
@@ -503,7 +528,7 @@ static void alookInstallThemeObserver(UIViewController *controller, WKWebView *w
       didReceiveScriptMessage:(WKScriptMessage *)message
                  replyHandler:(void (^)(id, NSString *))replyHandler {
     WKWebView *webView = self.webView;
-    if (webView == nil || message.webView != webView || !message.frameInfo.isMainFrame ||
+    if (webView == nil || message.webView != webView || !alookIsTrustedMessageOrigin(message.frameInfo) ||
         ![message.body isEqual:@"snapshot"]) {
         replyHandler(nil, @"Geometry view unavailable");
         return;
@@ -570,7 +595,7 @@ static BOOL alookViewContainsFirstResponder(UIView *view) {
     WKWebView *webView = self.webView;
     UIViewController *controller = self.viewController;
     if (webView == nil || controller == nil || webView.superview != controller.view ||
-        message.webView != webView || ![message.frameInfo isMainFrame]) {
+        message.webView != webView || !alookIsTrustedMessageOrigin(message.frameInfo)) {
         replyHandler(nil, @"Keyboard view unavailable");
         return;
     }
@@ -641,8 +666,8 @@ static BOOL alookViewContainsFirstResponder(UIView *view) {
 + (NSInteger)alook_startupDocumentForWebView:(WKWebView *)webView {
     NSURL *url = webView.URL;
     if (url == nil || url.user != nil || url.password != nil || url.query != nil) return 0;
-    BOOL local = ([url.scheme isEqualToString:@"alook-recovery"] && [url.host isEqualToString:@"localhost"] && url.port == nil) ||
-        ([url.scheme isEqualToString:@"http"] && [url.host isEqualToString:@"alook-recovery.localhost"] && (url.port == nil || url.port.integerValue == 80));
+    BOOL local = [url.scheme isEqualToString:@"alook-recovery"] &&
+        [url.host isEqualToString:@"localhost"] && url.port == nil;
     if (!local) return 0;
     if ([url.path isEqualToString:@"/bootstrap"]) return 1;
     if ([url.path isEqualToString:@"/network-error"]) return 2;

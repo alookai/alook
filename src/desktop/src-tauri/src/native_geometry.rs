@@ -4,10 +4,48 @@ use tauri::plugin::TauriPlugin;
 #[cfg(desktop)]
 use tauri::WebviewWindow;
 
+fn runtime_platform() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "macos"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+    #[cfg(target_os = "ios")]
+    {
+        "ios"
+    }
+    #[cfg(target_os = "android")]
+    {
+        "android"
+    }
+}
+
+fn runtime_form_factor() -> &'static str {
+    if cfg!(desktop) {
+        "desktop"
+    } else {
+        "mobile"
+    }
+}
+
+fn runtime_descriptor_script(platform: &str, form_factor: &str) -> String {
+    format!(
+        r#"(function(platform,formFactor){{if(window.top!==window)return;if(Object.prototype.hasOwnProperty.call(window,'__ALOOK_NATIVE_RUNTIME__'))return;Object.defineProperty(window,'__ALOOK_NATIVE_RUNTIME__',{{value:Object.freeze({{platform:platform,formFactor:formFactor}}),writable:false,enumerable:false,configurable:false}});}})({platform:?},{form_factor:?});"#
+    )
+}
+
 pub fn init() -> TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("native-geometry")
         .js_init_script(format!(
-            "({})({})",
+            "{}\n({})({})",
+            runtime_descriptor_script(runtime_platform(), runtime_form_factor()),
             include_str!("native_geometry.js"),
             cfg!(desktop)
         ))
@@ -83,7 +121,7 @@ fn caller_allowed(label: &str, url: &url::Url, development: bool) -> bool {
 
 #[cfg(all(test, desktop))]
 mod tests {
-    use super::caller_allowed;
+    use super::{caller_allowed, runtime_descriptor_script, runtime_form_factor, runtime_platform};
     use url::Url;
 
     #[test]
@@ -92,12 +130,16 @@ mod tests {
             "https://alook.ai/c",
             "alook-recovery://localhost/bootstrap",
             "alook-recovery://localhost/network-error#target=https%3A%2F%2Falook.ai%2Fc",
-            "http://alook-recovery.localhost/network-error",
         ] {
             let url = Url::parse(target).unwrap();
             assert!(caller_allowed("main", &url, false), "rejected {target}");
             assert!(!caller_allowed("splash", &url, false));
         }
+        let http_recovery = Url::parse("http://alook-recovery.localhost/network-error").unwrap();
+        assert_eq!(
+            caller_allowed("main", &http_recovery, false),
+            cfg!(any(windows, target_os = "android"))
+        );
         let local = Url::parse("http://localhost:3000/sign-in").unwrap();
         assert!(caller_allowed("main", &local, true));
         assert!(!caller_allowed("main", &local, false));
@@ -116,5 +158,52 @@ mod tests {
             assert!(!caller_allowed("main", &url, false), "accepted {target}");
             assert!(!caller_allowed("main", &url, true), "accepted dev {target}");
         }
+    }
+
+    #[test]
+    fn runtime_descriptor_is_top_frame_only_and_immutable() {
+        let script = runtime_descriptor_script(runtime_platform(), runtime_form_factor());
+        let output = std::process::Command::new("node")
+            .arg("-e")
+            .arg(
+                r#"
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const script = process.argv[1];
+const expectedPlatform = process.argv[2];
+const expectedFormFactor = process.argv[3];
+
+const topWindow = {};
+topWindow.top = topWindow;
+topWindow.window = topWindow;
+vm.runInNewContext(script, topWindow);
+assert.equal(topWindow.__ALOOK_NATIVE_RUNTIME__.platform, expectedPlatform);
+assert.equal(topWindow.__ALOOK_NATIVE_RUNTIME__.formFactor, expectedFormFactor);
+assert.deepEqual(Object.keys(topWindow.__ALOOK_NATIVE_RUNTIME__).sort(), ['formFactor', 'platform']);
+assert.equal(Object.isFrozen(topWindow.__ALOOK_NATIVE_RUNTIME__), true);
+const descriptor = Object.getOwnPropertyDescriptor(topWindow, '__ALOOK_NATIVE_RUNTIME__');
+assert.equal(descriptor.writable, false);
+assert.equal(descriptor.configurable, false);
+assert.throws(() => {
+  'use strict';
+  topWindow.__ALOOK_NATIVE_RUNTIME__ = { platform: 'spoofed', formFactor: 'mobile' };
+});
+
+const iframeWindow = { top: {} };
+iframeWindow.window = iframeWindow;
+vm.runInNewContext(script, iframeWindow);
+assert.equal('__ALOOK_NATIVE_RUNTIME__' in iframeWindow, false);
+"#,
+            )
+            .arg(&script)
+            .arg(runtime_platform())
+            .arg(runtime_form_factor())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

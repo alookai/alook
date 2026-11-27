@@ -7,15 +7,20 @@ type KeyboardSnapshot = { bottomInset: number; viewportWidth: number; isAnimatin
 type KeyboardPacket = KeyboardSnapshot | { resizesViewport: true }
 type KeyboardBridge = { postMessage: (command: "snapshot") => Promise<KeyboardPacket> }
 type KeyboardWindow = Window & {
-  AlookNative?: { getKeyboardSnapshot?: () => string }
+  __alookNativeBridge?: { getKeyboardSnapshot?: () => KeyboardPacket | string | null }
   webkit?: { messageHandlers?: { alookKeyboard?: KeyboardBridge } }
 }
 
 function keyboardBridge() {
   if (!isTauri()) return
   const nativeWindow = window as KeyboardWindow
-  if (nativeWindow.AlookNative?.getKeyboardSnapshot) {
-    return { postMessage: async () => JSON.parse(nativeWindow.AlookNative!.getKeyboardSnapshot!()) as KeyboardPacket }
+  if (nativeWindow.__alookNativeBridge?.getKeyboardSnapshot) {
+    return {
+      postMessage: async () => {
+        const raw = nativeWindow.__alookNativeBridge!.getKeyboardSnapshot!()
+        return (typeof raw === "string" ? JSON.parse(raw) : raw) as KeyboardPacket
+      },
+    }
   }
   return nativeWindow.webkit?.messageHandlers?.alookKeyboard
 }

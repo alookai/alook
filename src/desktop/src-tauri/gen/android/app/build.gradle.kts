@@ -12,26 +12,24 @@ val alookToolchain = Properties().apply {
 }
 
 val generatedWebViewClient = file("src/main/java/ai/alook/android/generated/RustWebViewClient.kt")
-val modernErrorMethod = """
-    override fun onReceivedError(
-        view: WebView,
-        request: WebResourceRequest,
-        error: WebResourceError
-    ) {
+val modernErrorFallback = """
+        } else {
+            super.onReceivedError(view, request, error)
+        }
 """.trim('\n')
-val modernRecoveryDispatch = """
-        if (
+val modernRecoveryFallback = """
+        } else if (
             request.isForMainFrame &&
-            WebviewRecovery.handleError(
+            WebviewRecovery.handleMainFrameError(
                 view,
                 error.errorCode,
-                currentUrl,
                 request.url.toString(),
             )
         ) {
             return
+        } else {
+            super.onReceivedError(view, request, error)
         }
-
 """.trim('\n')
 val originalPageStartedCallback = """
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
@@ -46,6 +44,9 @@ val originalPageStartedCallback = """
     }
 """.trim('\n')
 val exclusivePageStartedCallback = originalPageStartedCallback.replace(
+    "        currentUrl = url",
+    "        currentUrl = url\n        WebviewRecovery.recordAllowedUrl(url)",
+).replace(
     "if (interceptedState[url] == false)",
     "if (interceptedState[url] == false && !(view as RustWebView).isDocumentStartScriptEnabled)",
 )
@@ -71,6 +72,13 @@ val legacyAndSslRecoveryDispatch = "\n\n" + """
         handler.cancel()
         WebviewRecovery.handleSslError(view, currentUrl, error.url)
     }
+
+    override fun onRenderProcessGone(
+        view: WebView,
+        detail: android.webkit.RenderProcessGoneDetail
+    ): Boolean {
+        return WebviewRecovery.handleRenderProcessGone(view, currentUrl, detail.didCrash())
+    }
 """.trim('\n')
 
 fun String.occurrencesOf(value: String): Int = windowed(value.length).count { it == value }
@@ -84,11 +92,11 @@ fun wireGeneratedWebViewRecovery(sourceFile: File) {
         throw GradleException("Wry RustWebViewClient initialization callback changed")
     }
     source = source.replace(originalPageStartedCallback, exclusivePageStartedCallback)
-    if (!source.contains(modernRecoveryDispatch)) {
-        if (source.occurrencesOf(modernErrorMethod) != 1) {
+    if (!source.contains(modernRecoveryFallback)) {
+        if (source.occurrencesOf(modernErrorFallback) != 1) {
             throw GradleException("Wry RustWebViewClient modern error callback changed")
         }
-        source = source.replace(modernErrorMethod, modernErrorMethod + "\n" + modernRecoveryDispatch)
+        source = source.replace(modernErrorFallback, modernRecoveryFallback)
     }
     if (!source.contains("WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)")) {
         val classEnd = source.lastIndexOf("\n}")
@@ -104,12 +112,13 @@ fun verifyGeneratedWebViewRecovery(sourceFile: File) {
     val source = sourceFile.readText()
     val required = listOf(
         "exclusive remote initialization callback" to exclusivePageStartedCallback,
-        "modern main-frame recovery dispatch" to
-            (modernErrorMethod + "\n" + modernRecoveryDispatch),
+        "modern main-frame recovery fallback" to modernRecoveryFallback,
         "legacy recovery dispatch" to
             "WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)",
         "SSL recovery dispatch" to
             "WebviewRecovery.handleSslError(view, currentUrl, error.url)",
+        "render process crash recovery dispatch" to
+            "WebviewRecovery.handleRenderProcessGone(view, currentUrl, detail.didCrash())",
         "Wry fallback" to "super.onReceivedError(view, request, error)",
     )
     val missing = required.filterNot { source.occurrencesOf(it.second) == 1 }.map { it.first }
@@ -121,7 +130,7 @@ fun verifyGeneratedWebViewRecovery(sourceFile: File) {
         "for (script in webView.initScripts)",
         "return Rust.onPageLoading((view as RustWebView).id, url)",
         pageLoadedCall,
-        modernRecoveryDispatch,
+        modernRecoveryFallback,
     )
     if (originalCalls.any { source.occurrencesOf(it) != 1 } || listOf("handlePageCommitVisible", "handlePageStarted", "handlePageFinished").any(source::contains)) {
         throw GradleException("Generated RustWebViewClient lost Wry startup behavior")
@@ -169,7 +178,6 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".qa.livia.startup184container"
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true

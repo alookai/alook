@@ -60,11 +60,14 @@ export function isSystemSwipeStart(root: HTMLElement, x: number) {
 }
 
 function systemGestureEdges(view: Window, width: number): { left: number; right: number } | null {
-  if (!/android/i.test(view.navigator.userAgent)) return { left: 0, right: 0 }
-  const native = (view as Window & { AlookNative?: { getSystemGestureRegion?: () => string } }).AlookNative
+  const runtime = (view as Window & { __ALOOK_NATIVE_RUNTIME__?: { platform?: string } }).__ALOOK_NATIVE_RUNTIME__
+  const isAndroid = runtime?.platform ? runtime.platform === "android" : /android/i.test(view.navigator.userAgent)
+  if (!isAndroid) return { left: 0, right: 0 }
+  const native = (view as Window & { __alookNativeBridge?: { getSystemGestureRegion?: () => unknown } }).__alookNativeBridge
   if (!native?.getSystemGestureRegion) return "__TAURI__" in view ? null : { left: 0, right: 0 }
   try {
-    const region: unknown = JSON.parse(native.getSystemGestureRegion())
+    const raw = native.getSystemGestureRegion()
+    const region: unknown = typeof raw === "string" ? JSON.parse(raw) : raw
     if (!region || typeof region !== "object" || !("left" in region) || !("right" in region) || !("width" in region)) return null
     const { left, right, width: nativeWidth } = region
     if (typeof left !== "number" || typeof right !== "number" || typeof nativeWidth !== "number"

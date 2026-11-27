@@ -21,7 +21,7 @@ mod native_command_guard;
 mod native_geometry;
 mod native_oauth;
 mod native_oauth_runtime;
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux"))]
+#[cfg(all(debug_assertions, any(target_os = "macos", target_os = "ios", target_os = "linux")))]
 mod public_probe_input;
 #[cfg(any(windows, test))]
 mod startup_assets;
@@ -220,6 +220,20 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
                 commands::create_splash_window(app)?;
             }
         }
+        #[cfg(all(desktop, not(windows)))]
+        if app.get_webview_window("main").is_none() {
+            if let Some(config) = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+            {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
+                    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+                    .build()?;
+            }
+        }
         if file_save_runtime::setup(app.handle()).is_err() {
             eprintln!("file save storage unavailable");
         }
@@ -227,6 +241,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             #[cfg(target_os = "macos")]
             macos_window::observe_fullscreen_exit(&window);
             webview_recovery::attach(&window);
+            webview_recovery::set_foreground(window.is_focused().unwrap_or(false));
             webview_recovery::watch_bootstrap(&window);
         }
         if native_oauth_runtime::setup(app.handle()).is_err() {
@@ -242,7 +257,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         if let Some(window) = app.get_webview_window("main") {
             match window.theme() {
                 Ok(theme) => {
-                    commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark, None);
+                    commands::apply_window_theme(&window, theme == tauri::Theme::Dark, None);
                 }
                 Err(error) => eprintln!("startup window theme unavailable: {error}"),
             }
@@ -284,6 +299,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             }
         }
         if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+            webview_recovery::stop_bootstrap_watch();
             #[cfg(target_os = "macos")]
             macos_window::retire_fullscreen_exit_observer();
             native_oauth_runtime::retire_listener(window.app_handle());
@@ -330,6 +346,16 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
             main.create = false;
             main.data_store_identifier = Some(commands::QA_NOTIFICATION_STORE_ID);
         }
+    }
+    #[cfg(all(desktop, not(windows)))]
+    if let Some(main) = context
+        .config_mut()
+        .app
+        .windows
+        .iter_mut()
+        .find(|window| window.label == "main")
+    {
+        main.create = false;
     }
     #[cfg(windows)]
     windows_startup::configure(context.config_mut());
@@ -380,10 +406,11 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
 #[cfg(windows)]
 pub(crate) fn finish_windows_main_creation(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     webview_recovery::attach(window);
+    webview_recovery::set_foreground(window.is_focused().unwrap_or(false));
     webview_recovery::watch_bootstrap(window);
     zoom::apply_restored(window)?;
     if let Ok(theme) = window.theme() {
-        commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark, None);
+        commands::apply_window_theme(window, theme == tauri::Theme::Dark, None);
     }
     webview_recovery::finish_native_creation(window);
     Ok(())

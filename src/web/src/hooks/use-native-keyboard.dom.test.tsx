@@ -2,13 +2,13 @@ import { afterEach, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { useNativeKeyboard } from "./use-native-keyboard"
 
-const originalAndroid = Object.getOwnPropertyDescriptor(window, "AlookNative")
+const originalAndroid = Object.getOwnPropertyDescriptor(window, "__alookNativeBridge")
 const original = Object.getOwnPropertyDescriptor(window, "webkit")
 const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
   document.documentElement.style.removeProperty("--alook-keyboard-progress")
-  if (originalAndroid) Object.defineProperty(window, "AlookNative", originalAndroid)
-  else Reflect.deleteProperty(window, "AlookNative")
+  if (originalAndroid) Object.defineProperty(window, "__alookNativeBridge", originalAndroid)
+  else Reflect.deleteProperty(window, "__alookNativeBridge")
   if (original) Object.defineProperty(window, "webkit", original)
   else Reflect.deleteProperty(window, "webkit")
   if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
@@ -212,8 +212,8 @@ it("accepts animation before the initial snapshot and ignores its late reply", a
 it("reads Android's current atomic keyboard packet and applies the same overlap owner", async () => {
   Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
   let next = snapshot(300, 1000)
-  const query = vi.fn(() => JSON.stringify(next))
-  Object.defineProperty(window, "AlookNative", { configurable: true, value: { getKeyboardSnapshot: query } })
+  const query = vi.fn(() => next)
+  Object.defineProperty(window, "__alookNativeBridge", { configurable: true, value: { getKeyboardSnapshot: query } })
   const view = renderHook(useNativeKeyboard)
   await waitFor(() => expect(view.result.current).toEqual(snapshot(300, 1000)))
   expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress"))
@@ -242,8 +242,8 @@ it("shares one document listener/query owner and keeps projection alive for the 
 it.each(["ios", "android"])("lets the %s native viewport own keyboard height without Web projection or resize queries", async platform => {
   const read = vi.fn(async () => ({ resizesViewport: true }))
   install(read)
-  const android = vi.fn(() => JSON.stringify({ resizesViewport: true }))
-  if (platform === "android") Object.defineProperty(window, "AlookNative", { configurable: true, value: { getKeyboardSnapshot: android } })
+  const android = vi.fn(() => ({ resizesViewport: true }))
+  if (platform === "android") Object.defineProperty(window, "__alookNativeBridge", { configurable: true, value: { getKeyboardSnapshot: android } })
   document.documentElement.style.setProperty("--alook-keyboard-bottom", "60vw")
   document.documentElement.style.setProperty("--alook-keyboard-progress", "50vw")
   const view = renderHook(useNativeKeyboard)
@@ -291,4 +291,18 @@ it("gives native resize capability priority over an earlier legacy animation eve
   await act(async () => release({ resizesViewport: true }))
   expect(view.result.current).toBeNull()
   expect(document.documentElement.style.getPropertyValue("--alook-keyboard-bottom")).toBe("")
+})
+
+it("ignores retired global AlookNative bridge objects", async () => {
+  Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+  const legacy = vi.fn(() => JSON.stringify(snapshot(300, 1000)))
+  Object.defineProperty(window, "AlookNative", { configurable: true, value: { getKeyboardSnapshot: legacy } })
+  try {
+    const view = renderHook(useNativeKeyboard)
+    await act(async () => {})
+    expect(view.result.current).toBeNull()
+    expect(legacy).not.toHaveBeenCalled()
+  } finally {
+    Reflect.deleteProperty(window, "AlookNative")
+  }
 })

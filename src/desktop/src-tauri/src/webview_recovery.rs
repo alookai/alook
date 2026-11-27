@@ -1,17 +1,23 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::http::{Request, Response, StatusCode};
 use tauri::Manager;
 use url::Url;
 
-#[cfg(any(target_os = "ios", target_os = "macos"))]
+#[cfg(all(debug_assertions, any(target_os = "ios", target_os = "macos")))]
 mod direct_probe;
 mod frame_handoff;
-#[cfg(target_os = "linux")]
+#[cfg(all(debug_assertions, target_os = "linux"))]
 mod linux_direct_probe;
 #[cfg(mobile)]
 use frame_handoff::document_code;
+#[cfg(any(target_os = "ios", test))]
+use frame_handoff::LocalDocument;
+#[cfg(desktop)]
+pub(crate) use frame_handoff::stop_bootstrap_watch;
 use frame_handoff::{consume_local_frame, local_document, FrameDelivery, FrameHandoff};
 pub(crate) use frame_handoff::{set_foreground, watch_bootstrap};
 
@@ -26,9 +32,99 @@ const FRAME_READY_PATH: &str = "/frame-ready";
 const FRAME_READY_SCRIPT: &str = r#"(()=>{let sent=false;const ready=()=>{if(sent)return;sent=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{const image=new Image();image.onerror=()=>{if(location.pathname==='/bootstrap')location.replace(new URL('/network-error#reason=initialization',location.href))};image.src=new URL('/frame-ready',location.href).href}))};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready()})()"#;
 const RECOVERY_PATH: &str = "/network-error";
 const PRODUCTION_TARGET: &str = "https://alook.ai/c";
+const DEVELOPMENT_TARGET: &str = "http://localhost:3000/c";
 const SPLASH_BACKGROUND_LIGHT: &str = "#faf6ee";
 const SPLASH_BACKGROUND_DARK: &str = "#000";
-static STARTUP: StartupRendezvous = StartupRendezvous::new(!cfg!(windows));
+const CRASH_LOOP_WINDOW: Duration = Duration::from_secs(30);
+static RECOVERY_ATTEMPT: AtomicU64 = AtomicU64::new(0);
+static STARTUP: StartupRendezvous =
+    StartupRendezvous::new(!cfg!(any(windows, target_os = "ios")));
+static CRASH_RECOVERY: OnceLock<Mutex<CrashRecoveryState>> = OnceLock::new();
+
+#[cfg(any(not(target_os = "android"), test))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum CrashRecoveryAction {
+    Reload(Url),
+    Recovery(Url),
+}
+
+#[derive(Default)]
+struct CrashRecoveryState {
+    last_allowed_url: Option<Url>,
+    consecutive_crashes: u32,
+    last_crash_at: Option<Instant>,
+}
+
+impl CrashRecoveryState {
+    fn record_allowed_url(&mut self, url: &Url) {
+        if !is_recovery_url(url) {
+            self.last_allowed_url = Some(url.clone());
+        }
+    }
+
+    #[cfg(any(not(target_os = "android"), test))]
+    fn on_process_terminated(
+        &mut self,
+        now: Instant,
+        current_url: Option<&str>,
+        development: bool,
+        http_transport: bool,
+    ) -> CrashRecoveryAction {
+        let fallback = Url::parse(if development {
+            DEVELOPMENT_TARGET
+        } else {
+            PRODUCTION_TARGET
+        })
+        .expect("default target URL must parse");
+        let target = current_url
+            .and_then(|value| Url::parse(value).ok())
+            .filter(|url| {
+                !is_recovery_url(url)
+                    && navigation_allowed_with_transports(url, development, false, http_transport)
+            })
+            .or_else(|| self.last_allowed_url.clone())
+            .unwrap_or(fallback);
+
+        if self
+            .last_crash_at
+            .is_some_and(|previous| now.saturating_duration_since(previous) <= CRASH_LOOP_WINDOW)
+        {
+            self.consecutive_crashes = self.consecutive_crashes.saturating_add(1);
+        } else {
+            self.consecutive_crashes = 1;
+        }
+        self.last_crash_at = Some(now);
+
+        if self.consecutive_crashes <= 1 {
+            CrashRecoveryAction::Reload(target)
+        } else {
+            let recovery = recovery_url_for(target.as_str(), http_transport)
+                .unwrap_or_else(initialization_error_url);
+            CrashRecoveryAction::Recovery(recovery)
+        }
+    }
+}
+
+fn crash_recovery_state() -> std::sync::MutexGuard<'static, CrashRecoveryState> {
+    CRASH_RECOVERY
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(any(not(target_os = "android"), test))]
+fn handle_process_terminated(
+    current_url: Option<&str>,
+    development: bool,
+    http_transport: bool,
+) -> CrashRecoveryAction {
+    crash_recovery_state().on_process_terminated(
+        Instant::now(),
+        current_url,
+        development,
+        http_transport,
+    )
+}
 
 struct StartupRendezvous {
     native_ready: AtomicBool,
@@ -37,6 +133,7 @@ struct StartupRendezvous {
     frame_ready: AtomicBool,
     navigation_started: AtomicBool,
     abandoned: AtomicBool,
+    pending_ios_handoff: AtomicU8,
 }
 
 impl StartupRendezvous {
@@ -48,6 +145,7 @@ impl StartupRendezvous {
             frame_ready: AtomicBool::new(false),
             navigation_started: AtomicBool::new(false),
             abandoned: AtomicBool::new(false),
+            pending_ios_handoff: AtomicU8::new(0),
         }
     }
 
@@ -81,11 +179,47 @@ impl StartupRendezvous {
         self.claim_navigation()
     }
 
+    #[cfg(any(target_os = "ios", test))]
+    fn defer_frame_until_native_ready(&self, document: LocalDocument) -> bool {
+        if self.native_ready.load(Ordering::SeqCst) {
+            return false;
+        }
+        let encoded = match document {
+            LocalDocument::Bootstrap => 1,
+            LocalDocument::Recovery => 2,
+        };
+        self.pending_ios_handoff.store(encoded, Ordering::SeqCst);
+        if self.native_ready.load(Ordering::SeqCst)
+            && self.pending_ios_handoff.swap(0, Ordering::SeqCst) != 0
+        {
+            return false;
+        }
+        true
+    }
+
+    #[cfg(any(target_os = "ios", test))]
+    fn signal_native_ready_and_take_pending(&self) -> (bool, Option<LocalDocument>) {
+        self.native_ready.store(true, Ordering::SeqCst);
+        let pending = match self.pending_ios_handoff.swap(0, Ordering::SeqCst) {
+            1 => Some(LocalDocument::Bootstrap),
+            2 => Some(LocalDocument::Recovery),
+            _ => None,
+        };
+        let claimed = if pending.is_none() {
+            self.claim_navigation()
+        } else {
+            false
+        };
+        (claimed, pending)
+    }
+
     fn signal_failure(&self) -> bool {
+        self.pending_ios_handoff.store(0, Ordering::Release);
         !self.abandoned.swap(true, Ordering::AcqRel)
     }
 
     fn abandon(&self) {
+        self.pending_ios_handoff.store(0, Ordering::Release);
         self.abandoned.store(true, Ordering::Release);
     }
 }
@@ -145,10 +279,30 @@ pub fn register_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<
 }
 
 pub(crate) fn navigation_allowed(url: &Url, development: bool) -> bool {
-    navigation_allowed_for(url, development, cfg!(windows))
+    navigation_allowed_with_transports(
+        url,
+        development,
+        cfg!(windows),
+        cfg!(any(windows, target_os = "android")),
+    )
 }
 
+#[cfg(test)]
 fn navigation_allowed_for(url: &Url, development: bool, windows_startup: bool) -> bool {
+    navigation_allowed_with_transports(
+        url,
+        development,
+        windows_startup,
+        windows_startup || cfg!(target_os = "android"),
+    )
+}
+
+fn navigation_allowed_with_transports(
+    url: &Url,
+    development: bool,
+    windows_startup: bool,
+    allow_http_recovery: bool,
+) -> bool {
     if !url.username().is_empty() || url.password().is_some() {
         return false;
     }
@@ -161,7 +315,8 @@ fn navigation_allowed_for(url: &Url, development: bool, windows_startup: bool) -
         && ((url.scheme() == SCHEME
             && url.host_str() == Some("localhost")
             && url.port().is_none())
-            || (url.scheme() == "http"
+            || (allow_http_recovery
+                && url.scheme() == "http"
                 && url.host_str() == Some(HOST)
                 && url.port_or_known_default() == Some(80)));
     let local_development = development
@@ -221,7 +376,7 @@ fn is_bootstrap_url(url: &Url) -> bool {
 
 pub(crate) fn is_original_bootstrap_url(url: &Url) -> bool {
     url.path() == BOOTSTRAP_PATH
-        && navigation_allowed_for(url, false, false)
+        && navigation_allowed_with_transports(url, false, false, true)
         && (url.scheme() == SCHEME || url.host_str() == Some(HOST))
 }
 
@@ -240,8 +395,11 @@ fn recovery_url_for(target: &str, http_transport: bool) -> Option<Url> {
         format!("{SCHEME}://localhost{RECOVERY_PATH}")
     };
     let mut recovery = Url::parse(&base).ok()?;
+    let attempt = RECOVERY_ATTEMPT.fetch_add(1, Ordering::Relaxed) + 1;
+    let attempt_str = attempt.to_string();
     let fragment = url::form_urlencoded::Serializer::new(String::new())
         .append_pair("target", target)
+        .append_pair("attempt", &attempt_str)
         .finish();
     recovery.set_fragment(Some(&fragment));
     Some(recovery)
@@ -375,7 +533,6 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
         unsafe {
             use objc2::{msg_send, runtime::AnyObject, sel};
 
-            let _ = ready_window;
             let controller = platform.view_controller().cast::<AnyObject>();
             let webview = platform.inner().cast::<AnyObject>();
             let completed = if controller.is_null() || webview.is_null() {
@@ -389,9 +546,21 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
                 false
             };
             if !completed {
+                STARTUP.abandon();
                 crate::startup_log::abandon(crate::startup_log::Phase::InitializationFailed);
                 eprintln!("native WebView startup handoff unavailable");
                 show_native_creation_error();
+            } else {
+                let (claimed, pending) = STARTUP.signal_native_ready_and_take_pending();
+                if let Some(document) = pending {
+                    release_local_placeholder(&ready_window, FrameHandoff::from_document(document));
+                } else if claimed {
+                    finish_frame_delivery(
+                        &ready_window,
+                        FrameHandoff::bootstrap(),
+                        FrameDelivery::Ready(true),
+                    );
+                }
             }
         }
     });
@@ -528,6 +697,9 @@ fn release_local_placeholder(window: &tauri::WebviewWindow, action: FrameHandoff
     }
     #[cfg(target_os = "ios")]
     {
+        if STARTUP.defer_frame_until_native_ready(action.document()) {
+            return;
+        }
         let ready_window = window.clone();
         if window.with_webview(move |platform| unsafe {
             use objc2::{msg_send, runtime::AnyObject, sel};
@@ -620,7 +792,7 @@ pub fn on_page_load<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
     payload: &tauri::webview::PageLoadPayload<'_>,
 ) {
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(all(debug_assertions, any(target_os = "ios", target_os = "macos")))]
     direct_probe::on_page_load(webview, payload);
     if webview.label() == "main" {
         let started = matches!(payload.event(), tauri::webview::PageLoadEvent::Started);
@@ -636,6 +808,9 @@ pub fn on_page_load<R: tauri::Runtime>(
             let trusted =
                 crate::native_command_guard::caller_allowed("main", payload.url(), tauri::is_dev());
             crate::startup_log::document(started, payload.url().as_str(), trusted);
+            if !started && trusted {
+                crash_recovery_state().record_allowed_url(payload.url());
+            }
         }
     }
     if webview.label() == "main"
@@ -677,11 +852,11 @@ fn initial_replace_script(
 fn replace_window_with_initial_target(window: &tauri::WebviewWindow) {
     crate::startup_log::request();
 
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(all(debug_assertions, any(target_os = "ios", target_os = "macos")))]
     if direct_probe::try_deliver(window) {
         return;
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(debug_assertions, target_os = "linux"))]
     if linux_direct_probe::try_deliver(window) {
         return;
     }
@@ -698,14 +873,14 @@ fn replace_window_with_initial_target(window: &tauri::WebviewWindow) {
 fn replace_webview_with_initial_target<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
     crate::startup_log::request();
 
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(all(debug_assertions, any(target_os = "ios", target_os = "macos")))]
     if let Some(window) = webview.app_handle().get_webview_window("main") {
         if direct_probe::try_deliver(&window) {
             return;
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(debug_assertions, target_os = "linux"))]
     if let Some(window) = webview.app_handle().get_webview_window("main") {
         if linux_direct_probe::try_deliver(&window) {
             return;
@@ -825,7 +1000,10 @@ mod platform {
         },
     };
 
-    use super::{accepts_target, apple_recovers, recovery_url};
+    use super::{
+        accepts_target, apple_recovers, handle_process_terminated, recovery_url,
+        CrashRecoveryAction,
+    };
     use objc2::{
         ffi::{
             class_addMethod, objc_getAssociatedObject, objc_setAssociatedObject,
@@ -842,7 +1020,7 @@ mod platform {
     static MAIN_WEBVIEW_MARKER: u8 = 0;
     struct Hooks {
         class: usize,
-        originals: [Option<Imp>; 2],
+        originals: [Option<Imp>; 3],
         installed: AtomicBool,
     }
     static HOOKS: OnceLock<Hooks> = OnceLock::new();
@@ -897,7 +1075,9 @@ mod platform {
         let selectors = [
             sel!(webView:didFailProvisionalNavigation:withError:),
             sel!(webView:didFailNavigation:withError:),
+            sel!(webViewWebContentProcessDidTerminate:),
         ];
+        let type_encodings: [&[u8]; 3] = [b"v@:@@@\0", b"v@:@@@\0", b"v@:@\0"];
         let originals =
             selectors.map(|selector| class.instance_method(selector).map(|m| m.implementation()));
         HOOKS
@@ -907,7 +1087,7 @@ mod platform {
                 installed: AtomicBool::new(false),
             })
             .map_err(|_| "Wry recovery hooks already recorded".to_string())?;
-        let implementations: [Imp; 2] = [
+        let implementations: [Imp; 3] = [
             std::mem::transmute(
                 did_fail_provisional
                     as unsafe extern "C-unwind" fn(
@@ -928,6 +1108,10 @@ mod platform {
                         &NSError,
                     ),
             ),
+            std::mem::transmute(
+                web_content_process_did_terminate
+                    as unsafe extern "C-unwind" fn(&AnyObject, Sel, &AnyObject),
+            ),
         ];
         let hooks = HOOKS.get().unwrap();
         install_hook_sequence(
@@ -941,7 +1125,7 @@ mod platform {
                         class as *const AnyClass as *mut AnyClass,
                         selectors[index],
                         implementations[index],
-                        b"v@:@@@\0".as_ptr().cast(),
+                        type_encodings[index].as_ptr().cast(),
                     ))
                 }
             },
@@ -973,7 +1157,7 @@ mod platform {
         verify: impl FnOnce() -> bool,
         rollback: impl FnOnce(),
     ) -> Result<(), String> {
-        for index in 0..2 {
+        for index in 0..3 {
             if !install(index) {
                 rollback();
                 return Err("failed to install WebKit recovery hook".into());
@@ -1037,6 +1221,43 @@ mod platform {
         }));
     }
 
+    unsafe extern "C-unwind" fn web_content_process_did_terminate(
+        delegate: &AnyObject,
+        selector: Sel,
+        webview: &AnyObject,
+    ) {
+        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+            if let Some(original) = HOOKS.get().and_then(|hooks| hooks.originals[2]) {
+                let callback: unsafe extern "C-unwind" fn(&AnyObject, Sel, &AnyObject) =
+                    std::mem::transmute(original);
+                callback(delegate, selector, webview);
+            }
+            if !HOOKS
+                .get()
+                .is_some_and(|hooks| hooks.installed.load(Ordering::Acquire))
+            {
+                return;
+            }
+            handle_process_termination(webview);
+        }));
+    }
+
+    unsafe fn handle_process_termination(webview: &AnyObject) {
+        if objc_getAssociatedObject(webview, marker_key()).is_null() {
+            return;
+        }
+        let current_url: Option<String> = {
+            let url: Option<objc2::rc::Retained<NSURL>> = msg_send![webview, URL];
+            url.and_then(|value| value.absoluteString())
+                .map(|value| value.to_string())
+        };
+        let target = match handle_process_terminated(current_url.as_deref(), tauri::is_dev(), false)
+        {
+            CrashRecoveryAction::Reload(url) | CrashRecoveryAction::Recovery(url) => url,
+        };
+        let _ = navigate(webview, target.as_str());
+    }
+
     unsafe fn handle_failure(webview: &AnyObject, error: &NSError) {
         if objc_getAssociatedObject(webview, marker_key()).is_null()
             || !error.domain().isEqualToString(NSURLErrorDomain)
@@ -1088,7 +1309,7 @@ mod platform {
                 },
                 || {
                     assert!(!installed.load(Ordering::Acquire));
-                    assert_eq!(*steps.borrow(), vec![0, 1]);
+                    assert_eq!(*steps.borrow(), vec![0, 1, 2]);
                     true
                 },
                 || panic!("successful installation must not roll back"),
@@ -1099,9 +1320,9 @@ mod platform {
 
         #[test]
         fn every_partial_install_failure_rolls_back_without_publishing_completion() {
-            for failure in 0..2 {
+            for failure in 0..3 {
                 let installed = AtomicBool::new(false);
-                let methods = RefCell::new([false; 2]);
+                let methods = RefCell::new([false; 3]);
                 let rolled_back = AtomicBool::new(false);
                 assert!(install_hook_sequence(
                     &installed,
@@ -1116,14 +1337,14 @@ mod platform {
                     || panic!("partial installation must not verify"),
                     || {
                         assert!(!installed.load(Ordering::Acquire));
-                        *methods.borrow_mut() = [false; 2];
+                        *methods.borrow_mut() = [false; 3];
                         rolled_back.store(true, Ordering::Release);
                     },
                 )
                 .is_err());
                 assert!(!installed.load(Ordering::Acquire));
                 assert!(rolled_back.load(Ordering::Acquire));
-                assert_eq!(*methods.borrow(), [false; 2]);
+                assert_eq!(*methods.borrow(), [false; 3]);
             }
         }
 
@@ -1157,7 +1378,7 @@ mod platform {
 
     use webkit2gtk::{glib, NetworkError, WebView, WebViewExt};
 
-    use super::recovery_url;
+    use super::{handle_process_terminated, recovery_url, CrashRecoveryAction};
 
     pub fn attach(platform: tauri::webview::PlatformWebview) -> Result<(), String> {
         let webview = platform.inner();
@@ -1188,6 +1409,15 @@ mod platform {
             true
         });
 
+        webview.connect_web_process_terminated(move |webview, _reason| {
+            let current = webview.uri().map(|uri| uri.to_string());
+            let target = match handle_process_terminated(current.as_deref(), tauri::is_dev(), false)
+            {
+                CrashRecoveryAction::Reload(url) | CrashRecoveryAction::Recovery(url) => url,
+            };
+            webview.load_uri(target.as_str());
+        });
+
         Ok(())
     }
 
@@ -1203,14 +1433,21 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
+    use std::{cell::RefCell, collections::HashMap, rc::Rc};
     use webview2_com::{
         CoTaskMemPWSTR,
-        Microsoft::Web::WebView2::Win32::{ICoreWebView2, COREWEBVIEW2_WEB_ERROR_STATUS},
-        NavigationCompletedEventHandler,
+        Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2, COREWEBVIEW2_PROCESS_FAILED_KIND,
+            COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+            COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+            COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
+            COREWEBVIEW2_WEB_ERROR_STATUS,
+        },
+        NavigationCompletedEventHandler, NavigationStartingEventHandler, ProcessFailedEventHandler,
     };
     use windows::core::{BOOL, PWSTR};
 
-    use super::{recovery_url, windows_recovers};
+    use super::{handle_process_terminated, recovery_url, windows_recovers, CrashRecoveryAction};
 
     pub fn attach(platform: tauri::webview::PlatformWebview) -> Result<(), String> {
         let webview =
@@ -1219,9 +1456,42 @@ mod platform {
         unsafe { settings.SetIsBuiltInErrorPageEnabled(false) }
             .map_err(|error| error.to_string())?;
 
+        let pending_navigations = Rc::new(RefCell::new(HashMap::<u64, String>::new()));
+        let tracked_starts = Rc::clone(&pending_navigations);
+        let starting_handler = NavigationStartingEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let mut navigation_id = 0u64;
+            if unsafe { args.NavigationId(&mut navigation_id) }.is_err() {
+                return Ok(());
+            }
+            let mut uri = PWSTR::null();
+            if unsafe { args.Uri(&mut uri) }.is_err() {
+                return Ok(());
+            }
+            let target = webview2_com::take_pwstr(uri);
+            let mut pending = tracked_starts.borrow_mut();
+            if pending.len() >= 64 {
+                pending.clear();
+            }
+            pending.insert(navigation_id, target);
+            Ok(())
+        }));
+        let mut starting_token = 0;
+        unsafe { webview.add_NavigationStarting(&starting_handler, &mut starting_token) }
+            .map_err(|error| error.to_string())?;
+
+        let tracked_completions = Rc::clone(&pending_navigations);
         let handler = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
             let (Some(sender), Some(args)) = (sender, args) else {
                 return Ok(());
+            };
+            let mut navigation_id = 0u64;
+            let started_uri = if unsafe { args.NavigationId(&mut navigation_id) }.is_ok() {
+                tracked_completions.borrow_mut().remove(&navigation_id)
+            } else {
+                None
             };
             let mut success = BOOL(0);
             unsafe { args.IsSuccess(&mut success) }?;
@@ -1233,9 +1503,14 @@ mod platform {
             if !windows_recovers(status.0) {
                 return Ok(());
             }
-            let mut source = PWSTR::null();
-            unsafe { sender.Source(&mut source) }?;
-            let target = webview2_com::take_pwstr(source);
+            let target = match started_uri {
+                Some(uri) if !uri.is_empty() => uri,
+                _ => {
+                    let mut source = PWSTR::null();
+                    unsafe { sender.Source(&mut source) }?;
+                    webview2_com::take_pwstr(source)
+                }
+            };
             if let Some(recovery) = recovery_url(&target) {
                 navigate(&sender, recovery.as_str())?;
             }
@@ -1243,6 +1518,40 @@ mod platform {
         }));
         let mut token = 0;
         unsafe { webview.add_NavigationCompleted(&handler, &mut token) }
+            .map_err(|error| error.to_string())?;
+
+        let process_failed_handler =
+            ProcessFailedEventHandler::create(Box::new(move |sender, args| {
+                let (Some(sender), Some(args)) = (sender, args) else {
+                    return Ok(());
+                };
+                let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+                unsafe { args.ProcessFailedKind(&mut kind) }?;
+                if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
+                    return Ok(());
+                }
+                if kind != COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                    && kind != COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
+                {
+                    return Ok(());
+                }
+                let mut source = PWSTR::null();
+                let current = if unsafe { sender.Source(&mut source) }.is_ok() {
+                    Some(webview2_com::take_pwstr(source))
+                } else {
+                    None
+                };
+                let target =
+                    match handle_process_terminated(current.as_deref(), tauri::is_dev(), true) {
+                        CrashRecoveryAction::Reload(url) | CrashRecoveryAction::Recovery(url) => {
+                            url
+                        }
+                    };
+                let _ = navigate(&sender, target.as_str());
+                Ok(())
+            }));
+        let mut crash_token = 0;
+        unsafe { webview.add_ProcessFailed(&process_failed_handler, &mut crash_token) }
             .map_err(|error| error.to_string())?;
 
         Ok(())
@@ -1256,6 +1565,11 @@ mod platform {
 }
 
 fn recovery_html() -> String {
+    recovery_html_for(tauri::is_dev())
+}
+
+fn recovery_html_for(development: bool) -> String {
+    let dev_flag = if development { "true" } else { "false" };
     let html = r##"<!doctype html>
 <html lang="en">
 <head>
@@ -1284,19 +1598,36 @@ fn recovery_html() -> String {
     <p data-testid="recovery-message" role="status" aria-live="polite">Network connection failed. Click to refresh</p>
   </main>
   <script>
-    const params=new URLSearchParams(location.hash.slice(1));
-    const candidate=params.get("target")||"";
+    const devAllowed=__ALOOK_DEV_ALLOWED__;
     const surface=document.querySelector('[data-testid="webview-recovery"]');
     const message=document.querySelector('[data-testid="recovery-message"]');
-    if(params.get("reason")==="initialization")message.textContent="App initialization failed. Close and reopen Alook";
-    const originalMessage=message.textContent;
+    const defaultMessage="Network connection failed. Click to refresh";
+    let originalMessage=defaultMessage;
     let target="";
     let retrying=false;
     let blurred=false;
     let hidden=document.hidden;
-    try{const parsed=new URL(candidate);if((parsed.protocol==="http:"||parsed.protocol==="https:")&&parsed.hostname!=="alook-recovery.localhost")target=candidate}catch(_error){}
-    if(params.get("reason")==="initialization")target="";
-    if(!target)surface.setAttribute("aria-disabled","true");
+    const syncHash=()=>{
+      const params=new URLSearchParams(location.hash.slice(1));
+      const candidate=params.get("target")||"";
+      retrying=false;
+      target="";
+      if(params.get("reason")==="initialization"){
+        originalMessage="App initialization failed. Close and reopen Alook";
+      }else{
+        originalMessage=defaultMessage;
+      }
+      message.textContent=originalMessage;
+      try{
+        const parsed=new URL(candidate);
+        const allowedOrigin=parsed.origin==="https://alook.ai"||(devAllowed&&parsed.origin==="http://localhost:3000");
+        if((parsed.protocol==="http:"||parsed.protocol==="https:")&&parsed.hostname!=="alook-recovery.localhost"&&allowedOrigin&&!parsed.username&&!parsed.password)target=candidate;
+      }catch(_error){}
+      if(params.get("reason")==="initialization")target="";
+      if(!target)surface.setAttribute("aria-disabled","true");
+      else surface.setAttribute("aria-disabled","false");
+    };
+    syncHash();
     const refresh=()=>{if(retrying||!target)return;retrying=true;surface.setAttribute("aria-disabled","true");message.textContent="Retrying…";try{location.replace(target)}catch(_error){retrying=false;surface.setAttribute("aria-disabled","false");message.textContent=originalMessage}};
     const onKeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();refresh()}};
     const onBlur=()=>{blurred=true};
@@ -1307,6 +1638,7 @@ fn recovery_html() -> String {
     const cleanup=()=>{while(listeners.length){const [owner,type,handler]=listeners.pop();owner.removeEventListener(type,handler)}};
     listen(surface,"click",refresh);
     listen(surface,"keydown",onKeydown);
+    listen(window,"hashchange",syncHash);
     listen(window,"online",refresh);
     listen(window,"blur",onBlur);
     listen(window,"focus",onFocus);
@@ -1315,7 +1647,8 @@ fn recovery_html() -> String {
   </script>
 </body>
 </html>"##;
-    html.replacen("</script>", &format!("{FRAME_READY_SCRIPT}</script>"), 1)
+    html.replace("__ALOOK_DEV_ALLOWED__", dev_flag)
+        .replacen("</script>", &format!("{FRAME_READY_SCRIPT}</script>"), 1)
 }
 
 #[cfg(test)]
@@ -1757,9 +2090,12 @@ mod tests {
         let recovery = Origin::Remote {
             url: Url::parse("http://alook-recovery.localhost/bootstrap").unwrap(),
         };
-        assert!(authority
-            .resolve_access("native_geometry_snapshot", "main", "main", &recovery)
-            .is_some());
+        assert_eq!(
+            authority
+                .resolve_access("native_geometry_snapshot", "main", "main", &recovery)
+                .is_some(),
+            cfg!(windows)
+        );
         assert!(authority
             .resolve_access(
                 "desktop_system_notification_show",
@@ -1768,6 +2104,23 @@ mod tests {
                 &recovery
             )
             .is_none());
+        let local = Origin::Local;
+        for command in [
+            "desktop_system_notification_show",
+            "daemon_pair",
+            "daemon_runtime_capability",
+            "close_splashscreen",
+            "set_window_theme",
+            "desktop_zoom_shortcut",
+            "native_oauth_snapshot",
+        ] {
+            assert!(
+                authority
+                    .resolve_access(command, "main", "main", &local)
+                    .is_none(),
+                "{command} must not be accessible from Origin::Local"
+            );
+        }
         for command in ["ios", "alook_startup_log_ios"] {
             assert!(authority
                 .resolve_access(command, "main", "main", &production)
@@ -1830,13 +2183,32 @@ for(const state of ['loading','complete']) {
             "https://alook.ai:443/c",
             "alook-recovery://localhost/bootstrap",
             "alook-recovery://localhost/network-error#target=https%3A%2F%2Falook.ai%2Fc",
-            "http://alook-recovery.localhost/network-error#target=https%3A%2F%2Falook.ai%2Fc",
         ] {
             assert!(
                 navigation_allowed(&Url::parse(target).unwrap(), false),
                 "rejected {target}"
             );
         }
+
+        let http_recovery =
+            Url::parse("http://alook-recovery.localhost/network-error#target=https%3A%2F%2Falook.ai%2Fc")
+                .unwrap();
+        assert!(navigation_allowed_with_transports(
+            &http_recovery,
+            false,
+            false,
+            true
+        ));
+        assert!(!navigation_allowed_with_transports(
+            &http_recovery,
+            false,
+            false,
+            false
+        ));
+        assert_eq!(
+            navigation_allowed(&http_recovery, false),
+            cfg!(any(windows, target_os = "android"))
+        );
 
         for target in [
             "http://alook.ai/c",
@@ -2024,7 +2396,7 @@ for(const state of ['loading','complete']) {
             let config: Config = serde_json::from_value(merged).unwrap();
             assert_eq!(
                 config.build.dev_url.as_ref().unwrap().as_str(),
-                "http://localhost:3000/c"
+                "http://localhost:3000/"
             );
             match config.build.frontend_dist.as_ref().unwrap() {
                 FrontendDist::Url(url) => {
@@ -2262,6 +2634,8 @@ for (const state of ['loading', 'complete']) {
                 "override fun onReceivedSslError(",
                 "handler.cancel()",
                 "WebviewRecovery.handleSslError(view, currentUrl, error.url)",
+                "override fun onRenderProcessGone(",
+                "WebviewRecovery.handleRenderProcessGone(view, currentUrl, detail.didCrash())",
             ],
         );
         let wry = wry_android_client_source();
@@ -2271,10 +2645,270 @@ for (const state of ['loading', 'complete']) {
         assert!(gradle.contains("source.occurrencesOf(it.second) == 1"));
         assert!(gradle.contains("wireGeneratedWebViewRecovery"));
         assert!(gradle.contains("verifyGeneratedWebViewRecovery"));
+        assert!(gradle.contains("WebviewRecovery.handleMainFrameError("));
+        assert!(gradle.contains("WebviewRecovery.handleRenderProcessGone(view, currentUrl, detail.didCrash())"));
         assert!(gradle.contains("handler.cancel()"));
         assert!(gradle.contains("return Rust.onPageLoading((view as RustWebView).id, url)"));
         assert!(gradle.contains("Rust.onPageLoaded((view as RustWebView).id, url)"));
         assert!(!gradle.contains("WebviewRecovery.handlePageFinished(view, url)"));
         assert!(!gradle.contains("WebviewRecovery.handlePageStarted(view)"));
+        assert!(!gradle.contains("applicationIdSuffix"));
+
+        let activity =
+            include_str!("../gen/android/app/src/main/java/ai/alook/android/MainActivity.kt");
+        assert!(!activity.contains("addJavascriptInterface"));
+        assert!(!activity.contains("setOf(\"*\")"));
+        assert!(activity.contains("WebViewCompat.addWebMessageListener"));
+        assert!(activity.contains("AndroidNativeBridge.allowedOriginRules"));
+    }
+
+    #[test]
+    fn recovery_url_attempt_increments_and_hashchange_resets_retrying_state() {
+        let first = recovery_url_for("https://alook.ai/c", false).unwrap();
+        let second = recovery_url_for("https://alook.ai/c", false).unwrap();
+        assert_ne!(first.as_str(), second.as_str());
+        let first_attempt: u64 =
+            url::form_urlencoded::parse(first.fragment().unwrap_or_default().as_bytes())
+                .find_map(|(k, v)| (k == "attempt").then(|| v.parse().unwrap()))
+                .unwrap();
+        let second_attempt: u64 =
+            url::form_urlencoded::parse(second.fragment().unwrap_or_default().as_bytes())
+                .find_map(|(k, v)| (k == "attempt").then(|| v.parse().unwrap()))
+                .unwrap();
+        assert!(second_attempt > first_attempt);
+
+        let prod_html = recovery_html_for(false);
+        let dev_html = recovery_html_for(true);
+        let extract_script = |html: &str| {
+            html.split("<script>")
+                .nth(1)
+                .unwrap()
+                .split(FRAME_READY_SCRIPT)
+                .next()
+                .unwrap()
+                .to_string()
+        };
+        let prod_script = extract_script(&prod_html);
+        let dev_script = extract_script(&dev_html);
+        let output = std::process::Command::new("node")
+            .arg("-e")
+            .arg(
+                r#"
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+function run(script, initialHash) {
+  const attrs = {};
+  const listeners = new Map();
+  const add = (target, type, fn) => {
+    const key = target + ':' + type;
+    listeners.set(key, [...(listeners.get(key) || []), fn]);
+  };
+  const remove = (target, type, fn) => {
+    const key = target + ':' + type;
+    listeners.set(key, (listeners.get(key) || []).filter(item => item !== fn));
+  };
+  const emit = (target, type, event = {}) => {
+    for (const fn of (listeners.get(target + ':' + type) || [])) fn(event);
+  };
+  const surface = {
+    setAttribute: (k, v) => { attrs[k] = v; },
+    addEventListener: (t, fn) => add('surface', t, fn),
+    removeEventListener: (t, fn) => remove('surface', t, fn),
+  };
+  const message = { textContent: 'Network connection failed. Click to refresh' };
+  const replacements = [];
+  const location = {
+    hash: initialHash,
+    replace: value => replacements.push(value),
+  };
+  const win = {
+    addEventListener: (t, fn) => add('window', t, fn),
+    removeEventListener: (t, fn) => remove('window', t, fn),
+  };
+  const doc = {
+    hidden: false,
+    querySelector: sel => sel.includes('recovery-message') ? message : surface,
+    addEventListener: (t, fn) => add('document', t, fn),
+    removeEventListener: (t, fn) => remove('document', t, fn),
+  };
+  vm.runInNewContext(script, { URL, URLSearchParams, location, window: win, document: doc });
+  return { attrs, message, replacements, location, emit };
+}
+
+const prodScript = process.argv[1];
+const devScript = process.argv[2];
+
+// 1. Repeated retry recovers via hashchange when attempt increments
+const session = run(prodScript, '#target=https%3A%2F%2Falook.ai%2Fc&attempt=1');
+assert.equal(session.attrs['aria-disabled'], 'false');
+session.emit('surface', 'click');
+assert.deepEqual(session.replacements, ['https://alook.ai/c']);
+assert.equal(session.attrs['aria-disabled'], 'true');
+assert.equal(session.message.textContent, 'Retrying…');
+// While retrying, duplicate click is ignored
+session.emit('surface', 'click');
+assert.equal(session.replacements.length, 1);
+// Native navigates to attempt=2 -> hashchange resets retrying state
+session.location.hash = '#target=https%3A%2F%2Falook.ai%2Fc&attempt=2';
+session.emit('window', 'hashchange');
+assert.equal(session.attrs['aria-disabled'], 'false');
+assert.equal(session.message.textContent, 'Network connection failed. Click to refresh');
+session.emit('surface', 'click');
+assert.deepEqual(session.replacements, ['https://alook.ai/c', 'https://alook.ai/c']);
+
+// 2. Untrusted origins and localhost in production fail closed
+for (const hash of [
+  '#target=https%3A%2F%2Fevil.example%2Fc&attempt=1',
+  '#target=http%3A%2F%2Flocalhost%3A3000%2Fc&attempt=1',
+  '#target=https%3A%2F%2Fuser%40alook.ai%2Fc&attempt=1',
+]) {
+  const blocked = run(prodScript, hash);
+  assert.equal(blocked.attrs['aria-disabled'], 'true');
+  blocked.emit('surface', 'click');
+  assert.deepEqual(blocked.replacements, []);
+}
+
+// 3. Development mode permits http://localhost:3000
+const dev = run(devScript, '#target=http%3A%2F%2Flocalhost%3A3000%2Fc&attempt=1');
+assert.equal(dev.attrs['aria-disabled'], 'false');
+dev.emit('surface', 'click');
+assert.deepEqual(dev.replacements, ['http://localhost:3000/c']);
+"#,
+            )
+            .arg(&prod_script)
+            .arg(&dev_script)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn ios_deferred_frame_handoff_waits_for_native_creation_and_delivers_once() {
+        // Ordering 1: /frame-ready arrives before finish_native_creation
+        let early_frame = StartupRendezvous::new(false);
+        assert!(early_frame.defer_frame_until_native_ready(LocalDocument::Bootstrap));
+        let (claimed, pending) = early_frame.signal_native_ready_and_take_pending();
+        assert!(!claimed);
+        assert_eq!(pending, Some(LocalDocument::Bootstrap));
+        assert!(!early_frame.defer_frame_until_native_ready(LocalDocument::Bootstrap));
+        assert!(!early_frame.signal_hooks_ready());
+        assert!(!early_frame.signal_bootstrap_finished());
+        assert!(early_frame.signal_frame_ready());
+
+        // Ordering 2: finish_native_creation completes before /frame-ready
+        let late_frame = StartupRendezvous::new(false);
+        let (claimed, pending) = late_frame.signal_native_ready_and_take_pending();
+        assert!(!claimed);
+        assert_eq!(pending, None);
+        assert!(!late_frame.defer_frame_until_native_ready(LocalDocument::Bootstrap));
+        assert!(!late_frame.signal_hooks_ready());
+        assert!(!late_frame.signal_bootstrap_finished());
+        assert!(late_frame.signal_frame_ready());
+
+        // Ordering 3: failure clears deferred handoff
+        let failed = StartupRendezvous::new(false);
+        assert!(failed.defer_frame_until_native_ready(LocalDocument::Bootstrap));
+        failed.abandon();
+        let (claimed, pending) = failed.signal_native_ready_and_take_pending();
+        assert!(!claimed);
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn render_process_crash_recovery_reloads_once_then_escalates_on_loop() {
+        let mut state = CrashRecoveryState::default();
+        let t0 = Instant::now();
+        let room = Url::parse("https://alook.ai/c/room").unwrap();
+        state.record_allowed_url(&room);
+
+        let first = state.on_process_terminated(t0, Some("https://alook.ai/c/room"), false, false);
+        assert_eq!(first, CrashRecoveryAction::Reload(room.clone()));
+
+        let second = state.on_process_terminated(
+            t0 + Duration::from_secs(5),
+            Some("https://alook.ai/c/room"),
+            false,
+            false,
+        );
+        match second {
+            CrashRecoveryAction::Recovery(url) => {
+                assert_eq!(url.scheme(), SCHEME);
+                assert_eq!(url.path(), RECOVERY_PATH);
+                let target =
+                    url::form_urlencoded::parse(url.fragment().unwrap_or_default().as_bytes())
+                        .find_map(|(k, v)| (k == "target").then(|| v.into_owned()));
+                assert_eq!(target.as_deref(), Some("https://alook.ai/c/room"));
+            }
+            other => panic!("expected recovery escalation, got {other:?}"),
+        }
+
+        // After crash loop window expires, reloads again cleanly
+        let after_window = state.on_process_terminated(
+            t0 + Duration::from_secs(5) + CRASH_LOOP_WINDOW + Duration::from_secs(1),
+            Some("https://untrusted.invalid/phish"),
+            false,
+            false,
+        );
+        assert_eq!(after_window, CrashRecoveryAction::Reload(room));
+    }
+
+    #[test]
+    fn ios_project_metadata_matches_tauri_config() {
+        let tauri_conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let version = tauri_conf["version"].as_str().unwrap();
+        let project_yml = include_str!("../gen/apple/project.yml");
+        let gitignore = include_str!("../.gitignore");
+
+        assert!(gitignore.contains("/gen/apple/alook-desktop_iOS/Info.plist"));
+        assert!(project_yml.contains(&format!("CFBundleShortVersionString: {version}")));
+        assert!(project_yml.contains("CFBundleURLSchemes: [ai.alook]"));
+        assert!(project_yml.contains("NSPhotoLibraryAddUsageDescription:"));
+        assert!(project_yml.contains("ITSAppUsesNonExemptEncryption: false"));
+        assert!(project_yml.contains("DEBUG=1"));
+        for orientation in [
+            "UIInterfaceOrientationPortrait",
+            "UIInterfaceOrientationPortraitUpsideDown",
+            "UIInterfaceOrientationLandscapeLeft",
+            "UIInterfaceOrientationLandscapeRight",
+        ] {
+            assert!(
+                project_yml.contains(orientation),
+                "missing iPad orientation {orientation}"
+            );
+        }
+    }
+
+    #[test]
+    fn desktop_commands_and_ios_handlers_enforce_origin_guards_and_release_gates() {
+        let daemon = include_str!("daemon_commands.rs");
+        assert!(!daemon.contains("cfg!(debug_assertions)"));
+        assert!(daemon.contains("tauri::is_dev()"));
+        assert!(daemon.matches("native_command_guard::guard(&window)?").count() >= 2);
+
+        let commands = include_str!("commands.rs");
+        assert!(commands.matches("native_command_guard::guard(&window)?").count() >= 2);
+
+        let zoom = include_str!("zoom.rs");
+        assert!(zoom.contains("native_command_guard::guard(&window)?"));
+
+        let lib = include_str!("lib.rs");
+        assert!(lib.contains("NewWindowResponse::Deny"));
+        assert!(lib.contains("webview_recovery::set_foreground(window.is_focused().unwrap_or(false))"));
+        assert!(lib.contains("webview_recovery::stop_bootstrap_watch()"));
+        assert!(lib.contains("all(debug_assertions, any(target_os = \"macos\""));
+
+        let windows_startup = include_str!("windows_startup.rs");
+        assert!(windows_startup.contains("NewWindowResponse::Deny"));
+        assert!(windows_startup.contains("decode_locale_name"));
+
+        let apple = include_str!("../gen/apple/Sources/alook-desktop/main.mm");
+        assert!(apple.contains("alookIsTrustedMessageOrigin"));
+        assert_eq!(apple.matches("alookIsTrustedMessageOrigin(message.frameInfo)").count(), 3);
+        assert!(!apple.contains("alook-recovery.localhost"));
     }
 }
