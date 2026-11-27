@@ -1,4 +1,5 @@
-import { createNotificationActivationDrain } from "./notification-activation-drain";
+import { createNotificationActivationDrain } from "./notification-activation-drain"
+import { NOTIFICATION_UUID_RE } from "./system-notification-route"
 import { COMMUNITY_CONTRACT_HEADER, BUSINESS_SCHEMA_VERSION, isMobile, isTauri, tauriInvoke } from "@alook/shared"
 import { SESSION_ACCOUNT_HEADER } from "@/lib/session-account"
 import { createStore } from "@tanstack/store"
@@ -19,10 +20,11 @@ export type MobileSystemNotificationActivation = {
   notificationId: string
   messageId: string
   targetId: string
+  viewerUserId?: string
 }
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UUID = NOTIFICATION_UUID_RE
 const PENDING_UNREGISTRATION_STORAGE_KEY = "alook:mobile-push-pending-unregister:v1"
 const registrationClient = new QueryClient()
 const registrationPolicy = createStore({ suppressed: false })
@@ -188,15 +190,24 @@ export function parseMobileSystemNotificationRegistration(
 export function parseMobileSystemNotificationActivation(
   value: unknown,
 ): MobileSystemNotificationActivation | null {
-  if (!isObject(value) || !hasExactKeys(value, ["notificationId", "messageId", "targetId"])) {
+  if (
+    !isObject(value)
+    || !(
+      hasExactKeys(value, ["notificationId", "messageId", "targetId"])
+      || hasExactKeys(value, ["notificationId", "messageId", "targetId", "viewerUserId"])
+    )
+  ) {
     return null
   }
   if (typeof value.notificationId !== "string" || !UUID.test(value.notificationId)) return null
   if (!isSafeId(value.messageId) || !isSafeId(value.targetId)) return null
+  const viewerUserId = optionalString(value.viewerUserId, isSafeId)
+  if (viewerUserId === false) return null
   return {
     notificationId: value.notificationId.toLowerCase(),
     messageId: value.messageId,
     targetId: value.targetId,
+    ...(viewerUserId === undefined ? {} : { viewerUserId }),
   }
 }
 
@@ -252,12 +263,23 @@ export async function listenMobileSystemNotificationSignals(
   }
 }
 
-export async function takeMobileSystemNotificationActivation(): Promise<MobileSystemNotificationActivation | null> {
-  const value = await tauriInvoke<unknown>("mobile_system_notification_take_activation")
+export async function peekMobileSystemNotificationActivation(): Promise<MobileSystemNotificationActivation | null> {
+  const value = await tauriInvoke<unknown>("mobile_system_notification_peek_activation")
   if (value === null || value === undefined) return null
   const activation = parseMobileSystemNotificationActivation(value)
   if (!activation) throw new Error("invalid_native_response")
   return activation
+}
+
+export async function ackMobileSystemNotificationActivation(notificationId: string): Promise<void> {
+  if (!UUID.test(notificationId)) throw new Error("invalid_notification_id")
+  await tauriInvoke("mobile_system_notification_ack_activation", { notificationId })
+}
+
+export async function clearMobileSystemNotificationsForViewer(viewerUserId: string): Promise<void> {
+  if (!isTauri() || !isMobile()) return
+  if (!isSafeId(viewerUserId)) throw new Error("invalid_viewer_user_id")
+  await tauriInvoke("mobile_system_notification_clear_viewer", { viewerUserId })
 }
 
 export async function dismissMobileSystemNotification(notificationId: string): Promise<void> {
@@ -490,9 +512,11 @@ export function createMobileSystemNotificationRegistrationController(
 }
 
 export type MobileSystemNotificationActivationDeps = {
-  take: () => Promise<MobileSystemNotificationActivation | null>
+  peek: () => Promise<MobileSystemNotificationActivation | null>
+  ack?: (notificationId: string) => Promise<void>
+  expectedViewerUserId?: string
   resolveHref?: (activation: MobileSystemNotificationActivation) => string | undefined
-  queueDismiss: (notificationId: string, href: string) => void
+  queueDismiss: (notificationId: string, href: string, targetId?: string) => void
   navigate: (href: string) => void
 }
 
@@ -500,9 +524,12 @@ export function createMobileSystemNotificationActivationController(
   deps: MobileSystemNotificationActivationDeps,
 ) {
   const activation = createNotificationActivationDrain({
-    take: () => deps.take(),
+    peek: () => deps.peek(),
+    ack: deps.ack,
+    expectedViewerUserId: deps.expectedViewerUserId,
     hrefFor: (value) => deps.resolveHref?.(value) ?? mobileSystemNotificationHref(value),
-    queueDismiss: (id, href) => deps.queueDismiss(id, href),
+    targetIdFor: (value) => value.targetId,
+    queueDismiss: (id, href, targetId) => deps.queueDismiss(id, href, targetId),
     navigate: (href) => deps.navigate(href),
   })
   return { drain: activation.drain, dispose: activation.dispose }

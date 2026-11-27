@@ -36,6 +36,8 @@ const desktopMode = vi.hoisted(() => ({ value: true }))
 const notificationMocks = vi.hoisted(() => ({
   resolve: vi.fn(),
   show: vi.fn(async () => undefined),
+  dismissConversation: vi.fn(async () => undefined),
+  clearDesktop: vi.fn(async () => undefined),
 }))
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -50,6 +52,8 @@ vi.mock("@/lib/community/desktop-system-notification", async () => {
     ...actual,
     resolveDesktopSystemNotificationCandidate: notificationMocks.resolve,
     showDesktopSystemNotification: notificationMocks.show,
+    dismissDesktopSystemNotificationConversation: notificationMocks.dismissConversation,
+    clearDesktopSystemNotificationsForViewer: notificationMocks.clearDesktop,
   }
 })
 
@@ -337,5 +341,42 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       const key = call[0]?.queryKey as unknown[] | undefined
       return key?.length === 2 && key[0] === "community" && key[1] === "servers"
     })).toHaveLength(0)
+  })
+
+  it("dismisses native notifications when multi-device read_state.advanced advances a channel", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    ingestDms(registry, {
+      conversations: [dmListRowFixture({ id: "dm_sync", userId: "u_peer", name: "Sync Peer" }, "u_me")],
+    })
+    const fetchMock = getCommunityApiFetchMock()
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation((...args: unknown[]) => {
+      if (args[0] === "/api/community/users/me/read-state") {
+        return Promise.resolve({
+          revision: 5,
+          readStates: [{
+            channelId: "dm_sync",
+            lastReadMessageId: "m_9",
+            lastReadAt: "2026-10-01T00:00:00.000Z",
+            lastReadSeq: 9,
+          }],
+        })
+      }
+      return original(...args)
+    })
+
+    capturedOnMessage!(currentCommunityEventFixture({
+      type: "community:read_state.advanced",
+      revision: 5,
+      inboxChanged: true,
+    }))
+
+    await vi.waitFor(() => {
+      expect(notificationMocks.dismissConversation).toHaveBeenCalledWith("u_me", {
+        kind: "dm",
+        channelId: "dm_sync",
+      })
+    })
   })
 })

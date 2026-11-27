@@ -9,7 +9,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
     Ok(MobilePush(std::marker::PhantomData))
 }
 
-pub struct MobilePush<R: Runtime>(std::marker::PhantomData<R>);
+pub struct MobilePush<R: Runtime>(std::marker::PhantomData<fn() -> R>);
 
 impl<R: Runtime> MobilePush<R> {
     pub async fn check_permissions(&self) -> Result<PermissionResponse, Error> {
@@ -28,11 +28,27 @@ impl<R: Runtime> MobilePush<R> {
         Err(Error::unavailable("Mobile push is unavailable"))
     }
 
-    pub async fn take_activation(&self) -> Result<Option<Activation>, Error> {
+    pub async fn peek_activation(&self) -> Result<Option<Activation>, Error> {
+        Err(Error::unavailable("Mobile push is unavailable"))
+    }
+
+    pub async fn ack_activation(&self, _notification_id: String) -> Result<(), Error> {
         Err(Error::unavailable("Mobile push is unavailable"))
     }
 
     pub async fn dismiss_notification(&self, _notification_id: String) -> Result<(), Error> {
+        Err(Error::unavailable("Mobile push is unavailable"))
+    }
+
+    pub async fn dismiss_conversation(
+        &self,
+        _viewer_user_id: String,
+        _target_id: String,
+    ) -> Result<(), Error> {
+        Err(Error::unavailable("Mobile push is unavailable"))
+    }
+
+    pub async fn clear_viewer(&self, _viewer_user_id: String) -> Result<(), Error> {
         Err(Error::unavailable("Mobile push is unavailable"))
     }
 
@@ -41,6 +57,10 @@ impl<R: Runtime> MobilePush<R> {
     }
 
     pub async fn unlisten(&self, _registration_id: u64) -> Result<(), Error> {
+        Err(Error::unavailable("Mobile push is unavailable"))
+    }
+
+    pub async fn retire_listener(&self) -> Result<(), Error> {
         Err(Error::unavailable("Mobile push is unavailable"))
     }
 }

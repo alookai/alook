@@ -169,32 +169,81 @@ final class MobilePushPluginTests: XCTestCase {
     XCTAssertEqual(acknowledgedT2.acknowledgedToken, t2)
   }
 
-  func testStoreUsesOneStableInstallationAndConsumesActivationOnce() {
+  func testStoreUsesOneStableInstallationAndPersistsActivationUntilAcknowledged() {
     let suite = "mobile-push-tests-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
     let store = MobilePushStore(defaults: defaults)
     XCTAssertEqual(store.installationId(), store.installationId())
 
-    let route = MobilePushRoute(
+    let first = MobilePushRoute(
       notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
       messageId: "message_1",
-      targetId: "channel_2"
+      targetId: "channel_2",
+      viewerUserId: "viewer_a"
     )
-    store.saveActivation(route, deliveredNotificationIdentifier: "apns-delivered-1")
-    XCTAssertEqual(store.takeActivation(), route)
-    XCTAssertNil(store.takeActivation())
+    let second = MobilePushRoute(
+      notificationId: "5f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+      messageId: "message_2",
+      targetId: "channel_3",
+      viewerUserId: "viewer_b"
+    )
+    store.saveActivation(first, deliveredNotificationIdentifier: "apns-delivered-1")
+    store.saveActivation(second, deliveredNotificationIdentifier: "apns-delivered-2")
+    XCTAssertEqual(store.peekActivation(), first)
+    XCTAssertEqual(store.peekActivation(), first)
+    XCTAssertTrue(store.ackActivation(first.notificationId))
+    XCTAssertEqual(store.peekActivation(), second)
+    store.clearViewerPending("viewer_b")
+    XCTAssertNil(store.peekActivation())
+
     XCTAssertNil(store.deliveredNotificationIdentifier(for: "another-notification"))
     XCTAssertEqual(
-      store.deliveredNotificationIdentifier(for: route.notificationId),
+      store.deliveredNotificationIdentifier(for: first.notificationId),
       "apns-delivered-1"
     )
     XCTAssertEqual(
-      store.deliveredNotificationIdentifier(for: route.notificationId),
-      "apns-delivered-1"
+      store.deliveredNotificationIdentifier(for: second.notificationId),
+      "apns-delivered-2"
     )
-    store.completeDeliveredNotificationIdentifier(for: route.notificationId)
-    XCTAssertNil(store.deliveredNotificationIdentifier(for: route.notificationId))
+    store.completeDeliveredNotificationIdentifier(for: first.notificationId)
+    XCTAssertNil(store.deliveredNotificationIdentifier(for: first.notificationId))
+    XCTAssertEqual(
+      store.deliveredNotificationIdentifier(for: second.notificationId),
+      "apns-delivered-2"
+    )
+  }
+
+  func testDeliveredViewerSelectionMatchesOnlyExactViewerAcrossConversations() {
+    let b1: [AnyHashable: Any] = [
+      "notificationId": "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+      "messageId": "message_1",
+      "targetId": "channel_1",
+      "viewerUserId": "viewer_b",
+    ]
+    let b2: [AnyHashable: Any] = [
+      "notificationId": "5f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+      "messageId": "message_2",
+      "targetId": "channel_2",
+      "viewerUserId": "viewer_b",
+    ]
+    let a1: [AnyHashable: Any] = [
+      "notificationId": "6f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+      "messageId": "message_3",
+      "targetId": "channel_1",
+      "viewerUserId": "viewer_a",
+    ]
+    XCTAssertEqual(
+      mobilePushDeliveredNotificationIdentifiersForViewer(
+        viewerUserId: "viewer_b",
+        delivered: [
+          ("ios-b1", b1),
+          ("ios-b2", b2),
+          ("ios-a1", a1),
+        ]
+      ),
+      ["ios-b1", "ios-b2"]
+    )
   }
 
   func testRelaunchRequiresASystemTokenAndRetainsInstallationAndOwnershipProof() {

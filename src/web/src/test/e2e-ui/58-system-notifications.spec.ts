@@ -6,6 +6,7 @@ import { tid } from "./_fixtures/testids"
 
 type Activation = {
   notificationId: string
+  viewerUserId: string
   target: {
     kind: "server"
     serverId: string
@@ -34,7 +35,7 @@ async function installDesktopNotificationBridge(
       documentLoads,
       shows: [] as unknown[],
       dismissed,
-      retryActivations: [] as unknown[],
+      acked: [] as unknown[],
       listener: null as null | { onmessage?: (value: unknown) => void },
       click: () => undefined,
     }
@@ -43,7 +44,6 @@ async function installDesktopNotificationBridge(
       if (!initialActivation || activated) return
       activated = true
       pending = initialActivation
-      sessionStorage.setItem(usedKey, "used")
       state.listener?.onmessage?.(undefined)
     }
     class Channel {
@@ -64,22 +64,17 @@ async function installDesktopNotificationBridge(
               return 1
             }
             if (command === "desktop_system_notification_unlisten") return undefined
-            if (command === "desktop_system_notification_take_activation") {
-              const value = pending
-              pending = null
-              if (value) {
+            if (command === "desktop_system_notification_peek_activation") {
+              return pending
+            }
+            if (command === "desktop_system_notification_ack_activation") {
+              const notificationId = args?.notificationId
+              state.acked.push(notificationId)
+              if (pending?.notificationId === notificationId) {
+                pending = null
                 activated = true
                 sessionStorage.setItem(usedKey, "used")
               }
-              return value
-            }
-            if (command === "desktop_system_notification_retry_activation") {
-              const notificationId = args?.notificationId
-              if (notificationId !== initialActivation?.notificationId || !activated) {
-                throw new Error("activation_unavailable")
-              }
-              activated = false
-              state.retryActivations.push(notificationId)
               return undefined
             }
             if (command === "desktop_system_notification_show") {
@@ -111,10 +106,10 @@ async function dismissedNotifications(page: Page) {
   ).__desktopNotificationTest.dismissed)
 }
 
-async function retriedNotifications(page: Page) {
+async function ackedNotifications(page: Page) {
   return page.evaluate(() => (
-    window as typeof window & { __desktopNotificationTest: { retryActivations: unknown[] } }
-  ).__desktopNotificationTest.retryActivations)
+    window as typeof window & { __desktopNotificationTest: { acked: unknown[] } }
+  ).__desktopNotificationTest.acked)
 }
 
 test.describe("desktop system notifications", () => {
@@ -166,6 +161,7 @@ test.describe("desktop system notifications", () => {
     const bob = await asUser("bob")
     await installDesktopNotificationBridge(bob.page, {
       notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+      viewerUserId: actors.userId("bob"),
       target: { kind: "server", serverId, channelId, messageId, seq: 1 },
     })
 
@@ -209,10 +205,13 @@ test.describe("desktop system notifications", () => {
         const core = (window as typeof window & {__TAURI__:{core:{invoke:(command:string,args?:Record<string,unknown>)=>Promise<unknown>}}}).__TAURI__.core
         const original = core.invoke
         let activation: unknown = value
-        core.invoke = async (command,args) => command === "desktop_system_notification_take_activation"
-          ? (()=>{const next=activation;activation=null;return next})() : original(command,args)
+        core.invoke = async (command,args) => {
+          if (command === "desktop_system_notification_peek_activation") return activation
+          if (command === "desktop_system_notification_ack_activation") { activation = null; return undefined }
+          return original(command,args)
+        }
         state.listener?.onmessage?.(undefined)
-      }, {notificationId:"4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720",target:{kind:"server",serverId,channelId,messageId,seq:1}})
+      }, {notificationId:"4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720",viewerUserId:actors.userId("bob"),target:{kind:"server",serverId,channelId,messageId,seq:1}})
       await expect.poll(() => permissionHeld).toBe(true)
       await expect(targetLoading).toHaveCount(1)
       await expect(targetLoading).toBeVisible()
@@ -222,7 +221,7 @@ test.describe("desktop system notifications", () => {
       await expect(targetLoading).toBeVisible()
       await expect(targetLoading).toHaveAttribute("aria-busy", "true")
       expect(permissionHeld).toBe(true)
-      expect(await retriedNotifications(bob.page)).toEqual([])
+      expect(await ackedNotifications(bob.page)).toEqual([])
     } finally { release() }
     await expect(bob.page.getByTestId(tid.message(messageId))).toBeVisible({timeout:30_000})
     await expect.poll(()=>dismissedNotifications(bob.page)).toEqual(["4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720"])

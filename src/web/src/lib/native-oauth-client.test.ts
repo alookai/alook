@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createNativeOauthController, nativeOauthBrowserDeps, type NativeOauthDeps, type NativeOauthSnapshot, type NativeOauthView } from "./native-oauth-client"
+import { createNativeOauthController, nativeOauthBrowserDeps, type NativeOauthDeps, type NativeOauthSnapshot, type NativeOauthView, type NativeOauthWakeReason } from "./native-oauth-client"
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -10,10 +10,10 @@ function deferred<T>() {
 const providers = ["github", "google", "apple"] as const
 const ambiguousExchangeCases = providers.flatMap(provider => [true, false].map(signedIn => ({ provider, signedIn })))
 
-function setup() {
+function setup(options?: { readSessionId?: () => Promise<string | null> }) {
   let snapshot: NativeOauthSnapshot | null = null
   let pending: { attemptId: string; state: string; verifier: string; candidateId: string; code: string | null; status: string | null; wasDispatched: boolean }[] = []
-  let ready = () => {}
+  let ready: (reason?: NativeOauthWakeReason) => void = () => {}
   let count = 0
   const events: string[] = []
   const views: NativeOauthView[] = []
@@ -47,21 +47,28 @@ function setup() {
     if (endpoint === "status") return { ok: true, data: { status: "ready" } }
     return { ok: true, data: { status: "cancelled" } }
   })
-  const listen = vi.fn(async (callback: () => void) => { events.push("listen"); ready = callback; return stop })
+  const listen = vi.fn(async (callback: (reason?: NativeOauthWakeReason) => void) => { events.push("listen"); ready = callback; return stop })
   const hasSession = vi.fn(async () => false)
   const navigate = vi.fn()
-  const deps: NativeOauthDeps = { invoke: invoke as NativeOauthDeps["invoke"], post, listen, hasSession, navigate }
+  const deps: NativeOauthDeps = {
+    invoke: invoke as NativeOauthDeps["invoke"],
+    post,
+    listen,
+    hasSession,
+    ...(options?.readSessionId ? { readSessionId: options.readSessionId } : {}),
+    navigate,
+  }
   const make = () => createNativeOauthController(deps, view => { views.push(view) })
   const controller = make()
   return { controller, make, deps, invoke, post, listen, stop, hasSession, navigate, events, views,
-    view: () => views.at(-1)!, wake: () => ready(), snapshot: () => snapshot,
+    view: () => views.at(-1)!, wake: (reason?: NativeOauthWakeReason) => ready(reason), snapshot: () => snapshot,
     queue: (code: string | null = "k".repeat(32), status: string | null = null, wasDispatched = false) => {
       pending.push({ attemptId: snapshot!.attemptId, candidateId: `candidate-${pending.length}`, state: "s".repeat(43), verifier: "v".repeat(43), code, status, wasDispatched })
     },
   }
 }
 const controllers: ReturnType<typeof createNativeOauthController>[] = []
-function fixture() { const f = setup(); controllers.push(f.controller); return f }
+function fixture(options?: { readSessionId?: () => Promise<string | null> }) { const f = setup(options); controllers.push(f.controller); return f }
 afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
  describe("native OAuth controller", () => {
@@ -203,24 +210,87 @@ afterEach(() => { for (const c of controllers.splice(0)) c.dispose(); vi.unstubA
     expect(f.hasSession).toHaveBeenCalledOnce()
     expect(f.post.mock.calls.filter(([endpoint]) => endpoint === "exchange")).toHaveLength(1)
   })
-  it("ends resumed waiting with a retryable error when neither callback nor session exists", async () => {
+  it("stays in waiting on window_resumed when neither callback nor session exists yet", async () => {
     const f = fixture(); f.hasSession.mockResolvedValue(false)
     await f.controller.connect(); await f.controller.start("github", "/c/me")
 
-    f.wake()
+    f.wake("window_resumed")
 
-    await vi.waitFor(() => expect(f.view()).toMatchObject({ phase: "error", message: "retry_required" }))
-    expect(f.hasSession).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(f.hasSession).toHaveBeenCalledOnce())
+    expect(f.view()).toMatchObject({ phase: "waiting", attempt: { provider: "github", waiting: true } })
+    expect(f.view().message).toBeUndefined()
     expect(f.navigate).not.toHaveBeenCalled()
+
+    f.hasSession.mockResolvedValue(true)
+    f.queue(); f.wake("candidate_ready")
+    await vi.waitFor(() => expect(f.navigate).toHaveBeenCalledWith("/c/me"))
   })
-  it.each(providers)("ends resumed %s waiting with a retryable error when session refresh times out", async provider => {
+  it.each(providers)("stays in waiting on window_resumed for %s when session refresh times out", async provider => {
     const f = fixture(); f.hasSession.mockRejectedValue(new Error("timeout"))
     await f.controller.connect(); await f.controller.start(provider, "/c/me")
 
-    f.wake()
+    f.wake("window_resumed")
 
+    await vi.waitFor(() => expect(f.hasSession).toHaveBeenCalledOnce())
+    expect(f.view()).toMatchObject({ phase: "waiting", attempt: { provider, waiting: true } })
+    expect(f.view().message).toBeUndefined()
+    expect(f.navigate).not.toHaveBeenCalled()
+  })
+  it("requires a fresh session identity so a pre-existing session never masks a failed exchange", async () => {
+    let currentSessionId: string | null = "existing-session-1"
+    const readSessionId = vi.fn(async () => currentSessionId)
+    const f = fixture({ readSessionId })
+    await f.controller.connect()
+    await f.controller.start("github", "/c/me")
+
+    const normal = f.post.getMockImplementation()!
+    f.post.mockImplementationOnce(() => Promise.reject(new Error("network")))
+    f.queue(); f.wake("candidate_ready")
     await vi.waitFor(() => expect(f.view()).toMatchObject({ phase: "error", message: "retry_required" }))
     expect(f.navigate).not.toHaveBeenCalled()
+    expect(f.invoke.mock.calls.some(([name]) => name === "native_oauth_finish")).toBe(false)
+
+    currentSessionId = "fresh-session-2"
+    f.post.mockImplementation(normal)
+    f.wake("window_resumed")
+    await vi.waitFor(() => expect(f.navigate).toHaveBeenCalledWith("/c/me"))
+    expect(f.invoke.mock.calls.filter(([name]) => name === "native_oauth_finish")).toHaveLength(1)
+  })
+  it("recovers from an initial store_unavailable connect error when the user retries start", async () => {
+    const f = fixture()
+    const normalListen = f.listen.getMockImplementation()!
+    f.listen.mockRejectedValueOnce("store_unavailable").mockImplementation(normalListen)
+    await f.controller.connect()
+    expect(f.view()).toMatchObject({ phase: "error", message: "unavailable", attempt: null })
+
+    await f.controller.start("github", "/c/me")
+    expect(f.view()).toMatchObject({ phase: "waiting", attempt: { provider: "github", waiting: true } })
+    expect(f.invoke).toHaveBeenCalledWith("native_oauth_open_start", expect.anything())
+  })
+  it("cleans up an orphaned attempt if cancel races with prepare", async () => {
+    const f = fixture()
+    await f.controller.connect()
+    const prepareGate = deferred<unknown>()
+    const original = f.invoke.getMockImplementation()!
+    let prepared: unknown
+    f.invoke.mockImplementation(async (command, args) => {
+      if (command === "native_oauth_prepare") {
+        prepared = await original(command, args)
+        await prepareGate.promise
+        return prepared
+      }
+      return original(command, args)
+    })
+
+    const starting = f.controller.start("github", "/c/me")
+    await vi.waitFor(() => expect(prepared).toBeDefined())
+    await f.controller.cancel()
+    prepareGate.resolve(undefined)
+    await starting
+
+    expect(f.snapshot()).toBeNull()
+    expect(f.post.mock.calls.some(([endpoint]) => endpoint === "attempt")).toBe(false)
+    expect(f.post.mock.calls.filter(([endpoint]) => endpoint === "cancel")).toHaveLength(1)
   })
   it("consumes a callback that arrives while resumed session reconciliation is in flight", async () => {
     const f = fixture(); const session = deferred<boolean>()
@@ -411,13 +481,16 @@ describe("native browser adapter", () => {
     const assign = vi.fn(); vi.stubGlobal("window", { location: { assign } })
     nativeOauthBrowserDeps.navigate("/c/me"); expect(assign).toHaveBeenCalledWith("/c/me")
   })
-  it("uses a payload-free Channel with registration-scoped cleanup, not event/deep-link listeners", async () => {
+  it("uses a typed signal Channel with registration-scoped cleanup, not event/deep-link listeners", async () => {
     const invoke = vi.fn().mockResolvedValue(7)
-    class Channel { onmessage = () => {} }
+    class Channel { onmessage: (payload?: unknown) => void = () => {} }
     vi.stubGlobal("window", { __TAURI__: { core: { Channel, invoke } } })
     const ready = vi.fn(); const stop = await nativeOauthBrowserDeps.listen(ready)
     const channel = invoke.mock.calls[0][1].channel as Channel
-    channel.onmessage(); expect(ready).toHaveBeenCalledOnce(); stop()
+    channel.onmessage("window_resumed")
+    channel.onmessage("candidate_ready")
+    expect(ready.mock.calls).toEqual([["window_resumed"], ["candidate_ready"]])
+    stop()
     expect(invoke.mock.calls.map(([name]) => name)).toEqual(["native_oauth_listen", "native_oauth_unlisten"])
     expect(invoke.mock.calls[1][1]).toEqual({ registrationId: 7 })
   })

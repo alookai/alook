@@ -116,9 +116,11 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         mobile_system_notification_runtime::mobile_system_notification_request_permission,
         mobile_system_notification_runtime::mobile_system_notification_snapshot,
         mobile_system_notification_runtime::mobile_system_notification_acknowledge_registration,
-        mobile_system_notification_runtime::mobile_system_notification_take_activation,
+        mobile_system_notification_runtime::mobile_system_notification_peek_activation,
+        mobile_system_notification_runtime::mobile_system_notification_ack_activation,
         mobile_system_notification_runtime::mobile_system_notification_dismiss,
         mobile_system_notification_runtime::mobile_system_notification_dismiss_conversation,
+        mobile_system_notification_runtime::mobile_system_notification_clear_viewer,
         mobile_system_notification_runtime::mobile_system_notification_listen,
         mobile_system_notification_runtime::mobile_system_notification_unlisten,
         native_oauth_runtime::native_oauth_snapshot,
@@ -159,6 +161,7 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         {
             native_oauth_runtime::retire_listener(webview.app_handle());
             file_save_runtime::retire(webview.app_handle());
+            mobile_system_notification_runtime::retire_listener(webview.app_handle());
         }
     });
 
@@ -200,10 +203,11 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         native_oauth_runtime::native_oauth_cancel,
         system_notifications::desktop_system_notification_show,
         system_notifications::desktop_system_notification_listen,
-        system_notifications::desktop_system_notification_take_activation,
-        system_notifications::desktop_system_notification_retry_activation,
+        system_notifications::desktop_system_notification_peek_activation,
+        system_notifications::desktop_system_notification_ack_activation,
         system_notifications::desktop_system_notification_dismiss,
         system_notifications::desktop_system_notification_dismiss_conversation,
+        system_notifications::desktop_system_notification_clear_viewer,
         system_notifications::desktop_system_notification_unlisten,
     ]);
 

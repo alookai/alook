@@ -2,8 +2,10 @@ import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/share
 import { SESSION_ACCOUNT_HEADER } from "@/lib/session-account"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  ackMobileSystemNotificationActivation,
   acknowledgeMobileSystemNotificationRegistration,
   checkMobileSystemNotificationPermission,
+  clearMobileSystemNotificationsForViewer,
   clearPendingMobileSystemNotificationUnregistration,
   createMobileSystemNotificationActivationController,
   createMobileSystemNotificationRegistrationController,
@@ -14,6 +16,7 @@ import {
   parseMobileSystemNotificationActivation,
   parseMobileSystemNotificationPermission,
   parseMobileSystemNotificationRegistration,
+  peekMobileSystemNotificationActivation,
   postMobileSystemNotificationRegistration,
   queuePendingMobileSystemNotificationUnregistration,
   readPendingMobileSystemNotificationUnregistration,
@@ -22,7 +25,6 @@ import {
   resumeMobileSystemNotificationRegistration,
   snapshotMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
-  takeMobileSystemNotificationActivation,
   type MobileSystemNotificationRegistration,
   type MobileSystemNotificationRegistrationDeps,
   unregisterCurrentMobileSystemNotification,
@@ -113,9 +115,14 @@ describe("mobile notification native value parsing", () => {
     })).toBeNull()
   })
 
-  it("accepts only the flat allowlisted activation", () => {
+  it("accepts only the flat allowlisted activation with optional viewer identity", () => {
     const activation = { notificationId, messageId: "message_1", targetId: "channel_1" }
     expect(parseMobileSystemNotificationActivation(activation)).toEqual(activation)
+    expect(parseMobileSystemNotificationActivation({ ...activation, viewerUserId: "viewer_1" })).toEqual({
+      ...activation,
+      viewerUserId: "viewer_1",
+    })
+    expect(parseMobileSystemNotificationActivation({ ...activation, viewerUserId: "../viewer" })).toBeNull()
     expect(parseMobileSystemNotificationActivation({ ...activation, serverId: "server_1" })).toBeNull()
     expect(parseMobileSystemNotificationActivation({ ...activation, messageId: "../message" })).toBeNull()
     expect(parseMobileSystemNotificationActivation({ ...activation, notificationId: "bad" })).toBeNull()
@@ -165,13 +172,29 @@ describe("mobile notification native adapter", () => {
       "invalid_provider_token",
     )
 
-    await expect(takeMobileSystemNotificationActivation()).resolves.toBeNull()
-    await expect(takeMobileSystemNotificationActivation()).resolves.toEqual({
+    await expect(peekMobileSystemNotificationActivation()).resolves.toBeNull()
+    await expect(peekMobileSystemNotificationActivation()).resolves.toEqual({
       notificationId,
       messageId: "message_1",
       targetId: "channel_1",
     })
-    await expect(takeMobileSystemNotificationActivation()).rejects.toThrow("invalid_native_response")
+    await expect(peekMobileSystemNotificationActivation()).rejects.toThrow("invalid_native_response")
+
+    nativeMocks.invoke.mockResolvedValueOnce(undefined)
+    await expect(ackMobileSystemNotificationActivation(notificationId)).resolves.toBeUndefined()
+    expect(nativeMocks.invoke).toHaveBeenLastCalledWith(
+      "mobile_system_notification_ack_activation",
+      { notificationId },
+    )
+    await expect(ackMobileSystemNotificationActivation("bad")).rejects.toThrow("invalid_notification_id")
+
+    nativeMocks.invoke.mockResolvedValueOnce(undefined)
+    await expect(clearMobileSystemNotificationsForViewer("viewer_1")).resolves.toBeUndefined()
+    expect(nativeMocks.invoke).toHaveBeenLastCalledWith(
+      "mobile_system_notification_clear_viewer",
+      { viewerUserId: "viewer_1" },
+    )
+    await expect(clearMobileSystemNotificationsForViewer("../viewer")).rejects.toThrow("invalid_viewer_user_id")
 
     nativeMocks.invoke.mockResolvedValueOnce(undefined)
     await expect(dismissMobileSystemNotification(notificationId)).resolves.toBeUndefined()
@@ -555,48 +578,73 @@ describe("mobile notification registration controller", () => {
 })
 
 describe("mobile notification activation", () => {
-  const activation = { notificationId, messageId: "message_1", targetId: "channel_1" }
-  it.each(["cold", "resume"])("starts the ordinary message page immediately on %s activation", async (phase) => {
+  const activation = { notificationId, messageId: "message_1", targetId: "channel_1", viewerUserId: "viewer_1" }
+  it.each(["cold", "resume"])("starts the ordinary message page immediately on %s activation and acknowledges after navigation", async (phase) => {
     const fetchImpl = vi.fn(() => new Promise<Response>(() => undefined))
     vi.stubGlobal("fetch", fetchImpl)
-    const take = vi.fn()
-    if (phase === "resume") take.mockResolvedValueOnce(null)
-    take.mockResolvedValueOnce(activation)
+    const peek = vi.fn()
+    if (phase === "resume") peek.mockResolvedValueOnce(null)
+    peek.mockResolvedValueOnce(activation).mockResolvedValueOnce(null)
+    const ack = vi.fn(async () => undefined)
     const navigate = vi.fn()
     const queueDismiss = vi.fn()
-    const controller = createMobileSystemNotificationActivationController({ take, queueDismiss, navigate })
+    const controller = createMobileSystemNotificationActivationController({
+      peek,
+      ack,
+      expectedViewerUserId: "viewer_1",
+      queueDismiss,
+      navigate,
+    })
     if (phase === "resume") await controller.drain()
     await controller.drain()
     expect(navigate).toHaveBeenCalledExactlyOnceWith("/c/messages/message_1")
-    expect(queueDismiss).toHaveBeenCalledExactlyOnceWith(notificationId, "/c/messages/message_1")
+    expect(queueDismiss).toHaveBeenCalledExactlyOnceWith(notificationId, "/c/messages/message_1", "channel_1")
+    expect(ack).toHaveBeenCalledExactlyOnceWith(notificationId)
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(mobileSystemNotificationHref(activation)).toBe("/c/messages/message_1")
+  })
+  it("discards and acknowledges cross-account activations without navigating", async () => {
+    const peek = vi.fn().mockResolvedValueOnce({ ...activation, viewerUserId: "other_viewer" }).mockResolvedValueOnce(null)
+    const ack = vi.fn(async () => undefined)
+    const navigate = vi.fn()
+    const queueDismiss = vi.fn()
+    const controller = createMobileSystemNotificationActivationController({
+      peek,
+      ack,
+      expectedViewerUserId: "viewer_1",
+      queueDismiss,
+      navigate,
+    })
+    await controller.drain()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(queueDismiss).not.toHaveBeenCalled()
+    expect(ack).toHaveBeenCalledExactlyOnceWith(notificationId)
   })
   it("preserves navigation on storage failure and ignores unavailable native reads", async () => {
     const navigate = vi.fn()
     const controller = createMobileSystemNotificationActivationController({
-      take: vi.fn().mockResolvedValueOnce(activation).mockRejectedValueOnce(new Error("native unavailable")),
+      peek: vi.fn().mockResolvedValueOnce(activation).mockRejectedValueOnce(new Error("native unavailable")),
       queueDismiss: () => { throw new Error("blocked") }, navigate,
     })
     await controller.drain()
     await controller.drain()
     expect(navigate).toHaveBeenCalledExactlyOnceWith("/c/messages/message_1")
   })
-  it("drains a new signal after an active take and ignores a result after disposal", async () => {
+  it("drains a new signal after an active peek and ignores a result after disposal", async () => {
     let resolve!: (value: typeof activation | null) => void
     const pending = new Promise<typeof activation | null>((done) => { resolve = done })
-    const take = vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce(activation)
+    const peek = vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce(activation)
     const navigate = vi.fn()
-    const controller = createMobileSystemNotificationActivationController({ take, navigate, queueDismiss: vi.fn() })
+    const controller = createMobileSystemNotificationActivationController({ peek, navigate, queueDismiss: vi.fn() })
     const first = controller.drain()
     await controller.drain()
     resolve(null)
     await first
-    expect(take).toHaveBeenCalledTimes(2)
+    expect(peek).toHaveBeenCalledTimes(2)
     expect(navigate).toHaveBeenCalledOnce()
-    take.mockReturnValueOnce(pending)
+    peek.mockReturnValueOnce(pending)
     controller.dispose()
     await controller.drain()
-    expect(take).toHaveBeenCalledTimes(2)
+    expect(peek).toHaveBeenCalledTimes(2)
   })
 })

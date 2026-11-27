@@ -36,7 +36,10 @@ import {
 import { isBlocked } from "@alook/shared"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
-import type { RequestNativeConversationDismissal } from "@/hooks/community/use-native-system-notifications"
+import {
+  clearNativeSystemNotificationsForViewer,
+  type RequestNativeConversationDismissal,
+} from "@/hooks/community/use-native-system-notifications"
 
 import {
   clearAttentionOptimistically,
@@ -552,6 +555,9 @@ export function useMarkAllInboxRead() {
         }
       }
       origin.assert(original)
+      if (failedDomains.size === 0 && registry?.accountId) {
+        void clearNativeSystemNotificationsForViewer(registry.accountId)
+      }
       if (firstFailure) toastApiError(firstFailure, "Some inbox items could not be marked read")
       void reconcileAccountReadState(queryClient, {
         targetRevision,
