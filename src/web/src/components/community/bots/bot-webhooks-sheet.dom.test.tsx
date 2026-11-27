@@ -126,7 +126,7 @@ const webhookItem = (overrides: Partial<BotWebhookSummary> = {}): BotWebhookSumm
   provider: "github",
   hasSigningSecret: true,
   eventFilter: null,
-  instruction: "Check logs when CI fails",
+  instruction: "",
   enabled: true,
   lastTriggeredAt: "2026-11-27T08:00:00.000Z",
   createdAt: "2026-11-27T07:00:00.000Z",
@@ -154,7 +154,7 @@ describe("BotWebhooksSheet", () => {
     mocks.deliveriesError = false
   })
 
-  it("separates source choice from dedicated create forms, keeps General last, omits GitHub event checkboxes, and reveals one-time credentials", async () => {
+  it("renders Triggers flow with specific sources before General, omits handling instruction and GitHub event checkboxes, and reveals one-time link and key", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
     const created = webhookItem({ id: "wh_new", name: "Repo CI", provider: "github" })
@@ -168,10 +168,12 @@ describe("BotWebhooksSheet", () => {
       <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
     )
 
-    expect(view.getByText("No webhooks yet")).toBeInTheDocument()
+    expect(view.getByText("Triggers")).toBeInTheDocument()
+    expect(view.getByText("No triggers yet")).toBeInTheDocument()
     fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
 
     expect(view.getByText("Choose a source")).toBeInTheDocument()
+    expect(view.queryByRole("button", { name: "Triggers" })).not.toBeInTheDocument()
     const githubBtn = view.getByTestId(tid.botWebhookProviderSelect("github"))
     const openaiBtn = view.getByTestId(tid.botWebhookProviderSelect("openai"))
     const cloudflareBtn = view.getByTestId(tid.botWebhookProviderSelect("cloudflare"))
@@ -182,34 +184,34 @@ describe("BotWebhooksSheet", () => {
     expect(view.queryByText(/Standard Webhooks/i)).not.toBeInTheDocument()
 
     fireEvent.click(genericBtn)
-    expect(view.getByText("New General webhook")).toBeInTheDocument()
+    expect(view.getByText("New Custom app trigger")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookRequireSecret)).toBeInTheDocument()
+    expect(view.queryByText(/Handling instruction/i)).not.toBeInTheDocument()
     expect(view.queryByText("GitHub events")).not.toBeInTheDocument()
 
     fireEvent.click(view.getByTestId(tid.botWebhookChangeProvider))
     fireEvent.click(view.getByTestId(tid.botWebhookProviderSelect("github")))
 
-    expect(view.getByText("New GitHub webhook")).toBeInTheDocument()
+    expect(view.getByText("New GitHub trigger")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookNameInput)).toHaveValue("GitHub")
     expect(view.queryByTestId(tid.botWebhookRequireSecret)).not.toBeInTheDocument()
-    expect(view.queryByText("GitHub events")).not.toBeInTheDocument()
+    expect(view.queryByText(/Handling instruction/i)).not.toBeInTheDocument()
 
     fireEvent.change(view.getByTestId(tid.botWebhookNameInput), { target: { value: "Repo CI" } })
-    fireEvent.change(view.getByTestId(tid.botWebhookInstructionInput), { target: { value: "Fix red CI" } })
     fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
 
     await waitFor(() => expect(view.getByTestId(tid.botWebhookCredentialsPanel)).toBeInTheDocument())
     expect(mocks.createWebhook).toHaveBeenCalledWith({
       name: "Repo CI",
       provider: "github",
-      instruction: "Fix red CI",
+      instruction: "",
       eventFilter: null,
     })
     expect(view.getByTestId(tid.botWebhookUrlValue)).toHaveValue("https://alook.ai/api/webhooks/bot/tok_secret_123")
     expect(view.getByTestId(tid.botWebhookSecretValue)).toHaveValue("whsec_abc123")
     expect(view.getByText("Connect in GitHub")).toBeInTheDocument()
 
-    fireEvent.click(view.getByRole("button", { name: "Copy Webhook URL" }))
+    fireEvent.click(view.getByRole("button", { name: "Copy Trigger link" }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://alook.ai/api/webhooks/bot/tok_secret_123"))
 
     fireEvent.click(view.getByRole("button", { name: "Done" }))
@@ -217,7 +219,7 @@ describe("BotWebhooksSheet", () => {
     expect(view.queryByTestId(tid.botWebhookCredentialsPanel)).not.toBeInTheDocument()
   })
 
-  it("supports external-secret platforms by creating URL first and saving pasted signing secret inline", async () => {
+  it("supports external-key platforms by creating link first and saving pasted key inline", async () => {
     const created = webhookItem({
       id: "wh_stripe",
       name: "Stripe",
@@ -240,7 +242,7 @@ describe("BotWebhooksSheet", () => {
 
     fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
     fireEvent.click(view.getByTestId(tid.botWebhookProviderSelect("stripe")))
-    expect(view.getByText("New Stripe webhook")).toBeInTheDocument()
+    expect(view.getByText("New Stripe trigger")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookNameInput)).toHaveValue("Stripe")
 
     fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
@@ -258,10 +260,10 @@ describe("BotWebhooksSheet", () => {
         signingSecret: "whsec_live_12345678",
       }),
     )
-    expect(view.getByText("Signing secret saved — verified delivery is active.")).toBeInTheDocument()
+    expect(view.getByText("Verification key saved — Stripe triggers are active.")).toBeInTheDocument()
   })
 
-  it("supports toggling enabled, sending test notifications, deliveries panel, rotate, and delete", async () => {
+  it("supports toggling enabled, sending test notifications, trigger history, reset link, and delete", async () => {
     mocks.webhooks = [webhookItem()]
     mocks.deliveries = [
       {
@@ -290,10 +292,16 @@ describe("BotWebhooksSheet", () => {
 
     expect(view.getByTestId(tid.botWebhookCard("wh_1"))).toBeInTheDocument()
     expect(view.getByText("alookai/alook: CI failure (#1488)")).toBeInTheDocument()
+    expect(view.queryByText("workflow_run.completed")).not.toBeInTheDocument()
+
+    fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
+    expect(view.getByRole("button", { name: "Triggers" })).toBeInTheDocument()
+    fireEvent.click(view.getByRole("button", { name: "Triggers" }))
 
     fireEvent.click(view.getByTestId(tid.botWebhookTest("wh_1")))
     await waitFor(() => expect(mocks.testWebhook).toHaveBeenCalledWith("wh_1"))
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Test queued — Evan's machine is offline")
+    expect(view.getByText("Recent triggers")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookDeliveryRow("whd_1"))).toBeInTheDocument()
     expect(view.getByText("Machine offline — queued until reconnect")).toBeInTheDocument()
 
@@ -301,7 +309,7 @@ describe("BotWebhooksSheet", () => {
     await waitFor(() => expect(mocks.updateWebhook).toHaveBeenCalledWith("wh_1", { enabled: false }))
 
     fireEvent.click(view.getByTestId(tid.botWebhookRotate("wh_1")))
-    fireEvent.click(view.getByRole("button", { name: "Rotate credentials" }))
+    fireEvent.click(view.getByRole("button", { name: "Reset link" }))
     await waitFor(() => expect(view.getByTestId(tid.botWebhookCredentialsPanel)).toBeInTheDocument())
     expect(view.getByTestId(tid.botWebhookUrlValue)).toHaveValue("https://alook.ai/api/webhooks/bot/tok_rotated_456")
 
@@ -309,9 +317,63 @@ describe("BotWebhooksSheet", () => {
     fireEvent.click(view.getByRole("button", { name: "I've saved them" }))
 
     fireEvent.click(view.getByTestId(tid.botWebhookDelete("wh_1")))
-    fireEvent.click(view.getByRole("button", { name: "Delete webhook" }))
+    fireEvent.click(view.getByRole("button", { name: "Delete trigger" }))
     await waitFor(() => expect(mocks.deleteWebhook).toHaveBeenCalledWith("wh_1"))
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Deleted alook CI")
+  })
+
+  it("shows provider setup guidance when adding a key later from the list", () => {
+    mocks.webhooks = [
+      webhookItem({
+        id: "wh_stripe_edit",
+        name: "Stripe",
+        provider: "stripe",
+        hasSigningSecret: false,
+        lastDelivery: null,
+      }),
+    ]
+    const view = render(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+
+    fireEvent.click(view.getByRole("button", { name: "Add key" }))
+    expect(view.getByText("Edit Stripe trigger")).toBeInTheDocument()
+    expect(view.getByTestId(tid.botWebhookExternalSecretInput)).toBeInTheDocument()
+    expect(view.getByText("Connect in Stripe")).toBeInTheDocument()
+    expect(view.getByText(/Stripe Dashboard/i)).toBeInTheDocument()
+  })
+
+  it("uses key-only copy when turning on key protection on an existing custom app trigger", async () => {
+    const custom = webhookItem({
+      id: "wh_custom_1",
+      name: "Deploy alert",
+      provider: "generic",
+      hasSigningSecret: false,
+      lastDelivery: null,
+    })
+    mocks.webhooks = [custom]
+    mocks.updateWebhook.mockResolvedValue({
+      webhook: { ...custom, hasSigningSecret: true },
+      signingSecret: "whsec_custom_999",
+    })
+
+    const view = render(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+
+    fireEvent.click(view.getByTestId(tid.botWebhookEdit("wh_custom_1")))
+    fireEvent.click(view.getByTestId(tid.botWebhookRequireSecret))
+    fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
+
+    await waitFor(() => expect(view.getByTestId(tid.botWebhookCredentialsPanel)).toBeInTheDocument())
+    expect(view.getByText("Copy this verification key now. You cannot view it again after leaving this screen.")).toBeInTheDocument()
+    expect(view.queryByTestId(tid.botWebhookUrlValue)).not.toBeInTheDocument()
+    expect(view.getByTestId(tid.botWebhookSecretValue)).toHaveValue("whsec_custom_999")
+
+    fireEvent.click(view.getByRole("button", { name: "Done" }))
+    expect(view.getByText("Have you saved this key?")).toBeInTheDocument()
+    fireEvent.click(view.getByRole("button", { name: "I've saved it" }))
+    expect(view.queryByTestId(tid.botWebhookCredentialsPanel)).not.toBeInTheDocument()
   })
 
   it("shows load error with retry action when fetch fails", () => {
@@ -320,6 +382,6 @@ describe("BotWebhooksSheet", () => {
     const view = render(
       <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
     )
-    expect(view.getByText("Could not load webhooks.")).toBeInTheDocument()
+    expect(view.getByText("Could not load triggers.")).toBeInTheDocument()
   })
 })

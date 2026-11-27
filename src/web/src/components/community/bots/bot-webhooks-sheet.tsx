@@ -2,7 +2,6 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import {
-  BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH,
   BOT_WEBHOOK_MAX_PER_BOT,
   BOT_WEBHOOK_NAME_MAX_LENGTH,
   BOT_WEBHOOK_PROVIDER_META,
@@ -39,7 +38,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import { useBotWebhookDeliveries, useBotWebhooks } from "@/hooks/community/use-bot-webhooks"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { getErrorMessage } from "@/lib/api/client"
@@ -68,6 +66,18 @@ type RevealedCredentials = {
   signingSecret: string | null
 }
 
+type DoneDialogState = {
+  open: boolean
+  title: string
+  description: string
+  confirmLabel: string
+}
+
+type ConfirmWebhookDialogState = {
+  open: boolean
+  webhook: BotWebhookSummary | null
+}
+
 function formatDeliveryError(error: string | null): string | null {
   if (!error) return null
   switch (error) {
@@ -82,10 +92,10 @@ function formatDeliveryError(error: string | null): string | null {
   }
 }
 
-function deliveryStatusLabel(status: BotWebhookDeliveryStatus, lastError: string | null): string {
+function triggerStateNote(status: BotWebhookDeliveryStatus, lastError: string | null): string | null {
   switch (status) {
     case "dispatched":
-      return "Delivered"
+      return null
     case "pending":
       return lastError === "machine_offline" ? "Queued · offline" : "Pending"
     case "ignored":
@@ -95,7 +105,7 @@ function deliveryStatusLabel(status: BotWebhookDeliveryStatus, lastError: string
   }
 }
 
-function deliveryStatusDotClass(status: BotWebhookDeliveryStatus): string {
+function triggerDotClass(status: BotWebhookDeliveryStatus): string {
   switch (status) {
     case "dispatched":
       return "bg-status-online"
@@ -108,20 +118,32 @@ function deliveryStatusDotClass(status: BotWebhookDeliveryStatus): string {
   }
 }
 
-function webhookSubtitle(webhook: BotWebhookSummary): string {
+function triggerSubtitle(webhook: BotWebhookSummary): string {
   const meta = BOT_WEBHOOK_PROVIDER_META[webhook.provider]
   const parts: string[] = [meta.label]
-  if (webhook.hasSigningSecret) {
-    parts.push("Verified")
-  } else if (meta.secretMode === "external") {
-    parts.push("Waiting for secret")
-  } else {
-    parts.push("Direct JSON")
-  }
   if (webhook.lastTriggeredAt) {
-    parts.push(`Triggered ${formatRelativeTime(webhook.lastTriggeredAt)}`)
+    parts.push(`Last triggered ${formatRelativeTime(webhook.lastTriggeredAt)}`)
   }
   return parts.join(" · ")
+}
+
+function SetupStepsList({
+  label,
+  steps,
+}: {
+  label: string
+  steps: readonly string[]
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-foreground">Connect in {label}</p>
+      <ol className="list-decimal space-y-1 pl-4 text-xs leading-5 text-muted-foreground">
+        {steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+    </div>
+  )
 }
 
 function CopyableWellField({
@@ -196,16 +218,15 @@ function CredentialsReveal({
   savingSecret,
   onSaveExternalSecret,
   onSendTest,
-  onDone,
+  onRequestDone,
 }: {
   revealed: RevealedCredentials
   testing: boolean
   savingSecret: boolean
   onSaveExternalSecret: (webhookId: string, secret: string) => Promise<void>
   onSendTest: (webhook: BotWebhookSummary) => Promise<void>
-  onDone: () => void
+  onRequestDone: (needsConfirm: boolean) => void
 }) {
-  const [confirmDone, setConfirmDone] = useAtom(useCreateAtom(false))
   const [externalSecret, setExternalSecret] = useAtom(useCreateAtom(""))
   const [secretError, setSecretError] = useAtom(useCreateAtom<string | null>(null))
   const meta = BOT_WEBHOOK_PROVIDER_META[revealed.webhook.provider]
@@ -221,7 +242,11 @@ function CredentialsReveal({
         </div>
         {hasOneTimeSecret ? (
           <p className="text-sm leading-6 text-muted-foreground">
-            Copy this URL{revealed.signingSecret ? ` and ${meta.secretLabel.toLowerCase()}` : ""} now. You cannot view it again after leaving this screen.
+            {revealed.webhookUrl && revealed.signingSecret
+              ? "Copy this link and key now. You cannot view them again after leaving this screen."
+              : revealed.webhookUrl
+                ? "Copy this link now. You cannot view it again after leaving this screen."
+                : "Copy this verification key now. You cannot view it again after leaving this screen."}
           </p>
         ) : null}
       </div>
@@ -230,7 +255,7 @@ function CredentialsReveal({
         {revealed.webhookUrl ? (
           <CopyableWellField
             id="bot-webhook-url"
-            label="Webhook URL"
+            label="Trigger link"
             value={revealed.webhookUrl}
             testId={tid.botWebhookUrlValue}
           />
@@ -238,7 +263,7 @@ function CredentialsReveal({
         {revealed.signingSecret ? (
           <CopyableWellField
             id="bot-webhook-secret"
-            label={meta.secretLabel}
+            label="Verification key"
             value={revealed.signingSecret}
             testId={tid.botWebhookSecretValue}
           />
@@ -250,7 +275,7 @@ function CredentialsReveal({
           {revealed.webhook.hasSigningSecret ? (
             <p className="flex items-center gap-2 text-sm text-foreground">
               <Check className="size-4 shrink-0 text-status-online" aria-hidden />
-              <span>{meta.secretLabel} saved — verified delivery is active.</span>
+              <span>Verification key saved — {meta.label} triggers are active.</span>
             </p>
           ) : (
             <form
@@ -263,7 +288,7 @@ function CredentialsReveal({
                 if (!parsed.success || !parsed.data.signingSecret) {
                   setSecretError(
                     parsed.error?.issues[0]?.message ??
-                      `${meta.secretLabel} must be at least ${BOT_WEBHOOK_SECRET_MIN_LENGTH} characters.`,
+                      `Key must be at least ${BOT_WEBHOOK_SECRET_MIN_LENGTH} characters.`,
                   )
                   return
                 }
@@ -272,13 +297,13 @@ function CredentialsReveal({
                   setExternalSecret("")
                 } catch (cause) {
                   if (!isAbortError(cause)) {
-                    setSecretError(getErrorMessage(cause, "Could not save signing secret. Try again."))
+                    setSecretError(getErrorMessage(cause, "Could not save verification key. Try again."))
                   }
                 }
               }}
             >
               <label htmlFor="bot-webhook-external-secret" className="block text-sm font-medium">
-                Paste {meta.label} {meta.secretLabel.toLowerCase()}
+                Paste key from {meta.label}
               </label>
               <div className="flex items-center gap-2">
                 <Input
@@ -313,14 +338,7 @@ function CredentialsReveal({
         </div>
       ) : null}
 
-      <div className="space-y-2">
-        <p className="text-xs font-medium text-foreground">Connect in {meta.label}</p>
-        <ol className="list-decimal space-y-1 pl-4 text-xs leading-5 text-muted-foreground">
-          {meta.setupSteps.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
-      </div>
+      <SetupStepsList label={meta.label} steps={meta.setupSteps} />
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
@@ -336,29 +354,21 @@ function CredentialsReveal({
         <Button
           type="button"
           className={control}
-          onClick={() => (hasOneTimeSecret ? setConfirmDone(true) : onDone())}
+          onClick={() => onRequestDone(hasOneTimeSecret)}
         >
           Done
         </Button>
       </div>
-
-      <ConfirmDialog
-        open={confirmDone}
-        onOpenChange={setConfirmDone}
-        title="Have you saved these credentials?"
-        description="You cannot view the full URL or signing secret again after leaving this screen."
-        confirmLabel="I've saved them"
-        confirmVariant="default"
-        onConfirm={onDone}
-      />
     </section>
   )
 }
 
 function ProviderChooser({
+  canGoBack,
   onSelect,
   onCancel,
 }: {
+  canGoBack: boolean
   onSelect: (provider: BotWebhookProvider) => void
   onCancel: () => void
 }) {
@@ -366,16 +376,18 @@ function ProviderChooser({
   return (
     <section className="space-y-4">
       <div className="space-y-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="-ml-2 h-9 gap-1 text-muted-foreground hover:text-foreground sm:h-7"
-          onClick={onCancel}
-        >
-          <ChevronLeft className="size-4" aria-hidden />
-          Back
-        </Button>
+        {canGoBack ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-ml-2 h-9 gap-1 text-muted-foreground hover:text-foreground sm:h-7"
+            onClick={onCancel}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+            Triggers
+          </Button>
+        ) : null}
         <h3 className="text-base font-medium">Choose a source</h3>
       </div>
 
@@ -416,7 +428,7 @@ function ProviderChooser({
   )
 }
 
-function WebhookForm({
+function TriggerForm({
   provider,
   webhook,
   pending,
@@ -441,7 +453,6 @@ function WebhookForm({
     webhookId: string,
     input: {
       name: string
-      instruction: string
       requireSecret?: boolean
       signingSecret?: string
     },
@@ -452,7 +463,6 @@ function WebhookForm({
   const [name, setName] = useAtom(useCreateAtom(defaultName))
   const [requireSecret, setRequireSecret] = useAtom(useCreateAtom(webhook?.hasSigningSecret ?? false))
   const [externalSecret, setExternalSecret] = useAtom(useCreateAtom(""))
-  const [instruction, setInstruction] = useAtom(useCreateAtom(webhook?.instruction ?? ""))
   const [error, setError] = useAtom(useCreateAtom<string | null>(null))
 
   return (
@@ -467,7 +477,6 @@ function WebhookForm({
           const trimmedSecret = externalSecret.trim()
           const updatePayload = {
             name,
-            instruction,
             ...(meta.secretMode === "optional" ? { requireSecret } : {}),
             ...(meta.secretMode === "external" && trimmedSecret.length > 0
               ? { signingSecret: trimmedSecret }
@@ -481,13 +490,12 @@ function WebhookForm({
           try {
             await onSubmitUpdate(webhook.id, {
               name: parsed.data.name ?? name.trim(),
-              instruction: parsed.data.instruction ?? instruction.trim(),
               ...(meta.secretMode === "optional" ? { requireSecret } : {}),
               ...(parsed.data.signingSecret ? { signingSecret: parsed.data.signingSecret } : {}),
             })
           } catch (cause) {
             if (!isAbortError(cause)) {
-              setError(getErrorMessage(cause, "Could not update this webhook. Try again."))
+              setError(getErrorMessage(cause, "Could not update this trigger. Try again."))
             }
           }
           return
@@ -496,7 +504,7 @@ function WebhookForm({
         const parsed = BotWebhookCreateSchema.safeParse({
           name,
           provider,
-          instruction,
+          instruction: "",
           eventFilter: null,
           ...(meta.secretMode === "optional" ? { requireSecret } : {}),
         })
@@ -508,36 +516,36 @@ function WebhookForm({
           await onSubmitCreate({
             name: parsed.data.name,
             provider: parsed.data.provider,
-            instruction: parsed.data.instruction,
+            instruction: "",
             eventFilter: null,
             ...(meta.secretMode === "optional" ? { requireSecret } : {}),
           })
         } catch (cause) {
           if (!isAbortError(cause)) {
-            setError(getErrorMessage(cause, "Could not create this webhook. Try again."))
+            setError(getErrorMessage(cause, "Could not create this trigger. Try again."))
           }
         }
       }}
     >
       <div className="space-y-2">
-        {!webhook && onChangeProvider ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            data-testid={tid.botWebhookChangeProvider}
-            className="-ml-2 h-9 gap-1 text-muted-foreground hover:text-foreground sm:h-7"
-            onClick={onChangeProvider}
-            disabled={pending}
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-            All sources
-          </Button>
-        ) : null}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {!webhook && onChangeProvider ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-testid={tid.botWebhookChangeProvider}
+              aria-label="Choose another source"
+              className="-ml-1.5 size-11 text-muted-foreground hover:text-foreground sm:size-7"
+              onClick={onChangeProvider}
+              disabled={pending}
+            >
+              <ChevronLeft className="size-4" aria-hidden />
+            </Button>
+          ) : null}
           <WebhookProviderIcon provider={provider} className="size-5 shrink-0" />
           <h3 className="text-base font-medium">
-            {webhook ? `Edit ${meta.label} webhook` : `New ${meta.label} webhook`}
+            {webhook ? `Edit ${meta.label} trigger` : `New ${meta.label} trigger`}
           </h3>
         </div>
         <p className="text-xs leading-5 text-muted-foreground">{meta.shortDescription}</p>
@@ -564,7 +572,7 @@ function WebhookForm({
       {meta.secretMode === "optional" ? (
         <div className="space-y-2">
           <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 sm:min-h-8">
-            <span className="text-sm font-medium">Require signing secret</span>
+            <span className="text-sm font-medium">Protect with a key</span>
             <Switch
               data-testid={tid.botWebhookRequireSecret}
               checked={requireSecret}
@@ -574,53 +582,42 @@ function WebhookForm({
           </label>
           <p className="text-xs leading-5 text-muted-foreground">
             {requireSecret
-              ? "Callers must send X-Webhook-Secret or Authorization: Bearer. A secret will be shown once after saving."
-              : "Any caller with the private webhook URL can trigger this bot."}
+              ? "Callers must include the verification key shown once after saving."
+              : webhook
+                ? "Anyone with the private trigger link can wake this bot."
+                : "Next: Alook creates a private link. Anyone with this link can wake this bot."}
           </p>
         </div>
       ) : meta.secretMode === "external" && webhook ? (
-        <div className="space-y-2">
-          <label htmlFor="bot-webhook-edit-secret" className="block text-sm font-medium">
-            {webhook.hasSigningSecret ? `Replace ${meta.secretLabel.toLowerCase()} (optional)` : meta.secretLabel}
-          </label>
-          <Input
-            id="bot-webhook-edit-secret"
-            data-testid={tid.botWebhookExternalSecretInput}
-            type="password"
-            className={`${control} font-mono text-xs`}
-            value={externalSecret}
-            onChange={(event) => setExternalSecret(event.target.value)}
-            maxLength={BOT_WEBHOOK_SECRET_MAX_LENGTH}
-            placeholder={
-              webhook.hasSigningSecret ? "Leave blank to keep current secret" : meta.secretPlaceholder
-            }
-            autoComplete="new-password"
-            disabled={pending}
-          />
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="bot-webhook-edit-secret" className="block text-sm font-medium">
+              {webhook.hasSigningSecret ? "Replace verification key (optional)" : "Verification key"}
+            </label>
+            <Input
+              id="bot-webhook-edit-secret"
+              data-testid={tid.botWebhookExternalSecretInput}
+              type="password"
+              className={`${control} font-mono text-xs`}
+              value={externalSecret}
+              onChange={(event) => setExternalSecret(event.target.value)}
+              maxLength={BOT_WEBHOOK_SECRET_MAX_LENGTH}
+              placeholder={
+                webhook.hasSigningSecret ? "Leave blank to keep current key" : meta.secretPlaceholder
+              }
+              autoComplete="new-password"
+              disabled={pending}
+            />
+          </div>
+          <SetupStepsList label={meta.label} steps={meta.setupSteps} />
         </div>
       ) : !webhook ? (
         <p className="text-xs leading-5 text-muted-foreground">
           {meta.secretMode === "generated"
-            ? `A unique Webhook URL and ${meta.secretLabel.toLowerCase()} will be generated next.`
-            : `You will get the Webhook URL next, then paste ${meta.label}'s ${meta.secretLabel.toLowerCase()} to activate delivery.`}
+            ? `Next: Alook creates a private link and key for you to paste into ${meta.label}.`
+            : `Next: Alook creates a private link to paste into ${meta.label}, then you paste back the key ${meta.label} gives you.`}
         </p>
       ) : null}
-
-      <div className="space-y-2">
-        <label htmlFor="bot-webhook-instruction" className="block text-sm font-medium">
-          Handling instruction (optional)
-        </label>
-        <Textarea
-          id="bot-webhook-instruction"
-          data-testid={tid.botWebhookInstructionInput}
-          value={instruction}
-          onChange={(event) => setInstruction(event.target.value)}
-          maxLength={BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH}
-          rows={2}
-          placeholder="e.g. If CI fails, inspect the logs and report back in the task thread."
-          disabled={pending}
-        />
-      </div>
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -633,14 +630,14 @@ function WebhookForm({
           Cancel
         </Button>
         <Button type="submit" className={control} data-testid={tid.botWebhookSubmit} disabled={pending}>
-          {pending ? "Saving…" : webhook ? "Save changes" : "Create webhook"}
+          {pending ? "Saving…" : webhook ? "Save changes" : "Create trigger"}
         </Button>
       </div>
     </form>
   )
 }
 
-function DeliveriesPanel({
+function TriggerHistoryPanel({
   botId,
   webhookId,
 }: {
@@ -651,13 +648,13 @@ function DeliveriesPanel({
   return (
     <div className="space-y-3 rounded-lg bg-muted/35 p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">Recent deliveries</span>
+        <span className="text-xs font-medium text-muted-foreground">Recent triggers</span>
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
           className="size-8 text-muted-foreground hover:text-foreground"
-          aria-label="Refresh deliveries"
+          aria-label="Refresh history"
           disabled={deliveriesQuery.isFetching}
           onClick={() => { void deliveriesQuery.refetch() }}
         >
@@ -668,22 +665,23 @@ function DeliveriesPanel({
         </Button>
       </div>
       {deliveriesQuery.isPending && !deliveriesQuery.data ? (
-        <div className="space-y-2" aria-label="Loading deliveries" role="status">
+        <div className="space-y-2" aria-label="Loading trigger history" role="status">
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
         </div>
       ) : deliveriesQuery.isError ? (
         <div className="flex items-center justify-between gap-2 text-xs text-destructive">
-          <span>Could not load recent deliveries.</span>
+          <span>Could not load trigger history.</span>
           <Button type="button" variant="ghost" size="sm" className="h-7" onClick={() => { void deliveriesQuery.refetch() }}>
             Retry
           </Button>
         </div>
       ) : deliveriesQuery.deliveries.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No deliveries yet. Send a test to verify the wake path.</p>
+        <p className="text-xs text-muted-foreground">Not triggered yet. Send a test to verify the wake path.</p>
       ) : (
         <ul className="divide-y divide-border/50">
           {deliveriesQuery.deliveries.map((delivery: BotWebhookDelivery) => {
+            const stateNote = triggerStateNote(delivery.status, delivery.lastError)
             const errorDetail = formatDeliveryError(delivery.lastError)
             return (
               <li
@@ -691,18 +689,17 @@ function DeliveriesPanel({
                 data-testid={tid.botWebhookDeliveryRow(delivery.id)}
                 className="space-y-1 py-2 first:pt-0 last:pb-0"
               >
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                    <span
-                      aria-hidden="true"
-                      className={cn("inline-block size-1.5 rounded-full", deliveryStatusDotClass(delivery.status))}
-                    />
-                    {deliveryStatusLabel(delivery.status, delivery.lastError)}
-                  </span>
-                  <code className="font-mono text-muted-foreground">{delivery.eventType}</code>
-                  <span className="ml-auto text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs">
+                  <span
+                    aria-hidden="true"
+                    className={cn("inline-block size-1.5 shrink-0 rounded-full", triggerDotClass(delivery.status))}
+                  />
+                  <span className="font-medium text-foreground">
                     {formatRelativeTime(delivery.createdAt)}
                   </span>
+                  {stateNote ? (
+                    <span className="text-muted-foreground">{stateNote}</span>
+                  ) : null}
                 </div>
                 <p className="wrap-break-word text-xs leading-5 text-muted-foreground">{delivery.summary}</p>
                 {errorDetail ? (
@@ -727,43 +724,42 @@ export function BotWebhooksSheet({
   onOpenChange: (open: boolean) => void
 }) {
   return (
-    <CommunitySheet
+    <BotWebhooksSheetContent
+      key={`${bot.id}:${open ? "open" : "closed"}`}
+      bot={bot}
       open={open}
       onOpenChange={onOpenChange}
-      title="Webhooks"
-      description={
-        <span className="flex min-w-0 items-center gap-2">
-          <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={24} />
-          <span className="min-w-0 truncate" title={bot.name}>
-            {bot.name}
-          </span>
-        </span>
-      }
-      contentTestId={tid.botWebhooksSheet}
-      bodyClassName="flex flex-col gap-6"
-    >
-      <BotWebhooksSheetContent
-        key={`${bot.id}:${open ? "open" : "closed"}`}
-        bot={bot}
-        open={open}
-      />
-    </CommunitySheet>
+    />
   )
 }
 
 function BotWebhooksSheetContent({
   bot,
   open,
+  onOpenChange,
 }: {
   bot: { id: string; name: string; image?: string | null }
   open: boolean
+  onOpenChange: (open: boolean) => void
 }) {
   const webhooksApi = useBotWebhooks(bot.id, open)
   const [view, setView] = useAtom(useCreateAtom<SheetView>({ kind: "list" }))
   const [revealed, setRevealed] = useAtom(useCreateAtom<RevealedCredentials | null>(null))
+  const [confirmDone, setConfirmDone] = useAtom(
+    useCreateAtom<DoneDialogState>({
+      open: false,
+      title: "Have you saved this link?",
+      description: "You cannot view the full link again after leaving this screen.",
+      confirmLabel: "I've saved it",
+    }),
+  )
   const [expandedDeliveriesId, setExpandedDeliveriesId] = useAtom(useCreateAtom<string | null>(null))
-  const [confirmRotate, setConfirmRotate] = useAtom(useCreateAtom<BotWebhookSummary | null>(null))
-  const [confirmDelete, setConfirmDelete] = useAtom(useCreateAtom<BotWebhookSummary | null>(null))
+  const [confirmRotate, setConfirmRotate] = useAtom(
+    useCreateAtom<ConfirmWebhookDialogState>({ open: false, webhook: null }),
+  )
+  const [confirmDelete, setConfirmDelete] = useAtom(
+    useCreateAtom<ConfirmWebhookDialogState>({ open: false, webhook: null }),
+  )
   const [actionError, setActionError] = useAtom(useCreateAtom<string | null>(null))
 
   const atLimit = webhooksApi.webhooks.length >= BOT_WEBHOOK_MAX_PER_BOT
@@ -787,388 +783,462 @@ function BotWebhooksSheetContent({
     }
   }
 
+  const rotateDialogDescription = (() => {
+    const target = confirmRotate.webhook
+    if (!target) return ""
+    const meta = BOT_WEBHOOK_PROVIDER_META[target.provider]
+    if (meta.secretMode === "generated" || (meta.secretMode === "optional" && target.hasSigningSecret)) {
+      return "The current link and verification key will stop working right away. Update the other app with the new details."
+    }
+    if (meta.secretMode === "external" && target.hasSigningSecret) {
+      return "The current link will stop working right away. Your saved verification key stays unchanged."
+    }
+    return "The current link will stop working right away. Update the other app with the new link."
+  })()
+
   return (
     <>
-      {revealed ? (
-        <CredentialsReveal
-          key={`${revealed.webhook.id}:${revealed.heading}`}
-          revealed={revealed}
-          testing={webhooksApi.testingWebhookId === revealed.webhook.id}
-          savingSecret={webhooksApi.updating}
-          onSaveExternalSecret={async (webhookId, signingSecret) => {
-            const updated = await webhooksApi.updateWebhook(webhookId, { signingSecret })
-            setRevealed((current) =>
-              current && current.webhook.id === webhookId
-                ? { ...current, webhook: updated.webhook }
-                : current,
-            )
-            toast.success("Signing secret saved")
-          }}
-          onSendTest={handleSendTest}
-          onDone={() => setRevealed(null)}
-        />
-      ) : view.kind === "choose" ? (
-        <ProviderChooser
-          onSelect={(provider) => setView({ kind: "create", provider })}
-          onCancel={() => setView({ kind: "list" })}
-        />
-      ) : view.kind === "create" ? (
-        <WebhookForm
-          key={`create:${view.provider}`}
-          provider={view.provider}
-          pending={webhooksApi.creating}
-          onChangeProvider={() => setView({ kind: "choose" })}
-          onCancel={() => setView({ kind: "list" })}
-          onSubmitCreate={async (input) => {
-            const created = await webhooksApi.createWebhook(input)
-            setView({ kind: "list" })
-            setRevealed({
-              heading: `${created.webhook.name} created`,
-              webhook: created.webhook,
-              webhookUrl: created.webhookUrl,
-              signingSecret: created.signingSecret,
-            })
-          }}
-          onSubmitUpdate={async () => {}}
-        />
-      ) : view.kind === "edit" ? (
-        <WebhookForm
-          key={`edit:${view.webhook.id}`}
-          provider={view.webhook.provider}
-          webhook={view.webhook}
-          pending={webhooksApi.updating}
-          onCancel={() => setView({ kind: "list" })}
-          onSubmitCreate={async () => {}}
-          onSubmitUpdate={async (webhookId, input) => {
-            const updated = await webhooksApi.updateWebhook(webhookId, input)
-            setView({ kind: "list" })
-            if (updated.webhookUrl || updated.signingSecret) {
+      <CommunitySheet
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) {
+            setConfirmDone((current) => ({ ...current, open: false }))
+            setConfirmRotate((current) => ({ ...current, open: false }))
+            setConfirmDelete((current) => ({ ...current, open: false }))
+          }
+          onOpenChange(next)
+        }}
+        title="Triggers"
+        description={
+          <span className="flex min-w-0 items-center gap-2">
+            <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={24} />
+            <span className="min-w-0 truncate" title={bot.name}>
+              {bot.name}
+            </span>
+          </span>
+        }
+        contentTestId={tid.botWebhooksSheet}
+        bodyClassName="flex flex-col gap-6"
+      >
+        {revealed ? (
+          <CredentialsReveal
+            key={`${revealed.webhook.id}:${revealed.heading}`}
+            revealed={revealed}
+            testing={webhooksApi.testingWebhookId === revealed.webhook.id}
+            savingSecret={webhooksApi.updating}
+            onSaveExternalSecret={async (webhookId, signingSecret) => {
+              const updated = await webhooksApi.updateWebhook(webhookId, { signingSecret })
+              setRevealed((current) =>
+                current && current.webhook.id === webhookId
+                  ? { ...current, webhook: updated.webhook }
+                  : current,
+              )
+              toast.success("Verification key saved")
+            }}
+            onSendTest={handleSendTest}
+            onRequestDone={(needsConfirm) => {
+              if (!needsConfirm) {
+                setRevealed(null)
+                return
+              }
+              if (revealed.webhookUrl && revealed.signingSecret) {
+                setConfirmDone({
+                  open: true,
+                  title: "Have you saved this link and key?",
+                  description: "You cannot view the full link or verification key again after leaving this screen.",
+                  confirmLabel: "I've saved them",
+                })
+              } else if (revealed.webhookUrl) {
+                setConfirmDone({
+                  open: true,
+                  title: "Have you saved this link?",
+                  description: "You cannot view the full link again after leaving this screen.",
+                  confirmLabel: "I've saved it",
+                })
+              } else {
+                setConfirmDone({
+                  open: true,
+                  title: "Have you saved this key?",
+                  description: "You cannot view this verification key again after leaving this screen.",
+                  confirmLabel: "I've saved it",
+                })
+              }
+            }}
+          />
+        ) : view.kind === "choose" ? (
+          <ProviderChooser
+            canGoBack={webhooksApi.webhooks.length > 0}
+            onSelect={(provider) => setView({ kind: "create", provider })}
+            onCancel={() => setView({ kind: "list" })}
+          />
+        ) : view.kind === "create" ? (
+          <TriggerForm
+            key={`create:${view.provider}`}
+            provider={view.provider}
+            pending={webhooksApi.creating}
+            onChangeProvider={() => setView({ kind: "choose" })}
+            onCancel={() => setView({ kind: "list" })}
+            onSubmitCreate={async (input) => {
+              const created = await webhooksApi.createWebhook(input)
+              setView({ kind: "list" })
               setRevealed({
-                heading: "Signing secret generated",
-                webhook: updated.webhook,
-                webhookUrl: updated.webhookUrl,
-                signingSecret: updated.signingSecret ?? null,
+                heading: `${created.webhook.name} is ready`,
+                webhook: created.webhook,
+                webhookUrl: created.webhookUrl,
+                signingSecret: created.signingSecret,
               })
-            } else {
-              toast.success("Webhook updated")
-            }
-          }}
-        />
-      ) : (
-        <>
-          {webhooksApi.isError && webhooksApi.data ? (
-            <ConversationResolutionErrorFrame
-              as="div"
-              title="Could not refresh webhooks."
-              retrying={webhooksApi.isFetching}
-              onRetry={() => { void webhooksApi.refetch() }}
-            />
-          ) : null}
+            }}
+            onSubmitUpdate={async () => {}}
+          />
+        ) : view.kind === "edit" ? (
+          <TriggerForm
+            key={`edit:${view.webhook.id}`}
+            provider={view.webhook.provider}
+            webhook={view.webhook}
+            pending={webhooksApi.updating}
+            onCancel={() => setView({ kind: "list" })}
+            onSubmitCreate={async () => {}}
+            onSubmitUpdate={async (webhookId, input) => {
+              const updated = await webhooksApi.updateWebhook(webhookId, input)
+              setView({ kind: "list" })
+              if (updated.webhookUrl || updated.signingSecret) {
+                setRevealed({
+                  heading: "Verification key created",
+                  webhook: updated.webhook,
+                  webhookUrl: updated.webhookUrl,
+                  signingSecret: updated.signingSecret ?? null,
+                })
+              } else {
+                toast.success("Trigger updated")
+              }
+            }}
+          />
+        ) : (
+          <>
+            {webhooksApi.isError && webhooksApi.data ? (
+              <ConversationResolutionErrorFrame
+                as="div"
+                title="Could not refresh triggers."
+                retrying={webhooksApi.isFetching}
+                onRetry={() => { void webhooksApi.refetch() }}
+              />
+            ) : null}
 
-          {webhooksApi.isPending && !webhooksApi.data ? (
-            <div className="space-y-4" aria-label="Loading webhooks" role="status">
-              {[0, 1].map((index) => (
-                <div key={index} className="space-y-2 py-3">
-                  <Skeleton className="h-5 w-40" />
-                  <Skeleton className="h-4 w-56 max-w-full" />
-                  <Skeleton className="h-8 w-48" />
+            {webhooksApi.isPending && !webhooksApi.data ? (
+              <div className="space-y-4" aria-label="Loading triggers" role="status">
+                {[0, 1].map((index) => (
+                  <div key={index} className="space-y-2 py-3">
+                    <Skeleton className="h-5 w-40" />
+                    <Skeleton className="h-4 w-56 max-w-full" />
+                    <Skeleton className="h-8 w-48" />
+                  </div>
+                ))}
+              </div>
+            ) : webhooksApi.isError && !webhooksApi.data ? (
+              <ConversationResolutionErrorFrame
+                as="div"
+                title="Could not load triggers."
+                retrying={webhooksApi.isFetching}
+                onRetry={() => { void webhooksApi.refetch() }}
+              />
+            ) : webhooksApi.webhooks.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center">
+                <div className="flex flex-col items-center">
+                  <EmptyState
+                    icon={Link2}
+                    label="No triggers yet"
+                    description={`Connect GitHub, Linear, Sentry, or any other app to wake ${bot.name} automatically.`}
+                  />
+                  <Button
+                    type="button"
+                    className={`${control} -mt-6 gap-1.5`}
+                    data-testid={tid.botWebhooksCreateOpen}
+                    onClick={() => {
+                      setActionError(null)
+                      setView({ kind: "choose" })
+                    }}
+                  >
+                    <Plus className="size-4" aria-hidden />
+                    New trigger
+                  </Button>
                 </div>
-              ))}
-            </div>
-          ) : webhooksApi.isError && !webhooksApi.data ? (
-            <ConversationResolutionErrorFrame
-              as="div"
-              title="Could not load webhooks."
-              retrying={webhooksApi.isFetching}
-              onRetry={() => { void webhooksApi.refetch() }}
-            />
-          ) : webhooksApi.webhooks.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center">
-              <div className="flex flex-col items-center">
-                <EmptyState
-                  icon={Link2}
-                  label="No webhooks yet"
-                  description={`Connect GitHub, Linear, Sentry, or any JSON service to wake ${bot.name} directly.`}
-                />
-                <Button
-                  type="button"
-                  className={`${control} -mt-6 gap-1.5`}
-                  data-testid={tid.botWebhooksCreateOpen}
-                  onClick={() => {
-                    setActionError(null)
-                    setView({ kind: "choose" })
-                  }}
-                >
-                  <Plus className="size-4" aria-hidden />
-                  New webhook
-                </Button>
               </div>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-3">
-                <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
-                  Wake {bot.name} directly — never posts to channels.
-                </p>
-                <Button
-                  type="button"
-                  className={`${control} shrink-0 gap-1.5`}
-                  data-testid={tid.botWebhooksCreateOpen}
-                  disabled={atLimit}
-                  title={atLimit ? `Maximum of ${BOT_WEBHOOK_MAX_PER_BOT} webhooks per bot reached.` : undefined}
-                  onClick={() => {
-                    setActionError(null)
-                    setView({ kind: "choose" })
-                  }}
-                >
-                  <Plus className="size-4" aria-hidden />
-                  New webhook
-                </Button>
-              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+                    Wake {bot.name} from other apps — never posts to channels.
+                  </p>
+                  <Button
+                    type="button"
+                    className={`${control} shrink-0 gap-1.5`}
+                    data-testid={tid.botWebhooksCreateOpen}
+                    disabled={atLimit}
+                    title={atLimit ? `Maximum of ${BOT_WEBHOOK_MAX_PER_BOT} triggers per bot reached.` : undefined}
+                    onClick={() => {
+                      setActionError(null)
+                      setView({ kind: "choose" })
+                    }}
+                  >
+                    <Plus className="size-4" aria-hidden />
+                    New trigger
+                  </Button>
+                </div>
 
-              <ul className="divide-y divide-border/70">
-                {webhooksApi.webhooks.map((webhook) => {
-                  const meta = BOT_WEBHOOK_PROVIDER_META[webhook.provider]
-                  const deliveriesExpanded = expandedDeliveriesId === webhook.id
-                  const toggling = webhooksApi.togglingWebhookId === webhook.id
-                  const testingThis = webhooksApi.testingWebhookId === webhook.id
-                  const needsExternalSecret = meta.secretMode === "external" && !webhook.hasSigningSecret
-                  const lastErrorText = formatDeliveryError(webhook.lastDelivery?.lastError ?? null)
-                  return (
-                    <li
-                      key={webhook.id}
-                      data-testid={tid.botWebhookCard(webhook.id)}
-                      className="space-y-3 py-4 first:pt-0"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                          <WebhookProviderIcon provider={webhook.provider} className="mt-0.5 size-4 shrink-0" />
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="min-w-0 wrap-break-word text-sm font-medium text-foreground">
-                                {webhook.name}
-                              </h3>
-                              {!webhook.enabled ? <Badge variant="outline">Paused</Badge> : null}
-                              {needsExternalSecret ? <Badge variant="outline">Secret needed</Badge> : null}
+                <ul className="divide-y divide-border/70">
+                  {webhooksApi.webhooks.map((webhook) => {
+                    const meta = BOT_WEBHOOK_PROVIDER_META[webhook.provider]
+                    const historyExpanded = expandedDeliveriesId === webhook.id
+                    const toggling = webhooksApi.togglingWebhookId === webhook.id
+                    const testingThis = webhooksApi.testingWebhookId === webhook.id
+                    const needsExternalSecret = meta.secretMode === "external" && !webhook.hasSigningSecret
+                    const lastErrorText = formatDeliveryError(webhook.lastDelivery?.lastError ?? null)
+                    return (
+                      <li
+                        key={webhook.id}
+                        data-testid={tid.botWebhookCard(webhook.id)}
+                        className="space-y-3 py-4 first:pt-0"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                            <WebhookProviderIcon provider={webhook.provider} className="mt-0.5 size-4 shrink-0" />
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="min-w-0 wrap-break-word text-sm font-medium text-foreground">
+                                  {webhook.name}
+                                </h3>
+                                {!webhook.enabled ? <Badge variant="outline">Paused</Badge> : null}
+                                {needsExternalSecret ? <Badge variant="outline">Finish setup</Badge> : null}
+                              </div>
+                              <p className="text-xs leading-5 text-muted-foreground">
+                                {triggerSubtitle(webhook)}
+                              </p>
                             </div>
-                            <p className="text-xs leading-5 text-muted-foreground">
-                              {webhookSubtitle(webhook)}
-                            </p>
                           </div>
-                        </div>
-                        <Switch
-                          data-testid={tid.botWebhookToggle(webhook.id)}
-                          checked={webhook.enabled}
-                          disabled={toggling}
-                          aria-label={webhook.enabled ? `Pause ${webhook.name}` : `Enable ${webhook.name}`}
-                          onCheckedChange={async (checked) => {
-                            setActionError(null)
-                            try {
-                              await webhooksApi.updateWebhook(webhook.id, { enabled: checked })
-                              toast.success(checked ? `${webhook.name} enabled` : `${webhook.name} paused`)
-                            } catch (cause) {
-                              if (!isAbortError(cause)) {
-                                setActionError(getErrorMessage(cause, "Could not update webhook status. Try again."))
+                          <Switch
+                            data-testid={tid.botWebhookToggle(webhook.id)}
+                            checked={webhook.enabled}
+                            disabled={toggling}
+                            aria-label={webhook.enabled ? `Pause ${webhook.name}` : `Enable ${webhook.name}`}
+                            onCheckedChange={async (checked) => {
+                              setActionError(null)
+                              try {
+                                await webhooksApi.updateWebhook(webhook.id, { enabled: checked })
+                                toast.success(checked ? `${webhook.name} enabled` : `${webhook.name} paused`)
+                              } catch (cause) {
+                                if (!isAbortError(cause)) {
+                                  setActionError(getErrorMessage(cause, "Could not update trigger status. Try again."))
+                                }
                               }
-                            }
-                          }}
-                        />
-                      </div>
+                            }}
+                          />
+                        </div>
 
-                      {webhook.instruction ? (
-                        <p className="line-clamp-2 wrap-break-word text-xs leading-5 text-muted-foreground">
-                          {webhook.instruction}
-                        </p>
-                      ) : null}
-
-                      {webhook.lastDelivery && !deliveriesExpanded ? (
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-foreground">
+                        {webhook.lastDelivery && !historyExpanded ? (
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span
                               aria-hidden="true"
-                              className={cn("inline-block size-1.5 rounded-full", deliveryStatusDotClass(webhook.lastDelivery.status))}
+                              className={cn("inline-block size-1.5 shrink-0 rounded-full", triggerDotClass(webhook.lastDelivery.status))}
                             />
-                            {deliveryStatusLabel(webhook.lastDelivery.status, webhook.lastDelivery.lastError)}
-                          </span>
-                          <span className="min-w-0 truncate" title={webhook.lastDelivery.summary}>
-                            {webhook.lastDelivery.summary}
-                          </span>
-                          {lastErrorText ? (
-                            <span className="w-full text-xs text-muted-foreground">{lastErrorText}</span>
-                          ) : null}
-                        </div>
-                      ) : null}
+                            <span className="min-w-0 flex-1 truncate" title={webhook.lastDelivery.summary}>
+                              {webhook.lastDelivery.summary}
+                            </span>
+                            {lastErrorText ? (
+                              <span className="w-full text-xs text-muted-foreground">{lastErrorText}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
 
-                      <div className="flex flex-wrap items-center gap-1">
-                        {needsExternalSecret ? (
+                        <div className="flex flex-wrap items-center gap-1">
+                          {needsExternalSecret ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-11 gap-1.5 text-foreground sm:h-7"
+                              onClick={() => {
+                                setActionError(null)
+                                setView({ kind: "edit", webhook })
+                              }}
+                            >
+                              <KeyRound className="size-3.5" aria-hidden />
+                              Add key
+                            </Button>
+                          ) : null}
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-11 gap-1.5 text-foreground sm:h-7"
-                            onClick={() => {
-                              setActionError(null)
-                              setView({ kind: "edit", webhook })
-                            }}
+                            className="h-11 gap-1.5 text-muted-foreground hover:text-foreground sm:h-7"
+                            data-testid={tid.botWebhookTest(webhook.id)}
+                            disabled={testingThis}
+                            onClick={() => { void handleSendTest(webhook) }}
                           >
-                            <KeyRound className="size-3.5" aria-hidden />
-                            Add secret
+                            <Play className="size-3.5" aria-hidden />
+                            {testingThis ? "Sending…" : "Send test"}
                           </Button>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-11 gap-1.5 text-muted-foreground hover:text-foreground sm:h-7"
-                          data-testid={tid.botWebhookTest(webhook.id)}
-                          disabled={testingThis}
-                          onClick={() => { void handleSendTest(webhook) }}
-                        >
-                          <Play className="size-3.5" aria-hidden />
-                          {testingThis ? "Sending…" : "Send test"}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            "h-11 gap-1 sm:h-7",
-                            deliveriesExpanded ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                          )}
-                          data-testid={tid.botWebhookDeliveriesToggle(webhook.id)}
-                          aria-expanded={deliveriesExpanded}
-                          onClick={() =>
-                            setExpandedDeliveriesId((current) => (current === webhook.id ? null : webhook.id))
-                          }
-                        >
-                          <ChevronDown
-                            aria-hidden
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
                             className={cn(
-                              "size-3.5 transition-transform duration-150",
-                              deliveriesExpanded && "rotate-180",
+                              "h-11 gap-1 sm:h-7",
+                              historyExpanded ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                             )}
-                          />
-                          Deliveries
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="ml-auto size-11 text-muted-foreground hover:text-foreground sm:size-7"
-                          data-testid={tid.botWebhookEdit(webhook.id)}
-                          aria-label={`Edit ${webhook.name}`}
-                          onClick={() => {
-                            setActionError(null)
-                            setView({ kind: "edit", webhook })
-                          }}
-                        >
-                          <Pencil className="size-3.5" aria-hidden />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-11 text-muted-foreground hover:text-foreground sm:size-7"
-                          data-testid={tid.botWebhookRotate(webhook.id)}
-                          aria-label={`Rotate credentials for ${webhook.name}`}
-                          onClick={() => {
-                            setActionError(null)
-                            setConfirmRotate(webhook)
-                          }}
-                        >
-                          <RotateCcw className="size-3.5" aria-hidden />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-11 text-muted-foreground hover:text-destructive sm:size-7"
-                          data-testid={tid.botWebhookDelete(webhook.id)}
-                          aria-label={`Delete ${webhook.name}`}
-                          onClick={() => {
-                            setActionError(null)
-                            setConfirmDelete(webhook)
-                          }}
-                        >
-                          <Trash2 className="size-3.5" aria-hidden />
-                        </Button>
-                      </div>
+                            data-testid={tid.botWebhookDeliveriesToggle(webhook.id)}
+                            aria-expanded={historyExpanded}
+                            onClick={() =>
+                              setExpandedDeliveriesId((current) => (current === webhook.id ? null : webhook.id))
+                            }
+                          >
+                            <ChevronDown
+                              aria-hidden
+                              className={cn(
+                                "size-3.5 transition-transform duration-150",
+                                historyExpanded && "rotate-180",
+                              )}
+                            />
+                            History
+                          </Button>
+                          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              className="size-11 text-muted-foreground hover:text-foreground sm:size-7"
+                              data-testid={tid.botWebhookEdit(webhook.id)}
+                              aria-label={`Edit ${webhook.name}`}
+                              onClick={() => {
+                                setActionError(null)
+                                setView({ kind: "edit", webhook })
+                              }}
+                            >
+                              <Pencil className="size-3.5" aria-hidden />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              className="size-11 text-muted-foreground hover:text-foreground sm:size-7"
+                              data-testid={tid.botWebhookRotate(webhook.id)}
+                              aria-label={`Reset link for ${webhook.name}`}
+                              onClick={() => {
+                                setActionError(null)
+                                setConfirmRotate({ open: true, webhook })
+                              }}
+                            >
+                              <RotateCcw className="size-3.5" aria-hidden />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              className="size-11 text-muted-foreground hover:text-destructive sm:size-7"
+                              data-testid={tid.botWebhookDelete(webhook.id)}
+                              aria-label={`Delete ${webhook.name}`}
+                              onClick={() => {
+                                setActionError(null)
+                                setConfirmDelete({ open: true, webhook })
+                              }}
+                            >
+                              <Trash2 className="size-3.5" aria-hidden />
+                            </Button>
+                          </div>
+                        </div>
 
-                      {deliveriesExpanded ? (
-                        <DeliveriesPanel botId={bot.id} webhookId={webhook.id} />
-                      ) : null}
-                    </li>
-                  )
-                })}
-              </ul>
-            </>
-          )}
+                        {historyExpanded ? (
+                          <TriggerHistoryPanel botId={bot.id} webhookId={webhook.id} />
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            )}
 
-          {actionError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {actionError}
-            </p>
-          ) : null}
-        </>
-      )}
+            {actionError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {actionError}
+              </p>
+            ) : null}
+          </>
+        )}
+      </CommunitySheet>
 
       <ConfirmDialog
-        open={Boolean(confirmRotate)}
-        onOpenChange={(next) => {
-          if (!next && !webhooksApi.updating) setConfirmRotate(null)
+        open={open && confirmDone.open}
+        onOpenChange={(next) => setConfirmDone((current) => ({ ...current, open: next }))}
+        title={confirmDone.title}
+        description={confirmDone.description}
+        confirmLabel={confirmDone.confirmLabel}
+        confirmVariant="default"
+        onConfirm={() => {
+          setConfirmDone((current) => ({ ...current, open: false }))
+          setRevealed(null)
         }}
-        title={`Rotate credentials for “${confirmRotate?.name ?? "webhook"}”?`}
-        description="The current webhook URL and generated signing secret will stop working immediately. Update the external service with the new credentials."
-        confirmLabel="Rotate credentials"
-        loadingLabel="Rotating…"
+      />
+
+      <ConfirmDialog
+        open={open && confirmRotate.open}
+        onOpenChange={(next) => {
+          if (!next && !webhooksApi.updating) {
+            setConfirmRotate((current) => ({ ...current, open: false }))
+          }
+        }}
+        title={`Reset link for “${confirmRotate.webhook?.name ?? "trigger"}”?`}
+        description={rotateDialogDescription}
+        confirmLabel="Reset link"
+        loadingLabel="Resetting…"
         confirmVariant="destructive"
         loading={webhooksApi.updating}
         onConfirm={async () => {
-          if (!confirmRotate || webhooksApi.updating) return
-          const target = confirmRotate
+          const target = confirmRotate.webhook
+          if (!target || webhooksApi.updating) return
           setActionError(null)
           try {
             const rotated = await webhooksApi.updateWebhook(target.id, { rotateCredentials: true })
-            setConfirmRotate(null)
+            setConfirmRotate((current) => ({ ...current, open: false }))
             setRevealed({
-              heading: "Credentials rotated",
+              heading: "Link reset",
               webhook: rotated.webhook,
               webhookUrl: rotated.webhookUrl,
               signingSecret: rotated.signingSecret ?? null,
             })
           } catch (cause) {
-            setConfirmRotate(null)
+            setConfirmRotate((current) => ({ ...current, open: false }))
             if (!isAbortError(cause)) {
-              setActionError(getErrorMessage(cause, "Could not rotate credentials. Try again."))
+              setActionError(getErrorMessage(cause, "Could not reset this link. Try again."))
             }
           }
         }}
       />
 
       <ConfirmDialog
-        open={Boolean(confirmDelete)}
+        open={open && confirmDelete.open}
         onOpenChange={(next) => {
-          if (!next && !webhooksApi.deleting) setConfirmDelete(null)
+          if (!next && !webhooksApi.deleting) {
+            setConfirmDelete((current) => ({ ...current, open: false }))
+          }
         }}
-        title={`Delete “${confirmDelete?.name ?? "webhook"}”?`}
-        description="External services calling this URL will receive 404 immediately and recent delivery logs will be removed."
-        confirmLabel="Delete webhook"
+        title={`Delete “${confirmDelete.webhook?.name ?? "trigger"}”?`}
+        description="Requests to this link will stop working right away and recent trigger history will be removed."
+        confirmLabel="Delete trigger"
         loadingLabel="Deleting…"
         confirmVariant="destructive"
         loading={webhooksApi.deleting}
         onConfirm={async () => {
-          if (!confirmDelete || webhooksApi.deleting) return
-          const target = confirmDelete
+          const target = confirmDelete.webhook
+          if (!target || webhooksApi.deleting) return
           setActionError(null)
           try {
             await webhooksApi.deleteWebhook(target.id)
-            setConfirmDelete(null)
+            setConfirmDelete((current) => ({ ...current, open: false }))
             if (expandedDeliveriesId === target.id) setExpandedDeliveriesId(null)
             toast.success(`Deleted ${target.name}`)
           } catch (cause) {
-            setConfirmDelete(null)
+            setConfirmDelete((current) => ({ ...current, open: false }))
             if (!isAbortError(cause)) {
-              setActionError(getErrorMessage(cause, "Could not delete this webhook. Try again."))
+              setActionError(getErrorMessage(cause, "Could not delete this trigger. Try again."))
             }
           }
         }}

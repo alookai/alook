@@ -127,7 +127,7 @@ export function renderBotMachineGroup(
                       <Network className="size-4" /> Servers &amp; channels
                     </DropdownMenuItem>
                     <DropdownMenuItem data-testid={tid.botWebhooksMenu(bot.id)} onClick={() => controller.openWebhooks(bot)}>
-                      <Link2 className="size-4" /> Webhooks
+                      <Link2 className="size-4" /> Triggers
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => controller.openActivity(bot)}

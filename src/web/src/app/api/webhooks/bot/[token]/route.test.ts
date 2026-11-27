@@ -643,4 +643,216 @@ describe("POST /api/webhooks/bot/[token]", () => {
     // 7 real dispatches (Stripe, Linear, Sentry, Vercel, GitLab, Slack event, OpenAI, Cloudflare = 8; Slack challenge ignored)
     expect(mocks.pushBotEventToMachine).toHaveBeenCalledTimes(8)
   })
+
+  it("rejects forged signatures, expired replays (>5m), unauthenticated Slack challenges, and supports rotated multi-signatures, Svix headers, and dedup", async () => {
+    async function hmacHex(secret: string, data: string, hash: "SHA-256" | "SHA-1" = "SHA-256"): Promise<string> {
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash }, false, ["sign"])
+      const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)))
+      return Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("")
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    const staleSec = nowSec - 400
+
+    // Stripe: stale replay (401), bad sig (401), rotated multi-v1 sig (200), duplicate evt_id (200 duplicate)
+    const stripeToken = newBotWebhookToken()
+    const stripeSecret = "whsec_stripe_qa_secret"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Stripe QA",
+      provider: "stripe",
+      tokenHash: await hashBotWebhookToken(stripeToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, stripeSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const stripeBody = JSON.stringify({ id: "evt_qa_1", type: "charge.succeeded", data: { object: { id: "ch_1" } } })
+    const staleStripeSig = await hmacHex(stripeSecret, `${staleSec}.${stripeBody}`)
+    expect(
+      (
+        await POST(
+          new NextRequest(`https://alook.ai/api/webhooks/bot/${stripeToken}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "stripe-signature": `t=${staleSec},v1=${staleStripeSig}` },
+            body: stripeBody,
+          }),
+          { params: Promise.resolve({ token: stripeToken }) },
+        )
+      ).status,
+    ).toBe(401)
+
+    const goodStripeSig = await hmacHex(stripeSecret, `${nowSec}.${stripeBody}`)
+    const multiSigRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${stripeToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": `t=${nowSec},v1=${"aa".repeat(32)},v1=${goodStripeSig}`,
+        },
+        body: stripeBody,
+      }),
+      { params: Promise.resolve({ token: stripeToken }) },
+    )
+    expect(multiSigRes.status).toBe(200)
+    expect(await multiSigRes.json()).toMatchObject({ ok: true, delivered: true })
+
+    const dupStripeRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${stripeToken}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "stripe-signature": `t=${nowSec},v1=${goodStripeSig}` },
+        body: stripeBody,
+      }),
+      { params: Promise.resolve({ token: stripeToken }) },
+    )
+    expect(dupStripeRes.status).toBe(200)
+    expect(await dupStripeRes.json()).toMatchObject({ ok: true, duplicate: true })
+
+    // Slack: unauthenticated url_verification MUST return 401 (never echo challenge); stale timestamp MUST return 401
+    const slackToken = newBotWebhookToken()
+    const slackSecret = "slack_qa_secret_123456"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Slack QA",
+      provider: "slack",
+      tokenHash: await hashBotWebhookToken(slackToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, slackSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const chalBody = JSON.stringify({ type: "url_verification", challenge: "should_not_echo" })
+    const unauthSlack = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${slackToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-slack-request-timestamp": String(nowSec),
+          "x-slack-signature": `v0=${"00".repeat(32)}`,
+        },
+        body: chalBody,
+      }),
+      { params: Promise.resolve({ token: slackToken }) },
+    )
+    expect(unauthSlack.status).toBe(401)
+
+    const staleSlack = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${slackToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-slack-request-timestamp": String(staleSec),
+          "x-slack-signature": `v0=${await hmacHex(slackSecret, `v0:${staleSec}:${chalBody}`)}`,
+        },
+        body: chalBody,
+      }),
+      { params: Promise.resolve({ token: slackToken }) },
+    )
+    expect(staleSlack.status).toBe(401)
+
+    // Clerk (Standard Webhooks via svix-* headers): stale replay (401), rotated multi-v1 sig (200), duplicate svix-id (200 duplicate)
+    const clerkToken = newBotWebhookToken()
+    const keyBytes = new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 11, 12, 13, 14, 15, 16])
+    const clerkSecret = `whsec_${Buffer.from(keyBytes).toString("base64")}`
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Clerk QA",
+      provider: "clerk",
+      tokenHash: await hashBotWebhookToken(clerkToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, clerkSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const clerkBody = JSON.stringify({ type: "user.created", data: { id: "user_1", email: "a@b.com" } })
+    const svixKey = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+    const staleSvixSig = Buffer.from(
+      await crypto.subtle.sign("HMAC", svixKey, new TextEncoder().encode(`svix_1.${staleSec}.${clerkBody}`)),
+    ).toString("base64")
+    expect(
+      (
+        await POST(
+          new NextRequest(`https://alook.ai/api/webhooks/bot/${clerkToken}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "svix-id": "svix_1",
+              "svix-timestamp": String(staleSec),
+              "svix-signature": `v1,${staleSvixSig}`,
+            },
+            body: clerkBody,
+          }),
+          { params: Promise.resolve({ token: clerkToken }) },
+        )
+      ).status,
+    ).toBe(401)
+
+    const goodSvixSig = Buffer.from(
+      await crypto.subtle.sign("HMAC", svixKey, new TextEncoder().encode(`svix_1.${nowSec}.${clerkBody}`)),
+    ).toString("base64")
+    const badSvixSig = Buffer.from(new Uint8Array(32)).toString("base64")
+    const clerkOk = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${clerkToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "svix-id": "svix_1",
+          "svix-timestamp": String(nowSec),
+          "svix-signature": `v1,${badSvixSig} v1,${goodSvixSig}`,
+        },
+        body: clerkBody,
+      }),
+      { params: Promise.resolve({ token: clerkToken }) },
+    )
+    expect(clerkOk.status).toBe(200)
+
+    const clerkDup = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${clerkToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "svix-id": "svix_1",
+          "svix-timestamp": String(nowSec),
+          "svix-signature": `v1,${goodSvixSig}`,
+        },
+        body: clerkBody,
+      }),
+      { params: Promise.resolve({ token: clerkToken }) },
+    )
+    expect(clerkDup.status).toBe(200)
+    expect(await clerkDup.json()).toMatchObject({ ok: true, duplicate: true })
+
+    // Linear / Sentry / Vercel / GitLab / Cloudflare bad signatures MUST all return 401
+    for (const [provider, headerName, badHeader] of [
+      ["linear", "linear-signature", "00".repeat(32)],
+      ["sentry", "sentry-hook-signature", "00".repeat(32)],
+      ["vercel", "x-vercel-signature", "00".repeat(20)],
+      ["gitlab", "x-gitlab-token", "wrong-token"],
+      ["cloudflare", "cf-webhook-auth", "wrong-secret"],
+    ] as const) {
+      const tok = newBotWebhookToken()
+      await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+        ownerUserId: "owner_1",
+        botUserId: "bot_1",
+        name: `${provider} QA`,
+        provider,
+        tokenHash: await hashBotWebhookToken(tok),
+        signingSecretEnc: await encryptBotWebhookSecret(mocks.env, "qa_secret_12345678"),
+        eventFilter: null,
+        instruction: "",
+      })
+      const badRes = await POST(
+        new NextRequest(`https://alook.ai/api/webhooks/bot/${tok}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", [headerName]: badHeader },
+          body: "{}",
+        }),
+        { params: Promise.resolve({ token: tok }) },
+      )
+      expect(badRes.status).toBe(401)
+    }
+
+    // Only the 2 valid non-duplicate deliveries (Stripe + Clerk) woke the bot
+    expect(mocks.pushBotEventToMachine).toHaveBeenCalledTimes(2)
+  })
 })

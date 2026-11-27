@@ -9,7 +9,7 @@ function signGitHubBody(secret: string, body: string): string {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
-test("My Bots Webhooks sheet separates source picker and forms, delivers signed GitHub event to bot WS, and supports test, pause, rotate, delete, and mobile viewport", async ({ caseActors, caseResources }) => {
+test("My Bots Triggers sheet separates source picker and forms, delivers signed GitHub event to bot WS, and supports test, pause, reset link, delete, and mobile viewport", async ({ caseActors, caseResources }) => {
   test.setTimeout(180_000)
 
   const actors = await caseActors(["alice"])
@@ -29,7 +29,7 @@ test("My Bots Webhooks sheet separates source picker and forms, delivers signed 
     }
   })
 
-  const botName = `Webhook Bot ${suffix}`
+  const botName = `Trigger Bot ${suffix}`
   const botId = await createBot(machineId, botName)
 
   const alice = await asUser("alice")
@@ -43,7 +43,7 @@ test("My Bots Webhooks sheet separates source picker and forms, delivers signed 
 
   const sheet = alice.page.getByTestId(tid.botWebhooksSheet)
   await expect(sheet).toBeVisible()
-  await expect(sheet.getByText("No webhooks yet")).toBeVisible()
+  await expect(sheet.getByText("No triggers yet")).toBeVisible()
 
   await sheet.getByTestId(tid.botWebhooksCreateOpen).click()
   await expect(sheet.getByText("Choose a source")).toBeVisible()
@@ -53,15 +53,14 @@ test("My Bots Webhooks sheet separates source picker and forms, delivers signed 
   await expect(sheet.getByTestId(tid.botWebhookProviderSelect("generic"))).toBeVisible()
 
   await sheet.getByTestId(tid.botWebhookProviderSelect("generic")).click()
-  await expect(sheet.getByText("New General webhook")).toBeVisible()
+  await expect(sheet.getByText("New Custom app trigger")).toBeVisible()
   await expect(sheet.getByTestId(tid.botWebhookRequireSecret)).toBeVisible()
   await sheet.getByTestId(tid.botWebhookChangeProvider).click()
 
   await sheet.getByTestId(tid.botWebhookProviderSelect("github")).click()
-  await expect(sheet.getByText("New GitHub webhook")).toBeVisible()
+  await expect(sheet.getByText("New GitHub trigger")).toBeVisible()
   await expect(sheet.getByTestId(tid.botWebhookRequireSecret)).not.toBeVisible()
   await sheet.getByTestId(tid.botWebhookNameInput).fill(`alook CI ${suffix}`)
-  await sheet.getByTestId(tid.botWebhookInstructionInput).fill("Check failing CI logs and summarize")
   const createResponsePromise = alice.page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
@@ -113,7 +112,6 @@ test("My Bots Webhooks sheet separates source picker and forms, delivers signed 
   await expect.poll(() => receivedAgentEvents.filter((ev) => ev.agentId === botId).length).toBe(1)
   expect(receivedAgentEvents[0]?.prompt).toContain("[External Webhook Notification]")
   expect(receivedAgentEvents[0]?.prompt).toContain("alookai/alook")
-  expect(receivedAgentEvents[0]?.prompt).toContain("Check failing CI logs and summarize")
 
   const duplicateResponse = await fetch(webhookUrl, {
     method: "POST",
@@ -157,7 +155,7 @@ test("My Bots Webhooks sheet separates source picker and forms, delivers signed 
   expect(await pausedResponse.json()).toMatchObject({ ok: true, ignored: "disabled" })
 
   await sheet.getByTestId(tid.botWebhookRotate(webhookId)).click()
-  await alice.page.getByRole("button", { name: "Rotate credentials" }).click()
+  await alice.page.getByRole("button", { name: "Reset link" }).click()
   await expect(credsPanel).toBeVisible()
   const rotatedUrl = await credsPanel.getByTestId(tid.botWebhookUrlValue).inputValue()
   expect(rotatedUrl).not.toBe(webhookUrl)
@@ -177,6 +175,6 @@ test("My Bots Webhooks sheet separates source picker and forms, delivers signed 
   expect(overflow).toBeLessThanOrEqual(1)
 
   await sheet.getByTestId(tid.botWebhookDelete(webhookId)).click()
-  await alice.page.getByRole("button", { name: "Delete webhook" }).click()
-  await expect(sheet.getByText("No webhooks yet")).toBeVisible()
+  await alice.page.getByRole("button", { name: "Delete trigger" }).click()
+  await expect(sheet.getByText("No triggers yet")).toBeVisible()
 })

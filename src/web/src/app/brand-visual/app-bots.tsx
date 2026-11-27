@@ -287,7 +287,7 @@ function SheetLaunchers() {
           <Button variant="outline" onClick={() => {
             client.setQueryData(communityKeys.botWebhooks(BOT.id), WEBHOOKS, FRESH)
             setWebhooksMounted(true); setWebhooksOpen(true)
-          }}>Webhooks</Button>
+          }}>Triggers</Button>
         </div>
       </Pad></Specimen>
       <Specimen label="Bug report" note="Each dialog phase"><Pad>

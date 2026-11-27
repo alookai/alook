@@ -289,5 +289,36 @@ describe("bot webhooks management API", () => {
     expect(rotated.webhookUrl).not.toBe(created.webhookUrl)
     expect(rotated.webhook.hasSigningSecret).toBe(true)
     expect(rotated.signingSecret).toBeNull()
+
+    // Enforce secret-mode policy boundaries
+    const rejectNoSecretStripe = await createWebhook(
+      new NextRequest("https://alook.ai/api/community/bots/bot_1/webhooks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Bad Stripe", provider: "stripe", requireSecret: false }),
+      }),
+      { params: Promise.resolve({ id: "bot_1" }) } as any,
+    )
+    expect(rejectNoSecretStripe.status).toBe(400)
+
+    const rejectCustomSecretGitHub = await createWebhook(
+      new NextRequest("https://alook.ai/api/community/bots/bot_1/webhooks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Bad GitHub", provider: "github", signingSecret: "custom_secret_12345" }),
+      }),
+      { params: Promise.resolve({ id: "bot_1" }) } as any,
+    )
+    expect(rejectCustomSecretGitHub.status).toBe(400)
+
+    const rejectDisableSecretStripe = await patchWebhook(
+      new NextRequest(`https://alook.ai/api/community/bots/bot_1/webhooks/${created.webhook.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requireSecret: false }),
+      }),
+      { params: Promise.resolve({ id: "bot_1", webhookId: created.webhook.id }) } as any,
+    )
+    expect(rejectDisableSecretStripe.status).toBe(400)
   })
 })

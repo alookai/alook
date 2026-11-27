@@ -393,7 +393,7 @@ describe("renderBotMachineGroup", () => {
     expect(items.map(text)).toEqual([
       " Chat",
       " Servers & channels",
-      " Webhooks",
+      " Triggers",
       " View activity",
       " Edit",
       " Restart",

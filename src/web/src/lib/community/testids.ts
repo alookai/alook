@@ -125,7 +125,6 @@ export const tid = {
   botWebhookChangeProvider: "bot-webhook-change-provider",
   botWebhookNameInput: "bot-webhook-name-input",
   botWebhookProviderSelect: (provider: string) => `bot-webhook-provider-${provider}`,
-  botWebhookInstructionInput: "bot-webhook-instruction-input",
   botWebhookRequireSecret: "bot-webhook-require-secret",
   botWebhookExternalSecretInput: "bot-webhook-external-secret-input",
   botWebhookExternalSecretSave: "bot-webhook-external-secret-save",

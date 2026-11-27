@@ -2215,15 +2215,16 @@
         "BotWebhooksSheetContent",
         "CopyableWellField",
         "CredentialsReveal",
-        "DeliveriesPanel",
         "ProviderChooser",
-        "WebhookForm"
+        "SetupStepsList",
+        "TriggerForm",
+        "TriggerHistoryPanel"
       ],
       "kind": "composition",
       "examples": [
         {
           "story": "web-business-product-compositions--bots-models-and-privacy",
-          "region": "Activity and memberships > Webhooks"
+          "region": "Activity and memberships > Triggers"
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
@@ -2346,7 +2347,7 @@
       "examples": [
         {
           "story": "web-business-product-compositions--bots-models-and-privacy",
-          "region": "Activity and memberships > Webhooks: provider marks inside rows and source chooser"
+          "region": "Activity and memberships > Triggers: provider marks inside rows and source chooser"
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
