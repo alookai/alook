@@ -438,7 +438,7 @@ impl NotificationRecord {
         removed || marked
     }
 
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(target_os = "macos")]
     fn has_notification(&self, notification_id: &str) -> bool {
         self.recent
             .iter()
