@@ -218,4 +218,63 @@ describe("community schedule D1 queries", () => {
     const remaining = await listOwnerScheduleEvents(db, "owner_1")
     expect(remaining.events).toEqual([])
   })
+
+  it("atomically batches run and private inbox inserts when db.batch is available and cleans up stray inbox rows on conflict", async () => {
+    const batchDb = Object.assign(Object.create(Object.getPrototypeOf(db)), db, {
+      batch: async (items: Array<PromiseLike<unknown>>) => {
+        const results: unknown[] = []
+        for (const item of items) {
+          results.push(await item)
+        }
+        return results
+      },
+    }) as Database
+
+    const baseMs = Date.parse("2026-11-28T01:00:00.000Z")
+    const created = await createScheduleEvent(batchDb, {
+      ownerUserId: "owner_1",
+      createdByUserId: "bot_1",
+      title: "Batched check",
+      startAtMs: baseMs,
+      timeZone: "UTC",
+      recurrence: { freq: "daily", interval: 1 },
+      sourceMessageId: "msg_batch",
+      sourceChannelId: "ch_1",
+      nowMs: baseMs - 60_000,
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+
+    const claimed = await claimDueEventOccurrence(batchDb, created.event, baseMs)
+    expect(claimed?.status).toBe("pending")
+    const inboxAfterClaim = await listPendingPrivateInboxEventsForBot(batchDb, "bot_1", 10)
+    expect(inboxAfterClaim).toHaveLength(1)
+    expect(inboxAfterClaim[0]).toMatchObject({
+      sourceKind: "schedule",
+      sourceId: created.event.id,
+      sourceRefId: claimed!.id,
+      dedupeKey: String(baseMs),
+      status: "pending",
+    })
+
+    const acked = await updateScheduleEvent(batchDb, "owner_1", created.event.id, {
+      ack: true,
+      nowMs: baseMs + 1_000,
+    })
+    expect(acked.ok).toBe(true)
+
+    const rescheduled = await updateScheduleEvent(batchDb, "owner_1", created.event.id, {
+      startAtMs: baseMs,
+      recurrence: null,
+      hasRecurrence: true,
+      nowMs: baseMs + 2_000,
+    })
+    expect(rescheduled.ok).toBe(true)
+    if (!rescheduled.ok) return
+
+    const conflict = await claimDueEventOccurrence(batchDb, rescheduled.event, baseMs + 3_000)
+    expect(conflict?.id).toBe(claimed!.id)
+    expect(conflict?.status).toBe("completed")
+    expect(await listPendingPrivateInboxEventsForBot(batchDb, "bot_1", 10)).toEqual([])
+  })
 })

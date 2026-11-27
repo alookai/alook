@@ -641,6 +641,8 @@ export async function claimDueEventOccurrence(
 
   if (inserted[0]) return mapRunRow(inserted[0])
 
+  await db.delete(communityBotPrivateInbox).where(eq(communityBotPrivateInbox.id, inboxEventId))
+
   const existing = await db
     .select()
     .from(communityScheduleRun)
@@ -651,15 +653,9 @@ export async function claimDueEventOccurrence(
       ),
     )
     .limit(1)
-  if (!existing[0]) {
-    await db.delete(communityBotPrivateInbox).where(eq(communityBotPrivateInbox.id, inboxEventId))
-    return null
-  }
+  if (!existing[0]) return null
   const existingRun = mapRunRow(existing[0])
-  if (existingRun.status !== "pending") {
-    await db.delete(communityBotPrivateInbox).where(eq(communityBotPrivateInbox.id, inboxEventId))
-  } else {
-    await db.delete(communityBotPrivateInbox).where(eq(communityBotPrivateInbox.id, inboxEventId))
+  if (existingRun.status === "pending") {
     await enqueuePrivateInboxEvent(db, {
       ownerUserId: existingRun.ownerUserId,
       botUserId: existingRun.botUserId,
