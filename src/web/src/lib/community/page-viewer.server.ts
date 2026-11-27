@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { queries, type Database } from "@alook/shared"
 
-export const PAGE_VIEWER_TTL_MS = 60_000
+const PAGE_VIEWER_TTL_MS = 60_000
 
 export function pageHostOrigin(value: string | undefined): string | null {
   if (!value) return null
@@ -11,6 +11,27 @@ export function pageHostOrigin(value: string | undefined): string | null {
     if (url.username || url.password || url.hostname.includes("*") || url.pathname !== "/" || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))) return null
     return url.origin
   } catch { return null }
+}
+
+export async function fetchPageHost(
+  binding: { fetch(request: Request): Promise<Response> } | undefined,
+  origin: string,
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
+  const url = `${origin}${path}`
+  if (process.env.NODE_ENV !== "development") {
+    if (!binding) throw new Error("Page host service binding unavailable")
+    return binding.fetch(new Request(url, init))
+  }
+  if (binding) {
+    try {
+      const response = await binding.fetch(new Request(url, init))
+      if (response.ok || (response.status >= 400 && response.status < 500)) return response
+      await response.body?.cancel()
+    } catch { /* fall back to local dev HTTP endpoint */ }
+  }
+  return fetch(new Request(url, init))
 }
 
 export function pageServiceAuthorized(request: Request, secret: string | undefined): boolean {

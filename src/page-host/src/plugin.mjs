@@ -12,6 +12,22 @@ export function alookSubject(principal) {
   return subject && subject.length <= 128 && alookUserId(subject) === user.id ? subject : null;
 }
 
+function isLoopbackHttpOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname.endsWith(".localhost"));
+  } catch { return false; }
+}
+
+export function alookWebFetch(env, input, init) {
+  const origin = String(env?.ALOOK_WEB_ORIGIN ?? "");
+  const request = new Request(input, init);
+  if (!origin || new URL(request.url).origin !== origin) throw new Error("Untrusted Alook service origin");
+  if (env?.ALOOK_WEB_DEV_LOOPBACK === "1" && isLoopbackHttpOrigin(origin)) return fetch(request);
+  if (!env?.ALOOK_WEB || typeof env.ALOOK_WEB.fetch !== "function") throw new Error("Alook service binding unavailable");
+  return env.ALOOK_WEB.fetch(request);
+}
+
 export default {
   id: "alook",
   apiVersion: 1,

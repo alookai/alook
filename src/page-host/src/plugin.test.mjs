@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { alookSubject, alookUserId } from "./plugin.mjs";
+import { alookSubject, alookUserId, alookWebFetch } from "./plugin.mjs";
 import plugins from "./plugins.mjs";
 const plugin = plugins.alook;
 
@@ -59,4 +59,15 @@ test("sharing and parallel agent connections are refused while normal exports re
     assert.ok(plugin.guard({ action }).deny);
   }
   assert.equal(plugin.guard({ action: "artifact.export" }), undefined);
+});
+
+test("alookWebFetch enforces exact origin and never bypasses service binding on non-loopback origins", () => {
+  assert.throws(
+    () => alookWebFetch({ ALOOK_WEB_ORIGIN: "https://alook.example.invalid", ALOOK_WEB_DEV_LOOPBACK: "1" }, "https://alook.example.invalid/api/community/pages/access"),
+    /Alook service binding unavailable/,
+  );
+  assert.throws(
+    () => alookWebFetch({ ALOOK_WEB_ORIGIN: "http://localhost:3000", ALOOK_WEB_DEV_LOOPBACK: "1" }, "http://evil.localhost:3000/api/community/pages/access"),
+    /Untrusted Alook service origin/,
+  );
 });

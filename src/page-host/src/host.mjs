@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { alookSubject, alookUserId } from "./plugin.mjs";
+import { alookSubject, alookUserId, alookWebFetch } from "./plugin.mjs";
 
 const artifactIdPattern = /^art_[a-z0-9]{10,40}$/;
 const privateHeaders = { "cache-control": "private, no-store", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" };
@@ -16,6 +16,23 @@ export function embedOrigins(value) {
     if (value !== url.origin || url.username || url.password || url.hostname.includes("*") || (url.protocol !== "https:" && !(url.protocol === "http:" && local))) throw new Error("Invalid Alook embedding origin");
     return url.origin;
   }))];
+}
+
+export function allowContentEmbedding(response, appOrigin, origins) {
+  const csp = response.headers.get("content-security-policy");
+  if (!csp) return response;
+  let changed = false;
+  const directives = csp.split(";").map((value) => value.trim()).filter(Boolean).map((directive) => {
+    if (!/^frame-ancestors\s+/i.test(directive)) return directive;
+    const tokens = directive.split(/\s+/).slice(1);
+    if (!tokens.includes(appOrigin)) return directive;
+    changed = true;
+    return `frame-ancestors ${[...new Set([...tokens, ...origins])].join(" ")}`;
+  });
+  if (!changed) return response;
+  const headers = new Headers(response.headers);
+  headers.set("content-security-policy", directives.join("; "));
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 export function allowShellEmbedding(response, origins) {
@@ -71,11 +88,10 @@ function serviceAuthorized(request, secret) {
 }
 
 function webFetch(env, path, body) {
-  if (!env.ALOOK_WEB || typeof env.ALOOK_WEB.fetch !== "function") throw new Error("Alook service binding unavailable");
-  return env.ALOOK_WEB.fetch(new Request(new URL(path, env.ALOOK_WEB_ORIGIN), {
+  return alookWebFetch(env, new URL(path, env.ALOOK_WEB_ORIGIN), {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.ALOOK_PAGE_SERVICE_KEY}` },
     body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
-  }));
+  });
 }
 
 async function ensureUser(catalog, subject, name) {
@@ -122,9 +138,11 @@ fetch('/alook/session', {method:'POST',headers:{'content-type':'application/json
 export async function handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, actionsOfType }) {
   const url = new URL(request.url);
   if (!site.config || site.configError) return json({ error: "Page host unavailable" }, 503);
-  if (url.origin !== site.config.appOrigin) return site.fetch(request, ctx);
   try {
     const origins = embedOrigins(env.ALOOK_EMBED_ORIGINS);
+    if (url.origin !== site.config.appOrigin) {
+      return allowContentEmbedding(await site.fetch(request, ctx), site.config.appOrigin, origins);
+    }
     const open = /^\/alook\/open\/(art_[a-z0-9]{10,40})$/.exec(url.pathname);
     if (open && request.method === "GET") return bootstrap(open[1], origins);
     if (url.pathname === "/api/open-artifact.embed" && request.method === "GET") return json({ hosts: origins });

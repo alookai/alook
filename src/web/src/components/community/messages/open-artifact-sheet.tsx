@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
@@ -42,13 +42,11 @@ import {
   submitPageComment,
   type AlookPageEmbed,
 } from "@/lib/community/open-artifact"
+import { useOpenArtifactShellBridge } from "@/hooks/community/use-open-artifact-shell-bridge"
 import {
-  buildOpenArtifactHostHello,
   OPEN_ARTIFACT_FRAME_ALLOW,
   OPEN_ARTIFACT_SANDBOX,
-  parseTrustedShellMessage,
   verifyOpenArtifactEmbedUrl,
-  type OpenArtifactSavedState,
   type OpenArtifactThemeScheme,
 } from "@/lib/community/open-artifact-policy"
 import { tid } from "@/lib/community/testids"
@@ -175,10 +173,6 @@ function OpenArtifactSheetSurface({
   })
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [frameLoaded, setFrameLoaded] = useState(false)
-  const [shellReady, setShellReady] = useState(false)
-  const [shellHelloReceived, setShellHelloReceived] = useState(false)
-  const [placeHash, setPlaceHash] = useState<string | null>(null)
-  const [savedState, setSavedState] = useState<OpenArtifactSavedState | null>(null)
   const [commentOpen, setCommentOpen] = useState(false)
   const [commentText, setCommentText] = useState("")
   const [commentError, setCommentError] = useState<string | null>(null)
@@ -224,12 +218,14 @@ function OpenArtifactSheetSurface({
   const verifiedUrl = verifiedEmbed?.ok ? verifiedEmbed.url : null
   const errorInfo = tokenQuery.isError ? classifyPageViewerError(tokenQuery.error) : null
 
-  const postHostHello = useCallback((origin: string, scheme: OpenArtifactThemeScheme) => {
-    frameRef.current?.contentWindow?.postMessage(
-      buildOpenArtifactHostHello(scheme),
-      origin,
-    )
-  }, [])
+  const { shellReady, placeHash, savedState } = useOpenArtifactShellBridge({
+    frameRef,
+    open,
+    verifiedOrigin,
+    themeScheme,
+    onConfirmClose,
+    onLeaveLosesWorkChange,
+  })
 
   const submitCommentText = useCallback(async (rawText: string) => {
     if (!page) return false
@@ -255,52 +251,6 @@ function OpenArtifactSheetSurface({
       setCommentPending(false)
     }
   }, [page, placeHash])
-
-  useEffect(() => {
-    if (!open || !verifiedOrigin) return
-    const onMessage = (event: MessageEvent<unknown>) => {
-      const parsed = parseTrustedShellMessage(
-        event,
-        verifiedOrigin,
-        frameRef.current?.contentWindow ?? null,
-      )
-      if (!parsed) return
-      switch (parsed.openArtifact) {
-        case "shell_hello":
-          setShellHelloReceived(true)
-          postHostHello(verifiedOrigin, themeScheme)
-          break
-        case "shell_ready":
-          setShellReady(true)
-          break
-        case "place":
-          setPlaceHash(parsed.hash || null)
-          break
-        case "saved":
-          setSavedState(parsed.state)
-          onLeaveLosesWorkChange(parsed.leaveLosesWork)
-          break
-        case "close":
-          onConfirmClose()
-          break
-        case "open_external":
-          window.open(parsed.url, "_blank", "noopener,noreferrer")
-          break
-        case "comment_summon":
-          // Upstream Shell emits `comment_summon` as a post-success notification after
-          // the OA host already delivered the Ask comment; never re-POST `/comments`.
-          toast("Comment posted to conversation")
-          break
-      }
-    }
-    window.addEventListener("message", onMessage)
-    return () => window.removeEventListener("message", onMessage)
-  }, [onConfirmClose, onLeaveLosesWorkChange, open, postHostHello, themeScheme, verifiedOrigin])
-
-  useEffect(() => {
-    if (!open || !verifiedOrigin || !shellHelloReceived) return
-    postHostHello(verifiedOrigin, themeScheme)
-  }, [open, postHostHello, shellHelloReceived, themeScheme, verifiedOrigin])
 
   const saveLabel = describePageSaveState(savedState)
   const canComment = Boolean(page && verifiedUrl && savedState !== "readonly")

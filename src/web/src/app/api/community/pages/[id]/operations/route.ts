@@ -4,7 +4,7 @@ import { withAuth } from "@/lib/middleware/auth-policy"
 import { communityActorPolicy, requireBot } from "@/lib/middleware/community-actor"
 import { getPrimaryDb } from "@/lib/db"
 import { requireMessageSurfaceCommunicationAccess } from "@/lib/community/permissions"
-import { pageHostOrigin } from "@/lib/community/page-viewer.server"
+import { fetchPageHost, pageHostOrigin } from "@/lib/community/page-viewer.server"
 
 export const POST = withAuth(communityActorPolicy(), async (req, ctx) => {
   const bot = requireBot(ctx.actor)
@@ -22,10 +22,10 @@ export const POST = withAuth(communityActorPolicy(), async (req, ctx) => {
   const origin = pageHostOrigin(ctx.env.ALOOK_PAGE_ORIGIN)
   if (!origin || !ctx.env.ALOOK_PAGE_HOST || !ctx.env.ALOOK_PAGE_SERVICE_KEY || Buffer.byteLength(ctx.env.ALOOK_PAGE_SERVICE_KEY) < 32) return NextResponse.json({ error: "Page host unavailable" }, { status: 503 })
   try {
-    const response = await ctx.env.ALOOK_PAGE_HOST.fetch(new Request(`${origin}/alook/operate/${page.artifactId}`, {
+    const response = await fetchPageHost(ctx.env.ALOOK_PAGE_HOST, origin, `/alook/operate/${page.artifactId}`, {
       method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${ctx.env.ALOOK_PAGE_SERVICE_KEY}`, "x-alook-subject": bot.bot.userId },
       body: JSON.stringify(parsed.data), signal: AbortSignal.timeout(30_000),
-    }))
+    })
     return new Response(response.body, { status: response.status, headers: { "content-type": "application/json", "cache-control": "private, no-store" } })
   } catch { return NextResponse.json({ error: "Page host unavailable" }, { status: 503 }) }
 })

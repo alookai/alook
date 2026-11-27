@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMigratedDb } from "../helpers/migrated-db";
 import { assertNoBusinessTableScans, type BoundQuery, queryPlan } from "../helpers/query-plan";
+import { createAttachment, getOwnedAttachmentById } from "../../src/db/queries/community/attachment";
 import { consumePageViewerTicket, createPageViewerTicket, getReadablePage, getReadablePageForArtifact, pageBindingStatement } from "../../src/db/queries/community/page";
 
 describe("Page bindings use current message access", () => {
@@ -95,5 +96,21 @@ describe("Page bindings use current message access", () => {
     await createPageViewerTicket(store.db, { ...ticket, hash: "removed-reader" });
     store.sqlite.prepare("DELETE FROM community_server_member WHERE user_id=?").run("reader");
     await expect(consumePageViewerTicket(store.db, "removed-reader", ticket.origin, now)).resolves.toBeNull();
+  });
+
+  it("reads owned Page archives only for their active uploader", async () => {
+    const uploaded = await createAttachment(store.db, {
+      uploaderId: "bot",
+      r2Key: "attachments/page.zip",
+      filename: "page.zip",
+      contentType: "application/zip",
+      size: 128,
+    });
+    reads = [];
+    await expect(getOwnedAttachmentById(store.db, uploaded.id, "bot")).resolves.toMatchObject({ id: uploaded.id, uploaderId: "bot" });
+    await expect(getOwnedAttachmentById(store.db, uploaded.id, "reader")).resolves.toBeNull();
+    for (const query of reads) assertNoBusinessTableScans(store.sqlite, query);
+    store.sqlite.prepare('UPDATE user SET "deletedAt"=? WHERE id=?').run("now", "bot");
+    await expect(getOwnedAttachmentById(store.db, uploaded.id, "bot")).resolves.toBeNull();
   });
 });

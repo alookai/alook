@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { AlookPageEmbedSchema, queries, type Database } from "@alook/shared"
-import { pageHostOrigin } from "./page-viewer.server"
+import { fetchPageHost, pageHostOrigin } from "./page-viewer.server"
 
 export async function preparePagePublication(db: Database, env: RuntimeEnv, botId: string, nonce: string, attachmentId: string) {
   const fail = (status: number, error: string) => ({ ok: false as const, status, error })
@@ -14,12 +14,13 @@ export async function preparePagePublication(db: Database, env: RuntimeEnv, botI
   const artifactId = `art_${identity}`
   let response: Response
   try {
-    const init: RequestInit & { duplex: "half" } = {
+    const body = process.env.NODE_ENV === "development" ? await object.arrayBuffer() : object.body
+    const init: RequestInit & { duplex?: "half" } = {
       method: "POST",
       headers: { authorization: `Bearer ${env.ALOOK_PAGE_SERVICE_KEY}`, "x-alook-subject": botId, "content-type": "application/zip" },
-      body: object.body, duplex: "half", signal: AbortSignal.timeout(30_000),
+      body, ...(process.env.NODE_ENV === "development" ? {} : { duplex: "half" }), signal: AbortSignal.timeout(30_000),
     }
-    response = await env.ALOOK_PAGE_HOST.fetch(new Request(`${origin}/alook/import/${artifactId}`, init))
+    response = await fetchPageHost(env.ALOOK_PAGE_HOST, origin, `/alook/import/${artifactId}`, init)
   } catch { return fail(503, "Page host unavailable; retry this publication") }
   if (!response.ok) { await response.body?.cancel(); return fail(response.status === 400 || response.status === 413 ? 400 : 503, "Page archive could not be published") }
   let raw: unknown

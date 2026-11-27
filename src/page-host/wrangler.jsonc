@@ -31,6 +31,7 @@
     "OA_PUBLIC_ACCESS": "false",
     "OA_TYPES_PUBLISH": "off",
     "ALOOK_WEB_ORIGIN": "http://localhost:3000",
+    "ALOOK_WEB_DEV_LOOPBACK": "1",
     "ALOOK_EMBED_ORIGINS": "[\"http://localhost:3000\"]",
     "OA_PLUGINS": "[{\"use\":\"alook\",\"config\":{\"origin\":{\"env\":\"ALOOK_WEB_ORIGIN\"},\"secret\":{\"env\":\"ALOOK_PAGE_SERVICE_KEY\"}}}]"
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import { alookUserId } from "./plugin.mjs";
-import { allowShellEmbedding, embedOrigins, handlePageHostRequest, pageSessionCookie, adaptSessionResponse } from "./host.mjs";
+import { allowContentEmbedding, allowShellEmbedding, embedOrigins, handlePageHostRequest, pageSessionCookie, adaptSessionResponse } from "./host.mjs";
 
 const id = "art_1234567890abcdef";
 const app = "http://localhost:8795";
@@ -146,4 +146,18 @@ test("session renewal and deletion keep the same partition while other cookies r
   assert.match(cookies[0], /Max-Age=0/);
   assert.match(cookies[0], /SameSite=None; Partitioned/);
   assert.equal(cookies[1], "unrelated=value; Path=/; SameSite=Lax");
+});
+
+test("content-origin editor responses extend frame-ancestors only when already allowing the Shell origin", () => {
+  const editor = new Response("<html></html>", {
+    headers: { "content-security-policy": `frame-ancestors ${app}; object-src 'none'` },
+  });
+  const allowed = allowContentEmbedding(editor, app, [parent]);
+  assert.equal(allowed.headers.get("content-security-policy"), `frame-ancestors ${app} ${parent}; object-src 'none'`);
+
+  const denied = new Response("nope", {
+    headers: { "content-security-policy": "default-src 'none'; frame-ancestors 'none'" },
+  });
+  const untouched = allowContentEmbedding(denied, app, [parent]);
+  assert.equal(untouched.headers.get("content-security-policy"), "default-src 'none'; frame-ancestors 'none'");
 });

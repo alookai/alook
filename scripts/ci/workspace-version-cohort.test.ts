@@ -12,7 +12,7 @@ it("bumps the manifest cohort including Storybook while retaining independent pa
   const read = (file: string) => readFileSync(resolve(root, file), "utf8")
   const roots = workspacePackageRoots(repository)
   const env = isolatedRepositoryGitEnvironment()
-  expect(roots).toEqual(["src/shared", "src/daemon", "src/daemon/agent-driver", "src/web", "src/email-worker", "src/ws-do", "src/queue-worker", "src/app", "src/desktop", "tests/utils", "src/storybook"])
+  expect(roots).toEqual(["src/shared", "src/daemon", "src/daemon/agent-driver", "src/web", "src/email-worker", "src/ws-do", "src/page-host", "src/queue-worker", "src/app", "src/desktop", "tests/utils", "src/storybook"])
   try {
     write("pnpm-workspace.yaml", readFileSync(resolve(repository, "pnpm-workspace.yaml"), "utf8"))
     for (const name of ["bump-version.mjs", "workspace-packages.mjs"]) write(`scripts/${name}`, readFileSync(resolve(repository, "scripts", name), "utf8"))

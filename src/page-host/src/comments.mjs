@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { alookSubject } from "./plugin.mjs";
+import { alookSubject, alookWebFetch } from "./plugin.mjs";
 
 export async function deliverPageRequest(env, artifactId, body = {}) {
   const items = [...(body.requests ?? []).map((item) => ({ kind: "request", item })), ...(body.threads ?? []).map((item) => ({ kind: "thread", item }))];
@@ -14,7 +14,7 @@ export async function deliverPageRequest(env, artifactId, body = {}) {
       method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.ALOOK_PAGE_SERVICE_KEY}` },
       body: JSON.stringify({ subject, artifactId, text, ...(location ? { location } : {}), nonce }), signal: AbortSignal.timeout(10_000),
     });
-    const response = await env.ALOOK_WEB.fetch(request);
+    const response = await alookWebFetch(env, request);
     await response.body?.cancel();
     if (!response.ok) throw new Error("Page feedback could not be sent. Retry from the Page.");
   }

@@ -22,19 +22,10 @@ function replaceOnce(text, before, after) {
 patch("packages/host-cloudflare/src/plugins.ts", (text) => {
   text = replaceOnce(text, "export function startCloudflarePlugins(input: {", "export function startCloudflarePlugins(input: {\n  fetch?: typeof fetch;");
   text = replaceOnce(text, "services: pluginServices({", "services: pluginServices({\n      ...(input.fetch ? { fetch: input.fetch } : {}),");
-  return `import type { ProductEnv } from './bindings.ts';\n${text}\n
-function isAlookBinding(value: unknown): value is { fetch(request: Request): Promise<Response> } {
-  return typeof value === 'object' && value !== null && 'fetch' in value && typeof value.fetch === 'function';
-}
+  return `import type { ProductEnv } from './bindings.ts';\nimport { alookWebFetch } from ${JSON.stringify(resolve(here, "src/plugin.mjs"))};\n${text}\n
 export function alookPluginFetch(env: ProductEnv): typeof fetch | undefined {
-  const binding = env.ALOOK_WEB;
-  if (!isAlookBinding(binding)) return undefined;
-  const origin = String(env.ALOOK_WEB_ORIGIN ?? '');
-  return async (input, init) => {
-    const request = new Request(input, init);
-    if (new URL(request.url).origin !== origin) throw new Error('Untrusted Alook service origin');
-    return binding.fetch(request);
-  };
+  if (!env.ALOOK_WEB && env.ALOOK_WEB_DEV_LOOPBACK !== '1') return undefined;
+  return (input, init) => alookWebFetch(env, input, init);
 }\n`;
 });
 patch("packages/host-cloudflare/src/site.ts", (text) => {
