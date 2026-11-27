@@ -36,6 +36,7 @@ import {
   type MessageReminderSchedulerOptions,
 } from "./messageReminderScheduler.js";
 import { createDaemonAgentDriverHost } from "../manager/agentDriverHost.js";
+import { syncAlookPageGuide } from "../drivers/alookPageGuide.js";
 import { toAgentBackendSelection } from "../runtimeConfig.js";
 import {
   DaemonSelfSleepScheduler,
@@ -267,6 +268,7 @@ export function createBuiltinDaemonSessionFactory(
   onRuntimeStderr?: (agentId: string, text: string) => void,
 ): SessionFactory {
   return async ({ ctx, runtimeConfig }) => {
+    syncAlookPageGuide(ctx.workingDirectory);
     const selected = toAgentBackendSelection(runtimeConfig);
     const sdk = createBuiltinAgentDriverSdk({
       host: createDaemonAgentDriverHost(
