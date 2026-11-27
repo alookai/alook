@@ -3,7 +3,7 @@ import { decrypt } from "@alook/shared/crypto"
 import { buildPushNotificationPayload } from "./notification-payload"
 import { sendApnsNotification } from "./providers/apns"
 import {
-  createFcmAccessToken,
+  getFcmAccessToken,
   sendFcmNotification,
 } from "./providers/fcm"
 import {
@@ -39,7 +39,7 @@ type MobilePushDependencies = {
   disableDevice: typeof queries.communityPushDevice.disablePushDevice
   decrypt: typeof decrypt
   buildPayload: typeof buildPushNotificationPayload
-  createFcmAccessToken: typeof createFcmAccessToken
+  getFcmAccessToken: typeof getFcmAccessToken
   sendApns: typeof sendApnsNotification
   sendFcm: typeof sendFcmNotification
 }
@@ -52,7 +52,7 @@ const defaultDependencies: MobilePushDependencies = {
   disableDevice: queries.communityPushDevice.disablePushDevice,
   decrypt,
   buildPayload: buildPushNotificationPayload,
-  createFcmAccessToken,
+  getFcmAccessToken,
   sendApns: sendApnsNotification,
   sendFcm: sendFcmNotification,
 }
@@ -104,7 +104,6 @@ export async function processMobilePush(
   if (!target) return { outcome: "skip", reason: "message_missing" }
 
   const payload = await dependencies.buildPayload(target, task.userId)
-  let fcmAccessToken: Promise<string> | undefined
   const results = await Promise.all(devices.map(async (device) => {
     const startedAt = Date.now()
     const provider: PushProvider = device.platform === "ios" ? "apns" : "fcm"
@@ -114,7 +113,7 @@ export async function processMobilePush(
         device.providerTokenEncrypted,
         required(env.ENCRYPTION_KEY, "ENCRYPTION_KEY"),
       )
-      stage = provider === "apns" ? "credential_fingerprint" : "key_import"
+      stage = "credential_fingerprint"
       const providerResult = device.platform === "ios"
         ? await dependencies.sendApns({
             providerToken,
@@ -127,24 +126,34 @@ export async function processMobilePush(
               topic: required(env.APNS_TOPIC, "APNS_TOPIC"),
             },
           })
-        : await dependencies.sendFcm({
-            providerToken,
-            accessToken: await (fcmAccessToken ??= dependencies.createFcmAccessToken({
-              projectId: required(env.FCM_PROJECT_ID, "FCM_PROJECT_ID"),
+        : await (async () => {
+            const projectId = required(env.FCM_PROJECT_ID, "FCM_PROJECT_ID")
+            const accessToken = await dependencies.getFcmAccessToken({
               clientEmail: required(env.FCM_CLIENT_EMAIL, "FCM_CLIENT_EMAIL"),
               privateKey: required(env.FCM_PRIVATE_KEY, "FCM_PRIVATE_KEY"),
-            })),
-            payload,
-            config: {
-              projectId: required(env.FCM_PROJECT_ID, "FCM_PROJECT_ID"),
-            },
-          })
+            })
+            return dependencies.sendFcm({
+              providerToken,
+              accessToken,
+              payload,
+              config: { projectId },
+            })
+          })()
 
       if (providerResult.outcome === "invalid-token") {
         await dependencies.disableDevice(db, {
           userId: task.userId,
           installationId: device.installationId,
           now: new Date().toISOString(),
+        })
+      } else if (providerResult.outcome === "invalid-payload") {
+        log.warn("mobile_push_device_rejected", {
+          messageId: task.messageId,
+          deviceId: device.id,
+          provider,
+          stage: "provider_send",
+          httpStatus: 400,
+          durationMs: Date.now() - startedAt,
         })
       }
       log.info("mobile_push_device_complete", {

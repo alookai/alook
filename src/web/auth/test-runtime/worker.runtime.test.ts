@@ -51,6 +51,8 @@ describe("alook-auth workerd runtime", () => {
     ));
     const body = await response.text();
     expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Security-Policy")?.split("; "))
+      .toContain("script-src 'none'");
     expect(body).toContain('data-state="default"');
     expect(body).toContain('class="avatar-field" aria-hidden="true"');
     expect(body).toContain("This sign-in link is invalid.");

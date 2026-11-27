@@ -92,14 +92,22 @@ describe("queue-worker queue consumer", () => {
     expect(mockLogWarn).toHaveBeenCalledWith("queue_task_ignored", { reason })
   })
 
-  it("retries a thrown bot-wake failure by five seconds", async () => {
+  it.each([
+    ["bot-wake", botWake],
+    ["mobile-push", mobilePush],
+  ])("retries a thrown %s failure by five seconds with a task-agnostic log event", async (kind, body) => {
     mockExecuteQueueTask.mockRejectedValueOnce(new Error("D1 unavailable"))
-    const message = makeMessage(botWake)
+    const message = makeMessage(body)
 
     await handler.queue({ messages: [message] } as never, env)
 
     expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 5 })
     expect(message.ack).not.toHaveBeenCalled()
+    expect(mockLogWarn).toHaveBeenCalledWith("queue_task_failed_retrying", {
+      kind,
+      messageId: body.messageId,
+      errorName: "Error",
+    })
   })
 
   it("keeps per-message ACK/retry isolated within one batch", async () => {

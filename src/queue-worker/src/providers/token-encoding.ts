@@ -1,4 +1,4 @@
-export type PushProviderResult = { outcome: "sent" | "invalid-token" }
+export type PushProviderResult = { outcome: "sent" | "invalid-token" | "invalid-payload" }
 
 export function base64Url(value: string | ArrayBuffer | Uint8Array): string {
   const bytes = typeof value === "string"
