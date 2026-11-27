@@ -30,12 +30,17 @@ vi.mock("@/lib/middleware/community-actor", () => ({
 
 import { DELETE } from "./route";
 
-function request(headers: Record<string, string> = {}) {
+function request(headers: Record<string, string> = {}, body?: string) {
   return new NextRequest(
     "https://alook.ai/api/community/notifications/devices/installation-123",
     {
       method: "DELETE",
-      headers: { Origin: "https://alook.ai", ...headers },
+      headers: {
+        Origin: "https://alook.ai",
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...headers,
+      },
+      ...(body !== undefined ? { body } : {}),
     },
   );
 }
@@ -100,5 +105,40 @@ describe("DELETE /api/community/notifications/devices/:installationId", () => {
 
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
+  });
+
+  it("hashes optional provider token proof server-side and forwards it to disablePushDevice", async () => {
+    const response = await DELETE(
+      request(
+        {},
+        JSON.stringify({
+          providerToken: "fake-provider-token-123",
+          previousProviderToken: "fake-previous-token-123",
+        }),
+      ),
+      { params: mocks.params },
+    );
+
+    expect(response.status).toBe(204);
+    expect(mocks.disablePushDevice).toHaveBeenCalledWith(mocks.db, {
+      userId: "session-user",
+      installationId: "installation-123",
+      providerTokenHash:
+        "04e7ad517a6cc23fa2c94e37eee8c98fefb772de5d84f73b180c0d344d7c59ac",
+      previousProviderTokenHash:
+        "6441899ba9e50e8a754691bcd032064634566723d6dcbb5c834fbcfabc4be0dd",
+      now: "2026-09-12T00:00:00.000Z",
+    });
+  });
+
+  it.each([
+    ["malformed JSON", "{"],
+    ["client-supplied hash", JSON.stringify({ providerTokenHash: "a".repeat(64) })],
+    ["short token", JSON.stringify({ providerToken: "short" })],
+  ])("rejects invalid unregistration body (%s) before persistence", async (_name, body) => {
+    const response = await DELETE(request({}, body), { params: mocks.params });
+
+    expect(response.status).toBe(400);
+    expect(mocks.disablePushDevice).not.toHaveBeenCalled();
   });
 });

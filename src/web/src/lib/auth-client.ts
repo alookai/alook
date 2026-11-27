@@ -1,24 +1,57 @@
 "use client"
 import { beginSessionSignOut } from "./session-transport"
-import { authClient } from "./auth-session"
+import { authClient, currentSessionViewer } from "./auth-session"
 export { authClient, signIn, signUp, useSession, currentSessionViewer } from "./auth-session"
+import { PUSH_INSTALLATION_ID_HEADER } from "@/lib/community/notification-device-schema"
 import {
+  readPendingMobileSystemNotificationUnregistration,
   resumeMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
   unregisterCurrentMobileSystemNotification,
 } from "@/lib/community/mobile-system-notification"
 
+type SignOutHeaders = NonNullable<Parameters<typeof authClient.signOut>[1]>["headers"]
+
+function mergeSignOutHeaders(existing: SignOutHeaders, installationId: string): SignOutHeaders {
+  if (!existing) return { [PUSH_INSTALLATION_ID_HEADER]: installationId }
+  if (existing instanceof Headers) {
+    const headers = new Headers(existing)
+    headers.set(PUSH_INSTALLATION_ID_HEADER, installationId)
+    return headers
+  }
+  return { ...existing, [PUSH_INSTALLATION_ID_HEADER]: installationId }
+}
+
 async function signOutOriginal(assertOriginal: () => void, args: Parameters<typeof authClient.signOut>) {
   const options = { ...args[1], ...args[0]?.fetchOptions }
   const assertActive = () => { if (options?.signal?.aborted) throw new DOMException("Retired sign-out", "AbortError"); assertOriginal() }
   assertActive()
+  let accountId: string | undefined
+  try { accountId = currentSessionViewer() ?? undefined } catch { accountId = undefined }
   const lease = beginSessionSignOut(assertActive)
   suspendMobileSystemNotificationRegistration()
   try {
     await lease.drain(options?.signal ?? undefined)
-    await unregisterCurrentMobileSystemNotification(lease.fetch, { signal: options?.signal ?? undefined, assertActive }).catch(() => { assertActive() })
+    const installationId = await unregisterCurrentMobileSystemNotification(lease.fetch, {
+      signal: options?.signal ?? undefined,
+      assertActive,
+      accountId,
+    }).catch(() => {
+      assertActive()
+      return readPendingMobileSystemNotificationUnregistration()?.installationId
+    })
     assertActive()
-    const result = await authClient.signOut({ ...args[0], fetchOptions: { ...options, customFetchImpl: lease.fetch } })
+    const headers = installationId
+      ? mergeSignOutHeaders(options?.headers, installationId)
+      : options?.headers
+    const result = await authClient.signOut({
+      ...args[0],
+      fetchOptions: {
+        ...options,
+        ...(headers !== undefined ? { headers } : {}),
+        customFetchImpl: lease.fetch,
+      },
+    })
     if ("error" in result && result.error) { assertActive(); resumeMobileSystemNotificationRegistration() }
     else { assertActive() }
     return result

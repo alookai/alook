@@ -22,6 +22,10 @@ const migrationPath = resolve(
   import.meta.dirname,
   "../../../../web/migrations/0095_native_oauth_attempt.sql",
 );
+const clampMigrationPath = resolve(
+  import.meta.dirname,
+  "../../../../web/migrations/0124_native_oauth_handoff_expiry_clamp.sql",
+);
 
 const NOW = 1_788_531_200_000;
 const STATE_HASH = "a".repeat(64);
@@ -63,6 +67,7 @@ describe("native oauth attempt queries", () => {
   beforeEach(() => {
     sqlite = new Sqlite(":memory:");
     sqlite.exec(readFileSync(migrationPath, "utf8"));
+    sqlite.exec(readFileSync(clampMigrationPath, "utf8"));
     db = createTestDb(sqlite);
   });
 
@@ -209,26 +214,49 @@ describe("native oauth attempt queries", () => {
     await expect(failExchange(db, id, NOW + 5)).resolves.toBeNull();
   });
 
-  it("rejects expired starts and handoffs that cannot retain a full two minutes", async () => {
+  it("rejects expired starts and handoffs while clamping late live handoffs to attemptExpiresAt", async () => {
     const expiredId = "expired_attempt_123456789";
     await registerAttempt(db, registration(expiredId), NOW);
     await expect(
       claimStart(db, expiredId, NOW + 10 * 60 * 1000),
     ).resolves.toBeNull();
 
-    const shortId = "short_attempt_12345678901";
-    await registerAttempt(db, registration(shortId, "f".repeat(64)), NOW);
-    await claimStart(db, shortId, NOW + 1);
+    const expiredOpenedId = "expired_opened_1234567890";
+    await registerAttempt(db, registration(expiredOpenedId, "e".repeat(64)), NOW);
+    await claimStart(db, expiredOpenedId, NOW + 1);
     await expect(attachHandoff(db, {
-      attemptId: shortId,
+      attemptId: expiredOpenedId,
       handoffCodeHash: CODE_HASH,
       authKind: "signin",
-    }, NOW + 8 * 60 * 1000 + 1)).resolves.toBeNull();
-    await expect(getAttemptStatus(db, {
-      attemptId: shortId,
+    }, NOW + 10 * 60 * 1000)).resolves.toBeNull();
+
+    const lateId = "late_attempt_123456789012";
+    await registerAttempt(db, registration(lateId, "f".repeat(64)), NOW);
+    await claimStart(db, lateId, NOW + 1);
+    const lateNow = NOW + 8 * 60 * 1000 + 1;
+    const expectedAttemptExpiry = NOW + 10 * 60 * 1000;
+    await expect(attachHandoff(db, {
+      attemptId: lateId,
+      handoffCodeHash: CODE_HASH,
+      authKind: "signin",
+    }, lateNow)).resolves.toMatchObject({
+      status: "ready",
+      handoffExpiresAt: expectedAttemptExpiry,
+    });
+    await expect(claimExchange(db, {
+      attemptId: lateId,
       stateHash: STATE_HASH,
       pkceChallenge: CHALLENGE,
-    })).resolves.toMatchObject({ status: "opened" });
+      handoffCodeHash: CODE_HASH,
+    }, expectedAttemptExpiry)).resolves.toBeNull();
+    await expect(claimExchange(db, {
+      attemptId: lateId,
+      stateHash: STATE_HASH,
+      pkceChallenge: CHALLENGE,
+      handoffCodeHash: CODE_HASH,
+    }, expectedAttemptExpiry - 1)).resolves.toMatchObject({
+      status: "exchanging",
+    });
   });
 
   it("lets cancellation beat a claimed exchange and withholds consumption", async () => {

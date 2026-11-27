@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   resume: vi.fn(),
   suspend: vi.fn(),
   unregister: vi.fn(),
+  readPending: vi.fn(),
 }))
 
 vi.mock("better-auth/react", () => ({
@@ -22,16 +23,19 @@ vi.mock("better-auth/client/plugins", () => ({
 }))
 
 vi.mock("@/lib/community/mobile-system-notification", () => ({
+  readPendingMobileSystemNotificationUnregistration: mocks.readPending,
   resumeMobileSystemNotificationRegistration: mocks.resume,
   suspendMobileSystemNotificationRegistration: mocks.suspend,
   unregisterCurrentMobileSystemNotification: mocks.unregister,
 }))
 
+import { PUSH_INSTALLATION_ID_HEADER } from "@/lib/community/notification-device-schema"
 import { signOut } from "./auth-client"
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.unregister.mockResolvedValue(undefined)
+  mocks.readPending.mockReturnValue(null)
   mocks.underlyingSignOut.mockResolvedValue({ data: null, error: null })
 })
 
@@ -79,6 +83,17 @@ describe("auth client sign out", () => {
     expect(options.onSuccess).toBe(onSuccess)
     expect(options.headers).toEqual({ "x-request-id": "fixture" })
     expect(options.customFetchImpl).toBeTypeOf("function")
+  })
+
+  it("forwards the mobile installation header on sign-out even after a pre-signout DELETE failure", async () => {
+    mocks.unregister.mockRejectedValueOnce(new Error("transient 503"))
+    mocks.readPending.mockReturnValueOnce({ installationId: "123e4567-e89b-42d3-a456-426614174000", queuedAt: Date.now() })
+    await signOut(undefined, { headers: { "x-request-id": "fixture" } })
+    const options = mocks.underlyingSignOut.mock.calls[0][0].fetchOptions
+    expect(options.headers).toEqual({
+      "x-request-id": "fixture",
+      [PUSH_INSTALLATION_ID_HEADER]: "123e4567-e89b-42d3-a456-426614174000",
+    })
   })
 
 })

@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, lt, or } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import {
   nativeOauthAttempt,
   type NativeOauthFailureCode,
@@ -131,7 +131,7 @@ export async function attachHandoff(
     .set({
       status: "ready",
       handoffCodeHash: data.handoffCodeHash,
-      handoffExpiresAt: now + HANDOFF_TTL_MS,
+      handoffExpiresAt: sql<number>`min(${now + HANDOFF_TTL_MS}, ${nativeOauthAttempt.attemptExpiresAt})`,
       authKind: data.authKind,
       readyAt: now,
       updatedAt: now,
@@ -140,7 +140,7 @@ export async function attachHandoff(
       and(
         eq(nativeOauthAttempt.id, data.attemptId),
         eq(nativeOauthAttempt.status, "opened"),
-        gt(nativeOauthAttempt.attemptExpiresAt, now + HANDOFF_TTL_MS),
+        gt(nativeOauthAttempt.attemptExpiresAt, now),
       ),
     )
     .returning();

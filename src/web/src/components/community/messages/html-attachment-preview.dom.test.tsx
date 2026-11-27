@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
-import { ApplicationOwnerProvider, createApplicationOwner, retireApplicationOwner } from "@/lib/application-owner"
+import { applicationKey, ApplicationOwnerProvider, createApplicationOwner, retireApplicationOwner } from "@/lib/application-owner"
 import { Message } from "./message"
 import { ThreadOpener } from "./thread-opener"
 import { HtmlAttachmentPreview } from "./html-attachment-preview"
@@ -52,8 +52,10 @@ describe("HTML attachment frame", () => {
       const view = setup()
       const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
       expect(frame).toHaveAttribute("src", `${file.url}?preview=html&v=1.2.3`)
-      expect(frame.getAttribute("sandbox")).toContain("allow-scripts")
+      expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-forms")
       expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin")
+      expect(frame.getAttribute("sandbox")).not.toContain("allow-popups")
+      expect(frame.getAttribute("sandbox")).not.toContain("allow-downloads")
       expect(frame).toHaveAttribute("referrerpolicy", "no-referrer")
       frameMessage(frame, { type: "alook-html-height", height: 123 }, { source: window })
       frameMessage(frame, { type: "alook-html-height", height: 123 }, { origin: "https://elsewhere.test" })
@@ -165,16 +167,73 @@ describe("HTML attachment frame", () => {
     frameMessage(current, { type: "alook-html-ready" })
     expect(view.getByTestId(tid.htmlPreview("a2"))).toHaveAttribute("data-html-preview-status", "ready")
   })
-  it("hides a preview that never becomes ready, keeping surrounding text", () => {
+  it("shows a recoverable retry state on timeout, recovers on retry or remount, and keeps surrounding text", () => {
     vi.useFakeTimers()
+    let intersect: IntersectionObserverCallback | undefined
+    vi.stubGlobal("IntersectionObserver", class { constructor(callback: IntersectionObserverCallback) { intersect = callback } observe() {} unobserve() {} disconnect() {} })
     const view = setup(<MessageBodyView plugins={{}} text={"before\n\n[alook-html-preview](a1)\n\nafter"} attachments={[file]} />)
+    const root = view.getByTestId(tid.htmlPreview("a1"))
+    act(() => intersect!([{ target: root, isIntersecting: true } as unknown as IntersectionObserverEntry], {} as IntersectionObserver))
     act(() => vi.advanceTimersByTime(15_000))
     expect(view.queryByTestId(tid.htmlPreviewFrame("a1"))).toBeNull()
-    expect(view.queryByTestId(tid.htmlPreview("a1"))).toBeNull()
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "error")
     expect(view.queryByRole("status")).toBeNull()
-    expect(view.container).not.toHaveTextContent("Preview unavailable")
+    expect(view.getByRole("alert")).toHaveTextContent("Preview didn't finish loading.")
     expect(view.container).toHaveTextContent("before")
     expect(view.container).toHaveTextContent("after")
+
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "loading")
+    const retriedFrame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    frameMessage(retriedFrame, { type: "alook-html-ready" })
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "ready")
+    expect(view.queryByRole("alert")).toBeNull()
+
+    // Scrolling off-screen and back on-screen after an error also resets cleanly
+    act(() => intersect!([{ target: root, isIntersecting: false } as unknown as IntersectionObserverEntry], {} as IntersectionObserver))
+    act(() => intersect!([{ target: root, isIntersecting: true } as unknown as IntersectionObserverEntry], {} as IntersectionObserver))
+    act(() => vi.advanceTimersByTime(15_000))
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "error")
+    act(() => intersect!([{ target: root, isIntersecting: false } as unknown as IntersectionObserverEntry], {} as IntersectionObserver))
+    act(() => intersect!([{ target: root, isIntersecting: true } as unknown as IntersectionObserverEntry], {} as IntersectionObserver))
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "loading")
+    const reenteredFrame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    frameMessage(reenteredFrame, { type: "alook-html-ready" })
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "ready")
+  })
+  it("stays ready past 15s after theme toggles and late fontSheet load, sending fontSheet once per frame load", () => {
+    vi.useFakeTimers()
+    const view = setup()
+    const frame = view.getByTestId(tid.htmlPreviewFrame("a1")) as HTMLIFrameElement
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    const fontCss = "@font-face{font-family:'PreviewSans';src:url(data:font/woff2;base64,AA)}"
+
+    frameMessage(frame, { type: "alook-html-theme-request" })
+    frameMessage(frame, { type: "alook-html-ready" })
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "ready")
+
+    // Async fontSheet finishes after ready
+    act(() => {
+      view.owner.queryClient.setQueryData(applicationKey(view.owner, "html-preview-fonts", []), fontCss)
+    })
+
+    // Multiple theme toggles after ready + fontSheet load
+    theme.resolvedTheme = "dark"
+    view.rerender(view.tree(<HtmlAttachmentPreview attachment={file} />))
+    theme.resolvedTheme = "light"
+    view.rerender(view.tree(<HtmlAttachmentPreview attachment={file} />))
+
+    // Must not self-destruct 15s+ later
+    act(() => vi.advanceTimersByTime(20_000))
+    expect(view.getByTestId(tid.htmlPreview("a1"))).toHaveAttribute("data-html-preview-status", "ready")
+    expect(view.getByTestId(tid.htmlPreviewFrame("a1"))).toBe(frame)
+
+    const themeMessages = post.mock.calls
+      .map(([payload]) => payload as { type?: string; fontSheet?: string })
+      .filter((payload) => payload?.type === "alook-html-theme")
+    const withFontSheet = themeMessages.filter((payload) => typeof payload.fontSheet === "string")
+    expect(withFontSheet).toHaveLength(1)
+    expect(withFontSheet[0]?.fontSheet).toBe(fontCss)
   })
   it("synchronously restores cached naturalHeight on remount and dynamically re-clamps on viewport resize", () => {
     const originalInnerHeight = window.innerHeight

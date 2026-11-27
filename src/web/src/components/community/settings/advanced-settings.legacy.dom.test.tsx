@@ -49,7 +49,7 @@ describe("AdvancedSettings legacy device cache", () => {
     await set("alook:qc:v3:settings:client", "€€")
     await set("alook:qc:v99:settings:application:client", "future")
     await set("settings-unrelated", "keep")
-    expect(await getPersistedCacheSizeBytes()).toBe(33 + ["messages", "cache_meta", "last_open", "conv_extras"].reduce((sum, table) => sum + new TextEncoder().encode(JSON.stringify({ text: "Old chat", marker: table })).byteLength, 0))
+    expect(await getPersistedCacheSizeBytes()).toBe(27 + ["messages", "cache_meta", "last_open", "conv_extras"].reduce((sum, table) => sum + new TextEncoder().encode(JSON.stringify({ text: "Old chat", marker: table })).byteLength, 0))
     mount()
     await waitFor(() => expect(screen.getByTestId(tid.settingsCacheSize)).not.toHaveTextContent("Calculating"))
     expect(screen.getByTestId(tid.settingsCacheSize)).not.toHaveTextContent("0 B")
@@ -57,7 +57,7 @@ describe("AdvancedSettings legacy device cache", () => {
     await user.click(screen.getByRole("button", { name: "Clear local cache" }))
     await user.click(screen.getByRole("button", { name: "Clear cache" }))
     await waitFor(() => expect(screen.getByTestId(tid.settingsCacheSize)).toHaveTextContent("0 B"))
-    expect(cacheNames).toEqual(new Set(["unrelated-cache"]))
+    expect(cacheNames).toEqual(new Set(["alook-public-precache-v1", "unrelated-cache"]))
     for (const key of ["alook:qc:v1:settings:client", "alook:qc:v3:settings:client", "alook:qc:v99:settings:application:client"]) expect(await get(key)).toBeUndefined()
     expect(await get("settings-unrelated")).toBe("keep")
     expect((await indexedDB.databases()).map((db) => db.name)).not.toContain("alook-chat-cache-legacy-positive")
@@ -86,7 +86,7 @@ describe("AdvancedSettings legacy device cache", () => {
   it("reports a public cache deletion failure after completing legacy cleanup", async () => {
     const db = await seed("alook-chat-cache-legacy-public-failure")
     db.close()
-    vi.stubGlobal("caches", { keys: vi.fn(async () => ["alook-public-precache-v1"]),
+    vi.stubGlobal("caches", { keys: vi.fn(async () => ["alook-public-v1-blog-code"]),
       open: vi.fn(async () => ({ keys: async () => [new Request("https://example.test/asset")], match: async () => new Response("public") })),
       delete: vi.fn(async () => { throw new Error("Public files could not be cleared") }) })
     mount()

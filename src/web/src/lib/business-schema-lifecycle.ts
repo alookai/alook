@@ -58,10 +58,28 @@ async function retireOwners(currentAttempt: number) {
   }
 }
 
+function isSatisfiedBusinessUpdateMarker(marker: string): boolean {
+  if (marker === businessUpdateMarker(BUSINESS_SCHEMA_VERSION, WEB_BUILD_ID) || marker === String(BUSINESS_SCHEMA_VERSION)) {
+    return true
+  }
+  const versionPart = marker.split(":", 1)[0]
+  if (!/^\d+$/.test(versionPart)) return false
+  const parsed = Number.parseInt(versionPart, 10)
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed < BUSINESS_SCHEMA_VERSION
+}
+
 export function rememberBusinessUpdateAttempt() {
   if (!isCurrentBusinessDocument()) return
-  const marker = new URL(window.location.href).searchParams.get(BUSINESS_UPDATE_MARKER)
-  if (marker) try { sessionStorage.setItem(attemptKey, marker) } catch { }
+  const url = new URL(window.location.href)
+  const marker = url.searchParams.get(BUSINESS_UPDATE_MARKER)
+  if (!marker) return
+  try { sessionStorage.setItem(attemptKey, marker) } catch { }
+  if (isSatisfiedBusinessUpdateMarker(marker)) {
+    url.searchParams.delete(BUSINESS_UPDATE_MARKER)
+    try {
+      window.history?.replaceState?.(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
+    } catch { }
+  }
 }
 
 export function requestBusinessSchemaUpdate(expectedVersion: number = BUSINESS_SCHEMA_VERSION) {
@@ -142,18 +160,29 @@ async function updateDocument(expectedVersion: number, explicitRetry: boolean, e
     businessSchemaLifecycle.setState(() => ({ phase: "updating", expectedVersion, ...(expectedBuildId ? { expectedBuildId } : {}) }))
     const next = new URL(window.location.href)
     if (explicitRetry) next.searchParams.delete(BUSINESS_UPDATE_MARKER)
-    if (!businessUpdateUrl(next.href, expectedVersion, expectedBuildId)) throw new BusinessSchemaMismatch(expectedVersion)
+    const nextHref = businessUpdateUrl(next.href, expectedVersion, expectedBuildId)
+    if (!nextHref) throw new BusinessSchemaMismatch(expectedVersion)
     try { sessionStorage.setItem(attemptKey, businessUpdateMarker(expectedVersion, expectedBuildId)) } catch { }
     const channel = new MessageChannel()
-    await withDeadline(new Promise<void>((resolve, reject) => {
+    const navigated = await withDeadline(new Promise<boolean>((resolve) => {
       channel.port1.onmessage = event => {
         channel.port1.close()
         channel.port2.close()
-        if (event.data?.navigating === true) resolve()
-        else reject(new BusinessSchemaMismatch(expectedVersion))
+        resolve(event.data?.navigating === true)
       }
       current.worker.postMessage({ type: CURRENT_DOCUMENT_REQUEST, schemaVersion: expectedVersion, ...(expectedBuildId ? { buildId: expectedBuildId } : {}), explicitRetry }, [channel.port2])
     }), 10_000).finally(() => { channel.port1.close(); channel.port2.close() })
+    if (!navigated) {
+      if (typeof registration.unregister === "function") {
+        await withDeadline(registration.unregister(), 5_000).catch(() => undefined)
+      }
+      if (!isCurrentBusinessDocument()) return
+      if (typeof window.location.replace === "function") {
+        window.location.replace(nextHref)
+        return
+      }
+      throw new BusinessSchemaMismatch(expectedVersion)
+    }
   } catch {
     if (isCurrentBusinessDocument()) businessSchemaLifecycle.setState(state => ({ ...state, phase: "failed", expectedVersion: Math.max(expectedVersion, state.expectedVersion) }))
   } finally {

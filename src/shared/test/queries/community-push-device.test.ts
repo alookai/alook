@@ -222,6 +222,40 @@ describe("community push device queries", () => {
     expect(storedRow()).toMatchObject({ disabled_at: null });
   });
 
+  it("allows cross-account soft-disable only with matching current or previous token hash proof", async () => {
+    await registerPushDevice(db, registration());
+
+    // Wrong token proof from another user must not disable
+    await expect(disablePushDevice(db, {
+      userId: "user-b",
+      installationId: "installation-1",
+      providerTokenHash: "f".repeat(64),
+      now: "2026-09-12T01:00:00.000Z",
+    })).resolves.toBe(false);
+    expect(storedRow().disabled_at).toBeNull();
+
+    // Matching current token proof disables user-a's abandoned row
+    await expect(disablePushDevice(db, {
+      userId: "user-b",
+      installationId: "installation-1",
+      providerTokenHash: "a".repeat(64),
+      now: "2026-09-12T01:05:00.000Z",
+    })).resolves.toBe(true);
+    expect(storedRow().disabled_at).toBe("2026-09-12T01:05:00.000Z");
+
+    // Re-register under user-a, then disable via previousProviderTokenHash proof from user-b
+    await registerPushDevice(db, registration({ now: "2026-09-12T02:00:00.000Z" }));
+    expect(storedRow().disabled_at).toBeNull();
+    await expect(disablePushDevice(db, {
+      userId: "user-b",
+      installationId: "installation-1",
+      providerTokenHash: "e".repeat(64),
+      previousProviderTokenHash: "a".repeat(64),
+      now: "2026-09-12T02:05:00.000Z",
+    })).resolves.toBe(true);
+    expect(storedRow().disabled_at).toBe("2026-09-12T02:05:00.000Z");
+  });
+
   it("returns every active device for one user without plaintext token fields", async () => {
     await registerPushDevice(db, registration());
     await registerPushDevice(db, registration({

@@ -1,5 +1,4 @@
 import {
-  isDesktop,
   isTauri,
   nativeOauthProofSchema,
   tauriInvoke,
@@ -7,7 +6,7 @@ import {
 import { nativeOauthSnapshotSchema } from "@/lib/native-oauth-schema"
 
 const browserDeps = {
-  isDesktopTauri: () => isTauri() && isDesktop(),
+  isNativeTauri: () => isTauri(),
   invoke: tauriInvoke,
   postCancel: (proof: unknown) => fetch("/api/auth/native/cancel", {
     method: "POST",
@@ -21,12 +20,12 @@ const browserDeps = {
 
 export async function cleanupAuthenticatedNativeOauthResidue(
   deps: {
-    isDesktopTauri: () => boolean
+    isNativeTauri: () => boolean
     invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
     postCancel: (proof: unknown) => Promise<unknown>
   } = browserDeps,
 ): Promise<void> {
-  if (!deps.isDesktopTauri()) return
+  if (!deps.isNativeTauri()) return
   const snapshot = nativeOauthSnapshotSchema.nullable().parse(
     await deps.invoke("native_oauth_snapshot"),
   )

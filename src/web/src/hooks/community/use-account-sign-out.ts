@@ -7,6 +7,10 @@ import { authClient, signOutWithOrigin } from "@/lib/auth-client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, assertCommunitySnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
+import {
+  queuePendingMobileSystemNotificationUnregistration,
+  suspendMobileSystemNotificationRegistration,
+} from "@/lib/community/mobile-system-notification"
 
 export function useAccountSignOut() {
   const queryClient = useQueryClient()
@@ -31,6 +35,9 @@ export function useAccountSignOut() {
       if (!localOnly) {
         const result = await signOutWithOrigin(assertActive, { fetchOptions: { signal: controller.signal, onRequest: assertActive, onSuccess: assertActive } })
         if (result?.error) { assertActive(); throw new Error(result.error.message || "Failed to log out") }
+      } else {
+        suspendMobileSystemNotificationRegistration()
+        queuePendingMobileSystemNotificationUnregistration()
       }
       retireCommunityAccount(registry)
       await registry.retireDisk().catch((error: unknown) => {

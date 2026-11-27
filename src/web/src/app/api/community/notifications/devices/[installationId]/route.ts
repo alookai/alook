@@ -3,7 +3,9 @@ import { withAuth } from "@/lib/middleware/auth-policy"
 import { queries } from "@alook/shared";
 import { getPrimaryDb } from "@/lib/db";
 import {
+  hashProviderToken,
   notificationDeviceInstallationIdSchema,
+  notificationDeviceUnregistrationSchema,
 } from "@/lib/community/notification-device-schema";
 import { communityActorPolicy } from "@/lib/middleware/community-actor";
 import { writeError } from "@/lib/middleware/helpers";
@@ -29,11 +31,37 @@ export const DELETE = withAuth(communityActorPolicy(), async (req, ctx) => {
     return writeError("invalid installation id", 400);
   }
 
+  let providerTokenHash: string | undefined;
+  let previousProviderTokenHash: string | undefined;
+  const rawBody = await req.text();
+  if (rawBody.trim().length > 0) {
+    let json: unknown;
+    try {
+      json = JSON.parse(rawBody);
+    } catch {
+      return writeError("invalid json", 400);
+    }
+    const parsedBody = notificationDeviceUnregistrationSchema.safeParse(json);
+    if (!parsedBody.success) {
+      return writeError("invalid request body", 400);
+    }
+    [providerTokenHash, previousProviderTokenHash] = await Promise.all([
+      parsedBody.data.providerToken
+        ? hashProviderToken(parsedBody.data.providerToken)
+        : undefined,
+      parsedBody.data.previousProviderToken
+        ? hashProviderToken(parsedBody.data.previousProviderToken)
+        : undefined,
+    ]);
+  }
+
   await queries.communityPushDevice.disablePushDevice(
     getPrimaryDb(ctx.env.DB),
     {
       userId: ctx.actor.userId,
       installationId: parsedInstallationId.data,
+      ...(providerTokenHash ? { providerTokenHash } : {}),
+      ...(previousProviderTokenHash ? { previousProviderTokenHash } : {}),
       now: new Date().toISOString(),
     },
   );

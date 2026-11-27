@@ -171,6 +171,9 @@ type AuthOptions = {
       create?: {
         after?: (session: unknown, ctx: unknown) => Promise<void>
       }
+      delete?: {
+        after?: (session: { userId: string }, ctx?: { request?: Request }) => Promise<void>
+      }
     }
   }
 }
@@ -1047,5 +1050,44 @@ describe("development OTP opt-in", () => {
       expect(plugin?.cfg?.customResolveMethod?.({ path: "/sign-in/email-otp" })).toBe("email")
       expect(plugin?.cfg?.customResolveMethod?.({ path: "/get-session" })).toBeNull()
     }
+  })
+
+  it("disables only the signing-out mobile installation on session delete when the installation header is valid", async () => {
+    const { queries } = await import("@alook/shared")
+    const { PUSH_INSTALLATION_ID_HEADER } = await import("@/lib/community/notification-device-schema")
+    const disableSpy = vi.spyOn(queries.communityPushDevice, "disablePushDevice").mockResolvedValue(true)
+    const createAuth = await loadCreateAuth()
+    const options = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const afterDelete = options.databaseHooks!.session!.delete!.after!
+
+    // Browser sign-out without header leaves mobile devices untouched
+    await afterDelete({ userId: "user-a" }, { request: new Request("https://alook.ai/api/auth/sign-out", { method: "POST" }) })
+    expect(disableSpy).not.toHaveBeenCalled()
+
+    // Malformed installation header is ignored
+    await afterDelete({ userId: "user-a" }, {
+      request: new Request("https://alook.ai/api/auth/sign-out", {
+        method: "POST",
+        headers: { [PUSH_INSTALLATION_ID_HEADER]: "bad id!" },
+      }),
+    })
+    expect(disableSpy).not.toHaveBeenCalled()
+
+    // Valid installation header disables strictly that user's installation
+    await afterDelete({ userId: "user-a" }, {
+      request: new Request("https://alook.ai/api/auth/sign-out", {
+        method: "POST",
+        headers: { [PUSH_INSTALLATION_ID_HEADER]: "123e4567-e89b-42d3-a456-426614174000" },
+      }),
+    })
+    expect(disableSpy).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId: "user-a",
+        installationId: "123e4567-e89b-42d3-a456-426614174000",
+        now: expect.any(String),
+      }),
+    )
+    disableSpy.mockRestore()
   })
 })

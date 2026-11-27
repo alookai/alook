@@ -31,7 +31,7 @@ const proof = {
 
 function makeDeps() {
   return {
-    isDesktopTauri: vi.fn(() => true),
+    isNativeTauri: vi.fn(() => true),
     invoke: vi.fn(async (command: string) => {
       if (command === "native_oauth_snapshot") return snapshot
       if (command === "native_oauth_cancel") return proof
@@ -50,8 +50,11 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
     sharedMocks.tauriInvoke.mockReset()
   })
 
-  it("uses the browser adapter for desktop Tauri cleanup", async () => {
-    sharedMocks.isDesktop.mockReturnValue(true)
+  it.each([
+    ["desktop", true],
+    ["mobile", false],
+  ] as const)("uses the browser adapter for %s Tauri cleanup", async (_platform, desktop) => {
+    sharedMocks.isDesktop.mockReturnValue(desktop)
     sharedMocks.isTauri.mockReturnValue(true)
     sharedMocks.tauriInvoke.mockImplementation(async (command: string) => {
       if (command === "native_oauth_snapshot") return snapshot
@@ -81,9 +84,9 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
     )
   })
 
-  it("is a no-op outside desktop Tauri", async () => {
+  it("is a no-op outside native Tauri", async () => {
     const deps = makeDeps()
-    deps.isDesktopTauri.mockReturnValue(false)
+    deps.isNativeTauri.mockReturnValue(false)
 
     await cleanupAuthenticatedNativeOauthResidue(deps)
 
