@@ -71,6 +71,12 @@ static BOOL alookIsTauriRootController(UIViewController *viewController) {
     return taoViewController != Nil && [viewController isKindOfClass:taoViewController];
 }
 
+static BOOL alookShouldLockRootScrollPath(NSString *path) {
+    if (path == nil) return NO;
+    return [path isEqualToString:@"/c"] || [path hasPrefix:@"/c/"] ||
+        [path isEqualToString:@"/sign-in"] || [path hasPrefix:@"/sign-in/"];
+}
+
 @interface AlookCommunityRootScrollDelegate : NSObject <UIScrollViewDelegate>
 @property (nonatomic, weak) WKWebView *webView;
 @property (nonatomic, weak) UIView *hostView;
@@ -100,11 +106,10 @@ static BOOL alookIsTauriRootController(UIViewController *viewController) {
 - (void)constrainRootScrollView:(UIScrollView *)scrollView {
     WKWebView *webView = self.webView;
     UIView *host = self.hostView;
-    NSString *path = webView.URL.path;
     if (self.correcting || webView == nil || host == nil || webView.superview != host ||
         scrollView != webView.scrollView ||
         scrollView.delegate != self ||
-        !([path isEqualToString:@"/c"] || [path hasPrefix:@"/c/"]) ||
+        !alookShouldLockRootScrollPath(webView.URL.path) ||
         CGPointEqualToPoint(scrollView.contentOffset, CGPointZero)) return;
 
     self.correcting = YES;
