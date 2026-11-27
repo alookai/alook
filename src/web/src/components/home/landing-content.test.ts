@@ -7,7 +7,6 @@ import staticContractInput3 from "./landing-shell-motion.tsx?raw"
 import staticContractInput4 from "../community/channels/dm-header.tsx?raw"
 import staticContractInput5 from "./homepage-faq.tsx?raw"
 import staticContractInput6 from "./landing-testimonials.tsx?raw"
-import staticContractInput7 from "../../../lighthouserc.json?raw"
 import staticContractInput8 from "../../app/(home)/page.tsx?raw"
 import staticContractInput9 from "../../app/landing-legacy/page.tsx?raw"
 import staticContractInput10 from "../../app/layout.tsx?raw"
@@ -144,16 +143,6 @@ describe("landing content contract", () => {
     expect(testimonialsSource.match(/<h2\b/g)).toHaveLength(1)
     expect(landingPageSource.indexOf("<LandingTestimonials />")).toBeLessThan(landingPageSource.indexOf("<HomepageFaq />"))
     expect(faqSource).toContain("<summary>")
-  })
-
-  it("requires every Lighthouse SEO audit to pass", () => {
-    const config = JSON.parse(staticContractInput7)
-
-    expect(config.ci.collect.startServerReadyPattern).toBe(
-      "Alook multi-zone Next development ready",
-    )
-    expect(config.ci.collect.startServerReadyTimeout).toBe(90_000)
-    expect(config.ci.assert.assertions["categories:seo"]).toEqual(["error", { minScore: 1 }])
   })
 
   it("keeps public and legacy routes plus cross-platform brand metadata aligned", () => {

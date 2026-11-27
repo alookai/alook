@@ -493,7 +493,7 @@ describe("CI workflow graph", () => {
     for (const job of [
       "auth-build", "blog-build", "static-checks", "test-linux", ...windowsTestJobs,
       "app-packed-artifact",
-      "e2e", "desktop-rust", "lighthouse", "ui-e2e-build", "e2e-ui", "resizable-panels-compat", "merge-reports",
+      "e2e", "desktop-rust", "ui-e2e-build", "e2e-ui", "resizable-panels-compat", "merge-reports",
       "ci-gate", "ui-e2e-gate",
     ]) {
       const definition = ciJob(job)
@@ -547,17 +547,6 @@ describe("CI workflow graph", () => {
     expect(e2e).toContain(`${daemonCondition}\n        run: pnpm --filter @alook/daemon run test:integration`)
   })
 
-  it("migrates Lighthouse's fresh local database before starting the web app", () => {
-    const lighthouse = ciJob("lighthouse")
-
-    expect(lighthouse).toContain("BETTER_AUTH_SECRET=ci-lighthouse-secret")
-    expect(lighthouse).toContain("- run: pnpm run db:migrate")
-    expect(lighthouse).toContain("npx @lhci/cli autorun --config=lighthouserc.json")
-    expect(lighthouse.indexOf("pnpm run db:migrate")).toBeLessThan(
-      lighthouse.indexOf("npx @lhci/cli autorun --config=lighthouserc.json"),
-    )
-  })
-
   it("consolidates static work and preserves non-blocking Knip steps", () => {
     const staticChecks = ciJob("static-checks")
     expect(ciWorkflow).not.toMatch(/^  quality:/m)
@@ -589,10 +578,12 @@ describe("CI workflow graph", () => {
         `{"name":"${job}","expected":\${{ ${expected} }},"result":"\${{ needs.${job}.result }}"}`,
       )
     }
-    for (const removed of ["quality", "knip", "build", "coverage"]) {
+    for (const removed of ["quality", "knip", "build", "coverage", "lighthouse"]) {
       expect(gate).not.toContain(`- ${removed}`)
       expect(gate).not.toContain(`"name":"${removed}"`)
     }
+    expect(ciWorkflow).not.toMatch(/^  lighthouse:/m)
+    expect(ciWorkflow).not.toContain("run_lighthouse")
   })
 
   it("runs the same strict DB check manually and through the required CI path", () => {
