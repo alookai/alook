@@ -44,10 +44,11 @@ describe("ws-do router", () => {
   })
 
   describe("root contract", () => {
-    it("exports exactly the two Durable Object classes and the default fetch handler", async () => {
+    it("exports exactly the three Durable Object classes and the default fetch handler", async () => {
       const routerModule = await import("./index")
 
       expect(Object.keys(routerModule).sort()).toEqual([
+        "OwnerScheduleDurableObject",
         "RateLimitDurableObject",
         "WebSocketDurableObject",
         "default",

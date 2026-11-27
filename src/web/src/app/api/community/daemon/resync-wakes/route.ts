@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { queries, dispatchOneUnreadWake, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { wsDoFetch } from "@/lib/broadcast"
+import { resyncOwnerScheduleForBots } from "@/lib/community/schedule.server"
 import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth"
 
 /**
@@ -51,6 +52,16 @@ export const POST = withAuth(machineAuthPolicy, async (_req, ctx) => {
     if (!latest) continue
     const result = await dispatchOneUnreadWake(db, wakeEnv, { messageId: latest.messageId, botUserId: bot.id })
     if (result.outcome === "attempted") attempted++
+  }
+
+  if (bots.length > 0) {
+    const scheduleResync = await resyncOwnerScheduleForBots(
+      db,
+      ctx.env,
+      ctx.userId,
+      bots.map((bot) => bot.id),
+    )
+    attempted += scheduleResync.dispatched
   }
 
   return NextResponse.json({ attempted })

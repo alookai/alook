@@ -164,7 +164,7 @@ describe("MeLayout route memory", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
-  it.each(["friends", "machines", "bots"])("keeps its own %s child when another slot exposes a DM param", (leaf) => {
+  it.each(["friends", "machines", "bots", "schedule"])("keeps its own %s child when another slot exposes a DM param", (leaf) => {
     mocks.pathname = `/c/me/${leaf}`
     mocks.childSegments = [leaf]
     mocks.dmId = "foreign-slot-dm"

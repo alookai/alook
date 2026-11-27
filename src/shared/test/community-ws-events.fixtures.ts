@@ -277,6 +277,11 @@ export const communityWsEventFixtures = {
     payload: { text: "thinking" },
     createdAt: "2026-01-01T00:00:00.000Z",
   },
+  "community:schedule.changed": {
+    type: "community:schedule.changed",
+    eventId: "sch_1",
+    reason: "created",
+  },
 } satisfies {
   [T in CommunityWsEvent["type"]]: Extract<CommunityWsEvent, { type: T }>
 }
@@ -329,6 +334,7 @@ export const requiredFixturePaths = {
   "community:bot.pii": ["requestId"],
   "community:machine.removed": ["machineId"],
   "community:bot.audit_event": ["payload"],
+  "community:schedule.changed": ["eventId"],
 } satisfies Record<CommunityWsEvent["type"], readonly [] | readonly [string, ...string[]]>
 
 

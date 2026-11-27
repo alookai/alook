@@ -560,8 +560,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900, { jitterMs: 0 })
 
     expect(summary).toMatchObject({
-      policyCount: 15,
-      successCount: 14,
+      policyCount: 16,
+      successCount: 15,
       failureCount: 1,
       reconnectDurationMs: 900,
     })
@@ -615,7 +615,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
     invalidate.mockRestore()
 
-    expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
+    expect(summary).toMatchObject({ policyCount: 16, successCount: 15, failureCount: 1 })
 
 
   })
@@ -633,7 +633,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(keys).not.toContain(JSON.stringify(communityKeys.dms()))
     expect(keys).toContain(JSON.stringify(communityKeys.friends()))
     expect(keys).toContain(JSON.stringify(communityKeys.servers()))
-    expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
+    expect(summary).toMatchObject({ policyCount: 15, successCount: 15, failureCount: 0 })
   })
 
   it("actively refetches cached Friends and canonical attention after a socket gap", async () => {
@@ -756,6 +756,12 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     gates.get(JSON.stringify(communityKeys.machines()))!.resolve()
     await vi.waitFor(() => {
       expect(started).toContain(JSON.stringify([...communityKeys.all, "bot"]))
+    })
+    expect(started).not.toContain(JSON.stringify(communityKeys.schedule()))
+
+    gates.get(JSON.stringify([...communityKeys.all, "bot"]))!.resolve()
+    await vi.waitFor(() => {
+      expect(started).toContain(JSON.stringify(communityKeys.schedule()))
     })
 
     for (const gate of gates.values()) gate.resolve()

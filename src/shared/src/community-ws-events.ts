@@ -368,6 +368,12 @@ const communityBotPiiSchema = z.strictObject({
   result: PiiResultSchema,
 })
 
+const communityScheduleChangedSchema = z.strictObject({
+  type: z.literal("community:schedule.changed"),
+  eventId: string,
+  reason: z.enum(["created", "updated", "deleted", "run_updated"]),
+})
+
 const commonCommunityEventSchemas = [
   communityBotPiiSchema,
   communityMessageUpdatedSchema,
@@ -409,6 +415,7 @@ const commonCommunityEventSchemas = [
   communityRuntimeModelsSchema,
   communityMachineRemovedSchema,
   communityBotAuditEventSchema,
+  communityScheduleChangedSchema,
 ] as const
 
 export const CommunityWsEventSchema = z.discriminatedUnion("type", [
@@ -479,6 +486,7 @@ export type CommunityRuntimeModels = Extract<CommunityWsEvent, { type: "communit
 export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
 export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "community:machine.removed" }>
 export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
+export type CommunityScheduleChanged = Extract<CommunityWsEvent, { type: "community:schedule.changed" }>
 
 export type BotAddedFrame = {
   type: "bot:added"
@@ -551,6 +559,7 @@ export const WS_EVENTS = {
   BOT_PII: "community:bot.pii",
   MACHINE_REMOVED: "community:machine.removed",
   BOT_AUDIT_EVENT: "community:bot.audit_event",
+  SCHEDULE_CHANGED: "community:schedule.changed",
 } as const satisfies Record<string, CommunityWsEvent["type"]>
 
 type DeclaredCommunityEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS]

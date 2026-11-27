@@ -5737,5 +5737,104 @@
       }
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/ui/calendar.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-foundations-calendar--default",
+        "region": "Alook-stylized shadcn single-date Calendar picker"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/community/schedule/schedule-workspace.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-business-schedule--week-view",
+        "region": "Home Schedule workspace in Week view with bot filter, bot prompt notice, and date-picker popover"
+      },
+      {
+        "story": "web-business-schedule--agenda-view",
+        "region": "Home Schedule workspace in frameless Agenda ledger view"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/community/schedule/schedule-bot-notice.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-schedule--week-view",
+        "region": "Frameless header notice strip prompting users to ask a bot to set up its schedule"
+      }
+    ],
+    "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+  },
+  "src/web/src/components/community/schedule/schedule-week-view.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-schedule--week-view",
+        "region": "Frameless 7-day Week time grid on desktop and pinned day strip on mobile"
+      }
+    ],
+    "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+  },
+  "src/web/src/components/community/schedule/schedule-agenda-view.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-schedule--agenda-view",
+        "region": "Chronological frameless Agenda ledger with bot and bound message metadata"
+      }
+    ],
+    "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+  },
+  "src/web/src/components/community/schedule/schedule-detail-sheet.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-schedule--agenda-view",
+        "region": "Click any scheduled task row to inspect read-only bot details, execution status, and bound message jump"
+      }
+    ],
+    "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+  },
+  "src/web/src/components/community/schedule/schedule-actor.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-schedule--agenda-view",
+        "region": "Bot avatar rendered on schedule tasks, filter options, bot picker, and detail sheet"
+      }
+    ],
+    "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+  },
+  "src/web/src/components/community/schedule/schedule-status.tsx": {
+    "kind": "composition",
+    "examples": [
+      {
+        "story": "web-business-schedule--agenda-view",
+        "region": "Recurrence, source-unavailable warning, and 4-state execution status badges"
+      }
+    ],
+    "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+  },
+  "src/web/src/components/community/schedule/schedule-skeleton.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-business-schedule--loading-skeleton",
+        "region": "SchedulePageSkeleton frameless loading shell"
+      }
+    ],
+    "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+  },
+  "src/web/src/components/community/schedule/me-schedule-route.tsx": {
+    "kind": "environment",
+    "examples": [],
+    "reason": "Community route host wiring /c/me/schedule to live read query hooks, bot-chat starter, and router; its full UI renders in ScheduleWorkspace stories."
   }
 }
