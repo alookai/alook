@@ -10,6 +10,7 @@ import { useAccountAttention } from "./community/use-account-attention"
 import { useAccountReadState } from "./community/community-ws/read-state-reconciliation"
 import { attentionSnapshotScenarioFixture } from "@/test/community-resource-fixtures"
 import { useAccountSignOut } from "./community/use-account-sign-out"
+import { readPendingMobileSystemNotificationUnregistration } from "@/lib/community/mobile-system-notification"
 
 const sdk = vi.hoisted(() => vi.fn())
 const sessionCheck = vi.hoisted(() => vi.fn())
@@ -95,6 +96,25 @@ describe.each(["community"] as const)("Native %s sign-out facade", (domain) => {
     expect(owner.retireDisk).toHaveBeenCalledOnce()
     expect(owner.community.client.getQueryCache().getAll()).toEqual([])
     expect(onSuccess).toHaveBeenCalledOnce()
+  })
+  it("queues a durable mobile push unregistration during offline local-only sign-out on mobile Tauri", async () => {
+    const previousTauri = (window as unknown as Record<string, unknown>).__TAURI__
+    const previousRuntime = (window as unknown as Record<string, unknown>).__ALOOK_NATIVE_RUNTIME__
+    ;(window as unknown as Record<string, unknown>).__TAURI__ = {}
+    ;(window as unknown as Record<string, unknown>).__ALOOK_NATIVE_RUNTIME__ = { formFactor: "mobile" }
+    window.localStorage.clear()
+    try {
+      const owner = await setup(domain, Promise.resolve(), { viewer: undefined })
+      await act(async () => { expect(await owner.view.result.current.mutateAsync()).toBe(true) })
+      expect(sdk).not.toHaveBeenCalled()
+      expect(readPendingMobileSystemNotificationUnregistration()).toMatchObject({ queuedAt: expect.any(Number) })
+    } finally {
+      window.localStorage.clear()
+      if (previousTauri === undefined) delete (window as unknown as Record<string, unknown>).__TAURI__
+      else (window as unknown as Record<string, unknown>).__TAURI__ = previousTauri
+      if (previousRuntime === undefined) delete (window as unknown as Record<string, unknown>).__ALOOK_NATIVE_RUNTIME__
+      else (window as unknown as Record<string, unknown>).__ALOOK_NATIVE_RUNTIME__ = previousRuntime
+    }
   })
   it("withholds cached logout navigation when B arrives during local disk retirement", async () => {
     const disk = deferred(), owner = await setup(domain, disk.promise, { viewer: undefined }), onSuccess = vi.fn(), onSettled = vi.fn()

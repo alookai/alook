@@ -39,8 +39,12 @@ describe("HTML preview response preparation", () => {
       expect(result).toContain(html.replace(/^<!doctype html>/i, ""))
       expect(result.indexOf("alook-html-ready")).toBeLessThan(result.indexOf("original()") === -1 ? result.length : result.indexOf("original()"))
     }
-    expect(HTML_PREVIEW_CSP).toContain("sandbox allow-scripts")
+    expect(HTML_PREVIEW_CSP).toContain("sandbox allow-scripts allow-forms")
     expect(HTML_PREVIEW_CSP).not.toContain("allow-same-origin")
+    expect(HTML_PREVIEW_CSP).not.toContain("allow-popups")
+    expect(HTML_PREVIEW_CSP).not.toContain("allow-downloads")
+    expect(HTML_PREVIEW_CSP).toContain("connect-src 'none'")
+    expect(HTML_PREVIEW_CSP).toContain("form-action 'none'")
     expect(HTML_PREVIEW_CSP).toContain("frame-src 'none'")
     expect(HTML_PREVIEW_CSP).toContain("base-uri 'none'")
   })
@@ -169,6 +173,12 @@ describe("generated HTML bootstrap", () => {
       expect(dom.window.document.documentElement.classList.contains("dark")).toBe(true)
       expect(dom.window.document.getElementById("alook-preview-theme")!.textContent).toContain("--background:#123456")
       expect(dom.window.document.getElementById("alook-preview-theme")!.textContent).not.toContain("--bad")
+      const fontCss = "@font-face{font-family:'PreviewSans';src:url(data:font/woff2;base64,AA)}"
+      dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: dom.window.parent, data: { ...data, fontSheet: fontCss } }))
+      expect(dom.window.document.getElementById("alook-preview-fonts")!.textContent).toBe(fontCss)
+      dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: dom.window.parent, data: { type: "alook-html-theme", dark: false, variables: { "--background": "#ffffff" } } }))
+      expect(dom.window.document.getElementById("alook-preview-fonts")!.textContent).toBe(fontCss)
+      expect(dom.window.document.getElementById("alook-preview-theme")!.textContent).toContain("--background:#ffffff")
       for (const [id, callback] of frames) { frames.delete(id); callback(0) }
       expect(post).toHaveBeenCalledWith({ type: "alook-html-height", height: 80 }, "*")
       expect(post).toHaveBeenCalledWith({ type: "alook-html-scroll", scrollTop: 0, scrollHeight: 0, clientHeight: 768 }, "*")

@@ -29,6 +29,10 @@ import { useSession, currentSessionViewer } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
 import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
+import {
+  queuePendingMobileSystemNotificationUnregistration,
+  suspendMobileSystemNotificationRegistration,
+} from "@/lib/community/mobile-system-notification"
 import { registerBusinessSchemaOwner } from "@/lib/business-schema-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { discardCommunityRestoreReplacements, restoreCommunityCollections } from "@/lib/community-db/sync"
@@ -164,6 +168,8 @@ function ScopedQueryProvider({
     if (!identityChanged) return
     if (identityRetired.current) return
     identityRetired.current = true
+    suspendMobileSystemNotificationRegistration()
+    queuePendingMobileSystemNotificationUnregistration()
     restoreGate.release()
     retireCommunityAccount(communityDb)
     void communityDb.retireDisk().catch(() => undefined)

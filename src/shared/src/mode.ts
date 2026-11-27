@@ -29,32 +29,57 @@ function hasWindow(): boolean {
   return typeof globalThis !== "undefined" && "window" in globalThis;
 }
 
+function readNativeFormFactor(): "mobile" | "desktop" | null {
+  if (!hasWindow() || typeof window === "undefined") return null;
+  const runtime = window.__ALOOK_NATIVE_RUNTIME__ as { formFactor?: unknown } | undefined;
+  if (runtime?.formFactor === "mobile" || runtime?.formFactor === "desktop") {
+    return runtime.formFactor;
+  }
+  return null;
+}
+
+function getNavigatorIdentity(): string {
+  if (typeof navigator === "undefined") return "";
+  const ua = navigator.userAgent ?? "";
+  const platform = navigator.userAgentData?.platform ?? navigator.platform ?? "";
+  return `${ua} ${platform}`;
+}
+
+function isMobileNavigator(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const identity = getNavigatorIdentity();
+  return (
+    /(android|iphone|ipad|ipod)/i.test(identity)
+    || navigator.userAgentData?.mobile === true
+    || (/(macintosh|macintel)/i.test(identity) && Number(navigator.maxTouchPoints ?? 0) > 1)
+  );
+}
+
 export function isTauri(): boolean {
   return hasWindow() && typeof window !== "undefined" && "__TAURI__" in window;
 }
 
 export function isDesktop(): boolean {
   if (!isTauri()) return false;
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  return !/(android|iphone|ipad|ipod)/i.test(ua);
+  const formFactor = readNativeFormFactor();
+  if (formFactor !== null) return formFactor === "desktop";
+  return !isMobileNavigator();
 }
 
 export function isMobile(): boolean {
   if (!isTauri()) return false;
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  return /(android|iphone|ipad|ipod)/i.test(ua);
+  const formFactor = readNativeFormFactor();
+  if (formFactor !== null) return formFactor === "mobile";
+  return isMobileNavigator();
 }
 
 export function getClientPlatform(): "mobile" | "desktop" | "unknown" {
-  if (!hasWindow() || typeof window === "undefined" || typeof navigator === "undefined") return "unknown";
-  const ua = navigator.userAgent ?? "";
-  const platform = navigator.userAgentData?.platform ?? navigator.platform ?? "";
-  const identity = `${ua} ${platform}`;
-  if (/(android|iphone|ipad|ipod)/i.test(identity)
-    || navigator.userAgentData?.mobile === true
-    || (/(macintosh|macintel)/i.test(identity) && navigator.maxTouchPoints > 1)) {
-    return "mobile";
-  }
+  if (!hasWindow() || typeof window === "undefined") return "unknown";
+  const formFactor = readNativeFormFactor();
+  if (formFactor !== null) return formFactor;
+  if (typeof navigator === "undefined") return "unknown";
+  if (isMobileNavigator()) return "mobile";
+  const identity = getNavigatorIdentity();
   if (/(macintosh|macintel|windows|win32|win64|linux|cros|chrome os)/i.test(identity)) return "desktop";
   return "unknown";
 }

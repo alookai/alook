@@ -4,12 +4,16 @@ function assertRead(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException("Cancelled public cache read", "AbortError")
 }
 
+function isClearablePublicWorkerCacheName(name: string): boolean {
+  return isPublicWorkerCacheName(name) && name !== publicWorkerCacheNames().precache
+}
+
 export async function getPublicWorkerCacheSizeBytes(signal?: AbortSignal): Promise<number> {
   assertRead(signal)
   if (typeof caches === "undefined") return 0
   const names = await caches.keys()
   let bytes = 0
-  for (const name of names.filter(isPublicWorkerCacheName)) {
+  for (const name of names.filter(isClearablePublicWorkerCacheName)) {
     assertRead(signal)
     const cache = await caches.open(name)
     for (const request of await cache.keys()) {
@@ -38,7 +42,8 @@ async function deletePublicWorkerCaches(keep: (name: string) => boolean): Promis
 }
 
 export function clearPublicWorkerCaches(): Promise<void> {
-  return deletePublicWorkerCaches(() => false)
+  const currentPrecache = publicWorkerCacheNames().precache
+  return deletePublicWorkerCaches(name => name === currentPrecache)
 }
 
 export function clearOutdatedPublicWorkerCaches(): Promise<void> {

@@ -1,8 +1,10 @@
 import { BUSINESS_SCHEMA_VERSION, COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { SESSION_ACCOUNT_HEADER } from "@/lib/session-account"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   acknowledgeMobileSystemNotificationRegistration,
   checkMobileSystemNotificationPermission,
+  clearPendingMobileSystemNotificationUnregistration,
   createMobileSystemNotificationActivationController,
   createMobileSystemNotificationRegistrationController,
   deleteMobileSystemNotificationRegistration,
@@ -13,6 +15,8 @@ import {
   parseMobileSystemNotificationPermission,
   parseMobileSystemNotificationRegistration,
   postMobileSystemNotificationRegistration,
+  queuePendingMobileSystemNotificationUnregistration,
+  readPendingMobileSystemNotificationUnregistration,
   requestMobileSystemNotificationPermission,
   mobileSystemNotificationHref,
   resumeMobileSystemNotificationRegistration,
@@ -250,12 +254,43 @@ describe("mobile notification native adapter", () => {
 
     nativeMocks.mobile = true
     nativeMocks.invoke.mockResolvedValue(nativeSnapshot)
-    await unregisterCurrentMobileSystemNotification(fetchImpl)
+    await expect(unregisterCurrentMobileSystemNotification(fetchImpl, { accountId: "user-a" })).resolves.toBe(installationId)
     expect(nativeMocks.invoke).toHaveBeenCalledWith("mobile_system_notification_snapshot")
     expect(fetchImpl).toHaveBeenCalledWith(
       `/api/community/notifications/devices/${installationId}`,
-      { method: "DELETE", credentials: "same-origin", signal: undefined, headers: { [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) } },
+      {
+        method: "DELETE",
+        credentials: "same-origin",
+        signal: undefined,
+        headers: {
+          [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION),
+          [SESSION_ACCOUNT_HEADER]: "user-a",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ providerToken: token0 }),
+      },
     )
+  })
+
+  it("persists a durable pending unregistration marker when logout unregistration fails and clears it on success", async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value) },
+        removeItem: (key: string) => { store.delete(key) },
+      },
+    })
+    nativeMocks.invoke.mockResolvedValue(nativeSnapshot)
+    const failingFetch = vi.fn(async () => new Response(null, { status: 503 }))
+    await expect(unregisterCurrentMobileSystemNotification(failingFetch, { accountId: "user-a" })).rejects.toThrow("unregistration_failed")
+    expect(readPendingMobileSystemNotificationUnregistration()).toMatchObject({ installationId })
+    // Plaintext tokens are never persisted in localStorage
+    expect([...store.values()].join("")).not.toContain(token0)
+
+    const succeedingFetch = vi.fn(async () => new Response(null, { status: 204 }))
+    await expect(unregisterCurrentMobileSystemNotification(succeedingFetch, { accountId: "user-a" })).resolves.toBe(installationId)
+    expect(readPendingMobileSystemNotificationUnregistration()).toBeNull()
   })
 })
 
@@ -288,14 +323,18 @@ describe("mobile notification HTTP adapter", () => {
 
   it("posts the exact registration with same-origin cookies", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ device: {} }), { status: 200 }))
-    await postMobileSystemNotificationRegistration(snapshot({ previousProviderToken: token1 }), fetchImpl)
+    await postMobileSystemNotificationRegistration(snapshot({ previousProviderToken: token1 }), fetchImpl, { accountId: "user-a" })
     expect(fetchImpl).toHaveBeenCalledOnce()
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe("/api/community/notifications/devices")
     expect(init).toMatchObject({
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json", [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION) },
+      headers: {
+        "Content-Type": "application/json",
+        [COMMUNITY_CONTRACT_HEADER]: String(BUSINESS_SCHEMA_VERSION),
+        [SESSION_ACCOUNT_HEADER]: "user-a",
+      },
     })
     expect(JSON.parse(String(init?.body))).toEqual({
       installationId,
@@ -367,12 +406,12 @@ describe("mobile notification registration controller", () => {
     expect(calls).toEqual(["check", "request", "snapshot", "post", `ack:${token0}`])
   })
 
-  it("disables a denied installation and waits for a native signal when no token exists", async () => {
+  it("disables a denied installation with token proof and waits for a native signal when no token exists", async () => {
     const denied = registrationDeps({
       checkPermission: vi.fn(async () => "denied"),
     })
     await createMobileSystemNotificationRegistrationController(denied).sync(true)
-    expect(denied.unregister).toHaveBeenCalledWith(installationId)
+    expect(denied.unregister).toHaveBeenCalledWith(installationId, { providerToken: token0 })
     expect(denied.register).not.toHaveBeenCalled()
 
     const tokenless = registrationDeps({
@@ -380,6 +419,32 @@ describe("mobile notification registration controller", () => {
     })
     await createMobileSystemNotificationRegistrationController(tokenless).sync()
     expect(tokenless.register).not.toHaveBeenCalled()
+  })
+
+  it("drains a pending offline unregistration before checking permission or registering a new account", async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value) },
+        removeItem: (key: string) => { store.delete(key) },
+      },
+    })
+    queuePendingMobileSystemNotificationUnregistration(installationId)
+    expect(readPendingMobileSystemNotificationUnregistration()).toMatchObject({ installationId })
+
+    const calls: string[] = []
+    const deps = registrationDeps({
+      checkPermission: vi.fn(async () => { calls.push("check"); return "prompt" }),
+      snapshot: vi.fn(async () => { calls.push("snapshot"); return snapshot({ previousProviderToken: token1 }) }),
+      unregister: vi.fn(async (_id, proof) => { calls.push(`unregister:${proof?.providerToken}:${proof?.previousProviderToken}`) }),
+      readPendingUnregistration: readPendingMobileSystemNotificationUnregistration,
+      clearPendingUnregistration: clearPendingMobileSystemNotificationUnregistration,
+    })
+    await createMobileSystemNotificationRegistrationController(deps).sync(false)
+    expect(calls).toEqual(["snapshot", `unregister:${token0}:${token1}`, "check"])
+    expect(readPendingMobileSystemNotificationUnregistration()).toBeNull()
+    expect(deps.register).not.toHaveBeenCalled()
   })
 
   it("serializes concurrent signals and coalesces them into one rerun", async () => {

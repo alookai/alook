@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const PUSH_INSTALLATION_ID_HEADER = "X-Alook-Push-Installation-Id";
+
 const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
 export const notificationDeviceInstallationIdSchema = z
@@ -7,6 +9,13 @@ export const notificationDeviceInstallationIdSchema = z
   .min(8)
   .max(128)
   .regex(INSTALLATION_ID_PATTERN, "invalid installation id");
+
+export const notificationDeviceUnregistrationSchema = z
+  .object({
+    providerToken: z.string().min(16).max(4096).optional(),
+    previousProviderToken: z.string().min(16).max(4096).optional(),
+  })
+  .strict();
 
 export const notificationDeviceRegistrationSchema = z
   .object({

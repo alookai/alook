@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
   readIdentity: vi.fn(async (): Promise<{ id: string; email: string } | undefined> => undefined),
 }))
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search), useRouter: () => mocks.router, notFound: () => { throw new Error("not-found") } }))
-vi.mock("@/lib/auth-session", () => ({ useSession: () => mocks.session, currentSessionViewer: () => mocks.session.data?.user.id ?? null, authClient: { signOut: mocks.signOut } }))
+vi.mock("@/lib/auth-session", () => ({ useSession: () => mocks.session, currentSessionViewer: () => mocks.session.data?.user.id ?? null, authClient: { signOut: vi.fn(() => { throw new Error("raw authClient.signOut must not be called") }) } }))
+vi.mock("@/lib/auth-client", () => ({ signOut: mocks.signOut }))
 vi.mock("@/lib/community/last-community-route", () => ({ retireCommunityColdEntryAttempt: mocks.retireAttempt, clearCommunityColdEntryAttempts: mocks.clearAttempts }))
 vi.mock("@/lib/persisted-account-identity", () => ({ capturePersistedAccountIdentity: mocks.captureIdentity }))
 vi.mock("@/lib/query-persister", () => ({ readPersistedAccountIdentity: mocks.readIdentity }))

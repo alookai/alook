@@ -76,8 +76,9 @@ export async function upgradeBusinessWindow(client: MessageTarget & { url: strin
   if (url.origin !== origin || !isBusinessDocumentPath(url.pathname)) return false
   if (!force) {
     const identity = await probeBusinessIdentity(client, DOCUMENT_VERSION_PROBE)
-    if (identity?.schemaVersion === BUSINESS_SCHEMA_VERSION && identity.buildId === WEB_BUILD_ID) return false
-    if (identity?.buildId) {
+    if (identity === null) return false
+    if (identity.schemaVersion === BUSINESS_SCHEMA_VERSION && identity.buildId === WEB_BUILD_ID) return false
+    if (identity.buildId) {
       client.postMessage({ type: DOCUMENT_UPDATE_AVAILABLE }, [])
       return false
     }

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BUSINESS_SCHEMA_VERSION } from "@alook/shared"
-import { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE } from "./service-worker/business-upgrade"
-import { businessSchemaLifecycle, registerBusinessSchemaOwner, requestBusinessSchemaUpdate, requestDocumentBuildUpdate, retryBusinessSchemaUpdate } from "./business-schema-lifecycle"
+import { CURRENT_DOCUMENT_REQUEST, WORKER_VERSION_PROBE, businessUpdateMarker } from "./service-worker/business-upgrade"
+import { WEB_BUILD_ID } from "./web-build"
+import { businessSchemaLifecycle, registerBusinessSchemaOwner, rememberBusinessUpdateAttempt, requestBusinessSchemaUpdate, requestDocumentBuildUpdate, retryBusinessSchemaUpdate } from "./business-schema-lifecycle"
 
 beforeEach(() => businessSchemaLifecycle.setState(() => ({ phase: "current", expectedVersion: BUSINESS_SCHEMA_VERSION })))
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
@@ -81,7 +82,7 @@ it.each(["normal", "storage-denied", "public-path"])("bounds the no-worker docum
   if (mode === "public-path") expect(replace).not.toHaveBeenCalled()
 })
 
-it("fails when a current worker explicitly refuses navigation and closes both reply ports", async () => {
+it("unregisters a broken worker and falls back to location.replace when navigation is refused, closing both reply ports", async () => {
   vi.useFakeTimers()
   const closed: ReturnType<typeof vi.fn>[] = []
   class Channel {
@@ -90,17 +91,47 @@ it("fails when a current worker explicitly refuses navigation and closes both re
     constructor() { closed.push(this.port1.close, this.port2.close) }
   }
   const worker = { postMessage: (message: { type: string }, ports: Array<{ postMessage(data: unknown): void }>) => ports[0]!.postMessage(message.type === WORKER_VERSION_PROBE ? { schemaVersion: BUSINESS_SCHEMA_VERSION + 1 } : { navigating: false }) }
+  const replace = vi.fn()
+  const unregister = vi.fn(async () => true)
   vi.stubGlobal("MessageChannel", Channel)
-  vi.stubGlobal("window", { location: { href: "https://alook.test/c/me" } })
+  vi.stubGlobal("window", { location: { href: "https://alook.test/c/me", replace } })
   vi.stubGlobal("sessionStorage", { getItem: () => null, setItem: vi.fn() })
-  const registration = Object.assign(new EventTarget(), { update: vi.fn(async () => {}), active: worker, waiting: null, installing: null })
+  const registration = Object.assign(new EventTarget(), { update: vi.fn(async () => {}), unregister, active: worker, waiting: null, installing: null })
   vi.stubGlobal("navigator", { serviceWorker: Object.assign(new EventTarget(), { controller: worker, getRegistration: vi.fn(async () => registration) }) })
   requestBusinessSchemaUpdate(BUSINESS_SCHEMA_VERSION + 1)
   await vi.advanceTimersByTimeAsync(0)
-  expect(businessSchemaLifecycle.get()).toEqual({ phase: "failed", expectedVersion: BUSINESS_SCHEMA_VERSION + 1 })
+  expect(unregister).toHaveBeenCalledOnce()
+  expect(replace).toHaveBeenCalledExactlyOnceWith(`https://alook.test/c/me?__alook_schema_update=${BUSINESS_SCHEMA_VERSION + 1}`)
   expect(closed.length).toBeGreaterThan(0)
   expect(closed.every(close => close.mock.calls.length > 0)).toBe(true)
   expect(vi.getTimerCount()).toBe(0)
+})
+
+it("scrubs satisfied __alook_schema_update markers from window.location while keeping session loop memory", () => {
+  const replaceState = vi.fn()
+  const stored = new Map<string, string>()
+  const currentMarker = businessUpdateMarker(BUSINESS_SCHEMA_VERSION, WEB_BUILD_ID)
+  vi.stubGlobal("window", {
+    location: { href: `https://alook.test/c/me/dm-1?keep=1&__alook_schema_update=${encodeURIComponent(currentMarker)}#msg-9` },
+    history: { state: { preserved: true }, replaceState },
+  })
+  vi.stubGlobal("sessionStorage", {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => { stored.set(key, value) },
+  })
+  rememberBusinessUpdateAttempt()
+  expect(stored.get("alook:business-schema-update-attempt")).toBe(currentMarker)
+  expect(replaceState).toHaveBeenCalledExactlyOnceWith({ preserved: true }, "", "/c/me/dm-1?keep=1#msg-9")
+
+  replaceState.mockClear()
+  const futureMarker = businessUpdateMarker(BUSINESS_SCHEMA_VERSION + 1, "future-build")
+  vi.stubGlobal("window", {
+    location: { href: `https://alook.test/c/me?__alook_schema_update=${encodeURIComponent(futureMarker)}` },
+    history: { state: null, replaceState },
+  })
+  rememberBusinessUpdateAttempt()
+  expect(stored.get("alook:business-schema-update-attempt")).toBe(futureMarker)
+  expect(replaceState).not.toHaveBeenCalled()
 })
 
 function workerFixture(version = BUSINESS_SCHEMA_VERSION as number, buildId?: string) {
@@ -476,6 +507,9 @@ it.each(["updating", "failed"])("retains an unmounted build owner for authoritat
         h.messages.push(message)
         ports[0].postMessage({ navigating: false })
       } else post(message, ports)
+    })
+    vi.mocked(window.location.replace).mockImplementationOnce(() => {
+      throw new Error("Navigation blocked")
     })
   }
   const retire = vi.fn(async () => {}), unregister = registerBusinessSchemaOwner(retire)
