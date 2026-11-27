@@ -29,6 +29,7 @@ type Props = {
   focusOnOpen?: boolean
   onInitialFocus?: () => void
   presentation?: "slot" | "popup"
+  userBarHeightCss?: string
 }
 
 export function UserBarExtensionSlot({
@@ -47,11 +48,13 @@ export function UserBarExtensionSlot({
   focusOnOpen = false,
   onInitialFocus,
   presentation = "slot",
+  userBarHeightCss = COMMUNITY_USER_BAR_HEIGHT_CSS,
 }: Props) {
   const generatedId = useId()
   const ref = useRef<HTMLDivElement>(null)
   const popupClearance = `var(--app-popup-user-bar-clearance, ${COMMUNITY_USER_BAR_HEIGHT_CSS})`
-  const slotBoundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${COMMUNITY_USER_BAR_HEIGHT_CSS})))`
+  const slotClearance = `max(0px, calc(${userBarHeightCss} - var(--alook-keyboard-progress, 0px)))`
+  const slotBoundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${slotClearance})))`
   const popupBoundedHeight = `min(28rem, max(0px, calc(var(--app-overlay-safe-height) - ${popupClearance} - 1rem)))`
   const desktopInboxBoundedHeight = `min(40rem, max(0px, calc(var(--app-overlay-safe-height) - ${popupClearance} - 1rem)))`
   const boundedHeight = presentation === "popup" ? popupBoundedHeight : slotBoundedHeight

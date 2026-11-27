@@ -531,4 +531,43 @@ describe("UserBar Inbox switching", () => {
       expect(onOpenProfile).toHaveBeenCalledOnce()
     },
   )
+
+  it.each([
+    { name: "standard mobile UserBar", native: false, ua: "iPhone", expectedHeight: "60px" },
+    { name: "compact native mobile UserBar", native: true, ua: "iPhone", expectedHeight: "52px" },
+  ] as const)("offsets the mobile extension drawer only by keyboard progress above $name", ({ native, ua, expectedHeight }) => {
+    const bridge = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    const userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue(ua)
+    if (native) Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    else Reflect.deleteProperty(window, "__TAURI__")
+    try {
+      const inbox = createElement("button", null, "Inbox item")
+      const view = render(createElement(UserBar, {
+        breakpoint: "mobile",
+        user: { id: "u1", name: "User", avatar: "U" },
+        inbox,
+        hasUnread: false,
+        inboxOpen: true,
+        extension: {
+          active: "inbox",
+          inbox,
+          profile: null,
+          update: null,
+          updateBadgePhase: null,
+          eligibleMachines: [],
+          onOpenUpdate: vi.fn(),
+          onRequestUpdate: vi.fn(),
+          onDismiss: vi.fn(),
+        },
+      }))
+      const drawer = view.container.querySelector<HTMLElement>('[data-slot="user-bar-swipe"]')!
+      const slot = view.getByTestId(tid.userBarExtension)
+      expect(drawer.style.marginBottom).toBe(`max(0px, calc(var(--alook-keyboard-progress, 0px) - ${expectedHeight}))`)
+      expect(slot.style.height).toContain(`max(0px, calc(${expectedHeight} - var(--alook-keyboard-progress, 0px)))`)
+    } finally {
+      userAgent.mockRestore()
+      if (bridge) Object.defineProperty(window, "__TAURI__", bridge)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
 })

@@ -4,6 +4,7 @@ import { expectPaintedInboxCardSurface, expectSeamlessInboxCard } from "./_fixtu
 import type { Page, Request } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
+import { installMobileKeyboard } from "./_fixtures/mobile-keyboard"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { WEB_URL } from "./_setup/paths"
 import { tid } from "./_fixtures/testids"
@@ -502,7 +503,7 @@ test.describe("mobile Inbox interactive user-bar base", () => {
     })
     await expect.poll(async () => {
       const current = await surfaceGeometry(bob.page)
-      return current.card.bottom <= 544 + GEOMETRY_EPSILON && current.card.top >= 20 - GEOMETRY_EPSILON
+      return Math.abs(current.card.bottom - 544) <= GEOMETRY_EPSILON && current.card.top >= 20 - GEOMETRY_EPSILON
         && Math.abs(current.userBar.top - geometry.userBar.top) <= GEOMETRY_EPSILON
         && Math.abs(current.userBar.bottom - 810) <= GEOMETRY_EPSILON
     }).toBe(true)
@@ -1156,5 +1157,266 @@ test.describe("mobile Inbox interactive user-bar base", () => {
       contentType: "image/png",
     })
     await bob.page.mouse.up()
+  })
+
+  test("keeps mobile Inbox flush above legacy inset keyboard without double-deducting UserBar height", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `Mobile legacy inset ${stamp}`)
+    const unreadId = await seedChannel("alice", serverId, `legacy-unread-${stamp}`)
+    await seedJoinServer("alice", "bob", serverId)
+    await seedMessage("alice", unreadId, `Legacy inset target ${stamp}`)
+
+    const bob = await asUser("bob")
+    const keyboard = await installMobileKeyboard(bob.page, {
+      mode: "inset",
+      width: 390,
+      closedHeight: 844,
+      insetHeight: 300,
+      steps: 4,
+      initialDelayMs: 16,
+    })
+
+    try {
+      await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}`)
+      await ignoreNextDevToolsPointerCapture(bob.page)
+      await bob.page.evaluate(() => {
+        document.documentElement.style.setProperty("--app-safe-area-top", "59px")
+        document.documentElement.style.setProperty("--app-safe-area-bottom", "34px")
+        window.dispatchEvent(new Event("resize"))
+      })
+
+      await bob.page.getByTestId(tid.inboxTrigger).click()
+      const card = bob.page.getByTestId(tid.userBarExtension)
+      await expect(card).toBeVisible()
+      await waitForElementMotion(card)
+      await bob.page.getByTestId(tid.inboxToggleChannel(unreadId)).click()
+
+      const replyInput = bob.page.getByTestId(tid.inboxReplyInput(unreadId))
+      await expect(replyInput).toBeVisible()
+      await replyInput.click()
+      await keyboard.waitForState("open")
+
+      await expect.poll(async () => {
+        return card.evaluate((el, ids) => {
+          const scroll = document.querySelector<HTMLElement>(`[data-testid="${ids.scroll}"]`)!.getBoundingClientRect()
+          const input = document.querySelector<HTMLElement>(`[data-testid="${ids.input}"]`)!
+          const composer = input.closest<HTMLElement>('[data-slot="inbox-reply-composer"]')!.getBoundingClientRect()
+          const send = document.querySelector<HTMLElement>(`[data-testid="${ids.send}"]`)!.getBoundingClientRect()
+          const userBar = document.querySelector<HTMLElement>(`[data-testid="${ids.userBar}"]`)!.getBoundingClientRect()
+          const c = el.getBoundingClientRect()
+          return Math.abs(c.bottom - 544) <= 1
+            && c.top >= 59 - 1
+            && Math.abs(userBar.bottom - 810) <= 1
+            && composer.top >= scroll.top - 1
+            && composer.bottom <= scroll.bottom + 1
+            && send.top >= scroll.top - 1
+            && send.bottom <= scroll.bottom + 1
+        }, {
+          scroll: tid.inboxTabScroll("unreads"),
+          input: tid.inboxReplyInput(unreadId),
+          send: tid.inboxReplySend(unreadId),
+          userBar: tid.userBar,
+        })
+      }).toBe(true)
+
+      await testInfo.attach("inbox-mobile-legacy-inset-390x844", {
+        body: await bob.page.screenshot(),
+        contentType: "image/png",
+      })
+
+      const replyPost = bob.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && response.url().includes(`/api/community/channels/${unreadId}/messages`)
+      ))
+      await replyInput.fill(`Legacy inset reply ${stamp}`)
+      await bob.page.getByTestId(tid.inboxReplySend(unreadId)).click()
+      expect((await replyPost).status()).toBe(201)
+      await expect(bob.page.getByTestId(tid.inboxUnreadCard(unreadId))).toHaveCount(0)
+    } finally {
+      await keyboard.dispose()
+    }
+  })
+
+  test("measures native iPhone UA 52px UserBar geometry across legacy inset and native resize open/close", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `Native52px ${stamp}`)
+    const unreadId = await seedChannel("alice", serverId, `native52-unread-${stamp}`)
+    await seedJoinServer("alice", "bob", serverId)
+    await seedMessage("alice", unreadId, `Native 52px target ${stamp}`)
+
+    const bob = await asUser("bob")
+    await bob.page.addInitScript(() => {
+      Object.defineProperty(navigator, "userAgent", {
+        configurable: true,
+        value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+      })
+    })
+    const keyboard = await installMobileKeyboard(bob.page, {
+      mode: "inset",
+      width: 390,
+      closedHeight: 844,
+      insetHeight: 300,
+      steps: 4,
+      initialDelayMs: 16,
+    })
+
+    const readGeometry = () => bob.page.getByTestId(tid.userBarExtension).evaluate((el, ids) => {
+      const box = (node: Element | null) => {
+        if (!node) return null
+        const r = node.getBoundingClientRect()
+        return {
+          top: Math.round(r.top * 10) / 10,
+          bottom: Math.round(r.bottom * 10) / 10,
+          height: Math.round(r.height * 10) / 10,
+        }
+      }
+      const scroll = document.querySelector<HTMLElement>(`[data-testid="${ids.scroll}"]`)
+      const input = document.querySelector<HTMLElement>(`[data-testid="${ids.input}"]`)
+      const composer = input?.closest<HTMLElement>('[data-slot="inbox-reply-composer"]') ?? null
+      const send = document.querySelector<HTMLElement>(`[data-testid="${ids.send}"]`)
+      const userBar = document.querySelector<HTMLElement>(`[data-testid="${ids.userBar}"]`)
+      const userBarBase = userBar?.querySelector<HTMLElement>('[data-slot="community-user-bar-base"]') ?? null
+      const bounds = document.querySelector<HTMLElement>('[data-slot="app-safe-bounds"]')
+      return {
+        userBarPaddingBottom: userBar?.style.paddingBottom ?? "",
+        userBar: box(userBar),
+        userBarBase: box(userBarBase),
+        bounds: box(bounds),
+        card: box(el),
+        scroll: box(scroll),
+        composer: box(composer),
+        send: box(send),
+      }
+    }, {
+      scroll: tid.inboxTabScroll("unreads"),
+      input: tid.inboxReplyInput(unreadId),
+      send: tid.inboxReplySend(unreadId),
+      userBar: tid.userBar,
+    })
+
+    try {
+      await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}`)
+      await ignoreNextDevToolsPointerCapture(bob.page)
+      await bob.page.evaluate(() => {
+        document.documentElement.style.setProperty("--app-safe-area-top", "59px")
+        document.documentElement.style.setProperty("--app-safe-area-bottom", "34px")
+        window.dispatchEvent(new Event("resize"))
+      })
+
+      await bob.page.getByTestId(tid.inboxTrigger).click()
+      const card = bob.page.getByTestId(tid.userBarExtension)
+      await expect(card).toBeVisible()
+      await waitForElementMotion(card)
+      await bob.page.getByTestId(tid.inboxToggleChannel(unreadId)).click()
+
+      const replyInput = bob.page.getByTestId(tid.inboxReplyInput(unreadId))
+      await expect(replyInput).toBeVisible()
+
+      const legacyBefore = await readGeometry()
+      expect(legacyBefore.userBarPaddingBottom).toBe("0.25rem")
+      expect(Math.abs(legacyBefore.userBarBase!.bottom + 4 - legacyBefore.userBar!.bottom)).toBeLessThanOrEqual(GEOMETRY_EPSILON)
+      expect(Math.abs(legacyBefore.userBar!.bottom - 810)).toBeLessThanOrEqual(GEOMETRY_EPSILON)
+      expect(Math.abs(legacyBefore.card!.bottom - legacyBefore.userBarBase!.top)).toBeLessThanOrEqual(GEOMETRY_EPSILON)
+      expect(Math.abs(legacyBefore.userBar!.bottom - legacyBefore.userBarBase!.top - 52)).toBeLessThanOrEqual(GEOMETRY_EPSILON)
+
+      // 1) Legacy inset bridge open -> flush at 544px without 8px overlap or 60px gap
+      await replyInput.click()
+      await keyboard.waitForState("open")
+      await expect.poll(async () => {
+        const g = await readGeometry()
+        return Math.abs(g.card!.bottom - 544) <= GEOMETRY_EPSILON
+          && g.card!.top >= 59 - GEOMETRY_EPSILON
+          && Math.abs(g.userBar!.bottom - 810) <= GEOMETRY_EPSILON
+          && g.composer!.top >= g.scroll!.top - GEOMETRY_EPSILON
+          && g.composer!.bottom <= g.scroll!.bottom + GEOMETRY_EPSILON
+          && g.send!.top >= g.scroll!.top - GEOMETRY_EPSILON
+          && g.send!.bottom <= g.scroll!.bottom + GEOMETRY_EPSILON
+      }).toBe(true)
+      const legacyOpen = await readGeometry()
+      await testInfo.attach("native-iphone-52px-legacy-inset-open", {
+        body: await bob.page.screenshot(),
+        contentType: "image/png",
+      })
+
+      // 2) Legacy inset bridge close -> exact restore flush on 52px UserBar (758px)
+      await bob.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await keyboard.waitForState("closed")
+      await expect.poll(async () => {
+        const g = await readGeometry()
+        return Math.abs(g.card!.bottom - g.userBarBase!.top) <= GEOMETRY_EPSILON
+          && Math.abs(g.card!.bottom - 758) <= GEOMETRY_EPSILON
+      }).toBe(true)
+      const legacyClosed = await readGeometry()
+
+      // 3) Native resize / constrained 390x480 viewport (no --alook-keyboard-progress):
+      //    52px UserBar clearance gives exact 369px (+8px vs old 361px) flush at 428px, top=59px unclipped.
+      await bob.page.evaluate(() => {
+        const root = document.documentElement
+        root.dataset.alookNativeResize = "true"
+        root.style.removeProperty("--alook-keyboard-bottom")
+        root.style.removeProperty("--alook-keyboard-progress")
+        root.style.setProperty("--app-safe-area-top", "59px")
+        root.style.setProperty("--app-safe-area-bottom", "0px")
+        root.style.setProperty("--app-native-window-height", "844px")
+        root.style.setProperty("--app-native-window-safe-bottom", "20px")
+      })
+      await bob.page.setViewportSize({ width: 390, height: 480 })
+      await bob.page.evaluate(() => window.dispatchEvent(new Event("resize")))
+      await expect.poll(async () => {
+        const g = await readGeometry()
+        return Math.abs(g.card!.height - 369) <= GEOMETRY_EPSILON
+          && Math.abs(g.card!.top - 59) <= GEOMETRY_EPSILON
+          && Math.abs(g.card!.bottom - 428) <= GEOMETRY_EPSILON
+          && Math.abs(g.userBarBase!.top - 428) <= GEOMETRY_EPSILON
+          && Math.abs(g.userBar!.bottom - 480) <= GEOMETRY_EPSILON
+          && g.composer!.top >= g.scroll!.top - GEOMETRY_EPSILON
+          && g.composer!.bottom <= g.scroll!.bottom + GEOMETRY_EPSILON
+          && g.send!.top >= g.scroll!.top - GEOMETRY_EPSILON
+          && g.send!.bottom <= g.scroll!.bottom + GEOMETRY_EPSILON
+      }).toBe(true)
+      const resizeOpen = await readGeometry()
+      await testInfo.attach("native-iphone-52px-resize-open", {
+        body: await bob.page.screenshot(),
+        contentType: "image/png",
+      })
+
+      // 4) Restore full height 390x844 -> exact restore on 52px UserBar (772px, card height 448px)
+      await bob.page.setViewportSize({ width: 390, height: 844 })
+      await bob.page.evaluate(() => {
+        document.documentElement.style.setProperty("--app-safe-area-bottom", "20px")
+        window.dispatchEvent(new Event("resize"))
+      })
+      await expect.poll(async () => {
+        const g = await readGeometry()
+        return Math.abs(g.card!.height - 448) <= GEOMETRY_EPSILON
+          && Math.abs(g.card!.bottom - 772) <= GEOMETRY_EPSILON
+          && Math.abs(g.userBar!.bottom - 824) <= GEOMETRY_EPSILON
+      }).toBe(true)
+      const resizeClosed = await readGeometry()
+      await testInfo.attach("native-iphone-52px-metrics", {
+        body: Buffer.from(JSON.stringify({ legacyBefore, legacyOpen, legacyClosed, resizeOpen, resizeClosed }, null, 2)),
+        contentType: "application/json",
+      })
+
+      // End-to-end inline reply works in native 52px state
+      const replyPost = bob.page.waitForResponse((response) => (
+        response.request().method() === "POST"
+        && response.url().includes(`/api/community/channels/${unreadId}/messages`)
+      ))
+      await replyInput.fill(`Native 52px reply ${stamp}`)
+      await bob.page.getByTestId(tid.inboxReplySend(unreadId)).click()
+      expect((await replyPost).status()).toBe(201)
+      await expect(bob.page.getByTestId(tid.inboxUnreadCard(unreadId))).toHaveCount(0)
+    } finally {
+      await keyboard.dispose()
+    }
   })
 })
