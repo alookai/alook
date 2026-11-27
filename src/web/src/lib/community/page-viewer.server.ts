@@ -19,8 +19,11 @@ export async function fetchPageHost(
   path: string,
   init: RequestInit,
 ): Promise<Response> {
+  if (pageHostOrigin(origin) !== origin) throw new Error("Invalid Page host origin")
+  const target = new URL(origin)
+  const loopback = target.hostname === "localhost" || target.hostname.endsWith(".localhost") || target.hostname === "127.0.0.1" || target.hostname === "[::1]"
   const url = `${origin}${path}`
-  if (process.env.NODE_ENV !== "development") {
+  if (process.env.NODE_ENV !== "development" || target.protocol !== "http:" || !loopback) {
     if (!binding) throw new Error("Page host service binding unavailable")
     return binding.fetch(new Request(url, init))
   }
