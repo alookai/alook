@@ -34,3 +34,13 @@ export const AlookPageViewerSchema = z.strictObject({
 });
 
 export type AlookPageViewer = z.infer<typeof AlookPageViewerSchema>;
+
+const artifactPath = z.string().min(1).max(512).refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").some((part) => part === ".." || part === "." || part === ""), "A relative artifact path is required");
+export const AlookPageOperationSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("actions") }),
+  z.strictObject({ kind: z.literal("manifest") }),
+  z.strictObject({ kind: z.literal("read"), path: artifactPath }),
+  z.strictObject({ kind: z.literal("write"), writes: z.array(z.strictObject({ path: artifactPath, content: z.string().max(1_398_104).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).refine((value) => value.length * 3 / 4 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0) <= 1024 * 1024).nullable(), if_match: z.string().max(256).nullable() })).min(1).max(16) }),
+  z.strictObject({ kind: z.literal("action"), name: z.string().min(1).max(128), args: z.record(z.string(), z.unknown()) }),
+]);
+export type AlookPageOperation = z.infer<typeof AlookPageOperationSchema>;

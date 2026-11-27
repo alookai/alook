@@ -10,6 +10,7 @@ export const communityProxyRoutes = {
 } as const;
 
 export function resolveProxyCapability(method: string, pathname: string): string | undefined {
+  if (/^\/api\/community\/pages\/[^/]+\/operations$/.test(pathname) && method === "POST") return "send";
   if (pathname === "/api/community/platform/feedback" && method === "POST") return "send";
   if (pathname.startsWith("/api/community/machines")) return "read";
   if (pathname === "/api/community/bots" && method === "GET") return "read";

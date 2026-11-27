@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AlookPageCommentSchema, getAlookPageEmbeds } from "./community-page";
+import { AlookPageOperationSchema, AlookPageCommentSchema, getAlookPageEmbeds } from "./community-page";
 
 describe("Alook Page wire contract", () => {
   it("extracts valid cards while preserving unrelated embeds and refusing injected destinations", () => {
@@ -21,3 +21,9 @@ describe("Alook Page wire contract", () => {
     ]) expect(AlookPageCommentSchema.safeParse(value).success).toBe(false);
   });
 });
+
+it("refuses unsafe paths and unconditional Page writes", () => {
+  for (const path of ["/absolute", "../outside", "a/../b", "a\\b", "a//b"]) expect(AlookPageOperationSchema.safeParse({ kind: "read", path }).success).toBe(false);
+  expect(AlookPageOperationSchema.safeParse({ kind: "write", writes: [{ path: "index.html", content: "YQ==" }] }).success).toBe(false);
+  expect(AlookPageOperationSchema.safeParse({ kind: "write", writes: [{ path: "index.html", content: "YQ==", if_match: null }] }).success).toBe(true);
+})

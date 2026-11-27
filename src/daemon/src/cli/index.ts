@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { MEMORY_COMMIT_MAX_BYTES, validateMemoryCommit } from "../memory/commit.js";
 import {
+  AlookPageOperationSchema,
   BOT_FEEDBACK_MAX_BYTES,
   DECISION_CARD_MAX_BYTES,
   parseDecisionCardCliInput,
@@ -305,7 +306,7 @@ async function dispatchSendAndArmReminder(
     );
   }
   const sent = `${res.message.channel}${res.message.seq}`;
-  const pii = res.pii?.triggeredFilters.length ? { pii: res.pii } : {};
+  const pii = { ...(res.pii?.triggeredFilters.length ? { pii: res.pii } : {}), ...(res.message.content.pages?.length ? { pages: res.message.content.pages } : {}) };
   const seqText = res.message.seq.replace(/^#/, "");
   const sentSeq = Number(seqText);
   if (!/^\d+$/.test(seqText) || !Number.isSafeInteger(sentSeq) || sentSeq < 1) {
@@ -336,6 +337,7 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   const replyToSeq = parseReplySeqOption("message send", opts.reply);
 
   if (opts.ask === true) {
+    if (opts.page) throw new CliError("message send: cannot combine --ask with --page");
     if (attachmentIds.length > 0) {
       throw new CliError("message send --ask: cannot combine --ask with --attachment");
     }
@@ -393,11 +395,22 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
     throw new CliError("message send: --stdin must contain text unless --attachment <id> is present");
   }
 
+  let page: { archiveAttachmentId: string } | undefined;
+  if (opts.page) {
+    const fs = await import("node:fs/promises");
+    const filePath = String(opts.page);
+    const size = (await fs.stat(filePath)).size;
+    if (!/\.zip$/i.test(filePath) || size < 1 || size > 16 * 1024 * 1024) throw new CliError("message send: --page requires a Page zip archive of at most 16 MiB");
+    const data = new Uint8Array(await fs.readFile(filePath));
+    const uploaded = await api.attachmentUpload({ agentId: agent, file: { data, filename: "page.zip", contentType: "application/zip" } });
+    page = { archiveAttachmentId: uploaded.id };
+  }
   const nonce = randomUUID();
   return dispatchSendAndArmReminder(api, channel, remindAfterMs, {
     agentId: agent,
     channel,
     content: { text: text ?? "" },
+    ...(page ? { page } : {}),
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
     replyToSeq,
     nonce,
@@ -815,6 +828,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
     .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB, or 8 KiB JSON with --ask)")
+    .option("--page <zip>", "publish a Page archive with this message; requires .artifact.json and the artifact files in the zip root")
     .option("--ask", "send a structured decision card from UTF-8 JSON on --stdin with required summary and questions (text channel, thread, or DM)")
     .option(
       "-a, --attachment <id>",
@@ -835,6 +849,24 @@ function buildProgram(stdin: CliInputStream): Command {
       const globalOpts = program.opts();
       const result = await cmdMessageSend({ ...globalOpts, ...localOpts }, stdin);
       printEnvelope({ success: result });
+    });
+
+  program.command("page").description("read or change a published Page through its native file or editor actions")
+    .requiredOption("--id <id>", "Page id from its message card")
+    .requiredOption("--stdin", "operation JSON: actions (native schemas), manifest, read, write (requires if_match), or action")
+    .option("--out <path>", "write a read operation's base64 file response to this local path")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const opts = this.opts();
+      const text = await readLiteralInput({ command: "page", stdinSelected: opts.stdin === true, stdin, maxBytes: 2 * 1024 * 1024, strictUtf8: true });
+      const operation = AlookPageOperationSchema.parse(JSON.parse(text ?? ""));
+      const result = await getApi().page({ id: String(opts.id), operation });
+      if (opts.out) {
+        if (operation.kind !== "read" || !result || typeof result !== "object" || !("content" in result) || typeof result.content !== "string") throw new CliError("page: --out requires a successful read operation");
+        const fs = await import("node:fs/promises");
+        await fs.writeFile(String(opts.out), Buffer.from(result.content, "base64"), { flag: "wx" });
+        printEnvelope({ success: { path: opts.out, etag: "etag" in result ? result.etag : undefined } });
+      } else printEnvelope({ success: result });
     });
 
   const property = message.command("property").description("message property operations").exitOverride();

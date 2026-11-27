@@ -9,6 +9,7 @@ import { createMessageWithThread } from "./create-channels"
 import { resolveMessageTarget, type MessageTargetDescriptor } from "./message-door"
 import { fanOutToUsers } from "./fanout"
 import { isDuplicateBotMessage, DUPLICATE_MESSAGE_ERROR } from "./jev-send-dedup"
+import { preparePagePublication } from "./page-publish.server"
 import { prepareBotDecisionCard } from "./decision-card.server"
 
 /**
@@ -24,6 +25,7 @@ export async function handleHumanSend(
   descriptor: MessageTargetDescriptor,
   raw: unknown,
   contract: CommunityContract,
+  options: { prepare?: () => Promise<{ content: string; attachments: string[] }> } = {},
 ): Promise<NextResponse> {
   const rateLimit = await checkRateLimit(env, "community:msgSend", userId)
   if (!rateLimit.allowed) {
@@ -40,7 +42,7 @@ export async function handleHumanSend(
   const preserveReadState = body?.preserveReadState === true
   const target = resolved.value.target
 
-  const attachmentIds = Array.isArray(body.attachments)
+  let attachmentIds = Array.isArray(body.attachments)
     ? (body.attachments as unknown[]).filter((x): x is string => typeof x === "string")
     : []
   // A human send into a forum uses the same canonical message door and the
@@ -77,6 +79,12 @@ export async function handleHumanSend(
   })
   if (replay) {
     return humanMessageConfirmation(db, contract, target.channelId, { ...await mapPostedMessageForApi(db, target.channelId, { ...replay.row, clientNonce }, contract), deduped: true }, 200)
+  }
+
+  if (options.prepare) {
+    const prepared = await options.prepare()
+    raw = { ...(raw && typeof raw === "object" ? raw : {}), ...prepared }
+    attachmentIds = prepared.attachments
   }
 
   const result = await createCommunityMessage({
@@ -137,6 +145,7 @@ export async function handleBotSend(
   }
   const target = resolved.value.target
   const channelId = target.channelId
+  let pagePublication: Extract<Awaited<ReturnType<typeof preparePagePublication>>, { ok: true }> | undefined
   const createForumOpener = (serverId: string, expectedSeq?: number) =>
     createMessageWithThread({
       db,
@@ -148,6 +157,7 @@ export async function handleBotSend(
       clientNonce: body.nonce,
       ...(expectedSeq !== undefined ? { expectedSeq } : {}),
       source: "cli",
+      ...(pagePublication ? { embeds: pagePublication.embeds, extraStatementsForMessage: pagePublication.statements } : {}),
       extraStatements: [
         queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
       ],
@@ -244,6 +254,12 @@ export async function handleBotSend(
     return NextResponse.json({ error: DUPLICATE_MESSAGE_ERROR, code: "duplicate_message" }, { status: 422 })
   }
 
+  if (body.page) {
+    const prepared = await preparePagePublication(db, env, botUserId, body.nonce!, body.page.archiveAttachmentId)
+    if (!prepared.ok) return NextResponse.json({ error: prepared.error }, { status: prepared.status })
+    pagePublication = prepared
+  }
+
   if (target.kind === "forum") {
     const created = await createForumOpener(target.serverId, latestSeq)
     if (!created.ok) {
@@ -297,6 +313,7 @@ export async function handleBotSend(
       embeds: preparedQuestion.embeds,
       explicitMentionedUserIds: preparedQuestion.explicitMentionedUserIds,
     } : {}),
+    ...(pagePublication ? { embeds: pagePublication.embeds, extraStatementsForMessage: pagePublication.statements } : {}),
     extraStatements: [
       queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
     ],

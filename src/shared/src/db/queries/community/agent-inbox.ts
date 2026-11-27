@@ -1,3 +1,4 @@
+import { getAlookPageEmbeds } from "../../../community-page";
 
 import { eq, and, inArray, gt, lt, ne, asc, desc, sql } from "drizzle-orm";
 import {
@@ -292,6 +293,8 @@ export async function toAgentMessages(
       ? { question: toDecisionCardAgentPayload(decisionCard) }
       : { text: r.content };
     if (atts && atts.length > 0) content.attachments = atts;
+    const pages = getAlookPageEmbeds(parseRawEmbedsArray(r.embeds));
+    if (pages.length > 0) content.pages = pages;
     const replyTo = r.replyToId ? replyByMessageId.get(r.replyToId) : undefined;
     if (replyTo) content.replyTo = replyTo;
     const forumReplyRef = scope.isForum ? `${channel}/${formatSeq(r.seq)}` : null;

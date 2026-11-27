@@ -1,0 +1,5 @@
+.cache/
+dist/
+.state/
+.dev.vars
+worker-configuration.d.ts

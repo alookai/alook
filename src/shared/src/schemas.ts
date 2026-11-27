@@ -507,6 +507,7 @@ export const CommunityAgentSendRequestSchema = z
     channel: z.string().min(1),
     content: CommunityAgentMessageContentSchema,
     question: DecisionCardInputSchema.optional(),
+    page: z.strictObject({ archiveAttachmentId: z.string().min(1).max(128) }).optional(),
     attachments: z
       .array(z.string().min(1))
       .max(MAX_ATTACHMENTS_PER_MESSAGE)
@@ -517,6 +518,9 @@ export const CommunityAgentSendRequestSchema = z
     nonce: z.string().min(1).max(128).optional(),
   })
   .superRefine((d, ctx) => {
+    if (d.page && (!d.nonce || d.question)) {
+      ctx.addIssue({ code: "custom", path: ["page"], message: "Page publication requires a nonce and cannot include a decision card" });
+    }
     if (d.question !== undefined) {
       if (d.attachments.length > 0) {
         ctx.addIssue({

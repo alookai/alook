@@ -641,6 +641,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     inboxSnapshot: (_r: { agentId: AgentId }) => callInboxSnapshot(),
     ack: callAck,
     send: callSend,
+    page: (req) => platformCall(`/pages/${encodeURIComponent(req.id)}/operations`, "POST", req.operation),
     read: callRead,
     resolve: callResolve,
     listMembers: callListMembers,

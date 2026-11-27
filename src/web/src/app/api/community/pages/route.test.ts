@@ -32,6 +32,7 @@ vi.mock("@alook/shared", async () => {
 import { POST as viewer } from "./[id]/viewer-token/route"
 import { POST as exchange } from "./viewer-exchange/route"
 import { POST as access } from "./access/route"
+import { POST as nativeComment } from "./artifact-comment/route"
 import { POST as comment } from "./[id]/comments/route"
 
 const page = { id: "page", artifactId: "art_page", messageId: "source", botId: "bot", channelId: "channel", channelType: "text", createdAt: "now" }
@@ -157,4 +158,15 @@ describe("Page feedback is an ordinary human message", () => {
     expect((await comment(request({ text: "Hello" }), route)).status).toBe(401)
     expect(mocks.send).not.toHaveBeenCalled()
   })
+})
+
+it("native feedback requires the service credential, resolves live source access, and preserves the real author and nonce", async () => {
+  const body = { subject: "reader", artifactId: "art_page", text: "Fix this", nonce: "native-request" }
+  expect((await nativeComment(request(body))).status).toBe(401)
+  expect(mocks.send).not.toHaveBeenCalled()
+  expect((await nativeComment(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))).status).toBe(201)
+  expect(mocks.access).toHaveBeenCalledWith({}, "art_page", "reader")
+  expect(mocks.send).toHaveBeenCalledWith({}, "reader", mocks.env, { id: "channel" }, expect.objectContaining({ nonce: "native-request", replyToId: "source" }), expect.any(Number))
+  mocks.access.mockResolvedValue(null)
+  expect((await nativeComment(request(body, mocks.env.ALOOK_PAGE_SERVICE_KEY))).status).toBe(404)
 })

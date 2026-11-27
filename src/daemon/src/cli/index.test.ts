@@ -2503,3 +2503,29 @@ describe("platform feedback stdin", () => {
     expect(parseEnvelope(cap.lines()).error).toBeTypeOf("string");
   });
 });
+
+it("publishes a Page through the ordinary upload and message send, retaining reminder behavior", async () => {
+  const fs = await import("node:fs/promises");
+  const folder = await fs.mkdtemp(join(tmpdir(), "page-cli-"));
+  const file = join(folder, "page.zip");
+  await fs.writeFile(file, "synthetic archive");
+  const upload = vi.fn(async () => ({ id: "archive-id", filename: "page.zip", contentType: "application/zip", size: 17 }));
+  const send = vi.fn(stubApi().send);
+  setApiForTesting(stubApi({ attachmentUpload: upload, send }));
+  try {
+    expect(await mainWithStdin(["message", "send", "--page", file, "--target", "/s#0042/general", "--stdin", "--remind-after", "5m"], "Review this Page")).toBe(0);
+    expect(upload).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ page: { archiveAttachmentId: "archive-id" }, content: { text: "Review this Page" }, nonce: expect.any(String) }));
+    expect(mockArmMessageReminder).toHaveBeenCalledWith(expect.objectContaining({ remindAfterMs: 300_000 }));
+  } finally { await fs.rm(folder, { recursive: true, force: true }); }
+});
+
+it("requires a file version for Page writes before calling the server", async () => {
+  const page = vi.fn(async () => ({ results: [] }));
+  setApiForTesting(stubApi({ page }));
+  expect(await mainWithStdin(["page", "--id", "page_1", "--stdin"], JSON.stringify({ kind: "write", writes: [{ path: "index.html", content: "YQ==" }] }))).toBe(0);
+  expect(JSON.parse(cap.lines()[0])).toHaveProperty("error");
+  expect(page).not.toHaveBeenCalled();
+  expect(await mainWithStdin(["page", "--id", "page_1", "--stdin"], JSON.stringify({ kind: "write", writes: [{ path: "index.html", content: "YQ==", if_match: "prior-etag" }] }))).toBe(0);
+  expect(page).toHaveBeenCalledWith({ id: "page_1", operation: { kind: "write", writes: [{ path: "index.html", content: "YQ==", if_match: "prior-etag" }] } });
+});

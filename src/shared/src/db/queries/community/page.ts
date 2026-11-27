@@ -23,7 +23,7 @@ export function pageBindingStatement(db: Database, data: typeof communityPage.$i
     )));
 }
 
-async function readablePage(db: Database, key: "id" | "artifactId", value: string, readerId: string) {
+async function readablePage(db: Database, key: "id" | "artifactId", value: string, readerId: string, publisher = false) {
   const reader = db.select({ id: user.id }).from(user)
     .where(and(eq(user.id, readerId), isNull(user.deletedAt)));
   const [row] = await db.select({
@@ -35,6 +35,7 @@ async function readablePage(db: Database, key: "id" | "artifactId", value: strin
     .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
     .where(and(
       eq(communityPage[key], value),
+      ...(publisher ? [eq(communityPage.botId, readerId)] : []),
       exists(reader),
       messageChannelReadableSql(db, readerId, {
         id: communityChannel.id,
@@ -52,6 +53,10 @@ export function getReadablePage(db: Database, id: string, readerId: string) {
 
 export function getReadablePageForArtifact(db: Database, artifactId: string, readerId: string) {
   return readablePage(db, "artifactId", artifactId, readerId);
+}
+
+export function getPublishedPage(db: Database, id: string, botId: string) {
+  return readablePage(db, "id", id, botId, true);
 }
 
 const viewerTicket = z.strictObject({ userId: z.string().min(1), pageId: z.string().min(1), origin: z.url() });

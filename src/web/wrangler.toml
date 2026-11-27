@@ -39,6 +39,10 @@ binding = "ASSETS"
 binding = "WORKER_SELF_REFERENCE"
 service = "alook-web"
 
+[[services]]
+binding = "ALOOK_PAGE_HOST"
+service = "alook-page-host"
+
 # OpenNext internal cache
 [[r2_buckets]]
 binding = "NEXT_INC_CACHE_R2_BUCKET"

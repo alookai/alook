@@ -40,6 +40,13 @@ export async function getReadableAttachmentById(db: Database, id: string, userId
   return row ?? null;
 }
 
+export async function getOwnedAttachmentById(db: Database, id: string, uploaderId: string) {
+  const active = db.select({ id: user.id }).from(user).where(and(eq(user.id, uploaderId), isNull(user.deletedAt)));
+  const [row] = await db.select().from(communityAttachment)
+    .where(and(eq(communityAttachment.id, id), eq(communityAttachment.uploaderId, uploaderId), exists(active))).limit(1);
+  return row ?? null;
+}
+
 function messageAttachments(db: Database, ids: string[]) {
   return db.select({ ...getTableColumns(communityAttachment), messageId: communityMessageAttachment.messageId,
     position: communityMessageAttachment.position, targetId: communityMessage.channelId })

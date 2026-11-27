@@ -210,6 +210,7 @@ export interface SendMessageContent {
 }
 
 export interface MessageContent {
+  pages?: import("./community-page").AlookPageEmbed[];
   /** Present on ordinary messages (and fallback rows without a structured question payload). */
   text?: string;
   /**
@@ -353,6 +354,7 @@ export interface SendRequest {
   content: SendMessageContent;
   /** Structured decision card payload sent via `--ask`. */
   question?: DecisionCardInput;
+  page?: { archiveAttachmentId: string };
   /**
    * Attachment ids returned by prior `attachmentUpload` calls. Order matters —
    * position on the resulting message is stamped left-to-right (0-indexed).
@@ -689,6 +691,7 @@ export interface ServerApi {
 
   /** Send a message to a channel ref. May be held by the freshness guard. */
   send(req: SendRequest): Promise<SendResponse>;
+  page(req: { id: string; operation: import("./community-page").AlookPageOperation }): Promise<unknown>;
 
   /** Read history for a channel with seq-anchored pagination. */
   read(req: ReadRequest): Promise<Page<Message>>;

@@ -1144,3 +1144,16 @@ describe("decision card message-handler boundaries", () => {
     expect(mockGetPrivateChannelAudienceUserIds).not.toHaveBeenCalled()
   })
 })
+
+describe("trusted message binding", () => {
+  it("passes the exact inserted message id into the same batch's Page statement", async () => {
+    mockCreateMessage.mockResolvedValue({ id: "stored" })
+    mockGetMessage.mockResolvedValue(messageRow())
+    const binding = { kind: "page-binding" }
+    const statement = vi.fn(() => [binding])
+    await createCommunityMessage({ authorKind: "bot", db: {} as never, authorId: "author_1", target: { kind: "channel", channelId: "c1", serverId: "srv_1" }, body: { content: "Page" }, source: "cli", extraStatementsForMessage: statement })
+    const data = mockCreateMessage.mock.calls.at(-1)![1]
+    expect(statement).toHaveBeenCalledWith(data.id)
+    expect(data.extraStatements).toContain(binding)
+  })
+})
