@@ -7,6 +7,7 @@ import {
 
 const activation: DesktopSystemNotificationActivation = {
   notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+  viewerUserId: "viewer_1",
   target: {
     kind: "server",
     serverId: "server_1",
@@ -22,6 +23,11 @@ describe("desktop system notification routes", () => {
   it("accepts only exact allowlisted activation fields", () => {
     expect(parseDesktopSystemNotificationActivation(activation)).toEqual(activation)
     expect(parseDesktopSystemNotificationActivation({ ...activation, href: "https://evil.test" })).toBeNull()
+    expect(parseDesktopSystemNotificationActivation({ ...activation, viewerUserId: "../evil" })).toBeNull()
+    expect(parseDesktopSystemNotificationActivation({
+      notificationId: activation.notificationId,
+      target: activation.target,
+    })).toBeNull()
     expect(parseDesktopSystemNotificationActivation({
       ...activation,
       target: { ...activation.target, serverId: "../escape" },
@@ -35,6 +41,7 @@ describe("desktop system notification routes", () => {
   it("accepts an exact DM activation and rejects malformed or unknown targets", () => {
     const dmActivation: DesktopSystemNotificationActivation = {
       notificationId: activation.notificationId,
+      viewerUserId: "viewer_1",
       target: {
         kind: "dm",
         channelId: "dm_1",

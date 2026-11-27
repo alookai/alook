@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   suspend: vi.fn(),
   unregister: vi.fn(),
   readPending: vi.fn(),
+  clearDesktop: vi.fn(),
+  clearMobile: vi.fn(),
 }))
 
 vi.mock("better-auth/react", () => ({
@@ -22,7 +24,12 @@ vi.mock("better-auth/client/plugins", () => ({
   lastLoginMethodClient: vi.fn((cfg: unknown) => ({ __plugin: "lastLoginMethodClient", cfg })),
 }))
 
+vi.mock("@/lib/community/desktop-system-notification", () => ({
+  clearDesktopSystemNotificationsForViewer: mocks.clearDesktop,
+}))
+
 vi.mock("@/lib/community/mobile-system-notification", () => ({
+  clearMobileSystemNotificationsForViewer: mocks.clearMobile,
   readPendingMobileSystemNotificationUnregistration: mocks.readPending,
   resumeMobileSystemNotificationRegistration: mocks.resume,
   suspendMobileSystemNotificationRegistration: mocks.suspend,
@@ -35,6 +42,8 @@ import { signOut } from "./auth-client"
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.unregister.mockResolvedValue(undefined)
+  mocks.clearDesktop.mockResolvedValue(undefined)
+  mocks.clearMobile.mockResolvedValue(undefined)
   mocks.readPending.mockReturnValue(null)
   mocks.underlyingSignOut.mockResolvedValue({ data: null, error: null })
 })

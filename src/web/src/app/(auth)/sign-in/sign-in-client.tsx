@@ -32,9 +32,10 @@ import {
   type LandingScene,
 } from "@/components/home/landing-shell-motion-timeline"
 import galleryStyles from "@/components/home/landing-shell-motion.module.css"
-import { DEV_PASSWORD } from "@alook/shared"
+import { DEV_PASSWORD, isTauri } from "@alook/shared"
 import { ArrowLeft, CircleCheck, Mail } from "@/components/icons/lucide";
 import Image from "next/image"
+import { useNativeOauth } from "@/hooks/use-native-oauth"
 import { safeRedirectPath } from "@/lib/safe-redirect"
 import { cn } from "@/lib/utils"
 
@@ -112,6 +113,7 @@ function SignInForm({
   const [lastUsedMethod, setLastUsedMethod] = useAtom(
     useCreateAtom<LoginMethod | null>(initialLastUsedMethod),
   )
+  const nativeOauth = useNativeOauth(isTauri())
 
   const finishSlide = useCallback(
     (target: "methods" | "email" | "code") => {
@@ -416,6 +418,7 @@ function SignInForm({
                     postLoginUrl={postLoginUrl}
                     appleEnabled={appleEnabled}
                     lastUsedMethod={lastUsedMethod}
+                    nativeOauth={nativeOauth}
                   />
 
                   <FieldSeparator className="*:data-[slot=field-separator-content]:text-xs">

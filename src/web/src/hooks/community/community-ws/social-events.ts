@@ -1,5 +1,6 @@
 import {
   isDesktop,
+  isMobile,
   type CommunityFriendAccept,
   type CommunityFriendBlock,
   type CommunityFriendReject,
@@ -22,9 +23,15 @@ import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  clearDesktopSystemNotificationsForViewer,
+  dismissDesktopSystemNotificationConversation,
   resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
 } from "@/lib/community/desktop-system-notification"
+import {
+  clearMobileSystemNotificationsForViewer,
+  dismissMobileSystemNotificationConversation,
+} from "@/lib/community/mobile-system-notification"
 import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { applyCommunityDmBlockAccess } from "@/lib/community-db/sync"
@@ -36,14 +43,60 @@ export function handleReadStateAdvanced(
   applyReadStateEnvelope(event, context)
 }
 
+function dismissAdvancedNativeConversations(
+  viewerId: string,
+  context: SocialEventContext,
+  previousReadSeq: ReadonlyMap<string, number>,
+  nextReadStates: ReadonlyArray<{ channelId: string; lastReadSeq: number }>,
+) {
+  if (context.viewerUserIdRef.current !== viewerId) return
+  const registry = getCommunityDbRegistry(context.queryClient)
+  for (const row of nextReadStates) {
+    if (row.lastReadSeq <= (previousReadSeq.get(row.channelId) ?? 0)) continue
+    if (isDesktop()) {
+      const channel = registry?.collections.channels.get(row.channelId)
+      if (!channel) continue
+      const target = channel.type === "dm"
+        ? { kind: "dm" as const, channelId: row.channelId }
+        : channel.serverId
+        ? { kind: "server" as const, serverId: channel.serverId, channelId: row.channelId }
+        : null
+      if (target) {
+        void dismissDesktopSystemNotificationConversation(viewerId, target).catch(() => undefined)
+      }
+    } else if (isMobile()) {
+      void dismissMobileSystemNotificationConversation(viewerId, row.channelId).catch(() => undefined)
+    }
+  }
+}
+
 function applyReadStateEnvelope(
   event: CommunityReadStateAdvanced | CommunityInboxChanged,
   context: SocialEventContext,
 ) {
+  const viewerId = context.viewerUserIdRef.current
+  const shouldDismissNative = Boolean(viewerId && (isDesktop() || isMobile()))
+  const previousReadSeq = new Map<string, number>()
+  if (shouldDismissNative) {
+    const registry = getCommunityDbRegistry(context.queryClient)
+    if (registry) {
+      for (const row of registry.collections.readStates.values()) {
+        previousReadSeq.set(row.channelId, row.lastReadSeq)
+      }
+    }
+  }
   const outcome = projectReadStateEnvelope(context.queryClient, event)
   if (outcome === "gap") {
     void reconcileAccountReadState(context.queryClient, {
       targetRevision: event.revision,
+    }).then((snapshot) => {
+      if (!shouldDismissNative || !viewerId || context.viewerUserIdRef.current !== viewerId) return
+      if (event.type === "community:inbox.changed" && event.reason === "read_all") {
+        if (isDesktop()) void clearDesktopSystemNotificationsForViewer(viewerId).catch(() => undefined)
+        else if (isMobile()) void clearMobileSystemNotificationsForViewer(viewerId).catch(() => undefined)
+        return
+      }
+      dismissAdvancedNativeConversations(viewerId, context, previousReadSeq, snapshot.readStates)
     }).catch(() => undefined)
   }
 }

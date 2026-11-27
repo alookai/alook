@@ -23,6 +23,8 @@ pub struct Activation {
     pub notification_id: String,
     pub message_id: String,
     pub target_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewer_user_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -156,6 +158,10 @@ pub fn validate_activation(
         if !uuid(&value.notification_id)
             || !safe_id(&value.message_id)
             || !safe_id(&value.target_id)
+            || value
+                .viewer_user_id
+                .as_deref()
+                .is_some_and(|viewer| !safe_id(viewer))
         {
             return Err(MobileSystemNotificationError::new(
                 "invalid_native_response",
@@ -254,16 +260,34 @@ mod tests {
             notification_id: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e".to_string(),
             message_id: "message_1".to_string(),
             target_id: "channel-2".to_string(),
+            viewer_user_id: Some("viewer_1".to_string()),
         };
         assert!(validate_activation(Some(value)).is_ok());
         assert!(validate_activation(None).is_ok());
+
+        let legacy = Activation {
+            notification_id: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e".to_string(),
+            message_id: "message_1".to_string(),
+            target_id: "channel-2".to_string(),
+            viewer_user_id: None,
+        };
+        assert!(validate_activation(Some(legacy)).is_ok());
 
         let invalid = Activation {
             notification_id: "bad".to_string(),
             message_id: "../message".to_string(),
             target_id: "channel".to_string(),
+            viewer_user_id: Some("viewer_1".to_string()),
         };
         assert!(validate_activation(Some(invalid)).is_err());
+
+        let invalid_viewer = Activation {
+            notification_id: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e".to_string(),
+            message_id: "message_1".to_string(),
+            target_id: "channel-2".to_string(),
+            viewer_user_id: Some("../viewer".to_string()),
+        };
+        assert!(validate_activation(Some(invalid_viewer)).is_err());
     }
 
     #[test]

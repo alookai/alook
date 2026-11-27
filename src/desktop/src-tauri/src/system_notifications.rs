@@ -9,6 +9,9 @@ use tauri_plugin_store::{Store, StoreExt};
 
 const RECORD_VERSION: u8 = 1;
 const MAX_RECENT: usize = 256;
+const MAX_PENDING_ACTIVATIONS: usize = 32;
+#[cfg(target_os = "linux")]
+const MAX_LINUX_HANDLES: usize = 64;
 const ACTIVATION_SCHEME: &str = "ai.alook.desktop";
 const ACTIVATION_HOST: &str = "notification";
 const ACTIVATION_PATH: &str = "/open";
@@ -299,6 +302,7 @@ impl NotificationCandidate {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NotificationActivation {
     notification_id: String,
+    viewer_user_id: String,
     target: NotificationTarget,
 }
 
@@ -315,10 +319,12 @@ struct RecentNotification {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct NotificationRecord {
     version: u8,
     recent: Vec<RecentNotification>,
+    #[serde(default)]
+    pending_activations: Vec<NotificationActivation>,
 }
 
 impl NotificationRecord {
@@ -326,6 +332,7 @@ impl NotificationRecord {
         Self {
             version: RECORD_VERSION,
             recent: Vec::new(),
+            pending_activations: Vec::new(),
         }
     }
 
@@ -333,11 +340,17 @@ impl NotificationRecord {
         let record: Self = serde_json::from_value(value).map_err(|_| "store_invalid")?;
         if record.version != RECORD_VERSION
             || record.recent.len() > MAX_RECENT
+            || record.pending_activations.len() > MAX_PENDING_ACTIVATIONS
             || record.recent.iter().any(|item| {
                 !valid_notification_id(&item.notification_id)
                     || !valid_id(&item.viewer_user_id)
                     || !valid_id(&item.message_id)
                     || item.message_id != item.target.message_id()
+                    || !item.target.valid()
+            })
+            || record.pending_activations.iter().any(|item| {
+                !valid_notification_id(&item.notification_id)
+                    || !valid_id(&item.viewer_user_id)
                     || !item.target.valid()
             })
         {
@@ -376,30 +389,60 @@ impl NotificationRecord {
     fn rollback(&mut self, notification_id: &str) {
         self.recent
             .retain(|item| item.notification_id != notification_id);
+        self.pending_activations
+            .retain(|item| item.notification_id != notification_id);
     }
 
     fn activate(&mut self, notification_id: &str) -> Option<NotificationActivation> {
         let item = self
             .recent
-            .iter_mut()
+            .iter()
             .find(|item| item.notification_id == notification_id && !item.activated)?;
-        item.activated = true;
-        Some(NotificationActivation {
+        let activation = NotificationActivation {
             notification_id: item.notification_id.clone(),
+            viewer_user_id: item.viewer_user_id.clone(),
             target: item.target.clone(),
-        })
+        };
+        if !self
+            .pending_activations
+            .iter()
+            .any(|pending| pending.notification_id == notification_id)
+        {
+            self.pending_activations.push(activation.clone());
+            if self.pending_activations.len() > MAX_PENDING_ACTIVATIONS {
+                let overflow = self.pending_activations.len() - MAX_PENDING_ACTIVATIONS;
+                self.pending_activations.drain(0..overflow);
+            }
+        }
+        Some(activation)
     }
 
-    fn retry_activation(&mut self, notification_id: &str) -> bool {
-        let Some(item) = self
+    fn peek_activation(&self) -> Option<NotificationActivation> {
+        self.pending_activations.first().cloned()
+    }
+
+    fn ack_activation(&mut self, notification_id: &str) -> bool {
+        let before = self.pending_activations.len();
+        self.pending_activations
+            .retain(|item| item.notification_id != notification_id);
+        let removed = self.pending_activations.len() != before;
+        let mut marked = false;
+        if let Some(item) = self
             .recent
             .iter_mut()
-            .find(|item| item.notification_id == notification_id && item.activated)
-        else {
-            return false;
-        };
-        item.activated = false;
-        true
+            .find(|item| item.notification_id == notification_id && !item.activated)
+        {
+            item.activated = true;
+            marked = true;
+        }
+        removed || marked
+    }
+
+    #[cfg(target_os = "macos")]
+    fn has_notification(&self, notification_id: &str) -> bool {
+        self.recent
+            .iter()
+            .any(|item| item.notification_id == notification_id)
     }
 
     #[cfg(any(target_os = "macos", test))]
@@ -431,6 +474,19 @@ impl NotificationRecord {
             .collect()
     }
 
+    fn notification_ids_for_viewer(&self, viewer_user_id: &str) -> Vec<String> {
+        self.recent
+            .iter()
+            .filter(|item| !item.dismissed && item.viewer_user_id == viewer_user_id)
+            .map(|item| item.notification_id.clone())
+            .collect()
+    }
+
+    fn clear_viewer_pending(&mut self, viewer_user_id: &str) {
+        self.pending_activations
+            .retain(|item| item.viewer_user_id != viewer_user_id);
+    }
+
     fn complete_dismissals(&mut self, notification_ids: &[String]) {
         for item in &mut self.recent {
             if notification_ids.contains(&item.notification_id) {
@@ -444,7 +500,15 @@ pub struct DesktopSystemNotificationState {
     record: Mutex<NotificationRecord>,
     store: Arc<Store<tauri::Wry>>,
     notifications: Mutex<CurrentListener<Channel<()>>>,
-    pending: Mutex<Option<NotificationActivation>>,
+}
+
+fn notification_state(
+    window: &WebviewWindow,
+) -> Result<tauri::State<'_, DesktopSystemNotificationState>, &'static str> {
+    window
+        .app_handle()
+        .try_state::<DesktopSystemNotificationState>()
+        .ok_or("store_unavailable")
 }
 
 impl DesktopSystemNotificationState {
@@ -532,14 +596,9 @@ fn activate(app: &AppHandle, notification_id: &str) {
     let Some(state) = app.try_state::<DesktopSystemNotificationState>() else {
         return;
     };
-    let Ok(Some(activation)) = state.transact(|record| Ok(record.activate(notification_id))) else {
+    let Ok(Some(_activation)) = state.transact(|record| Ok(record.activate(notification_id))) else {
         return;
     };
-    if let Ok(mut pending) = state.pending.lock() {
-        *pending = Some(activation);
-    } else {
-        return;
-    }
     crate::commands::show_main_window(app);
     state.notify();
 }
@@ -581,7 +640,6 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         record: Mutex::new(record),
         store,
         notifications: Mutex::new(CurrentListener::default()),
-        pending: Mutex::new(None),
     };
     state.transact(|_| Ok(()))?;
     app.manage(state);
@@ -614,7 +672,6 @@ pub fn retire_listener(app: &AppHandle) {
 #[tauri::command]
 pub async fn desktop_system_notification_show(
     window: WebviewWindow,
-    state: tauri::State<'_, DesktopSystemNotificationState>,
     candidate: NotificationCandidate,
 ) -> Result<(), &'static str> {
     let diagnostics = notification_diagnostics_enabled(window.app_handle());
@@ -625,6 +682,7 @@ pub async fn desktop_system_notification_show(
         serde_json::json!({"result": guarded})
     );
     guarded?;
+    let state = notification_state(&window)?;
     let valid = candidate.valid();
     notification_diagnostic!(
         diagnostics,
@@ -685,10 +743,7 @@ pub fn desktop_system_notification_listen(
     channel: Channel<()>,
 ) -> Result<u64, &'static str> {
     guard(&window)?;
-    let state = window
-        .app_handle()
-        .try_state::<DesktopSystemNotificationState>()
-        .ok_or("store_unavailable")?;
+    let state = notification_state(&window)?;
     let id = state
         .notifications
         .lock()
@@ -700,10 +755,10 @@ pub fn desktop_system_notification_listen(
 #[tauri::command]
 pub fn desktop_system_notification_unlisten(
     window: WebviewWindow,
-    state: tauri::State<'_, DesktopSystemNotificationState>,
     registration_id: u64,
 ) -> Result<(), &'static str> {
     guard(&window)?;
+    let state = notification_state(&window)?;
     state
         .notifications
         .lock()
@@ -713,41 +768,34 @@ pub fn desktop_system_notification_unlisten(
 }
 
 #[tauri::command]
-pub fn desktop_system_notification_take_activation(
+pub fn desktop_system_notification_peek_activation(
     window: WebviewWindow,
-    state: tauri::State<'_, DesktopSystemNotificationState>,
 ) -> Result<Option<NotificationActivation>, &'static str> {
     guard(&window)?;
-    Ok(state
-        .pending
-        .lock()
-        .map_err(|_| "activation_unavailable")?
-        .take())
+    let state = notification_state(&window)?;
+    let record = state.record.lock().map_err(|_| "activation_unavailable")?;
+    Ok(record.peek_activation())
 }
 
 #[tauri::command]
-pub fn desktop_system_notification_retry_activation(
+pub fn desktop_system_notification_ack_activation(
     window: WebviewWindow,
-    state: tauri::State<'_, DesktopSystemNotificationState>,
     notification_id: String,
 ) -> Result<(), &'static str> {
     guard(&window)?;
     if !valid_notification_id(&notification_id) {
         return Err("notification_invalid");
     }
+    let state = notification_state(&window)?;
     state.transact(|record| {
-        if record.retry_activation(&notification_id) {
-            Ok(())
-        } else {
-            Err("activation_unavailable")
-        }
+        record.ack_activation(&notification_id);
+        Ok(())
     })
 }
 
 #[tauri::command]
 pub async fn desktop_system_notification_dismiss(
     window: WebviewWindow,
-    state: tauri::State<'_, DesktopSystemNotificationState>,
     notification_id: String,
 ) -> Result<(), &'static str> {
     let diagnostics = notification_diagnostics_enabled(window.app_handle());
@@ -760,6 +808,7 @@ pub async fn desktop_system_notification_dismiss(
         })
     );
     guarded?;
+    let state = notification_state(&window)?;
     let valid = valid_notification_id(&notification_id);
     notification_diagnostic!(
         diagnostics,
@@ -787,7 +836,6 @@ pub async fn desktop_system_notification_dismiss(
 #[tauri::command]
 pub async fn desktop_system_notification_dismiss_conversation(
     window: WebviewWindow,
-    state: tauri::State<'_, DesktopSystemNotificationState>,
     viewer_user_id: String,
     target: NotificationConversation,
 ) -> Result<(), &'static str> {
@@ -801,6 +849,7 @@ pub async fn desktop_system_notification_dismiss_conversation(
         })
     );
     guarded?;
+    let state = notification_state(&window)?;
     let valid = valid_id(&viewer_user_id) && target.valid();
     notification_diagnostic!(
         diagnostics,
@@ -848,6 +897,33 @@ pub async fn desktop_system_notification_dismiss_conversation(
         })
     );
     completed
+}
+
+#[tauri::command]
+pub async fn desktop_system_notification_clear_viewer(
+    window: WebviewWindow,
+    viewer_user_id: String,
+) -> Result<(), &'static str> {
+    let diagnostics = notification_diagnostics_enabled(window.app_handle());
+    guard(&window)?;
+    if !valid_id(&viewer_user_id) {
+        return Err("notification_invalid");
+    }
+    let state = notification_state(&window)?;
+    let notification_ids = {
+        let record = state.record.lock().map_err(|_| "store_unavailable")?;
+        record.notification_ids_for_viewer(&viewer_user_id)
+    };
+    if !notification_ids.is_empty() {
+        dismiss_notifications_confirmed(&notification_ids, diagnostics)
+            .await
+            .map_err(|_| "notification_unavailable")?;
+    }
+    state.transact(|record| {
+        record.complete_dismissals(&notification_ids);
+        record.clear_viewer_pending(&viewer_user_id);
+        Ok(())
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -994,12 +1070,82 @@ async fn dismiss_notifications_confirmed(
     Ok(())
 }
 
+#[cfg(any(target_os = "linux", test))]
+struct BoundedHandleRegistry<H> {
+    entries: Vec<(String, H)>,
+    limit: usize,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl<H> BoundedHandleRegistry<H> {
+    fn new(limit: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            limit,
+        }
+    }
+
+    fn insert(&mut self, notification_id: String, handle: H) -> Vec<H> {
+        let mut evicted = Vec::new();
+        let mut index = 0;
+        while index < self.entries.len() {
+            if self.entries[index].0 == notification_id {
+                evicted.push(self.entries.remove(index).1);
+            } else {
+                index += 1;
+            }
+        }
+        self.entries.push((notification_id, handle));
+        while self.entries.len() > self.limit {
+            evicted.push(self.entries.remove(0).1);
+        }
+        evicted
+    }
+
+    fn remove(&mut self, notification_id: &str) -> Option<H> {
+        let position = self
+            .entries
+            .iter()
+            .position(|(id, _)| id == notification_id)?;
+        Some(self.entries.remove(position).1)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxNotificationEntry {
+    handle: Arc<notify_rust::NotificationHandle>,
+    watcher: tauri::async_runtime::JoinHandle<()>,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_handles() -> &'static Mutex<BoundedHandleRegistry<LinuxNotificationEntry>> {
+    static HANDLES: std::sync::OnceLock<Mutex<BoundedHandleRegistry<LinuxNotificationEntry>>> =
+        std::sync::OnceLock::new();
+    HANDLES.get_or_init(|| Mutex::new(BoundedHandleRegistry::new(MAX_LINUX_HANDLES)))
+}
+
 #[cfg(target_os = "linux")]
 async fn dismiss_notifications_confirmed(
-    _notification_ids: &[String],
+    notification_ids: &[String],
     _diagnostics: bool,
 ) -> Result<(), ()> {
-    Err(())
+    let entries = {
+        let mut registry = linux_handles().lock().map_err(|_| ())?;
+        notification_ids
+            .iter()
+            .filter_map(|id| registry.remove(id))
+            .collect::<Vec<_>>()
+    };
+    for entry in entries {
+        entry.handle.close_async().await;
+        entry.watcher.abort();
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -1263,7 +1409,7 @@ fn install_macos_delegate(app: &AppHandle) {
     use block2::DynBlock;
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
-    use objc2::{define_class, msg_send, AnyThread, DefinedClass};
+    use objc2::{define_class, msg_send, sel, AnyThread, DefinedClass};
     use objc2_foundation::{NSObject, NSObjectProtocol};
     use objc2_user_notifications::{
         UNNotification, UNNotificationPresentationOptions, UNNotificationResponse,
@@ -1272,6 +1418,7 @@ fn install_macos_delegate(app: &AppHandle) {
 
     struct DelegateIvars {
         app: AppHandle,
+        previous: Option<Retained<ProtocolObject<dyn UNUserNotificationCenterDelegate>>>,
     }
 
     define_class!(
@@ -1286,41 +1433,82 @@ fn install_macos_delegate(app: &AppHandle) {
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
             fn will_present(
                 &self,
-                _center: &UNUserNotificationCenter,
+                center: &UNUserNotificationCenter,
                 notification: &UNNotification,
                 completion: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
             ) {
-                decide_macos_presentation(
-                    &self.ivars().app,
-                    notification.request().identifier().to_string(),
-                    completion,
-                );
+                let identifier = notification.request().identifier().to_string();
+                let owned = self
+                    .ivars()
+                    .app
+                    .try_state::<DesktopSystemNotificationState>()
+                    .and_then(|state| state.record.lock().ok().map(|record| record.has_notification(&identifier)))
+                    .unwrap_or(false);
+                if owned {
+                    decide_macos_presentation(&self.ivars().app, identifier, completion);
+                    return;
+                }
+                if let Some(previous) = &self.ivars().previous {
+                    if previous.respondsToSelector(sel!(userNotificationCenter:willPresentNotification:withCompletionHandler:)) {
+                        previous.userNotificationCenter_willPresentNotification_withCompletionHandler(
+                            center,
+                            notification,
+                            completion,
+                        );
+                        return;
+                    }
+                }
+                completion.call((macos_presentation_options(false),));
             }
 
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
             fn did_receive(
                 &self,
-                _center: &UNUserNotificationCenter,
+                center: &UNUserNotificationCenter,
                 response: &UNNotificationResponse,
                 completion: &DynBlock<dyn Fn()>,
             ) {
                 let identifier = response.notification().request().identifier().to_string();
-                activate(&self.ivars().app, &identifier);
+                let owned = self
+                    .ivars()
+                    .app
+                    .try_state::<DesktopSystemNotificationState>()
+                    .and_then(|state| state.record.lock().ok().map(|record| record.has_notification(&identifier)))
+                    .unwrap_or(false);
+                if owned {
+                    activate(&self.ivars().app, &identifier);
+                    completion.call(());
+                    return;
+                }
+                if let Some(previous) = &self.ivars().previous {
+                    if previous.respondsToSelector(sel!(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:)) {
+                        previous.userNotificationCenter_didReceiveNotificationResponse_withCompletionHandler(
+                            center,
+                            response,
+                            completion,
+                        );
+                        return;
+                    }
+                }
                 completion.call(());
             }
         }
     );
 
     impl Delegate {
-        fn new(app: AppHandle) -> Retained<Self> {
-            let this = Self::alloc().set_ivars(DelegateIvars { app });
+        fn new(
+            app: AppHandle,
+            previous: Option<Retained<ProtocolObject<dyn UNUserNotificationCenterDelegate>>>,
+        ) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(DelegateIvars { app, previous });
             unsafe { msg_send![super(this), init] }
         }
     }
 
-    let delegate = Delegate::new(app.clone());
-    UNUserNotificationCenter::currentNotificationCenter()
-        .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    let previous = center.delegate();
+    let delegate = Delegate::new(app.clone(), previous);
+    center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     std::mem::forget(delegate);
 }
 
@@ -1371,25 +1559,47 @@ fn escape_xml(value: &str) -> String {
 #[cfg(target_os = "linux")]
 async fn display_notification(
     app: &AppHandle,
-    _notification_id: &str,
+    notification_id: &str,
     title: &str,
     body: &str,
 ) -> Result<(), ()> {
-    let handle = notify_rust::Notification::new()
-        .appname("Alook")
-        .summary(title)
-        .body(body)
-        .action("default", "Open")
-        .show()
-        .map_err(|_| ())?;
+    let handle = Arc::new(
+        notify_rust::Notification::new()
+            .appname("Alook")
+            .summary(title)
+            .body(body)
+            .action("default", "Open")
+            .show_async()
+            .await
+            .map_err(|_| ())?,
+    );
+    let watcher_handle = handle.clone();
     let app = app.clone();
-    std::thread::spawn(move || {
-        handle.wait_for_action(|action| {
-            if action == "default" {
-                crate::commands::show_main_window(&app);
-            }
-        });
+    let id = notification_id.to_string();
+    let cleanup_id = id.clone();
+    let watcher = tauri::async_runtime::spawn(async move {
+        watcher_handle
+            .wait_for_action_async(|action| {
+                if matches!(action, notify_rust::ActionResponse::Custom("default")) {
+                    activate(&app, &id);
+                }
+            })
+            .await;
+        if let Ok(mut registry) = linux_handles().lock() {
+            registry.remove(&cleanup_id);
+        }
     });
+    let evicted = {
+        let mut registry = linux_handles().lock().map_err(|_| ())?;
+        registry.insert(
+            notification_id.to_string(),
+            LinuxNotificationEntry { handle, watcher },
+        )
+    };
+    for old in evicted {
+        old.handle.close_async().await;
+        old.watcher.abort();
+    }
     Ok(())
 }
 
@@ -1605,19 +1815,54 @@ mod tests {
     }
 
     #[test]
-    fn activation_is_one_shot_until_an_exact_retry_and_restorable() {
+    fn activation_persists_until_acknowledged_and_includes_viewer_identity() {
         let mut record = NotificationRecord::new();
         let id = record.claim(&candidate("viewer_1", "message_1")).unwrap();
-        assert_eq!(record.activate(&id).unwrap().target, target("message_1"));
-        assert!(record.activate(&id).is_none());
-        assert!(!record.retry_activation("00000000-0000-0000-0000-000000000000"));
-        assert!(record.retry_activation(&id));
-        assert!(!record.retry_activation(&id));
+        let activation = record.activate(&id).unwrap();
+        assert_eq!(activation.notification_id, id);
+        assert_eq!(activation.viewer_user_id, "viewer_1");
+        assert_eq!(activation.target, target("message_1"));
+        assert!(!record.recent[0].activated);
+        assert_eq!(record.peek_activation(), Some(activation.clone()));
+        assert_eq!(record.peek_activation(), Some(activation.clone()));
+
         let mut restored =
             NotificationRecord::restore(serde_json::to_value(record).unwrap()).unwrap();
+        assert_eq!(restored.peek_activation(), Some(activation));
         assert!(!restored.recent[0].activated);
-        assert_eq!(restored.activate(&id).unwrap().target, target("message_1"));
+
+        assert!(restored.ack_activation(&id));
+        assert!(restored.peek_activation().is_none());
         assert!(restored.recent[0].activated);
+        assert!(restored.activate(&id).is_none());
+    }
+
+    #[test]
+    fn clear_viewer_drops_pending_activations_and_selects_only_that_viewer() {
+        let mut record = NotificationRecord::new();
+        let id_a = record.claim(&candidate("viewer_a", "message_1")).unwrap();
+        let id_b = record.claim(&candidate("viewer_b", "message_2")).unwrap();
+        assert!(record.activate(&id_a).is_some());
+        assert!(record.activate(&id_b).is_some());
+
+        assert_eq!(record.notification_ids_for_viewer("viewer_a"), vec![id_a.clone()]);
+        record.complete_dismissals(&[id_a]);
+        record.clear_viewer_pending("viewer_a");
+
+        assert!(record.notification_ids_for_viewer("viewer_a").is_empty());
+        assert_eq!(record.notification_ids_for_viewer("viewer_b"), vec![id_b.clone()]);
+        assert_eq!(record.peek_activation().unwrap().notification_id, id_b);
+    }
+
+    #[test]
+    fn bounded_handle_registry_evicts_oldest_entries() {
+        let mut registry = BoundedHandleRegistry::new(2);
+        assert!(registry.insert("n1".into(), 1).is_empty());
+        assert!(registry.insert("n2".into(), 2).is_empty());
+        assert_eq!(registry.insert("n3".into(), 3), vec![1]);
+        assert_eq!(registry.len(), 2);
+        assert_eq!(registry.remove("n2"), Some(2));
+        assert_eq!(registry.remove("n2"), None);
     }
 
     #[test]

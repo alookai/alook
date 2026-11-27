@@ -31,12 +31,16 @@ export async function installMobileBridge(page: Page, activation: Activation | n
       configurable: true,
       value: { core: { Channel, invoke: async (command: string, args?: Record<string, unknown>) => {
         if (command === "mobile_system_notification_listen") { state.listener = args?.channel; return 1 }
-        if (command === "mobile_system_notification_take_activation") {
+        if (command === "mobile_system_notification_peek_activation") {
           state.takes += 1
-          const value = state.pending
-          state.pending = null
-          if (value) sessionStorage.setItem(key, "1")
-          return value
+          return state.pending
+        }
+        if (command === "mobile_system_notification_ack_activation") {
+          if (state.pending?.notificationId === args?.notificationId) {
+            state.pending = null
+            sessionStorage.setItem(key, "1")
+          }
+          return undefined
         }
         if (command === "mobile_system_notification_check_permission" || command === "mobile_system_notification_request_permission") return { permissionState: "prompt" }
         if (command === "mobile_system_notification_dismiss") {

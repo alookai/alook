@@ -15,6 +15,7 @@ export type DesktopSystemNotificationTarget =
 
 export type DesktopSystemNotificationActivation = {
   notificationId: string
+  viewerUserId: string
   target: DesktopSystemNotificationTarget
 }
 
@@ -23,7 +24,7 @@ export type SystemNotificationRouteTarget =
   | { kind: "dm"; channelId: string }
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
-const NOTIFICATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const NOTIFICATION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]) {
   const actual = Object.keys(value).sort()
@@ -46,8 +47,9 @@ function safeSeq(value: unknown): value is number {
 export function parseDesktopSystemNotificationActivation(
   value: unknown,
 ): DesktopSystemNotificationActivation | null {
-  if (!isObject(value) || !exactKeys(value, ["notificationId", "target"])) return null
-  if (typeof value.notificationId !== "string" || !NOTIFICATION_ID.test(value.notificationId)) return null
+  if (!isObject(value) || !exactKeys(value, ["notificationId", "viewerUserId", "target"])) return null
+  if (typeof value.notificationId !== "string" || !NOTIFICATION_UUID_RE.test(value.notificationId)) return null
+  if (!safeId(value.viewerUserId)) return null
   if (!isObject(value.target) || typeof value.target.kind !== "string") return null
 
   const target = value.target
@@ -55,7 +57,8 @@ export function parseDesktopSystemNotificationActivation(
     if (!exactKeys(target, ["kind", "serverId", "channelId", "messageId", "seq"])) return null
     if (!safeId(target.serverId) || !safeId(target.channelId) || !safeId(target.messageId) || !safeSeq(target.seq)) return null
     return {
-      notificationId: value.notificationId,
+      notificationId: value.notificationId.toLowerCase(),
+      viewerUserId: value.viewerUserId,
       target: {
         kind: "server",
         serverId: target.serverId,
@@ -70,7 +73,8 @@ export function parseDesktopSystemNotificationActivation(
     if (!exactKeys(target, ["kind", "channelId", "messageId", "seq"])) return null
     if (!safeId(target.channelId) || !safeId(target.messageId) || !safeSeq(target.seq)) return null
     return {
-      notificationId: value.notificationId,
+      notificationId: value.notificationId.toLowerCase(),
+      viewerUserId: value.viewerUserId,
       target: {
         kind: "dm",
         channelId: target.channelId,

@@ -1,3 +1,5 @@
+import { NOTIFICATION_UUID_RE } from "./system-notification-route"
+
 export type NativeSystemNotificationPlatform = "desktop" | "mobile"
 
 export type NativeSystemNotificationConversation =
@@ -5,11 +7,12 @@ export type NativeSystemNotificationConversation =
   | { kind: "dm"; channelId: string }
 
 type PendingDismissal = {
-  version: 2
+  version: 3
   platform: NativeSystemNotificationPlatform
   viewerUserId: string
   notificationId: string
   pathname: string
+  targetId?: string
   expiresAt: number
 }
 
@@ -21,12 +24,14 @@ export type NativeSystemNotificationDismissalDeps = {
 }
 
 const KEY = "alook:native-system-notification:pending-dismissal"
-const VERSION = 2
+const VERSION = 3
+const MAX_PENDING_DISMISSALS = 16
 const TTL_MS = 2 * 60 * 1000
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UUID = NOTIFICATION_UUID_RE
 const SAFE_ID = "[A-Za-z0-9_-]{1,128}"
 const ROUTE = new RegExp(`^/c/(?:me/${SAFE_ID}|channels/${SAFE_ID}/${SAFE_ID}|messages/${SAFE_ID})$`)
-const FIELDS = new Set(["version", "platform", "viewerUserId", "notificationId", "pathname", "expiresAt"])
+const CHANNEL_ROUTE = new RegExp(`^/c/(?:me/(${SAFE_ID})|channels/${SAFE_ID}/(${SAFE_ID}))$`)
+const FIELDS = new Set(["version", "platform", "viewerUserId", "notificationId", "pathname", "targetId", "expiresAt"])
 const CONVERSATION_KEY = "alook:native-system-notification:conversation-dismissals"
 const CONVERSATION_VERSION = 2 as const
 const MAX_CONVERSATION_DISMISSALS = 64
@@ -141,6 +146,17 @@ export function createNativeSystemNotificationConversationDismissalQueue(
   }
 }
 
+function pathnameChannelId(pathname: string): string | null {
+  const match = CHANNEL_ROUTE.exec(pathname)
+  return match ? (match[1] ?? match[2] ?? null) : null
+}
+
+function matchesDismissalDestination(entry: PendingDismissal, pathname: string): boolean {
+  if (entry.pathname === pathname) return true
+  if (entry.targetId === undefined) return false
+  return pathnameChannelId(pathname) === entry.targetId
+}
+
 export function createNativeSystemNotificationDismissalQueue(
   deps: NativeSystemNotificationDismissalDeps,
 ) {
@@ -152,36 +168,59 @@ export function createNativeSystemNotificationDismissalQueue(
     }
   }
 
-  function read(): PendingDismissal | null {
+  function write(entries: PendingDismissal[]): boolean {
+    try {
+      if (entries.length === 0) deps.removeItem(KEY)
+      else deps.setItem(KEY, JSON.stringify(entries))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function isValidEntry(value: unknown, now: number): value is PendingDismissal {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false
+    const entry = value as Partial<PendingDismissal>
+    if (
+      entry.version !== VERSION
+      || (entry.platform !== "desktop" && entry.platform !== "mobile")
+      || !validSafeId(entry.viewerUserId)
+      || typeof entry.notificationId !== "string"
+      || !UUID.test(entry.notificationId)
+      || typeof entry.pathname !== "string"
+      || !ROUTE.test(entry.pathname)
+      || (entry.targetId !== undefined && !validSafeId(entry.targetId))
+      || typeof entry.expiresAt !== "number"
+      || !Number.isFinite(entry.expiresAt)
+      || entry.expiresAt <= now
+      || Object.keys(entry).some((key) => !FIELDS.has(key))
+    ) {
+      return false
+    }
+    return true
+  }
+
+  function read(): PendingDismissal[] {
     let raw: string | null
     try {
       raw = deps.getItem(KEY)
     } catch {
-      return null
+      return []
     }
-    if (raw === null) return null
+    if (raw === null) return []
     try {
-      const value = JSON.parse(raw) as Partial<PendingDismissal>
-      if (
-        value.version !== VERSION
-        || (value.platform !== "desktop" && value.platform !== "mobile")
-        || !validSafeId(value.viewerUserId)
-        || typeof value.notificationId !== "string"
-        || !UUID.test(value.notificationId)
-        || typeof value.pathname !== "string"
-        || !ROUTE.test(value.pathname)
-        || typeof value.expiresAt !== "number"
-        || !Number.isFinite(value.expiresAt)
-        || value.expiresAt <= deps.now()
-        || Object.keys(value).some((key) => !FIELDS.has(key))
-      ) {
+      const parsed = JSON.parse(raw) as unknown
+      if (!Array.isArray(parsed) || parsed.length > MAX_PENDING_DISMISSALS) {
         remove()
-        return null
+        return []
       }
-      return value as PendingDismissal
+      const now = deps.now()
+      const valid = parsed.filter((item): item is PendingDismissal => isValidEntry(item, now))
+      if (valid.length !== parsed.length) write(valid)
+      return valid
     } catch {
       remove()
-      return null
+      return []
     }
   }
 
@@ -191,27 +230,37 @@ export function createNativeSystemNotificationDismissalQueue(
       viewerUserId: string,
       notificationId: string,
       pathname: string,
+      targetId?: string,
     ) {
-      if (!validSafeId(viewerUserId) || !UUID.test(notificationId) || !ROUTE.test(pathname)) return false
-      const value: PendingDismissal = {
+      if (
+        !validSafeId(viewerUserId)
+        || !UUID.test(notificationId)
+        || !ROUTE.test(pathname)
+        || (targetId !== undefined && !validSafeId(targetId))
+      ) return false
+      const normalizedId = notificationId.toLowerCase()
+      const resolvedTargetId = targetId ?? pathnameChannelId(pathname) ?? undefined
+      const entry: PendingDismissal = {
         version: VERSION,
         platform,
         viewerUserId,
-        notificationId,
+        notificationId: normalizedId,
         pathname,
+        ...(resolvedTargetId ? { targetId: resolvedTargetId } : {}),
         expiresAt: deps.now() + TTL_MS,
       }
-      try {
-        deps.setItem(KEY, JSON.stringify(value))
-        return true
-      } catch {
-        return false
-      }
+      const current = read().filter((item) => item.notificationId !== normalizedId)
+      return write([...current, entry].slice(-MAX_PENDING_DISMISSALS))
     },
     peek(platform: NativeSystemNotificationPlatform, viewerUserId: string, pathname: string) {
-      const value = read()
-      if (!value || value.platform !== platform || value.viewerUserId !== viewerUserId || value.pathname !== pathname) return null
-      return value.notificationId
+      const entries = read()
+      const match = entries.find(
+        (entry) =>
+          entry.platform === platform
+          && entry.viewerUserId === viewerUserId
+          && matchesDismissalDestination(entry, pathname),
+      )
+      return match?.notificationId ?? null
     },
     complete(
       platform: NativeSystemNotificationPlatform,
@@ -219,16 +268,18 @@ export function createNativeSystemNotificationDismissalQueue(
       pathname: string,
       notificationId: string,
     ) {
-      const value = read()
-      if (
-        !value
-        || value.platform !== platform
-        || value.viewerUserId !== viewerUserId
-        || value.pathname !== pathname
-        || value.notificationId !== notificationId
-      ) return false
-      remove()
-      return true
+      const normalizedId = notificationId.toLowerCase()
+      const entries = read()
+      const next = entries.filter(
+        (entry) => !(
+          entry.platform === platform
+          && entry.viewerUserId === viewerUserId
+          && entry.notificationId === normalizedId
+          && matchesDismissalDestination(entry, pathname)
+        ),
+      )
+      if (next.length === entries.length) return false
+      return write(next)
     },
   }
 }

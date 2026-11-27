@@ -150,6 +150,16 @@ export async function showDesktopSystemNotification(
   candidate: DesktopSystemNotificationCandidate,
 ): Promise<void> {
   if (!isDesktop()) return
+  const presentation = (typeof window !== "undefined"
+    ? (window as Window & { alookNativeNotificationPresentationV1?: (identity: unknown) => boolean })
+        .alookNativeNotificationPresentationV1
+    : undefined)
+  if (presentation?.({
+    viewerUserId: candidate.viewerUserId,
+    targetId: candidate.target.channelId,
+  }) === true) {
+    return
+  }
   await tauriInvoke("desktop_system_notification_show", { candidate })
 }
 
@@ -171,9 +181,18 @@ export async function listenDesktopSystemNotificationActivations(
   }
 }
 
-export async function takeDesktopSystemNotificationActivation(): Promise<DesktopSystemNotificationActivation | null> {
-  const value = await tauriInvoke<unknown>("desktop_system_notification_take_activation")
+export async function peekDesktopSystemNotificationActivation(): Promise<DesktopSystemNotificationActivation | null> {
+  const value = await tauriInvoke<unknown>("desktop_system_notification_peek_activation")
   return parseDesktopSystemNotificationActivation(value)
+}
+
+export async function ackDesktopSystemNotificationActivation(notificationId: string): Promise<void> {
+  await tauriInvoke("desktop_system_notification_ack_activation", { notificationId })
+}
+
+export async function clearDesktopSystemNotificationsForViewer(viewerUserId: string): Promise<void> {
+  if (!isDesktop()) return
+  await tauriInvoke("desktop_system_notification_clear_viewer", { viewerUserId })
 }
 
 export async function dismissDesktopSystemNotification(notificationId: string): Promise<void> {

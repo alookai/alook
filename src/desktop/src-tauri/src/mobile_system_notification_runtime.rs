@@ -4,8 +4,15 @@ use crate::mobile_system_notification::{
     PermissionResponse, RegistrationSnapshot,
 };
 use crate::native_command_guard::guard;
-use tauri::{ipc::Channel, Manager, WebviewWindow};
+use tauri::{ipc::Channel, AppHandle, Manager, WebviewWindow};
 use tauri_plugin_mobile_push::{Activation as NativeActivation, MobilePushExt};
+
+pub fn retire_listener(app: &AppHandle) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = handle.mobile_push().retire_listener().await;
+    });
+}
 
 impl From<tauri_plugin_mobile_push::Error> for MobileSystemNotificationError {
     fn from(error: tauri_plugin_mobile_push::Error) -> Self {
@@ -82,17 +89,50 @@ pub async fn mobile_system_notification_acknowledge_registration(
 }
 
 #[tauri::command]
-pub async fn mobile_system_notification_take_activation(
+pub async fn mobile_system_notification_peek_activation(
     window: WebviewWindow,
 ) -> Result<Option<Activation>, MobileSystemNotificationError> {
     guard(&window)
         .map_err(|code| MobileSystemNotificationError::new(code, "Caller is not trusted"))?;
-    let native = window.app_handle().mobile_push().take_activation().await?;
+    let native = window.app_handle().mobile_push().peek_activation().await?;
     validate_activation(native.map(|value: NativeActivation| Activation {
         notification_id: value.notification_id,
         message_id: value.message_id,
         target_id: value.target_id,
+        viewer_user_id: value.viewer_user_id,
     }))
+}
+
+#[tauri::command]
+pub async fn mobile_system_notification_ack_activation(
+    window: WebviewWindow,
+    notification_id: String,
+) -> Result<(), MobileSystemNotificationError> {
+    guard(&window)
+        .map_err(|code| MobileSystemNotificationError::new(code, "Caller is not trusted"))?;
+    validate_notification_id(&notification_id)?;
+    window
+        .app_handle()
+        .mobile_push()
+        .ack_activation(notification_id)
+        .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mobile_system_notification_clear_viewer(
+    window: WebviewWindow,
+    viewer_user_id: String,
+) -> Result<(), MobileSystemNotificationError> {
+    guard(&window)
+        .map_err(|code| MobileSystemNotificationError::new(code, "Caller is not trusted"))?;
+    validate_target_id(&viewer_user_id)?;
+    window
+        .app_handle()
+        .mobile_push()
+        .clear_viewer(viewer_user_id)
+        .await?;
+    Ok(())
 }
 
 #[tauri::command]

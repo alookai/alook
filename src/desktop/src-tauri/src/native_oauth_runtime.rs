@@ -1,16 +1,31 @@
 use crate::current_listener::CurrentListener;
 use crate::native_command_guard::guard;
 use crate::native_oauth::{Exchange, Proof, Record, Registration, Snapshot};
+use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tauri::{ipc::Channel, AppHandle, Manager, WebviewWindow};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Store, StoreExt};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeOauthSignal {
+    CandidateReady,
+    WindowResumed,
+}
+
 pub struct NativeOauthState {
     record: Mutex<Record>,
     store: Arc<Store<tauri::Wry>>,
-    notifications: Mutex<CurrentListener<Channel<()>>>,
+    notifications: Mutex<CurrentListener<Channel<NativeOauthSignal>>>,
+}
+
+fn oauth_state(window: &WebviewWindow) -> Result<tauri::State<'_, NativeOauthState>, &'static str> {
+    window
+        .app_handle()
+        .try_state::<NativeOauthState>()
+        .ok_or("store_unavailable")
 }
 
 fn now() -> u64 {
@@ -55,9 +70,9 @@ impl NativeOauthState {
             Ok(())
         })
     }
-    fn notify(&self) {
+    fn notify(&self, signal: NativeOauthSignal) {
         if let Ok(mut listeners) = self.notifications.lock() {
-            listeners.notify(|channel| channel.send(()).is_ok());
+            listeners.notify(|channel| channel.send(signal).is_ok());
         }
     }
 }
@@ -72,7 +87,7 @@ pub fn retire_listener(app: &AppHandle) {
 
 pub fn notify_listener(app: &AppHandle) {
     if let Some(state) = app.try_state::<NativeOauthState>() {
-        state.notify();
+        state.notify(NativeOauthSignal::WindowResumed);
     }
 }
 
@@ -86,7 +101,7 @@ fn intake(app: &AppHandle, url: &url::Url) {
     {
         #[cfg(desktop)]
         crate::commands::show_main_window(app);
-        state.notify();
+        state.notify(NativeOauthSignal::CandidateReady);
     }
 }
 
@@ -133,24 +148,19 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tauri::command]
-pub fn native_oauth_snapshot(
-    window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
-) -> Result<Option<Snapshot>, &'static str> {
+pub fn native_oauth_snapshot(window: WebviewWindow) -> Result<Option<Snapshot>, &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state.transact(|record| Ok(record.snapshot()))
 }
 
 #[tauri::command]
 pub fn native_oauth_listen(
     window: WebviewWindow,
-    channel: Channel<()>,
+    channel: Channel<NativeOauthSignal>,
 ) -> Result<u64, &'static str> {
     guard(&window)?;
-    let state = window
-        .app_handle()
-        .try_state::<NativeOauthState>()
-        .ok_or("store_unavailable")?;
+    let state = oauth_state(&window)?;
     let id = state
         .notifications
         .lock()
@@ -162,10 +172,10 @@ pub fn native_oauth_listen(
 #[tauri::command]
 pub fn native_oauth_unlisten(
     window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
     registration_id: u64,
 ) -> Result<(), &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state
         .notifications
         .lock()
@@ -177,47 +187,55 @@ pub fn native_oauth_unlisten(
 #[tauri::command]
 pub fn native_oauth_prepare(
     window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
     provider: String,
     redirect_path: String,
 ) -> Result<Registration, &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state.transact(|record| record.prepare(&provider, &redirect_path, std::env::consts::OS, now()))
 }
 
 #[tauri::command]
 pub fn native_oauth_open_start(
     window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
     attempt_id: String,
     start_url: String,
 ) -> Result<(), &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state.transact(|record| record.open(&attempt_id, &start_url, tauri::is_dev()))?;
-    window
+    if window
         .app_handle()
         .opener()
         .open_url(start_url, None::<&str>)
-        .map_err(|_| "browser_unavailable")
+        .is_err()
+    {
+        let _ = state.transact(|record| {
+            record.rollback_open(&attempt_id);
+            Ok(())
+        });
+        return Err("browser_unavailable");
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub fn native_oauth_pending_exchange(
     window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
 ) -> Result<Option<Exchange>, &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state.transact(|record| Ok(record.pending()))
 }
 
 #[tauri::command]
 pub fn native_oauth_reject_candidate(
     window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
     attempt_id: String,
     candidate_id: String,
 ) -> Result<(), &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state.transact(|record| {
         record.reject(&attempt_id, &candidate_id);
         Ok(())
@@ -227,11 +245,11 @@ pub fn native_oauth_reject_candidate(
 #[tauri::command]
 pub fn native_oauth_finish(
     window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
     attempt_id: String,
     candidate_id: String,
 ) -> Result<(), &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state.transact(|record| {
         record.finish(&attempt_id, &candidate_id);
         Ok(())
@@ -241,10 +259,10 @@ pub fn native_oauth_finish(
 #[tauri::command]
 pub fn native_oauth_cancel(
     window: WebviewWindow,
-    state: tauri::State<'_, NativeOauthState>,
     attempt_id: Option<String>,
 ) -> Result<Option<Proof>, &'static str> {
     guard(&window)?;
+    let state = oauth_state(&window)?;
     state.transact(|record| {
         let id = attempt_id.or_else(|| record.snapshot().map(|a| a.attempt_id));
         match id {
@@ -347,4 +365,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn oauth_signals_serialize_distinctly_for_callbacks_and_window_resumes() {
+        assert_eq!(
+            serde_json::to_value(NativeOauthSignal::CandidateReady).unwrap(),
+            serde_json::json!("candidate_ready")
+        );
+        assert_eq!(
+            serde_json::to_value(NativeOauthSignal::WindowResumed).unwrap(),
+            serde_json::json!("window_resumed")
+        );
+    }
+
+    #[test]
+    fn rollback_open_reverts_waiting_while_keeping_cancel_proof_available() {
+        let time = 1_000_000;
+        let mut record = Record::new().unwrap();
+        let attempt = record.prepare("github", "/c/me", "macos", time).unwrap();
+        let start_url = format!(
+            "https://alook.ai/auth/native/start?attempt={}",
+            attempt.attempt_id
+        );
+        record.open(&attempt.attempt_id, &start_url, false).unwrap();
+        assert_eq!(
+            serde_json::to_value(record.snapshot()).unwrap()["waiting"],
+            serde_json::json!(true)
+        );
+        record.rollback_open(&attempt.attempt_id);
+        assert_eq!(
+            serde_json::to_value(record.snapshot()).unwrap()["waiting"],
+            serde_json::json!(false)
+        );
+        assert!(record.cancel(&attempt.attempt_id).unwrap().is_some());
+        assert!(record.snapshot().is_none());
+    }
 }
