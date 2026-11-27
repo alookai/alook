@@ -154,9 +154,6 @@ export const DmSidebar = memo(function DmSidebar({
       <ScrollAreaRoot className="flex min-h-0 flex-1 flex-col">
         <ScrollAreaViewport ref={viewportRef} data-slot="dm-sidebar-list" className="flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto scroll-fade-y scroll-fade-4 px-2 pb-4">
           <ScrollAreaContent className="flex min-h-full flex-1 flex-col">
-            <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
-              Direct Messages
-            </div>
             {loadError ? (
               <ConversationResolutionErrorFrame as="div" title="Couldn't load direct messages" {...loadError} />
             ) : loading && dms.length === 0 ? (
@@ -214,7 +211,6 @@ export function DmSidebarSkeleton() {
         <div className="my-2 h-px bg-border" />
       </div>
       <ScrollArea className="flex min-h-0 flex-1 flex-col" viewportClassName="min-h-0 flex-1 scroll-fade-y scroll-fade-4 px-2 pb-4">
-        <Skeleton className="mb-2 ml-2 h-3 w-24 rounded" />
         <DmRowsSkeleton />
       </ScrollArea>
     </aside>

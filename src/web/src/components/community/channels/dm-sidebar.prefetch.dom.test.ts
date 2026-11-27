@@ -33,6 +33,39 @@ describe("DmSidebar navigation intent", () => {
     expect(renderer.container.querySelectorAll("button")).toHaveLength(0)
   })
 
+  it("omits the Direct Messages heading and matching skeleton bar", () => {
+    const view = render(createElement(DmSidebar, {
+      dms: [{
+        id: "dm_1",
+        userId: "user_1",
+        name: "Melly",
+        avatar: "M",
+        status: "online",
+        preview: "hello",
+      }],
+      activeDm: null,
+      onPickDm: vi.fn(),
+      onShowFriends: vi.fn(),
+    }))
+    expect(view.queryByText("Direct Messages")).toBeNull()
+    expect(view.getByTestId(tid.dmRow("dm_1"))).toBeInTheDocument()
+
+    view.rerender(createElement(DmSidebar, {
+      dms: [],
+      activeDm: null,
+      onPickDm: vi.fn(),
+      onShowFriends: vi.fn(),
+    }))
+    expect(view.queryByText("Direct Messages")).toBeNull()
+    expect(view.getByText("Your direct messages will appear here.")).toBeInTheDocument()
+    view.unmount()
+
+    const pending = render(createElement(DmSidebarSkeleton))
+    expect(pending.queryByText("Direct Messages")).toBeNull()
+    expect(pending.container.querySelector('[data-slot="skeleton"].w-24')).toBeNull()
+    expect(pending.container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(20)
+  })
+
   it("keeps shortcuts outside the independently scrolling DM list", () => {
     const renderer = render(createElement(DmSidebar, {
       dms: [],
