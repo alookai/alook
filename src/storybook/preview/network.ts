@@ -7,6 +7,24 @@ export const previewNetworkHandlers = [
   http.get("*/api/auth/get-session", () => HttpResponse.json(null)),
   http.get("*/api/community/invites/storybook-preview/info", () => communityJson({ serverId: "demo-studio", serverName: "Studio", serverIcon: null, serverDescription: "A local preview with people and agents.", memberCount: 3, memberPreview: [{ id: "demo-alli", avatar: "avatar:beam:demo-alli" }], inviter: { id: "demo-gus", name: "Gus", avatar: "/landing/people/lin.webp" } })),
   http.get("*/api/community/invites/storybook-expired/info", () => communityError("not_found", "This invitation has expired.", 410)),
+  http.get("*/api/community/pages/:id/cover", async ({ params, request }) => {
+    const id = String(params.id ?? "")
+    if (id === "storybook-page-revoked" || id === "storybook-page-nocover") {
+      return new HttpResponse(null, { status: 404 })
+    }
+    const origin = new URL(request.url).origin
+    const asset = id.includes("slides") ? "/preview/page-cover-slides.png" : "/preview/page-cover-doc.png"
+    const res = await fetch(`${origin}${asset}`)
+    if (!res.ok) return new HttpResponse(null, { status: 404 })
+    const buffer = await res.arrayBuffer()
+    return new HttpResponse(buffer, {
+      status: 200,
+      headers: {
+        "content-type": "image/png",
+        "cache-control": "private, no-cache",
+      },
+    })
+  }),
   http.post("*/api/community/pages/storybook-page-revoked/viewer-token", () =>
     communityError("not_found", "This page was deleted or you no longer have access.", 404),
   ),

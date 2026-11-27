@@ -60,6 +60,13 @@ export function extractAlookPagesFromEmbeds(
   return { pages, otherEmbeds }
 }
 
+export function buildPageCoverUrl(pageId: string, sourceMessageId?: string): string {
+  const base = `/api/community/pages/${encodeURIComponent(pageId)}/cover`
+  const trimmedSourceMessageId = sourceMessageId?.trim()
+  if (!trimmedSourceMessageId) return base
+  return `${base}?sourceMessageId=${encodeURIComponent(trimmedSourceMessageId)}`
+}
+
 export async function fetchPageViewerToken(
   pageId: string,
   options?: { signal?: AbortSignal; sourceMessageId?: string },

@@ -21,6 +21,13 @@ const slidesPage: AlookPageEmbed = {
   title: "Design System Review",
 }
 
+const noCoverPage: AlookPageEmbed = {
+  kind: "alook_page",
+  id: "storybook-page-nocover",
+  type: "doc",
+  title: "Meeting Notes (No Cover Yet)",
+}
+
 const revokedPage: AlookPageEmbed = {
   kind: "alook_page",
   id: "storybook-page-revoked",
@@ -39,7 +46,7 @@ function InteractivePageExample() {
           authorName: "Alli",
           content: "Drafted both the brief and the slide deck — click either card to open and edit side by side.",
           grouped: false,
-          pages: [docPage, slidesPage],
+          pages: [docPage, slidesPage, noCoverPage],
         }}
         onCopy={fn()}
         onOpenPage={(page) => setActivePage(page)}
@@ -70,7 +77,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: "Independent Open Artifact message card and resizable side/full-screen container. Live cross-origin Shell handshakes require the OA Worker host.",
+        component: "Minimal convex plastic-glass Open Artifact card rendering static real Page homepage covers (with graceful compact fallback when absent) and resizable side/full-screen container.",
       },
     },
   },

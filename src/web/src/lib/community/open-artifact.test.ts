@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ApiError } from "@/lib/errors"
 import * as apiClient from "@/lib/api/client"
 import {
+  buildPageCoverUrl,
   classifyPageViewerError,
   describePageSaveState,
   describePageType,
@@ -53,6 +54,12 @@ describe("open-artifact", () => {
     expect(describePageSaveState("saved")).toBe("Saved")
     expect(describePageSaveState("unsaved")).toBe("Unsaved changes")
     expect(describePageSaveState(null)).toBeNull()
+  })
+
+  it("builds encoded page cover URLs with optional sourceMessageId", () => {
+    expect(buildPageCoverUrl("pg/1")).toBe("/api/community/pages/pg%2F1/cover")
+    expect(buildPageCoverUrl("pg_1", "  ")).toBe("/api/community/pages/pg_1/cover")
+    expect(buildPageCoverUrl("pg_1", " msg/42 ")).toBe("/api/community/pages/pg_1/cover?sourceMessageId=msg%2F42")
   })
 
   it("calls POST /api/community/pages/:id/viewer-token with optional sourceMessageId and validates the payload", async () => {

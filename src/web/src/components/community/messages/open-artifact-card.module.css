@@ -1,0 +1,278 @@
+.card {
+  --oa-glass-bg: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--card) 78%, #ffffff 22%) 0%,
+    color-mix(in oklab, var(--card) 88%, var(--muted) 12%) 60%,
+    color-mix(in oklab, var(--muted) 72%, var(--card) 28%) 100%
+  );
+  --oa-glass-border: color-mix(in oklab, var(--border) 82%, var(--foreground) 18%);
+  --oa-glass-border-hover: color-mix(in oklab, var(--border) 58%, var(--foreground) 42%);
+  --oa-glass-shadow:
+    inset 0 1.5px 0 rgb(255 255 255 / 94%),
+    inset 0 -2px 3px color-mix(in oklab, var(--foreground) 7%, transparent),
+    0 1px 2px rgb(31 26 21 / 7%),
+    0 8px 20px -10px rgb(31 26 21 / 20%);
+  --oa-glass-shadow-hover:
+    inset 0 1.5px 0 rgb(255 255 255 / 98%),
+    inset 0 -2px 4px color-mix(in oklab, var(--foreground) 9%, transparent),
+    0 2px 6px rgb(31 26 21 / 9%),
+    0 12px 26px -12px rgb(31 26 21 / 26%);
+  --oa-dome-sheen: radial-gradient(
+    135% 68% at 50% -26%,
+    rgb(255 255 255 / 54%) 0%,
+    rgb(255 255 255 / 18%) 42%,
+    transparent 64%
+  );
+  --oa-viewport-ring:
+    inset 0 1px 1px rgb(255 255 255 / 66%),
+    inset 0 -1.5px 3px rgb(31 26 21 / 14%);
+  --oa-viewport-border: color-mix(in oklab, var(--border) 84%, var(--foreground) 16%);
+  --oa-viewport-bg: color-mix(in oklab, var(--card) 94%, #ffffff 6%);
+  --oa-svg-surface: color-mix(in oklab, var(--muted) 56%, var(--card) 44%);
+  --oa-svg-line: color-mix(in oklab, var(--foreground) 14%, transparent);
+  --oa-svg-ink: color-mix(in oklab, var(--foreground) 58%, transparent);
+  --oa-svg-muted: color-mix(in oklab, var(--foreground) 24%, transparent);
+  --oa-blue: #5f8bcf;
+  --oa-sage: #6f9a72;
+  --oa-orange: #e38b32;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 340px;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--oa-glass-border);
+  background: var(--oa-glass-bg);
+  backdrop-filter: blur(14px) saturate(135%);
+  box-shadow: var(--oa-glass-shadow);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    130% 48% at 50% -16%,
+    rgb(255 255 255 / 44%) 0%,
+    rgb(255 255 255 / 10%) 36%,
+    transparent 60%
+  );
+  z-index: 1;
+}
+
+.card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--oa-glass-border-hover);
+  box-shadow: var(--oa-glass-shadow-hover);
+}
+
+.card:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+:global(.dark) .card,
+:global([data-tn-mode="dark"]) .card {
+  --oa-glass-bg: linear-gradient(
+    180deg,
+    rgb(42 45 54 / 72%) 0%,
+    rgb(20 22 28 / 84%) 60%,
+    rgb(13 14 18 / 92%) 100%
+  );
+  --oa-glass-border: rgb(255 255 255 / 14%);
+  --oa-glass-border-hover: rgb(148 176 255 / 36%);
+  --oa-glass-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 26%),
+    inset 0 -2px 4px rgb(0 0 0 / 55%),
+    0 2px 6px rgb(0 0 0 / 42%),
+    0 12px 26px -12px rgb(0 0 0 / 78%);
+  --oa-glass-shadow-hover:
+    inset 0 1px 0 rgb(255 255 255 / 32%),
+    inset 0 0 18px rgb(91 124 255 / 10%),
+    inset 0 -2px 4px rgb(0 0 0 / 60%),
+    0 4px 12px rgb(0 0 0 / 52%),
+    0 16px 32px -12px rgb(0 0 0 / 85%);
+  --oa-dome-sheen: radial-gradient(
+    135% 68% at 50% -26%,
+    rgb(255 255 255 / 24%) 0%,
+    rgb(255 255 255 / 6%) 40%,
+    transparent 62%
+  );
+  --oa-viewport-ring:
+    inset 0 1px 1px rgb(255 255 255 / 24%),
+    inset 0 -2px 4px rgb(0 0 0 / 56%);
+  --oa-viewport-border: rgb(255 255 255 / 12%);
+  --oa-viewport-bg: #0e1016;
+  --oa-svg-surface: #161923;
+  --oa-svg-line: rgb(255 255 255 / 11%);
+  --oa-svg-ink: rgb(244 246 252 / 68%);
+  --oa-svg-muted: rgb(244 246 252 / 26%);
+  --oa-blue: #6f8fff;
+  --oa-sage: #6fe0a6;
+  --oa-orange: #ff9a6b;
+}
+
+:global(.dark) .card::before,
+:global([data-tn-mode="dark"]) .card::before {
+  background: radial-gradient(
+    130% 48% at 50% -16%,
+    rgb(255 255 255 / 14%) 0%,
+    rgb(255 255 255 / 3%) 34%,
+    transparent 58%
+  );
+}
+
+.viewportWrap {
+  position: relative;
+  z-index: 2;
+  padding: 6px 6px 0;
+}
+
+.viewport {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 9px;
+  border: 1px solid var(--oa-viewport-border);
+  background: var(--oa-viewport-bg);
+}
+
+.viewport::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--oa-dome-sheen);
+  box-shadow: var(--oa-viewport-ring);
+}
+
+.fallbackSvg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.coverImage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.coverImageLoaded {
+  opacity: 1;
+}
+
+.footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 9px 11px;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid var(--oa-viewport-border);
+  background: color-mix(in oklab, var(--card) 82%, transparent);
+  color: var(--foreground);
+}
+
+.textGroup {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.25;
+  color: var(--foreground);
+}
+
+.subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  line-height: 1.2;
+  color: var(--muted-foreground);
+}
+
+.openCue {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  transition: color 150ms ease;
+}
+
+.card:hover:not(:disabled) .openCue {
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .coverImage,
+  .openCue {
+    transition: none;
+  }
+
+  .card:hover:not(:disabled),
+  .card:active:not(:disabled) {
+    transform: none;
+  }
+}
