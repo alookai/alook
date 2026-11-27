@@ -128,14 +128,14 @@ export type BotWebhookUpdateInput = z.infer<typeof BotWebhookUpdateSchema>
 
 export const BotWebhookCreateResponseSchema = z.strictObject({
   webhook: BotWebhookSummarySchema,
-  webhookUrl: z.string().url(),
+  webhookUrl: z.url(),
   signingSecret: z.string().nullable(),
 })
 export type BotWebhookCreateResponse = z.infer<typeof BotWebhookCreateResponseSchema>
 
 export const BotWebhookUpdateResponseSchema = z.strictObject({
   webhook: BotWebhookSummarySchema,
-  webhookUrl: z.string().url().optional(),
+  webhookUrl: z.url().optional(),
   signingSecret: z.string().nullable().optional(),
 })
 export type BotWebhookUpdateResponse = z.infer<typeof BotWebhookUpdateResponseSchema>
