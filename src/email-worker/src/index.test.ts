@@ -56,6 +56,29 @@ describe("POST /send/otp", () => {
     )
     expect(res.status).toBe(400)
   })
+
+  it.each([
+    ["malformed JSON", "{not-json"],
+    ["null JSON", "null"],
+    ["array JSON", "[]"],
+    ["non-string to", JSON.stringify({ to: 123, subject: "Code" })],
+    ["whitespace-only to", JSON.stringify({ to: "   ", subject: "Code" })],
+    ["non-string subject", JSON.stringify({ to: "user@example.com", subject: ["Code"] })],
+    ["whitespace-only subject", JSON.stringify({ to: "user@example.com", subject: "   " })],
+    ["non-string html", JSON.stringify({ to: "user@example.com", subject: "Code", html: 123 })],
+  ])("returns 400 without sending for %s", async (_name, rawBody) => {
+    const { env, send } = otpEnv()
+    const res = await handler.fetch(
+      new Request("http://localhost/send/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: rawBody,
+      }),
+      env,
+    )
+    expect(res.status).toBe(400)
+    expect(send).not.toHaveBeenCalled()
+  })
 })
 
 

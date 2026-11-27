@@ -146,6 +146,7 @@ describe("alook-auth Worker", () => {
     const response = await fetch(`${AUTH_WORKER_RETURN_PATH}${query}`);
     const body = await response.text();
     expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Security-Policy")).toBe(AUTH_STATUS_PAGE_CSP);
     expectPrivate(response);
     expect(body).toContain(CANONICAL_LOGO);
     expect(body).toContain('class="avatar-field" aria-hidden="true"');

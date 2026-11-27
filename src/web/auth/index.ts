@@ -382,7 +382,7 @@ function html(request: Request, valid: boolean): Response {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": RETURN_CSP,
+      "Content-Security-Policy": valid ? RETURN_CSP : AUTH_STATUS_PAGE_CSP,
     },
   });
 }

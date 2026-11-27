@@ -79,7 +79,7 @@ export default {
         // Transient failure (D1 exception, 5xx / network) — retry with
         // backoff. After `max_retries` (wrangler.toml: 3), the message lands
         // in the DLQ.
-        log.warn("bot_wake_failed_retrying", {
+        log.warn("queue_task_failed_retrying", {
           kind: parsed.task.kind,
           messageId: parsed.task.messageId,
           errorName: err instanceof Error ? err.name : "unknown",
