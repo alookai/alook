@@ -1,6 +1,10 @@
 import React, { useEffect } from "react"
-import { act } from "@/test/react-dom-harness"
+import { act, render, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { canonicalChannelMembershipRow, channelMembershipKey } from "@/lib/community-db/schema"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AddMembersDialog } from "./add-members-dialog"
 import { useChannelMemberViewModel } from "./channel-member-view-model"
@@ -650,6 +654,90 @@ describe("useChannelMemberViewModel", () => {
     expect(latestModel().onLeaveChannel).toBeUndefined()
     expect(mocks.removeChannelMember).not.toHaveBeenCalled()
     expect(mocks.removeThreadParticipant).not.toHaveBeenCalled()
+  })
+
+  it("derives cached canShowLeaveChannel for private channels and joined threads without member fetches or premature execution", async () => {
+    const owner = await createCommunityQueryOwner("viewer_1")
+    await writeCommunityCollectionRows(
+      owner.registry,
+      "channelMemberships",
+      [canonicalChannelMembershipRow("thread_1", "viewer_1", "notify", { source: "explicit" })],
+      (row) => row.id,
+    )
+
+    const wrap = (modelProps: ReturnType<typeof props>) => React.createElement(
+      CommunityTestProvider,
+      { client: owner.client, registry: owner.registry, retainOwner: true },
+      renderHarness(modelProps),
+    )
+
+    const privateChannelProps = (overrides: Record<string, unknown> = {}) => props({
+      accessAllowed: false,
+      roleDisplayAllowed: true,
+      currentServer: { categories: [{ private: true, channels: [{ id: "channel_1" }] }] },
+      ...overrides,
+    })
+
+    const view = render(wrap(privateChannelProps()))
+    expect(latestModel().canShowLeaveChannel).toBe(true)
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+    expect(mockedUseChannelMembers).toHaveBeenCalledWith("channel_1", false, "server_1", "access")
+
+    mocks.channelMembers.set("channel_1", [member("viewer_1", "Viewer")])
+    mocks.channelQueryState.set("channel_1", { observed: false })
+    view.rerender(wrap(privateChannelProps({ accessAllowed: true, roleDisplayAllowed: true })))
+    expect(latestModel().canShowLeaveChannel).toBe(true)
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+
+    view.rerender(wrap(privateChannelProps({ accessAllowed: false, roleDisplayAllowed: false })))
+    expect(latestModel().canShowLeaveChannel).toBe(false)
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+
+    view.rerender(wrap(props({ accessAllowed: false, roleDisplayAllowed: true })))
+    expect(latestModel().canShowLeaveChannel).toBe(false)
+
+    const threadProps = (overrides: Record<string, unknown> = {}) => props({
+      channelId: "thread_1",
+      channelName: "topic",
+      isChildChannel: true,
+      isNotifyUnit: true,
+      accessAllowed: false,
+      roleDisplayAllowed: true,
+      channelInServer: null,
+      currentChannelMeta: { name: "topic", parentChannelId: "channel_1" },
+      ...overrides,
+    })
+
+    mockedUseChannelMembers.mockClear()
+    view.rerender(wrap(threadProps()))
+    await waitFor(() => expect(latestModel().canShowLeaveChannel).toBe(true))
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+    expect(mockedUseChannelMembers).toHaveBeenCalledWith("thread_1", false, "server_1", "notify")
+
+    mocks.channelMembers.set("thread_1", [member("viewer_1", "Viewer")])
+    mocks.channelQueryState.set("thread_1", { observed: false })
+    view.rerender(wrap(threadProps({ accessAllowed: true, roleDisplayAllowed: true })))
+    expect(latestModel().canShowLeaveChannel).toBe(true)
+    expect(latestModel().onLeaveChannel).toBeUndefined()
+
+    await act(async () => {
+      owner.registry.collections.channelMemberships.utils.writeDelete(
+        channelMembershipKey("thread_1", "viewer_1", "notify"),
+      )
+    })
+    await waitFor(() => expect(latestModel().canShowLeaveChannel).toBe(false))
+
+    await writeCommunityCollectionRows(
+      owner.registry,
+      "channelMemberships",
+      [canonicalChannelMembershipRow("thread_1", "viewer_1", "notify", { source: "explicit" })],
+      (row) => row.id,
+    )
+    await waitFor(() => expect(latestModel().canShowLeaveChannel).toBe(true))
+
+    view.rerender(wrap(threadProps({ accessAllowed: false, roleDisplayAllowed: false })))
+    expect(latestModel().canShowLeaveChannel).toBe(false)
+    view.unmount()
   })
 
   it("exposes onLeaveChannel only for private channels and joined threads", async () => {

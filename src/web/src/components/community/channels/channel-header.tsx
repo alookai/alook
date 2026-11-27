@@ -87,7 +87,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   kind = "text", server, mobileBack, mobileBackDisplay = "viewport", onBack, tools,
-  onRename, onLeave, endActions, compactActions, titleState = "ready", onRetryTitle, retryingTitle,
+  onRename, onLeave, showLeave, endActions, compactActions, titleState = "ready", onRetryTitle, retryingTitle,
 }: {
   channel: string
   titleState?: MessageHeaderTitleState
@@ -100,6 +100,7 @@ export function ChannelHeader({
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onRename?: (name: string) => void | Promise<void>
   onLeave?: () => void | Promise<void>
+  showLeave?: boolean
   server?: { id: string; name: string; icon: string | null }
   mobileBack?: () => void
   mobileBackDisplay?: "viewport" | "always"
@@ -166,6 +167,7 @@ export function ChannelHeader({
             showThreads={tools?.threads !== false}
             showPinned={tools?.pinned !== false}
             onLeave={onLeave}
+            showLeave={showLeave}
           />
         </span>
       )}
@@ -182,7 +184,7 @@ export function ChannelHeader({
 }
 
 function ChannelOverflowMenu({
-  channel, kind, rightPanel, onToggle, showThreads, showPinned, onLeave,
+  channel, kind, rightPanel, onToggle, showThreads, showPinned, onLeave, showLeave,
 }: {
   channel: string
   kind: EntityKind
@@ -191,13 +193,15 @@ function ChannelOverflowMenu({
   showThreads: boolean
   showPinned: boolean
   onLeave?: () => void | Promise<void>
+  showLeave?: boolean
 }) {
   const [confirmTarget, setConfirmTarget] = useAtom(useCreateAtom<string | null>(null))
   const [leaving, setLeaving] = useAtom(useCreateAtom(false))
   const leavingRef = useRef(false)
   const active = useConversationActivity()
   const confirmOpen = active && confirmTarget === channel
-  const showMenu = showThreads || showPinned || Boolean(onLeave)
+  const hasLeaveAction = Boolean(onLeave) || Boolean(showLeave)
+  const showMenu = showThreads || showPinned || hasLeaveAction
   const activeInside = (rightPanel === "threads" && showThreads) || (rightPanel === "pinned" && showPinned)
   useEffect(() => { setConfirmTarget(null) }, [active, channel, setConfirmTarget])
 
@@ -246,8 +250,8 @@ function ChannelOverflowMenu({
               {rightPanel === "pinned" && <Check className="size-4 shrink-0 text-primary" />}
             </DropdownMenuItem>
           )}
-          {onLeave && (showThreads || showPinned) && <DropdownMenuSeparator />}
-          {onLeave && (
+          {hasLeaveAction && (showThreads || showPinned) && <DropdownMenuSeparator />}
+          {hasLeaveAction && (
             <DropdownMenuItem
               variant="destructive"
               onClick={() => setConfirmTarget(channel)}

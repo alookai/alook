@@ -118,6 +118,7 @@ const {
     manageMembersDialog: null,
     resolveUserName: (userId: string) => userId,
     myRole: "member",
+    canShowLeaveChannel: false,
   },
 }))
 
@@ -465,6 +466,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockNavigation.entryIntent = null
     mockCurrentChannelId.value = "channel_1"
     mockMemberViewModel.myRole = "member"
+    mockMemberViewModel.canShowLeaveChannel = false
     Object.assign(mockRouteModel, {
       server: {
         id: "server_1",
@@ -534,23 +536,100 @@ describe("ChannelRoute message surface ownership", () => {
     expect(composer).toHaveValue("Retained parent draft")
   })
 
-  it.each(["resumed forum", "forward", "unhydrated", "pending", "text"] as const)("qualifies role display separately from member reads for %s", (boundary) => {
+  it.each([
+    "resumed forum",
+    "forward forum",
+    "forward text",
+    "forward thread",
+    "unhydrated",
+    "pending",
+    "denied",
+    "resolving parent",
+  ] as const)("qualifies role display separately from member reads for %s", (boundary) => {
     Object.assign(mockRouteModel, { isForum: true, channel: { id: "channel_1", name: "Forum", type: "forum" }, skeletonSubtype: "forum", layoutHint: { subtype: "forum", parentChannelId: null, parentSubtype: "unknown" } })
     mockBreakpoint.value = "mobile"
     mockSearchParams.value = ""
     mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1", resume: true }
-    if (boundary === "forward") mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
+    if (boundary === "forward forum") mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
     if (boundary === "unhydrated") mockRouteModel.routeHydrated = false
     if (boundary === "pending") mockRouteModel.routeLifecycle = "pending"
-    if (boundary === "text") {
+    if (boundary === "denied") mockRouteModel.routeLifecycle = "terminal-error"
+    if (boundary === "forward text") {
+      mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
       mockRouteModel.isForum = false
       mockRouteModel.channel = { id: "channel_1", name: "Text", type: "text" }
       mockedUseChannelMessageFeed.mockReturnValue(feed())
     }
+    if (boundary === "forward thread") {
+      mockNavigation.entryIntent = { href: "/c/channels/server_1/channel_1" }
+      configureThreadRoute()
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+    }
+    if (boundary === "resolving parent") {
+      mockBreakpoint.value = "desktop"
+      mockSplitMode.value = "split"
+      configureThreadRoute()
+      mockSplitParentSurface.mockImplementation(() => null)
+      mockRouteModel.routeLifecycle = "pending"
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+    }
+    mockMemberViewModel.canShowLeaveChannel = true
     render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1", routeCommitted: false }))
     const model = mockedUseChannelMemberViewModel.mock.calls.at(-1)![0]
     expect(model.accessAllowed).toBe(false)
-    expect(model.roleDisplayAllowed ?? false).toBe(boundary === "resumed forum")
+    expect(model.roleDisplayAllowed ?? false).toBe(
+      boundary === "resumed forum"
+      || boundary === "forward forum"
+      || boundary === "forward text"
+      || boundary === "forward thread",
+    )
+    if (boundary === "resumed forum" || boundary === "forward forum") {
+      expect(mockedForumChannelSurface.mock.calls.at(-1)![0]).toEqual(
+        expect.objectContaining({ canShowLeaveChannel: true }),
+      )
+    }
+  })
+
+  it("retains roleDisplayAllowed on a backgrounded mobile parent layer while keeping accessAllowed false", async () => {
+    const registry = renderCommunityHook(() => useOptionalCommunityDbRegistry()).result.current!
+    const parent = {
+      ...mockRouteModel,
+      isForum: true,
+      channel: { id: "channel_1", name: "Forum", type: "forum" },
+      skeletonSubtype: "forum",
+      layoutHint: { subtype: "forum", parentChannelId: null, parentSubtype: "unknown" },
+    }
+    const child = {
+      ...mockRouteModel,
+      channel: null,
+      parent: parent.channel,
+      currentChannelMeta: { id: "child_1", name: "Post", parentChannelId: "channel_1", parentMessageId: "opener_1", creatorId: "viewer_1" },
+      isChild: true,
+      isForumPostChild: true,
+      isNotifyUnit: true,
+      skeletonSubtype: "thread",
+      layoutHint: { subtype: "thread", parentChannelId: "channel_1", parentSubtype: "forum" },
+    }
+    vi.mocked(useChannelRouteModel).mockImplementation((_server, _param, id) => (id === "channel_1" ? parent : child) as never)
+    const base = conversationEntryFixture().channel
+    registry.collections.channels.utils.writeUpsert([
+      channelSchema.parse({ ...base, id: "channel_1", serverId: "server_1", type: "forum", muted: false, tags: [], pending: false }),
+      channelSchema.parse({ ...base, id: "child_1", serverId: "server_1", type: "thread", parentChannelId: "channel_1", parentMessageId: "opener_1", muted: false, tags: [], pending: false }),
+    ])
+    mockBreakpoint.value = "mobile"
+    mockSearchParams.value = ""
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const view = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    mockedUseChannelMemberViewModel.mockClear()
+    mockCurrentChannelId.value = "child_1"
+    view.rerender(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "child_1" }))
+    const parentCall = mockedUseChannelMemberViewModel.mock.calls.find(([arg]) => arg.channelId === "channel_1")?.[0]
+    expect(parentCall).toEqual(expect.objectContaining({
+      channelId: "channel_1",
+      accessAllowed: false,
+      roleDisplayAllowed: true,
+    }))
+    view.unmount()
   })
 
   it("keeps the operational opener gate outside pending child content", async () => {
@@ -750,6 +829,37 @@ describe("ChannelRoute message surface ownership", () => {
     mockedUseChannelMemberViewModel.mockClear()
     renderer.rerender(node(true))
     expect(mockedUseChannelMemberViewModel).toHaveBeenCalledWith(expect.objectContaining({channelId: "parent_1", accessAllowed: true, roleDisplayAllowed: true}))
+  })
+
+  it("forwards canShowLeaveChannel from ThreadSplitParentSurface to private forum parents while inactive", async () => {
+    await observeSecondary()
+    const { ThreadSplitParentSurface } = await vi.importActual<typeof import("./thread-split-parent-surface")>("./thread-split-parent-surface")
+    const shared = await import("@alook/shared")
+    const isForumSpy = vi.spyOn(shared, "isForum").mockImplementation((type) => type === "forum")
+    try {
+      configureThreadRoute()
+      mockRouteModel.parent = { id: "parent_1", name: "secret-forum", type: "forum" } as never
+      mockRouteModel.server.categories = [{
+        channels: [{ id: "parent_1", name: "secret-forum", type: "forum" }],
+      }]
+      mockMemberViewModel.canShowLeaveChannel = true
+      mockSplitMode.value = "split"
+      mockedUseChannelMessageFeed.mockReturnValue(feed())
+      mockSplitParentSurface.mockImplementation(props => React.createElement(ThreadSplitParentSurface, props as never))
+      const renderer = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1", routeCommitted: false }))
+      expect(mockedForumChannelSurface).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channelId: "parent_1",
+          canShowLeaveChannel: true,
+          onLeaveChannel: undefined,
+          embedded: true,
+        }),
+        undefined,
+      )
+      renderer.unmount()
+    } finally {
+      isForumSpy.mockRestore()
+    }
   })
 
   it("lets the real parent surface read independently and retires it when its own proof is lost", async () => {

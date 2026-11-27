@@ -225,7 +225,7 @@ function QualifiedThreadSurface({ routeLifecycle, ...props }: ComponentProps<typ
   return <ThreadChannelSurface {...props} threadOpenerHandoff={threadOpenerHandoff} />
 }
 
-function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted, resume,
+function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted,
   routeModel, anchorMessageId, currentUser, split, layoutPending, resolvingParent, onOpenChild }: RouteTarget & {
   split: boolean
   layoutPending: boolean
@@ -297,8 +297,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     currentUser,
     accessAllowed: presented && !resolvingParent && routeCommitted && routeModel.routeLifecycle === "ready",
     routeActive: active,
-    roleDisplayAllowed: presented && !resolvingParent && routeModel.routeLifecycle === "ready"
-      && (routeCommitted || resume && isForum && routeModel.routeHydrated),
+    roleDisplayAllowed: !resolvingParent && routeModel.routeLifecycle === "ready" && routeModel.routeHydrated,
   })
   const {
     composerMembers,
@@ -307,6 +306,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     manageMembersDialog,
     resolveUserName,
     myRole,
+    canShowLeaveChannel,
     onLeaveChannel,
   } = memberViewModel
 
@@ -412,6 +412,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
               routeLifecycle={routeCommitted && routeModel.windowReady ? routeModel.routeLifecycle : "pending"}
               canRenameThread={canManageServer(myRole)}
               onNavigateParent={navigateParent}
+              canShowLeaveChannel={canShowLeaveChannel}
               onLeaveChannel={onLeaveChannel}
               notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
               onSetNotificationLevel={setNotificationLevel}
@@ -460,6 +461,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
           viewer={currentUser}
           viewerRole={myRole}
           onNavigateParent={navigateServerRoot}
+          canShowLeaveChannel={canShowLeaveChannel}
           onLeaveChannel={onLeaveChannel}
           notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
           onSetNotificationLevel={setNotificationLevel}
@@ -484,6 +486,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
         canManagePins={canManageServer(myRole)}
         anchorMessageId={currentAnchorMessageId}
         onNavigateParent={navigateServerRoot}
+        canShowLeaveChannel={canShowLeaveChannel}
         onLeaveChannel={onLeaveChannel}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}

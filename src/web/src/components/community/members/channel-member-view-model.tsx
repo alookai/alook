@@ -30,7 +30,7 @@ import {
 } from "@/hooks/community/use-thread-participants"
 import { useKickMember, useSetMemberRole } from "@/hooks/community/mutations"
 import type { MemberOriginalView } from "./member-management-types"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalProfilesByUserId, useChannelRosterRows } from "@/lib/community-db/projections"
 
 type MentionCandidateSource = NonNullable<ComposerProps["mentionCandidates"]>
 
@@ -98,6 +98,7 @@ export function useChannelMemberViewModel({
   manageMembersDialog: ReactNode
   resolveUserName: (userId: string) => string
   myRole: Role | undefined
+  canShowLeaveChannel: boolean
   onLeaveChannel?: () => Promise<void>
 } {
   const sharedServer = useContext(ServerMemberContext)
@@ -340,6 +341,12 @@ export function useChannelMemberViewModel({
   const viewerIsUnitCreator = !!unitCreatorId && unitCreatorId === currentUser.id
   const scopedDrawer = isNotifyUnit || currentChannelPrivate
   const removeMember = isNotifyUnit ? removeThreadParticipantMut : removeChannelMemberMut
+  const cachedNotifyRows = useChannelRosterRows(
+    roleDisplayAllowed && isNotifyUnit ? channelId : "",
+    "notify",
+  )
+  const viewerInCachedNotifyRoster = isNotifyUnit && cachedNotifyRows.some((row) => row.userId === currentUser.id)
+  const canShowLeaveChannel = roleDisplayAllowed && (isNotifyUnit ? viewerInCachedNotifyRoster : currentChannelPrivate)
   const viewerInNotifyRoster = isNotifyUnit && channelMembersHook.members.some((member) => member.userId === currentUser.id)
   const canLeaveChannel = accessAllowed && channelMembersHook.observed && (isNotifyUnit ? viewerInNotifyRoster : currentChannelPrivate)
   const onLeaveChannel = useMemo(() => {
@@ -520,6 +527,7 @@ export function useChannelMemberViewModel({
     manageMembersDialog,
     resolveUserName,
     myRole,
+    canShowLeaveChannel,
     onLeaveChannel,
   }
 }
