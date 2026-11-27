@@ -27,7 +27,7 @@ function hexToBytes(hex: string): Uint8Array | null {
   return out
 }
 
-export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false
   let diff = 0
   for (let i = 0; i < a.length; i++) {
@@ -165,7 +165,7 @@ export function buildBotWebhookUrl(req: Request, token: string): string {
   return `${origin}/api/webhooks/bot/${token}`
 }
 
-export function toBotWebhookLastDelivery(
+function toBotWebhookLastDelivery(
   row: StoredBotPrivateInboxSummary | StoredBotPrivateInboxEvent | null | undefined,
 ): BotWebhookLastDelivery | null {
   if (!row) return null
