@@ -513,6 +513,11 @@
       ],
       "selection": "project"
     },
+    "@alook/page-host#test": {
+      "projects": [
+        "page-host"
+      ]
+    },
     "@alook/queue-worker#test": {
       "projects": [
         "queue-worker-node"

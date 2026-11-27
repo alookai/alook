@@ -1,2 +1,5 @@
 import alook from "./plugin.mjs";
-export default { alook };
+
+const plugins = { alook };
+
+export default plugins;
