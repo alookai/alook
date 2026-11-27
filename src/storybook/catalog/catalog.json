@@ -2212,6 +2212,7 @@
       "application": "Web",
       "candidates": [
         "BotWebhooksSheet",
+        "BotWebhooksSheetContent",
         "CopyableCredentialField",
         "CredentialsReveal",
         "DeliveriesPanel",
