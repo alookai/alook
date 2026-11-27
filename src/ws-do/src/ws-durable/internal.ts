@@ -33,6 +33,7 @@ export type ConnectionState =
     machineId: string
     userId: string
     authenticated: boolean
+    connectedAt?: number
     pii?: boolean
     modelDiscovery?: boolean
     machineRefresh?: boolean
@@ -57,15 +58,16 @@ export const IDENTITY_KEY = "community-machine-identity"
 export const HANDLE_KEY = "community-machine-handle"
 export const RUNTIME_ERROR_KEY = "community-machine-runtime-error"
 export const DIAGNOSTIC_ALARM_HINT_KEY = "community-machine-diagnostic-alarm-hint"
-const RESTART_PENDING_PREFIX = "reset-pending:"
+export const RESTART_PENDING_PREFIX = "reset-pending:"
+export const RESTART_PENDING_TTL_MS = 10 * 60 * 1000
 export const restartPendingKey = (launchId: string) => RESTART_PENDING_PREFIX + launchId
 
 export type ResetTrigger = "single" | "reset_all" | "nap"
 export type RestartAttribution =
-  | { kind: "session_reset"; trigger: "single" | "reset_all" }
-  | { kind: "nap"; stoppedAgentId?: string }
-  | { kind: "model_switch"; from: string | null; to: string | null }
-  | { kind: "provider_switch"; from: string; to: string }
+  | { kind: "session_reset"; trigger: "single" | "reset_all"; createdAt?: number }
+  | { kind: "nap"; stoppedAgentId?: string; createdAt?: number }
+  | { kind: "model_switch"; from: string | null; to: string | null; createdAt?: number }
+  | { kind: "provider_switch"; from: string; to: string; createdAt?: number }
 
 export function normalizeRestartAttribution(value: ResetTrigger | RestartAttribution): RestartAttribution {
   if (typeof value !== "string") return value

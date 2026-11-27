@@ -1,15 +1,17 @@
 import { createDb, PII_REQUEST_MAX_BYTES, PiiCommandSchema, queries } from "@alook/shared"
 import { readBoundedJsonRequest } from "../community-browser-event-ingress"
-import type { RouterContext } from "../router-context"
+import { decodePathSegment, type RouterContext } from "../router-context"
 
 export async function handleMachinePii({ request, env, url }: RouterContext): Promise<Response | null> {
   const match = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/pii$/)
   if (!match || request.method !== "POST") return null
+  const machineId = decodePathSegment(match[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const input = await readBoundedJsonRequest(request, PII_REQUEST_MAX_BYTES)
   const payload = PiiCommandSchema.safeParse(input.ok ? input.value : null)
   if (!payload.success) return Response.json({ error: "invalid request" }, { status: 400 })
   try {
-    const doNames = await queries.communityMachine.getActiveDoNamesForMachine(createDb(env.DB), decodeURIComponent(match[1]))
+    const doNames = await queries.communityMachine.getActiveDoNamesForMachine(createDb(env.DB), machineId)
     let sent = 0
     let unsupported = 0
     for (const name of doNames) {

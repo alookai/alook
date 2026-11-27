@@ -137,6 +137,11 @@ describe("WebSocketDurableObject", () => {
             available: [],
             at: "2026-07-06T00:00:00.000Z",
           })
+          store.set("reset-pending:l_orphan", {
+            kind: "session_reset",
+            trigger: "single",
+            createdAt: Date.now(),
+          })
           mockGetMachineByIdForUser.mockResolvedValue({
             id: "cm_1",
             hostname: "host",
@@ -158,10 +163,11 @@ describe("WebSocketDurableObject", () => {
           expect(ws.send).toHaveBeenCalled()
           expect(ws.close).toHaveBeenCalledWith(1008, "Revoked")
 
-          // Cached identity + handle + overlay all cleared.
+          // Cached identity + handle + overlay + pending restarts all cleared.
           expect(store.get("community-machine-identity")).toBeUndefined()
           expect(store.get("community-machine-handle")).toBeUndefined()
           expect(store.get("community-machine-runtime-error")).toBeUndefined()
+          expect(store.get("reset-pending:l_orphan")).toBeUndefined()
         })
   })
 
@@ -229,6 +235,7 @@ describe("WebSocketDurableObject", () => {
           machineId: "cm_1",
           userId: "u_1",
           authenticated: true,
+          connectedAt: 1_000_000,
         })
         expect(storage.put.mock.calls).toEqual([
           ["community-machine-identity", {

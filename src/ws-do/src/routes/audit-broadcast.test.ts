@@ -189,5 +189,29 @@ describe("ws-do router", () => {
       expect(body.kind).toBe("model_changed")
       expect(body.payload).toEqual({ from: "claude-opus-4-6", to: "claude-sonnet-4-6" })
     })
+
+    it.each([
+      ["nap", { trigger: "nap" }],
+      ["provider_changed", { from: "claude", to: "codex" }],
+    ] as const)("accepts kind: %s (guards the AUDIT_KINDS allowlist)", async (kind, payload) => {
+      doMock.stubFetch.mockResolvedValue(new Response("ok"))
+      const req = new Request("http://localhost/internal/broadcast-bot-audit-event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          botId: "bot_1",
+          ownerUserId: "owner_1",
+          id: `evt_${kind}`,
+          kind,
+          payload,
+          createdAt: "2026-07-26T00:00:00.000Z",
+        }),
+      })
+      const res = await handler.fetch(req, env as any)
+      expect(res.status).toBe(204)
+      const body = JSON.parse(await (doMock.stubFetch.mock.calls[0][0] as Request).text()) as Record<string, unknown>
+      expect(body.kind).toBe(kind)
+      expect(body.payload).toEqual(payload)
+    })
   })
 })

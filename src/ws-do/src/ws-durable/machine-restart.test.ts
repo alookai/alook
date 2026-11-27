@@ -525,8 +525,8 @@ describe("WebSocketDurableObject", () => {
         }))
 
         expect(storage.put.mock.calls).toEqual([
-          ["reset-pending:l_1", { kind: "session_reset", trigger: "reset_all" }],
-          ["reset-pending:l_2", { kind: "session_reset", trigger: "reset_all" }],
+          ["reset-pending:l_1", { kind: "session_reset", trigger: "reset_all", createdAt: expect.any(Number) }],
+          ["reset-pending:l_2", { kind: "session_reset", trigger: "reset_all", createdAt: expect.any(Number) }],
         ])
       })
     })

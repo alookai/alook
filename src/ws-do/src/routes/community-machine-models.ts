@@ -1,15 +1,16 @@
 import { createDb, queries, RuntimeModelDiscoveryRequestSchema, RuntimeModelDiscoveryResultSchema, RUNTIME_MODEL_CATALOG_FINGERPRINT_HEADER } from "@alook/shared"
 import { readBoundedJsonRequest } from "../community-browser-event-ingress"
-import type { RouterContext } from "../router-context"
+import { decodePathSegment, type RouterContext } from "../router-context"
 
 export async function handleMachineModels({ request, env, url }: RouterContext): Promise<Response | null> {
   const match = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/discover-models$/)
   if (!match || request.method !== "POST") return null
+  const machineId = decodePathSegment(match[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const input = await readBoundedJsonRequest(request, 4096)
   const payload = RuntimeModelDiscoveryRequestSchema.safeParse(input.ok ? input.value : null)
   if (!payload.success) return Response.json({ error: "invalid request" }, { status: 400 })
   try {
-    const machineId = decodeURIComponent(match[1])
     const doNames = await queries.communityMachine.getActiveDoNamesForMachine(createDb(env.DB), machineId)
     const wait = url.searchParams.get("wait") === "1"
     const catalogFingerprint = request.headers.get(RUNTIME_MODEL_CATALOG_FINGERPRINT_HEADER)

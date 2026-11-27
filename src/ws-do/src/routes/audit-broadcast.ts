@@ -49,11 +49,20 @@ export async function handleAuditBroadcast({ request, env, url, log }: RouterCon
   ) {
     return new Response("invalid payload", { status: 400 })
   }
-  // Guard against a future caller shape-drift: only the four kinds the
-  // browser understands are broadcastable. An unknown `kind` reaches the
+  // Guard against a future caller shape-drift: only the supported audit kinds
+  // the browser understands are broadcastable. An unknown `kind` reaches the
   // owner UI as an untyped row (bot-activity-row.tsx renders it verbatim),
   // so reject at the boundary instead.
-  const AUDIT_KINDS = ["cli_invocation", "tool_call", "thinking", "wake_trigger", "session_reset", "model_changed"] as const
+  const AUDIT_KINDS = [
+    "cli_invocation",
+    "tool_call",
+    "thinking",
+    "wake_trigger",
+    "session_reset",
+    "nap",
+    "model_changed",
+    "provider_changed",
+  ] as const
   if (!(AUDIT_KINDS as readonly string[]).includes(b.kind)) {
     return new Response("invalid kind", { status: 400 })
   }

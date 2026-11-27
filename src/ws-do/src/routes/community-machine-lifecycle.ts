@@ -1,12 +1,13 @@
 import { forwardMachineCommand } from "./machine-command-forwarding"
 import { queries } from "@alook/shared"
-import type { RouterContext } from "../router-context"
+import { decodePathSegment, type RouterContext } from "../router-context"
 
 export async function handleMachineLifecycleCommand({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
   const route = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-(update|stop|refresh)$/)
   if (!route || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(route[1])
+  const machineId = decodePathSegment(route[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const stopping = route[2] === "stop"
   const refreshing = route[2] === "refresh"
   const gated = stopping || refreshing
@@ -78,7 +79,8 @@ export async function handleMachineReset({ request, env, url, traceId, log }: Ro
   const forwardAgentReset = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-reset$/)
   if (!forwardAgentReset || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(forwardAgentReset[1])
+  const machineId = decodePathSegment(forwardAgentReset[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("forwarding agent:reset to machine")
 
@@ -131,7 +133,8 @@ export async function handleMachineBatchReset({ request, env, url, traceId, log 
   const forwardBatchReset = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-batch-reset$/)
   if (!forwardBatchReset || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(forwardBatchReset[1])
+  const machineId = decodePathSegment(forwardBatchReset[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("forwarding machine:reset_all to machine")
 
@@ -195,7 +198,8 @@ export async function handleMachineNap({ request, env, url, traceId, log }: Rout
   const forwardAgentNap = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-nap$/)
   if (!forwardAgentNap || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(forwardAgentNap[1])
+  const machineId = decodePathSegment(forwardAgentNap[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("forwarding agent:nap to machine")
 
@@ -245,7 +249,8 @@ export async function handleMachineForceClose({ request, env, url, traceId, log 
   const forceClose = url.pathname.match(/^\/community-machine\/([^/]+)\/force-close$/)
   if (!forceClose || request.method !== "POST") return null
 
-  const doName = decodeURIComponent(forceClose[1])
+  const doName = decodePathSegment(forceClose[1])
+  if (!doName) return Response.json({ error: "invalid doName" }, { status: 400 })
   const reqLog = log.child({ traceId, doName })
   reqLog.debug("force-closing community machine")
 

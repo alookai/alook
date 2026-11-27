@@ -1,5 +1,5 @@
 import { parseAttemptedCountReceipt, queries, withD1Retry } from "@alook/shared"
-import type { RouterContext } from "../router-context"
+import { decodePathSegment, type RouterContext } from "../router-context"
 
 export async function handleMachinePush({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
   // POST /community-machine/by-id/<machineId>/push — push a HostCommand to
@@ -8,7 +8,8 @@ export async function handleMachinePush({ request, env, url, traceId, log }: Rou
   const pushToMachine = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/push$/)
   if (!pushToMachine || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(pushToMachine[1])
+  const machineId = decodePathSegment(pushToMachine[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("pushing bot event to machine")
 
@@ -63,7 +64,8 @@ export async function handleMachineWake({ request, env, url, traceId, log }: Rou
   const forwardAgentWake = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-wake$/)
   if (!forwardAgentWake || request.method !== "POST") return null
 
-  const machineId = decodeURIComponent(forwardAgentWake[1])
+  const machineId = decodePathSegment(forwardAgentWake[1])
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 })
   const reqLog = log.child({ traceId, machineId })
   reqLog.debug("forwarding agent:wake to machine")
 

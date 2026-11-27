@@ -5,7 +5,7 @@ import {
   parseAttemptedCountReceipt,
   queries,
 } from "@alook/shared";
-import type { RouterContext } from "../router-context";
+import { decodePathSegment, type RouterContext } from "../router-context";
 
 export async function handleMachineDiagnostics(
   { request, env, url, traceId, log }: RouterContext,
@@ -15,7 +15,8 @@ export async function handleMachineDiagnostics(
   );
   if (!match || request.method !== "POST") return null;
 
-  const machineId = decodeURIComponent(match[1]);
+  const machineId = decodePathSegment(match[1]);
+  if (!machineId) return Response.json({ error: "invalid machineId" }, { status: 400 });
   const reqLog = log.child({ traceId, machineId });
 
   let raw: unknown;

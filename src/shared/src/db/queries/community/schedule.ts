@@ -1,9 +1,12 @@
 import { and, asc, desc, eq, gt, isNotNull, lt, lte } from "drizzle-orm"
+import { nanoid } from "nanoid"
 import type { Database } from "../../index"
+import { communityBotPrivateInbox } from "../../community-bot-private-inbox-schema"
 import { communityScheduleEvent, communityScheduleRun } from "../../community-schedule-schema"
 import {
   deletePendingPrivateInboxEventsForSource,
   deletePrivateInboxEventsForSource,
+  enqueuePrivateInboxEvent,
 } from "./bot-private-inbox"
 import {
   advanceNextRunAfterFire,
@@ -565,10 +568,14 @@ export async function claimDueEventOccurrence(
 
   if (claimed.length === 0) return null
 
-  const inserted = await db
+  const runId = `srun_${crypto.randomUUID()}`
+  const inboxEventId = `bpi_${nanoid(16)}`
+  const dedupeKey = String(scheduledAtMs)
+
+  const insertRun = db
     .insert(communityScheduleRun)
     .values({
-      id: `srun_${crypto.randomUUID()}`,
+      id: runId,
       ownerUserId: event.ownerUserId,
       eventId: event.id,
       eventVersion: event.version,
@@ -589,7 +596,52 @@ export async function claimDueEventOccurrence(
     })
     .returning()
 
+  let inserted: Array<typeof communityScheduleRun.$inferSelect>
+  if (typeof (db as { batch?: unknown }).batch === "function") {
+    const insertInbox = db
+      .insert(communityBotPrivateInbox)
+      .values({
+        id: inboxEventId,
+        ownerUserId: event.ownerUserId,
+        botUserId: event.createdByUserId,
+        sourceKind: "schedule",
+        sourceId: event.id,
+        sourceRefId: runId,
+        dedupeKey,
+        eventType: "schedule.triggered",
+        summary: event.title,
+        promptText: "",
+        status: "pending",
+        lastError: null,
+        createdAtMs: nowMs,
+        dispatchedAtMs: null,
+      })
+      .onConflictDoNothing()
+    const [insertedRows] = await db.batch([insertRun, insertInbox])
+    inserted = insertedRows
+  } else {
+    inserted = await insertRun
+    if (inserted[0] && inserted[0].status === "pending") {
+      await enqueuePrivateInboxEvent(db, {
+        id: inboxEventId,
+        ownerUserId: event.ownerUserId,
+        botUserId: event.createdByUserId,
+        sourceKind: "schedule",
+        sourceId: event.id,
+        sourceRefId: inserted[0].id,
+        dedupeKey,
+        eventType: "schedule.triggered",
+        summary: event.title,
+        promptText: "",
+        status: "pending",
+        nowMs,
+      })
+    }
+  }
+
   if (inserted[0]) return mapRunRow(inserted[0])
+
+  await db.delete(communityBotPrivateInbox).where(eq(communityBotPrivateInbox.id, inboxEventId))
 
   const existing = await db
     .select()
@@ -601,7 +653,24 @@ export async function claimDueEventOccurrence(
       ),
     )
     .limit(1)
-  return existing[0] ? mapRunRow(existing[0]) : null
+  if (!existing[0]) return null
+  const existingRun = mapRunRow(existing[0])
+  if (existingRun.status === "pending") {
+    await enqueuePrivateInboxEvent(db, {
+      ownerUserId: existingRun.ownerUserId,
+      botUserId: existingRun.botUserId,
+      sourceKind: "schedule",
+      sourceId: existingRun.eventId,
+      sourceRefId: existingRun.id,
+      dedupeKey: String(existingRun.scheduledAtMs),
+      eventType: "schedule.triggered",
+      summary: existingRun.titleSnapshot,
+      promptText: "",
+      status: "pending",
+      nowMs: existingRun.createdAtMs,
+    })
+  }
+  return existingRun
 }
 
 export async function getScheduleRunById(
@@ -627,6 +696,27 @@ export async function listPendingRunsForOwner(
     .where(
       and(
         eq(communityScheduleRun.ownerUserId, ownerUserId),
+        eq(communityScheduleRun.status, "pending"),
+      ),
+    )
+    .orderBy(asc(communityScheduleRun.scheduledAtMs))
+    .limit(limit)
+  return rows.map(mapRunRow)
+}
+
+export async function listPendingRunsForBot(
+  db: Database,
+  ownerUserId: string,
+  botUserId: string,
+  limit = 50,
+): Promise<StoredScheduleRun[]> {
+  const rows = await db
+    .select()
+    .from(communityScheduleRun)
+    .where(
+      and(
+        eq(communityScheduleRun.ownerUserId, ownerUserId),
+        eq(communityScheduleRun.botUserId, botUserId),
         eq(communityScheduleRun.status, "pending"),
       ),
     )

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   createRouterTestContext,
@@ -80,6 +82,37 @@ describe("ws-do router", () => {
       expect(doMock.idFromName).toHaveBeenCalledWith("user:user-fallback")
       expect(doMock.stubFetch).toHaveBeenCalledWith(req)
       expect(await res.text()).toBe("fallback")
+    })
+
+    it("disables workers.dev and preview URLs in wrangler.toml", () => {
+      const config = readFileSync(resolve(import.meta.dirname, "../wrangler.toml"), "utf8")
+      expect(config).toContain("workers_dev = false")
+      expect(config).toContain("preview_urls = false")
+    })
+
+    it.each([
+      "/owner-schedule/%E0%A4%A/sync-alarm",
+      "/community-machine/by-id/%E0%A4%A/push",
+      "/community-machine/by-id/%E0%A4%A/forward-agent-wake",
+      "/community-machine/by-id/%E0%A4%A/forward-diagnostics-collect",
+      "/community-machine/by-id/%E0%A4%A/forward-stop",
+      "/community-machine/by-id/%E0%A4%A/forward-agent-reset",
+      "/community-machine/by-id/%E0%A4%A/forward-batch-reset",
+      "/community-machine/by-id/%E0%A4%A/forward-agent-nap",
+      "/community-machine/%E0%A4%A/force-close",
+      "/community-machine/by-id/%E0%A4%A/discover-models",
+      "/community-machine/by-id/%E0%A4%A/pii",
+      "/community-machine/by-id/%E0%A4%A/forward-agent-model-switch",
+      "/community-machine/by-id/%E0%A4%A/forward-agent-provider-switch",
+      "/community-machine/by-id/%E0%A4%A/forward-agent-runtime-config-update",
+    ])("returns 400 instead of 500/503 for malformed percent encoding on %s", async (pathname) => {
+      const res = await handler.fetch(new Request(`http://localhost${pathname}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }), env as any)
+      expect(res.status).toBe(400)
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
   })
 })

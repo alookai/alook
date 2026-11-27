@@ -19,6 +19,14 @@ export function createMockCtx() {
     get: vi.fn(async (key: string) => store.get(key)),
     put: vi.fn(async (key: string, value: unknown) => { store.set(key, value) }),
     delete: vi.fn(async (key: string) => { store.delete(key) }),
+    list: vi.fn(async (opts?: { prefix?: string }) => {
+      const prefix = opts?.prefix ?? ""
+      const out = new Map<string, unknown>()
+      for (const [k, v] of store.entries()) {
+        if (!prefix || k.startsWith(prefix)) out.set(k, v)
+      }
+      return out
+    }),
     setAlarm: vi.fn(async (t: number) => { alarm = t }),
     deleteAlarm: vi.fn(async () => { alarm = null }),
     getAlarm: vi.fn(async () => alarm),

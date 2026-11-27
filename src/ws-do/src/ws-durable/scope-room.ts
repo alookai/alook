@@ -8,11 +8,31 @@ import { settleInBatches } from "../settle-in-batches"
 import type { WsDurableContext } from "./internal"
 
 const ROOM_HOP_MAX_RECIPIENTS = 399
+const BATCH_PRESENCE_HOP_MAX_TARGETS = 400
 const MAX_RELAY_HOPS = 25
 const ROOM_ENTRY_TTL_MS = 30 * 60 * 1000
 
 const SCOPE_ROOM_ACTIVE_VIEWERS_KEY = "scope-room:active-viewers"
 const SCOPE_ROOM_ONLINE_USERS_KEY = "scope-room:online-users"
+
+type BatchPresenceFailureKind = "throw" | "non-ok" | "invalid-json" | "invalid-body"
+
+type BatchPresenceFailureCounts = Record<BatchPresenceFailureKind, number>
+
+type BatchPresenceHopResult = {
+  online: string[]
+  offline: string[]
+  staleCount: number
+  failureCount: number
+  failureCounts: BatchPresenceFailureCounts
+  resultCount: number
+  maxActive: number
+  batchCount: number
+}
+
+function relayBatchPresenceRoomDoName(hop: number): string {
+  return `room:relay:batch-presence:${hop}`
+}
 
 export type ScopeRoomState = {
   hydrated: boolean
@@ -64,27 +84,38 @@ async function ensureScopeRoomHydrated(context: WsDurableContext): Promise<Scope
     room.hydratePromise = (async () => {
       const storage = context.ctx.storage
       if (storage?.get) {
-        try {
-          const [storedViewers, storedOnline] = await Promise.all([
-            storage.get<Record<string, number>>(SCOPE_ROOM_ACTIVE_VIEWERS_KEY),
-            storage.get<Record<string, number>>(SCOPE_ROOM_ONLINE_USERS_KEY),
-          ])
-          for (const [id, ts] of parseTimestampRecord(storedViewers)) {
-            const existing = room.activeViewers.get(id) ?? 0
-            if (ts > existing) room.activeViewers.set(id, ts)
-          }
-          for (const [id, ts] of parseTimestampRecord(storedOnline)) {
-            const existing = room.onlineUsers.get(id) ?? 0
-            if (ts > existing) room.onlineUsers.set(id, ts)
-          }
-        } catch { }
+        const [storedViewers, storedOnline] = await Promise.all([
+          storage.get<Record<string, number>>(SCOPE_ROOM_ACTIVE_VIEWERS_KEY),
+          storage.get<Record<string, number>>(SCOPE_ROOM_ONLINE_USERS_KEY),
+        ])
+        for (const [id, ts] of parseTimestampRecord(storedViewers)) {
+          const existing = room.activeViewers.get(id) ?? 0
+          if (ts > existing) room.activeViewers.set(id, ts)
+        }
+        for (const [id, ts] of parseTimestampRecord(storedOnline)) {
+          const existing = room.onlineUsers.get(id) ?? 0
+          if (ts > existing) room.onlineUsers.set(id, ts)
+        }
       }
       room.hydrated = true
+    })().finally(() => {
       room.hydratePromise = null
-    })()
+    })
   }
   await room.hydratePromise
   return room
+}
+
+async function hydrateScopeRoomOr503(
+  context: WsDurableContext,
+  path: string,
+): Promise<{ ok: true; room: ScopeRoomState } | { ok: false; response: Response }> {
+  try {
+    return { ok: true, room: await ensureScopeRoomHydrated(context) }
+  } catch (err) {
+    context.log.warn("scope_room_hydrate_failed", { path, err: String(err) })
+    return { ok: false, response: Response.json({ error: "scope room storage unavailable" }, { status: 503 }) }
+  }
 }
 
 async function persistScopeRoomMap(
@@ -200,6 +231,167 @@ export async function checkHumansOnlineWithRelay(
   return onlineIds
 }
 
+type BatchPresenceTargetResult =
+  | { kind: "online" }
+  | { kind: "offline" }
+  | { kind: "stale" }
+  | { kind: "non-ok"; status: number }
+  | { kind: "invalid-json"; status: number }
+  | { kind: "invalid-body"; status: number }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+async function checkBatchPresenceTarget(env: Env, userId: string): Promise<BatchPresenceTargetResult> {
+  const doId = env.WS_DO.idFromName("user:" + userId)
+  const stub = env.WS_DO.get(doId)
+  const response = await stub.fetch(
+    new Request(`http://internal/check-user-online?userId=${encodeURIComponent(userId)}`),
+  )
+  if (!response.ok) return { kind: "non-ok", status: response.status }
+
+  let data: unknown
+  try {
+    data = await response.json()
+  } catch {
+    return { kind: "invalid-json", status: response.status }
+  }
+  if (
+    !isRecord(data)
+    || typeof data.online !== "boolean"
+    || (data.stale !== undefined && typeof data.stale !== "boolean")
+  ) return { kind: "invalid-body", status: response.status }
+  if (data.stale) return { kind: "stale" }
+  return data.online ? { kind: "online" } : { kind: "offline" }
+}
+
+export async function checkBatchPresenceTargetsWithRelay(
+  env: Env,
+  userIds: readonly string[],
+  options: {
+    batchSize: number
+    hop?: number
+    onTargetFailure?: (userId: string, failureKind: BatchPresenceFailureKind, status?: number) => void
+  },
+): Promise<BatchPresenceHopResult> {
+  const hop = options.hop ?? 0
+  const direct = userIds.slice(0, BATCH_PRESENCE_HOP_MAX_TARGETS)
+  const remainder = userIds.slice(BATCH_PRESENCE_HOP_MAX_TARGETS)
+
+  let active = 0
+  let maxActive = 0
+  const results = await settleInBatches(direct, async (id) => {
+    active += 1
+    maxActive = Math.max(maxActive, active)
+    try {
+      return await checkBatchPresenceTarget(env, id)
+    } finally {
+      active -= 1
+    }
+  }, options.batchSize)
+
+  const online: string[] = []
+  const offline: string[] = []
+  let staleCount = 0
+  let failureCount = 0
+  const failureCounts: BatchPresenceFailureCounts = {
+    throw: 0,
+    "non-ok": 0,
+    "invalid-json": 0,
+    "invalid-body": 0,
+  }
+  for (const [index, result] of results.entries()) {
+    const id = direct[index]!
+    if (result.status === "rejected") {
+      failureCount += 1
+      failureCounts.throw += 1
+      options.onTargetFailure?.(id, "throw")
+      continue
+    }
+    if (result.value.kind === "online") {
+      online.push(id)
+    } else if (result.value.kind === "offline") {
+      offline.push(id)
+    } else if (result.value.kind === "stale") {
+      staleCount += 1
+    } else {
+      failureCount += 1
+      failureCounts[result.value.kind] += 1
+      options.onTargetFailure?.(id, result.value.kind, result.value.status)
+    }
+  }
+
+  let resultCount = results.length
+  let batchCount = Math.ceil(direct.length / options.batchSize)
+
+  if (remainder.length > 0 && hop < MAX_RELAY_HOPS) {
+    const nextHop = hop + 1
+    const relayId = env.WS_DO.idFromName(relayBatchPresenceRoomDoName(nextHop))
+    const relayStub = env.WS_DO.get(relayId)
+    try {
+      const resp = await relayStub.fetch(new Request("http://internal/room/relay-batch-presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: remainder, hop: nextHop }),
+      }))
+      if (resp.ok) {
+        const data = await resp.json() as Partial<BatchPresenceHopResult>
+        if (Array.isArray(data.online)) {
+          for (const id of data.online) {
+            if (typeof id === "string") online.push(id)
+          }
+        }
+        if (Array.isArray(data.offline)) {
+          for (const id of data.offline) {
+            if (typeof id === "string") offline.push(id)
+          }
+        }
+        if (typeof data.staleCount === "number" && Number.isFinite(data.staleCount)) {
+          staleCount += data.staleCount
+        }
+        if (typeof data.failureCount === "number" && Number.isFinite(data.failureCount)) {
+          failureCount += data.failureCount
+        }
+        if (isRecord(data.failureCounts)) {
+          for (const kind of ["throw", "non-ok", "invalid-json", "invalid-body"] as const) {
+            const count = data.failureCounts[kind]
+            if (typeof count === "number" && Number.isFinite(count)) {
+              failureCounts[kind] += count
+            }
+          }
+        }
+        if (typeof data.resultCount === "number" && Number.isFinite(data.resultCount)) {
+          resultCount += data.resultCount
+        }
+        if (typeof data.maxActive === "number" && Number.isFinite(data.maxActive)) {
+          maxActive = Math.max(maxActive, data.maxActive)
+        }
+        if (typeof data.batchCount === "number" && Number.isFinite(data.batchCount)) {
+          batchCount += data.batchCount
+        }
+      } else {
+        failureCount += remainder.length
+        failureCounts["non-ok"] += remainder.length
+      }
+    } catch {
+      failureCount += remainder.length
+      failureCounts.throw += remainder.length
+    }
+  }
+
+  return {
+    online,
+    offline,
+    staleCount,
+    failureCount,
+    failureCounts,
+    resultCount,
+    maxActive,
+    batchCount,
+  }
+}
+
 export async function handleScopeRoomFetch(
   context: WsDurableContext,
   request: Request,
@@ -218,7 +410,9 @@ export async function handleScopeRoomFetch(
       return Response.json({ error: "invalid focus payload" }, { status: 400 })
     }
     const now = Date.now()
-    const room = await ensureScopeRoomHydrated(context)
+    const hydrated = await hydrateScopeRoomOr503(context, url.pathname)
+    if (!hydrated.ok) return hydrated.response
+    const { room } = hydrated
     pruneStale(room.activeViewers, now)
     const onlinePruned = pruneStale(room.onlineUsers, now)
     if (body.active) {
@@ -247,7 +441,9 @@ export async function handleScopeRoomFetch(
       return Response.json({ error: "invalid presence payload" }, { status: 400 })
     }
     const now = Date.now()
-    const room = await ensureScopeRoomHydrated(context)
+    const hydrated = await hydrateScopeRoomOr503(context, url.pathname)
+    if (!hydrated.ok) return hydrated.response
+    const { room } = hydrated
     const viewersPruned = pruneStale(room.activeViewers, now)
     pruneStale(room.onlineUsers, now)
     if (body.online) {
@@ -280,7 +476,9 @@ export async function handleScopeRoomFetch(
       return Response.json({ error: "invalid presence renew payload" }, { status: 400 })
     }
     const now = Date.now()
-    const room = await ensureScopeRoomHydrated(context)
+    const hydrated = await hydrateScopeRoomOr503(context, url.pathname)
+    if (!hydrated.ok) return hydrated.response
+    const { room } = hydrated
     pruneStale(room.onlineUsers, now)
     room.onlineUsers.set(body.userId, now)
     await persistScopeRoomMap(context, SCOPE_ROOM_ONLINE_USERS_KEY, room.onlineUsers)
@@ -302,7 +500,9 @@ export async function handleScopeRoomFetch(
       return Response.json({ error: "invalid server broadcast event" }, { status: 400 })
     }
     const now = Date.now()
-    const room = await ensureScopeRoomHydrated(context)
+    const hydrated = await hydrateScopeRoomOr503(context, url.pathname)
+    if (!hydrated.ok) return hydrated.response
+    const { room } = hydrated
     const viewersPruned = pruneStale(room.activeViewers, now)
     if (viewersPruned) {
       await persistScopeRoomMap(context, SCOPE_ROOM_ACTIVE_VIEWERS_KEY, room.activeViewers)
@@ -327,7 +527,9 @@ export async function handleScopeRoomFetch(
       return Response.json({ error: "invalid typing event" }, { status: 400 })
     }
     const now = Date.now()
-    const room = await ensureScopeRoomHydrated(context)
+    const hydrated = await hydrateScopeRoomOr503(context, url.pathname)
+    if (!hydrated.ok) return hydrated.response
+    const { room } = hydrated
     const viewersPruned = pruneStale(room.activeViewers, now)
     if (viewersPruned) {
       await persistScopeRoomMap(context, SCOPE_ROOM_ACTIVE_VIEWERS_KEY, room.activeViewers)
@@ -379,6 +581,32 @@ export async function handleScopeRoomFetch(
     }
     const onlineUserIds = await checkHumansOnlineWithRelay(context, body.userIds, hop)
     return Response.json({ ok: true, onlineUserIds })
+  }
+
+  if (url.pathname === "/room/relay-batch-presence") {
+    let body: { userIds?: unknown; hop?: unknown }
+    try {
+      body = await request.json() as typeof body
+    } catch {
+      return Response.json({ error: "invalid json" }, { status: 400 })
+    }
+    if (
+      !Array.isArray(body.userIds)
+      || !body.userIds.every((id): id is string => typeof id === "string" && id.length > 0)
+    ) {
+      return Response.json({ error: "invalid relay userIds" }, { status: 400 })
+    }
+    const hop = typeof body.hop === "number" && Number.isInteger(body.hop) && body.hop >= 1 && body.hop <= MAX_RELAY_HOPS
+      ? body.hop
+      : null
+    if (hop === null) {
+      return Response.json({ error: "invalid relay hop" }, { status: 400 })
+    }
+    const result = await checkBatchPresenceTargetsWithRelay(context.env, body.userIds, {
+      batchSize: context.subrequestBatchSize,
+      hop,
+    })
+    return Response.json({ ok: true, ...result })
   }
 
   return null
