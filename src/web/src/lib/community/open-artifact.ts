@@ -14,6 +14,10 @@ const AlookPageEmbedSchema = z.object({
 
 export type AlookPageEmbed = z.infer<typeof AlookPageEmbedSchema>
 
+export type AlookPageOpenTarget = AlookPageEmbed & {
+  sourceMessageId?: string
+}
+
 const PageViewerTokenResponseSchema = z.object({
   embedUrl: z.string().trim().min(1),
   allowedOrigins: z.array(z.string()),
@@ -58,12 +62,14 @@ export function extractAlookPagesFromEmbeds(
 
 export async function fetchPageViewerToken(
   pageId: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; sourceMessageId?: string },
 ): Promise<PageViewerTokenResponse> {
+  const sourceMessageId = options?.sourceMessageId?.trim()
   const data = await apiFetch<unknown>(
     `/api/community/pages/${encodeURIComponent(pageId)}/viewer-token`,
     {
       method: "POST",
+      ...(sourceMessageId ? { body: JSON.stringify({ sourceMessageId }) } : {}),
       signal: options?.signal,
     },
   )
@@ -72,14 +78,16 @@ export async function fetchPageViewerToken(
 
 export async function submitPageComment(
   pageId: string,
-  input: { text: string; location?: string },
+  input: { text: string; location?: string; sourceMessageId?: string },
   options?: { signal?: AbortSignal },
 ): Promise<PageCommentResponse> {
   const text = input.text.trim()
   if (!text) throw new Error("Comment text is required")
-  const payload = input.location?.trim()
-    ? { text, location: input.location.trim() }
-    : { text }
+  const payload: { text: string; location?: string; sourceMessageId?: string } = { text }
+  const location = input.location?.trim()
+  if (location) payload.location = location
+  const sourceMessageId = input.sourceMessageId?.trim()
+  if (sourceMessageId) payload.sourceMessageId = sourceMessageId
   const data = await apiFetch<unknown>(
     `/api/community/pages/${encodeURIComponent(pageId)}/comments`,
     {

@@ -55,7 +55,7 @@ describe("open-artifact", () => {
     expect(describePageSaveState(null)).toBeNull()
   })
 
-  it("calls POST /api/community/pages/:id/viewer-token and validates the payload", async () => {
+  it("calls POST /api/community/pages/:id/viewer-token with optional sourceMessageId and validates the payload", async () => {
     const spy = vi.spyOn(apiClient, "apiFetch").mockResolvedValue({
       embedUrl: "https://oa.alook.ai/a/pg_1?token=short",
       allowedOrigins: ["https://oa.alook.ai"],
@@ -68,15 +68,26 @@ describe("open-artifact", () => {
       signal: undefined,
     })
     expect(res.embedUrl).toBe("https://oa.alook.ai/a/pg_1?token=short")
+
+    await fetchPageViewerToken("pg_1", { sourceMessageId: " msg_42 " })
+    expect(spy).toHaveBeenLastCalledWith("/api/community/pages/pg_1/viewer-token", {
+      method: "POST",
+      body: JSON.stringify({ sourceMessageId: "msg_42" }),
+      signal: undefined,
+    })
   })
 
-  it("calls POST /api/community/pages/:id/comments with trimmed text and optional location", async () => {
+  it("calls POST /api/community/pages/:id/comments with trimmed text, location, and optional sourceMessageId", async () => {
     const spy = vi.spyOn(apiClient, "apiFetch").mockResolvedValue({ id: "m_1", seq: 12 })
 
-    await submitPageComment("pg_1", { text: "  Tighten slide 2  ", location: " #slide-2 " })
+    await submitPageComment("pg_1", {
+      text: "  Tighten slide 2  ",
+      location: " #slide-2 ",
+      sourceMessageId: " msg_99 ",
+    })
     expect(spy).toHaveBeenCalledWith("/api/community/pages/pg_1/comments", {
       method: "POST",
-      body: JSON.stringify({ text: "Tighten slide 2", location: "#slide-2" }),
+      body: JSON.stringify({ text: "Tighten slide 2", location: "#slide-2", sourceMessageId: "msg_99" }),
       signal: undefined,
     })
 

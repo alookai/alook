@@ -310,4 +310,67 @@ describe("OpenArtifactSheet", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(reopenedFrame.getAttribute("src")).toBe("https://oa.alook.ai/a/pg_launch?ticket=second")
   })
+
+  it("forwards sourceMessageId to viewer-token and comments, and refreshes when switching source messages for the same page", async () => {
+    const fetchSpy = vi.spyOn(apiClient, "apiFetch")
+    fetchSpy.mockResolvedValueOnce({
+      embedUrl: "https://oa.alook.ai/a/pg_launch?src=msg_a",
+      allowedOrigins: ["https://oa.alook.ai"],
+      expiresAt: "2026-11-27T13:00:00Z",
+    })
+    fetchSpy.mockResolvedValueOnce({ id: "m_comment_a", seq: 21 })
+    fetchSpy.mockResolvedValueOnce({
+      embedUrl: "https://oa.alook.ai/a/pg_launch?src=msg_b",
+      allowedOrigins: ["https://oa.alook.ai"],
+      expiresAt: "2026-11-27T13:05:00Z",
+    })
+
+    const onOpenChange = vi.fn()
+    const view = renderCommunity(
+      <OpenArtifactSheet
+        page={{ ...samplePage, sourceMessageId: "msg_a" }}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    const frameA = await waitFor(() => screen.getByTestId(tid.openArtifactFrame) as HTMLIFrameElement)
+    expect(frameA.getAttribute("src")).toBe("https://oa.alook.ai/a/pg_launch?src=msg_a")
+    expect(fetchSpy).toHaveBeenNthCalledWith(1, "/api/community/pages/pg_launch/viewer-token", {
+      method: "POST",
+      body: JSON.stringify({ sourceMessageId: "msg_a" }),
+      signal: expect.any(AbortSignal),
+    })
+
+    fireEvent.click(screen.getByTestId(tid.openArtifactCommentTrigger))
+    const input = await waitFor(() => screen.getByTestId(tid.openArtifactCommentInput))
+    fireEvent.change(input, { target: { value: "Reply to channel A" } })
+    fireEvent.click(screen.getByTestId(tid.openArtifactCommentSubmit))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenNthCalledWith(2, "/api/community/pages/pg_launch/comments", {
+        method: "POST",
+        body: JSON.stringify({ text: "Reply to channel A", sourceMessageId: "msg_a" }),
+        signal: undefined,
+      })
+    })
+
+    view.rerender(
+      <OpenArtifactSheet
+        page={{ ...samplePage, sourceMessageId: "msg_b" }}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await waitFor(() => {
+      expect((screen.getByTestId(tid.openArtifactFrame) as HTMLIFrameElement).getAttribute("src"))
+        .toBe("https://oa.alook.ai/a/pg_launch?src=msg_b")
+    })
+    expect(fetchSpy).toHaveBeenNthCalledWith(3, "/api/community/pages/pg_launch/viewer-token", {
+      method: "POST",
+      body: JSON.stringify({ sourceMessageId: "msg_b" }),
+      signal: expect.any(AbortSignal),
+    })
+  })
 })

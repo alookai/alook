@@ -21,7 +21,7 @@ import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use
 
 import { acquireIconCropSource, type IconCropSource } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
-import type { AlookPageEmbed } from "@/lib/community/open-artifact"
+import type { AlookPageOpenTarget } from "@/lib/community/open-artifact"
 import type {
   OwnerProfileRef,
   Profile,
@@ -101,7 +101,7 @@ export function useShellProfileController({
 
   const [preview, setPreview] = useAtom(useCreateAtom<ImagePreview | null>(null))
   const [attachmentPreview, setAttachmentPreview] = useAtom(useCreateAtom<FileAttachment | null>(null))
-  const [activePage, setActivePage] = useAtom(useCreateAtom<AlookPageEmbed | null>(null))
+  const [activePage, setActivePage] = useAtom(useCreateAtom<AlookPageOpenTarget | null>(null))
   const avatarCropTask = useCreateAtom<(IconCropSource & {
     assertActive: ReturnType<typeof source.capture>
   }) | null>(null)
@@ -234,7 +234,7 @@ export function useShellProfileController({
     [setAttachmentPreview],
   )
   const openPage = useCallback(
-    (page: AlookPageEmbed) => setActivePage(page),
+    (page: AlookPageOpenTarget) => setActivePage(page),
     [setActivePage],
   )
 

@@ -40,7 +40,7 @@ import {
   describePageType,
   fetchPageViewerToken,
   submitPageComment,
-  type AlookPageEmbed,
+  type AlookPageOpenTarget,
 } from "@/lib/community/open-artifact"
 import { useOpenArtifactShellBridge } from "@/hooks/community/use-open-artifact-shell-bridge"
 import {
@@ -63,10 +63,12 @@ function PageHeaderIcon({ kind }: { kind: "doc" | "slides" | "other" }) {
 
 export function OpenArtifactSheet({
   page,
+  sourceMessageId,
   open,
   onOpenChange,
 }: {
-  page: AlookPageEmbed | null
+  page: AlookPageOpenTarget | null
+  sourceMessageId?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -76,33 +78,34 @@ export function OpenArtifactSheet({
     nonce: 0,
   })
   const currentPageId = open ? page?.id ?? null : null
-  const activeKey = currentPageId ? `${currentPageId}` : null
+  const resolvedSourceMessageId = open ? (sourceMessageId ?? page?.sourceMessageId)?.trim() || undefined : undefined
+  const activeKey = currentPageId ? `${currentPageId}:${resolvedSourceMessageId ?? ""}` : null
   if (activeKey !== openSession.key) {
     setOpenSession({ key: activeKey, nonce: openSession.nonce + 1 })
   }
   const [closeGuard, setCloseGuard] = useState<{
-    pageId: string | null
+    sessionKey: string | null
     leaveLosesWork: boolean
     confirmClose: boolean
   }>({
-    pageId: null,
+    sessionKey: null,
     leaveLosesWork: false,
     confirmClose: false,
   })
 
-  const leaveLosesWork = closeGuard.pageId === currentPageId && closeGuard.leaveLosesWork
-  const confirmClose = closeGuard.pageId === currentPageId && closeGuard.confirmClose
+  const leaveLosesWork = closeGuard.sessionKey === activeKey && closeGuard.leaveLosesWork
+  const confirmClose = closeGuard.sessionKey === activeKey && closeGuard.confirmClose
 
   const setLeaveLosesWork = useCallback((value: boolean) => {
     setCloseGuard((current) => ({
-      pageId: currentPageId,
+      sessionKey: activeKey,
       leaveLosesWork: value,
-      confirmClose: value && current.pageId === currentPageId ? current.confirmClose : false,
+      confirmClose: value && current.sessionKey === activeKey ? current.confirmClose : false,
     }))
-  }, [currentPageId])
+  }, [activeKey])
 
   const handleCloseConfirmed = useCallback(() => {
-    setCloseGuard({ pageId: null, leaveLosesWork: false, confirmClose: false })
+    setCloseGuard({ sessionKey: null, leaveLosesWork: false, confirmClose: false })
     setFullscreen(false)
     onOpenChange(false)
   }, [onOpenChange])
@@ -113,11 +116,11 @@ export function OpenArtifactSheet({
       return
     }
     if (leaveLosesWork) {
-      setCloseGuard({ pageId: currentPageId, leaveLosesWork: true, confirmClose: true })
+      setCloseGuard({ sessionKey: activeKey, leaveLosesWork: true, confirmClose: true })
       return
     }
     handleCloseConfirmed()
-  }, [currentPageId, handleCloseConfirmed, leaveLosesWork, onOpenChange])
+  }, [activeKey, handleCloseConfirmed, leaveLosesWork, onOpenChange])
 
   const pageKey = activeKey ? `${activeKey}:${openSession.nonce}` : "none"
 
@@ -127,12 +130,13 @@ export function OpenArtifactSheet({
         key={pageKey}
         openNonce={openSession.nonce}
         page={page}
+        sourceMessageId={resolvedSourceMessageId}
         open={open}
         fullscreen={fullscreen}
         onToggleFullscreen={() => setFullscreen((current) => !current)}
         confirmClose={confirmClose}
         onCancelClose={() => setCloseGuard((current) => (
-          current.pageId === currentPageId ? { ...current, confirmClose: false } : current
+          current.sessionKey === activeKey ? { ...current, confirmClose: false } : current
         ))}
         onConfirmClose={handleCloseConfirmed}
         onRequestClose={() => handleOpenChange(false)}
@@ -145,6 +149,7 @@ export function OpenArtifactSheet({
 function OpenArtifactSheetSurface({
   openNonce,
   page,
+  sourceMessageId,
   open,
   fullscreen,
   onToggleFullscreen,
@@ -155,7 +160,8 @@ function OpenArtifactSheetSurface({
   onLeaveLosesWorkChange,
 }: {
   openNonce: number
-  page: AlookPageEmbed | null
+  page: AlookPageOpenTarget | null
+  sourceMessageId?: string
   open: boolean
   fullscreen: boolean
   onToggleFullscreen: () => void
@@ -185,7 +191,13 @@ function OpenArtifactSheetSurface({
   // which would replace the iframe URL and discard in-progress edits. A fresh ticket
   // is fetched only on a new open session (openNonce) or explicit Retry.
   const tokenQuery = useQuery({
-    queryKey: applicationKey(owner, "open-artifact-viewer-token", open ? page?.id ?? null : null, openNonce),
+    queryKey: applicationKey(
+      owner,
+      "open-artifact-viewer-token",
+      open ? page?.id ?? null : null,
+      open ? sourceMessageId ?? null : null,
+      openNonce,
+    ),
     enabled: open && page !== null,
     staleTime: Infinity,
     gcTime: 0,
@@ -199,7 +211,7 @@ function OpenArtifactSheetSurface({
       assert()
       if (!page) throw new Error("No page selected")
       try {
-        const result = await fetchPageViewerToken(page.id, { signal })
+        const result = await fetchPageViewerToken(page.id, { signal, sourceMessageId })
         assert()
         return result
       } catch (error) {
@@ -237,6 +249,7 @@ function OpenArtifactSheetSurface({
       await submitPageComment(page.id, {
         text: trimmed,
         location: placeHash ?? undefined,
+        sourceMessageId,
       })
       toast("Comment posted to conversation")
       return true
@@ -250,7 +263,7 @@ function OpenArtifactSheetSurface({
     } finally {
       setCommentPending(false)
     }
-  }, [page, placeHash])
+  }, [page, placeHash, sourceMessageId])
 
   const saveLabel = describePageSaveState(savedState)
   const canComment = Boolean(page && verifiedUrl && savedState !== "readonly")

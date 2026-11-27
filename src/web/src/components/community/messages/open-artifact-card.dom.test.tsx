@@ -11,7 +11,7 @@ describe("OpenArtifactCard", () => {
 
     render(
       <div>
-        <OpenArtifactCard page={docPage} onOpen={onOpen} />
+        <OpenArtifactCard page={docPage} sourceMessageId="msg_doc_1" onOpen={onOpen} />
         <OpenArtifactCard page={slidesPage} onOpen={onOpen} />
       </div>,
     )
@@ -26,7 +26,7 @@ describe("OpenArtifactCard", () => {
 
     fireEvent.click(docBtn)
     fireEvent.click(slidesBtn)
-    expect(onOpen).toHaveBeenNthCalledWith(1, docPage)
+    expect(onOpen).toHaveBeenNthCalledWith(1, { ...docPage, sourceMessageId: "msg_doc_1" })
     expect(onOpen).toHaveBeenNthCalledWith(2, slidesPage)
   })
 

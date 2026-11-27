@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils"
 import { usePageSwipeStart } from "@/components/ui/swipe-container"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
-import type { AlookPageEmbed } from "@/lib/community/open-artifact"
+import type { AlookPageOpenTarget } from "@/lib/community/open-artifact"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
 import { MessageOpenArtifactCard } from "./open-artifact-card"
@@ -220,7 +220,7 @@ function MessageImpl({
   onDismiss?: () => void
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
-  onOpenPage?: (page: AlookPageEmbed) => void
+  onOpenPage?: (page: AlookPageOpenTarget) => void
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
@@ -958,6 +958,7 @@ function MessageImpl({
                 <MessageOpenArtifactCard
                   key={`${m.id}:${page.id}`}
                   page={page}
+                  sourceMessageId={m.id}
                   onOpenPage={onOpenPage}
                   disabled={selectMode}
                 />

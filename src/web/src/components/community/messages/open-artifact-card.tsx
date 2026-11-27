@@ -1,7 +1,7 @@
 "use client"
 
 import { ArrowUpRight, File, FileText, Presentation } from "@/components/icons/lucide"
-import { describePageType, type AlookPageEmbed } from "@/lib/community/open-artifact"
+import { describePageType, type AlookPageEmbed, type AlookPageOpenTarget } from "@/lib/community/open-artifact"
 import { tid } from "@/lib/community/testids"
 import { useUiHandlers } from "@/stores/community"
 
@@ -13,11 +13,13 @@ function PageKindIcon({ kind }: { kind: "doc" | "slides" | "other" }) {
 
 export function OpenArtifactCard({
   page,
+  sourceMessageId,
   onOpen,
   disabled = false,
 }: {
   page: AlookPageEmbed
-  onOpen?: (page: AlookPageEmbed) => void
+  sourceMessageId?: string
+  onOpen?: (page: AlookPageOpenTarget) => void
   disabled?: boolean
 }) {
   const typeInfo = describePageType(page.type)
@@ -27,7 +29,7 @@ export function OpenArtifactCard({
       disabled={disabled}
       data-testid={tid.openArtifactCard(page.id)}
       data-page-type={page.type}
-      onClick={() => onOpen?.(page)}
+      onClick={() => onOpen?.(sourceMessageId ? { ...page, sourceMessageId } : page)}
       aria-label={`Open ${typeInfo.label}: ${page.title}`}
       className="group flex min-h-14 w-full max-w-108 items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors duration-150 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none"
     >
@@ -52,15 +54,18 @@ export function OpenArtifactCard({
 
 function RuntimeOpenArtifactCard({
   page,
+  sourceMessageId,
   disabled = false,
 }: {
   page: AlookPageEmbed
+  sourceMessageId?: string
   disabled?: boolean
 }) {
   const uiHandlers = useUiHandlers()
   return (
     <OpenArtifactCard
       page={page}
+      sourceMessageId={sourceMessageId}
       disabled={disabled}
       onOpen={(target) => uiHandlers.openPage?.(target)}
     />
@@ -69,15 +74,24 @@ function RuntimeOpenArtifactCard({
 
 export function MessageOpenArtifactCard({
   page,
+  sourceMessageId,
   onOpenPage,
   disabled = false,
 }: {
   page: AlookPageEmbed
-  onOpenPage?: (page: AlookPageEmbed) => void
+  sourceMessageId?: string
+  onOpenPage?: (page: AlookPageOpenTarget) => void
   disabled?: boolean
 }) {
   if (onOpenPage) {
-    return <OpenArtifactCard page={page} onOpen={onOpenPage} disabled={disabled} />
+    return (
+      <OpenArtifactCard
+        page={page}
+        sourceMessageId={sourceMessageId}
+        onOpen={onOpenPage}
+        disabled={disabled}
+      />
+    )
   }
-  return <RuntimeOpenArtifactCard page={page} disabled={disabled} />
+  return <RuntimeOpenArtifactCard page={page} sourceMessageId={sourceMessageId} disabled={disabled} />
 }
