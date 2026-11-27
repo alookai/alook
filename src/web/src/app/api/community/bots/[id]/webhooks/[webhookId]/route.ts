@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server"
-import { BotWebhookUpdateSchema, queries } from "@alook/shared"
+import { BOT_WEBHOOK_PROVIDER_META, BotWebhookUpdateSchema, queries } from "@alook/shared"
 import { getPrimaryDb } from "@/lib/db"
 import { humanAuthPolicy } from "@/lib/middleware/auth"
 import { withAuth } from "@/lib/middleware/auth-policy"
@@ -29,50 +29,68 @@ export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => 
   const [body, parseErr] = await parseBody(req, BotWebhookUpdateSchema)
   if (parseErr) return parseErr
 
-  if (existing.provider === "github" && body.requireSecret === false) {
-    return writeError("GitHub webhooks require a signing secret", 400)
+  const meta = BOT_WEBHOOK_PROVIDER_META[existing.provider]
+  if (meta.secretMode !== "optional" && body.requireSecret === false) {
+    return writeError(`${meta.label} webhooks require a signing secret`, 400)
+  }
+  if (meta.secretMode === "generated" && body.signingSecret !== undefined) {
+    return writeError(`${meta.label} webhooks use a generated signing secret`, 400)
   }
 
   let newToken: string | undefined
   let newTokenHash: string | undefined
-  let nextSigningSecret: string | null | undefined
+  let returnedSigningSecret: string | null | undefined
   let nextSigningSecretEnc: string | null | undefined
   let hasSigningSecretEnc = false
 
-  const shouldHaveSecret =
-    existing.provider === "github"
-      ? true
-      : body.requireSecret !== undefined
-        ? body.requireSecret
-        : existing.signingSecretEnc !== null
+  if (body.signingSecret !== undefined) {
+    try {
+      nextSigningSecretEnc = await encryptBotWebhookSecret(ctx.env, body.signingSecret)
+    } catch {
+      return writeError("webhook signing secret service unavailable", 503)
+    }
+    hasSigningSecretEnc = true
+  }
 
   if (body.rotateCredentials === true) {
     newToken = newBotWebhookToken()
     newTokenHash = await hashBotWebhookToken(newToken)
-    if (shouldHaveSecret) {
-      nextSigningSecret = newBotWebhookSigningSecret()
+    if (meta.secretMode === "generated") {
+      returnedSigningSecret = newBotWebhookSigningSecret()
       try {
-        nextSigningSecretEnc = await encryptBotWebhookSecret(ctx.env, nextSigningSecret)
+        nextSigningSecretEnc = await encryptBotWebhookSecret(ctx.env, returnedSigningSecret)
       } catch {
         return writeError("webhook signing secret service unavailable", 503)
       }
       hasSigningSecretEnc = true
-    } else {
-      nextSigningSecret = null
-      nextSigningSecretEnc = null
-      hasSigningSecretEnc = true
+    } else if (meta.secretMode === "optional" && body.signingSecret === undefined) {
+      const shouldHaveSecret =
+        body.requireSecret !== undefined ? body.requireSecret : existing.signingSecretEnc !== null
+      if (shouldHaveSecret) {
+        returnedSigningSecret = newBotWebhookSigningSecret()
+        try {
+          nextSigningSecretEnc = await encryptBotWebhookSecret(ctx.env, returnedSigningSecret)
+        } catch {
+          return writeError("webhook signing secret service unavailable", 503)
+        }
+        hasSigningSecretEnc = true
+      } else {
+        returnedSigningSecret = null
+        nextSigningSecretEnc = null
+        hasSigningSecretEnc = true
+      }
     }
-  } else if (body.requireSecret !== undefined) {
+  } else if (meta.secretMode === "optional" && body.requireSecret !== undefined && body.signingSecret === undefined) {
     if (body.requireSecret && existing.signingSecretEnc === null) {
-      nextSigningSecret = newBotWebhookSigningSecret()
+      returnedSigningSecret = newBotWebhookSigningSecret()
       try {
-        nextSigningSecretEnc = await encryptBotWebhookSecret(ctx.env, nextSigningSecret)
+        nextSigningSecretEnc = await encryptBotWebhookSecret(ctx.env, returnedSigningSecret)
       } catch {
         return writeError("webhook signing secret service unavailable", 503)
       }
       hasSigningSecretEnc = true
     } else if (!body.requireSecret && existing.signingSecretEnc !== null) {
-      nextSigningSecret = null
+      returnedSigningSecret = null
       nextSigningSecretEnc = null
       hasSigningSecretEnc = true
     }
@@ -107,9 +125,9 @@ export const PATCH = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => 
 
   if (newToken !== undefined) {
     payload.webhookUrl = buildBotWebhookUrl(req, newToken)
-    payload.signingSecret = nextSigningSecret ?? null
-  } else if (nextSigningSecret !== undefined) {
-    payload.signingSecret = nextSigningSecret
+    payload.signingSecret = returnedSigningSecret ?? null
+  } else if (returnedSigningSecret !== undefined) {
+    payload.signingSecret = returnedSigningSecret
   }
 
   const response = writeJSON(payload)

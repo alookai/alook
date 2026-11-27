@@ -9,7 +9,7 @@ function signGitHubBody(secret: string, body: string): string {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
-test("My Bots Webhooks sheet creates GitHub webhook, delivers signed event to bot WS, and supports test, pause, rotate, delete, and mobile viewport", async ({ caseActors, caseResources }) => {
+test("My Bots Webhooks sheet separates source picker and forms, delivers signed GitHub event to bot WS, and supports test, pause, rotate, delete, and mobile viewport", async ({ caseActors, caseResources }) => {
   test.setTimeout(180_000)
 
   const actors = await caseActors(["alice"])
@@ -46,8 +46,20 @@ test("My Bots Webhooks sheet creates GitHub webhook, delivers signed event to bo
   await expect(sheet.getByText("No webhooks yet")).toBeVisible()
 
   await sheet.getByTestId(tid.botWebhooksCreateOpen).click()
-  await expect(sheet.getByTestId(tid.botWebhookProviderSelect("generic"))).toHaveAttribute("aria-pressed", "true")
+  await expect(sheet.getByText("Choose a source")).toBeVisible()
+  await expect(sheet.getByTestId(tid.botWebhookProviderSelect("github"))).toBeVisible()
+  await expect(sheet.getByTestId(tid.botWebhookProviderSelect("stripe"))).toBeVisible()
+  await expect(sheet.getByTestId(tid.botWebhookProviderSelect("openai"))).toBeVisible()
+  await expect(sheet.getByTestId(tid.botWebhookProviderSelect("generic"))).toBeVisible()
+
+  await sheet.getByTestId(tid.botWebhookProviderSelect("generic")).click()
+  await expect(sheet.getByText("New General webhook")).toBeVisible()
+  await expect(sheet.getByTestId(tid.botWebhookRequireSecret)).toBeVisible()
+  await sheet.getByTestId(tid.botWebhookChangeProvider).click()
+
   await sheet.getByTestId(tid.botWebhookProviderSelect("github")).click()
+  await expect(sheet.getByText("New GitHub webhook")).toBeVisible()
+  await expect(sheet.getByTestId(tid.botWebhookRequireSecret)).not.toBeVisible()
   await sheet.getByTestId(tid.botWebhookNameInput).fill(`alook CI ${suffix}`)
   await sheet.getByTestId(tid.botWebhookInstructionInput).fill("Check failing CI logs and summarize")
   const createResponsePromise = alice.page.waitForResponse(

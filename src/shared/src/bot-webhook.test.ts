@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest"
 import {
   BOT_WEBHOOK_PROMPT_MAX_LENGTH,
+  BOT_WEBHOOK_PROVIDER_META,
+  BOT_WEBHOOK_PROVIDERS,
   BotWebhookCreateSchema,
   BotWebhookUpdateSchema,
   buildBotWebhookEventPrompt,
   formatGenericWebhookEvent,
   formatGitHubWebhookEvent,
+  formatGitLabWebhookEvent,
+  formatLinearWebhookEvent,
+  formatSentryWebhookEvent,
+  formatSlackWebhookEvent,
+  formatStandardWebhookEvent,
+  formatStripeWebhookEvent,
+  formatVercelWebhookEvent,
 } from "./bot-webhook"
 
 describe("bot-webhook schemas and formatters", () => {
@@ -99,5 +108,84 @@ describe("bot-webhook schemas and formatters", () => {
     expect(prompt).toContain("Owner instruction: Fix failing tests")
     expect(prompt).toContain("--- BEGIN EXTERNAL PAYLOAD ---")
     expect(prompt).toContain("--- END EXTERNAL PAYLOAD ---")
+  })
+
+  it("exposes metadata for all explicit providers (concrete platforms first, generic last) and formats each protocol", () => {
+    expect(BOT_WEBHOOK_PROVIDERS.at(-1)).toBe("generic")
+    for (const provider of BOT_WEBHOOK_PROVIDERS) {
+      expect(BOT_WEBHOOK_PROVIDER_META[provider].id).toBe(provider)
+      expect(BOT_WEBHOOK_PROVIDER_META[provider].setupSteps.length).toBeGreaterThan(0)
+    }
+
+    expect(
+      BotWebhookCreateSchema.parse({
+        name: "Billing",
+        provider: "stripe",
+        signingSecret: "  whsec_stripe_123456  ",
+      }).signingSecret,
+    ).toBe("whsec_stripe_123456")
+
+    expect(
+      formatLinearWebhookEvent("Issue", {
+        type: "Issue",
+        action: "create",
+        data: { identifier: "ENG-42", title: "Fix login crash", state: { name: "Todo" } },
+      }).summary,
+    ).toContain("ENG-42 Fix login crash")
+
+    expect(
+      formatSentryWebhookEvent("issue", {
+        action: "created",
+        data: { issue: { title: "TypeError: boom", project: { slug: "web" }, level: "error" } },
+      }).summary,
+    ).toContain("[web]")
+
+    expect(
+      formatStripeWebhookEvent({
+        id: "evt_1",
+        type: "invoice.payment_failed",
+        livemode: true,
+        data: { object: { id: "in_1", amount_due: 4900, currency: "usd", status: "open" } },
+      }).summary,
+    ).toContain("49.00 USD")
+
+    expect(
+      formatVercelWebhookEvent({
+        id: "uev_1",
+        type: "deployment.error",
+        payload: { deployment: { name: "alook-web", url: "alook.vercel.app", meta: { githubCommitRef: "main" } } },
+      }).summary,
+    ).toContain("alook-web")
+
+    expect(
+      formatGitLabWebhookEvent("Merge Request Hook", {
+        object_kind: "merge_request",
+        project: { path_with_namespace: "org/app" },
+        object_attributes: { iid: 12, action: "open", title: "Add webhooks" },
+      }).summary,
+    ).toContain("!12")
+
+    expect(
+      formatSlackWebhookEvent({
+        type: "event_callback",
+        event: { type: "app_mention", channel: "C123", user: "U456", text: "deploy status?" },
+      }).summary,
+    ).toContain("deploy status?")
+
+    expect(
+      formatStandardWebhookEvent("OpenAI", {
+        type: "batch.completed",
+        data: { id: "batch_1", status: "completed" },
+      }).summary,
+    ).toContain("OpenAI batch.completed")
+
+    expect(
+      formatGenericWebhookEvent(
+        JSON.stringify({ alert_type: "worker_error", text: "Worker exception rate high" }),
+        "application/json",
+        null,
+        "Cloudflare",
+      ).summary,
+    ).toContain("Cloudflare: Worker exception rate high")
   })
 })

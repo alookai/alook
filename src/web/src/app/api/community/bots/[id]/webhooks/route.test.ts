@@ -142,7 +142,7 @@ describe("bot webhooks management API", () => {
     expect(created.webhook.hasSigningSecret).toBe(true)
     expect(created.webhookUrl).toMatch(/^https:\/\/alook\.ai\/api\/webhooks\/bot\/bwh_/)
     expect(created.signingSecret).toMatch(/^whsec_/)
-    expect(created.webhook.eventFilter).toContain("workflow_run")
+    expect(created.webhook.eventFilter).toBeNull()
 
     const testRes = await testWebhook(
       new NextRequest(`https://alook.ai/api/community/bots/bot_1/webhooks/${created.webhook.id}/test`, {
@@ -243,5 +243,51 @@ describe("bot webhooks management API", () => {
     )
     expect(delRes.status).toBe(200)
     expect(await delRes.json()).toEqual({ deleted: true })
+  })
+
+  it("supports external-secret providers (create URL first, paste signingSecret via PATCH, rotate URL without wiping secret)", async () => {
+    const createRes = await createWebhook(
+      new NextRequest("https://alook.ai/api/community/bots/bot_1/webhooks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Stripe Billing",
+          provider: "stripe",
+        }),
+      }),
+      { params: Promise.resolve({ id: "bot_1" }) } as any,
+    )
+    expect(createRes.status).toBe(201)
+    const created = BotWebhookCreateResponseSchema.parse(await createRes.json())
+    expect(created.webhook.provider).toBe("stripe")
+    expect(created.webhook.hasSigningSecret).toBe(false)
+    expect(created.signingSecret).toBeNull()
+
+    const saveSecretRes = await patchWebhook(
+      new NextRequest(`https://alook.ai/api/community/bots/bot_1/webhooks/${created.webhook.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ signingSecret: "whsec_stripe_live_1234567890" }),
+      }),
+      { params: Promise.resolve({ id: "bot_1", webhookId: created.webhook.id }) } as any,
+    )
+    expect(saveSecretRes.status).toBe(200)
+    const saved = BotWebhookUpdateResponseSchema.parse(await saveSecretRes.json())
+    expect(saved.webhook.hasSigningSecret).toBe(true)
+    expect(saved.signingSecret).toBeUndefined()
+
+    const rotateUrlRes = await patchWebhook(
+      new NextRequest(`https://alook.ai/api/community/bots/bot_1/webhooks/${created.webhook.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rotateCredentials: true }),
+      }),
+      { params: Promise.resolve({ id: "bot_1", webhookId: created.webhook.id }) } as any,
+    )
+    expect(rotateUrlRes.status).toBe(200)
+    const rotated = BotWebhookUpdateResponseSchema.parse(await rotateUrlRes.json())
+    expect(rotated.webhookUrl).not.toBe(created.webhookUrl)
+    expect(rotated.webhook.hasSigningSecret).toBe(true)
+    expect(rotated.signingSecret).toBeNull()
   })
 })

@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 378,
+    "composition": 379,
     "environment": 14,
     "nonvisual": 32,
     "direct": 164
@@ -2213,9 +2213,10 @@
       "candidates": [
         "BotWebhooksSheet",
         "BotWebhooksSheetContent",
-        "CopyableCredentialField",
+        "CopyableWellField",
         "CredentialsReveal",
         "DeliveriesPanel",
+        "ProviderChooser",
         "WebhookForm"
       ],
       "kind": "composition",
@@ -2331,6 +2332,21 @@
         {
           "story": "web-business-product-compositions--bots-models-and-privacy",
           "region": "Reasoning effort: actual effort selector"
+        }
+      ],
+      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
+    },
+    {
+      "source": "src/web/src/components/community/bots/webhook-provider-icon.tsx",
+      "application": "Web",
+      "candidates": [
+        "WebhookProviderIcon"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "web-business-product-compositions--bots-models-and-privacy",
+          "region": "Activity and memberships > Webhooks: provider marks inside rows and source chooser"
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."

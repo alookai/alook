@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server"
 import {
-  BOT_WEBHOOK_GITHUB_DEFAULT_EVENTS,
   BOT_WEBHOOK_MAX_PER_BOT,
+  BOT_WEBHOOK_PROVIDER_META,
   BotWebhookCreateSchema,
   queries,
 } from "@alook/shared"
@@ -46,30 +46,44 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
   const [body, parseErr] = await parseBody(req, BotWebhookCreateSchema)
   if (parseErr) return parseErr
 
-  if (body.provider === "github" && body.requireSecret === false) {
-    return writeError("GitHub webhooks require a signing secret", 400)
+  const meta = BOT_WEBHOOK_PROVIDER_META[body.provider]
+  if (meta.secretMode !== "optional" && body.requireSecret === false) {
+    return writeError(`${meta.label} webhooks require a signing secret`, 400)
+  }
+  if (meta.secretMode === "generated" && body.signingSecret !== undefined) {
+    return writeError(`${meta.label} webhooks use a generated signing secret`, 400)
   }
 
-  const wantsSecret = body.provider === "github" || body.requireSecret === true
   const rawToken = newBotWebhookToken()
   const tokenHash = await hashBotWebhookToken(rawToken)
-  const signingSecret = wantsSecret ? newBotWebhookSigningSecret() : null
+
+  let returnedSigningSecret: string | null = null
+  let secretToEncrypt: string | null = null
+
+  if (meta.secretMode === "generated") {
+    returnedSigningSecret = newBotWebhookSigningSecret()
+    secretToEncrypt = returnedSigningSecret
+  } else if (meta.secretMode === "external") {
+    if (body.signingSecret !== undefined) {
+      secretToEncrypt = body.signingSecret
+    }
+  } else {
+    if (body.signingSecret !== undefined) {
+      secretToEncrypt = body.signingSecret
+    } else if (body.requireSecret === true) {
+      returnedSigningSecret = newBotWebhookSigningSecret()
+      secretToEncrypt = returnedSigningSecret
+    }
+  }
 
   let signingSecretEnc: string | null = null
-  if (signingSecret) {
+  if (secretToEncrypt) {
     try {
-      signingSecretEnc = await encryptBotWebhookSecret(ctx.env, signingSecret)
+      signingSecretEnc = await encryptBotWebhookSecret(ctx.env, secretToEncrypt)
     } catch {
       return writeError("webhook signing secret service unavailable", 503)
     }
   }
-
-  const eventFilter =
-    body.eventFilter !== undefined
-      ? body.eventFilter
-      : body.provider === "github"
-        ? [...BOT_WEBHOOK_GITHUB_DEFAULT_EVENTS]
-        : null
 
   const created = await queries.communityBotWebhook.createBotWebhook(db, {
     ownerUserId: ctx.userId,
@@ -78,7 +92,7 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
     provider: body.provider,
     tokenHash,
     signingSecretEnc,
-    eventFilter,
+    eventFilter: body.eventFilter ?? null,
     instruction: body.instruction,
   })
 
@@ -90,7 +104,7 @@ export const POST = withAuth(humanAuthPolicy, async (req: NextRequest, ctx) => {
     {
       webhook: toBotWebhookSummary(created.webhook, null),
       webhookUrl: buildBotWebhookUrl(req, rawToken),
-      signingSecret,
+      signingSecret: returnedSigningSecret,
     },
     201,
   )

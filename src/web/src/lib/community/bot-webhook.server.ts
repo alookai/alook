@@ -13,6 +13,7 @@ import { pushBotEventToMachine } from "./bot-push"
 import { syncOwnerScheduleAlarm } from "./schedule.server"
 
 const SECRET_VERSION = "v1"
+const REPLAY_TOLERANCE_SEC = 300
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
@@ -27,6 +28,21 @@ function hexToBytes(hex: string): Uint8Array | null {
   return out
 }
 
+function base64ToBytes(encoded: string): Uint8Array | null {
+  const cleaned = encoded.trim()
+  if (!cleaned) return null
+  try {
+    const bin = atob(cleaned)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) {
+      out[i] = bin.charCodeAt(i)
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
 function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false
   let diff = 0
@@ -34,6 +50,40 @@ function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
     diff |= a[i]! ^ b[i]!
   }
   return diff === 0
+}
+
+async function computeHmacBytes(
+  keyBytes: Uint8Array,
+  dataBytes: Uint8Array,
+  hash: "SHA-256" | "SHA-1",
+): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes as BufferSource,
+    { name: "HMAC", hash },
+    false,
+    ["sign"],
+  )
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, dataBytes as BufferSource))
+}
+
+async function verifyHmacHex(
+  dataBytes: Uint8Array,
+  receivedHex: string,
+  secret: string,
+  hash: "SHA-256" | "SHA-1",
+): Promise<boolean> {
+  const expectedLen = hash === "SHA-256" ? 32 : 20
+  const received = hexToBytes(receivedHex.trim())
+  if (!received || received.length !== expectedLen) return false
+  const expected = await computeHmacBytes(new TextEncoder().encode(secret), dataBytes, hash)
+  return constantTimeEqual(received, expected)
+}
+
+function isTimestampWithinTolerance(tsSec: number, nowMs: number): boolean {
+  if (!Number.isFinite(tsSec) || tsSec <= 0) return false
+  const nowSec = Math.floor(nowMs / 1000)
+  return Math.abs(nowSec - tsSec) <= REPLAY_TOLERANCE_SEC
 }
 
 export function newBotWebhookToken(): string {
@@ -100,24 +150,127 @@ export async function verifyGitHubWebhookSignature(
   secret: string,
 ): Promise<boolean> {
   if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false
-  const received = hexToBytes(signatureHeader.slice("sha256=".length).trim())
-  if (!received || received.length !== 32) return false
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  )
-  const expected = new Uint8Array(await crypto.subtle.sign("HMAC", key, rawBytes as BufferSource))
-  return constantTimeEqual(received, expected)
+  return verifyHmacHex(rawBytes, signatureHeader.slice("sha256=".length), secret, "SHA-256")
+}
+
+export async function verifyLinearWebhookSignature(
+  rawBytes: Uint8Array,
+  signatureHeader: string | null,
+  secret: string,
+): Promise<boolean> {
+  if (!signatureHeader) return false
+  return verifyHmacHex(rawBytes, signatureHeader, secret, "SHA-256")
+}
+
+export async function verifySentryWebhookSignature(
+  rawBytes: Uint8Array,
+  signatureHeader: string | null,
+  secret: string,
+): Promise<boolean> {
+  if (!signatureHeader) return false
+  return verifyHmacHex(rawBytes, signatureHeader, secret, "SHA-256")
+}
+
+export async function verifyStripeWebhookSignature(
+  rawText: string,
+  signatureHeader: string | null,
+  secret: string,
+  nowMs = Date.now(),
+): Promise<boolean> {
+  if (!signatureHeader) return false
+  let timestamp: string | null = null
+  const signatures: string[] = []
+  for (const part of signatureHeader.split(",")) {
+    const eqIdx = part.indexOf("=")
+    if (eqIdx <= 0) continue
+    const k = part.slice(0, eqIdx).trim()
+    const v = part.slice(eqIdx + 1).trim()
+    if (k === "t") timestamp = v
+    else if (k === "v1" && v) signatures.push(v)
+  }
+  if (!timestamp || signatures.length === 0) return false
+  const tsSec = Number.parseInt(timestamp, 10)
+  if (!isTimestampWithinTolerance(tsSec, nowMs)) return false
+  const signedBytes = new TextEncoder().encode(`${timestamp}.${rawText}`)
+  const expected = await computeHmacBytes(new TextEncoder().encode(secret), signedBytes, "SHA-256")
+  for (const sigHex of signatures) {
+    const received = hexToBytes(sigHex)
+    if (received && received.length === 32 && constantTimeEqual(received, expected)) {
+      return true
+    }
+  }
+  return false
+}
+
+export async function verifyVercelWebhookSignature(
+  rawBytes: Uint8Array,
+  signatureHeader: string | null,
+  secret: string,
+): Promise<boolean> {
+  if (!signatureHeader) return false
+  return verifyHmacHex(rawBytes, signatureHeader, secret, "SHA-1")
+}
+
+export function verifyGitLabWebhookToken(tokenHeader: string | null, secret: string): boolean {
+  const provided = tokenHeader?.trim() ?? null
+  if (!provided) return false
+  const enc = new TextEncoder()
+  return constantTimeEqual(enc.encode(provided), enc.encode(secret))
+}
+
+export async function verifySlackWebhookSignature(
+  rawText: string,
+  timestampHeader: string | null,
+  signatureHeader: string | null,
+  secret: string,
+  nowMs = Date.now(),
+): Promise<boolean> {
+  const ts = timestampHeader?.trim() ?? ""
+  if (!ts || !signatureHeader || !signatureHeader.startsWith("v0=")) return false
+  const tsSec = Number.parseInt(ts, 10)
+  if (!isTimestampWithinTolerance(tsSec, nowMs)) return false
+  const signedBytes = new TextEncoder().encode(`v0:${ts}:${rawText}`)
+  return verifyHmacHex(signedBytes, signatureHeader.slice("v0=".length), secret, "SHA-256")
+}
+
+export async function verifyStandardWebhookSignature(
+  rawText: string,
+  msgIdHeader: string | null,
+  timestampHeader: string | null,
+  signatureHeader: string | null,
+  secret: string,
+  nowMs = Date.now(),
+): Promise<boolean> {
+  const msgId = msgIdHeader?.trim() ?? ""
+  const ts = timestampHeader?.trim() ?? ""
+  const sigs = signatureHeader?.trim() ?? ""
+  if (!msgId || !ts || !sigs) return false
+  const tsSec = Number.parseInt(ts, 10)
+  if (!isTimestampWithinTolerance(tsSec, nowMs)) return false
+
+  const rawSecret = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret
+  const keyBytes = base64ToBytes(rawSecret)
+  if (!keyBytes || keyBytes.length === 0) return false
+
+  const signedBytes = new TextEncoder().encode(`${msgId}.${ts}.${rawText}`)
+  const expected = await computeHmacBytes(keyBytes, signedBytes, "SHA-256")
+
+  for (const entry of sigs.split(/\s+/)) {
+    if (!entry.startsWith("v1,")) continue
+    const received = base64ToBytes(entry.slice("v1,".length))
+    if (received && received.length === 32 && constantTimeEqual(received, expected)) {
+      return true
+    }
+  }
+  return false
 }
 
 export function verifyGenericWebhookSecret(req: Request, secret: string): boolean {
   const headerSecret = req.headers.get("x-webhook-secret")?.trim() ?? null
+  const cfSecret = req.headers.get("cf-webhook-auth")?.trim() ?? null
   const auth = req.headers.get("authorization")?.trim() ?? null
   const bearerSecret = auth && /^Bearer\s+(.+)$/i.exec(auth)?.[1]?.trim()
-  const provided = headerSecret || bearerSecret || null
+  const provided = headerSecret || cfSecret || bearerSecret || null
   if (!provided) return false
   const enc = new TextEncoder()
   return constantTimeEqual(enc.encode(provided), enc.encode(secret))

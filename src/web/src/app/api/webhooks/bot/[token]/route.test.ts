@@ -376,4 +376,271 @@ describe("POST /api/webhooks/bot/[token]", () => {
     )
     expect(notFound.status).toBe(404)
   })
+
+  it("verifies Linear, Sentry, Stripe, Vercel, GitLab, Slack (incl. url_verification), OpenAI (Standard Webhooks), and Cloudflare adapters", async () => {
+    async function hmacHex(secret: string, data: string, hash: "SHA-256" | "SHA-1" = "SHA-256"): Promise<string> {
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash }, false, ["sign"])
+      const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)))
+      return Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("")
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000)
+
+    // 1. Fail-closed when external signing secret is not configured yet
+    const unconfiguredToken = newBotWebhookToken()
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Unconfigured Stripe",
+      provider: "stripe",
+      tokenHash: await hashBotWebhookToken(unconfiguredToken),
+      signingSecretEnc: null,
+      eventFilter: null,
+      instruction: "",
+    })
+    const unconfiguredRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${unconfiguredToken}`, { method: "POST", body: "{}" }),
+      { params: Promise.resolve({ token: unconfiguredToken }) },
+    )
+    expect(unconfiguredRes.status).toBe(503)
+
+    // 2. Stripe
+    const stripeToken = newBotWebhookToken()
+    const stripeSecret = "whsec_stripe_test_secret"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Stripe",
+      provider: "stripe",
+      tokenHash: await hashBotWebhookToken(stripeToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, stripeSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const stripeBody = JSON.stringify({
+      id: "evt_stripe_1",
+      type: "invoice.payment_failed",
+      data: { object: { id: "in_1", amount_due: 2500, currency: "usd", status: "open" } },
+    })
+    const stripeSig = await hmacHex(stripeSecret, `${nowSec}.${stripeBody}`)
+    const stripeRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${stripeToken}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "stripe-signature": `t=${nowSec},v1=${stripeSig}` },
+        body: stripeBody,
+      }),
+      { params: Promise.resolve({ token: stripeToken }) },
+    )
+    expect(stripeRes.status).toBe(200)
+
+    // 3. Linear
+    const linearToken = newBotWebhookToken()
+    const linearSecret = "lin_wh_secret_123456"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Linear",
+      provider: "linear",
+      tokenHash: await hashBotWebhookToken(linearToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, linearSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const linearBody = JSON.stringify({ type: "Issue", action: "create", data: { identifier: "ENG-9", title: "Bug" } })
+    const linearRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${linearToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": await hmacHex(linearSecret, linearBody),
+          "linear-delivery": "lin-deliv-1",
+        },
+        body: linearBody,
+      }),
+      { params: Promise.resolve({ token: linearToken }) },
+    )
+    expect(linearRes.status).toBe(200)
+
+    // 4. Sentry
+    const sentryToken = newBotWebhookToken()
+    const sentrySecret = "sentry_client_secret_123"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Sentry",
+      provider: "sentry",
+      tokenHash: await hashBotWebhookToken(sentryToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, sentrySecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const sentryBody = JSON.stringify({ action: "created", data: { issue: { title: "ReferenceError" } } })
+    const sentryRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${sentryToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "sentry-hook-resource": "issue",
+          "sentry-hook-signature": await hmacHex(sentrySecret, sentryBody),
+          "request-id": "sentry-req-1",
+        },
+        body: sentryBody,
+      }),
+      { params: Promise.resolve({ token: sentryToken }) },
+    )
+    expect(sentryRes.status).toBe(200)
+
+    // 5. Vercel (HMAC-SHA1)
+    const vercelToken = newBotWebhookToken()
+    const vercelSecret = "vercel_secret_123456"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Vercel",
+      provider: "vercel",
+      tokenHash: await hashBotWebhookToken(vercelToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, vercelSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const vercelBody = JSON.stringify({ id: "uev_1", type: "deployment.error", payload: { deployment: { name: "web" } } })
+    const vercelRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${vercelToken}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-vercel-signature": await hmacHex(vercelSecret, vercelBody, "SHA-1") },
+        body: vercelBody,
+      }),
+      { params: Promise.resolve({ token: vercelToken }) },
+    )
+    expect(vercelRes.status).toBe(200)
+
+    // 6. GitLab
+    const gitlabToken = newBotWebhookToken()
+    const gitlabSecret = "whsec_gitlab_secret_123"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "GitLab",
+      provider: "gitlab",
+      tokenHash: await hashBotWebhookToken(gitlabToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, gitlabSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const gitlabRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${gitlabToken}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-gitlab-token": gitlabSecret, "x-gitlab-event-uuid": "gl-1" },
+        body: JSON.stringify({ object_kind: "pipeline", object_attributes: { status: "failed", ref: "main" } }),
+      }),
+      { params: Promise.resolve({ token: gitlabToken }) },
+    )
+    expect(gitlabRes.status).toBe(200)
+
+    // 7. Slack (url_verification + event_callback)
+    const slackToken = newBotWebhookToken()
+    const slackSecret = "slack_signing_secret_123"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Slack",
+      provider: "slack",
+      tokenHash: await hashBotWebhookToken(slackToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, slackSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const slackChallengeBody = JSON.stringify({ type: "url_verification", challenge: "chal_abc123" })
+    const slackChallengeRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${slackToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-slack-request-timestamp": String(nowSec),
+          "x-slack-signature": `v0=${await hmacHex(slackSecret, `v0:${nowSec}:${slackChallengeBody}`)}`,
+        },
+        body: slackChallengeBody,
+      }),
+      { params: Promise.resolve({ token: slackToken }) },
+    )
+    expect(slackChallengeRes.status).toBe(200)
+    expect(await slackChallengeRes.json()).toEqual({ challenge: "chal_abc123" })
+
+    const slackEventBody = JSON.stringify({
+      type: "event_callback",
+      event_id: "Ev_123",
+      event: { type: "app_mention", channel: "C1", user: "U1", text: "hi bot" },
+    })
+    const slackEventRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${slackToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-slack-request-timestamp": String(nowSec),
+          "x-slack-signature": `v0=${await hmacHex(slackSecret, `v0:${nowSec}:${slackEventBody}`)}`,
+        },
+        body: slackEventBody,
+      }),
+      { params: Promise.resolve({ token: slackToken }) },
+    )
+    expect(slackEventRes.status).toBe(200)
+
+    // 8. OpenAI (Standard Webhooks protocol)
+    const openaiToken = newBotWebhookToken()
+    const rawKeyBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    const openaiSecret = `whsec_${Buffer.from(rawKeyBytes).toString("base64")}`
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "OpenAI",
+      provider: "openai",
+      tokenHash: await hashBotWebhookToken(openaiToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, openaiSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const openaiBody = JSON.stringify({ type: "batch.completed", data: { id: "batch_9", status: "completed" } })
+    const stdKey = await crypto.subtle.importKey("raw", rawKeyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+    const stdSigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", stdKey, new TextEncoder().encode(`msg_1.${nowSec}.${openaiBody}`)))
+    const openaiRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${openaiToken}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "webhook-id": "msg_1",
+          "webhook-timestamp": String(nowSec),
+          "webhook-signature": `v1,${Buffer.from(stdSigBytes).toString("base64")}`,
+        },
+        body: openaiBody,
+      }),
+      { params: Promise.resolve({ token: openaiToken }) },
+    )
+    expect(openaiRes.status).toBe(200)
+
+    // 9. Cloudflare (cf-webhook-auth)
+    const cfToken = newBotWebhookToken()
+    const cfSecret = "cf_secret_123456"
+    await queries.communityBotWebhook.createBotWebhook(mocks.db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "Cloudflare",
+      provider: "cloudflare",
+      tokenHash: await hashBotWebhookToken(cfToken),
+      signingSecretEnc: await encryptBotWebhookSecret(mocks.env, cfSecret),
+      eventFilter: null,
+      instruction: "",
+    })
+    const cfRes = await POST(
+      new NextRequest(`https://alook.ai/api/webhooks/bot/${cfToken}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-webhook-auth": cfSecret },
+        body: JSON.stringify({ alert_type: "worker_error", text: "Worker error spike" }),
+      }),
+      { params: Promise.resolve({ token: cfToken }) },
+    )
+    expect(cfRes.status).toBe(200)
+
+    // 7 real dispatches (Stripe, Linear, Sentry, Vercel, GitLab, Slack event, OpenAI, Cloudflare = 8; Slack challenge ignored)
+    expect(mocks.pushBotEventToMachine).toHaveBeenCalledTimes(8)
+  })
 })

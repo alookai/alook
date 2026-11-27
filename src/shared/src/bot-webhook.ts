@@ -1,32 +1,30 @@
 import { z } from "zod"
 
-export const BOT_WEBHOOK_PROVIDERS = ["github", "generic"] as const
+export const BOT_WEBHOOK_PROVIDERS = [
+  "github",
+  "linear",
+  "sentry",
+  "stripe",
+  "vercel",
+  "gitlab",
+  "slack",
+  "openai",
+  "resend",
+  "clerk",
+  "polar",
+  "cloudflare",
+  "grafana",
+  "datadog",
+  "n8n",
+  "generic",
+] as const
+
 export const BOT_WEBHOOK_DELIVERY_STATUSES = ["pending", "dispatched", "ignored", "failed"] as const
-
-export const BOT_WEBHOOK_GITHUB_DEFAULT_EVENTS = [
-  "workflow_run",
-  "pull_request",
-  "issues",
-  "issue_comment",
-  "pull_request_review",
-] as const
-
-export const BOT_WEBHOOK_GITHUB_KNOWN_EVENTS = [
-  "workflow_run",
-  "check_run",
-  "check_suite",
-  "pull_request",
-  "pull_request_review",
-  "pull_request_review_comment",
-  "issues",
-  "issue_comment",
-  "push",
-  "release",
-  "status",
-] as const
 
 export const BOT_WEBHOOK_NAME_MAX_LENGTH = 80
 export const BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH = 500
+export const BOT_WEBHOOK_SECRET_MIN_LENGTH = 8
+export const BOT_WEBHOOK_SECRET_MAX_LENGTH = 256
 export const BOT_WEBHOOK_MAX_PER_BOT = 20
 export const BOT_WEBHOOK_MAX_EVENT_FILTERS = 32
 export const BOT_WEBHOOK_EVENT_NAME_MAX_LENGTH = 64
@@ -42,6 +40,273 @@ export const BOT_WEBHOOK_RESYNC_WINDOW_MS = 24 * 60 * 60 * 1000
 export const BotWebhookProviderSchema = z.enum(BOT_WEBHOOK_PROVIDERS)
 export type BotWebhookProvider = z.infer<typeof BotWebhookProviderSchema>
 
+export type BotWebhookProtocol =
+  | "github"
+  | "linear"
+  | "sentry"
+  | "stripe"
+  | "vercel"
+  | "gitlab"
+  | "slack"
+  | "standard_webhooks"
+  | "generic"
+
+export type BotWebhookSecretMode = "generated" | "external" | "optional"
+
+export interface BotWebhookProviderMeta {
+  id: BotWebhookProvider
+  label: string
+  shortDescription: string
+  defaultNamePlaceholder: string
+  protocol: BotWebhookProtocol
+  secretMode: BotWebhookSecretMode
+  secretLabel: string
+  secretPlaceholder: string
+  setupSteps: readonly string[]
+}
+
+export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookProviderMeta> = {
+  github: {
+    id: "github",
+    label: "GitHub",
+    shortDescription: "CI runs, PR reviews, issues, and releases",
+    defaultNamePlaceholder: "e.g. alook CI",
+    protocol: "github",
+    secretMode: "generated",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "whsec_...",
+    setupSteps: [
+      "Open repository Settings → Webhooks → Add webhook.",
+      "Paste the Webhook URL, pick application/json, and paste the Signing secret.",
+      "Select the events you want GitHub to send and save.",
+    ],
+  },
+  linear: {
+    id: "linear",
+    label: "Linear",
+    shortDescription: "Issues, comments, and project updates",
+    defaultNamePlaceholder: "e.g. Product issues",
+    protocol: "linear",
+    secretMode: "external",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "lin_wh_...",
+    setupSteps: [
+      "Open Linear Settings → API → Webhooks → New webhook.",
+      "Paste the Webhook URL, choose the events you want, and create it.",
+      "Copy Linear's signing secret and paste it here to enable delivery.",
+    ],
+  },
+  sentry: {
+    id: "sentry",
+    label: "Sentry",
+    shortDescription: "Production errors and alert rules",
+    defaultNamePlaceholder: "e.g. Prod errors",
+    protocol: "sentry",
+    secretMode: "external",
+    secretLabel: "Client secret",
+    secretPlaceholder: "Sentry client secret",
+    setupSteps: [
+      "Open Sentry Settings → Developer Settings → Custom Integrations.",
+      "Paste the Webhook URL and enable the alert/issue webhooks you want.",
+      "Copy the Client Secret from Sentry and paste it here.",
+    ],
+  },
+  stripe: {
+    id: "stripe",
+    label: "Stripe",
+    shortDescription: "Payments, subscriptions, and disputes",
+    defaultNamePlaceholder: "e.g. Billing alerts",
+    protocol: "stripe",
+    secretMode: "external",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "whsec_...",
+    setupSteps: [
+      "Open Stripe Dashboard → Developers → Webhooks → Add destination.",
+      "Paste the Webhook URL and select the billing events you want.",
+      "Copy Stripe's Signing secret (whsec_...) and paste it here.",
+    ],
+  },
+  vercel: {
+    id: "vercel",
+    label: "Vercel",
+    shortDescription: "Deployment status and build failures",
+    defaultNamePlaceholder: "e.g. Web deploys",
+    protocol: "vercel",
+    secretMode: "external",
+    secretLabel: "Webhook secret",
+    secretPlaceholder: "Vercel webhook secret",
+    setupSteps: [
+      "Open Vercel Team Settings → Webhooks → Create Webhook.",
+      "Paste the Webhook URL, choose events, and create it.",
+      "Copy the secret Vercel shows and paste it here.",
+    ],
+  },
+  gitlab: {
+    id: "gitlab",
+    label: "GitLab",
+    shortDescription: "Merge requests, pipelines, and issues",
+    defaultNamePlaceholder: "e.g. GitLab CI",
+    protocol: "gitlab",
+    secretMode: "generated",
+    secretLabel: "Secret token",
+    secretPlaceholder: "whsec_...",
+    setupSteps: [
+      "Open project Settings → Webhooks → Add new webhook.",
+      "Paste the Webhook URL and Secret token.",
+      "Pick the triggers you want GitLab to send and save.",
+    ],
+  },
+  slack: {
+    id: "slack",
+    label: "Slack",
+    shortDescription: "Slack Events API mentions and messages",
+    defaultNamePlaceholder: "e.g. Slack alerts",
+    protocol: "slack",
+    secretMode: "external",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "Slack signing secret",
+    setupSteps: [
+      "Copy the Signing Secret from Slack App → Basic Information and paste it here first.",
+      "Open Slack App → Event Subscriptions and paste the Webhook URL.",
+      "Slack will verify the URL automatically, then pick the bot events to subscribe to.",
+    ],
+  },
+  openai: {
+    id: "openai",
+    label: "OpenAI",
+    shortDescription: "Batch jobs, responses, and fine-tuning events",
+    defaultNamePlaceholder: "e.g. OpenAI jobs",
+    protocol: "standard_webhooks",
+    secretMode: "external",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "whsec_...",
+    setupSteps: [
+      "Open OpenAI Platform → Settings → Webhooks → Create.",
+      "Paste the Webhook URL and choose the events to subscribe to.",
+      "Copy OpenAI's Signing secret (whsec_...) and paste it here.",
+    ],
+  },
+  resend: {
+    id: "resend",
+    label: "Resend",
+    shortDescription: "Email deliveries, bounces, and inbound mail",
+    defaultNamePlaceholder: "e.g. Email bounces",
+    protocol: "standard_webhooks",
+    secretMode: "external",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "whsec_...",
+    setupSteps: [
+      "Open Resend Dashboard → Webhooks → Add Webhook.",
+      "Paste the Webhook URL and select email events.",
+      "Copy Resend's Signing secret (whsec_...) and paste it here.",
+    ],
+  },
+  clerk: {
+    id: "clerk",
+    label: "Clerk",
+    shortDescription: "User sign-ups, sessions, and org events",
+    defaultNamePlaceholder: "e.g. User signups",
+    protocol: "standard_webhooks",
+    secretMode: "external",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "whsec_...",
+    setupSteps: [
+      "Open Clerk Dashboard → Configure → Webhooks → Add Endpoint.",
+      "Paste the Webhook URL and select user or organization events.",
+      "Copy Clerk's Signing secret (whsec_...) and paste it here.",
+    ],
+  },
+  polar: {
+    id: "polar",
+    label: "Polar",
+    shortDescription: "Orders, subscriptions, and benefits",
+    defaultNamePlaceholder: "e.g. Polar orders",
+    protocol: "standard_webhooks",
+    secretMode: "external",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "whsec_...",
+    setupSteps: [
+      "Open Polar Dashboard → Settings → Webhooks → Add Endpoint.",
+      "Paste the Webhook URL and choose events.",
+      "Copy Polar's Signing secret (whsec_...) and paste it here.",
+    ],
+  },
+  cloudflare: {
+    id: "cloudflare",
+    label: "Cloudflare",
+    shortDescription: "Workers, Pages, and account notifications",
+    defaultNamePlaceholder: "e.g. Cloudflare alerts",
+    protocol: "generic",
+    secretMode: "optional",
+    secretLabel: "Webhook secret",
+    secretPlaceholder: "Optional secret",
+    setupSteps: [
+      "Open Cloudflare Dashboard → Notifications → Destinations → Webhooks.",
+      "Paste the Webhook URL (and optional secret if enabled).",
+      "Attach this destination to any Cloudflare alert policy.",
+    ],
+  },
+  grafana: {
+    id: "grafana",
+    label: "Grafana",
+    shortDescription: "Alerting rules and incident notifications",
+    defaultNamePlaceholder: "e.g. Grafana alerts",
+    protocol: "generic",
+    secretMode: "optional",
+    secretLabel: "Authorization secret",
+    secretPlaceholder: "Optional secret",
+    setupSteps: [
+      "Open Grafana → Alerting → Contact points → Add contact point (Webhook).",
+      "Paste the Webhook URL (add Bearer token header if you enabled a secret).",
+      "Save and route your alert policies to this contact point.",
+    ],
+  },
+  datadog: {
+    id: "datadog",
+    label: "Datadog",
+    shortDescription: "Monitors, SLOs, and infrastructure alerts",
+    defaultNamePlaceholder: "e.g. Datadog monitors",
+    protocol: "generic",
+    secretMode: "optional",
+    secretLabel: "Header secret",
+    secretPlaceholder: "Optional secret",
+    setupSteps: [
+      "Open Datadog → Integrations → Webhooks → New.",
+      "Paste the Webhook URL (and add X-Webhook-Secret header if enabled).",
+      "Mention @webhook-<name> in any Datadog monitor.",
+    ],
+  },
+  n8n: {
+    id: "n8n",
+    label: "n8n",
+    shortDescription: "Workflow automations and HTTP triggers",
+    defaultNamePlaceholder: "e.g. n8n workflow",
+    protocol: "generic",
+    secretMode: "optional",
+    secretLabel: "Header secret",
+    secretPlaceholder: "Optional secret",
+    setupSteps: [
+      "Add an HTTP Request node (POST) in your n8n workflow.",
+      "Paste the Webhook URL and send JSON in the request body.",
+      "If you enabled a secret, send it in X-Webhook-Secret or Authorization: Bearer.",
+    ],
+  },
+  generic: {
+    id: "generic",
+    label: "General",
+    shortDescription: "Any custom JSON, Zapier, Make, or script",
+    defaultNamePlaceholder: "e.g. Custom JSON hook",
+    protocol: "generic",
+    secretMode: "optional",
+    secretLabel: "Signing secret",
+    secretPlaceholder: "Optional secret",
+    setupSteps: [
+      "Send an HTTP POST with JSON or plain text to the Webhook URL.",
+      "If you enabled a secret, pass it in X-Webhook-Secret or Authorization: Bearer.",
+    ],
+  },
+}
+
 export const BotWebhookDeliveryStatusSchema = z.enum(BOT_WEBHOOK_DELIVERY_STATUSES)
 export type BotWebhookDeliveryStatus = z.infer<typeof BotWebhookDeliveryStatusSchema>
 
@@ -56,6 +321,12 @@ export const BotWebhookEventFilterSchema = z
   .array(EventFilterEntrySchema)
   .max(BOT_WEBHOOK_MAX_EVENT_FILTERS)
   .transform((items) => [...new Set(items.map((item) => item.toLowerCase()))])
+
+const SigningSecretInputSchema = z
+  .string()
+  .trim()
+  .min(BOT_WEBHOOK_SECRET_MIN_LENGTH, `Signing secret must be at least ${BOT_WEBHOOK_SECRET_MIN_LENGTH} characters`)
+  .max(BOT_WEBHOOK_SECRET_MAX_LENGTH, `Signing secret must be at most ${BOT_WEBHOOK_SECRET_MAX_LENGTH} characters`)
 
 export const BotWebhookLastDeliverySchema = z.strictObject({
   id: z.string().min(1),
@@ -102,6 +373,7 @@ export const BotWebhookCreateSchema = z.strictObject({
   eventFilter: BotWebhookEventFilterSchema.nullable().optional(),
   instruction: z.string().trim().max(BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH).optional().default(""),
   requireSecret: z.boolean().optional(),
+  signingSecret: SigningSecretInputSchema.optional(),
 })
 export type BotWebhookCreateInput = z.infer<typeof BotWebhookCreateSchema>
 
@@ -112,6 +384,7 @@ export const BotWebhookUpdateSchema = z
     eventFilter: BotWebhookEventFilterSchema.nullable().optional(),
     instruction: z.string().trim().max(BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH).optional(),
     requireSecret: z.boolean().optional(),
+    signingSecret: SigningSecretInputSchema.optional(),
     rotateCredentials: z.boolean().optional(),
   })
   .refine(
@@ -121,6 +394,7 @@ export const BotWebhookUpdateSchema = z
       v.eventFilter !== undefined ||
       v.instruction !== undefined ||
       v.requireSecret !== undefined ||
+      v.signingSecret !== undefined ||
       v.rotateCredentials === true,
     { message: "At least one field must be provided" },
   )
@@ -185,6 +459,14 @@ function singleLine(text: string, maxLen: number): string {
 
 function shortSha(sha: string | null): string | null {
   return sha ? sha.slice(0, 12) : null
+}
+
+function safeJson(value: unknown, maxLen = 4096): string {
+  try {
+    return truncateText(JSON.stringify(value, null, 2), maxLen)
+  } catch {
+    return truncateText(String(value), maxLen)
+  }
 }
 
 export interface FormattedWebhookEvent {
@@ -442,16 +724,255 @@ export function formatGitHubWebhookEvent(eventName: string, payload: unknown): F
     }
   }
 
-  let fallbackJson = ""
-  try {
-    fallbackJson = JSON.stringify(payload, null, 2)
-  } catch {
-    fallbackJson = String(payload)
-  }
-  lines.push(`Payload:\n${truncateText(fallbackJson, 4096)}`)
+  lines.push(`Payload:\n${safeJson(payload)}`)
   return {
     eventType,
     summary: singleLine(`${repo ? `${repo}: ` : ""}GitHub ${eventType}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH),
+    payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
+  }
+}
+
+export function formatLinearWebhookEvent(eventHeader: string | null, payload: unknown): FormattedWebhookEvent {
+  const root = isRecord(payload) ? payload : {}
+  const resource = asString(root.type) ?? asString(eventHeader) ?? "event"
+  const action = asString(root.action)
+  const eventType = singleLine(
+    action ? `${resource.toLowerCase()}.${action.toLowerCase()}` : resource.toLowerCase(),
+    64,
+  )
+  const data = isRecord(root.data) ? root.data : {}
+  const actorObj = isRecord(root.actor) ? root.actor : null
+  const actor = asString(actorObj?.name) ?? asString(actorObj?.email)
+  const identifier = asString(data.identifier)
+  const title = asString(data.title) ?? asString(data.name)
+  const body = asString(data.body) ?? asString(data.description)
+  const stateObj = isRecord(data.state) ? data.state : null
+  const state = asString(stateObj?.name)
+  const url = asString(root.url) ?? asString(data.url)
+
+  const lines: string[] = [`Event: Linear ${resource}${action ? ` (${action})` : ""}`]
+  if (actor) lines.push(`Actor: ${actor}`)
+  if (identifier || title) lines.push(`Item: ${[identifier, title].filter(Boolean).join(" ")}`)
+  if (state) lines.push(`State: ${state}`)
+  if (url) lines.push(`URL: ${url}`)
+  if (body) lines.push(`Body:\n${truncateText(body, 2000)}`)
+  if (lines.length <= 2) lines.push(`Payload:\n${safeJson(payload)}`)
+
+  const subject = [identifier, title].filter(Boolean).join(" ")
+  const summary = singleLine(
+    `Linear ${resource} ${action ?? "updated"}${subject ? `: ${subject}` : ""}`,
+    BOT_WEBHOOK_SUMMARY_MAX_LENGTH,
+  )
+  return {
+    eventType: eventType || "linear",
+    summary,
+    payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
+  }
+}
+
+export function formatSentryWebhookEvent(resourceHeader: string | null, payload: unknown): FormattedWebhookEvent {
+  const root = isRecord(payload) ? payload : {}
+  const resource = asString(resourceHeader)?.toLowerCase() ?? "event"
+  const action = asString(root.action)
+  const eventType = singleLine(action ? `${resource}.${action}` : resource, 64)
+  const data = isRecord(root.data) ? root.data : {}
+  const issue = isRecord(data.issue) ? data.issue : null
+  const eventObj = isRecord(data.event) ? data.event : null
+  const alertObj = isRecord(data.metric_alert) ? data.metric_alert : null
+  const actorObj = isRecord(root.actor) ? root.actor : null
+  const actor = asString(actorObj?.name)
+  const projectObj = isRecord(issue?.project) ? issue.project : null
+  const project = asString(projectObj?.slug) ?? asString(projectObj?.name) ?? asString(data.project)
+  const title =
+    asString(issue?.title) ??
+    asString(eventObj?.title) ??
+    asString(alertObj?.title) ??
+    asString(data.triggered_rule)
+  const culprit = asString(issue?.culprit) ?? asString(eventObj?.culprit)
+  const level = asString(issue?.level) ?? asString(eventObj?.level)
+  const url = asString(issue?.permalink) ?? asString(eventObj?.web_url) ?? asString(data.web_url)
+
+  const lines: string[] = [`Event: Sentry ${eventType}`]
+  if (project) lines.push(`Project: ${project}`)
+  if (level) lines.push(`Level: ${level}`)
+  if (title) lines.push(`Title: ${title}`)
+  if (culprit) lines.push(`Culprit: ${culprit}`)
+  if (actor) lines.push(`Actor: ${actor}`)
+  if (url) lines.push(`URL: ${url}`)
+  if (lines.length <= 2) lines.push(`Payload:\n${safeJson(payload)}`)
+
+  return {
+    eventType: eventType || "sentry",
+    summary: singleLine(
+      `Sentry ${project ? `[${project}] ` : ""}${eventType}${title ? `: ${title}` : ""}`,
+      BOT_WEBHOOK_SUMMARY_MAX_LENGTH,
+    ),
+    payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
+  }
+}
+
+export function formatStripeWebhookEvent(payload: unknown): FormattedWebhookEvent {
+  const root = isRecord(payload) ? payload : {}
+  const type = asString(root.type) ?? "stripe.event"
+  const eventId = asString(root.id)
+  const livemode = asBoolean(root.livemode)
+  const data = isRecord(root.data) ? root.data : {}
+  const obj = isRecord(data.object) ? data.object : {}
+  const objectId = asString(obj.id)
+  const status = asString(obj.status)
+  const currency = asString(obj.currency)?.toUpperCase()
+  const amountRaw = asNumber(obj.amount_paid) ?? asNumber(obj.amount_due) ?? asNumber(obj.amount_total) ?? asNumber(obj.amount)
+  const amountFormatted =
+    amountRaw !== null && currency ? `${(amountRaw / 100).toFixed(2)} ${currency}` : null
+  const customer = asString(obj.customer_email) ?? asString(obj.customer)
+  const description = asString(obj.description)
+
+  const lines: string[] = [`Event: Stripe ${type}`]
+  if (eventId) lines.push(`Event ID: ${eventId}`)
+  if (livemode !== null) lines.push(`Mode: ${livemode ? "live" : "test"}`)
+  if (objectId) lines.push(`Object: ${objectId}`)
+  if (status) lines.push(`Status: ${status}`)
+  if (amountFormatted) lines.push(`Amount: ${amountFormatted}`)
+  if (customer) lines.push(`Customer: ${customer}`)
+  if (description) lines.push(`Description: ${singleLine(description, 200)}`)
+  if (lines.length <= 3) lines.push(`Payload:\n${safeJson(payload)}`)
+
+  const detail = [amountFormatted, status, customer].filter(Boolean).join(" · ")
+  return {
+    eventType: singleLine(type, 64) || "stripe",
+    summary: singleLine(`Stripe ${type}${detail ? `: ${detail}` : ""}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH),
+    payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
+  }
+}
+
+export function formatVercelWebhookEvent(payload: unknown): FormattedWebhookEvent {
+  const root = isRecord(payload) ? payload : {}
+  const type = asString(root.type) ?? "vercel.event"
+  const inner = isRecord(root.payload) ? root.payload : {}
+  const deployment = isRecord(inner.deployment) ? inner.deployment : null
+  const projectObj = isRecord(inner.project) ? inner.project : null
+  const name = asString(deployment?.name) ?? asString(projectObj?.name) ?? asString(inner.name)
+  const url = asString(deployment?.url) ?? asString(inner.url)
+  const target = asString(inner.target)
+  const meta = isRecord(deployment?.meta) ? deployment.meta : null
+  const branch = asString(meta?.githubCommitRef) ?? asString(meta?.gitlabCommitRef)
+  const commitMsg = asString(meta?.githubCommitMessage) ?? asString(meta?.gitlabCommitMessage)
+
+  const lines: string[] = [`Event: Vercel ${type}`]
+  if (name) lines.push(`Project: ${name}`)
+  if (target) lines.push(`Target: ${target}`)
+  if (branch) lines.push(`Branch: ${branch}`)
+  if (commitMsg) lines.push(`Commit: ${singleLine(commitMsg, 160)}`)
+  if (url) lines.push(`URL: ${url.startsWith("http") ? url : `https://${url}`}`)
+  if (lines.length <= 2) lines.push(`Payload:\n${safeJson(payload)}`)
+
+  const context = [name, branch ? `(${branch})` : null, target].filter(Boolean).join(" ")
+  return {
+    eventType: singleLine(type, 64) || "vercel",
+    summary: singleLine(`Vercel ${type}${context ? `: ${context}` : ""}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH),
+    payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
+  }
+}
+
+export function formatGitLabWebhookEvent(eventHeader: string | null, payload: unknown): FormattedWebhookEvent {
+  const root = isRecord(payload) ? payload : {}
+  const kind = asString(root.object_kind) ?? asString(eventHeader)?.toLowerCase().replace(/\s+hook$/i, "").replace(/\s+/g, "_") ?? "event"
+  const project = isRecord(root.project) ? root.project : null
+  const repo = asString(project?.path_with_namespace) ?? asString(project?.name)
+  const userObj = isRecord(root.user) ? root.user : null
+  const actor = asString(userObj?.username) ?? asString(root.user_username) ?? asString(root.user_name)
+  const attrs = isRecord(root.object_attributes) ? root.object_attributes : null
+  const action = asString(attrs?.action) ?? asString(attrs?.status)
+  const eventType = singleLine(action ? `${kind}.${action}` : kind, 64)
+  const title = asString(attrs?.title)
+  const iid = asNumber(attrs?.iid)
+  const url = asString(attrs?.url) ?? asString(project?.web_url)
+  const ref = asString(attrs?.ref) ?? asString(root.ref)
+  const note = asString(attrs?.note) ?? asString(attrs?.description)
+
+  const lines: string[] = [`Event: GitLab ${eventType}`]
+  if (repo) lines.push(`Project: ${repo}`)
+  if (actor) lines.push(`Actor: ${actor}`)
+  if (iid !== null || title) {
+    const prefix = kind === "merge_request" ? `!${iid}` : iid !== null ? `#${iid}` : ""
+    lines.push(`Item: ${[prefix, title].filter(Boolean).join(" ")}`)
+  }
+  if (ref) lines.push(`Ref: ${ref}`)
+  if (url) lines.push(`URL: ${url}`)
+  if (note) lines.push(`Details:\n${truncateText(note, 1500)}`)
+  if (lines.length <= 3) lines.push(`Payload:\n${safeJson(payload)}`)
+
+  const subject = [
+    repo,
+    kind,
+    iid !== null ? (kind === "merge_request" ? `!${iid}` : `#${iid}`) : null,
+    action,
+    title ? `: ${title}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(" : ", ": ")
+
+  return {
+    eventType: eventType || "gitlab",
+    summary: singleLine(`GitLab ${subject}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH),
+    payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
+  }
+}
+
+export function formatSlackWebhookEvent(payload: unknown): FormattedWebhookEvent {
+  const root = isRecord(payload) ? payload : {}
+  const outerType = asString(root.type) ?? "event"
+  const eventObj = isRecord(root.event) ? root.event : null
+  const eventName = asString(eventObj?.type) ?? outerType
+  const channel = asString(eventObj?.channel)
+  const user = asString(eventObj?.user)
+  const text = asString(eventObj?.text)
+  const teamId = asString(root.team_id)
+
+  const lines: string[] = [`Event: Slack ${eventName}`]
+  if (teamId) lines.push(`Team: ${teamId}`)
+  if (channel) lines.push(`Channel: ${channel}`)
+  if (user) lines.push(`User: ${user}`)
+  if (text) lines.push(`Text:\n${truncateText(text, 2000)}`)
+  if (lines.length <= 2) lines.push(`Payload:\n${safeJson(payload)}`)
+
+  return {
+    eventType: singleLine(eventName, 64) || "slack",
+    summary: singleLine(
+      `Slack ${eventName}${channel ? ` in ${channel}` : ""}${text ? `: ${singleLine(text, 120)}` : ""}`,
+      BOT_WEBHOOK_SUMMARY_MAX_LENGTH,
+    ),
+    payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
+  }
+}
+
+export function formatStandardWebhookEvent(providerLabel: string, payload: unknown): FormattedWebhookEvent {
+  const root = isRecord(payload) ? payload : {}
+  const eventName = asString(root.type) ?? asString(root.event) ?? "event"
+  const data = isRecord(root.data) ? root.data : {}
+  const id = asString(root.id) ?? asString(data.id)
+  const status = asString(data.status)
+  const subject =
+    asString(data.subject) ??
+    asString(data.title) ??
+    asString(data.email_id) ??
+    asString(data.email) ??
+    asString(data.name)
+
+  const lines: string[] = [`Event: ${providerLabel} ${eventName}`]
+  if (id) lines.push(`ID: ${id}`)
+  if (status) lines.push(`Status: ${status}`)
+  if (subject) lines.push(`Subject: ${singleLine(subject, 200)}`)
+  lines.push(`Payload:\n${safeJson(payload)}`)
+
+  const detail = [subject, status].filter(Boolean).join(" · ")
+  return {
+    eventType: singleLine(eventName, 64) || "webhook",
+    summary: singleLine(
+      `${providerLabel} ${eventName}${detail ? `: ${detail}` : ""}`,
+      BOT_WEBHOOK_SUMMARY_MAX_LENGTH,
+    ),
     payloadText: truncateText(lines.join("\n"), BOT_WEBHOOK_PAYLOAD_MAX_LENGTH),
   }
 }
@@ -460,11 +981,15 @@ export function formatGenericWebhookEvent(
   rawBody: string,
   contentType: string | null,
   eventHeader: string | null,
+  providerLabel?: string,
 ): FormattedWebhookEvent {
   const trimmed = rawBody.trim()
   const headerEvent = eventHeader?.trim() || null
+  const labelPrefix = providerLabel ? `${providerLabel}: ` : ""
   let eventType = headerEvent || "generic"
-  let summary = headerEvent ? `Webhook event: ${headerEvent}` : "Webhook notification received"
+  let summary = headerEvent
+    ? `${labelPrefix}Webhook event: ${headerEvent}`
+    : `${labelPrefix}Webhook notification received`
   let payloadText = trimmed || "(empty body)"
 
   const looksJson = (contentType?.toLowerCase().includes("json") ?? false) || trimmed.startsWith("{") || trimmed.startsWith("[")
@@ -472,22 +997,26 @@ export function formatGenericWebhookEvent(
     try {
       const parsed: unknown = JSON.parse(trimmed)
       if (isRecord(parsed)) {
-        const inferredEvent = asString(parsed.event) ?? asString(parsed.type) ?? asString(parsed.action)
+        const inferredEvent =
+          asString(parsed.event) ??
+          asString(parsed.type) ??
+          asString(parsed.alert_type) ??
+          asString(parsed.action)
         if (!headerEvent && inferredEvent) eventType = singleLine(inferredEvent, 64)
         const title =
           asString(parsed.summary) ??
           asString(parsed.title) ??
           asString(parsed.message) ??
           asString(parsed.text)
-        if (title) summary = singleLine(title, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
-        else if (inferredEvent) summary = singleLine(`Webhook event: ${inferredEvent}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
+        if (title) summary = singleLine(`${labelPrefix}${title}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
+        else if (inferredEvent) summary = singleLine(`${labelPrefix}${inferredEvent}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
       }
       payloadText = JSON.stringify(parsed, null, 2)
     } catch {
-      summary = singleLine(trimmed, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
+      summary = singleLine(`${labelPrefix}${trimmed}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
     }
   } else if (trimmed.length > 0) {
-    summary = singleLine(trimmed, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
+    summary = singleLine(`${labelPrefix}${trimmed}`, BOT_WEBHOOK_SUMMARY_MAX_LENGTH)
   }
 
   return {

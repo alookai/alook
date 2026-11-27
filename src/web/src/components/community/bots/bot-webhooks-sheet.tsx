@@ -2,11 +2,13 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import {
-  BOT_WEBHOOK_GITHUB_DEFAULT_EVENTS,
-  BOT_WEBHOOK_GITHUB_KNOWN_EVENTS,
   BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH,
   BOT_WEBHOOK_MAX_PER_BOT,
   BOT_WEBHOOK_NAME_MAX_LENGTH,
+  BOT_WEBHOOK_PROVIDER_META,
+  BOT_WEBHOOK_PROVIDERS,
+  BOT_WEBHOOK_SECRET_MAX_LENGTH,
+  BOT_WEBHOOK_SECRET_MIN_LENGTH,
   BotWebhookCreateSchema,
   BotWebhookUpdateSchema,
   type BotWebhookDelivery,
@@ -17,7 +19,10 @@ import {
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Copy,
+  KeyRound,
   Link2,
   Pencil,
   Play,
@@ -41,12 +46,20 @@ import { getErrorMessage } from "@/lib/api/client"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { isAbortError } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { EmptyState } from "../empty-state"
 import { CommunitySheet } from "../shell/community-sheet"
+import { WebhookProviderIcon } from "./webhook-provider-icon"
 
 const control = "h-11 sm:h-8"
-const KNOWN_GITHUB_SET = new Set<string>(BOT_WEBHOOK_GITHUB_KNOWN_EVENTS)
+const NAMED_PROVIDERS = BOT_WEBHOOK_PROVIDERS.filter((provider) => provider !== "generic")
+
+type SheetView =
+  | { kind: "list" }
+  | { kind: "choose" }
+  | { kind: "create"; provider: BotWebhookProvider }
+  | { kind: "edit"; webhook: BotWebhookSummary }
 
 type RevealedCredentials = {
   heading: string
@@ -82,31 +95,28 @@ function deliveryStatusLabel(status: BotWebhookDeliveryStatus, lastError: string
   }
 }
 
-function deliveryBadgeVariant(status: BotWebhookDeliveryStatus): "secondary" | "outline" | "destructive" {
+function deliveryStatusDotClass(status: BotWebhookDeliveryStatus): string {
   switch (status) {
     case "dispatched":
-      return "secondary"
+      return "bg-status-online"
     case "failed":
-      return "destructive"
-    default:
-      return "outline"
+      return "bg-destructive"
+    case "pending":
+      return "bg-warning"
+    case "ignored":
+      return "bg-muted-foreground/50"
   }
 }
 
-function providerLabel(provider: BotWebhookProvider): string {
-  return provider === "github" ? "GitHub" : "Generic"
-}
-
 function webhookSubtitle(webhook: BotWebhookSummary): string {
-  const parts: string[] = []
-  if (webhook.provider === "github") {
-    parts.push(
-      webhook.eventFilter === null
-        ? "All GitHub events"
-        : `${webhook.eventFilter.length} GitHub ${webhook.eventFilter.length === 1 ? "event" : "events"}`,
-    )
+  const meta = BOT_WEBHOOK_PROVIDER_META[webhook.provider]
+  const parts: string[] = [meta.label]
+  if (webhook.hasSigningSecret) {
+    parts.push("Verified")
+  } else if (meta.secretMode === "external") {
+    parts.push("Waiting for secret")
   } else {
-    parts.push(webhook.hasSigningSecret ? "Secret required" : "Direct JSON")
+    parts.push("Direct JSON")
   }
   if (webhook.lastTriggeredAt) {
     parts.push(`Triggered ${formatRelativeTime(webhook.lastTriggeredAt)}`)
@@ -114,14 +124,7 @@ function webhookSubtitle(webhook: BotWebhookSummary): string {
   return parts.join(" · ")
 }
 
-function parseCustomEvents(raw: string): string[] {
-  return raw
-    .split(/[\s,]+/)
-    .map((item) => item.trim().toLowerCase())
-    .filter((item) => item.length > 0)
-}
-
-function CopyableCredentialField({
+function CopyableWellField({
   id,
   label,
   value,
@@ -135,8 +138,8 @@ function CopyableCredentialField({
   const [copyState, setCopyState] = useAtom(useCreateAtom<"idle" | "copied" | "error">("idle"))
   const source = useCommunityViewSource(`webhook-copy:${id}`)
   return (
-    <div className="space-y-2">
-      <label htmlFor={id} className="block text-sm font-medium">
+    <div data-slot="invite-link-well" className="space-y-2 rounded-xl p-3">
+      <label htmlFor={id} className="block text-xs font-medium text-muted-foreground">
         {label}
       </label>
       <div className="flex items-center gap-2">
@@ -152,8 +155,8 @@ function CopyableCredentialField({
         />
         <Button
           type="button"
-          variant="outline"
-          className={`${control} shrink-0 gap-1.5`}
+          variant="ghost"
+          className={`${control} shrink-0 gap-1.5 px-3`}
           aria-label={`Copy ${label}`}
           onClick={async () => {
             const assert = source.capture()
@@ -190,28 +193,42 @@ function CopyableCredentialField({
 function CredentialsReveal({
   revealed,
   testing,
+  savingSecret,
+  onSaveExternalSecret,
   onSendTest,
   onDone,
 }: {
   revealed: RevealedCredentials
   testing: boolean
+  savingSecret: boolean
+  onSaveExternalSecret: (webhookId: string, secret: string) => Promise<void>
   onSendTest: (webhook: BotWebhookSummary) => Promise<void>
   onDone: () => void
 }) {
   const [confirmDone, setConfirmDone] = useAtom(useCreateAtom(false))
-  const isGitHub = revealed.webhook.provider === "github"
+  const [externalSecret, setExternalSecret] = useAtom(useCreateAtom(""))
+  const [secretError, setSecretError] = useAtom(useCreateAtom<string | null>(null))
+  const meta = BOT_WEBHOOK_PROVIDER_META[revealed.webhook.provider]
+  const needsExternalSecret = meta.secretMode === "external"
+  const hasOneTimeSecret = Boolean(revealed.webhookUrl || revealed.signingSecret)
+
   return (
     <section className="space-y-6" data-testid={tid.botWebhookCredentialsPanel}>
-      <div className="space-y-1.5">
-        <h3 className="text-base font-medium">{revealed.heading}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">
-          Copy these credentials now. You cannot view the full URL or signing secret again after leaving this screen.
-        </p>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <WebhookProviderIcon provider={revealed.webhook.provider} className="size-5 shrink-0" />
+          <h3 className="text-base font-medium">{revealed.heading}</h3>
+        </div>
+        {hasOneTimeSecret ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            Copy this URL{revealed.signingSecret ? ` and ${meta.secretLabel.toLowerCase()}` : ""} now. You cannot view it again after leaving this screen.
+          </p>
+        ) : null}
       </div>
 
       <div className="space-y-4">
         {revealed.webhookUrl ? (
-          <CopyableCredentialField
+          <CopyableWellField
             id="bot-webhook-url"
             label="Webhook URL"
             value={revealed.webhookUrl}
@@ -219,42 +236,96 @@ function CredentialsReveal({
           />
         ) : null}
         {revealed.signingSecret ? (
-          <CopyableCredentialField
+          <CopyableWellField
             id="bot-webhook-secret"
-            label="Signing secret"
+            label={meta.secretLabel}
             value={revealed.signingSecret}
             testId={tid.botWebhookSecretValue}
           />
         ) : null}
       </div>
 
-      <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-4 text-xs leading-5 text-muted-foreground">
-        {isGitHub ? (
-          <>
-            <p className="font-medium text-foreground">Set up in GitHub</p>
-            <ol className="list-decimal space-y-1 pl-4">
-              <li>Open repository Settings → Webhooks → Add webhook.</li>
-              <li>Paste the Webhook URL, choose <code className="font-mono text-foreground">application/json</code>, and paste the Signing secret.</li>
-              <li>Select the events you enabled here and save the webhook.</li>
-            </ol>
-          </>
-        ) : (
-          <>
-            <p className="font-medium text-foreground">Send JSON directly to this bot</p>
-            <p>
-              POST JSON or plain text to the Webhook URL.
-              {revealed.signingSecret
-                ? " Include the signing secret in X-Webhook-Secret or Authorization: Bearer."
-                : " No extra signature header is required."}
+      {needsExternalSecret ? (
+        <div className="space-y-2">
+          {revealed.webhook.hasSigningSecret ? (
+            <p className="flex items-center gap-2 text-sm text-foreground">
+              <Check className="size-4 shrink-0 text-status-online" aria-hidden />
+              <span>{meta.secretLabel} saved — verified delivery is active.</span>
             </p>
-          </>
-        )}
+          ) : (
+            <form
+              className="space-y-2"
+              onSubmit={async (event) => {
+                event.preventDefault()
+                if (savingSecret) return
+                setSecretError(null)
+                const parsed = BotWebhookUpdateSchema.safeParse({ signingSecret: externalSecret })
+                if (!parsed.success || !parsed.data.signingSecret) {
+                  setSecretError(
+                    parsed.error?.issues[0]?.message ??
+                      `${meta.secretLabel} must be at least ${BOT_WEBHOOK_SECRET_MIN_LENGTH} characters.`,
+                  )
+                  return
+                }
+                try {
+                  await onSaveExternalSecret(revealed.webhook.id, parsed.data.signingSecret)
+                  setExternalSecret("")
+                } catch (cause) {
+                  if (!isAbortError(cause)) {
+                    setSecretError(getErrorMessage(cause, "Could not save signing secret. Try again."))
+                  }
+                }
+              }}
+            >
+              <label htmlFor="bot-webhook-external-secret" className="block text-sm font-medium">
+                Paste {meta.label} {meta.secretLabel.toLowerCase()}
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="bot-webhook-external-secret"
+                  data-testid={tid.botWebhookExternalSecretInput}
+                  type="password"
+                  className={`${control} min-w-0 flex-1 font-mono text-xs`}
+                  value={externalSecret}
+                  onChange={(event) => setExternalSecret(event.target.value)}
+                  maxLength={BOT_WEBHOOK_SECRET_MAX_LENGTH}
+                  placeholder={meta.secretPlaceholder}
+                  autoComplete="new-password"
+                  disabled={savingSecret}
+                />
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  className={`${control} shrink-0 px-3`}
+                  data-testid={tid.botWebhookExternalSecretSave}
+                  disabled={savingSecret || externalSecret.trim().length === 0}
+                >
+                  {savingSecret ? "Saving…" : "Save"}
+                </Button>
+              </div>
+              {secretError ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {secretError}
+                </p>
+              ) : null}
+            </form>
+          )}
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-foreground">Connect in {meta.label}</p>
+        <ol className="list-decimal space-y-1 pl-4 text-xs leading-5 text-muted-foreground">
+          {meta.setupSteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           className={`${control} gap-1.5`}
           disabled={testing}
           onClick={() => { void onSendTest(revealed.webhook) }}
@@ -262,7 +333,11 @@ function CredentialsReveal({
           <Play className="size-3.5" aria-hidden />
           {testing ? "Sending test…" : "Send test"}
         </Button>
-        <Button type="button" className={control} onClick={() => setConfirmDone(true)}>
+        <Button
+          type="button"
+          className={control}
+          onClick={() => (hasOneTimeSecret ? setConfirmDone(true) : onDone())}
+        >
           Done
         </Button>
       </div>
@@ -280,20 +355,85 @@ function CredentialsReveal({
   )
 }
 
+function ProviderChooser({
+  onSelect,
+  onCancel,
+}: {
+  onSelect: (provider: BotWebhookProvider) => void
+  onCancel: () => void
+}) {
+  const genericMeta = BOT_WEBHOOK_PROVIDER_META.generic
+  return (
+    <section className="space-y-4">
+      <div className="space-y-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-ml-2 h-9 gap-1 text-muted-foreground hover:text-foreground sm:h-7"
+          onClick={onCancel}
+        >
+          <ChevronLeft className="size-4" aria-hidden />
+          Back
+        </Button>
+        <h3 className="text-base font-medium">Choose a source</h3>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {NAMED_PROVIDERS.map((provider) => {
+          const meta = BOT_WEBHOOK_PROVIDER_META[provider]
+          return (
+            <button
+              key={provider}
+              type="button"
+              data-testid={tid.botWebhookProviderSelect(provider)}
+              onClick={() => onSelect(provider)}
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:border-foreground/25 hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            >
+              <WebhookProviderIcon provider={provider} className="size-4 shrink-0" />
+              <span className="min-w-0 truncate">{meta.label}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="border-t border-border/60 pt-4">
+        <button
+          type="button"
+          data-testid={tid.botWebhookProviderSelect("generic")}
+          onClick={() => onSelect("generic")}
+          className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-border/70 bg-card px-3 py-2 text-left transition-colors hover:border-foreground/25 hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <WebhookProviderIcon provider="generic" className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-foreground">{genericMeta.label}</span>
+            <span className="block text-xs text-muted-foreground">{genericMeta.shortDescription}</span>
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function WebhookForm({
+  provider,
   webhook,
   pending,
+  onChangeProvider,
   onCancel,
   onSubmitCreate,
   onSubmitUpdate,
 }: {
+  provider: BotWebhookProvider
   webhook?: BotWebhookSummary
   pending: boolean
+  onChangeProvider?: () => void
   onCancel: () => void
   onSubmitCreate: (input: {
     name: string
     provider: BotWebhookProvider
-    eventFilter: string[] | null
+    eventFilter: null
     instruction: string
     requireSecret?: boolean
   }) => Promise<void>
@@ -301,36 +441,19 @@ function WebhookForm({
     webhookId: string,
     input: {
       name: string
-      eventFilter: string[] | null
       instruction: string
       requireSecret?: boolean
+      signingSecret?: string
     },
   ) => Promise<void>
 }) {
-  const initialEvents = webhook
-    ? (webhook.eventFilter ?? [])
-    : [...BOT_WEBHOOK_GITHUB_DEFAULT_EVENTS]
-  const initialKnown = initialEvents.filter((event) => KNOWN_GITHUB_SET.has(event))
-  const initialCustom = initialEvents.filter((event) => !KNOWN_GITHUB_SET.has(event)).join(", ")
-
-  const [name, setName] = useAtom(useCreateAtom(webhook?.name ?? ""))
-  const [provider, setProvider] = useAtom(useCreateAtom<BotWebhookProvider>(webhook?.provider ?? "generic"))
+  const meta = BOT_WEBHOOK_PROVIDER_META[provider]
+  const defaultName = webhook ? webhook.name : provider === "generic" ? "" : meta.label
+  const [name, setName] = useAtom(useCreateAtom(defaultName))
   const [requireSecret, setRequireSecret] = useAtom(useCreateAtom(webhook?.hasSigningSecret ?? false))
-  const [eventMode, setEventMode] = useAtom(
-    useCreateAtom<"selected" | "all">(webhook && webhook.eventFilter === null ? "all" : "selected"),
-  )
-  const [selectedEvents, setSelectedEvents] = useAtom(useCreateAtom<string[]>(initialKnown))
-  const [customEventsText, setCustomEventsText] = useAtom(useCreateAtom(initialCustom))
+  const [externalSecret, setExternalSecret] = useAtom(useCreateAtom(""))
   const [instruction, setInstruction] = useAtom(useCreateAtom(webhook?.instruction ?? ""))
   const [error, setError] = useAtom(useCreateAtom<string | null>(null))
-
-  const toggleEvent = (eventName: string) => {
-    setSelectedEvents((current) =>
-      current.includes(eventName)
-        ? current.filter((item) => item !== eventName)
-        : [...current, eventName],
-    )
-  }
 
   return (
     <form
@@ -340,25 +463,17 @@ function WebhookForm({
         if (pending) return
         setError(null)
 
-        const computedEvents =
-          provider === "github"
-            ? eventMode === "all"
-              ? null
-              : [...selectedEvents, ...parseCustomEvents(customEventsText)]
-            : null
-
-        if (provider === "github" && eventMode === "selected" && (!computedEvents || computedEvents.length === 0)) {
-          setError("Select at least one GitHub event or switch to all events.")
-          return
-        }
-
         if (webhook) {
-          const parsed = BotWebhookUpdateSchema.safeParse({
+          const trimmedSecret = externalSecret.trim()
+          const updatePayload = {
             name,
             instruction,
-            eventFilter: computedEvents,
-            ...(provider === "generic" ? { requireSecret } : {}),
-          })
+            ...(meta.secretMode === "optional" ? { requireSecret } : {}),
+            ...(meta.secretMode === "external" && trimmedSecret.length > 0
+              ? { signingSecret: trimmedSecret }
+              : {}),
+          }
+          const parsed = BotWebhookUpdateSchema.safeParse(updatePayload)
           if (!parsed.success) {
             setError(parsed.error.issues[0]?.message ?? "Check the fields and try again.")
             return
@@ -367,8 +482,8 @@ function WebhookForm({
             await onSubmitUpdate(webhook.id, {
               name: parsed.data.name ?? name.trim(),
               instruction: parsed.data.instruction ?? instruction.trim(),
-              eventFilter: parsed.data.eventFilter ?? null,
-              ...(provider === "generic" ? { requireSecret } : {}),
+              ...(meta.secretMode === "optional" ? { requireSecret } : {}),
+              ...(parsed.data.signingSecret ? { signingSecret: parsed.data.signingSecret } : {}),
             })
           } catch (cause) {
             if (!isAbortError(cause)) {
@@ -382,8 +497,8 @@ function WebhookForm({
           name,
           provider,
           instruction,
-          eventFilter: computedEvents,
-          ...(provider === "generic" ? { requireSecret } : {}),
+          eventFilter: null,
+          ...(meta.secretMode === "optional" ? { requireSecret } : {}),
         })
         if (!parsed.success) {
           setError(parsed.error.issues[0]?.message ?? "Check the fields and try again.")
@@ -394,8 +509,8 @@ function WebhookForm({
             name: parsed.data.name,
             provider: parsed.data.provider,
             instruction: parsed.data.instruction,
-            eventFilter: parsed.data.eventFilter ?? null,
-            ...(parsed.data.provider === "generic" ? { requireSecret } : {}),
+            eventFilter: null,
+            ...(meta.secretMode === "optional" ? { requireSecret } : {}),
           })
         } catch (cause) {
           if (!isAbortError(cause)) {
@@ -404,11 +519,28 @@ function WebhookForm({
         }
       }}
     >
-      <div className="space-y-1">
-        <h3 className="text-base font-medium">{webhook ? "Edit webhook" : "New webhook"}</h3>
-        <p className="text-xs leading-5 text-muted-foreground">
-          Events sent to this webhook wake this bot directly without posting in a channel.
-        </p>
+      <div className="space-y-2">
+        {!webhook && onChangeProvider ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-testid={tid.botWebhookChangeProvider}
+            className="-ml-2 h-9 gap-1 text-muted-foreground hover:text-foreground sm:h-7"
+            onClick={onChangeProvider}
+            disabled={pending}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+            All sources
+          </Button>
+        ) : null}
+        <div className="flex items-center gap-2">
+          <WebhookProviderIcon provider={provider} className="size-5 shrink-0" />
+          <h3 className="text-base font-medium">
+            {webhook ? `Edit ${meta.label} webhook` : `New ${meta.label} webhook`}
+          </h3>
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">{meta.shortDescription}</p>
       </div>
 
       <div className="space-y-2">
@@ -422,133 +554,15 @@ function WebhookForm({
           value={name}
           onChange={(event) => setName(event.target.value)}
           maxLength={BOT_WEBHOOK_NAME_MAX_LENGTH}
-          placeholder={provider === "github" ? "e.g. alook CI" : "e.g. Deploy alerts"}
+          placeholder={meta.defaultNamePlaceholder}
           autoComplete="off"
           required
           disabled={pending}
         />
       </div>
 
-      <fieldset className="space-y-2" disabled={pending}>
-        <legend className="text-sm font-medium">Payload format</legend>
-        {webhook ? (
-          <div className="flex items-center gap-2 pt-1">
-            <Badge variant="secondary">{providerLabel(webhook.provider)}</Badge>
-            <span className="text-xs text-muted-foreground">
-              {webhook.provider === "github"
-                ? "Verifies GitHub signatures and summarizes GitHub events."
-                : "Forwards raw JSON or text straight to this bot."}
-            </span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {(
-              [
-                {
-                  id: "generic",
-                  title: "Generic (direct JSON)",
-                  detail: "Forward raw webhook JSON or text straight to this bot.",
-                },
-                {
-                  id: "github",
-                  title: "GitHub adapter",
-                  detail: "Verify signatures, deduplicate, and summarize CI, PR, and issue events.",
-                },
-              ] as const
-            ).map((option) => {
-              const selected = provider === option.id
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  data-testid={tid.botWebhookProviderSelect(option.id)}
-                  aria-pressed={selected}
-                  onClick={() => setProvider(option.id)}
-                  className={[
-                    "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                    selected
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-border bg-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  ].join(" ")}
-                >
-                  <span className="text-sm font-medium text-foreground">{option.title}</span>
-                  <span className="text-xs leading-5 text-muted-foreground">{option.detail}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </fieldset>
-
-      {provider === "github" ? (
-        <fieldset className="space-y-3" disabled={pending}>
-          <legend className="text-sm font-medium">GitHub events</legend>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={eventMode === "selected" ? "default" : "outline"}
-              className="h-9 sm:h-7"
-              data-testid={tid.botWebhookEventMode("selected")}
-              onClick={() => setEventMode("selected")}
-            >
-              Selected events
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={eventMode === "all" ? "default" : "outline"}
-              className="h-9 sm:h-7"
-              data-testid={tid.botWebhookEventMode("all")}
-              onClick={() => setEventMode("all")}
-            >
-              All events
-            </Button>
-          </div>
-          {eventMode === "selected" ? (
-            <>
-              <div className="flex flex-wrap gap-1.5">
-                {BOT_WEBHOOK_GITHUB_KNOWN_EVENTS.map((eventName) => {
-                  const active = selectedEvents.includes(eventName)
-                  return (
-                    <Button
-                      key={eventName}
-                      type="button"
-                      size="sm"
-                      variant={active ? "secondary" : "outline"}
-                      data-testid={tid.botWebhookEventChip(eventName)}
-                      aria-pressed={active}
-                      className="h-8 font-mono text-xs sm:h-7"
-                      onClick={() => toggleEvent(eventName)}
-                    >
-                      {eventName}
-                    </Button>
-                  )
-                })}
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="bot-webhook-custom-events" className="block text-xs font-medium text-muted-foreground">
-                  Extra event names (optional, comma-separated)
-                </label>
-                <Input
-                  id="bot-webhook-custom-events"
-                  data-testid={tid.botWebhookCustomEventsInput}
-                  className={`${control} font-mono text-xs`}
-                  value={customEventsText}
-                  onChange={(event) => setCustomEventsText(event.target.value)}
-                  placeholder="e.g. deployment_status, discussion"
-                  autoComplete="off"
-                />
-              </div>
-            </>
-          ) : (
-            <p className="text-xs leading-5 text-muted-foreground">
-              Accept every GitHub event sent to this URL. Ping checks are still acknowledged without waking the bot.
-            </p>
-          )}
-        </fieldset>
-      ) : (
-        <div className="space-y-1.5">
+      {meta.secretMode === "optional" ? (
+        <div className="space-y-2">
           <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 sm:min-h-8">
             <span className="text-sm font-medium">Require signing secret</span>
             <Switch
@@ -561,10 +575,36 @@ function WebhookForm({
           <p className="text-xs leading-5 text-muted-foreground">
             {requireSecret
               ? "Callers must send X-Webhook-Secret or Authorization: Bearer. A secret will be shown once after saving."
-              : "Any caller with the high-entropy webhook URL can trigger this bot."}
+              : "Any caller with the private webhook URL can trigger this bot."}
           </p>
         </div>
-      )}
+      ) : meta.secretMode === "external" && webhook ? (
+        <div className="space-y-2">
+          <label htmlFor="bot-webhook-edit-secret" className="block text-sm font-medium">
+            {webhook.hasSigningSecret ? `Replace ${meta.secretLabel.toLowerCase()} (optional)` : meta.secretLabel}
+          </label>
+          <Input
+            id="bot-webhook-edit-secret"
+            data-testid={tid.botWebhookExternalSecretInput}
+            type="password"
+            className={`${control} font-mono text-xs`}
+            value={externalSecret}
+            onChange={(event) => setExternalSecret(event.target.value)}
+            maxLength={BOT_WEBHOOK_SECRET_MAX_LENGTH}
+            placeholder={
+              webhook.hasSigningSecret ? "Leave blank to keep current secret" : meta.secretPlaceholder
+            }
+            autoComplete="new-password"
+            disabled={pending}
+          />
+        </div>
+      ) : !webhook ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          {meta.secretMode === "generated"
+            ? `A unique Webhook URL and ${meta.secretLabel.toLowerCase()} will be generated next.`
+            : `You will get the Webhook URL next, then paste ${meta.label}'s ${meta.secretLabel.toLowerCase()} to activate delivery.`}
+        </p>
+      ) : null}
 
       <div className="space-y-2">
         <label htmlFor="bot-webhook-instruction" className="block text-sm font-medium">
@@ -576,13 +616,10 @@ function WebhookForm({
           value={instruction}
           onChange={(event) => setInstruction(event.target.value)}
           maxLength={BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH}
-          rows={3}
-          placeholder="e.g. If CI fails, inspect the logs, fix the issue, and report back in the task thread."
+          rows={2}
+          placeholder="e.g. If CI fails, inspect the logs and report back in the task thread."
           disabled={pending}
         />
-        <p className="text-xs text-muted-foreground">
-          Attached above the external payload whenever this webhook wakes the bot.
-        </p>
       </div>
 
       {error ? (
@@ -612,7 +649,7 @@ function DeliveriesPanel({
 }) {
   const deliveriesQuery = useBotWebhookDeliveries(botId, webhookId, true)
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+    <div className="space-y-3 rounded-lg bg-muted/35 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">Recent deliveries</span>
         <Button
@@ -638,14 +675,14 @@ function DeliveriesPanel({
       ) : deliveriesQuery.isError ? (
         <div className="flex items-center justify-between gap-2 text-xs text-destructive">
           <span>Could not load recent deliveries.</span>
-          <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => { void deliveriesQuery.refetch() }}>
+          <Button type="button" variant="ghost" size="sm" className="h-7" onClick={() => { void deliveriesQuery.refetch() }}>
             Retry
           </Button>
         </div>
       ) : deliveriesQuery.deliveries.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No deliveries yet. Send a test notification to verify the wake path.</p>
+        <p className="text-xs text-muted-foreground">No deliveries yet. Send a test to verify the wake path.</p>
       ) : (
-        <ul className="divide-y divide-border/70">
+        <ul className="divide-y divide-border/50">
           {deliveriesQuery.deliveries.map((delivery: BotWebhookDelivery) => {
             const errorDetail = formatDeliveryError(delivery.lastError)
             return (
@@ -654,12 +691,16 @@ function DeliveriesPanel({
                 data-testid={tid.botWebhookDeliveryRow(delivery.id)}
                 className="space-y-1 py-2 first:pt-0 last:pb-0"
               >
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant={deliveryBadgeVariant(delivery.status)}>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                    <span
+                      aria-hidden="true"
+                      className={cn("inline-block size-1.5 rounded-full", deliveryStatusDotClass(delivery.status))}
+                    />
                     {deliveryStatusLabel(delivery.status, delivery.lastError)}
-                  </Badge>
-                  <code className="font-mono text-xs text-foreground">{delivery.eventType}</code>
-                  <span className="ml-auto text-xs text-muted-foreground">
+                  </span>
+                  <code className="font-mono text-muted-foreground">{delivery.eventType}</code>
+                  <span className="ml-auto text-muted-foreground">
                     {formatRelativeTime(delivery.createdAt)}
                   </span>
                 </div>
@@ -718,7 +759,7 @@ function BotWebhooksSheetContent({
   open: boolean
 }) {
   const webhooksApi = useBotWebhooks(bot.id, open)
-  const [editing, setEditing] = useAtom(useCreateAtom<BotWebhookSummary | "new" | null>(null))
+  const [view, setView] = useAtom(useCreateAtom<SheetView>({ kind: "list" }))
   const [revealed, setRevealed] = useAtom(useCreateAtom<RevealedCredentials | null>(null))
   const [expandedDeliveriesId, setExpandedDeliveriesId] = useAtom(useCreateAtom<string | null>(null))
   const [confirmRotate, setConfirmRotate] = useAtom(useCreateAtom<BotWebhookSummary | null>(null))
@@ -748,104 +789,150 @@ function BotWebhooksSheetContent({
 
   return (
     <>
-        {revealed ? (
-          <CredentialsReveal
-            revealed={revealed}
-            testing={webhooksApi.testingWebhookId === revealed.webhook.id}
-            onSendTest={handleSendTest}
-            onDone={() => setRevealed(null)}
-          />
-        ) : editing ? (
-          <WebhookForm
-            key={editing === "new" ? "new" : editing.id}
-            webhook={editing === "new" ? undefined : editing}
-            pending={webhooksApi.creating || webhooksApi.updating}
-            onCancel={() => setEditing(null)}
-            onSubmitCreate={async (input) => {
-              const created = await webhooksApi.createWebhook(input)
-              setEditing(null)
+      {revealed ? (
+        <CredentialsReveal
+          key={`${revealed.webhook.id}:${revealed.heading}`}
+          revealed={revealed}
+          testing={webhooksApi.testingWebhookId === revealed.webhook.id}
+          savingSecret={webhooksApi.updating}
+          onSaveExternalSecret={async (webhookId, signingSecret) => {
+            const updated = await webhooksApi.updateWebhook(webhookId, { signingSecret })
+            setRevealed((current) =>
+              current && current.webhook.id === webhookId
+                ? { ...current, webhook: updated.webhook }
+                : current,
+            )
+            toast.success("Signing secret saved")
+          }}
+          onSendTest={handleSendTest}
+          onDone={() => setRevealed(null)}
+        />
+      ) : view.kind === "choose" ? (
+        <ProviderChooser
+          onSelect={(provider) => setView({ kind: "create", provider })}
+          onCancel={() => setView({ kind: "list" })}
+        />
+      ) : view.kind === "create" ? (
+        <WebhookForm
+          key={`create:${view.provider}`}
+          provider={view.provider}
+          pending={webhooksApi.creating}
+          onChangeProvider={() => setView({ kind: "choose" })}
+          onCancel={() => setView({ kind: "list" })}
+          onSubmitCreate={async (input) => {
+            const created = await webhooksApi.createWebhook(input)
+            setView({ kind: "list" })
+            setRevealed({
+              heading: `${created.webhook.name} created`,
+              webhook: created.webhook,
+              webhookUrl: created.webhookUrl,
+              signingSecret: created.signingSecret,
+            })
+          }}
+          onSubmitUpdate={async () => {}}
+        />
+      ) : view.kind === "edit" ? (
+        <WebhookForm
+          key={`edit:${view.webhook.id}`}
+          provider={view.webhook.provider}
+          webhook={view.webhook}
+          pending={webhooksApi.updating}
+          onCancel={() => setView({ kind: "list" })}
+          onSubmitCreate={async () => {}}
+          onSubmitUpdate={async (webhookId, input) => {
+            const updated = await webhooksApi.updateWebhook(webhookId, input)
+            setView({ kind: "list" })
+            if (updated.webhookUrl || updated.signingSecret) {
               setRevealed({
-                heading: "Webhook created",
-                webhook: created.webhook,
-                webhookUrl: created.webhookUrl,
-                signingSecret: created.signingSecret,
+                heading: "Signing secret generated",
+                webhook: updated.webhook,
+                webhookUrl: updated.webhookUrl,
+                signingSecret: updated.signingSecret ?? null,
               })
-            }}
-            onSubmitUpdate={async (webhookId, input) => {
-              const updated = await webhooksApi.updateWebhook(webhookId, input)
-              setEditing(null)
-              if (updated.webhookUrl || updated.signingSecret) {
-                setRevealed({
-                  heading: "Signing secret generated",
-                  webhook: updated.webhook,
-                  webhookUrl: updated.webhookUrl,
-                  signingSecret: updated.signingSecret ?? null,
-                })
-              } else {
-                toast.success("Webhook updated")
-              }
-            }}
-          />
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="min-w-0 flex-1 text-sm leading-6 text-muted-foreground">
-                Wake {bot.name} directly from GitHub or external services without posting to channels.
-              </p>
-              <Button
-                type="button"
-                className={`${control} shrink-0 gap-1.5`}
-                data-testid={tid.botWebhooksCreateOpen}
-                disabled={atLimit}
-                title={atLimit ? `Maximum of ${BOT_WEBHOOK_MAX_PER_BOT} webhooks per bot reached.` : undefined}
-                onClick={() => {
-                  setActionError(null)
-                  setEditing("new")
-                }}
-              >
-                <Plus className="size-4" aria-hidden />
-                New webhook
-              </Button>
+            } else {
+              toast.success("Webhook updated")
+            }
+          }}
+        />
+      ) : (
+        <>
+          {webhooksApi.isError && webhooksApi.data ? (
+            <ConversationResolutionErrorFrame
+              as="div"
+              title="Could not refresh webhooks."
+              retrying={webhooksApi.isFetching}
+              onRetry={() => { void webhooksApi.refetch() }}
+            />
+          ) : null}
+
+          {webhooksApi.isPending && !webhooksApi.data ? (
+            <div className="space-y-4" aria-label="Loading webhooks" role="status">
+              {[0, 1].map((index) => (
+                <div key={index} className="space-y-2 py-3">
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-4 w-56 max-w-full" />
+                  <Skeleton className="h-8 w-48" />
+                </div>
+              ))}
             </div>
-
-            {webhooksApi.isError && webhooksApi.data ? (
-              <ConversationResolutionErrorFrame
-                as="div"
-                title="Could not refresh webhooks."
-                retrying={webhooksApi.isFetching}
-                onRetry={() => { void webhooksApi.refetch() }}
-              />
-            ) : null}
-
-            {webhooksApi.isPending && !webhooksApi.data ? (
-              <div className="space-y-4" aria-label="Loading webhooks" role="status">
-                {[0, 1].map((index) => (
-                  <div key={index} className="space-y-2 py-3">
-                    <Skeleton className="h-5 w-40" />
-                    <Skeleton className="h-4 w-56 max-w-full" />
-                    <Skeleton className="h-8 w-48" />
-                  </div>
-                ))}
+          ) : webhooksApi.isError && !webhooksApi.data ? (
+            <ConversationResolutionErrorFrame
+              as="div"
+              title="Could not load webhooks."
+              retrying={webhooksApi.isFetching}
+              onRetry={() => { void webhooksApi.refetch() }}
+            />
+          ) : webhooksApi.webhooks.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center">
+              <div className="flex flex-col items-center">
+                <EmptyState
+                  icon={Link2}
+                  label="No webhooks yet"
+                  description={`Connect GitHub, Linear, Sentry, or any JSON service to wake ${bot.name} directly.`}
+                />
+                <Button
+                  type="button"
+                  className={`${control} -mt-6 gap-1.5`}
+                  data-testid={tid.botWebhooksCreateOpen}
+                  onClick={() => {
+                    setActionError(null)
+                    setView({ kind: "choose" })
+                  }}
+                >
+                  <Plus className="size-4" aria-hidden />
+                  New webhook
+                </Button>
               </div>
-            ) : webhooksApi.isError && !webhooksApi.data ? (
-              <ConversationResolutionErrorFrame
-                as="div"
-                title="Could not load webhooks."
-                retrying={webhooksApi.isFetching}
-                onRetry={() => { void webhooksApi.refetch() }}
-              />
-            ) : webhooksApi.webhooks.length === 0 ? (
-              <EmptyState
-                icon={Link2}
-                label="No webhooks yet"
-                description={`Create a webhook to let GitHub or external services wake ${bot.name} directly.`}
-              />
-            ) : (
-              <ul className="divide-y divide-border">
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+                  Wake {bot.name} directly — never posts to channels.
+                </p>
+                <Button
+                  type="button"
+                  className={`${control} shrink-0 gap-1.5`}
+                  data-testid={tid.botWebhooksCreateOpen}
+                  disabled={atLimit}
+                  title={atLimit ? `Maximum of ${BOT_WEBHOOK_MAX_PER_BOT} webhooks per bot reached.` : undefined}
+                  onClick={() => {
+                    setActionError(null)
+                    setView({ kind: "choose" })
+                  }}
+                >
+                  <Plus className="size-4" aria-hidden />
+                  New webhook
+                </Button>
+              </div>
+
+              <ul className="divide-y divide-border/70">
                 {webhooksApi.webhooks.map((webhook) => {
+                  const meta = BOT_WEBHOOK_PROVIDER_META[webhook.provider]
                   const deliveriesExpanded = expandedDeliveriesId === webhook.id
                   const toggling = webhooksApi.togglingWebhookId === webhook.id
                   const testingThis = webhooksApi.testingWebhookId === webhook.id
+                  const needsExternalSecret = meta.secretMode === "external" && !webhook.hasSigningSecret
                   const lastErrorText = formatDeliveryError(webhook.lastDelivery?.lastError ?? null)
                   return (
                     <li
@@ -854,17 +941,20 @@ function BotWebhooksSheetContent({
                       className="space-y-3 py-4 first:pt-0"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="min-w-0 wrap-break-word text-sm font-medium text-foreground">
-                              {webhook.name}
-                            </h3>
-                            <Badge variant="secondary">{providerLabel(webhook.provider)}</Badge>
-                            {!webhook.enabled ? <Badge variant="outline">Paused</Badge> : null}
+                        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                          <WebhookProviderIcon provider={webhook.provider} className="mt-0.5 size-4 shrink-0" />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="min-w-0 wrap-break-word text-sm font-medium text-foreground">
+                                {webhook.name}
+                              </h3>
+                              {!webhook.enabled ? <Badge variant="outline">Paused</Badge> : null}
+                              {needsExternalSecret ? <Badge variant="outline">Secret needed</Badge> : null}
+                            </div>
+                            <p className="text-xs leading-5 text-muted-foreground">
+                              {webhookSubtitle(webhook)}
+                            </p>
                           </div>
-                          <p className="text-xs leading-5 text-muted-foreground">
-                            {webhookSubtitle(webhook)}
-                          </p>
                         </div>
                         <Switch
                           data-testid={tid.botWebhookToggle(webhook.id)}
@@ -891,11 +981,15 @@ function BotWebhooksSheetContent({
                         </p>
                       ) : null}
 
-                      {webhook.lastDelivery ? (
-                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                          <Badge variant={deliveryBadgeVariant(webhook.lastDelivery.status)}>
+                      {webhook.lastDelivery && !deliveriesExpanded ? (
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="inline-flex shrink-0 items-center gap-1.5 font-medium text-foreground">
+                            <span
+                              aria-hidden="true"
+                              className={cn("inline-block size-1.5 rounded-full", deliveryStatusDotClass(webhook.lastDelivery.status))}
+                            />
                             {deliveryStatusLabel(webhook.lastDelivery.status, webhook.lastDelivery.lastError)}
-                          </Badge>
+                          </span>
                           <span className="min-w-0 truncate" title={webhook.lastDelivery.summary}>
                             {webhook.lastDelivery.summary}
                           </span>
@@ -905,12 +999,27 @@ function BotWebhooksSheetContent({
                         </div>
                       ) : null}
 
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {needsExternalSecret ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-11 gap-1.5 text-foreground sm:h-7"
+                            onClick={() => {
+                              setActionError(null)
+                              setView({ kind: "edit", webhook })
+                            }}
+                          >
+                            <KeyRound className="size-3.5" aria-hidden />
+                            Add secret
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
-                          className="h-9 gap-1.5 sm:h-7"
+                          className="h-11 gap-1.5 text-muted-foreground hover:text-foreground sm:h-7"
                           data-testid={tid.botWebhookTest(webhook.id)}
                           disabled={testingThis}
                           onClick={() => { void handleSendTest(webhook) }}
@@ -922,7 +1031,10 @@ function BotWebhooksSheetContent({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="h-9 gap-1 text-muted-foreground hover:text-foreground sm:h-7"
+                          className={cn(
+                            "h-11 gap-1 sm:h-7",
+                            deliveriesExpanded ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                          )}
                           data-testid={tid.botWebhookDeliveriesToggle(webhook.id)}
                           aria-expanded={deliveriesExpanded}
                           onClick={() =>
@@ -931,7 +1043,10 @@ function BotWebhooksSheetContent({
                         >
                           <ChevronDown
                             aria-hidden
-                            className={`size-3.5 transition-transform ${deliveriesExpanded ? "rotate-180" : ""}`}
+                            className={cn(
+                              "size-3.5 transition-transform duration-150",
+                              deliveriesExpanded && "rotate-180",
+                            )}
                           />
                           Deliveries
                         </Button>
@@ -939,12 +1054,12 @@ function BotWebhooksSheetContent({
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          className="ml-auto size-9 text-muted-foreground hover:text-foreground sm:size-7"
+                          className="ml-auto size-11 text-muted-foreground hover:text-foreground sm:size-7"
                           data-testid={tid.botWebhookEdit(webhook.id)}
                           aria-label={`Edit ${webhook.name}`}
                           onClick={() => {
                             setActionError(null)
-                            setEditing(webhook)
+                            setView({ kind: "edit", webhook })
                           }}
                         >
                           <Pencil className="size-3.5" aria-hidden />
@@ -953,7 +1068,7 @@ function BotWebhooksSheetContent({
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          className="size-9 text-muted-foreground hover:text-foreground sm:size-7"
+                          className="size-11 text-muted-foreground hover:text-foreground sm:size-7"
                           data-testid={tid.botWebhookRotate(webhook.id)}
                           aria-label={`Rotate credentials for ${webhook.name}`}
                           onClick={() => {
@@ -967,7 +1082,7 @@ function BotWebhooksSheetContent({
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          className="size-9 text-muted-foreground hover:text-destructive sm:size-7"
+                          className="size-11 text-muted-foreground hover:text-destructive sm:size-7"
                           data-testid={tid.botWebhookDelete(webhook.id)}
                           aria-label={`Delete ${webhook.name}`}
                           onClick={() => {
@@ -986,15 +1101,16 @@ function BotWebhooksSheetContent({
                   )
                 })}
               </ul>
-            )}
+            </>
+          )}
 
-            {actionError ? (
-              <p role="alert" className="text-sm text-destructive">
-                {actionError}
-              </p>
-            ) : null}
-          </>
-        )}
+          {actionError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {actionError}
+            </p>
+          ) : null}
+        </>
+      )}
 
       <ConfirmDialog
         open={Boolean(confirmRotate)}
@@ -1002,7 +1118,7 @@ function BotWebhooksSheetContent({
           if (!next && !webhooksApi.updating) setConfirmRotate(null)
         }}
         title={`Rotate credentials for “${confirmRotate?.name ?? "webhook"}”?`}
-        description="The current webhook URL and signing secret will stop working immediately. You will need to update the external service with the new credentials."
+        description="The current webhook URL and generated signing secret will stop working immediately. Update the external service with the new credentials."
         confirmLabel="Rotate credentials"
         loadingLabel="Rotating…"
         confirmVariant="destructive"
