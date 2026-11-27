@@ -646,4 +646,5 @@ export type { MessagePreviewInput } from "./lib/message-preview";
 
 export * from "./community-feedback";
 export * from "./community-decision-card";
+export * from "./community-page";
 export * from "./model-observation";
