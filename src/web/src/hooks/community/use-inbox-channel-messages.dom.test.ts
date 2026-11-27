@@ -541,4 +541,39 @@ describe("exact Inbox channel check", () => {
     expect(mocks.reconcile).not.toHaveBeenCalled()
     expect(dismiss).not.toHaveBeenCalled()
   })
+
+  it("caps unread previews at 30 messages and exposes an earlier-unread banner without unbounded paging", async () => {
+    const owner = await setup()
+    const makeRows = (start: number, end: number) => Array.from({ length: end - start + 1 }, (_, index) => {
+      const seq = start + index
+      const minute = Math.floor(seq / 60)
+      const second = seq % 60
+      return messageResourceFixture({
+        id: `m${seq}`,
+        channelId: "parent",
+        seq,
+        authorId: "peer",
+        createdAt: `2026-10-01T00:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}.000Z`,
+        content: `Unread ${seq}`,
+      })
+    })
+    mocks.api.mockResolvedValueOnce(messageReadPageFixture({
+      messages: makeRows(61, 100),
+      hasMore: true,
+      cursor: "cursor-61",
+    }))
+
+    const view = render(
+      createElement(InboxUnreadMessages, { channelId: "parent", throughSeq: 100, mentions: [] }),
+      { wrapper: owner.wrapper },
+    )
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-slot="inbox-earlier-unread-banner"]')).not.toBeNull()
+    })
+    expect(mocks.api).toHaveBeenCalledTimes(1)
+    expect(view.getByText("Jump to channel for earlier unread messages")).toBeVisible()
+    expect(view.getByText("Unread 100")).toBeVisible()
+    expect(view.getByText("Unread 71")).toBeVisible()
+    expect(view.queryByText("Unread 70")).toBeNull()
+  })
 })

@@ -188,6 +188,7 @@ export function TextChannelSurface({
             presentError: feed.presentError,
             localSubmitVersion: controller.localSubmitVersion,
             unreadCount: feed.unreadCount,
+            typingScope: controller.typingScope,
             typingUsers: controller.typingUsers,
           }}
           footerProps={{

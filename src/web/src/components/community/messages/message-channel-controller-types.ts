@@ -65,7 +65,8 @@ export type MessageChannelControllerValue = {
   ) => Promise<{ replyToId: string | null; queued?: boolean }>
   localSubmitVersion: number
   handleTyping: () => void
-  typingUsers: string[]
+  typingScope: string
+  typingUsers?: string[]
 }
 
 export type MessageChannelControllerProps = {

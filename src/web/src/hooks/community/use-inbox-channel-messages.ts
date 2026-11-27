@@ -18,6 +18,8 @@ import { getReadCoordinator } from "./read-coordinator"
 import type { RequestNativeConversationDismissal } from "./use-native-system-notifications"
 
 const previewRetryDelays = [5_000, 15_000]
+const MAX_INBOX_UNREAD_PREVIEW_MESSAGES = 30
+const MAX_INBOX_UNREAD_PREVIEW_OLDER_PAGES = 2
 
 export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const client = useQueryClient()
@@ -50,11 +52,16 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const references = useMemo(() => query.data?.pages.flatMap(page => page.messages) ?? [], [query.data])
   const ids = useMemo(() => [...new Set(references.map(message => message.id))], [references])
   const canonical = useCanonicalMessagesById(ids)
-  const messages = useMemo(() => ids.flatMap(id => {
+  const allUnreadMessages = useMemo(() => ids.flatMap(id => {
     const message = canonical?.get(id)
     return accessAllowed && message && typeof message.seq === "number" && message.seq > afterSeq && message.seq <= throughSeq
       ? [message] : []
   }).sort((left, right) => left.seq! - right.seq!), [accessAllowed, afterSeq, canonical, ids, throughSeq])
+  const truncatedByCount = allUnreadMessages.length > MAX_INBOX_UNREAD_PREVIEW_MESSAGES
+  const messages = useMemo(
+    () => (truncatedByCount ? allUnreadMessages.slice(-MAX_INBOX_UNREAD_PREVIEW_MESSAGES) : allUnreadMessages),
+    [allUnreadMessages, truncatedByCount],
+  )
   const first = query.data?.pages[0]
   const oldest = query.data?.pages.at(-1)?.messages[0]
   const oldestSeq = oldest && (oldest.seq ?? canonical?.get(oldest.id)?.seq)
@@ -66,14 +73,31 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
   const [reachedTail, setReachedTail] = useState<{ client: typeof client; channelId: string; throughSeq: number; page: MessageWindowData["pages"][number] } | null>(null)
   const checkedTail = reachedTail?.client === client && reachedTail.channelId === channelId
     && reachedTail.throughSeq === throughSeq && reachedTail.page === first
+  const [olderFetchState, setOlderFetchState] = useState<{ client: typeof client; channelId: string; afterSeq: number; throughSeq: number; count: number }>({
+    client,
+    channelId,
+    afterSeq,
+    throughSeq,
+    count: 0,
+  })
+  const olderPagesFetched = olderFetchState.client === client
+    && olderFetchState.channelId === channelId
+    && olderFetchState.afterSeq === afterSeq
+    && olderFetchState.throughSeq === throughSeq
+    ? olderFetchState.count
+    : 0
   const needsNewer = !!first && newestSeq < throughSeq && !checkedTail
   const firstUnreadSeq = afterSeq + 1
-  const needsOlder = query.hasNextPage && (oldestSeq === undefined || oldestSeq > firstUnreadSeq)
+  const moreOlderExists = query.hasNextPage && (oldestSeq === undefined || oldestSeq > firstUnreadSeq)
+  const previewBounded = allUnreadMessages.length >= MAX_INBOX_UNREAD_PREVIEW_MESSAGES
+    || olderPagesFetched >= MAX_INBOX_UNREAD_PREVIEW_OLDER_PAGES
+  const needsOlder = moreOlderExists && !previewBounded
+  const hasEarlierUnread = truncatedByCount || (moreOlderExists && previewBounded)
   const needsPages = needsNewer || needsOlder
   const windowIncomplete = !first || needsPages
   const { error, errorUpdatedAt, errorUpdateCount, fetchNextPage, fetchPreviousPage, hasPreviousPage, isError, isFetching, isPending, isSuccess, refetch } = query
   const recovery = useRef<{ client: typeof client; channelId: string; attempts: number } | null>(null)
-  const loadMissing = useCallback(async (): Promise<MessageWindowData["pages"][number] | null> => {
+  const loadMissing = useCallback(async (): Promise<{ head: MessageWindowData["pages"][number] | null; fetchedOlder: boolean }> => {
     if (needsNewer) {
       const result = hasPreviousPage
         ? await fetchPreviousPage({ cancelRefetch: false })
@@ -81,20 +105,39 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
       const head = result.data?.pages[0]
       // A fresh terminal page can cover the tail even when a captured row was deleted.
       if (!result.isError && head && !head.hasMoreNewer && (!hasPreviousPage || head !== first)) {
-        return head
+        return { head, fetchedOlder: false }
       }
-      return null
+      return { head: null, fetchedOlder: false }
     }
-    if (needsOlder) await fetchNextPage({ cancelRefetch: false })
-    else await refetch({ cancelRefetch: false })
-    return null
+    if (needsOlder) {
+      const result = await fetchNextPage({ cancelRefetch: false })
+      return { head: null, fetchedOlder: !result.isError }
+    }
+    await refetch({ cancelRefetch: false })
+    return { head: null, fetchedOlder: false }
   }, [fetchNextPage, fetchPreviousPage, first, hasPreviousPage, needsNewer, needsOlder, refetch])
   useEffect(() => {
     if (!enabled || isFetching) return
     let active = true
     const runLoadMissing = () => {
-      void loadMissing().then(head => {
-        if (active && head) setReachedTail({ client, channelId, throughSeq, page: head })
+      void loadMissing().then(({ head, fetchedOlder }) => {
+        if (!active) return
+        if (head) setReachedTail({ client, channelId, throughSeq, page: head })
+        if (fetchedOlder) {
+          setOlderFetchState((prev) => {
+            const sameScope = prev.client === client
+              && prev.channelId === channelId
+              && prev.afterSeq === afterSeq
+              && prev.throughSeq === throughSeq
+            return {
+              client,
+              channelId,
+              afterSeq,
+              throughSeq,
+              count: (sameScope ? prev.count : 0) + 1,
+            }
+          })
+        }
       })
     }
     if (isSuccess) {
@@ -114,10 +157,10 @@ export function useInboxChannelMessages(channelId: string, throughSeq: number) {
       runLoadMissing()
     }, Math.max(0, errorUpdatedAt + delay - Date.now()))
     return () => { active = false; clearTimeout(timer) }
-  }, [channelId, client, enabled, error, errorUpdatedAt, errorUpdateCount, isError, isFetching, isSuccess, loadMissing, needsPages, throughSeq, windowIncomplete])
+  }, [afterSeq, channelId, client, enabled, error, errorUpdatedAt, errorUpdateCount, isError, isFetching, isSuccess, loadMissing, needsPages, throughSeq, windowIncomplete])
   const loading = accessAllowed && (!hasSnapshot || restoring
     || enabled && (isPending || !isError && needsPages || ids.some(id => !canonical?.has(id))))
-  return { messages, accessAllowed, loading, empty: !loading && (!enabled || !windowIncomplete) }
+  return { messages, accessAllowed, loading, hasEarlierUnread, empty: !loading && (!enabled || !windowIncomplete) }
 }
 
 type InboxChannelReadInput = { channelId: string; throughSeq: number }

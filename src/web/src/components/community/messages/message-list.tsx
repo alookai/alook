@@ -114,7 +114,11 @@ function MessageListOwner({ variant, initialScrollReady, ...props }: MessageList
           className="mt-auto flex w-full flex-col"
         >
           {controller.items.map((item, index) => (
-            <div key={item.key} data-index={index} className="w-full">
+            <div
+              key={item.key}
+              data-index={index}
+              className="w-full"
+            >
               {renderMessageListRow(item, resolvedProps, controller)}
             </div>
           ))}

@@ -60,7 +60,7 @@ export function BotListSkeleton({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {botBackBar(undefined, reserveBackSlot || Boolean(onBack))}
-      <ScrollArea className="min-h-0 flex-1" contentClassName="flex flex-col gap-6 p-6">
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4" contentClassName="flex flex-col gap-6 p-6">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
           <header className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -150,7 +150,7 @@ export function renderBotListView(
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {backBar}
-      <ScrollArea className="min-h-0 flex-1" contentClassName="flex flex-col gap-6 p-6">
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4" contentClassName="flex flex-col gap-6 p-6">
         <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
           <header className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 flex-1 flex-col gap-1">

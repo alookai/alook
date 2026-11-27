@@ -774,10 +774,17 @@ export function useConversationScroll({
             else next = "visible"
           }
         } else if (ctx.newDividerSeq !== undefined) {
-          const seqs = ctx.items.flatMap((item) => item.kind === "message" && item.m.seq !== undefined ? [item.m.seq] : [])
-          if (seqs.length > 0) {
-            if (ctx.newDividerSeq < Math.min(...seqs)) next = "above"
-            else if (ctx.newDividerSeq > Math.max(...seqs)) next = "below"
+          let minSeq = Infinity
+          let maxSeq = -Infinity
+          for (const item of ctx.items) {
+            if (item.kind === "message" && item.m.seq !== undefined) {
+              if (item.m.seq < minSeq) minSeq = item.m.seq
+              if (item.m.seq > maxSeq) maxSeq = item.m.seq
+            }
+          }
+          if (minSeq <= maxSeq) {
+            if (ctx.newDividerSeq < minSeq) next = "above"
+            else if (ctx.newDividerSeq > maxSeq) next = "below"
           }
         }
       }
@@ -1744,8 +1751,13 @@ export function useConversationScroll({
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     if (footer) ro.observe(footer)
+    const accessorySlot = footer?.querySelector<HTMLElement>('[data-slot="community-composer-accessory-slot"]') ?? null
     const footerMo = footer && typeof MutationObserver !== "undefined"
-      ? new MutationObserver(() => {
+      ? new MutationObserver((mutations) => {
+        if (accessorySlot && mutations.length > 0
+          && mutations.every((mutation) => accessorySlot.contains(mutation.target))) {
+          return
+        }
         const prevGeo = prevGeometryRef.current
         if (!prevGeo || prevGeo.clientHeight !== root.clientHeight
           || prevGeo.clientWidth !== root.clientWidth

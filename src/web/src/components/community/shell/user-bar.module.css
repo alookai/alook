@@ -5,8 +5,23 @@
   display: grid;
   flex-shrink: 0;
   place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.target::after {
+  position: absolute;
+  inset: -8px;
+  content: "";
+}
+
+.actionTarget {
   width: 44px;
   height: 44px;
+}
+
+.actionTarget::after {
+  content: none;
 }
 
 .visual { width: 28px; height: 28px; }
@@ -33,6 +48,7 @@
 .inbox[aria-expanded="true"]::before { background: var(--accent); }
 
 @media (min-width: 640px) {
-  .target { width: 28px; height: 28px; }
+  .target::after { content: none; }
+  .actionTarget { width: 28px; height: 28px; }
   .name { height: 28px; }
 }

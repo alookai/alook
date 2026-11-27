@@ -1,6 +1,12 @@
 "use client"
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react"
+import {
+  ConversationResourceContext,
+  type ConversationIntent,
+  type ConversationResourceResult,
+  type SharedConversationResource,
+} from "./conversation-resource-context"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { hashKey, replaceEqualDeep, useIsRestoring, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useConversationActivity, useConversationPresentation } from "@/contexts/view-activity"
@@ -25,7 +31,33 @@ import { isConversationAccessError, isConversationAnchorMissingError } from "@/l
 
 type EntryWindow = NonNullable<ReturnType<typeof findConversationEntryWindow>>
 
-export function useConversationResource(target: ConversationEntryTarget | null, intent?: { href: string; resume?: boolean } | null, _consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true) {
+function buildConversationResourceScopeKey(target: ConversationEntryTarget | null): string | null {
+  if (!target) return null
+  return hashKey([
+    target.channelId,
+    target.serverId ?? null,
+    target.anchorMessageId ?? null,
+    target.tag ?? null,
+    target.preferTail !== false,
+    target.newAfterSeq ?? null,
+  ])
+}
+
+function canReuseSharedResource(
+  inherited: SharedConversationResource | null,
+  target: ConversationEntryTarget | null,
+  intent: ConversationIntent,
+  networkEnabled: boolean,
+): inherited is SharedConversationResource {
+  if (!inherited || !target) return false
+  const scopeKey = buildConversationResourceScopeKey(target)
+  if (!scopeKey || inherited.scopeKey !== scopeKey) return false
+  if (networkEnabled && !inherited.networkEnabled) return false
+  if (intent && inherited.intent !== intent) return false
+  return true
+}
+
+function useOwnedConversationResource(target: ConversationEntryTarget | null, intent?: ConversationIntent, _consumer: "metadata" | "messages" | "forum" = "metadata", networkEnabled = true): ConversationResourceResult {
   const client = useQueryClient()
   const restoring = useIsRestoring()
   const presented = useConversationPresentation()
@@ -185,13 +217,51 @@ export function useConversationResource(target: ConversationEntryTarget | null, 
   // Local display must not wait for the read snapshot. Keep read-dependent admission separate.
   const displayWindowReady = qualified && cachedWindow !== undefined
   const windowReady = displayWindowReady && currentPointer !== undefined
-  return { client, cachedResource, scope: readableScope, currentPointer, displayWindowReady, windowReady, displayWindow: cachedWindow, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
+  const result = useMemo(() => ({
+    client, cachedResource, scope: readableScope, currentPointer, displayWindowReady, windowReady, displayWindow: cachedWindow, input, options, query, canonical, resource: qualified ? resource : undefined, canRead: qualified, revoked,
     denied: serverRevoked || revoked && (!verification.needed || generation !== verification.generation) || isConversationAccessError(query.error) && Number((query.error as { status?: unknown } | null)?.status) !== 401, anchorMissing,
     verificationError: (!qualified && anchorMissing ? fallback.error : query.error)?.name === "AbortError" ? null : !qualified && anchorMissing ? fallback.error : query.error,
     verificationPending: !qualified && (anchorMissing ? fallback.isPending : query.isPending),
     verificationFetching: anchorMissing ? fallback.isFetching : query.isFetching,
     verificationFailed: (anchorMissing ? fallback.error : query.error)?.name !== "AbortError" && (anchorMissing ? fallback.errorUpdatedAt : query.errorUpdatedAt) > 0, retryVerification,
-  }
+  }), [anchorMissing, cachedResource, cachedWindow, canonical, client, currentPointer, displayWindowReady, fallback.error, fallback.errorUpdatedAt, fallback.isFetching, fallback.isPending, generation, input, options, qualified, query, readableScope, resource, retryVerification, revoked, serverRevoked, verification.generation, verification.needed, windowReady])
+  return result
+}
+
+export function useConversationResource(
+  target: ConversationEntryTarget | null,
+  intent?: ConversationIntent,
+  consumer: "metadata" | "messages" | "forum" = "metadata",
+  networkEnabled = true,
+): ConversationResourceResult {
+  const inherited = useContext(ConversationResourceContext)
+  const reuse = canReuseSharedResource(inherited, target, intent, networkEnabled)
+  const owned = useOwnedConversationResource(reuse ? null : target, reuse ? null : intent, consumer, reuse ? false : networkEnabled)
+  return reuse ? inherited.value : owned
+}
+
+export function createSharedConversationResource(
+  target: ConversationEntryTarget | null,
+  intent: ConversationIntent,
+  networkEnabled: boolean,
+  value: ConversationResourceResult,
+): SharedConversationResource | null {
+  const scopeKey = buildConversationResourceScopeKey(target)
+  return scopeKey ? { scopeKey, intent, networkEnabled, value } : null
+}
+
+export function useSharedConversationResource(
+  target: ConversationEntryTarget | null,
+  intent?: ConversationIntent,
+  consumer: "metadata" | "messages" | "forum" = "metadata",
+  networkEnabled = true,
+): { value: ConversationResourceResult; shared: SharedConversationResource | null } {
+  const value = useConversationResource(target, intent, consumer, networkEnabled)
+  const shared = useMemo(
+    () => createSharedConversationResource(target, intent, networkEnabled, value),
+    [intent, networkEnabled, target, value],
+  )
+  return useMemo(() => ({ value, shared }), [shared, value])
 }
 
 export function useConversationEntry(target: ConversationEntryTarget | null) {
@@ -331,7 +401,11 @@ export function useConversationEntry(target: ConversationEntryTarget | null) {
     const retained = entry.state.get()
     if (!retained.covered || retained.window !== window) return
     const landing = client.getQueryData<MessageWindowData>(resource.windowKey)
-    const target = Math.max(0, ...(landing?.pages.map(page => page.latestSeq ?? 0) ?? []))
+    let target = 0
+    for (const page of landing?.pages ?? []) {
+      const seq = page.latestSeq ?? 0
+      if (seq > target) target = seq
+    }
     const owner = client.getQueryCache().find({ queryKey: entryOptions.queryKey, exact: true })
     const controller = new AbortController()
     void reconcileWindow(client, {

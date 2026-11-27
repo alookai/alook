@@ -17,6 +17,8 @@ import { ForumChannelSurface } from "@/components/community/channels/forum-chann
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
 import { ConversationResolutionPendingFrame } from "@/components/community/channels/conversation-resolution-pending-frame"
 import { useChannelMemberViewModel } from "@/components/community/members/channel-member-view-model"
+import { ServerMemberProvider } from "@/hooks/community/server-member-context"
+import { ConversationResourceProvider } from "@/hooks/community/conversation-resource-context"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { canManageServer, USE_SERVER_DEFAULT } from "@alook/shared"
 import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
@@ -180,21 +182,33 @@ function ChannelRouteFrame(target: RouteTarget) {
   const openProfile = useCallback<OpenProfile>((name, event, discriminator, userId) => {
     uiHandlers.openProfile?.(name, event, discriminator, userId)
   }, [uiHandlers])
-  const pane = <ChannelTargetPane key={JSON.stringify([currentUser.id, serverId, channelId])}
-    {...target} split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} onOpenChild={enterThread} />
+  const pane = (
+    <ConversationResourceProvider value={target.routeModel.sharedResource}>
+      <ChannelTargetPane key={JSON.stringify([currentUser.id, serverId, channelId])}
+        {...target} split={split} layoutPending={layoutPending} resolvingParent={resolvingParent} onOpenChild={enterThread} />
+    </ConversationResourceProvider>
+  )
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
+  const shareServerMembers = Boolean(
+    server
+    && routeModel.routeLifecycle === "ready"
+    && !resolvingParent
+    && (target.routeCommitted || (target.resume && routeModel.isForum && routeModel.routeHydrated)),
+  )
   return <div data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:bg-background">
-    <ThreadSplitView
-      modeMarkerRef={modeMarkerRef}
-      split={split} layoutPending={layoutPending} resolvingParent={resolvingLayout || resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
-      parentReadPaused={parentReadPaused} onResumeParentRead={resumeParentRead}
-      parent={split && parent ? <ThreadSplitParentSurface
-        key={JSON.stringify([currentUser.id, serverId, parent.id])}
-        serverId={serverId} serverParam={serverParam} server={server} channel={parent}
-        viewer={currentUser} onNavigateParent={navigateServerRoot}
-        channelRefCandidates={channelRefCandidates} uiHandlers={uiHandlers}
-        onOpenChild={enterThread} onOpenProfile={openProfile} onIdentity={onParentIdentity} /> : null}
-      thread={pane} />
+    <ServerMemberProvider serverId={serverId} currentUserId={currentUser.id} enabled={shareServerMembers}>
+      <ThreadSplitView
+        modeMarkerRef={modeMarkerRef}
+        split={split} layoutPending={layoutPending} resolvingParent={resolvingLayout || resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+        parentReadPaused={parentReadPaused} onResumeParentRead={resumeParentRead}
+        parent={split && parent ? <ThreadSplitParentSurface
+          key={JSON.stringify([currentUser.id, serverId, parent.id])}
+          serverId={serverId} serverParam={serverParam} server={server} channel={parent}
+          viewer={currentUser} onNavigateParent={navigateServerRoot}
+          channelRefCandidates={channelRefCandidates} uiHandlers={uiHandlers}
+          onOpenChild={enterThread} onOpenProfile={openProfile} onIdentity={onParentIdentity} /> : null}
+        thread={pane} />
+    </ServerMemberProvider>
   </div>
 }
 

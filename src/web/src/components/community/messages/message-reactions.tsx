@@ -3,7 +3,8 @@
 import { Smile } from "@/components/icons/lucide"
 import { EmptyState } from "../empty-state"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, useMemo, useRef } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { memo, useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import {
@@ -23,7 +24,7 @@ import {
   type ReactionDetailsProfile,
   useReactionDetails,
 } from "@/hooks/community/use-reaction-details"
-import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
+import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS, measureCommunityVirtualizerElement, observeCommunityVirtualizerRect } from "@/hooks/community/virtualizer-react-options"
 import {
   useHorizontalOverflowRail,
 } from "@/components/horizontal-overflow-rail"
@@ -31,6 +32,27 @@ import { MemberIdentityRow } from "../members/member-identity-row"
 
 const HOLD_MS = 450
 const MOVE_TOLERANCE_PX = 10
+const MAX_REACTION_TOOLTIP_NAMES = 10
+const REACTION_ROW_ESTIMATE_PX = 48
+
+function formatReactionTooltipNames(
+  reaction: Pick<Reaction, "count" | "userIds">,
+  resolveUserName?: (userId: string) => string,
+): string | undefined {
+  const userIds = reaction.userIds ?? []
+  const total = Math.max(reaction.count, userIds.length)
+  if (total === 0) return undefined
+  const sampleIds = userIds.slice(0, MAX_REACTION_TOOLTIP_NAMES)
+  const names = sampleIds.map((id) => resolveUserName?.(id) ?? displayName(null))
+  const remaining = total - names.length
+  if (names.length === 0) {
+    return `${total} ${total === 1 ? "person" : "people"}`
+  }
+  if (remaining > 0) {
+    return `${names.join(", ")} and ${remaining} ${remaining === 1 ? "other" : "others"}`
+  }
+  return names.join(", ")
+}
 
 export function reconcileReactionSelection(
   previousEmojis: readonly string[],
@@ -44,28 +66,33 @@ export function reconcileReactionSelection(
   return nextEmojis[neighborIndex] ?? null
 }
 
-function ReactionMemberRow({
+const ReactionMemberRow = memo(function ReactionMemberRow({
   userId,
   authorizedProfile,
+  style,
 }: {
   userId: string
   authorizedProfile: ReactionDetailsProfile | null | undefined
+  style?: React.CSSProperties
 }) {
-  const liveProfile = useCanonicalCommunityProfile(authorizedProfile ? userId : null)
-  const name = authorizedProfile ? (liveProfile?.name ?? authorizedProfile.name) : "Member unavailable"
+  const name = authorizedProfile ? authorizedProfile.name : "Member unavailable"
   return (
-    <li data-testid={tid.reactionMember(userId)} className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-2">
+    <li
+      data-testid={tid.reactionMember(userId)}
+      style={style}
+      className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-2"
+    >
       <MemberIdentityRow
         name={name}
-        discriminator={authorizedProfile ? (liveProfile?.discriminator ?? authorizedProfile.discriminator) : undefined}
+        discriminator={authorizedProfile ? authorizedProfile.discriminator : undefined}
         avatarLabel={name}
         avatarSeed={authorizedProfile ? userId : undefined}
-        avatarSrc={authorizedProfile ? (liveProfile?.avatar ?? authorizedProfile.avatar) : undefined}
+        avatarSrc={authorizedProfile ? authorizedProfile.avatar : undefined}
         ringColor="var(--popover)"
       />
     </li>
   )
-}
+})
 
 function ReactionChip({
   messageId,
@@ -207,7 +234,23 @@ function ReactionDetailsDialog({
   )
   const details = useReactionDetails({ messageId, open, userIds })
   const selectedReaction = reactions.find((reaction) => reaction.emoji === selectedEmoji)
-  const actors = new Map(details.data?.actors.map((actor) => [actor.userId, actor]))
+  const reactorIds = useMemo(() => selectedReaction?.userIds ?? [], [selectedReaction?.userIds])
+  const actors = useMemo(
+    () => new Map(details.data?.actors.map((actor) => [actor.userId, actor])),
+    [details.data?.actors],
+  )
+  const listViewportRef = useRef<HTMLDivElement>(null)
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const reactorVirtualizer = useVirtualizer({
+    ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    measureElement: measureCommunityVirtualizerElement,
+    observeElementRect: observeCommunityVirtualizerRect,
+    count: reactorIds.length,
+    getScrollElement: () => listViewportRef.current,
+    estimateSize: () => REACTION_ROW_ESTIMATE_PX,
+    overscan: 6,
+    initialRect: { width: 320, height: 320 },
+  })
   const reactionRailKey = reactions.map((reaction) => `${reaction.emoji}\0${reaction.count}`).join("\0")
   const {
     onKeyDown: onReactionRailKeyDown,
@@ -262,6 +305,7 @@ function ReactionDetailsDialog({
       )}
 
       <ScrollArea
+        viewportRef={listViewportRef}
         className="flex min-h-28 flex-auto flex-col"
         viewportClassName="min-h-0 flex-1"
         contentClassName="min-h-full"
@@ -276,15 +320,29 @@ function ReactionDetailsDialog({
           <div className="space-y-2 py-2" aria-label="Loading reactions">
             {[0, 1, 2].map((index) => <div key={index} className="h-11 animate-pulse rounded-lg bg-muted" />)}
           </div>
-        ) : selectedReaction?.userIds.length ? (
-          <ul>
-            {selectedReaction.userIds.map((userId) => (
-              <ReactionMemberRow
-                key={userId}
-                userId={userId}
-                authorizedProfile={actors.get(userId)?.profile}
-              />
-            ))}
+        ) : reactorIds.length > 0 ? (
+          <ul
+            ref={reactorVirtualizer.containerRef}
+            className="relative w-full"
+            style={{ height: reactorVirtualizer.getTotalSize() }}
+          >
+            {reactorVirtualizer.getVirtualItems().map((virtualRow) => {
+              const userId = reactorIds[virtualRow.index]!
+              return (
+                <ReactionMemberRow
+                  key={userId}
+                  userId={userId}
+                  authorizedProfile={actors.get(userId)?.profile}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                />
+              )
+            })}
           </ul>
         ) : (
           <div data-testid={tid.reactionEmpty(messageId)} className="flex min-h-full flex-col"><EmptyState icon={Smile} label="No reactions yet" /></div>
@@ -336,6 +394,7 @@ export function MessageReactions({
   const initiatingChipRef = useRef<HTMLButtonElement | null>(null)
   const reactionGroupRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [dialogMounted, setDialogMounted] = useAtom(useCreateAtom(false))
   const [selectedEmoji, setSelectedEmoji] = useAtom(useCreateAtom<string | null>(null))
 
   useEffect(() => {
@@ -354,8 +413,8 @@ export function MessageReactions({
         aria-label="Message reactions"
       >
         {reactions.map((reaction) => {
-          const tooltipNames = reaction.userIds?.length
-            ? reaction.userIds.map((id) => resolveUserName?.(id) ?? displayName(null)).join(", ")
+          const tooltipNames = hoverCapable && tooltipActive
+            ? formatReactionTooltipNames(reaction, resolveUserName)
             : undefined
           return (
             <ReactionChip
@@ -369,6 +428,7 @@ export function MessageReactions({
               onOpen={(emoji, button) => {
                 initiatingChipRef.current = button
                 setSelectedEmoji(emoji)
+                setDialogMounted(true)
                 setOpen(true)
               }}
             />
@@ -382,19 +442,22 @@ export function MessageReactions({
         onOpenChange={setOpen}
         onOpenChangeComplete={(nextOpen) => {
           if (!nextOpen) {
+            setDialogMounted(false)
             restoreReactionFocus(initiatingChipRef.current, reactionGroupRef.current)
           }
         }}
       >
-        <ReactionDetailsDialog
-          open={open}
-          messageId={messageId}
-          authorName={authorName}
-          messagePreview={messagePreview || "Message"}
-          reactions={reactions}
-          selectedEmoji={selectedEmoji}
-          onSelectedEmojiChange={setSelectedEmoji}
-        />
+        {(open || dialogMounted) && (
+          <ReactionDetailsDialog
+            open={open}
+            messageId={messageId}
+            authorName={authorName}
+            messagePreview={messagePreview || "Message"}
+            reactions={reactions}
+            selectedEmoji={selectedEmoji}
+            onSelectedEmojiChange={setSelectedEmoji}
+          />
+        )}
       </Dialog>
     </>
   )

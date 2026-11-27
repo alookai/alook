@@ -86,7 +86,13 @@ export const channelMessagesQueryFn =
 
 export { messageWindowIdentity, type InitialMessageWindow, type MessageWindowData } from "./message-window-contract"
 
+export const MAX_MESSAGE_WINDOW_PAGES = 6
+
 export const viewportFillFetchMeta = { fetchMore: { direction: "forward" } } as const
+
+function pageHasEvictedNewer(page: MessagesPage, pageParam: MessagesPageParam | undefined): boolean {
+  return pageParam?.mode === "older" && !!page.newestCursor
+}
 
 export function messagePageForReading(data: MessageWindowData, messageId: string, preferred?: string): string | undefined {
   const existing = data.pageParams.findIndex(param => hashKey([param]) === preferred)
@@ -100,9 +106,10 @@ export function messagePageNeighbors(data: MessageWindowData, page: string) {
   const index = data.pageParams.findIndex(param => hashKey([param]) === page)
   const current = data.pages[index]
   if (!current) return { older: false, newer: false }
+  const firstParam = data.pageParams[0]
   return {
     older: index === data.pages.length - 1 && !!(current.hasMoreOlder ?? current.hasMore) && !!(current.olderCursor ?? current.cursor),
-    newer: index === 0 && !!current.hasMoreNewer && !!current.newerCursor,
+    newer: index === 0 && (!!(current.hasMoreNewer && current.newerCursor) || pageHasEvictedNewer(current, firstParam)),
   }
 }
 
@@ -119,11 +126,16 @@ export function messageWindowOptions(
     queryKey,
     queryFn: channelMessagesQueryFn(channelId, tag, { ...transport, queryClient: client }),
     initialPageParam: initial,
+    maxPages: MAX_MESSAGE_WINDOW_PAGES,
     getNextPageParam: (last) => {
       const cursor = last.olderCursor ?? last.cursor
       return (last.hasMoreOlder ?? last.hasMore) && cursor ? { mode: "older", cursor } : undefined
     },
-    getPreviousPageParam: (first) => first.hasMoreNewer && first.newerCursor ? { mode: "newer", cursor: first.newerCursor } : undefined,
+    getPreviousPageParam: (first, _allPages, firstPageParam) => {
+      if (first.hasMoreNewer && first.newerCursor) return { mode: "newer", cursor: first.newerCursor }
+      if (pageHasEvictedNewer(first, firstPageParam)) return { mode: "newer", cursor: first.newestCursor! }
+      return undefined
+    },
     staleTime: 5_000,
     refetchOnReconnect: false,
     refetchOnMount: false,

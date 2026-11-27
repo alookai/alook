@@ -25,11 +25,12 @@ describe("DM page loading ownership", () => {
     expect(surfaceSource).toContain("data-channel-id={channelId}")
     expect(source).not.toContain("composerOverlap")
     expect(source).not.toContain("onOverlapChange")
-    expect(source).toContain("typingUsers: typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))")
+    expect(source).toContain("const typingScope = `dm:${dmId}`")
     const dmHeaderProps = source.split("<DmHeader\n")[1]?.split("/>")[0]
     expect(dmHeaderProps).not.toContain("typingUsers")
+    expect(dmHeaderProps).not.toContain("typingScope")
     const messageListProps = source.split("messageListProps={")[1]?.split("footerProps={")[0]
-    expect(messageListProps).toContain("typingUsers")
+    expect(messageListProps).toContain("typingScope")
     expect(source).not.toContain('data-onboarding-name={dm.name} className="shrink-0"')
     expect(source).toContain("loading: !historyAllowed || loadingOwnership.messageBodyLoading")
     expect(source).toContain("!sendAllowed ? <ComposerSkeleton")

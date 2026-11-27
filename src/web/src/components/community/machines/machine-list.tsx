@@ -83,7 +83,7 @@ function MachineCardSkeleton() {
 
 function MachineListContent({ heading, cards }: { heading: ReactNode; cards: ReactNode }) {
   return (
-    <ScrollArea className="min-h-0 flex-1" contentClassName="flex flex-col gap-6 p-6">
+    <ScrollArea className="min-h-0 flex-1" viewportClassName="scroll-fade-y scroll-fade-4" contentClassName="flex flex-col gap-6 p-6">
       <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-col gap-6`}>
         {heading}
         <div className="flex flex-col gap-3">{cards}</div>

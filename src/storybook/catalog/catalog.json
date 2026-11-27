@@ -2319,10 +2319,11 @@
       "source": "src/web/src/components/community/channels/channel-dnd.tsx",
       "application": "Web",
       "candidates": [
+        "ChannelDndBinding",
         "ChannelDndContext",
         "ChannelDndScope",
-        "ChannelDropContainer",
-        "ChannelFeedbackContext"
+        "ChannelDragPreviewBridge",
+        "ChannelDropContainer"
       ],
       "kind": "composition",
       "examples": [
@@ -2605,6 +2606,7 @@
       "candidates": [
         "DmRowsSkeleton",
         "DmSidebar",
+        "DmSidebarRow",
         "DmSidebarSkeleton"
       ],
       "kind": "composition",
@@ -2703,7 +2705,8 @@
       "source": "src/web/src/components/community/channels/forum-surface.tsx",
       "application": "Web",
       "candidates": [
-        "ForumSurface"
+        "ForumSurface",
+        "ForumSurfaceContent"
       ],
       "kind": "composition",
       "examples": [
@@ -3323,7 +3326,9 @@
       "application": "Web",
       "candidates": [
         "ComposerAccessoryRail",
+        "ComposerAccessoryRailView",
         "MessageSelectionFooter",
+        "ScopedComposerAccessoryRail",
         "ScrollControl",
         "SelectionToolbar"
       ],
@@ -5407,8 +5412,11 @@
       "source": "src/web/src/components/community/social/friends-page.tsx",
       "application": "Web",
       "candidates": [
+        "BlockedFriendRow",
+        "FriendRow",
         "FriendSection",
-        "FriendsPage"
+        "FriendsPage",
+        "OutgoingRequestRow"
       ],
       "kind": "composition",
       "examples": [

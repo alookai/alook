@@ -37,7 +37,9 @@ export function renderMessageListView(
       )}
       {controller.initialPosition.contentInteractive && !controller.selectMode && accessoryFooterSlot && createPortal(
         <ComposerAccessoryRail
-          typingNames={props.typingUsers ?? []}
+          typingNames={props.typingUsers}
+          typingScope={props.typingScope}
+          resolveUserName={props.resolveUserName}
           scrollCount={controller.pillCount}
           scrollMode={controller.pillMode}
           onScroll={controller.pillOnClick}

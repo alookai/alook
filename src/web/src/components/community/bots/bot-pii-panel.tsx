@@ -22,7 +22,7 @@ export function BotPiiPanel({ bots, selectedId, onSelect, emptyAction, children 
     <ScrollArea
       render={<section aria-labelledby="pii-heading" />}
       className="@container flex min-h-0 flex-1 flex-col"
-      viewportClassName="min-h-0 flex-1"
+      viewportClassName="min-h-0 flex-1 scroll-fade-y scroll-fade-4"
       contentClassName="flex min-h-full flex-col p-4 sm:p-8"
     >
       <div data-slot="home-tab-column" className={`${HOME_TAB_COLUMN_CLASS} flex flex-1 flex-col gap-8`}>

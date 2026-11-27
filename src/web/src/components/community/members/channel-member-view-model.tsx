@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { useCallback, useEffect, useMemo, type ComponentProps, type ReactNode } from "react"
+import { useCallback, useContext, useEffect, useMemo, type ComponentProps, type ReactNode } from "react"
 import { toast } from "sonner"
 import { supportsSidebarThreads } from "@/lib/community/forum-sidebar"
 import { type CommunityRole as Role, type CommunityChannelIdentity } from "@alook/shared"
@@ -13,7 +13,7 @@ import type { Member } from "@/lib/community/models/people"
 import type { ComposerProps } from "@/components/community/messages/composer"
 import { toastApiError } from "@/lib/api/client"
 import { isAbortError } from "@/lib/errors"
-import { displayName, UNAVAILABLE_MEMBER } from "@/lib/community/display-name"
+import { ServerMemberContext, useMemoizedMemberNameResolver } from "@/hooks/community/server-member-context"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useAddableMembers,
@@ -100,8 +100,17 @@ export function useChannelMemberViewModel({
   myRole: Role | undefined
   onLeaveChannel?: () => Promise<void>
 } {
-  const membersHook = useServerMembers(accessAllowed && currentServer ? serverId : null)
+  const sharedServer = useContext(ServerMemberContext)
+  const useSharedMembers = Boolean(
+    sharedServer
+    && sharedServer.serverId === serverId
+    && sharedServer.currentUserId === currentUser.id
+    && accessAllowed
+    && currentServer,
+  )
+  const localMembersHook = useServerMembers(!useSharedMembers && accessAllowed && currentServer ? serverId : null)
   const myRole = useViewerServerRole(roleDisplayAllowed && currentServer ? serverId : null, currentUser.id)
+  const membersHook = useSharedMembers ? sharedServer!.membersHook : localMembersHook
   const source = useCommunityViewSource(`channel-members:${serverId}:${channelId}`, accessAllowed)
   const leaveSource = useCommunityViewSource(`channel-leave:${serverId}:${channelId}`, routeActive)
   const originalView = useCallback((caller?: MemberOriginalView) => {
@@ -501,27 +510,8 @@ export function useChannelMemberViewModel({
     )
   }, [manageMembersOpen, isNotifyUnit, addableMembers, serverId, channelId, channelName, addableMembersData, addableMembersLoading, addableMembersError, addableMembersFetching, participantMembersData, parentMembersData, currentChannelMeta?.name, participantCandidatesResolved, participantCandidatesLoading, participantCandidatesError, participantCandidatesRetrying, retryParticipantCandidates, currentUser.id, addThreadParticipantMut, originalView, setMemberUi, memberQuery, refetchAddableMembers, addChannelMemberMut, channelMembersHook, parentChannelMembersHook, addableChannelMembers])
 
-  let memberNameKey = ""
-  for (const { userId, id, name } of membersHook.members) {
-    memberNameKey += `${userId}\0${id}\0${name}\x01`
-  }
-  const resolveUserName = useMemo(() => {
-    const namesById = new Map<string, string>()
-    if (memberNameKey) {
-      for (const entry of memberNameKey.split("\x01")) {
-        if (!entry) continue
-        const first = entry.indexOf("\0")
-        const second = entry.indexOf("\0", first + 1)
-        if (first < 0 || second < 0) continue
-        const userId = entry.slice(0, first)
-        const id = entry.slice(first + 1, second)
-        const name = entry.slice(second + 1)
-        const key = userId || id
-        if (key && !namesById.has(key)) namesById.set(key, displayName({ name }))
-      }
-    }
-    return (userId: string) => namesById.get(userId) ?? UNAVAILABLE_MEMBER
-  }, [memberNameKey])
+  const localResolveUserName = useMemoizedMemberNameResolver(useSharedMembers ? [] : membersHook.members)
+  const resolveUserName = useSharedMembers ? sharedServer!.resolveUserName : localResolveUserName
 
   return {
     composerMembers,

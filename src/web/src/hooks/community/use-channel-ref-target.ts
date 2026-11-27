@@ -50,16 +50,47 @@ function isResourceValid(client: QueryClient, state: ChannelRefAccessState, reso
   }
 }
 
-function readSerializedDbState(
+type ChannelRefDbSnapshot = readonly [
+  ReturnType<typeof resolveChannelRefFromCommunityDb>,
+  ChannelRefTarget | null,
+]
+
+const EMPTY_DB_SNAPSHOT: ChannelRefDbSnapshot = [{ status: "miss" }, null]
+
+function channelRefTargetsEqual(a: ChannelRefTarget | null, b: ChannelRefTarget | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return (
+    a.server.id === b.server.id
+    && a.server.name === b.server.name
+    && a.channel.id === b.channel.id
+    && a.channel.name === b.channel.name
+    && (a.channel.parentChannelId ?? null) === (b.channel.parentChannelId ?? null)
+  )
+}
+
+function channelRefLookupEqual(
+  a: ReturnType<typeof resolveChannelRefFromCommunityDb>,
+  b: ReturnType<typeof resolveChannelRefFromCommunityDb>,
+): boolean {
+  if (a === b) return true
+  if (a.status !== b.status) return false
+  if (a.status === "ready" && b.status === "ready") {
+    return channelRefTargetsEqual(a.target, b.target)
+  }
+  return true
+}
+
+function readDbState(
   registry: ReturnType<typeof useOptionalCommunityDbRegistry>,
   destination: ReturnType<typeof parseChannelRefDestination>,
   lifetime: number,
   queryTarget: ChannelRefTarget | undefined,
-): string {
-  if (!destination || lifetime < 0) return `[{"status":"miss"},null]`
+): ChannelRefDbSnapshot {
+  if (!destination || lifetime < 0) return EMPTY_DB_SNAPSHOT
   const lookup = resolveChannelRefFromCommunityDb(registry, destination)
   const live = queryTarget ? readLiveChannelRefTarget(registry, queryTarget) : null
-  return JSON.stringify([lookup, live])
+  return [lookup, live]
 }
 
 export function useChannelRefTarget(ref: string) {
@@ -155,15 +186,22 @@ export function useChannelRefTarget(ref: string) {
     }
   }, [client, registry])
 
-  const readDbSnapshot = useCallback(
-    (): string => readSerializedDbState(registry, destination, lifetime, queryTarget),
-    [destination, lifetime, queryTarget, registry],
-  )
+  const cachedSnapshotRef = useRef<ChannelRefDbSnapshot>(EMPTY_DB_SNAPSHOT)
 
-  const dbSnapshot = useSyncExternalStore(subscribeDb, readDbSnapshot, () => `[{"status":"miss"},null]`)
-  const [dbLookup, liveQueryTarget] = useMemo(
-    () => JSON.parse(dbSnapshot) as [ReturnType<typeof resolveChannelRefFromCommunityDb>, ChannelRefTarget | null],
-    [dbSnapshot],
+  const readDbSnapshot = useCallback((): ChannelRefDbSnapshot => {
+    const next = readDbState(registry, destination, lifetime, queryTarget)
+    const prev = cachedSnapshotRef.current
+    if (channelRefLookupEqual(prev[0], next[0]) && channelRefTargetsEqual(prev[1], next[1])) {
+      return prev
+    }
+    cachedSnapshotRef.current = next
+    return next
+  }, [destination, lifetime, queryTarget, registry])
+
+  const [dbLookup, liveQueryTarget] = useSyncExternalStore(
+    subscribeDb,
+    readDbSnapshot,
+    () => EMPTY_DB_SNAPSHOT,
   )
 
   // Strict click navigation gate: only confirmed in-session, settled, non-fetching, non-revoked targets may navigate.

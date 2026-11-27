@@ -175,18 +175,17 @@ describe("useMessageChannelController", () => {
   })
   afterEach(() => vi.clearAllMocks())
 
-  it("preserves mutation/selector hook order and final-value identity churn", async () => {
+  it("preserves mutation/selector hook order and keeps action/typing callbacks stable across feed updates", async () => {
     const valueProps = props()
     let renderer: ReturnType<typeof rtlRender>
     act(() => { renderer = rtlRender(React.createElement(Probe, { value: valueProps })) })
-    expect(mocks.order.slice(0, 11)).toEqual([
+    expect(mocks.order.slice(0, 9)).toEqual([
       "send", "reaction", "reaction-add", "pin", "unpin", "mark", "thread", "upload",
-      "typing-users", "typing-names", "pending-store",
+      "pending-store",
     ])
-    expect(mocks.typingScopes.users.length).toBeGreaterThan(0)
-    expect(mocks.typingScopes.names.length).toBeGreaterThan(0)
-    expect(mocks.typingScopes.users.every((scope) => scope === "ch:channel_1")).toBe(true)
-    expect(mocks.typingScopes.names.every((scope) => scope === "ch:channel_1")).toBe(true)
+    expect(mocks.typingScopes.users).toEqual([])
+    expect(mocks.typingScopes.names).toEqual([])
+    expect(latest.typingScope).toBe("ch:channel_1")
     const firstValue = latest
     const firstActions = latest.messageActions
     const firstThreadActions = latest.threadActions
@@ -205,8 +204,8 @@ describe("useMessageChannelController", () => {
     })
     expect(latest).not.toBe(firstValue)
     expect(latest.messageActions).toBe(firstActions)
-    expect(latest.threadActions).not.toBe(firstThreadActions)
-    expect(latest.handleTyping).not.toBe(firstTyping)
+    expect(latest.threadActions).toBe(firstThreadActions)
+    expect(latest.handleTyping).toBe(firstTyping)
     expect(latest.feed).toBe(updatedFeed)
 
     const afterFeed = latest
@@ -583,9 +582,9 @@ describe("useMessageChannelController", () => {
     expect(mocks.router.replace).not.toHaveBeenCalled()
     expect(latest.contextTarget).toBeNull()
     expect(latest.pinnedIds).toEqual(new Set(["p1"]))
-    expect(latest.typingUsers).toEqual(["Alice", "resolved:u2"])
+    expect(latest.typingScope).toBe("ch:channel_1")
     expect(latest.feed).toBe(projectedFeed)
-    expect(resolveUserName).toHaveBeenCalledWith("u2")
+    expect(resolveUserName).not.toHaveBeenCalled()
     expect(latest.threadActions.onCreateThread).toBeUndefined()
   })
 

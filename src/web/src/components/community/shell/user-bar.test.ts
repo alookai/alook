@@ -1,4 +1,5 @@
 import rawContractInput0 from "../../../app/globals.css?raw"
+import rawUserBarCss from "./user-bar.module.css?raw"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
@@ -61,7 +62,8 @@ describe("UserBar", () => {
     expect(html).toContain("sm:px-2 sm:pb-3")
     expect(html).toContain(`${styles.base} flex items-center gap-3 border border-border/40 bg-muted px-2`)
     expect(html).not.toContain("ring-1 ring-border/40")
-    expect(html).toContain('class="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1"')
+    expect(html).toContain('class="flex min-w-0 flex-1 items-center justify-between gap-2"')
+    expect(html).not.toContain("sm:@max-[224px]/user-bar:gap-1")
     expect(html).toContain("sm:@max-[156px]/user-bar:hidden")
     expect(html).not.toContain("sm:@max-[224px]/user-bar:hidden")
     expect(html).toContain('data-testid="community-user-bar-name"')
@@ -99,11 +101,62 @@ describe("UserBar", () => {
     expect(html).toContain(
       `${styles.base} flex items-center gap-3 rounded-xl border border-border/40 bg-muted px-2`,
     )
+    expect(html).toContain('class="flex min-w-0 flex-1 items-center justify-between gap-2"')
+    expect(html).not.toContain("sm:@max-[224px]/user-bar:gap-1")
     expect(html).toContain("sm:@max-[156px]/user-bar:hidden")
     expect(html).not.toContain("sm:@max-[224px]/user-bar:hidden")
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).not.toContain("<button")
     expect(html).not.toContain("<a")
+  })
+
+  it("keeps avatar-to-name visual spacing constant across all widths while extending mobile avatar hit area via ::after", () => {
+    const mobileHtml = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "mobile",
+      user: { id: "u1", name: "Alice", avatar: "A" },
+      hasUnread: false,
+      inbox: createElement("div", null, "Inbox"),
+    }))
+    const desktopHtml = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "desktop",
+      user: { id: "u1", name: "Alice", avatar: "A" },
+      hasUnread: false,
+      inbox: createElement("div", null, "Inbox"),
+    }))
+    const skeletonHtml = renderToStaticMarkup(createElement(UserBarSkeleton))
+
+    for (const html of [mobileHtml, desktopHtml, skeletonHtml]) {
+      expect(html).toContain('class="flex min-w-0 flex-1 items-center justify-between gap-2"')
+      expect(html).not.toContain("sm:@max-[224px]/user-bar:gap-1")
+    }
+
+    // Avatar button keeps the compact 28px layout box (.target) and must not carry the 44px action slot modifier.
+    const avatarButtonClass = mobileHtml.match(
+      /<button(?=[^>]*aria-label="Open profile")[^>]*class="([^"]*)"[^>]*>/,
+    )?.[1]?.split(" ")
+    expect(avatarButtonClass).toContain(styles.target)
+    expect(avatarButtonClass).not.toContain(styles.actionTarget)
+
+    // Right-side square action buttons retain their dedicated 44px mobile layout slot so adjacent hit areas never overlap.
+    const settingsButtonClass = mobileHtml.match(
+      /<button(?=[^>]*aria-label="User settings")[^>]*class="([^"]*)"[^>]*>/,
+    )?.[1]?.split(" ")
+    expect(settingsButtonClass).toContain(styles.target)
+    expect(settingsButtonClass).toContain(styles.actionTarget)
+
+    // CSS contract: .target layout box is strictly 28px x 28px at all widths; ::after expands mobile touch area by 8px on each side (28 + 16 = 44px) and disables at >=640px.
+    const targetRule = rawUserBarCss.match(/\.target\s*\{([^}]*)\}/)?.[1] ?? ""
+    expect(targetRule).toMatch(/width:\s*28px/)
+    expect(targetRule).toMatch(/height:\s*28px/)
+
+    const targetAfterRule = rawUserBarCss.match(/\.target::after\s*\{([^}]*)\}/)?.[1] ?? ""
+    expect(targetAfterRule).toMatch(/position:\s*absolute/)
+    expect(targetAfterRule).toMatch(/inset:\s*-8px/)
+    expect(targetAfterRule).toMatch(/content:\s*""/)
+
+    const desktopMediaBlock = rawUserBarCss.slice(rawUserBarCss.indexOf("@media (min-width: 640px)"))
+    expect(desktopMediaBlock).toMatch(/\.target::after\s*\{[^}]*content:\s*none/)
+    expect(desktopMediaBlock).toMatch(/\.actionTarget\s*\{[^}]*width:\s*28px[^}]*height:\s*28px/)
   })
 
   it("joins the mobile Inbox and Profile to the user bar without seam radii", () => {

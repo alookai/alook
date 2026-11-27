@@ -23,9 +23,8 @@ import type { FileAttachment, ImagePreview, ReplyTarget } from "@/lib/community/
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
   useUiHandlers,
-  useTypingUsersForScope,
-  useTypingNamesForScope,
 } from "@/stores/community"
+import { useLatestRef } from "@/hooks/community/use-latest-ref"
 import { tid } from "@/lib/community/testids"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { makeUserNameResolver } from "@/lib/community/display-name"
@@ -217,8 +216,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     hasMoreNewer: hasMoreNewerMessages, ready: historyAllowed && !!readSnapshot && !readSnapshotFetching && !messagesPending && !messagesError,
   })
 
-  const typingUsers = useTypingUsersForScope(`dm:${dmId}`)
-  const typingNames = useTypingNamesForScope(`dm:${dmId}`)
+  const typingScope = `dm:${dmId}`
   const { accept: acceptDmMessage, retry: retryDmMessage } = useDmMessageSender()
   const toggleReaction = useToggleReactionApi()
   const addReaction = useAddReactionApi()
@@ -277,13 +275,16 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     }
   }, [friends, currentUser.id, currentUser.name, dm])
 
+  const messagesRef = useLatestRef(messages)
+  const sendAllowedRef = useLatestRef(sendAllowed)
+
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
       toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
     onReact: (id: string, emoji: string) =>
       addReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
     onReply: (id: string) => {
-      const m = messages.find((x) => x.id === id)
+      const m = messagesRef.current.find((x) => x.id === id)
       if (m) {
         setReplyTo({
           id: m.id,
@@ -294,21 +295,21 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
       }
     },
     onCopy: (id: string, selectedText?: string) => {
-      const m = messages.find((x) => x.id === id)
+      const m = messagesRef.current.find((x) => x.id === id)
       const content = m ? (selectedText ?? m.content ?? "") : ""
       if (content) { void navigator.clipboard?.writeText(content); toast("Copied to clipboard") }
     },
     // A DM is a channel (type='dm'), so its id IS the mark route's channelId.
     onMark: (id: string) => toggleMark(dmId, id),
     onRetry: (id: string) => {
-      if (!sendAllowed) return
-      const m = messages.find((x) => x.id === id)
+      if (!sendAllowedRef.current) return
+      const m = messagesRef.current.find((x) => x.id === id)
       if (!m?.clientNonce) return
       const assertActive = sendView.capture()
       void retryDmMessage(dmId, m.clientNonce, assertActive)
     },
     onDismiss: (id: string) => {
-      const m = messages.find((x) => x.id === id)
+      const m = messagesRef.current.find((x) => x.id === id)
       if (!m?.clientNonce) return
       communityRuntime.messageStream.actions.dispatch(
         { kind: "dm", id: dmId },
@@ -321,7 +322,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     onPreviewAttachment: (attachment: FileAttachment) => {
       uiHandlers.previewAttachment?.(attachment)
     },
-  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, sendView, communityRuntime.messageStream.actions, uiHandlers, sendAllowed])
+  }), [toggleReaction, dmId, currentUser.id, addReaction, messagesRef, setReplyTo, toggleMark, sendAllowedRef, retryDmMessage, sendView, communityRuntime.messageStream.actions, uiHandlers])
 
   const sendDmDecisionReply = useCallback(async (
     messageId: string,
@@ -383,7 +384,9 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
     return true
   }
 
-  const handleTyping = () => { if (sendAllowed) communityWsSendTyping(communityRuntime, { channelId: dmId }) }
+  const handleTyping = useCallback(() => {
+    if (sendAllowedRef.current) communityWsSendTyping(communityRuntime, { channelId: dmId })
+  }, [communityRuntime, dmId, sendAllowedRef])
 
   const loadingOwnership = resolveDmLoadingOwnership({
     hasDm: !!dm,
@@ -504,7 +507,7 @@ export function DmView({ dmId, routeCommitted = true }: { dmId: string; routeCom
         presentError,
         localSubmitVersion,
         unreadCount,
-        typingUsers: typingUsers.map((id) => typingNames[id] ?? resolveUserName(id)),
+        typingScope,
         hero: dm ? <DmHero dm={dm} onOpenProfile={openProfile} /> : <>
           <Skeleton className="mb-3 size-16 rounded-full" />
           <Skeleton className="h-8 w-48 rounded" />

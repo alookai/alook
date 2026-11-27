@@ -24,8 +24,6 @@ import type { Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "./composer"
 import {
   useCommunityStore,
-  useTypingNamesForScope,
-  useTypingUsersForScope,
 } from "@/stores/community"
 import {
   useAddReactionApi,
@@ -66,7 +64,6 @@ export function useMessageChannelController({
   uiHandlers,
   onOpenThread,
   onOpenPinned,
-  resolveUserName,
 }: Omit<MessageChannelControllerProps, "children">): MessageChannelControllerValue {
   const active = useConversationActivity()
   const committedFeed = useRef(feed)
@@ -94,8 +91,7 @@ export function useMessageChannelController({
   const toggleMark = useToggleMark()
   const { mutateAsync: createThreadAsync } = useCreateThread()
   const { mutateAsync: uploadFileAsync } = useUploadFile()
-  const typingUserIds = useTypingUsersForScope(`ch:${channelId}`)
-  const typingNames = useTypingNamesForScope(`ch:${channelId}`)
+  const typingScope = `ch:${channelId}`
   const pinnedIds = useMemo(
     () => new Set(feed.pinned.map((message) => message.id)),
     [feed.pinned],
@@ -308,6 +304,16 @@ export function useMessageChannelController({
     return { replyToId: messageId, queued: true }
   }, [captureSendCommand, channelId, communityRuntime, getMessage, hasMoreNewer, jumpToPresent, messageScope, runAcceptedIntent, setLocalSubmitVersion, viewer.avatar, viewer.id, viewer.name])
 
+  const threadActions = useMemo(
+    () => ({ ...messageActions, onCreateThread: undefined }),
+    [messageActions],
+  )
+
+  const handleTyping = useCallback(() => {
+    if (committedFeed.current.navigationBlocked) return
+    communityWsSendTyping(communityRuntime, { channelId })
+  }, [channelId, communityRuntime])
+
   return useMemo<MessageChannelControllerValue>(() => ({
     feed,
     pinnedIds,
@@ -323,14 +329,11 @@ export function useMessageChannelController({
     onSheetReply,
     jumpToSeq,
     messageActions,
-    threadActions: { ...messageActions, onCreateThread: undefined },
+    threadActions,
     acceptMessage,
     sendDecisionReply,
     localSubmitVersion,
-    handleTyping: () => {
-      if (committedFeed.current.navigationBlocked) return
-      communityWsSendTyping(communityRuntime, { channelId })
-    },
-    typingUsers: typingUserIds.map((id) => typingNames[id] ?? resolveUserName(id)),
-  }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, openContextId, onSheetReply, jumpToSeq, messageActions, acceptMessage, sendDecisionReply, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
+    handleTyping,
+    typingScope,
+  }), [feed, pinnedIds, replyTo, setReplyTo, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, openContextId, onSheetReply, jumpToSeq, messageActions, threadActions, acceptMessage, sendDecisionReply, localSubmitVersion, handleTyping, typingScope])
 }
