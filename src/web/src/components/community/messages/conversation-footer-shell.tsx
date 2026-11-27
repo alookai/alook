@@ -74,13 +74,15 @@ export function ConversationFooterShell({
     setAccessoryTarget?.(target)
   }, [setAccessoryTarget])
   const selectionActive = footerSlot?.selectionActive ?? false
+  const overlayGpuKeyboard = presented && keyboard?.mode === "overlay-gpu"
 
   return (
     <div
       {...props}
       data-slot="community-conversation-footer"
       data-selection-active={selectionActive ? "true" : "false"}
-      className={`relative z-20 shrink-0${className ? ` ${className}` : ""}`}
+      data-alook-kb-gpu-layer={overlayGpuKeyboard ? "true" : undefined}
+      className={`relative z-20 shrink-0${overlayGpuKeyboard ? " alook-kb-gpu-layer" : ""}${className ? ` ${className}` : ""}`}
       style={{
         ...style,
         ...(presented && keyboard
