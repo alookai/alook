@@ -278,4 +278,55 @@ final class MobilePushPluginTests: XCTestCase {
     XCTAssertEqual(relaunched.registration().currentToken, newer)
     XCTAssertEqual(relaunched.registration().previousToken, current)
   }
+
+  func testDelegateRefreshRetainsWeakDelegateWhenOriginalOwnerReleasesOnNil() {
+    final class FakeDelegate: NSObject {}
+
+    var strongOwner: FakeDelegate? = FakeDelegate()
+    weak var weakDelegate = strongOwner
+    weak var applicationDelegate: FakeDelegate? = strongOwner
+    var retained: [FakeDelegate] = []
+    var assignedNil = false
+
+    func runRefresh() {
+      guard let delegate = applicationDelegate else {
+        XCTFail("Expected initial delegate")
+        return
+      }
+      MobilePushDelegateHooks.refreshDelegateSelectorCache(
+        current: { applicationDelegate },
+        assign: { next in
+          if next == nil {
+            assignedNil = true
+            strongOwner = nil
+          }
+          applicationDelegate = next
+        },
+        expected: delegate,
+        retain: { retained.append($0) }
+      )
+    }
+
+    runRefresh()
+
+    XCTAssertTrue(assignedNil)
+    XCTAssertNil(strongOwner)
+    XCTAssertNotNil(weakDelegate)
+    XCTAssertTrue(applicationDelegate === weakDelegate)
+    XCTAssertEqual(retained.count, 1)
+    XCTAssertTrue(retained.first === weakDelegate)
+
+    let replacement = FakeDelegate()
+    applicationDelegate = replacement
+    var clobbered = false
+    MobilePushDelegateHooks.refreshDelegateSelectorCache(
+      current: { applicationDelegate },
+      assign: { _ in clobbered = true },
+      expected: weakDelegate!,
+      retain: { retained.append($0) }
+    )
+    XCTAssertFalse(clobbered)
+    XCTAssertTrue(applicationDelegate === replacement)
+    XCTAssertEqual(retained.count, 1)
+  }
 }
