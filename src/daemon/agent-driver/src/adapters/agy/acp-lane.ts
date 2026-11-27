@@ -23,7 +23,14 @@ import { killProcessTree, SESSION_STOP_GRACE_MS } from "../../internal/killTree.
 import { SettledUsageProjector } from "../../internal/token-usage.js";
 import type { InputReference, RuntimeSettingsUpdate, RuntimeSettingsUpdateResult } from "../../contract.js";
 
-import { agyStateHome, NativeExecutionReader, NativeSessionActivityReader } from "./execution.js";
+import {
+  agyStateHome,
+  isAgyVersionAtLeast,
+  NativeExecutionReader,
+  NativeSessionActivityReader,
+  resolveAgyUsageProfile,
+  type NativeChildConversationProgress,
+} from "./execution.js";
 
 const ACP_PROTOCOL_VERSION = 1;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
@@ -72,11 +79,13 @@ interface AgyAcpProcessFactory {
   spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess & { stateHome?: string }>;
 }
 
+type AgyActivityReader = Pick<NativeSessionActivityReader, "activity"> & Partial<Pick<NativeSessionActivityReader, "childProgress">>;
+
 interface AgyAcpLaneOptions {
   readonly onRawStdoutLine?: (line: string) => void;
   readonly handshakeTimeoutMs?: number;
   readonly executionReader?: Pick<NativeExecutionReader, "checkpoint" | "terminal">;
-  readonly activityReader?: Pick<NativeSessionActivityReader, "activity">;
+  readonly activityReader?: AgyActivityReader;
   readonly activityPollMs?: number;
 }
 
@@ -119,18 +128,44 @@ function isMissingSessionError(error: unknown): boolean {
     || /\b(not found|missing|unknown|invalid)\b.*\bsession\b/i.test(message);
 }
 
+function timestampAdvanced(previous: string, next: string): boolean {
+  if (!next || next === previous) return false;
+  if (!previous) return true;
+  const previousMs = Date.parse(previous);
+  const nextMs = Date.parse(next);
+  if (Number.isFinite(previousMs) && Number.isFinite(nextMs)) {
+    return nextMs > previousMs || (nextMs === previousMs && next > previous);
+  }
+  return next > previous;
+}
+
+function toChildProgressMap(
+  children: readonly NativeChildConversationProgress[],
+): Map<string, { stepCount: number; lastModifiedTime: string }> {
+  const map = new Map<string, { stepCount: number; lastModifiedTime: string }>();
+  for (const child of children) {
+    map.set(child.conversationId, {
+      stepCount: child.stepCount,
+      lastModifiedTime: child.lastModifiedTime,
+    });
+  }
+  return map;
+}
+
 export class AgyAcpLane implements RuntimeLane {
   private readonly events = new EventEmitter();
   private readonly pending = new Map<number, PendingRequest>();
   private readonly toolCalls = new Map<string, { name: string; owner?: string }>();
   private readonly completedTools = new Set<string>();
   private unownedContent = false;
-  private activityReader?: Pick<NativeSessionActivityReader, "activity">;
+  private activityReader?: AgyActivityReader;
   private activityRead?: Promise<void>;
   private activityTimer?: ReturnType<typeof setTimeout>;
   private nativeActivity: "running" | "idle" | "unknown" = "unknown";
   private publishedActivity?: "running" | "idle" | "unknown";
   private activityRevision = 0;
+  private childProgressBaseline: Map<string, { stepCount: number; lastModifiedTime: string }> | null = null;
+  private resumedSession = false;
   private nativeVersion = "";
   private contentOwner?: string;
   private executionIsolated = true;
@@ -187,6 +222,7 @@ export class AgyAcpLane implements RuntimeLane {
       return { ok: false, reason: "runtime_error", error: "Agy ACP session already started" };
     }
     this.started = true;
+    this.resumedSession = Boolean(input.sessionId ?? this.ctx.config.sessionId);
     const launchCtx: AdapterLaunchContext = {
       ...this.ctx,
       prompt: input.text,
@@ -215,7 +251,7 @@ export class AgyAcpLane implements RuntimeLane {
       }
       const sessionId = this.sessionId;
       if (!sessionId) throw new Error("Agy ACP handshake completed without a session id");
-      this.executionReader = this.options.executionReader ?? new NativeExecutionReader(this.stateHome, sessionId, undefined, this.nativeVersion === "1.5.16");
+      this.executionReader = this.options.executionReader ?? new NativeExecutionReader(this.stateHome, sessionId, undefined, isAgyVersionAtLeast(this.nativeVersion, [1, 5, 16], 2));
       this.processActivated = true;
       this.ready = true;
       this.events.emit("runtime_event", { kind: "session_init", sessionId, acquisition: { status: input.sessionId ? "resumed" : "created", evidence: "native_api" } } satisfies AdapterEvent);
@@ -266,6 +302,7 @@ export class AgyAcpLane implements RuntimeLane {
     this.requestedStopReason ??= input.reason ?? "requested_stop";
     this.ready = false;
     this.clearActivityTimer();
+    this.childProgressBaseline = null;
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
     this.toolCalls.clear();
@@ -321,8 +358,7 @@ export class AgyAcpLane implements RuntimeLane {
     }
     const version = record(initialize.agentInfo)?.version;
     this.nativeVersion = typeof version === "string" ? version : "";
-    this.usageProfile = version === "1.4.12" ? { inputIncludesCache: true, outputIncludesReasoning: false }
-      : version === "1.5.9" ? { inputIncludesCache: false, outputIncludesReasoning: true } : undefined;
+    this.usageProfile = typeof version === "string" ? resolveAgyUsageProfile(version) : undefined;
     if (!record(record(initialize.agentCapabilities)?.sessionCapabilities)?.resume) {
       throw new AgyAcpIncompatibleError("Antigravity CLI ACP does not support native session resume");
     }
@@ -505,6 +541,9 @@ export class AgyAcpLane implements RuntimeLane {
       this.executionRead = read;
       const checkpoint = await read;
       if (!this.ready || this.requestedStopReason || this.isClosed()) return { ok: false, reason: "closed" };
+      const childBaseline = await this.readChildProgress();
+      if (!this.ready || this.requestedStopReason || this.isClosed()) return { ok: false, reason: "closed" };
+      if (childBaseline) this.childProgressBaseline = toChildProgressMap(childBaseline);
       this.executionCheckpoint = checkpoint;
       this.executionIsolated = !this.unownedContent && !this.hasPendingTools();
       return this.admitPrompt(text, "prompt", inputs);
@@ -1003,6 +1042,57 @@ export class AgyAcpLane implements RuntimeLane {
     this.publishActivity();
   }
 
+  private async readChildProgress(): Promise<readonly NativeChildConversationProgress[] | null> {
+    if (!this.activityReader?.childProgress) return null;
+    try {
+      return await this.activityReader.childProgress();
+    } catch {
+      return null;
+    }
+  }
+
+  private observeChildProgress(children: readonly NativeChildConversationProgress[] | null): void {
+    if (!children || this.currentPromptRequestId === null || this.terminalOwner === null) return;
+    if (this.childProgressBaseline === null) {
+      this.childProgressBaseline = toChildProgressMap(children);
+      if (!this.resumedSession && children.length > 0) {
+        this.events.emit("runtime_event", {
+          kind: "internal_progress",
+          source: "agy.native",
+          itemType: "subagent_progress",
+        } satisfies AdapterEvent);
+      }
+      return;
+    }
+    let advanced = false;
+    for (const child of children) {
+      const previous = this.childProgressBaseline.get(child.conversationId);
+      if (
+        !previous
+        || child.stepCount > previous.stepCount
+        || timestampAdvanced(previous.lastModifiedTime, child.lastModifiedTime)
+      ) {
+        advanced = true;
+      }
+      this.childProgressBaseline.set(child.conversationId, {
+        stepCount: Math.max(previous?.stepCount ?? 0, child.stepCount),
+        lastModifiedTime: previous && !timestampAdvanced(previous.lastModifiedTime, child.lastModifiedTime)
+          ? previous.lastModifiedTime
+          : child.lastModifiedTime,
+      });
+    }
+    while (this.childProgressBaseline.size > 256) {
+      this.childProgressBaseline.delete(this.childProgressBaseline.keys().next().value!);
+    }
+    if (advanced) {
+      this.events.emit("runtime_event", {
+        kind: "internal_progress",
+        source: "agy.native",
+        itemType: "subagent_progress",
+      } satisfies AdapterEvent);
+    }
+  }
+
   private refreshActivity(): Promise<void> {
     if (this.activityRead) return this.activityRead;
     if (!this.ready || !this.activityReader || this.requestedStopReason || this.processTerminal) return Promise.resolve();
@@ -1014,6 +1104,11 @@ export class AgyAcpLane implements RuntimeLane {
       if (revision === this.activityRevision) this.nativeActivity = status;
       if (status === "running" && this.currentPromptRequestId === null) this.unownedContent = true;
       this.publishActivity();
+      if (this.currentPromptRequestId !== null && this.terminalOwner !== null) {
+        const children = await this.readChildProgress();
+        if (!this.ready || this.requestedStopReason || this.processTerminal) return;
+        this.observeChildProgress(children);
+      }
     })();
     this.activityRead = reading;
     void reading.finally(() => { if (this.activityRead === reading) this.activityRead = undefined; });

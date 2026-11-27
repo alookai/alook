@@ -2,7 +2,17 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { agyStateHome, NativeExecutionReader, NativeSessionActivityReader, openNativeExecutionDatabase, parseNativeExecution, queryExecutionRows } from "./execution.js";
+import {
+  agyStateHome,
+  isAgyVersionAtLeast,
+  NativeExecutionReader,
+  NativeSessionActivityReader,
+  openNativeExecutionDatabase,
+  parseAgyVersion,
+  parseNativeExecution,
+  queryExecutionRows,
+  resolveAgyUsageProfile,
+} from "./execution.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -127,7 +137,67 @@ describe("agy native session activity", () => {
       expect(JSON.stringify(plan)).toContain("SEARCH");
       expect(JSON.stringify(plan)).not.toContain("SCAN");
     } finally { db.close(); }
+    expect(await new NativeSessionActivityReader(root, "selected", "1.5.18").activity()).toBe("unknown");
+    expect(await new NativeSessionActivityReader(root, "selected", "1.5.15").activity()).toBe("unknown");
+    expect(await new NativeSessionActivityReader(root, "selected", "2.0.0").activity()).toBe("unknown");
     expect(await new NativeSessionActivityReader(root, "selected", "future").activity()).toBe("unknown");
     expect(() => new NativeSessionActivityReader(root, "../other", "1.5.16")).toThrow();
+  });
+
+  it("evaluates semver bounds and resolves usage profiles across patch upgrades while rejecting major bumps", () => {
+    expect(parseAgyVersion("1.5.18")).toEqual([1, 5, 18]);
+    expect(parseAgyVersion("v1.5.18-beta.1")).toEqual([1, 5, 18]);
+    expect(parseAgyVersion("future")).toBeNull();
+
+    expect(isAgyVersionAtLeast("1.5.15", [1, 5, 16], 2)).toBe(false);
+    expect(isAgyVersionAtLeast("1.5.16", [1, 5, 16], 2)).toBe(true);
+    expect(isAgyVersionAtLeast("1.5.18", [1, 5, 16], 2)).toBe(true);
+    expect(isAgyVersionAtLeast("1.6.0", [1, 5, 16], 2)).toBe(true);
+    expect(isAgyVersionAtLeast("2.0.0", [1, 5, 16], 2)).toBe(false);
+    expect(isAgyVersionAtLeast("unknown", [1, 5, 16], 2)).toBe(false);
+
+    expect(resolveAgyUsageProfile("1.4.11")).toBeUndefined();
+    expect(resolveAgyUsageProfile("1.4.12")).toEqual({ inputIncludesCache: true, outputIncludesReasoning: false });
+    expect(resolveAgyUsageProfile("1.5.8")).toEqual({ inputIncludesCache: true, outputIncludesReasoning: false });
+    expect(resolveAgyUsageProfile("1.5.9")).toEqual({ inputIncludesCache: false, outputIncludesReasoning: true });
+    expect(resolveAgyUsageProfile("1.5.18")).toEqual({ inputIncludesCache: false, outputIncludesReasoning: true });
+    expect(resolveAgyUsageProfile("2.0.0")).toBeUndefined();
+    expect(resolveAgyUsageProfile("future")).toBeUndefined();
+  });
+
+  it.skipIf(Number(process.versions.node.split(".")[0]) < 22)("reads child conversation progress on 1.5.18+ and degrades cleanly on missing schema columns", async () => {
+    const module = "node:sqlite";
+    const { DatabaseSync } = await import(module);
+    const root = mkdtempSync(join(tmpdir(), "agy-child-progress-")); roots.push(root);
+    const directory = join(root, "antigravity-cli"); mkdirSync(directory);
+    const dbPath = join(directory, "conversation_summaries.db");
+
+    const db = new DatabaseSync(dbPath);
+    try {
+      db.exec("CREATE TABLE conversation_summaries(conversation_id TEXT PRIMARY KEY,status TEXT,not_fully_idle INTEGER,parent_conversation_id TEXT,step_count INTEGER,last_modified_time TEXT)");
+      db.prepare("INSERT INTO conversation_summaries VALUES(?,?,?,?,?,?)").run("parent-1", "CASCADE_RUN_STATUS_RUNNING", 1, "", 12, "2026-11-27 18:45:00.000+00:00");
+      db.prepare("INSERT INTO conversation_summaries VALUES(?,?,?,?,?,?)").run("child-a", "CASCADE_RUN_STATUS_RUNNING", 1, "parent-1", 40, "2026-11-27 18:46:00.000+00:00");
+      db.prepare("INSERT INTO conversation_summaries VALUES(?,?,?,?,?,?)").run("child-b", "CASCADE_RUN_STATUS_RUNNING", 1, "parent-1", 15, "2026-11-27 18:47:00.000+00:00");
+      db.prepare("INSERT INTO conversation_summaries VALUES(?,?,?,?,?,?)").run("other-child", "CASCADE_RUN_STATUS_RUNNING", 1, "parent-2", 99, "2026-11-27 18:48:00.000+00:00");
+
+      const reader18 = new NativeSessionActivityReader(root, "parent-1", "1.5.18");
+      expect(await reader18.activity()).toBe("running");
+      expect(await reader18.childProgress()).toEqual([
+        { conversationId: "child-b", stepCount: 15, lastModifiedTime: "2026-11-27 18:47:00.000+00:00" },
+        { conversationId: "child-a", stepCount: 40, lastModifiedTime: "2026-11-27 18:46:00.000+00:00" },
+      ]);
+      expect(await new NativeSessionActivityReader(root, "parent-1", "1.5.15").childProgress()).toBeNull();
+      expect(await new NativeSessionActivityReader(root, "parent-1", "2.0.0").childProgress()).toBeNull();
+    } finally { db.close(); }
+
+    const minimalRoot = mkdtempSync(join(tmpdir(), "agy-minimal-schema-")); roots.push(minimalRoot);
+    mkdirSync(join(minimalRoot, "antigravity-cli"));
+    const minimalDb = new DatabaseSync(join(minimalRoot, "antigravity-cli", "conversation_summaries.db"));
+    try {
+      minimalDb.exec("CREATE TABLE conversation_summaries(conversation_id TEXT PRIMARY KEY,title TEXT)");
+      const degraded = new NativeSessionActivityReader(minimalRoot, "parent-1", "1.5.18");
+      expect(await degraded.activity()).toBe("unknown");
+      expect(await degraded.childProgress()).toBeNull();
+    } finally { minimalDb.close(); }
   });
 });

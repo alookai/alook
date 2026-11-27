@@ -358,7 +358,7 @@ Native ACP can return `end_turn` after a provider failure, even with positive
 usage. The adapter therefore verifies the exact conversation's persisted
 `executor_metadata` terminal after all prompt responses settle. It checkpoints
 before each new root and normally accepts only one new executor identity.
-On verified CLI 1.5.16, an isolated prompt can span ordinary asynchronous
+On CLI 1.5.16+ (`< 2.0.0`), an isolated prompt can span ordinary asynchronous
 continuations: at most 32 contiguous executions with distinct identities and
 increasing final step indices are verified together. Missing, repeated, gapped,
 overflowing or child-owned records cannot prove success. A prompt admitted after
@@ -372,13 +372,17 @@ configuration when native state cannot be read. The selected `GEMINI_HOME`, or
 the native default `.gemini`, is shared with the launched CLI.
 
 Session-wide `session_activity` observations are independent of root terminals.
-CLI 1.5.16's exact conversation-summary row is polled once per second using
-read-only indexed access. Known unfinished tool calls override native idle and
-survive prompt boundaries. Native running keeps the Bot active and prevents
-idle hibernation; unknown activity prevents hibernation without claiming the
-Bot is running. Missing state, unsupported versions and read errors remain
-unknown, and a later verified idle observation restarts the idle timer.
-Explicit stop/reset still owns complete cleanup.
+On CLI 1.5.16+ (`< 2.0.0`), the exact conversation-summary row is polled once per
+second using read-only indexed access with schema column probing. Known unfinished
+tool calls override native idle and survive prompt boundaries. Native running keeps
+the Bot active and prevents idle hibernation; unknown activity prevents hibernation
+without claiming the Bot is running. Missing state, unsupported versions, missing
+schema columns and read errors remain unknown, and a later verified idle observation
+restarts the idle timer. While a root prompt is active, child conversations
+(`parent_conversation_id = sessionId`) whose `step_count` or `last_modified_time`
+advances emit `internal_progress` heartbeats so asynchronous subagents are not
+falsely terminated as stalled; stalled children that stop advancing still hit the
+normal stall deadline. Explicit stop/reset still owns complete cleanup.
 
 Late tool results retain their call identity and appear once as session-scoped
 `activity`. Once outside-turn work makes model-output ownership ambiguous, that
@@ -402,12 +406,15 @@ sessions require an explicit reset. Requested instructions, model and effort
 are applied again because native resume does not retain all launch settings.
 
 Token usage comes from settled native prompt responses, once per shared loop,
-including when only an earlier prompt reports it. Version1.4.12 includes cache
-in input and excludes thought from output;1.5.9 already reports those normalized
-counts. Only these independently measured version profiles are used. Other
-versions report usage unavailable until verified. Unknown counts remain unknown. Native quota
-discovery still uses the CLI `/usage` command after the signed-in `models`
-preflight; quota responses are separate from generation usage.
+including when only an earlier prompt reports it. CLI 1.4.12 through `< 1.5.9`
+includes cache in input and excludes thought from output; CLI 1.5.9 through
+`< 2.0.0` (verified on 1.5.9 and 1.5.18) already reports normalized counts.
+Unsupported or unparseable versions report usage unavailable until verified.
+Unknown counts remain unknown. Native quota discovery still uses the CLI `/usage`
+command after the signed-in `models` preflight and classifies structured CLI error
+reasons (`unauthorized`, `network`, `provider_error`, `invalid_response`,
+`unavailable`) rather than collapsing every failure into `unavailable`; quota
+responses are separate from generation usage.
 
 Version 1.4.12 was exercised with the real CLI and MCP process against an
 isolated scripted provider for busy steering, next-turn reuse, resume settings
