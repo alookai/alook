@@ -5,17 +5,17 @@ import XCTest
 final class MobileShareImagePluginTests: XCTestCase {
   private let attempt = "123e4567-e89b-42d3-a456-426614174000"
   private let pngData = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
-  private var stagingRoot: URL!
+  private var cachesRoot: URL!
 
   override func setUpWithError() throws {
-    stagingRoot = FileManager.default.temporaryDirectory
+    cachesRoot = FileManager.default.temporaryDirectory
       .appendingPathComponent("mobile-share-image-tests-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: cachesRoot, withIntermediateDirectories: true)
   }
 
   override func tearDownWithError() throws {
-    if let stagingRoot {
-      try? FileManager.default.removeItem(at: stagingRoot)
+    if let cachesRoot {
+      try? FileManager.default.removeItem(at: cachesRoot)
     }
   }
 
@@ -23,54 +23,124 @@ final class MobileShareImagePluginTests: XCTestCase {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 
-  private func stageFile(_ data: Data, attemptId: String? = nil) throws -> (path: String, bytes: UInt64, sha256: String) {
+  private func stageFile(
+    _ data: Data,
+    attemptId: String? = nil,
+    appSubdir: String? = "ai.alook.app"
+  ) throws -> (path: String, bytes: UInt64, sha256: String) {
     let id = attemptId ?? attempt
-    let url = stagingRoot.appendingPathComponent("\(id).png")
+    let base = appSubdir.map { cachesRoot.appendingPathComponent($0, isDirectory: true) } ?? cachesRoot!
+    let stagingDir = base.appendingPathComponent("mobile-share-image-staging", isDirectory: true)
+    try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+    let url = stagingDir.appendingPathComponent("\(id).png")
     try data.write(to: url, options: .atomic)
     return (url.path, UInt64(data.count), sha256Hex(data))
   }
 
   func testValidatorLoadsVerifiedStagedPNGAndRejectsTamperingOrTraversal() throws {
     try MobileShareImageValidator.validateAttemptId(attempt)
-    let staged = try stageFile(pngData)
-    let loaded = try MobileShareImageValidator.loadValidatedFile(
+
+    let scoped = try stageFile(pngData, appSubdir: "ai.alook.app")
+    let loadedScoped = try MobileShareImageValidator.loadValidatedFile(
       attemptId: attempt,
-      path: staged.path,
-      expectedBytes: staged.bytes,
-      sha256: staged.sha256,
-      allowedRoot: stagingRoot
+      path: scoped.path,
+      expectedBytes: scoped.bytes,
+      sha256: scoped.sha256,
+      cachesRoot: cachesRoot
     )
-    XCTAssertEqual(loaded, pngData)
+    XCTAssertEqual(loadedScoped, pngData)
+
+    let direct = try stageFile(pngData, appSubdir: nil)
+    let loadedDirect = try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: direct.path,
+      expectedBytes: direct.bytes,
+      sha256: direct.sha256,
+      cachesRoot: cachesRoot
+    )
+    XCTAssertEqual(loadedDirect, pngData)
 
     XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
       attemptId: attempt,
-      path: staged.path,
-      expectedBytes: staged.bytes + 1,
-      sha256: staged.sha256,
-      allowedRoot: stagingRoot
+      path: scoped.path,
+      expectedBytes: scoped.bytes + 1,
+      sha256: scoped.sha256,
+      cachesRoot: cachesRoot
     )) { error in
       XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
     }
 
     XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
       attemptId: attempt,
-      path: staged.path,
-      expectedBytes: staged.bytes,
+      path: scoped.path,
+      expectedBytes: scoped.bytes,
       sha256: String(repeating: "0", count: 64),
-      allowedRoot: stagingRoot
+      cachesRoot: cachesRoot
     )) { error in
       XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
     }
 
-    let escaped = stagingRoot.deletingLastPathComponent().appendingPathComponent("\(attempt).png")
+    let tooDeepDir = cachesRoot
+      .appendingPathComponent("a", isDirectory: true)
+      .appendingPathComponent("b", isDirectory: true)
+      .appendingPathComponent("mobile-share-image-staging", isDirectory: true)
+    try FileManager.default.createDirectory(at: tooDeepDir, withIntermediateDirectories: true)
+    let tooDeep = tooDeepDir.appendingPathComponent("\(attempt).png")
+    try pngData.write(to: tooDeep, options: .atomic)
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: tooDeep.path,
+      expectedBytes: scoped.bytes,
+      sha256: scoped.sha256,
+      cachesRoot: cachesRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
+    }
+
+    let wrongDir = cachesRoot
+      .appendingPathComponent("ai.alook.app", isDirectory: true)
+      .appendingPathComponent("other-staging", isDirectory: true)
+    try FileManager.default.createDirectory(at: wrongDir, withIntermediateDirectories: true)
+    let wrongDirFile = wrongDir.appendingPathComponent("\(attempt).png")
+    try pngData.write(to: wrongDirFile, options: .atomic)
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: wrongDirFile.path,
+      expectedBytes: scoped.bytes,
+      sha256: scoped.sha256,
+      cachesRoot: cachesRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
+    }
+
+    let outsideDir = cachesRoot.deletingLastPathComponent()
+      .appendingPathComponent("mobile-share-image-staging", isDirectory: true)
+    try FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+    let escaped = outsideDir.appendingPathComponent("\(attempt).png")
     try pngData.write(to: escaped, options: .atomic)
     defer { try? FileManager.default.removeItem(at: escaped) }
     XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
       attemptId: attempt,
       path: escaped.path,
-      expectedBytes: staged.bytes,
-      sha256: staged.sha256,
-      allowedRoot: stagingRoot
+      expectedBytes: scoped.bytes,
+      sha256: scoped.sha256,
+      cachesRoot: cachesRoot
+    )) { error in
+      XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
+    }
+
+    let symlinkDir = cachesRoot
+      .appendingPathComponent("symlink-app", isDirectory: true)
+      .appendingPathComponent("mobile-share-image-staging", isDirectory: true)
+    try FileManager.default.createDirectory(at: symlinkDir, withIntermediateDirectories: true)
+    let symlink = symlinkDir.appendingPathComponent("\(attempt).png")
+    try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: escaped)
+    XCTAssertThrowsError(try MobileShareImageValidator.loadValidatedFile(
+      attemptId: attempt,
+      path: symlink.path,
+      expectedBytes: scoped.bytes,
+      sha256: scoped.sha256,
+      cachesRoot: cachesRoot
     )) { error in
       XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
     }
@@ -83,7 +153,7 @@ final class MobileShareImagePluginTests: XCTestCase {
       path: nonPng.path,
       expectedBytes: nonPng.bytes,
       sha256: nonPng.sha256,
-      allowedRoot: stagingRoot
+      cachesRoot: cachesRoot
     )) { error in
       XCTAssertEqual((error as? MobileShareImageFailure)?.code, "invalid_png")
     }
@@ -93,7 +163,7 @@ final class MobileShareImagePluginTests: XCTestCase {
       path: nonPng.path,
       expectedBytes: UInt64(10 * 1024 * 1024 + 1),
       sha256: nonPng.sha256,
-      allowedRoot: stagingRoot
+      cachesRoot: cachesRoot
     )) { error in
       XCTAssertEqual((error as? MobileShareImageFailure)?.code, "image_too_large")
     }
@@ -138,7 +208,7 @@ final class MobileShareImagePluginTests: XCTestCase {
       main: { block in publication = block; queued.fulfill() },
       pasteboard: pasteboard,
       photos: photos,
-      stagingRoot: stagingRoot
+      cachesRoot: cachesRoot
     )
     let success = expectation(description: "copy success")
     var result: Result<MobileShareImageResult, MobileShareImageFailure>?
@@ -171,7 +241,7 @@ final class MobileShareImagePluginTests: XCTestCase {
       main: { $0() },
       pasteboard: FakePasteboard(),
       photos: photos,
-      stagingRoot: stagingRoot
+      cachesRoot: cachesRoot
     )
     let settled = expectation(description: "denied")
     operations.save(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256, filename: "card.png")) { result in
@@ -193,7 +263,7 @@ final class MobileShareImagePluginTests: XCTestCase {
       main: { $0() },
       pasteboard: FakePasteboard(),
       photos: photos,
-      stagingRoot: stagingRoot
+      cachesRoot: cachesRoot
     )
     let authorizationRequested = expectation(description: "authorization requested")
     photos.onRequest = { authorizationRequested.fulfill() }
@@ -222,7 +292,7 @@ final class MobileShareImagePluginTests: XCTestCase {
       main: { $0() },
       pasteboard: pasteboard,
       photos: FakePhotos(status: .denied),
-      stagingRoot: stagingRoot
+      cachesRoot: cachesRoot
     )
     let first = expectation(description: "copy failure")
     operations.copy(.init(attemptId: attempt, path: staged.path, bytes: staged.bytes, sha256: staged.sha256)) { result in
@@ -251,7 +321,7 @@ final class MobileShareImagePluginTests: XCTestCase {
       main: { $0() },
       pasteboard: FakePasteboard(),
       photos: photos,
-      stagingRoot: stagingRoot
+      cachesRoot: cachesRoot
     )
     let firstAdd = expectation(description: "first add")
     photos.onAdd = { firstAdd.fulfill() }

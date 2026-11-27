@@ -50,9 +50,8 @@ enum MobileShareImageValidator {
     }
   }
 
-  static func defaultStagingRoot() -> URL {
+  static func defaultCachesRoot() -> URL {
     FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent(mobileShareImageStagingDir, isDirectory: true)
   }
 
   static func loadValidatedFile(
@@ -60,7 +59,7 @@ enum MobileShareImageValidator {
     path: String,
     expectedBytes: UInt64,
     sha256: String,
-    allowedRoot: URL = defaultStagingRoot()
+    cachesRoot: URL = defaultCachesRoot()
   ) throws -> Data {
     try validateAttemptId(attemptId)
     guard expectedBytes > 0 else {
@@ -72,10 +71,21 @@ enum MobileShareImageValidator {
     guard isCanonicalSha256(sha256) else {
       throw MobileShareImageFailure(code: "invalid_png", message: "Image digest is invalid")
     }
-    let resolvedRoot = allowedRoot.resolvingSymlinksInPath().standardizedFileURL
+    let resolvedCaches = cachesRoot.resolvingSymlinksInPath().standardizedFileURL
+    let cachesPrefix = resolvedCaches.path.hasSuffix("/") ? resolvedCaches.path : resolvedCaches.path + "/"
     let resolvedSource = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
-    guard resolvedSource.deletingLastPathComponent().path == resolvedRoot.path,
-          resolvedSource.lastPathComponent == "\(attemptId).png"
+    let stagingDir = resolvedSource.deletingLastPathComponent()
+    let stagingParent = stagingDir.deletingLastPathComponent()
+    let stagingGrandparent = stagingParent.deletingLastPathComponent()
+    let isDirectChild = stagingParent.path == resolvedCaches.path
+    let isSingleSubdirChild = stagingGrandparent.path == resolvedCaches.path
+      && !stagingParent.lastPathComponent.isEmpty
+      && stagingParent.lastPathComponent != "."
+      && stagingParent.lastPathComponent != ".."
+    guard resolvedSource.path.hasPrefix(cachesPrefix),
+          resolvedSource.lastPathComponent == "\(attemptId).png",
+          stagingDir.lastPathComponent == mobileShareImageStagingDir,
+          isDirectChild || isSingleSubdirChild
     else {
       throw MobileShareImageFailure(code: "invalid_png", message: "Staged image path is invalid")
     }
@@ -204,7 +214,7 @@ final class MobileShareImageOperations {
   private let main: (@escaping () -> Void) -> Void
   private let pasteboard: MobileShareImagePasteboardWriting
   private let photos: MobileShareImagePhotoLibraryAdding
-  private let stagingRoot: URL
+  private let cachesRoot: URL
   private let state = DispatchQueue(label: "ai.alook.mobile-share-image.state")
   private var activeAttemptId: String?
 
@@ -213,13 +223,13 @@ final class MobileShareImageOperations {
     main: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
     pasteboard: MobileShareImagePasteboardWriting = SystemMobileShareImagePasteboard(),
     photos: MobileShareImagePhotoLibraryAdding = SystemMobileShareImagePhotoLibrary(),
-    stagingRoot: URL = MobileShareImageValidator.defaultStagingRoot()
+    cachesRoot: URL = MobileShareImageValidator.defaultCachesRoot()
   ) {
     self.worker = worker
     self.main = main
     self.pasteboard = pasteboard
     self.photos = photos
-    self.stagingRoot = stagingRoot
+    self.cachesRoot = cachesRoot
   }
 
   func copy(_ args: CopyImageArgs, completion: @escaping Completion) {
@@ -234,7 +244,7 @@ final class MobileShareImageOperations {
           path: args.path,
           expectedBytes: args.bytes,
           sha256: args.sha256,
-          allowedRoot: self.stagingRoot
+          cachesRoot: self.cachesRoot
         )
         self.main {
           do {
@@ -272,7 +282,7 @@ final class MobileShareImageOperations {
           path: args.path,
           expectedBytes: args.bytes,
           sha256: args.sha256,
-          allowedRoot: self.stagingRoot
+          cachesRoot: self.cachesRoot
         )
         let filename = MobileShareImageValidator.sanitizeFilename(args.filename)
         self.authorizeAndSave(data, filename: filename, attemptId: args.attemptId, completion: completion)
