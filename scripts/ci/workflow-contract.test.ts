@@ -1284,8 +1284,6 @@ describe("Desktop updater release", () => {
 })
 
 describe("Desktop image clipboard", () => {
-  const writeImagePermission = "clipboard-manager:allow-write-image"
-
   it("registers the maintained plugin only in the desktop dependency chain", () => {
     expect(desktopCargoManifest).toMatch(
       /\[target\."cfg\(not\(any\(target_os = \\"android\\", target_os = \\"ios\\"\)\)\)"\.dependencies\][\s\S]*tauri-plugin-clipboard-manager = "2"/,
@@ -1307,7 +1305,7 @@ describe("Desktop image clipboard", () => {
       platforms: ["linux", "macOS", "windows"],
       local: false,
       remote: { urls: ["https://alook.ai"] },
-      permissions: [writeImagePermission, "desktop-commands"],
+      permissions: ["desktop-commands"],
     })
     expect(desktopDevConfig.app.security.capabilities).toEqual([
       "desktop-capability",
@@ -1317,7 +1315,7 @@ describe("Desktop image clipboard", () => {
         windows: ["main"],
         platforms: ["linux", "macOS", "windows"],
         remote: { urls: ["http://localhost:3000"] },
-        permissions: [writeImagePermission, "desktop-commands"],
+        permissions: ["desktop-commands"],
       }),
       "native-geometry",
       "native-geometry-windows",
@@ -1338,7 +1336,7 @@ describe("Desktop image clipboard", () => {
         windows: ["main"],
         platforms: ["android", "iOS"],
         remote: { urls: ["http://localhost:3000"] },
-        permissions: ["core:event:allow-listen", "core:event:allow-unlisten"],
+        permissions: ["window-lifecycle"],
       }),
       expect.objectContaining({ identifier: "native-oauth-dev", local: true, remote: { urls: ["http://localhost:3000"] }, permissions: ["native-oauth"] }),
       expect.objectContaining({

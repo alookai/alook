@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "window-lifecycle"
+description = "Native mobile window lifecycle channel commands for the trusted main WebView"
+commands.allow = ["window_lifecycle_listen", "window_lifecycle_unlisten"]

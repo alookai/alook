@@ -897,12 +897,11 @@ describe("share image action helpers", () => {
     expect(write.mock.calls[0]![0]![0].items).toEqual({ "image/png": blob })
   })
 
-  it("forwards PNG bytes once through the native desktop clipboard", async () => {
+  it("forwards PNG bytes once through the guarded binary desktop clipboard command", async () => {
     const invoke = vi.fn().mockResolvedValue(undefined)
     const webWrite = vi.fn()
     vi.stubGlobal("window", {
-      __TAURI__: {},
-      __TAURI_INTERNALS__: { invoke },
+      __TAURI__: { core: { invoke } },
     })
     vi.stubGlobal("navigator", { userAgent: "Macintosh", clipboard: { write: webWrite } })
     const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
@@ -910,8 +909,27 @@ describe("share image action helpers", () => {
     await writeShareCardToClipboard(new Blob([bytes], { type: "image/png" }))
 
     expect(invoke).toHaveBeenCalledTimes(1)
-    expect(invoke.mock.calls[0]![0]).toBe("plugin:clipboard-manager|write_image")
-    expect([...new Uint8Array(invoke.mock.calls[0]![1].image)]).toEqual([...bytes])
+    expect(invoke.mock.calls[0]![0]).toBe("desktop_clipboard_write_image")
+    expect(invoke.mock.calls[0]![1]).toBeInstanceOf(Uint8Array)
+    expect([...(invoke.mock.calls[0]![1] as Uint8Array)]).toEqual([...bytes])
+    expect(webWrite).not.toHaveBeenCalled()
+  })
+
+  it("rejects oversize PNGs on desktop before invoking native binary clipboard IPC", async () => {
+    const invoke = vi.fn()
+    const webWrite = vi.fn()
+    vi.stubGlobal("window", {
+      __TAURI__: { core: { invoke } },
+    })
+    vi.stubGlobal("navigator", { userAgent: "Macintosh", clipboard: { write: webWrite } })
+    const oversized = {
+      type: "image/png",
+      size: 10 * 1024 * 1024 + 1,
+      arrayBuffer: vi.fn(),
+    } as unknown as Blob
+
+    await expect(writeShareCardToClipboard(oversized)).rejects.toMatchObject({ code: "image_too_large" })
+    expect(invoke).not.toHaveBeenCalled()
     expect(webWrite).not.toHaveBeenCalled()
   })
 
@@ -920,8 +938,7 @@ describe("share image action helpers", () => {
     const invoke = vi.fn().mockRejectedValue(failure)
     const webWrite = vi.fn()
     vi.stubGlobal("window", {
-      __TAURI__: {},
-      __TAURI_INTERNALS__: { invoke },
+      __TAURI__: { core: { invoke } },
     })
     vi.stubGlobal("navigator", { userAgent: "Macintosh", clipboard: { write: webWrite } })
 

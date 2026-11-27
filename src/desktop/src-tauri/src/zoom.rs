@@ -237,6 +237,17 @@ pub(crate) fn apply_restored(window: &tauri::WebviewWindow) -> tauri::Result<()>
     window.set_zoom(percent as f64 / 100.0)
 }
 
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn should_reapply_on_page_load(
+    label: &str,
+    event: tauri::webview::PageLoadEvent,
+    url: &url::Url,
+    development: bool,
+) -> bool {
+    matches!(event, tauri::webview::PageLoadEvent::Finished)
+        && crate::native_command_guard::caller_allowed(label, url, development)
+}
+
 pub fn handle_menu_event(handle: &AppHandle, id: &str) -> Result<bool, String> {
     let Some(action) = menu_action(id) else {
         return Ok(false);
@@ -313,6 +324,48 @@ mod tests {
         assert!(menu_accelerators_enabled("macos"));
         assert!(!menu_accelerators_enabled("windows"));
         assert!(!menu_accelerators_enabled("linux"));
+    }
+
+    #[test]
+    fn windows_reapplies_restored_zoom_only_when_main_finishes_loading_business_origin() {
+        let prod = url::Url::parse("https://alook.ai/c").unwrap();
+        let dev = url::Url::parse("http://localhost:3000/c").unwrap();
+        let bootstrap = url::Url::parse("alook-recovery://localhost/bootstrap").unwrap();
+        let blank = url::Url::parse("about:blank").unwrap();
+        let foreign = url::Url::parse("https://example.invalid/c").unwrap();
+
+        assert!(should_reapply_on_page_load(
+            "main",
+            tauri::webview::PageLoadEvent::Finished,
+            &prod,
+            false
+        ));
+        assert!(should_reapply_on_page_load(
+            "main",
+            tauri::webview::PageLoadEvent::Finished,
+            &dev,
+            true
+        ));
+        assert!(!should_reapply_on_page_load(
+            "main",
+            tauri::webview::PageLoadEvent::Started,
+            &prod,
+            false
+        ));
+        assert!(!should_reapply_on_page_load(
+            "splash",
+            tauri::webview::PageLoadEvent::Finished,
+            &prod,
+            false
+        ));
+        for url in [&bootstrap, &blank, &foreign, &dev] {
+            assert!(!should_reapply_on_page_load(
+                "main",
+                tauri::webview::PageLoadEvent::Finished,
+                url,
+                false
+            ));
+        }
     }
 
     #[test]
