@@ -46,3 +46,13 @@ export const AlookPageOperationSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("action"), name: z.string().min(1).max(128), args: z.record(z.string(), z.unknown()) }),
 ]);
 export type AlookPageOperation = z.infer<typeof AlookPageOperationSchema>;
+
+export const PAGE_COVER_MAX_BYTES = 2 * 1024 * 1024;
+export function pageCoverContentType(bytes: Uint8Array): "image/png" | "image/jpeg" | "image/webp" | null {
+  if (!bytes.length || bytes.length > PAGE_COVER_MAX_BYTES) return null;
+  const at = (offset: number, value: string) => [...value].every((char, index) => bytes[offset + index] === char.charCodeAt(0));
+  if (bytes.length >= 33 && [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value) && at(12, "IHDR")) return "image/png";
+  if (bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 && bytes.at(-2) === 255 && bytes.at(-1) === 217) return "image/jpeg";
+  if (bytes.length >= 20 && at(0, "RIFF") && at(8, "WEBP") && ["VP8 ", "VP8L", "VP8X"].some(value => at(12, value)) && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === bytes.length - 8) return "image/webp";
+  return null;
+}

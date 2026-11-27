@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
-const mocks = vi.hoisted(() => ({ actor: { kind: "bot", userId: "creator" }, list: vi.fn(), own: vi.fn(), remove: vi.fn(), register: vi.fn(), fetch: vi.fn(), env: { DB: {}, ALOOK_PAGE_ORIGIN: "https://pages.invalid", ALOOK_PAGE_SERVICE_KEY: "test-secret-at-least-32-characters", ALOOK_PAGE_HOST: {} } }))
+const mocks = vi.hoisted(() => ({ actor: { kind: "bot", userId: "creator" }, list: vi.fn(), own: vi.fn(), remove: vi.fn(), register: vi.fn(), fetch: vi.fn(), coverDelete: vi.fn(), coverHead: vi.fn(), env: { DB: {}, ALOOK_PAGE_ORIGIN: "https://pages.invalid", ALOOK_PAGE_SERVICE_KEY: "test-secret-at-least-32-characters", ALOOK_PAGE_HOST: {}, COMMUNITY_MEDIA: {} } }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({}) }))
 vi.mock("@/lib/middleware/community-actor", () => ({
   communityActorPolicy: () => ({ resolve: async () => ({ context: { actor: mocks.actor, env: mocks.env } }) }),
@@ -12,7 +12,7 @@ import { GET, POST } from "./route"
 import { DELETE } from "./[id]/route"
 const context = { params: Promise.resolve({ id: "page_resource" }) }
 const request = (query = "") => new NextRequest(`https://alook.invalid/api/community/pages${query}`)
-beforeEach(() => { vi.clearAllMocks(); mocks.actor.kind = "bot"; mocks.env.ALOOK_PAGE_HOST = { fetch: mocks.fetch }; mocks.list.mockResolvedValue({ total: 2, pages: [], nextCursor: { createdAt: "now", id: "page_last" } }); mocks.own.mockResolvedValue({ id: "page_resource", artifactId: "art_resource12345" }); mocks.fetch.mockResolvedValue(Response.json({ deleted: true })); mocks.remove.mockResolvedValue({ id: "page_resource" }); mocks.register.mockResolvedValue({ ok: true, page: { id: "page_resource" } }) })
+beforeEach(() => { vi.clearAllMocks(); mocks.actor.kind = "bot"; mocks.coverDelete.mockReset(); mocks.coverHead.mockReset(); mocks.env.COMMUNITY_MEDIA = { delete: mocks.coverDelete, head: mocks.coverHead }; mocks.env.ALOOK_PAGE_HOST = { fetch: mocks.fetch }; mocks.list.mockResolvedValue({ total: 2, pages: [], nextCursor: { createdAt: "now", id: "page_last" } }); mocks.own.mockResolvedValue({ id: "page_resource", artifactId: "art_resource12345" }); mocks.fetch.mockResolvedValue(Response.json({ deleted: true })); mocks.remove.mockResolvedValue({ id: "page_resource" }); mocks.register.mockResolvedValue({ ok: true, page: { id: "page_resource" } }) })
 it("lists only the authenticated bot's own resources and round-trips bounded opaque cursors", async () => {
   const result = await (await GET(request(), context)).json()
   expect(result.total).toBe(2)
@@ -44,4 +44,18 @@ it("removes database associations only after successful cloud destruction", asyn
   const forwarded = mocks.fetch.mock.calls[0]![0] as Request
   expect(forwarded.method).toBe("DELETE"); expect(forwarded.url).toBe("https://pages.invalid/alook/resources/art_resource12345")
   expect(forwarded.headers.get("x-alook-subject")).toBe("creator")
+})
+
+it("keeps database retry authority when cover cleanup fails", async () => {
+ mocks.coverDelete.mockRejectedValueOnce(new Error("R2 unavailable"))
+ expect((await DELETE(request(), context)).status).toBe(503); expect(mocks.remove).not.toHaveBeenCalled()
+})
+it("cleans concurrent cover writes after database removal and allows creator-only cleanup retries", async () => {
+ expect((await DELETE(request(), context)).status).toBe(200); expect(mocks.coverDelete).toHaveBeenCalledTimes(2)
+ expect(mocks.coverDelete.mock.invocationCallOrder[0]).toBeLessThan(mocks.remove.mock.invocationCallOrder[0]!)
+ expect(mocks.remove.mock.invocationCallOrder[0]).toBeLessThan(mocks.coverDelete.mock.invocationCallOrder[1]!)
+ mocks.own.mockResolvedValue(null); mocks.coverHead.mockResolvedValue({ customMetadata: { ownerId: "creator" } })
+ expect((await DELETE(request(), context)).status).toBe(200)
+ mocks.coverHead.mockResolvedValue({ customMetadata: { ownerId: "other" } }); mocks.coverDelete.mockClear()
+ expect((await DELETE(request(), context)).status).toBe(404); expect(mocks.coverDelete).not.toHaveBeenCalled()
 })

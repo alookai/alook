@@ -703,6 +703,7 @@ export interface ServerApi {
   send(req: SendRequest): Promise<SendResponse>;
   pageList(req: { limit?: number; cursor?: string }): Promise<{ total: number; pages: { id: string; type: string; title: string; createdAt: string; messageCount: number }[]; nextCursor?: string }>;
   pageDelete(req: { id: string }): Promise<{ deleted: true }>;
+  pageCover(req: { id: string; data: Uint8Array; contentType: string }): Promise<{ id: string; etag: string }>;
   pageCreate(req: { archiveAttachmentId: string }): Promise<import("./community-page").AlookPageEmbed>;
   page(req: { id: string; operation: import("./community-page").AlookPageOperation }): Promise<unknown>;
 

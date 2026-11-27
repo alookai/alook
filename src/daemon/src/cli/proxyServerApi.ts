@@ -711,6 +711,12 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       return platformCall(`/pages?${query}`) as ReturnType<ServerApi["pageList"]>;
     },
     pageDelete: (req) => platformCall(`/pages/${encodeURIComponent(req.id)}`, "DELETE") as ReturnType<ServerApi["pageDelete"]>,
+    pageCover: async (req) => {
+      const response = await fetchImpl(`${base}/api/community/pages/${encodeURIComponent(req.id)}/cover`, {
+        method: "PUT", headers: { authorization: `Bearer ${config.voucher}`, "content-type": req.contentType }, body: new Uint8Array(req.data),
+      });
+      return parseJsonResponse<{ id: string; etag: string }>(response, "pageCover");
+    },
     pageCreate: async (req) => AlookPageEmbedSchema.parse(await platformCall("/pages", "POST", req)),
     page: (req) => platformCall(`/pages/${encodeURIComponent(req.id)}/operations`, "POST", req.operation),
     read: callRead,
