@@ -122,7 +122,7 @@ export function classifyPageViewerError(error: unknown): {
     return {
       kind: "unavailable",
       title: "Page host unavailable",
-      description: "The Open Artifact host is temporarily unavailable. Try again shortly.",
+      description: "The page host is temporarily unavailable. Try again shortly.",
       retryable: true,
     }
   }

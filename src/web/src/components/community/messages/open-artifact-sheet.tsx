@@ -73,12 +73,30 @@ export function OpenArtifactSheet({
   onOpenChange: (open: boolean) => void
 }) {
   const [fullscreen, setFullscreen] = useState(false)
-  const [confirmClose, setConfirmClose] = useState(false)
-  const [leaveLosesWork, setLeaveLosesWork] = useState(false)
+  const currentPageId = open ? page?.id ?? null : null
+  const [closeGuard, setCloseGuard] = useState<{
+    pageId: string | null
+    leaveLosesWork: boolean
+    confirmClose: boolean
+  }>({
+    pageId: null,
+    leaveLosesWork: false,
+    confirmClose: false,
+  })
+
+  const leaveLosesWork = closeGuard.pageId === currentPageId && closeGuard.leaveLosesWork
+  const confirmClose = closeGuard.pageId === currentPageId && closeGuard.confirmClose
+
+  const setLeaveLosesWork = useCallback((value: boolean) => {
+    setCloseGuard((current) => ({
+      pageId: currentPageId,
+      leaveLosesWork: value,
+      confirmClose: value && current.pageId === currentPageId ? current.confirmClose : false,
+    }))
+  }, [currentPageId])
 
   const handleCloseConfirmed = useCallback(() => {
-    setConfirmClose(false)
-    setLeaveLosesWork(false)
+    setCloseGuard({ pageId: null, leaveLosesWork: false, confirmClose: false })
     setFullscreen(false)
     onOpenChange(false)
   }, [onOpenChange])
@@ -89,11 +107,11 @@ export function OpenArtifactSheet({
       return
     }
     if (leaveLosesWork) {
-      setConfirmClose(true)
+      setCloseGuard({ pageId: currentPageId, leaveLosesWork: true, confirmClose: true })
       return
     }
     handleCloseConfirmed()
-  }, [handleCloseConfirmed, leaveLosesWork, onOpenChange])
+  }, [currentPageId, handleCloseConfirmed, leaveLosesWork, onOpenChange])
 
   const pageKey = page ? `${page.id}:${open ? "open" : "closed"}` : "none"
 
@@ -106,7 +124,9 @@ export function OpenArtifactSheet({
         fullscreen={fullscreen}
         onToggleFullscreen={() => setFullscreen((current) => !current)}
         confirmClose={confirmClose}
-        onCancelClose={() => setConfirmClose(false)}
+        onCancelClose={() => setCloseGuard((current) => (
+          current.pageId === currentPageId ? { ...current, confirmClose: false } : current
+        ))}
         onConfirmClose={handleCloseConfirmed}
         onRequestClose={() => handleOpenChange(false)}
         onLeaveLosesWorkChange={setLeaveLosesWork}
@@ -250,15 +270,15 @@ function OpenArtifactSheetSurface({
           window.open(parsed.url, "_blank", "noopener,noreferrer")
           break
         case "comment_summon":
-          if (parsed.text.trim()) {
-            void submitCommentText(parsed.text)
-          }
+          // Upstream Shell emits `comment_summon` as a post-success notification after
+          // the OA host already delivered the Ask comment; never re-POST `/comments`.
+          toast("Comment posted to conversation")
           break
       }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [onConfirmClose, onLeaveLosesWorkChange, open, postHostHello, submitCommentText, themeScheme, verifiedOrigin])
+  }, [onConfirmClose, onLeaveLosesWorkChange, open, postHostHello, themeScheme, verifiedOrigin])
 
   useEffect(() => {
     if (!open || !verifiedOrigin || !shellHelloReceived) return
@@ -266,7 +286,7 @@ function OpenArtifactSheetSurface({
   }, [open, postHostHello, shellHelloReceived, themeScheme, verifiedOrigin])
 
   const saveLabel = describePageSaveState(savedState)
-  const canComment = Boolean(page && verifiedUrl)
+  const canComment = Boolean(page && verifiedUrl && savedState !== "readonly")
 
   const handleCommentSubmit = async (event: React.SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -509,7 +529,7 @@ function OpenArtifactSheetSurface({
               </div>
               <p className="max-w-65 text-sm font-medium text-foreground">Blocked untrusted page</p>
               <p className="-mt-1.5 max-w-xs text-xs leading-relaxed text-muted-foreground">
-                This page address is not from an allowed Open Artifact Shell origin.
+                This page address is not from an allowed Alook Page host.
               </p>
             </div>
             <Button

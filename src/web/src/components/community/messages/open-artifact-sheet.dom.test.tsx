@@ -188,6 +188,15 @@ describe("OpenArtifactSheet", () => {
 
     expect(screen.getByTestId(tid.openArtifactStatus).textContent).toContain("Unsaved changes")
 
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: "https://oa.alook.ai",
+        source: fakeWindow,
+        data: { openArtifact: "comment_summon", text: "Already sent by OA host" },
+      }))
+    })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+
     fireEvent.click(screen.getByTestId(tid.openArtifactCommentTrigger))
     const input = await waitFor(() => screen.getByTestId(tid.openArtifactCommentInput))
     fireEvent.change(input, { target: { value: "Clarify chart subtitle" } })
@@ -205,6 +214,52 @@ describe("OpenArtifactSheet", () => {
     expect(onOpenChange).not.toHaveBeenCalled()
     expect(screen.getByText("Unsaved changes may be lost if you close now.")).toBeTruthy()
     fireEvent.click(screen.getByText("Close anyway"))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("resets stale leaveLosesWork and confirmClose state when switching to another page while open", async () => {
+    const fetchSpy = vi.spyOn(apiClient, "apiFetch")
+    fetchSpy.mockResolvedValueOnce({
+      embedUrl: "https://oa.alook.ai/a/pg_launch",
+      allowedOrigins: ["https://oa.alook.ai"],
+      expiresAt: "2026-11-27T13:00:00Z",
+    })
+    fetchSpy.mockResolvedValueOnce({
+      embedUrl: "https://oa.alook.ai/a/pg_next",
+      allowedOrigins: ["https://oa.alook.ai"],
+      expiresAt: "2026-11-27T13:05:00Z",
+    })
+
+    const onOpenChange = vi.fn()
+    const view = renderCommunity(
+      <OpenArtifactSheet page={samplePage} open onOpenChange={onOpenChange} />,
+    )
+
+    const frame = await waitFor(() => screen.getByTestId(tid.openArtifactFrame) as HTMLIFrameElement)
+    const fakeWindow = { postMessage: vi.fn() } as unknown as Window
+    Object.defineProperty(frame, "contentWindow", { value: fakeWindow, configurable: true })
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: "https://oa.alook.ai",
+        source: fakeWindow,
+        data: { openArtifact: "saved", state: "unsaved", leaveLosesWork: true },
+      }))
+    })
+
+    fireEvent.click(screen.getByLabelText("Close page"))
+    expect(screen.getByText("Unsaved changes may be lost if you close now.")).toBeTruthy()
+
+    const nextPage = { kind: "alook_page" as const, id: "pg_next", type: "doc", title: "Next Brief" }
+    view.rerender(<OpenArtifactSheet page={nextPage} open onOpenChange={onOpenChange} />)
+
+    await waitFor(() => {
+      expect((screen.getByTestId(tid.openArtifactFrame) as HTMLIFrameElement).getAttribute("src"))
+        .toBe("https://oa.alook.ai/a/pg_next")
+    })
+    expect(screen.queryByText("Unsaved changes may be lost if you close now.")).toBeNull()
+
+    fireEvent.click(screen.getByLabelText("Close page"))
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
