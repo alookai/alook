@@ -137,7 +137,7 @@ describe("qualified native composer file-picker return", () => {
     expect(f.editor.state.selection.to).toBe(7)
   })
 
-  it.each(["DOM blur", "doc edit and undo", "caret move and return", "owner version"])("still retires after %s with blur metadata and preserved DOM focus", async (takeover) => {
+  it.each(["doc edit and undo", "caret move and return", "owner version"])("still retires after %s with blur metadata and preserved DOM focus", async (takeover) => {
     const post = vi.fn(async (_command: Command) => ({ captured: true, restoring: false }))
     install(post)
     let version = "original"
@@ -148,7 +148,6 @@ describe("qualified native composer file-picker return", () => {
     blurMetadataWithDOMFocus(f.editor)
     expect(post.mock.calls.map(([command]) => command.command)).toEqual(["capturePicker"])
     act(() => {
-      if (takeover === "DOM blur") f.editor.view.dom.blur()
       if (takeover === "doc edit and undo") { f.editor.commands.insertContent("edit"); f.editor.commands.undo() }
       if (takeover === "caret move and return") { f.editor.commands.setTextSelection(2); f.editor.commands.setTextSelection({ from: 6, to: 10 }) }
       if (takeover === "owner version") { version = "next"; f.editor.view.dispatch(f.editor.state.tr) }
@@ -160,6 +159,35 @@ describe("qualified native composer file-picker return", () => {
     expect(f.restore).not.toHaveBeenCalled()
     expect(f.editor.getJSON()).toEqual(f.doc)
     expect(f.editor.state.selection.toJSON()).toEqual(f.selection)
+  })
+
+  it("preserves restoration across modal picker DOM blur and omits redundant cancelPicker after native return", async () => {
+    const post = vi.fn(async (_command: Command) => ({ captured: true, restoring: true }))
+    install(post)
+    const f = fixture()
+    f.owner.prepare(f.input)
+    await flush()
+    const token = post.mock.calls[0][0].token
+    act(() => { f.editor.view.dom.blur() })
+    expect(f.editor.view.hasFocus()).toBe(false)
+    expect(post.mock.calls.map(([command]) => command.command)).toEqual(["capturePicker"])
+    f.input.dispatchEvent(new Event("change"))
+    await flush()
+    expect(post).toHaveBeenCalledWith({ command: "restorePicker", token })
+    returnToken(token)
+    expect(f.restore).toHaveBeenCalledOnce()
+    expect(post.mock.calls.map(([command]) => command.command)).toEqual(["capturePicker", "restorePicker"])
+  })
+
+  it("does not send cancelPicker when capturePicker is denied or fails", async () => {
+    const post = vi.fn(async (_command: Command) => ({ captured: false }))
+    install(post)
+    const f = fixture()
+    f.owner.prepare(f.input)
+    await flush()
+    expect(post.mock.calls.map(([command]) => command.command)).toEqual(["capturePicker"])
+    f.owner.retire()
+    expect(post.mock.calls.map(([command]) => command.command)).toEqual(["capturePicker"])
   })
 
   it.each(["cancel", "change"])("retains the real TipTap range/draft and original once-only input/upload on %s", async (event) => {

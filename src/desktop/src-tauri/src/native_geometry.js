@@ -20,7 +20,7 @@ desktop => {
       }
     }
     const scheduleRetry = () => {
-      if (!desktop || !active || retryIndex >= retryDelays.length) return
+      if (!active || retryIndex >= retryDelays.length) return
       clearRetry()
       const delay = retryDelays[retryIndex++]
       retryTimer = window.setTimeout(() => {
@@ -61,7 +61,7 @@ desktop => {
       for (const subscriber of subscribers) subscriber()
     }
     const fail = () => {
-      publish('error')
+      publish('error', state.insets)
       scheduleRetry()
     }
     const accept = value => {

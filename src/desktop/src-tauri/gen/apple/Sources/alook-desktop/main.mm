@@ -38,12 +38,12 @@ static CGRect alookNativeContentFrame(CGRect bounds, UIEdgeInsets systemInsets, 
         bounds.size.height - systemInsets.top - systemInsets.bottom);
 }
 
-static UIEdgeInsets alookGeometryInsets(CGRect bounds, CGRect safe, CGFloat bottomReduction) {
+static UIEdgeInsets alookGeometryInsets(CGRect bounds, CGRect safe) {
     UIEdgeInsets insets;
     insets.left = MIN(bounds.size.width, MAX(0, CGRectGetMinX(safe) - CGRectGetMinX(bounds)));
     insets.right = MIN(bounds.size.width - insets.left, MAX(0, CGRectGetMaxX(bounds) - CGRectGetMaxX(safe)));
     insets.top = MIN(bounds.size.height, MAX(10.0, CGRectGetMinY(safe) - CGRectGetMinY(bounds)));
-    insets.bottom = MIN(bounds.size.height - insets.top, MAX(0, 20.0 - bottomReduction));
+    insets.bottom = MIN(bounds.size.height - insets.top, MAX(0, CGRectGetMaxY(bounds) - CGRectGetMaxY(safe)));
     return insets;
 }
 
@@ -56,12 +56,14 @@ static NSDictionary *alookMeasureGeometry(UIViewController *controller, WKWebVie
         webView.window == nil || CGRectIsEmpty(webView.bounds)) return nil;
     CGRect bounds = webView.bounds;
     CGRect safe = [webView convertRect:controller.view.safeAreaLayoutGuide.layoutFrame fromView:controller.view];
-    CGFloat bottomReduction = MAX(0, CGRectGetMaxY(controller.view.bounds) - CGRectGetMaxY(webView.frame));
-    UIEdgeInsets insets = alookGeometryInsets(bounds, safe, bottomReduction);
+    UIEdgeInsets insets = alookGeometryInsets(bounds, safe);
+    CGFloat windowHeight = MAX(controller.view.bounds.size.height, bounds.size.height);
+    CGFloat safeWindowBottom = MAX(0, CGRectGetMaxY(controller.view.bounds) - CGRectGetMaxY(controller.view.safeAreaLayoutGuide.layoutFrame));
+    CGFloat windowBottom = MIN(safeWindowBottom, MAX(0, windowHeight - insets.top));
     return @{ @"top": @(insets.top), @"right": @(insets.right), @"bottom": @(insets.bottom), @"left": @(insets.left),
               @"viewportWidth": @(bounds.size.width), @"viewportHeight": @(bounds.size.height), @"caption": @NO,
-              @"windowHeight": @(controller.view.bounds.size.height),
-              @"windowBottom": @(MIN(20.0, MAX(0, controller.view.bounds.size.height - insets.top))) };
+              @"windowHeight": @(windowHeight),
+              @"windowBottom": @(windowBottom) };
 }
 
 static BOOL alookIsTauriRootController(UIViewController *viewController) {
@@ -210,9 +212,10 @@ static void alookInstallCommunityRootScrollLock(UIViewController *controller, WK
     if (local != nil && !local.boolValue) return;
     CGRect frame = [host.window.screen.coordinateSpace
         convertRect:[notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue] toCoordinateSpace:host];
-    self.keyboardVisible = alookKeyboardGuideVisible(frame, host.safeAreaLayoutGuide.layoutFrame)
-        && CGRectGetMaxY(frame) >= CGRectGetMaxY(host.bounds)
-        && CGRectGetWidth(frame) >= CGRectGetWidth(host.bounds);
+    CGRect intersection = CGRectIntersection(frame, host.bounds);
+    self.keyboardVisible = !CGRectIsEmpty(intersection)
+        && alookKeyboardGuideVisible(frame, host.safeAreaLayoutGuide.layoutFrame)
+        && CGRectGetMaxY(frame) >= CGRectGetMaxY(host.bounds) - 1.0;
     [self updateSafeArea];
     NSTimeInterval duration = [notification.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
     UIViewAnimationOptions curve = (UIViewAnimationOptions)([notification.userInfo[UIKeyboardAnimationCurveUserInfoKey] unsignedIntegerValue] << 16);
@@ -582,7 +585,11 @@ static BOOL alookViewContainsFirstResponder(UIView *view) {
         return;
     }
     NSData *json = [NSJSONSerialization dataWithJSONObject:@[token] options:0 error:nil];
-    NSString *encoded = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    NSString *encoded = json != nil ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
+    if (encoded == nil) {
+        replyHandler(@{ @"restoring": @NO }, nil);
+        return;
+    }
     NSString *script = [NSString stringWithFormat:
         @"window.dispatchEvent(new CustomEvent('alook:composer-picker-return',{detail:%@[0]}))", encoded];
     [self.webView evaluateJavaScript:script completionHandler:nil];
@@ -783,12 +790,7 @@ static BOOL alookViewContainsFirstResponder(UIView *view) {
                 NSDictionary *previousGeometry = objc_getAssociatedObject(webView, kAlookGeometryKey);
                 if (geometry != nil && ![geometry isEqualToDictionary:previousGeometry]) {
                     objc_setAssociatedObject(webView, kAlookGeometryKey, geometry, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                    if (![geometry[@"top"] isEqual:previousGeometry[@"top"]]
-                        || ![geometry[@"right"] isEqual:previousGeometry[@"right"]]
-                        || ![geometry[@"bottom"] isEqual:previousGeometry[@"bottom"]]
-                        || ![geometry[@"left"] isEqual:previousGeometry[@"left"]]) {
-                        [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:geometry-change'))" completionHandler:nil];
-                    }
+                    [webView evaluateJavaScript:@"window.dispatchEvent(new Event('alook:geometry-change'))" completionHandler:nil];
                 }
             }
             alookInstallThemeObserver(self, webView);

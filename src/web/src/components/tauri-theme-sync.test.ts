@@ -14,10 +14,11 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "dark" }),
 }));
 
-import { syncTauriWindowTheme } from "./tauri-theme-sync";
+import { resetTauriSplashscreenSyncForTest, syncTauriWindowTheme } from "./tauri-theme-sync";
 
 describe("syncTauriWindowTheme", () => {
   beforeEach(() => {
+    resetTauriSplashscreenSyncForTest();
     mocks.invoke.mockReset();
   });
 
@@ -32,7 +33,7 @@ describe("syncTauriWindowTheme", () => {
     ]);
   });
 
-  it("forwards the published surface independently of the light/dark choice", async () => {
+  it("forwards the published surface independently and invokes close_splashscreen only once", async () => {
     mocks.invoke.mockResolvedValue(undefined);
 
     await syncTauriWindowTheme(false, [224, 213, 192]);
@@ -42,7 +43,6 @@ describe("syncTauriWindowTheme", () => {
       ["set_window_theme", { dark: false, background: [224, 213, 192] }],
       ["close_splashscreen"],
       ["set_window_theme", { dark: true, background: [13, 13, 13] }],
-      ["close_splashscreen"],
     ]);
   });
 

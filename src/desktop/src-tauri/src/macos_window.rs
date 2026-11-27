@@ -6,7 +6,7 @@ use objc2::{
     runtime::{AnyObject, ProtocolObject},
     MainThreadMarker,
 };
-use objc2_app_kit::NSWindowDidExitFullScreenNotification;
+use objc2_app_kit::{NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification};
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol, NSRect};
 use std::{
     ptr::NonNull,
@@ -18,7 +18,7 @@ use std::{
 use tauri::{Manager, WebviewWindow};
 
 struct FullscreenExitObserver {
-    token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
+    tokens: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
     _block: RcBlock<dyn Fn(NonNull<NSNotification>)>,
 }
 
@@ -28,8 +28,10 @@ impl Drop for FullscreenExitObserver {
     fn drop(&mut self) {
         let center = NSNotificationCenter::defaultCenter();
         unsafe {
-            let observer = &*Retained::as_ptr(&self.token).cast::<AnyObject>();
-            center.removeObserver(observer);
+            for token in &self.tokens {
+                let observer = &*Retained::as_ptr(token).cast::<AnyObject>();
+                center.removeObserver(observer);
+            }
         }
     }
 }
@@ -39,22 +41,30 @@ static FULLSCREEN_EXIT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn install_fullscreen_exit_observer(
     object: &AnyObject,
-    on_exit: impl Fn() + 'static,
+    on_change: impl Fn() + 'static,
 ) -> FullscreenExitObserver {
     let block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
-        on_exit();
+        on_change();
     });
     let center = NSNotificationCenter::defaultCenter();
-    let token = unsafe {
-        center.addObserverForName_object_queue_usingBlock(
-            Some(NSWindowDidExitFullScreenNotification),
-            Some(object),
-            None,
-            &block,
-        )
+    let tokens = unsafe {
+        [
+            NSWindowDidEnterFullScreenNotification,
+            NSWindowDidExitFullScreenNotification,
+        ]
+        .into_iter()
+        .map(|name| {
+            center.addObserverForName_object_queue_usingBlock(
+                Some(name),
+                Some(object),
+                None,
+                &block,
+            )
+        })
+        .collect()
     };
     FullscreenExitObserver {
-        token,
+        tokens,
         _block: block,
     }
 }
@@ -109,6 +119,10 @@ fn validate_top_inset(top: f64, fullscreen: bool) -> Result<f64, String> {
         return Err("geometry_caption_unavailable".into());
     }
     Ok(top)
+}
+
+fn caption_visible(fullscreen: bool) -> bool {
+    !fullscreen
 }
 
 pub fn measure_geometry(
@@ -203,7 +217,7 @@ pub fn measure_geometry(
             left,
             viewport_width: width,
             viewport_height: height,
-            caption: true,
+            caption: caption_visible(fullscreen),
         })
     }
 }
@@ -211,12 +225,11 @@ pub fn measure_geometry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use objc2_app_kit::NSWindowDidEnterFullScreenNotification;
     use objc2_foundation::NSObject;
     use std::sync::{atomic::AtomicUsize, Arc};
 
     #[test]
-    fn fullscreen_exit_observer_scopes_to_window_and_retires_cleanly() {
+    fn fullscreen_observer_handles_enter_and_exit_for_window_and_retires_cleanly() {
         let target = NSObject::new();
         let other = NSObject::new();
         let target_ref: &AnyObject = target.as_ref();
@@ -232,12 +245,18 @@ mod tests {
         unsafe {
             center.postNotificationName_object(NSWindowDidExitFullScreenNotification, Some(other_ref));
             center.postNotificationName_object(NSWindowDidExitFullScreenNotification, None);
+            center.postNotificationName_object(NSWindowDidEnterFullScreenNotification, Some(other_ref));
+            center.postNotificationName_object(NSWindowDidEnterFullScreenNotification, None);
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+
+        unsafe {
             center.postNotificationName_object(
                 NSWindowDidEnterFullScreenNotification,
                 Some(target_ref),
             );
         }
-        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
 
         unsafe {
             center.postNotificationName_object(
@@ -245,7 +264,7 @@ mod tests {
                 Some(target_ref),
             );
         }
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
 
         let replacement_hits = Arc::new(AtomicUsize::new(0));
         let replacement_counter = replacement_hits.clone();
@@ -256,21 +275,35 @@ mod tests {
 
         unsafe {
             center.postNotificationName_object(
-                NSWindowDidExitFullScreenNotification,
+                NSWindowDidEnterFullScreenNotification,
                 Some(target_ref),
             );
-        }
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
-        assert_eq!(replacement_hits.load(Ordering::SeqCst), 1);
-
-        drop(replacement);
-        unsafe {
             center.postNotificationName_object(
                 NSWindowDidExitFullScreenNotification,
                 Some(target_ref),
             );
         }
-        assert_eq!(replacement_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        assert_eq!(replacement_hits.load(Ordering::SeqCst), 2);
+
+        drop(replacement);
+        unsafe {
+            center.postNotificationName_object(
+                NSWindowDidEnterFullScreenNotification,
+                Some(target_ref),
+            );
+            center.postNotificationName_object(
+                NSWindowDidExitFullScreenNotification,
+                Some(target_ref),
+            );
+        }
+        assert_eq!(replacement_hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn caption_is_disabled_in_fullscreen() {
+        assert!(caption_visible(false));
+        assert!(!caption_visible(true));
     }
 
     #[test]

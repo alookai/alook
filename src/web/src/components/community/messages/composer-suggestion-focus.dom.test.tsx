@@ -175,8 +175,10 @@ describe("composer suggestion focus with installed TipTap", () => {
         expect(editor.getJSON()).toEqual(doc)
         expect(editor.state.selection.toJSON()).toEqual(selection)
         expect(editor.view.hasFocus()).toBe(true)
+        expect(post).not.toHaveBeenCalledWith({ command: "cancelPicker", token })
+      } else {
+        expect(post).toHaveBeenCalledWith({ command: "cancelPicker", token })
       }
-      expect(post).toHaveBeenCalledWith({ command: "cancelPicker", token })
     } finally {
       view.unmount()
       files.fileInputRef.current = null

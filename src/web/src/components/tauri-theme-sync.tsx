@@ -24,11 +24,21 @@ export function readTauriWindowBackground(
   }
 }
 
+let splashscreenClosed = false;
+
+export function resetTauriSplashscreenSyncForTest() {
+  splashscreenClosed = false;
+}
+
 export async function syncTauriWindowTheme(dark: boolean, background: [number, number, number] | null = null) {
+  const shouldCloseSplashscreen = !splashscreenClosed;
+  splashscreenClosed = true;
   try {
     await tauriInvoke("set_window_theme", { dark, ...(background ? { background } : {}) });
   } finally {
-    await tauriInvoke("close_splashscreen").catch(() => {});
+    if (shouldCloseSplashscreen) {
+      await tauriInvoke("close_splashscreen").catch(() => {});
+    }
   }
 }
 

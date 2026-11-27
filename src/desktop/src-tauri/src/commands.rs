@@ -386,6 +386,11 @@ pub(crate) fn apply_window_theme(
                 tauri::window::Color(250, 246, 238, 255)
             }
         });
+    let _ = window.set_theme(Some(if dark {
+        tauri::Theme::Dark
+    } else {
+        tauri::Theme::Light
+    }));
     let _ = window.set_background_color(Some(color));
 }
 

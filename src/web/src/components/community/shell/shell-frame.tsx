@@ -340,8 +340,12 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     } else navigation.replace(target)
   }, [breakpoint, dismissNativeBackShellOverlay, mobileBackTarget, navigation, parentReturnPending, queryClient, accessEpoch, committedFrame.href])
 
+  const hasNativeBackShellOverlay =
+    !(breakpoint === "mobile" && checkpoint.surface === "detail")
+    && userBarExtension.active !== "none"
   useNativeMobileBack({
     dismissShellOverlay: dismissNativeBackShellOverlay,
+    hasShellOverlay: hasNativeBackShellOverlay,
     parentPath: mobileBackTarget,
     replacePath: goBackMobile,
   })

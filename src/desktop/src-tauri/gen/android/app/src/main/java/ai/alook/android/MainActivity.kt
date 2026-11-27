@@ -288,11 +288,14 @@ class MainActivity : TauriActivity() {
         val webView = mainWebView ?: return
         val parent = webView.parent as? ViewGroup ?: return
         val insets = availableInsets ?: ViewCompat.getRootWindowInsets(webView) ?: return
+        val root = webView.rootView
         val location = IntArray(2)
+        val rootLocation = IntArray(2)
         parent.getLocationInWindow(location)
+        root.getLocationInWindow(rootLocation)
         val height = WebViewAvailableHeight.fromWindow(
             nativeWindowBounds().height(), parent.height - parent.paddingBottom,
-            location[1] + webView.top, webView.top,
+            location[1] - rootLocation[1] + webView.top, webView.top,
             insets.getInsets(WindowInsetsCompat.Type.ime()).bottom,
         ) ?: return
         val params = webView.layoutParams
@@ -333,8 +336,9 @@ class MainActivity : TauriActivity() {
         val rootLocation = IntArray(2)
         webView.getLocationInWindow(location)
         root.getLocationInWindow(rootLocation)
+        val windowBounds = nativeWindowBounds()
         val nextRegion = SystemGestureRegion.fromWindow(
-            root.width, location[0] - rootLocation[0], webView.width, insets.left, insets.right,
+            windowBounds.width(), location[0] - rootLocation[0], webView.width, insets.left, insets.right,
         )?.toJson() ?: "null"
         if (systemGestureRegionJson != nextRegion) {
             systemGestureRegionJson = nextRegion

@@ -65,6 +65,28 @@ pub struct GeometrySnapshot {
     pub caption: bool,
 }
 
+#[cfg(all(desktop, any(test, not(target_os = "macos"))))]
+fn logical_viewport_size(width: u32, height: u32, scale_factor: f64) -> Result<(f64, f64), String> {
+    if width == 0 || height == 0 {
+        return Err("geometry_size_unavailable".into());
+    }
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let logical_width = width as f64 / scale;
+    let logical_height = height as f64 / scale;
+    if !logical_width.is_finite()
+        || !logical_height.is_finite()
+        || logical_width <= 0.0
+        || logical_height <= 0.0
+    {
+        return Err("geometry_size_unavailable".into());
+    }
+    Ok((logical_width, logical_height))
+}
+
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn native_geometry_snapshot(window: WebviewWindow) -> Result<GeometrySnapshot, String> {
@@ -84,20 +106,20 @@ pub async fn native_geometry_snapshot(window: WebviewWindow) -> Result<GeometryS
     #[cfg(not(target_os = "macos"))]
     window
         .run_on_main_thread(move || {
+            let scale = target.scale_factor().unwrap_or(1.0);
             let result = target
                 .inner_size()
                 .map_err(|_| "geometry_size_unavailable".to_string())
                 .and_then(|size| {
-                    if size.width == 0 || size.height == 0 {
-                        return Err("geometry_size_unavailable".into());
-                    }
+                    let (viewport_width, viewport_height) =
+                        logical_viewport_size(size.width, size.height, scale)?;
                     Ok(GeometrySnapshot {
                         top: 0.0,
                         right: 0.0,
                         bottom: 0.0,
                         left: 0.0,
-                        viewport_width: size.width as f64,
-                        viewport_height: size.height as f64,
+                        viewport_width,
+                        viewport_height,
                         caption: false,
                     })
                 });
@@ -121,8 +143,151 @@ fn caller_allowed(label: &str, url: &url::Url, development: bool) -> bool {
 
 #[cfg(all(test, desktop))]
 mod tests {
-    use super::{caller_allowed, runtime_descriptor_script, runtime_form_factor, runtime_platform};
+    use super::{
+        caller_allowed, logical_viewport_size, runtime_descriptor_script, runtime_form_factor,
+        runtime_platform,
+    };
     use url::Url;
+
+    #[test]
+    fn logical_viewport_size_divides_physical_dimensions_by_scale_factor() {
+        assert_eq!(logical_viewport_size(2400, 1600, 2.0), Ok((1200.0, 800.0)));
+        assert_eq!(logical_viewport_size(1920, 1080, 1.5), Ok((1280.0, 720.0)));
+        assert_eq!(logical_viewport_size(1200, 800, 0.0), Ok((1200.0, 800.0)));
+        assert_eq!(
+            logical_viewport_size(1200, 800, f64::NAN),
+            Ok((1200.0, 800.0))
+        );
+        assert!(logical_viewport_size(0, 800, 2.0).is_err());
+        assert!(logical_viewport_size(1200, 0, 2.0).is_err());
+    }
+
+    #[test]
+    fn geometry_script_preserves_last_valid_insets_on_transient_errors_and_retries_on_mobile() {
+        let script = include_str!("native_geometry.js");
+        let output = std::process::Command::new("node")
+            .arg("-e")
+            .arg(
+                r#"
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const factorySource = process.argv[1];
+
+function createEnv({ desktop, responses }) {
+  const styles = new Map();
+  const dataset = {};
+  const listeners = new Map();
+  const timers = [];
+  let nextTimerId = 1;
+  let callIndex = 0;
+
+  const docElement = {
+    dataset,
+    style: {
+      setProperty: (k, v) => styles.set(k, v),
+      removeProperty: (k) => styles.delete(k),
+    },
+  };
+  const win = {
+    document: {
+      documentElement: docElement,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    },
+    __TAURI__: {
+      webview: { getCurrentWebview: () => ({ label: 'main' }) },
+      core: {
+        invoke: async () => {
+          const next = responses[callIndex++];
+          if (next instanceof Error) throw next;
+          return next;
+        },
+      },
+    },
+    addEventListener: (type, fn) => {
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(fn);
+    },
+    removeEventListener: () => {},
+    dispatchEvent: (event) => {
+      for (const fn of listeners.get(event.type) ?? []) fn(event);
+    },
+    setTimeout: (fn, delay) => {
+      const id = nextTimerId++;
+      timers.push({ id, fn, delay, cleared: false });
+      return id;
+    },
+    clearTimeout: (id) => {
+      const entry = timers.find(t => t.id === id);
+      if (entry) entry.cleared = true;
+    },
+    Event: class Event { constructor(type) { this.type = type; } },
+  };
+  if (!desktop) {
+    win.__alookNativeBridge = {
+      getGeometrySnapshot: () => {
+        const next = responses[callIndex++];
+        if (next instanceof Error) throw next;
+        return next;
+      },
+    };
+  }
+  win.window = win;
+  win.top = win;
+
+  vm.runInNewContext(`(${factorySource})(${desktop})`, win);
+  return { win, styles, dataset, timers };
+}
+
+(async () => {
+  const valid = { top: 38, right: 0, bottom: 0, left: 0, viewportWidth: 1000, viewportHeight: 700, caption: true };
+  const desktopEnv = createEnv({
+    desktop: true,
+    responses: [valid, new Error('minimized 0x0'), valid],
+  });
+  await new Promise(r => setImmediate(r));
+  assert.equal(desktopEnv.dataset.alookNativeGeometry, 'ready');
+  assert.equal(desktopEnv.styles.get('--app-safe-area-top'), '3.8vw');
+  assert.equal(desktopEnv.dataset.alookNativeCaption, 'true');
+
+  desktopEnv.win.dispatchEvent(new desktopEnv.win.Event('resize'));
+  await new Promise(r => setImmediate(r));
+  assert.equal(desktopEnv.dataset.alookNativeGeometry, 'error');
+  assert.equal(desktopEnv.styles.get('--app-safe-area-top'), '3.8vw');
+  assert.equal(desktopEnv.dataset.alookNativeCaption, 'true');
+  assert.equal(desktopEnv.win.__alookNativeGeometry.getSnapshot().insets.top, 38);
+
+  const retryTimer = desktopEnv.timers.find(t => !t.cleared);
+  assert.ok(retryTimer, 'expected scheduled retry');
+  retryTimer.fn();
+  await new Promise(r => setImmediate(r));
+  assert.equal(desktopEnv.dataset.alookNativeGeometry, 'ready');
+
+  const mobileValid = { top: 44, right: 0, bottom: 34, left: 0, viewportWidth: 390, viewportHeight: 844, caption: false };
+  const mobileEnv = createEnv({
+    desktop: false,
+    responses: [null, mobileValid],
+  });
+  await new Promise(r => setImmediate(r));
+  assert.equal(mobileEnv.dataset.alookNativeGeometry, 'error');
+  const mobileRetry = mobileEnv.timers.find(t => !t.cleared);
+  assert.ok(mobileRetry, 'expected mobile retry after initial invalid snapshot');
+  mobileRetry.fn();
+  await new Promise(r => setImmediate(r));
+  assert.equal(mobileEnv.dataset.alookNativeGeometry, 'ready');
+  assert.equal(mobileEnv.win.__alookNativeGeometry.getSnapshot().insets.bottom, 34);
+})();
+"#,
+            )
+            .arg(script)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn permits_only_trusted_main_documents_and_owned_recovery_routes() {

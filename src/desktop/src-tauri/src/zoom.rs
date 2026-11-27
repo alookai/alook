@@ -16,31 +16,39 @@ const DEFAULT_PERCENT: u16 = 100;
 const STEP_PERCENT: u16 = 10;
 
 const MACOS_SHORTCUT_SCRIPT: &str = r#"
-window.addEventListener('keydown', (event) => {
-  if (!event.metaKey || event.ctrlKey || event.altKey) return
-  let action
-  if (event.key === '=' || event.key === '+') action = 'in'
-  else if (event.key === '-') action = 'out'
-  else if (event.key === '0') action = 'reset'
-  else return
-  event.preventDefault()
-  event.stopPropagation()
-  window.__TAURI_INTERNALS__.invoke('desktop_zoom_shortcut', { action })
-})
+(() => {
+  if (window.top !== window) return
+  window.addEventListener('keydown', (event) => {
+    if (!event.metaKey || event.ctrlKey || event.altKey) return
+    if (typeof window.__TAURI_INTERNALS__?.invoke !== 'function') return
+    let action
+    if (event.key === '=' || event.key === '+') action = 'in'
+    else if (event.key === '-') action = 'out'
+    else if (event.key === '0') action = 'reset'
+    else return
+    event.preventDefault()
+    event.stopPropagation()
+    void Promise.resolve(window.__TAURI_INTERNALS__.invoke('desktop_zoom_shortcut', { action })).catch(() => {})
+  })
+})()
 "#;
 
 const CONTROL_SHORTCUT_SCRIPT: &str = r#"
-window.addEventListener('keydown', (event) => {
-  if (!event.ctrlKey || event.metaKey || event.altKey) return
-  let action
-  if (event.key === '=' || event.key === '+') action = 'in'
-  else if (event.key === '-') action = 'out'
-  else if (event.key === '0') action = 'reset'
-  else return
-  event.preventDefault()
-  event.stopPropagation()
-  window.__TAURI_INTERNALS__.invoke('desktop_zoom_shortcut', { action })
-})
+(() => {
+  if (window.top !== window) return
+  window.addEventListener('keydown', (event) => {
+    if (!event.ctrlKey || event.metaKey || event.altKey) return
+    if (typeof window.__TAURI_INTERNALS__?.invoke !== 'function') return
+    let action
+    if (event.key === '=' || event.key === '+') action = 'in'
+    else if (event.key === '-') action = 'out'
+    else if (event.key === '0') action = 'reset'
+    else return
+    event.preventDefault()
+    event.stopPropagation()
+    void Promise.resolve(window.__TAURI_INTERNALS__.invoke('desktop_zoom_shortcut', { action })).catch(() => {})
+  })
+})()
 "#;
 
 pub fn shortcut_script(target_os: &str) -> &'static str {
@@ -177,16 +185,23 @@ fn view_submenu(handle: &AppHandle, menu: &Menu<tauri::Wry>) -> tauri::Result<Su
     Ok(view)
 }
 
+fn menu_accelerators_enabled(target_os: &str) -> bool {
+    target_os == "macos"
+}
+
 pub fn extend_app_menu(handle: &AppHandle, menu: &Menu<tauri::Wry>) -> tauri::Result<()> {
-    let zoom_in = MenuItemBuilder::with_id(ZOOM_IN_MENU_ID, "Zoom In")
-        .accelerator("CmdOrCtrl+=")
-        .build(handle)?;
-    let zoom_out = MenuItemBuilder::with_id(ZOOM_OUT_MENU_ID, "Zoom Out")
-        .accelerator("CmdOrCtrl+-")
-        .build(handle)?;
-    let actual_size = MenuItemBuilder::with_id(ACTUAL_SIZE_MENU_ID, "Actual Size")
-        .accelerator("CmdOrCtrl+0")
-        .build(handle)?;
+    let bind_accelerators = menu_accelerators_enabled(std::env::consts::OS);
+    let mut zoom_in_builder = MenuItemBuilder::with_id(ZOOM_IN_MENU_ID, "Zoom In");
+    let mut zoom_out_builder = MenuItemBuilder::with_id(ZOOM_OUT_MENU_ID, "Zoom Out");
+    let mut actual_size_builder = MenuItemBuilder::with_id(ACTUAL_SIZE_MENU_ID, "Actual Size");
+    if bind_accelerators {
+        zoom_in_builder = zoom_in_builder.accelerator("CmdOrCtrl+=");
+        zoom_out_builder = zoom_out_builder.accelerator("CmdOrCtrl+-");
+        actual_size_builder = actual_size_builder.accelerator("CmdOrCtrl+0");
+    }
+    let zoom_in = zoom_in_builder.build(handle)?;
+    let zoom_out = zoom_out_builder.build(handle)?;
+    let actual_size = actual_size_builder.build(handle)?;
     let separator = PredefinedMenuItem::separator(handle)?;
     let view = view_submenu(handle, menu)?;
     view.insert(&separator, 0)?;
@@ -291,5 +306,91 @@ mod tests {
         assert!(shortcut_script("macos").contains("event.metaKey"));
         assert!(shortcut_script("windows").contains("event.ctrlKey"));
         assert_eq!(shortcut_script("linux"), shortcut_script("windows"));
+    }
+
+    #[test]
+    fn menu_accelerators_are_only_bound_on_macos_to_prevent_double_stepping() {
+        assert!(menu_accelerators_enabled("macos"));
+        assert!(!menu_accelerators_enabled("windows"));
+        assert!(!menu_accelerators_enabled("linux"));
+    }
+
+    #[test]
+    fn shortcut_script_guards_top_frame_internals_and_rejected_invokes() {
+        for (os, modifier) in [("macos", "metaKey"), ("windows", "ctrlKey")] {
+            let script = shortcut_script(os);
+            let output = std::process::Command::new("node")
+                .arg("-e")
+                .arg(
+                    r#"
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const script = process.argv[1];
+const modifier = process.argv[2];
+
+let unhandled = 0;
+process.on('unhandledRejection', () => { unhandled++; });
+
+function dispatch(win, key) {
+  let prevented = false;
+  let stopped = false;
+  const event = {
+    key,
+    metaKey: modifier === 'metaKey',
+    ctrlKey: modifier === 'ctrlKey',
+    altKey: false,
+    preventDefault: () => { prevented = true; },
+    stopPropagation: () => { stopped = true; },
+  };
+  for (const fn of win._listeners) fn(event);
+  return { prevented, stopped };
+}
+
+(async () => {
+  // Subframe must not attach or invoke
+  const iframe = { _listeners: [], top: {}, addEventListener: (t, fn) => iframe._listeners.push(fn) };
+  iframe.window = iframe;
+  vm.runInNewContext(script, iframe);
+  assert.equal(iframe._listeners.length, 0);
+
+  // Top frame without __TAURI_INTERNALS__ must be a safe no-op
+  const noInternals = { _listeners: [], addEventListener: (t, fn) => noInternals._listeners.push(fn) };
+  noInternals.window = noInternals;
+  noInternals.top = noInternals;
+  vm.runInNewContext(script, noInternals);
+  assert.deepEqual(dispatch(noInternals, '+'), { prevented: false, stopped: false });
+
+  // Top frame with rejecting invoke must preventDefault and swallow rejection
+  const calls = [];
+  const topWin = {
+    _listeners: [],
+    addEventListener: (t, fn) => topWin._listeners.push(fn),
+    __TAURI_INTERNALS__: {
+      invoke: (cmd, args) => {
+        calls.push({ cmd, args });
+        return Promise.reject(new Error('guard rejected'));
+      },
+    },
+  };
+  topWin.window = topWin;
+  topWin.top = topWin;
+  vm.runInNewContext(script, topWin);
+  assert.deepEqual(dispatch(topWin, '+'), { prevented: true, stopped: true });
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(calls, [{ cmd: 'desktop_zoom_shortcut', args: { action: 'in' } }]);
+  assert.equal(unhandled, 0);
+})();
+"#,
+                )
+                .arg(script)
+                .arg(modifier)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 }
