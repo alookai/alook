@@ -186,6 +186,12 @@
     "key": "src/shared/src/db/queries/community/bot-creation.ts:submitCreationRequest:values:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/bot-webhook.ts:createBotWebhookDelivery:notInArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot-webhook.ts:listBotWebhooks:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/bot.ts:activationCursorCatchupBuilder:inArray:1"
   },
   {

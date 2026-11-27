@@ -4,6 +4,7 @@ import { queries, dispatchOneUnreadWake, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { wsDoFetch } from "@/lib/broadcast"
 import { resyncOwnerScheduleForBots } from "@/lib/community/schedule.server"
+import { resyncBotWebhookDeliveriesForBots } from "@/lib/community/bot-webhook.server"
 import { machineAuthPolicy } from "@/lib/middleware/community-daemon-auth"
 
 /**
@@ -55,13 +56,22 @@ export const POST = withAuth(machineAuthPolicy, async (_req, ctx) => {
   }
 
   if (bots.length > 0) {
+    const botIds = bots.map((bot) => bot.id)
     const scheduleResync = await resyncOwnerScheduleForBots(
       db,
       ctx.env,
       ctx.userId,
-      bots.map((bot) => bot.id),
+      botIds,
     )
     attempted += scheduleResync.dispatched
+
+    const webhookResync = await resyncBotWebhookDeliveriesForBots(
+      db,
+      ctx.env,
+      ctx.userId,
+      botIds,
+    )
+    attempted += webhookResync.dispatched
   }
 
   return NextResponse.json({ attempted })
