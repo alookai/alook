@@ -20,7 +20,6 @@
         "agent-driver-packed"
       ],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": true
     },
     {
@@ -39,7 +38,6 @@
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": true
     },
     {
@@ -64,7 +62,6 @@
         "daemon-real"
       ],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": true
     },
     {
@@ -79,7 +76,6 @@
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": false,
       "rust": true
     },
@@ -100,7 +96,6 @@
       ],
       "linux_suites": [],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": true
     },
     {
@@ -119,7 +114,6 @@
       ],
       "linux_suites": [],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": true
     },
     {
@@ -139,7 +133,6 @@
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": true
     },
     {
@@ -154,7 +147,6 @@
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": false
     },
     {
@@ -169,7 +161,6 @@
       "integration_suites": [],
       "linux_suites": [],
       "ui": false,
-      "lighthouse": false,
       "app_artifact": false
     },
     {
@@ -189,7 +180,6 @@
       ],
       "linux_suites": [],
       "ui": true,
-      "lighthouse": true,
       "app_artifact": true
     },
     {
@@ -209,7 +199,6 @@
       ],
       "linux_suites": [],
       "ui": true,
-      "lighthouse": false,
       "app_artifact": true
     }
   ],

@@ -384,7 +384,6 @@ function emptyJobs() {
     blog_build: false,
     db_query_check: false,
     e2e: false,
-    lighthouse: false,
     merge_reports: false,
     resizable_panels_compat: false,
     rust: false,
@@ -551,10 +550,6 @@ export function buildExecutionPlan(inputChanges, options = {}) {
     && paths.some((path) => !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path))) {
     uiSpecs = sorted([...uiSpecs, ...manifest.ui.contracts.blog])
   }
-  const directWebRuntime = paths.some((path) => (
-    pathWithin(path, "src/web") && !BLOG_ROOT.test(path) && !AUTH_ROOT.test(path)
-  ))
-  const lighthouse = full || (blogPathsOnly && !blogContentOnly) || directWebRuntime
   const rust = full || [...affectedPackages, ...direct.map((name) => byName.get(name))].some((entry) => entry.rust)
   const directPackages = direct.map((name) => byName.get(name))
   const appArtifact = full || (!blogPathsOnly && !authPathsOnly && [...affectedPackages, ...directPackages]
@@ -588,7 +583,6 @@ export function buildExecutionPlan(inputChanges, options = {}) {
   jobs.app_packed_artifact = appArtifact
   jobs.e2e = suites.integration.length > 0
   jobs.rust = rust
-  jobs.lighthouse = lighthouse && !mainSmoke
   jobs.ui_e2e = uiSpecs.length > 0
   jobs.merge_reports = jobs.ui_e2e
   const browserZones = browserZonesForSpecs(uiSpecs, manifest)
@@ -668,7 +662,7 @@ export function validateExecutionPlan(plan, options = {}) {
     if (JSON.stringify(plan.ui.specs) !== JSON.stringify(expectedUi)
       || sourcePlan.full || stablePlanJson(plan.packages) !== stablePlanJson(sourcePlan.packages)
       || !plan.jobs.test_linux || plan.jobs.static_checks || plan.jobs.test_windows
-      || plan.jobs.e2e || plan.jobs.lighthouse || plan.jobs.resizable_panels_compat
+      || plan.jobs.e2e || plan.jobs.resizable_panels_compat
       || plan.jobs.ui_e2e !== (expectedUi.length > 0) || plan.jobs.merge_reports !== (expectedUi.length > 0)) {
       throw new Error("main smoke jobs must execute the complete selected behavior checks")
     }
@@ -744,7 +738,6 @@ export function projectPlan(plan) {
     run_ui_e2e: String(plan.jobs.ui_e2e),
     run_resizable_panels_compat: String(plan.jobs.resizable_panels_compat),
     run_rust: String(plan.jobs.rust),
-    run_lighthouse: String(plan.jobs.lighthouse),
     run_knip: String(plan.suites.knip.length > 0),
     run_app_packed_artifact: String(plan.jobs.app_packed_artifact),
     static_tasks: JSON.stringify(plan.suites.static_tasks),

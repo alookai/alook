@@ -31,6 +31,104 @@ test("homepage SSR keeps product demos out of the heading tree", async ({ page, 
   expect(counts).toEqual({ h1: 1, demoHeadings: 0 })
 })
 
+test("homepage satisfies crawlable robots, indexability, image alt, and link text SEO guards", async ({ page, request }) => {
+  const robotsResponse = await request.get("/robots.txt")
+  expect(robotsResponse.status()).toBe(200)
+  expect(robotsResponse.headers()["content-type"]).toContain("text/plain")
+  const robotsBody = await robotsResponse.text()
+  const robotsLines = robotsBody.split(/\r?\n/).map((line) => line.trim())
+  expect(robotsLines).toContain("User-agent: *")
+  expect(robotsLines).toContain("Allow: /")
+  expect(robotsLines).not.toContain("Disallow: /")
+  expect(robotsBody).toMatch(/^Sitemap:\s+https:\/\/alook\.ai\/sitemap\.xml$/m)
+
+  const homeResponse = await request.get("/")
+  expect(homeResponse.status()).toBe(200)
+  expect(homeResponse.headers()["x-robots-tag"] ?? "").not.toMatch(/\bnoindex\b/i)
+
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/")
+
+  const seo = await page.evaluate(() => {
+    const htmlLang = document.documentElement.getAttribute("lang")?.trim() ?? ""
+    const title = document.title.trim()
+    const description = document.querySelector('meta[name="description"]')?.getAttribute("content")?.trim() ?? ""
+    const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute("href")?.trim() ?? ""
+    const robotsMeta = Array.from(document.querySelectorAll('meta[name="robots"], meta[name="googlebot"]'))
+      .map((meta) => meta.getAttribute("content") ?? "")
+
+    const missingAltImages = Array.from(document.querySelectorAll("img"))
+      .filter((img) => {
+        if (img.hasAttribute("alt")) return false
+        const decorative = img.getAttribute("aria-hidden") === "true"
+          || img.getAttribute("role") === "presentation"
+          || img.getAttribute("role") === "none"
+        const labelled = Boolean(
+          img.getAttribute("aria-label")?.trim()
+          || img.getAttribute("aria-labelledby")?.trim(),
+        )
+        return !decorative && !labelled
+      })
+      .map((img) => img.getAttribute("src") ?? img.outerHTML.slice(0, 80))
+
+    const anchors = Array.from(document.querySelectorAll("a"))
+    const uncrawlableLinks = anchors
+      .filter((anchor) => {
+        const rawHref = anchor.getAttribute("href")?.trim() ?? ""
+        if (!rawHref || rawHref === "#") return true
+        return /^(?:javascript|vbscript):/i.test(rawHref)
+      })
+      .map((anchor) => ({
+        href: anchor.getAttribute("href"),
+        text: anchor.textContent?.trim() ?? "",
+      }))
+
+    const emptyTextLinks = anchors
+      .filter((anchor) => {
+        if (anchor.getAttribute("aria-hidden") === "true" || anchor.closest('[aria-hidden="true"]')) return false
+        const ariaLabel = anchor.getAttribute("aria-label")?.trim() ?? ""
+        const labelledBy = anchor.getAttribute("aria-labelledby")
+          ?.split(/\s+/)
+          .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+          .join(" ")
+          .trim() ?? ""
+        const text = anchor.textContent?.replace(/\s+/g, " ").trim() ?? ""
+        const imgAlt = Array.from(anchor.querySelectorAll("img[alt]"))
+          .map((img) => img.getAttribute("alt")?.trim() ?? "")
+          .join(" ")
+          .trim()
+        const accessibleName = ariaLabel || labelledBy || text || imgAlt
+        return accessibleName.length === 0
+      })
+      .map((anchor) => ({
+        href: anchor.getAttribute("href"),
+        html: anchor.outerHTML.slice(0, 120),
+      }))
+
+    return {
+      htmlLang,
+      title,
+      description,
+      canonical,
+      robotsMeta,
+      anchorCount: anchors.length,
+      missingAltImages,
+      uncrawlableLinks,
+      emptyTextLinks,
+    }
+  })
+
+  expect(seo.htmlLang).not.toBe("")
+  expect(seo.title).not.toBe("")
+  expect(seo.description).not.toBe("")
+  expect(seo.canonical).toMatch(/^https:\/\/alook\.ai\/?$/)
+  expect(seo.robotsMeta.every((value) => !/\bnoindex\b/i.test(value))).toBe(true)
+  expect(seo.missingAltImages).toEqual([])
+  expect(seo.anchorCount).toBeGreaterThan(0)
+  expect(seo.uncrawlableLinks).toEqual([])
+  expect(seo.emptyTextLinks).toEqual([])
+})
+
 test("homepage header, body, and footer share responsive content edges", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/")
