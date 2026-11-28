@@ -10,8 +10,6 @@ import { preparePageDirectory } from "./pageDirectory.js";
 import { preparePageCover } from "./pageCover.js";
 import {
   captureLocalPagePreview,
-  openLocalPagePreview,
-  serveStaticPagePreviewLoop,
   writeLocalPagePreviewFile,
   type LocalPagePreviewOptions,
   type LocalPagePreviewResult,
@@ -940,25 +938,14 @@ function buildProgram(stdin: CliInputStream): Command {
       printEnvelope({ success: result });
     });
 
-  pageCommand.command("preview").description("preview a local Page directory (all 9 types): omit --out to open an interactive local browser URL, or pass --out <img.png> to save a 16:10 screenshot")
+  pageCommand.command("preview").description("render a local Page directory (all 9 types) at 16:10, save a screenshot to --out, and automatically shut down the temporary browser and local server")
     .requiredOption("--dir <directory>", "local artifact directory")
-    .option("--out <path>", "optional destination image path; when set, renders and saves a 16:10 screenshot instead of starting a live local URL")
+    .option("--out <path>", "required destination image path for the rendered 16:10 screenshot")
     .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
       const outPath = this.opts().out ?? pageCommand.opts().out;
-      if (outPath) {
-        printEnvelope({ success: await writeLocalPagePreviewFile(String(this.opts().dir), String(outPath)) });
-      } else {
-        printEnvelope({ success: await openLocalPagePreview(String(this.opts().dir)) });
-      }
-    });
-
-  pageCommand.command("_serve-static", { hidden: true })
-    .requiredOption("--dir <directory>")
-    .option("--idle <seconds>", "auto-exit idle timeout in seconds", "600")
-    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(async function (this: Command) {
-      await serveStaticPagePreviewLoop(String(this.opts().dir), Number(this.opts().idle ?? 600));
+      if (!outPath) throw new CliError("page preview: --out <path> is required");
+      printEnvelope({ success: await writeLocalPagePreviewFile(String(this.opts().dir), String(outPath)) });
     });
 
   pageCommand.command("upload").description("validate a local artifact directory, capture its 16:10 homepage cover locally before upload (or use --cover), and return its reusable live Page id")

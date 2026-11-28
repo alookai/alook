@@ -8,7 +8,7 @@ import { delimiter, extname, join, resolve } from "node:path";
 import WebSocket from "ws";
 import { PAGE_COVER_MAX_BYTES, pageCoverContentType } from "@alook/shared";
 import { isAllowedPageRelativePath, preparePageDirectory } from "./pageDirectory.js";
-import { ensurePageRuntime, runPageLocalCli, type EnsurePageRuntimeOptions } from "./pageRuntime.js";
+import { ensurePageRuntime, type EnsurePageRuntimeOptions } from "./pageRuntime.js";
 
 export interface LocalPagePreviewResult {
   data: Uint8Array;
@@ -560,111 +560,6 @@ export async function captureLocalPagePreview(
   return { ...normalized, type: prepared.type, width, height };
 }
 
-export async function serveStaticPagePreviewLoop(directory: string, idleSeconds = 600): Promise<void> {
-  const absDir = realpathSync(resolve(directory));
-  const { server, port } = await startStaticPageServer(absDir);
-  const idleMs = Math.max(5_000, Math.min(3_600_000, Math.round(idleSeconds * 1000)));
-  await new Promise<void>((resolveDone) => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const shutdown = () => {
-      if (timer) clearTimeout(timer);
-      server.close(() => resolveDone());
-    };
-    const resetTimer = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(shutdown, idleMs);
-    };
-    server.on("request", resetTimer);
-    resetTimer();
-    process.once("SIGTERM", shutdown);
-    process.once("SIGINT", shutdown);
-    process.stdout.write(`${JSON.stringify({ alookStaticPreview: "ready", url: `http://127.0.0.1:${port}/`, pid: process.pid })}\n`);
-  });
-}
-
-export async function openLocalPagePreview(
-  directory: string,
-  options: { runtimeOptions?: EnsurePageRuntimeOptions; cliEntryPath?: string; idleSeconds?: number; timeoutMs?: number } = {},
-): Promise<{ mode: "interactive"; type: string; dir: string; url: string; pid?: number; stopHint: string }> {
-  const prepared = await preparePageDirectory(directory);
-  const absDir = realpathSync(resolve(directory));
-  const timeoutMs = options.timeoutMs ?? 20_000;
-
-  if (prepared.type !== "page") {
-    const runtime = await ensurePageRuntime(options.runtimeOptions);
-    const result = await runPageLocalCli(runtime, ["open", absDir, "--type", prepared.type, "--json"], { timeoutMs });
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || result.stdout.trim() || `Local preview open failed (${result.exitCode})`);
-    }
-    const line = result.stdout.trim().split(/\r?\n/).reverse().find(l => l.trim().startsWith("{"));
-    const parsed = line ? (JSON.parse(line) as { url?: string; page_url?: string }) : null;
-    const url = parsed?.url || parsed?.page_url;
-    if (!url) throw new Error(`Local preview did not return a URL: ${result.stdout.slice(0, 200)}`);
-    return { mode: "interactive", type: prepared.type, dir: absDir, url, stopHint: "alook page local stop" };
-  }
-
-  const cliEntry = options.cliEntryPath ?? process.argv[1];
-  if (!cliEntry) throw new Error("Unable to locate CLI entry point for static Page preview");
-  const idleSeconds = options.idleSeconds ?? 600;
-  const child = spawn(process.execPath, [cliEntry, "page", "_serve-static", "--dir", absDir, "--idle", String(idleSeconds)], {
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  const url = await new Promise<string>((resolveUrl, reject) => {
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const done = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.stdout?.off("data", onStdout);
-      child.stderr?.off("data", onStderr);
-      child.off("error", onError);
-      child.off("exit", onExit);
-      fn();
-    };
-    const timer = setTimeout(() => {
-      try { child.kill("SIGTERM"); } catch { /* ignore */ }
-      done(() => reject(new Error(`Timed out starting local Page preview server: ${stderr.slice(-200)}`)));
-    }, Math.min(10_000, timeoutMs));
-    const onStdout = (chunk: Buffer | string) => {
-      stdout += String(chunk);
-      for (const l of stdout.split(/\r?\n/)) {
-        if (!l.trim().startsWith("{")) continue;
-        try {
-          const parsed = JSON.parse(l) as { alookStaticPreview?: string; url?: string };
-          if (parsed.alookStaticPreview === "ready" && typeof parsed.url === "string") {
-            const readyUrl = parsed.url;
-            done(() => resolveUrl(readyUrl));
-            return;
-          }
-        } catch { /* wait for full line */ }
-      }
-    };
-    const onStderr = (chunk: Buffer | string) => { stderr += String(chunk); };
-    const onError = (err: Error) => done(() => reject(err));
-    const onExit = (code: number | null) => done(() => reject(new Error(`Static Page preview server exited early (${code}): ${stderr.slice(-200)}`)));
-    child.stdout?.on("data", onStdout);
-    child.stderr?.on("data", onStderr);
-    child.once("error", onError);
-    child.once("exit", onExit);
-  });
-
-  child.stdout?.destroy();
-  child.stderr?.destroy();
-  child.unref();
-  return {
-    mode: "interactive",
-    type: "page",
-    dir: absDir,
-    url,
-    pid: child.pid,
-    stopHint: child.pid ? `kill ${child.pid} (auto-exits after ${idleSeconds}s idle)` : `auto-exits after ${idleSeconds}s idle`,
-  };
-}
-
 export async function writeLocalPagePreviewFile(
   directory: string,
   outPath: string,
@@ -674,7 +569,6 @@ export async function writeLocalPagePreviewFile(
   const resolvedOut = resolve(outPath);
   await writeFile(resolvedOut, preview.data);
   return {
-    mode: "screenshot" as const,
     path: resolvedOut,
     type: preview.type,
     contentType: preview.contentType,

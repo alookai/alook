@@ -159,8 +159,7 @@ function messagingSection(): string {
     "- Reuse files: to forward an attachment or send the same file again, pass its existing ID with `--attachment <id>`. " +
       "Do not download and upload it again. Reuse works across channels, DMs, and threads while you can still read the file. " +
       "Upload only a new or changed file.",
-    `- Alook Page: for cloud artifacts or apps that need persisted state, ongoing edits, or collaboration (not one-off inline HTML visuals without saved state), read @alook-page.md to choose the right surface and artifact \`type\`. ` +
-      `Author with \`${CLI} page guide --type <type>\` and \`${CLI} page local ...\`, inspect visually with \`${CLI} page preview --dir <dir> --out <img.png>\`, upload once with \`${CLI} page upload --dir <dir> [--cover <img.png>]\`, and attach or forward its \`page_id\` with \`--page <page_id>\` on \`message send\`.`,
+    "- Alook Page: for living collaborative artifacts or apps that need persisted cloud state (not one-off inline HTML visuals without saved state), read `@alook-page.md`.",
     `- Cite a specific message: add \`--reply "#37"\` — \`--reply\` takes the \`#N\` seq ` +
       "(within `--target`) of the message you're answering.",
     "",
@@ -374,16 +373,9 @@ function cliCommandsSection(): string {
     "",
     "### Pages",
     "",
-    "See @alook-page.md for when to use an Alook Page vs inline HTML and which artifact `type` to pick. CLI usage for creating, sharing, inspecting, editing, and deleting artifacts:",
+    "Use an Alook Page only when people need a **persistent, living collaborative artifact or app** (documents, decks, spreadsheets, whiteboards, design boards, dashboards, motion compositions, design systems, or stateful custom apps) that stays editable and reusable across channels after chat moves on. For one-off visuals or ephemeral client-only snippets without saved state, use inline HTML; for read-only prose or logs, use plain text or a Markdown attachment.",
     "",
-    `1. \`${CLI} page guide [--type <type>] [--ref <file>]\` — ensure the shared local Open Artifact runtime (\`~/.alook/page-runtime/\`) and read the official \`SKILL.md\` / \`reference/*.md\` authoring specification for any of the 9 artifact types (\`docs\`, \`slides\`, \`sheets\`, \`whiteboard\`, \`design\`, \`data\`, \`motion\`, \`design-system\`, \`page\`). Always read the target type's guide before creating a built-in artifact.`,
-    `2. \`${CLI} page local <command> [args...]\` — run native local Open Artifact authoring and validation commands (\`create\`, \`update\`, \`read\`, \`batch\`, \`write-db\`, \`read-db\`, \`check\`, \`upload\`, \`info\`, \`open\`, \`stop\`) on your local artifact directory before uploading; forwards piped stdin (e.g. \`- <<'EOF'\`) directly.`,
-    `3. \`${CLI} page preview --dir <dir> [--out <img.png>]\` — preview your local artifact directory (all 9 types) before uploading: omit \`--out\` to start an interactive local browser URL you can open and inspect directly, or pass \`--out <img.png>\` to render and save a 16:10 screenshot.`,
-    `4. \`${CLI} page upload --dir <dir> [--cover <img-path>]\` — validate and auto-zip a local artifact directory (detects built-in markers like \`doc/doc.json\` / \`sheet/sheet.json\` / \`project/deck.json\` or root \`.artifact.json\`; generic \`page\` requires \`.artifact.json\` + \`index.html\`; auto-excludes \`.git\`, \`node_modules\`, \`.DS_Store\`, \`_agent\`; limits: 16 MiB compressed, 32 MiB unpacked, 2,000 files), capture its 16:10 homepage cover locally before any network call (or upload \`--cover <img-path>\`, PNG/JPEG/WebP, ≤ 2 MiB), and return its reusable \`page_id\`.`,
-    `5. \`${CLI} message send --target <ref> --page <page_id> --remind-after <0|Nm|Nh> --stdin\` — attach or forward an uploaded \`page_id\` across channels without re-uploading (all linked cards share one live cloud Page; reader comments return to the opening conversation).`,
-    `6. \`${CLI} page list [--limit <1..100>] [--cursor <cursor>]\` — list Pages created by this bot (including unused uploads) with \`total\` and each Page's \`messageCount\`.`,
-    `7. \`${CLI} page --id <id> --stdin [--out <path>]\` — read or live-edit an accessible cloud Page via JSON on stdin: \`{"kind":"manifest"}\`, \`{"kind":"read","path":"..."}\` (use \`--out\` to write a file locally), \`{"kind":"write","writes":[{"path":"...","content":"<base64>","if_match":"<etag>"}]}\` (use JSON \`null\` for \`if_match\` when creating a new file), \`{"kind":"actions"}\` (inspect native editor action schemas), or \`{"kind":"action","name":"...","args":{...}}\`.`,
-    `8. \`${CLI} page delete --id <id>\` — permanently delete a Page created by this bot, destroy its cloud data and cover, and unlink all messages (deleting a message removes only that link).`,
+    "Before creating, previewing, uploading, sharing, editing, or deleting any Page, read `@alook-page.md` for all artifact types, authoring workflow, and `$ALOOK_CLI page` commands.",
     "",
     "### Settings",
     "",

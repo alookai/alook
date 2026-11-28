@@ -2704,9 +2704,7 @@ it("page guide, page local (with piped stdin and non-zero exit), and page previe
     await fs.writeFile(join(docDir, "doc", "doc.json"), JSON.stringify({ format: "oa-doc", tabs: {} }));
     cap.lines().length = 0;
     await main(["page", "preview", "--dir", docDir]);
-    expect(parseEnvelope(cap.lines())).toMatchObject({
-      success: { mode: "interactive", type: "docs", url: "http://127.0.0.1:41234/docs/tok/" },
-    });
+    expect(parseEnvelope(cap.lines()).error).toContain("--out <path> is required");
   } finally {
     if (prevRuntimeDir === undefined) delete process.env.ALOOK_PAGE_RUNTIME_DIR;
     else process.env.ALOOK_PAGE_RUNTIME_DIR = prevRuntimeDir;

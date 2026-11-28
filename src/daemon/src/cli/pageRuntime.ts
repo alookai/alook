@@ -33,7 +33,7 @@ export const PAGE_RUNTIME_PIN = {
   cacheKey: "0.16.3-a325e46c37f9-b8a6621d4f5a",
   sha256: "e6809b5258747a31c0eb2d3a48e258ffbc066870386244e66f61de6b3394e1fd",
   urlForKey: (cacheKey: string) =>
-    `https://github.com/alookai/alook/releases/download/page-runtime-${cacheKey}/alook-page-runtime-${cacheKey}.tar.gz`,
+    `https://alook.ai/api/page-runtime/alook-page-runtime-${cacheKey}.tar.gz`,
 } as const;
 
 const MAX_RUNTIME_ARCHIVE_BYTES = 64 * 1024 * 1024;
@@ -296,7 +296,7 @@ export async function ensurePageRuntime(options: EnsurePageRuntimeOptions = {}):
 
 const ALOOK_GUIDE_HEADER = [
   "> **Alook CLI mapping**: Run `alook page local <cmd>` wherever this guide writes `open-artifact <cmd>` or `node .../scripts/cli.mjs <cmd>` (piped stdin like `- <<'EOF'` works directly).",
-  "> Inspect locally with `alook page preview --dir <root>` (interactive URL) or `alook page preview --dir <root> --out preview.png` (16:10 screenshot), then upload with `alook page upload --dir <root>`.",
+  "> Visually inspect locally with `alook page preview --dir <root> --out preview.png` (renders 16:10 and exits cleanly), then upload with `alook page upload --dir <root>`.",
   "",
 ].join("\n");
 
