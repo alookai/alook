@@ -70,6 +70,7 @@ test("the bootstrap removes its fragment before exchanging the ticket, preconnec
   assert.match(csp, /frame-ancestors http:\/\/localhost:3000/);
   assert.match(csp, /script-src 'nonce-[^']+' 'self'/);
   assert.match(csp, /style-src 'self'/);
+  assert.match(csp, /connect-src 'self' https:\/\/art-1234567890abcdef\.alook\.page;/);
   const html = await response.text();
   assert.match(html, /<link rel="preconnect" href="https:\/\/art-1234567890abcdef\.alook\.page">/);
   assert.match(html, /<link rel="preload" as="style" href="\/_open-artifact\/shell\/assets\/shell-abc123\.css">/);

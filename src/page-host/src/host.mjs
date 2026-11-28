@@ -161,8 +161,9 @@ history.replaceState(null, '', location.pathname);
 fetch('/alook/session', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ticket,artifactId:${JSON.stringify(artifactId)}})})
 .then(async response => { if (!response.ok) throw new Error('This Page could not be opened. Return to Alook and try again.'); const identity = await response.json(); location.replace('/a/'+${JSON.stringify(artifactId)}+'?'+new URLSearchParams({sourceMessageId:identity.sourceMessageId})); })
 .catch(error => { document.body.textContent=error.message; });`;
+  const connectSrc = preconnect ? `'self' ${preconnect}` : "'self'";
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Alook Page</title>${preconnectTag}${preloadTags}<body>Opening Page…<script nonce="${nonce}">${script}</script>`;
-  return new Response(html, { headers: { ...privateHeaders, "content-type": "text/html; charset=utf-8", "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}' 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${origins.join(" ")}` } });
+  return new Response(html, { headers: { ...privateHeaders, "content-type": "text/html; charset=utf-8", "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}' 'self'; style-src 'self'; connect-src ${connectSrc}; base-uri 'none'; form-action 'none'; frame-ancestors ${origins.join(" ")}` } });
 }
 
 export async function handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, actionsOfType, purgeArtifact }) {

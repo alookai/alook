@@ -23,6 +23,7 @@ const tickets = new Map();
 const sources = new Set(["entry-a", "entry-b"]);
 let allowed = true;
 let checks = 0;
+let holdAccess = null;
 const feedback = [];
 const ticket = (source = "entry-b") => { const value = randomBytes(32).toString("base64url"); tickets.set(value, source); return value; };
 const assets = resolve(root, "src/page-host/dist/assets");
@@ -56,6 +57,13 @@ try {
         }
         if (new URL(request.url).pathname.endsWith("/access")) {
           checks++;
+          if (holdAccess) {
+            const gate = holdAccess;
+            holdAccess = null;
+            gate.entered();
+            await gate.release;
+            return Response.json({ role: gate.role });
+          }
           return Response.json({ role: allowed && sources.size > 0 && ["native-reader", "native-bot", "forwarding-bot"].includes(body.subject) && body.artifactId === artifactId ? "editor" : null });
         }
         if (new URL(request.url).pathname.endsWith("/artifact-comment")) {
@@ -255,6 +263,28 @@ try {
     const coldBurstDelta = checks - coldBurstStartChecks;
     assert.equal(coldBurstDelta, 1, `Expected 6 cold concurrent reads to coalesce into 1 /access check, got ${coldBurstDelta}`);
     console.log(`Instant re-grant + cold concurrent burst coalescing (6 reads -> ${coldBurstDelta} /access check): PASS`);
+
+    // Interleaving invalidation race: an in-flight allow response finishing AFTER invalidate() must never poison #pluginAnswers or memo.
+    const bindingsForRace = await mf.getBindings();
+    const roomStubForRace = bindingsForRace.ROOMS.get(bindingsForRace.ROOMS.idFromName(artifactId));
+    await roomStubForRace.fetch(new Request(`http://room/refresh?id=${artifactId}`, { headers: { "x-open-artifact-room-call": "1" } }));
+    let markEntered;
+    const entered = new Promise(resolve => { markEntered = resolve; });
+    let releaseStale;
+    const release = new Promise(resolve => { releaseStale = resolve; });
+    holdAccess = { entered: markEntered, release, role: "editor" };
+    const staleRead = mf.dispatchFetch(new URL("api/frame/session", inner), { headers: { origin: inner.origin } });
+    await entered;
+    allowed = false;
+    await roomStubForRace.fetch(new Request(`http://room/refresh?id=${artifactId}`, { headers: { "x-open-artifact-room-call": "1" } }));
+    releaseStale();
+    await staleRead;
+    const checksAfterStale = checks;
+    const postInvalidate = await mf.dispatchFetch(new URL("api/frame/session", inner), { headers: { origin: inner.origin } });
+    assert.equal(postInvalidate.status, 403, `Expected 403 after invalidation race, got ${postInvalidate.status}`);
+    assert.ok(checks > checksAfterStale, "Expected fresh /access check instead of stale #pluginAnswers hit");
+    allowed = true;
+    console.log("In-flight allow finishing after invalidate never poisons #pluginAnswers or room memo: PASS");
 
     const live = await mf.dispatchFetch(new URL("api/frame/events?c=nativeqa-client-0001", inner), { headers: { upgrade: "websocket", "sec-websocket-protocol": "baoyu-sse", origin: inner.origin } });
     assert.equal(live.status, 101);

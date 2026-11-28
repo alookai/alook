@@ -209,7 +209,7 @@ patch("packages/host/src/core/authz/access.ts", text => {
     return access ? { ...access, artifact, epoch } : null;`,
 `    let failed: string | undefined;
     if (plugins && computed.principal && computed.artifact) {
-      const decided = await this.#pluginRole(plugins, computed.principal, computed.artifact, computed.role ?? null, now.getTime(), generation);
+      const decided = await this.#pluginRole(plugins, computed.principal, computed.artifact, computed.role ?? null, now.getTime(), generation, lookupGeneration);
       if (decided.failed) failed = decided.failed;
       access = decided.role ? { role: decided.role, principal: computed.principal, artifact: computed.artifact } : null;
       if (decided.until < until) until = decided.until;
@@ -220,8 +220,11 @@ patch("packages/host/src/core/authz/access.ts", text => {
     }
     return { access: access ? { ...access, artifact, epoch } : null, ...(failed ? { failed } : {}) };`);
   text = replaceOnce(text,
+    "  async #pluginRole(plugins: Plugins, principal: Principal, artifact: ArtifactRow, hostRole: ArtifactRole | null, now: number, generation: number): Promise<{ role: ArtifactRole | null; until: number; failed?: string }> {",
+    "  async #pluginRole(plugins: Plugins, principal: Principal, artifact: ArtifactRow, hostRole: ArtifactRole | null, now: number, generation: number, lookupGeneration = this.#lookupGeneration): Promise<{ role: ArtifactRole | null; until: number; failed?: string }> {");
+  text = replaceOnce(text,
     "    if (seconds > 0) {\n      this.#pluginAnswers.delete(key);",
-    "    if (seconds > 0 && answer.role !== null) {\n      this.#pluginAnswers.delete(key);");
+    "    if (seconds > 0 && answer.role !== null && lookupGeneration === this.#lookupGeneration) {\n      this.#pluginAnswers.delete(key);");
   return replaceOnce(text,
 `  invalidate(artifactId?: string): void {
     if (artifactId === undefined) {
