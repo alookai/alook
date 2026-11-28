@@ -74,6 +74,23 @@ describe("native notification dismissal handoff", () => {
     expect(queue.peek("mobile", "viewer_1", "/c/me/channel_1")).toBeNull()
     expect(removeItem).toHaveBeenCalledOnce()
   })
+
+  it("matches targetId across message-door redirects and keeps multiple queued notifications bounded", () => {
+    const values = new Map<string, string>()
+    const queue = createNativeSystemNotificationDismissalQueue(deps(values))
+    const secondId = "5f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e"
+    expect(queue.queue("mobile", "viewer_1", notificationId, "/c/messages/msg_1", "channel_1")).toBe(true)
+    expect(queue.queue("mobile", "viewer_1", secondId, "/c/messages/msg_2", "dm_2")).toBe(true)
+
+    expect(queue.peek("mobile", "viewer_1", "/c/messages/other_msg")).toBeNull()
+    expect(queue.peek("mobile", "viewer_1", "/c/channels/server_1/channel_1")).toBe(notificationId)
+    expect(queue.complete("mobile", "viewer_1", "/c/channels/server_1/channel_1", notificationId)).toBe(true)
+    expect(queue.peek("mobile", "viewer_1", "/c/channels/server_1/channel_1")).toBeNull()
+
+    expect(queue.peek("mobile", "viewer_1", "/c/me/dm_2")).toBe(secondId)
+    expect(queue.complete("mobile", "viewer_1", "/c/me/dm_2", secondId)).toBe(true)
+    expect(values.size).toBe(0)
+  })
 })
 
 describe("native notification conversation dismissal revisions", () => {

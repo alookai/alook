@@ -15,6 +15,25 @@ const mocks = vi.hoisted(() => ({
   getLastUsedLoginMethod: vi.fn<() => string | null>(() => null),
   rememberLastLoginMethod: vi.fn(),
   verifyInput: undefined as undefined | ((value: string) => Promise<void>),
+  tauri: false,
+  nativeOauthConnect: vi.fn(),
+  nativeOauthStart: vi.fn(),
+  nativeOauthCancel: vi.fn(),
+  nativeOauthDispose: vi.fn(),
+}))
+
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@alook/shared")>()),
+  isTauri: () => mocks.tauri,
+}))
+vi.mock("@/lib/native-oauth-client", () => ({
+  nativeOauthBrowserDeps: {},
+  createNativeOauthController: () => ({
+    connect: mocks.nativeOauthConnect,
+    start: mocks.nativeOauthStart,
+    cancel: mocks.nativeOauthCancel,
+    dispose: mocks.nativeOauthDispose,
+  }),
 }))
 
 vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.capture }))
@@ -90,6 +109,8 @@ import SignInPageClient from "./sign-in-client"
 describe("sign-in client layout, consent-on-continue, and last-used method", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.tauri = false
+    mocks.nativeOauthConnect.mockResolvedValue(undefined)
     mocks.send.mockResolvedValue({})
     mocks.verify.mockResolvedValue({ error: { code: "INVALID_OTP", status: 400 } })
     mocks.getLastUsedLoginMethod.mockReturnValue(null)
@@ -500,5 +521,26 @@ describe("sign-in client layout, consent-on-continue, and last-used method", () 
     expect(mocks.rememberLastLoginMethod).not.toHaveBeenCalled()
     await act(async () => { await mocks.verifyInput!("123456") })
     expect(mocks.rememberLastLoginMethod).toHaveBeenCalledExactlyOnceWith("email")
+  })
+
+  it("keeps the native OAuth listener mounted across email and OTP pane switches in Tauri", async () => {
+    mocks.tauri = true
+    const view = render(createElement(SignInPageClient, { isProd: true, appleEnabled: true }))
+    const user = setupUser()
+
+    expect(mocks.nativeOauthConnect).toHaveBeenCalledOnce()
+    expect(mocks.nativeOauthDispose).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: "Continue with email", exact: true }))
+    await user.type(screen.getByRole("textbox", { name: "Email" }), "person@example.com")
+    await user.click(screen.getByRole("button", { name: "Continue", exact: true }))
+    await user.click(screen.getByRole("button", { name: "Use a different email" }))
+    await user.click(screen.getByRole("button", { name: "Back", exact: true }))
+
+    expect(mocks.nativeOauthConnect).toHaveBeenCalledOnce()
+    expect(mocks.nativeOauthDispose).not.toHaveBeenCalled()
+
+    view.unmount()
+    expect(mocks.nativeOauthDispose).toHaveBeenCalledOnce()
   })
 })

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createLogger } from "@alook/shared"
-import { createMockCtx } from "../__mocks__/cf"
+import { BUSINESS_SCHEMA_VERSION, createLogger } from "@alook/shared"
+import { makeD1Error } from "@alook/shared/db/resilience-testing"
+import { createMockCtx, createMockWebSocket } from "../__mocks__/cf"
 import { createCountingSqliteD1 } from "../test/sqlite-d1"
 import { handleBatchPresence } from "./presence"
 
@@ -92,5 +93,67 @@ describe("POST /presence/users bulk bot resolution", () => {
     expect(botDoWakeups).toBe(0)
     expect(humanDoWakeups).toBe(300)
     expect(db.queries.length).toBe(1)
+  })
+
+  it("does not misreport bots as offline when D1 bot lookup is degraded while still returning online humans", async () => {
+    const d1Failure = makeD1Error("internal_error")
+    const failingD1 = {
+      prepare: () => ({
+        bind: () => ({
+          all: async () => { throw d1Failure },
+          raw: async () => { throw d1Failure },
+          run: async () => { throw d1Failure },
+          first: async () => { throw d1Failure },
+        }),
+        all: async () => { throw d1Failure },
+        raw: async () => { throw d1Failure },
+        run: async () => { throw d1Failure },
+        first: async () => { throw d1Failure },
+      }),
+      batch: async () => { throw d1Failure },
+    } as unknown as D1Database
+
+    const env = {
+      DB: failingD1,
+      WS_DO: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn((name: string) => {
+          const { ctx, getWebSockets } = createMockCtx()
+          if (name === "user:human-online") {
+            const ws = createMockWebSocket()
+            ws.serializeAttachment({
+              type: "user",
+              userId: "human-online",
+              authenticated: true,
+              communityContract: BUSINESS_SCHEMA_VERSION,
+              sessionId: "sess-1",
+              sessionValidUntil: Date.now() + 60_000,
+            })
+            getWebSockets.mockReturnValue([ws])
+          }
+          const durable = new WebSocketDurableObject(ctx, { DB: failingD1 } as unknown as Env)
+          return { fetch: (req: Request) => durable.fetch(req) }
+        }),
+      },
+    } as unknown as Env
+
+    const req = new Request("http://internal/presence/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ["human-online", "human-offline", "bot-online"] }),
+    })
+    const response = await handleBatchPresence({
+      request: req,
+      env,
+      url: new URL(req.url),
+      traceId: "t-degraded",
+      log: createLogger({ service: "test" }),
+    })
+
+    expect(response?.status).toBe(200)
+    expect(await response?.json()).toEqual({
+      online: ["human-online"],
+      offline: [],
+    })
   })
 })

@@ -179,6 +179,37 @@ describe("OnboardingMachineDialog", () => {
     expect(input.onManageMachines).not.toHaveBeenCalled()
   })
 
+  it("routes Alook Support in-app via community navigation when running in Tauri", async () => {
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    try {
+      mocks.machines = [{ id: "machine-1", hostname: "host", status: "online", availableRuntimes: [] }]
+      mocks.apiFetch.mockResolvedValueOnce({ serverId: "support" })
+      const navigatePath = vi.fn()
+      const onExit = vi.fn()
+      let registry!: CommunityDbRegistry
+      function WireNav({ children }: React.PropsWithChildren) {
+        const current = getCommunityDbRegistry(useQueryClient())!
+        React.useLayoutEffect(() => {
+          registry = current
+          registry.runtime.ui.actions.registerUiHandlers({ navigatePath })
+        }, [current])
+        return children
+      }
+      const input = { ...props(), onExit }
+      const view = render(React.createElement(WireNav, null, React.createElement(OnboardingMachineDialog, input)))
+      fireEvent.click(view.getByTestId(tid.onboardingJoinSupport))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      const supportLink = view.getByTestId(tid.onboardingOpenSupport)
+      expect(supportLink).toHaveAttribute("href", "/c/channels/support")
+      expect(supportLink).not.toHaveAttribute("target")
+      fireEvent.click(supportLink)
+      expect(onExit).toHaveBeenCalledOnce()
+      expect(navigatePath).toHaveBeenCalledExactlyOnceWith("/c/channels/support")
+    } finally {
+      Reflect.deleteProperty(window, "__TAURI__")
+    }
+  })
+
   it("shows a failed Support join and lets the user retry", async () => {
     mocks.machines = [{ id: "machine-1", hostname: "host", status: "online", availableRuntimes: [] }]
     mocks.apiFetch.mockRejectedValueOnce(new Error("INVITE_EXPIRED")).mockResolvedValueOnce({ serverId: "support" })

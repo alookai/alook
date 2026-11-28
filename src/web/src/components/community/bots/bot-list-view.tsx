@@ -189,6 +189,7 @@ export function renderBotListView(
       {overlays.help}
       {overlays.edit}
       {overlays.memberships}
+      {overlays.webhooks}
       {overlays.activity}
       {overlays.bug}
       {overlays.deleteDialog}

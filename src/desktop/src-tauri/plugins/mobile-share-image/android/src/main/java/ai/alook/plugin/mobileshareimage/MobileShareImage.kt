@@ -6,31 +6,30 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.SharedPreferences
 import android.database.Cursor
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.util.Base64
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.text.Normalizer
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.zip.CRC32
 
 internal object MobileShareImage {
     const val MAX_PNG_BYTES = 10 * 1024 * 1024
-    private const val MAX_DIMENSION = 16_384
-    private const val MAX_PIXELS = 16_777_216L
-    private const val MAX_OUTPUT_BYTES = 64L * 1024L * 1024L
+    internal const val STAGING_DIR_NAME = "mobile-share-image-staging"
+    internal const val CLOCK_SKEW_TOLERANCE_SECONDS = 60L
     private const val JOURNAL = "mobile-share-image-journal"
     private const val RELATIVE_PATH = "Pictures/Alook/"
     private const val MEDIA_NAME_PREFIX = "alook-message-share-"
+    private val PNG_SIGNATURE = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10)
+    private val SHA256_REGEX = Regex("[0-9a-f]{64}")
 
     fun validateAttemptId(value: String) {
         val canonical = runCatching { UUID.fromString(value).toString() }.getOrNull()
@@ -39,31 +38,76 @@ internal object MobileShareImage {
         }
     }
 
-    fun validateBase64(value: String): ByteArray {
-        val maxEncoded = ((MAX_PNG_BYTES + 2) / 3) * 4
-        if (value.isEmpty() || value.length % 4 != 0 || value.length > maxEncoded) {
-            throw MobileShareImageFailure(
-                if (value.length > maxEncoded) "image_too_large" else "invalid_png",
-                "Image payload is invalid",
-            )
+    fun loadValidatedFile(
+        context: Context,
+        attemptId: String,
+        path: String,
+        expectedBytes: Long,
+        sha256: String,
+    ): ByteArray = loadValidatedFile(
+        File(context.cacheDir, STAGING_DIR_NAME),
+        attemptId,
+        path,
+        expectedBytes,
+        sha256,
+    )
+
+    internal fun loadValidatedFile(
+        allowedRoot: File,
+        attemptId: String,
+        path: String,
+        expectedBytes: Long,
+        sha256: String,
+    ): ByteArray {
+        validateAttemptId(attemptId)
+        if (expectedBytes <= 0L) {
+            throw MobileShareImageFailure("invalid_png", "Image payload is empty")
         }
-        if (value.any { it !in 'A'..'Z' && it !in 'a'..'z' && it !in '0'..'9' && it != '+' && it != '/' && it != '=' }) {
-            throw MobileShareImageFailure("invalid_png", "Image payload is not valid base64")
-        }
-        val decoded = try {
-            Base64.decode(value, Base64.NO_WRAP)
-        } catch (_: IllegalArgumentException) {
-            throw MobileShareImageFailure("invalid_png", "Image payload is not valid base64")
-        }
-        if (decoded.isEmpty()) throw MobileShareImageFailure("invalid_png", "Image payload is empty")
-        if (decoded.size > MAX_PNG_BYTES) {
+        if (expectedBytes > MAX_PNG_BYTES.toLong()) {
             throw MobileShareImageFailure("image_too_large", "Image exceeds the mobile limit")
         }
-        if (Base64.encodeToString(decoded, Base64.NO_WRAP) != value) {
-            throw MobileShareImageFailure("invalid_png", "Image payload is not canonical base64")
+        if (!SHA256_REGEX.matches(sha256)) {
+            throw MobileShareImageFailure("invalid_png", "Image digest is invalid")
         }
-        validatePng(decoded)
-        return decoded
+        val canonicalRoot = allowedRoot.canonicalFile
+        val canonicalSource = File(path).canonicalFile
+        if (canonicalSource.parentFile != canonicalRoot || canonicalSource.name != "$attemptId.png" || !canonicalSource.isFile) {
+            throw MobileShareImageFailure("invalid_png", "Staged image path is invalid")
+        }
+        if (canonicalSource.length() != expectedBytes) {
+            throw MobileShareImageFailure("invalid_png", "Staged image size mismatch")
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        val output = ByteArrayOutputStream(expectedBytes.toInt())
+        val buffer = ByteArray(65_536)
+        var total = 0L
+        try {
+            FileInputStream(canonicalSource).use { input ->
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    total += read.toLong()
+                    if (total > expectedBytes) {
+                        throw MobileShareImageFailure("invalid_png", "Staged image size mismatch")
+                    }
+                    digest.update(buffer, 0, read)
+                    output.write(buffer, 0, read)
+                }
+            }
+        } catch (error: MobileShareImageFailure) {
+            throw error
+        } catch (_: Exception) {
+            throw MobileShareImageFailure("write_failed", "Could not read staged image")
+        }
+        val bytes = output.toByteArray()
+        if (total != expectedBytes || bytes.size < PNG_SIGNATURE.size || !bytes.copyOfRange(0, PNG_SIGNATURE.size).contentEquals(PNG_SIGNATURE)) {
+            throw MobileShareImageFailure("invalid_png", "Image payload is not a valid PNG")
+        }
+        val actualSha256 = digest.digest().joinToString("") { "%02x".format(it) }
+        if (actualSha256 != sha256) {
+            throw MobileShareImageFailure("invalid_png", "Staged image digest mismatch")
+        }
+        return bytes
     }
 
     fun sanitizeFilename(value: String): String {
@@ -113,8 +157,12 @@ internal object MobileShareImage {
         val uri = try {
             resolver.insert(collection, values)
         } catch (error: Exception) {
+            prefs.edit().clear().commit()
             throw MobileShareImageFailure("write_failed", error.message ?: "Could not create image row")
-        } ?: throw MobileShareImageFailure("write_failed", "Could not create image row")
+        } ?: run {
+            prefs.edit().clear().commit()
+            throw MobileShareImageFailure("write_failed", "Could not create image row")
+        }
 
         if (!prefs.edit().putString("uri", uri.toString()).commit()) {
             cleanupInsertedRow(context, uri, prefs)
@@ -253,76 +301,6 @@ internal object MobileShareImage {
         )
     }
 
-    private fun validatePng(bytes: ByteArray) {
-        val dimensions = validatePngStructure(bytes)
-        if (dimensions.width.toLong() * dimensions.height.toLong() * 4L > MAX_OUTPUT_BYTES) invalidPng()
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        if (options.outWidth != dimensions.width || options.outHeight != dimensions.height) invalidPng()
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: invalidPng()
-        bitmap.recycle()
-    }
-
-    internal data class PngDimensions(val width: Int, val height: Int)
-
-    internal fun validatePngStructure(bytes: ByteArray): PngDimensions {
-        val signature = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10)
-        if (bytes.size < 8 || !bytes.copyOfRange(0, 8).contentEquals(signature)) invalidPng()
-        var offset = 8
-        var dimensions: PngDimensions? = null
-        var sawData = false
-        var sawEnd = false
-        while (offset < bytes.size) {
-            if (offset > bytes.size - 12) invalidPng()
-            val length = ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.BIG_ENDIAN).int
-            if (length < 0) invalidPng()
-            val dataStart = offset + 8
-            val dataEnd = dataStart.toLong() + length.toLong()
-            val chunkEnd = dataEnd + 4L
-            if (chunkEnd > bytes.size || sawEnd) invalidPng()
-            val type = bytes.copyOfRange(offset + 4, offset + 8).toString(Charsets.US_ASCII)
-            val crc = CRC32().apply { update(bytes, offset + 4, 4 + length) }.value
-            val stored = ByteBuffer.wrap(bytes, dataEnd.toInt(), 4)
-                .order(ByteOrder.BIG_ENDIAN).int.toLong() and 0xffffffffL
-            if (crc != stored) invalidPng()
-            when (type) {
-                "IHDR" -> {
-                    if (dimensions != null || offset != 8 || length != 13) invalidPng()
-                    val width = ByteBuffer.wrap(bytes, dataStart, 4).order(ByteOrder.BIG_ENDIAN).int
-                    val height = ByteBuffer.wrap(bytes, dataStart + 4, 4).order(ByteOrder.BIG_ENDIAN).int
-                    val pixels = width.toLong() * height.toLong()
-                    if (width <= 0 || height <= 0 || width > MAX_DIMENSION || height > MAX_DIMENSION || pixels > MAX_PIXELS) invalidPng()
-                    val bitDepth = bytes[dataStart + 8].toInt() and 0xff
-                    val colorType = bytes[dataStart + 9].toInt() and 0xff
-                    val legal = when (colorType) {
-                        0 -> bitDepth in setOf(1, 2, 4, 8, 16)
-                        2, 4, 6 -> bitDepth in setOf(8, 16)
-                        3 -> bitDepth in setOf(1, 2, 4, 8)
-                        else -> false
-                    }
-                    if (!legal || bytes[dataStart + 10].toInt() != 0 || bytes[dataStart + 11].toInt() != 0 || (bytes[dataStart + 12].toInt() and 0xff) > 1) invalidPng()
-                    dimensions = PngDimensions(width, height)
-                }
-                "IDAT" -> {
-                    if (dimensions == null || sawEnd) invalidPng()
-                    sawData = true
-                }
-                "IEND" -> {
-                    if (dimensions == null || !sawData || length != 0 || chunkEnd.toInt() != bytes.size) invalidPng()
-                    sawEnd = true
-                }
-                "acTL", "fcTL", "fdAT" -> invalidPng()
-            }
-            offset = chunkEnd.toInt()
-        }
-        if (!sawEnd) invalidPng()
-        return dimensions ?: invalidPng()
-    }
-
-    private fun invalidPng(): Nothing {
-        throw MobileShareImageFailure("invalid_png", "Image payload is not a valid PNG")
-    }
-
     internal fun repairJournal(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
         val prefs = context.getSharedPreferences(JOURNAL, Context.MODE_PRIVATE)
@@ -360,6 +338,25 @@ internal object MobileShareImage {
             prefs.edit().clear().commit()
     }
 
+    internal fun journalOwnsRow(
+        packageName: String,
+        row: JournalRow,
+        token: String,
+        name: String,
+        path: String,
+        createdAt: Long,
+        nowSeconds: Long = System.currentTimeMillis() / 1000L,
+    ): Boolean {
+        val createdFloor = createdAt / 1000L - 5L
+        val upperBound = nowSeconds + CLOCK_SKEW_TOLERANCE_SECONDS
+        return row.owner == packageName &&
+            row.name == name &&
+            row.name == "$MEDIA_NAME_PREFIX$token.png" &&
+            row.path == path &&
+            row.path == RELATIVE_PATH &&
+            row.createdSeconds in createdFloor..upperBound
+    }
+
     private fun journalOwnsRow(
         context: Context,
         row: JournalRow,
@@ -367,16 +364,7 @@ internal object MobileShareImage {
         name: String,
         path: String,
         createdAt: Long,
-    ): Boolean {
-        val createdFloor = createdAt / 1000L - 5L
-        val nowSeconds = System.currentTimeMillis() / 1000L
-        return row.owner == context.packageName &&
-            row.name == name &&
-            row.name == "$MEDIA_NAME_PREFIX$token.png" &&
-            row.path == path &&
-            row.path == RELATIVE_PATH &&
-            row.createdSeconds in createdFloor..nowSeconds
-    }
+    ): Boolean = journalOwnsRow(context.packageName, row, token, name, path, createdAt)
 
     private fun cleanupInsertedRow(context: Context, uri: Uri, prefs: SharedPreferences) {
         val deleted = try {
@@ -394,7 +382,7 @@ internal object MobileShareImage {
         data class Rows(val value: List<JournalRow>) : QueryResult
     }
 
-    private data class JournalRow(
+    internal data class JournalRow(
         val uri: Uri,
         val owner: String,
         val pending: Boolean,
@@ -422,7 +410,7 @@ internal object MobileShareImage {
             path,
             name,
             (createdAt / 1000L - 5L).toString(),
-            (System.currentTimeMillis() / 1000L).toString(),
+            (System.currentTimeMillis() / 1000L + CLOCK_SKEW_TOLERANCE_SECONDS).toString(),
         )
         return queryRows(context, uri, selection, args) { id -> ContentUris.withAppendedId(base, id) }
     }
@@ -477,10 +465,10 @@ internal object MobileShareImage {
 
     private fun Cursor.toJournalRow(uri: Uri) = JournalRow(
         uri = uri,
-        owner = getString(1),
+        owner = getString(1) ?: "",
         pending = getInt(2) == 1,
-        path = getString(3),
-        name = getString(4),
+        path = getString(3) ?: "",
+        name = getString(4) ?: "",
         createdSeconds = getLong(5),
     )
 

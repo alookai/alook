@@ -51,6 +51,7 @@ export function ThreadChannelSurface({
   threadOpenerHandoff,
   canRenameThread,
   onNavigateParent,
+  canShowLeaveChannel,
   onLeaveChannel,
   notificationLevel,
   onSetNotificationLevel,
@@ -83,6 +84,7 @@ export function ThreadChannelSurface({
   threadOpenerHandoff?: ThreadOpenerReadHandoff | null
   canRenameThread: boolean
   onNavigateParent: () => void
+  canShowLeaveChannel?: boolean
   onLeaveChannel?: () => Promise<void>
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
@@ -223,6 +225,7 @@ export function ThreadChannelSurface({
               mobileBackDisplay="always"
               tools={{ threads: false }}
               onRename={parentChannelId && !compactActions ? rename : undefined}
+              showLeave={!compactActions && canShowLeaveChannel}
               onLeave={!compactActions && onLeaveChannel ? async () => { await onLeaveChannel(); onNavigateParent() } : undefined}
               compactActions={compactActions}
               endActions={splitActions ? (

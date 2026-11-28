@@ -16,6 +16,7 @@ import { captureVideoPreviewOwner, readVideoPreview, saveVideoPreview } from "@/
 import * as previewCache from "@/lib/community/video-preview-cache"
 import { keys } from "idb-keyval"
 import { cacheStore } from "@/lib/query-cache-store"
+import { SESSION_ACCOUNT_HEADER } from "@/lib/session-account"
 
 const attachment: FileAttachment = { kind: "file", name: "clip.mp4", url: "/attachments/clip", contentType: "video/mp4", size: "1 KB", sizeBytes: 1024 }
 let play = vi.fn<() => Promise<void>>()
@@ -245,7 +246,11 @@ describe("video attachment", () => {
     await waitFor(() => expect(video.playbackRate).toBe(1.5))
     expect(document.querySelector("[data-message-touch-menu][data-open]")).toBeNull()
     await touchTap(screen.getByRole("menuitem", { name: "Download" }))
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(attachment.url, { credentials: "same-origin", signal: expect.any(AbortSignal) }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(attachment.url, {
+      credentials: "same-origin",
+      signal: expect.any(AbortSignal),
+      headers: { [SESSION_ACCOUNT_HEADER]: "viewer" },
+    }))
     expect(document.querySelector("[data-message-touch-menu][data-open]")).toBeNull()
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
     await touchTap(screen.getByText("Video controls in a message", { exact: true }))
@@ -434,7 +439,11 @@ describe("video attachment", () => {
     await act(async () => fireEvent.click(download))
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Couldn’t save — retry"))
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
-    expect(fetch).toHaveBeenCalledWith(attachment.url, { credentials: "same-origin", signal: expect.any(AbortSignal) })
+    expect(fetch).toHaveBeenCalledWith(attachment.url, {
+      credentials: "same-origin",
+      signal: expect.any(AbortSignal),
+      headers: { [SESSION_ACCOUNT_HEADER]: "viewer" },
+    })
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "More" })))
     const retryDownload = await screen.findByRole("menuitem", { name: "Retry download" })
     await act(async () => fireEvent.click(retryDownload))

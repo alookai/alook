@@ -6,7 +6,8 @@ import {
   ConversationFooterShell,
   ConversationFooterSlotProvider,
 } from "@/components/community/messages/conversation-footer-shell"
-import { ConversationActivityContext } from "@/contexts/view-activity"
+import { ConversationActivityContext, useConversationPresentation } from "@/contexts/view-activity"
+import { useNativeKeyboard } from "@/hooks/use-native-keyboard"
 import { tid } from "@/lib/community/testids"
 
 type ConversationSurfaceSubtype = "dm" | "text" | "thread"
@@ -45,6 +46,9 @@ export function ConversationSurface({
   dialogs?: ReactNode
 }) {
   const Body = embedded ? "div" : "main"
+  const keyboard = useNativeKeyboard()
+  const presented = useConversationPresentation()
+  const overlayGpuKeyboard = presented && keyboard?.mode === "overlay-gpu"
 
   return (
     <>
@@ -56,13 +60,21 @@ export function ConversationSurface({
         aria-busy={!embedded && loadingPending ? true : undefined}
         aria-label={!embedded && loadingPending ? loadingPendingLabel : undefined}
         data-community-conversation-subtype={subtype && subtype !== "dm" ? subtype : undefined}
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
         <ConversationFooterSlotProvider reserveAccessorySlot>
           {bodyOverride !== undefined
             ? bodyOverride
             : messageListProps
-              ? <MessageList key={channelId} channelId={channelId} {...messageListProps} />
+              ? (
+                  <div
+                    data-slot="community-message-list-keyboard-layer"
+                    data-alook-kb-gpu-layer={overlayGpuKeyboard ? "true" : undefined}
+                    className={`flex min-h-0 min-w-0 flex-1 flex-col${overlayGpuKeyboard ? " alook-kb-gpu-layer" : ""}`}
+                  >
+                    <MessageList key={channelId} channelId={channelId} {...messageListProps} />
+                  </div>
+                )
               : null}
           <ConversationFooterShell {...footerProps}>
             {inputActive !== undefined

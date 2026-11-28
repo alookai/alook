@@ -275,10 +275,25 @@ describe("ForumChannelSurface ownership", () => {
 
   it("navigates to parent after leaving a private forum channel", async () => {
     const onLeaveChannel = vi.fn().mockResolvedValue(undefined)
-    const props = surfaceProps({ onLeaveChannel })
+    const props = surfaceProps({ canShowLeaveChannel: true, onLeaveChannel })
     act(() => { render(React.createElement(ForumChannelSurface, props)) })
+    expect(mockedChannelHeader.mock.calls.at(-1)![0].showLeave).toBe(true)
     await mockedChannelHeader.mock.calls.at(-1)![0].onLeave?.()
     expect(onLeaveChannel).toHaveBeenCalledOnce()
     expect(props.onNavigateParent).toHaveBeenCalledOnce()
+  })
+
+  it("wires cached canShowLeaveChannel to ChannelHeader even while live onLeaveChannel is pending", () => {
+    const view = render(React.createElement(ForumChannelSurface, surfaceProps({ canShowLeaveChannel: true })))
+    expect(mockedChannelHeader.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({
+      showLeave: true,
+      onLeave: undefined,
+    }))
+    view.rerender(React.createElement(ForumChannelSurface, surfaceProps({ canShowLeaveChannel: false })))
+    expect(mockedChannelHeader.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({
+      showLeave: false,
+      onLeave: undefined,
+    }))
+    view.unmount()
   })
 })

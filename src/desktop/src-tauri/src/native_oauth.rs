@@ -320,6 +320,16 @@ impl Record {
         Ok(())
     }
 
+    pub fn rollback_open(&mut self, attempt_id: &str) {
+        if let Some(a) = self
+            .attempt
+            .as_mut()
+            .filter(|a| equal(&a.id, attempt_id) && a.waiting && a.candidates.is_empty())
+        {
+            a.waiting = false;
+        }
+    }
+
     pub fn intake(&mut self, url: &url::Url, now: u64) -> Result<bool, &'static str> {
         self.intake_for_platform(url, now, std::env::consts::OS)
     }

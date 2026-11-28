@@ -10,7 +10,7 @@ const development: Config = JSON.parse(read("tauri.dev.conf.json"))
 const capabilities = (config: Config): Capability[] => config.app.security.capabilities.map(c => typeof c === "string" ? JSON.parse(read(`capabilities/${c === "desktop-capability" ? "desktop" : c}.json`)) : c)
 
 describe("desktop native OAuth security configuration", () => {
-  it.each([production, development])("keeps desktop raw IPC disabled and scopes mobile event listeners to the trusted main window", config => {
+  it.each([production, development])("keeps raw event, clipboard, store, and deep-link IPC disabled across all capabilities", config => {
     const merged = capabilities(config)
     const isProduction = config === production
     const lifecycleIdentifier = isProduction ? "window-lifecycle-mobile" : "window-lifecycle-dev"
@@ -21,12 +21,12 @@ describe("desktop native OAuth security configuration", () => {
       platforms: ["android", "iOS"],
       local: !isProduction,
       remote: { urls: [isProduction ? "https://alook.ai" : "http://localhost:3000"] },
-      permissions: ["core:event:allow-listen", "core:event:allow-unlisten"],
+      permissions: ["window-lifecycle"],
     })
     expect(lifecycle[0]!.webviews ?? []).toEqual([])
-    for (const capability of merged.filter(c => c.identifier !== lifecycleIdentifier)) {
+    for (const capability of merged) {
       for (const permission of capability.permissions.map(p => typeof p === "string" ? p : p.identifier)) {
-        expect(permission).not.toMatch(/^(?:core:default$|core:event:|deep-link:|store:)/)
+        expect(permission).not.toMatch(/^(?:core:default$|core:event:|clipboard-manager:|deep-link:|store:)/)
       }
     }
     const oauth = merged.find(c => c.permissions.includes("native-oauth"))!
@@ -40,15 +40,20 @@ describe("desktop native OAuth security configuration", () => {
     const build = read("build.rs")
     const native = read("permissions/native-oauth.toml")
     const existing = read("permissions/desktop-commands.toml")
+    const lifecycle = read("permissions/window-lifecycle.toml")
     const commands = ["snapshot", "listen", "unlisten", "prepare", "open_start", "pending_exchange", "reject_candidate", "finish", "cancel"]
     for (const command of commands) {
       expect(build).toContain(`"native_oauth_${command}"`)
       expect(native).toContain(`"native_oauth_${command}"`)
     }
     expect(native).toContain(`commands.allow = [${commands.map(command => `"native_oauth_${command}"`).join(", ")}]`)
-    for (const command of ["daemon_runtime_capability", "daemon_pair", "set_window_theme", "close_splashscreen", "desktop_zoom_shortcut"]) {
+    for (const command of ["daemon_runtime_capability", "daemon_pair", "set_window_theme", "close_splashscreen", "desktop_clipboard_write_image", "desktop_zoom_shortcut"]) {
       expect(build).toContain(`"${command}"`)
       expect(existing).toContain(`"${command}"`)
+    }
+    for (const command of ["window_lifecycle_listen", "window_lifecycle_unlisten"]) {
+      expect(build).toContain(`"${command}"`)
+      expect(lifecycle).toContain(`"${command}"`)
     }
     expect(capabilities(production).find(c => c.identifier === "desktop-capability")?.permissions).toContain("desktop-commands")
   })
@@ -62,7 +67,10 @@ describe("desktop native OAuth security configuration", () => {
     expect(runtime.indexOf(".on_open_url(")).toBeLessThan(runtime.indexOf(".get_current()"))
     expect(runtime).toContain('#[cfg(target_os = "linux")]')
     expect(runtime).toContain(".register_all()")
-    expect(runtime).toContain("channel.send(())")
+    expect(runtime).toContain("channel.send(signal)")
+    expect(runtime).toContain("NativeOauthSignal::CandidateReady")
+    expect(runtime).toContain("NativeOauthSignal::WindowResumed")
+    expect(runtime).not.toContain("state: tauri::State<'_, NativeOauthState>")
     expect(source).toContain("PageLoadEvent::Started")
     expect(source).toContain("WindowEvent::Destroyed")
     expect(source).toContain("tauri::WindowEvent::Focused(true)")

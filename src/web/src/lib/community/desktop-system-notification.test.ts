@@ -6,13 +6,15 @@ import { QueryClient } from "@tanstack/react-query"
 import { createCommunityDbRegistry, getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { ingestServers, captureCommunityLiveSnapshotToken, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
 import {
+  ackDesktopSystemNotificationActivation,
   buildDesktopSystemNotificationCandidate,
+  clearDesktopSystemNotificationsForViewer,
   dismissDesktopSystemNotification,
   dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
+  peekDesktopSystemNotificationActivation,
   resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
-  takeDesktopSystemNotificationActivation,
   traceNotificationDiagnostic,
 } from "./desktop-system-notification"
 
@@ -465,9 +467,10 @@ describe("desktop system notification activation bridge", () => {
     ))
   })
 
-  it("takes and parses only valid native activations", async () => {
+  it("peeks and acknowledges only valid native activations and suppresses foreground notifications", async () => {
     const dmActivation = {
       notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+      viewerUserId: "viewer_1",
       target: {
         kind: "dm",
         channelId: "dm_1",
@@ -476,10 +479,36 @@ describe("desktop system notification activation bridge", () => {
       },
     }
     invoke.mockResolvedValueOnce(dmActivation)
-    await expect(takeDesktopSystemNotificationActivation()).resolves.toEqual(dmActivation)
+    await expect(peekDesktopSystemNotificationActivation()).resolves.toEqual(dmActivation)
+    expect(invoke).toHaveBeenLastCalledWith("desktop_system_notification_peek_activation")
 
     invoke.mockResolvedValueOnce({ href: "https://evil.test" })
-    await expect(takeDesktopSystemNotificationActivation()).resolves.toBeNull()
+    await expect(peekDesktopSystemNotificationActivation()).resolves.toBeNull()
+
+    invoke.mockResolvedValueOnce(undefined)
+    await expect(ackDesktopSystemNotificationActivation(dmActivation.notificationId)).resolves.toBeUndefined()
+    expect(invoke).toHaveBeenLastCalledWith("desktop_system_notification_ack_activation", {
+      notificationId: dmActivation.notificationId,
+    })
+
+    invoke.mockResolvedValueOnce(undefined)
+    await expect(clearDesktopSystemNotificationsForViewer("viewer_1")).resolves.toBeUndefined()
+    expect(invoke).toHaveBeenLastCalledWith("desktop_system_notification_clear_viewer", {
+      viewerUserId: "viewer_1",
+    })
+
+    invoke.mockClear()
+    vi.stubGlobal("window", {
+      alookNativeNotificationPresentationV1: (identity: { viewerUserId: string; targetId: string }) =>
+        identity.viewerUserId === "viewer_1" && identity.targetId === "dm_1",
+    })
+    await showDesktopSystemNotification({
+      viewerUserId: "viewer_1",
+      title: "Ada",
+      body: "Hello",
+      target: { kind: "dm", channelId: "dm_1", messageId: "message_2", seq: 8 },
+    })
+    expect(invoke).not.toHaveBeenCalled()
   })
 
   it("dismisses exactly one native notification id", async () => {

@@ -6,19 +6,47 @@ use std::path::PathBuf;
 use std::{
     io::Read,
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 #[cfg(desktop)]
 use command_group::CommandGroup;
 
 #[cfg(desktop)]
-const PATH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
+const PATH_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[cfg(desktop)]
 const RUNTIME_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(desktop)]
 const DAEMON_PAIR_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[cfg(desktop)]
+const MAX_FAILURE_MESSAGE_CHARS: usize = 512;
+
+#[cfg(desktop)]
+static DAEMON_PAIR_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
+struct DaemonPairGuard<'a> {
+    flag: &'a AtomicBool,
+}
+
+#[cfg(desktop)]
+impl<'a> DaemonPairGuard<'a> {
+    fn acquire(flag: &'a AtomicBool) -> Option<Self> {
+        flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| Self { flag })
+    }
+}
+
+#[cfg(desktop)]
+impl Drop for DaemonPairGuard<'_> {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::SeqCst);
+    }
+}
 
 #[derive(Serialize)]
 #[cfg(desktop)]
@@ -95,7 +123,10 @@ fn executable(command: &str) -> String {
 #[cfg(desktop)]
 fn daemon_endpoints_for(is_debug: bool) -> (&'static str, &'static str) {
     if is_debug {
-        ("http://localhost:3000", "ws://localhost:8789")
+        (
+            "http://localhost:3000",
+            "ws://localhost:8789/api/ws/community-daemon",
+        )
     } else {
         ("https://alook.ai", "wss://alook.ai/api/ws/community-daemon")
     }
@@ -124,7 +155,31 @@ fn run_process_with_timeout(
     timeout: Duration,
     timeout_message: String,
 ) -> Result<DaemonOutput, String> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use std::os::unix::process::CommandExt;
+        // Background process groups with an inherited controlling TTY receive
+        // SIGTTIN/SIGTTOU when interactive login shells (such as zsh -ic)
+        // attempt job-control terminal setup. Ignore both in the child so
+        // shell environment discovery never stalls when launched from a TTY.
+        extern "C" {
+            fn signal(sig: i32, handler: usize) -> usize;
+        }
+        const SIGTTIN: i32 = 21;
+        const SIGTTOU: i32 = 22;
+        const SIG_IGN: usize = 1;
+        unsafe {
+            command.pre_exec(|| {
+                signal(SIGTTIN, SIG_IGN);
+                signal(SIGTTOU, SIG_IGN);
+                Ok(())
+            });
+        }
+    }
     let mut child = command.group_spawn().map_err(|error| error.to_string())?;
     let stdout = child
         .inner()
@@ -251,6 +306,11 @@ fn parse_shell_environment(
 }
 
 #[cfg(desktop)]
+fn valid_shell_path(value: &str) -> bool {
+    !value.is_empty() && value.lines().count() == 1 && PathBuf::from(value).is_absolute()
+}
+
+#[cfg(desktop)]
 fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows: bool) -> Command {
     let allowed = [
         "HOME",
@@ -323,7 +383,7 @@ fn shell_environment_command_for(environment: Vec<(String, String)>, is_windows:
     } else {
         let shell = environment
             .iter()
-            .find(|(key, _)| key == "SHELL")
+            .find(|(key, value)| key == "SHELL" && valid_shell_path(value))
             .map(|(_, value)| value.clone())
             .unwrap_or_else(|| "/bin/sh".to_string());
         command = Command::new(shell);
@@ -394,7 +454,7 @@ async fn resolve_environment() -> Result<Vec<(String, String)>, String> {
     if !cfg!(windows)
         && !environment
             .iter()
-            .any(|(key, value)| key == "SHELL" && !value.is_empty())
+            .any(|(key, value)| key == "SHELL" && valid_shell_path(value))
     {
         let shell = configured_login_shell(&environment)
             .await
@@ -506,9 +566,10 @@ fn daemon_pair_args(
 }
 
 #[cfg(desktop)]
-fn evaluate_runtime_capability(
+fn evaluate_runtime_capability_for(
     node: Result<String, String>,
-    npm: Result<String, String>,
+    package_manager: Result<String, String>,
+    package_manager_name: &str,
 ) -> DaemonRuntimeCapability {
     let node_output = match node {
         Ok(output) => output,
@@ -520,11 +581,11 @@ fn evaluate_runtime_capability(
             };
         }
     };
-    if let Err(reason) = npm {
+    if let Err(reason) = package_manager {
         return DaemonRuntimeCapability {
             available: false,
             reason: Some(format!(
-                "Node.js is available, but {reason}. Install npm with Node.js and try again."
+                "Node.js is available, but {reason}. Install {package_manager_name} with Node.js and try again."
             )),
             node_version: (!node_output.is_empty()).then_some(node_output),
         };
@@ -537,15 +598,154 @@ fn evaluate_runtime_capability(
 }
 
 #[cfg(desktop)]
+#[cfg(test)]
+fn evaluate_runtime_capability(
+    node: Result<String, String>,
+    npm: Result<String, String>,
+) -> DaemonRuntimeCapability {
+    evaluate_runtime_capability_for(node, npm, "npm")
+}
+
+#[cfg(desktop)]
+fn strip_ansi_sequences(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            match chars.peek().copied() {
+                Some('[') => {
+                    chars.next();
+                    for next in chars.by_ref() {
+                        if ('@'..='~').contains(&next) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    chars.next();
+                    while let Some(next) = chars.next() {
+                        if next == '\x07' {
+                            break;
+                        }
+                        if next == '\x1b' && chars.peek() == Some(&'\\') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        output.push(ch);
+    }
+    output
+}
+
+#[cfg(desktop)]
+fn is_token_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' || byte == b'.'
+}
+
+#[cfg(desktop)]
+fn redact_sensitive_text(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut output = String::with_capacity(input.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let rest = &input[index..];
+        let lower_prefix_bearer = rest
+            .get(..7)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("bearer "));
+        if lower_prefix_bearer {
+            output.push_str(&rest[..7]);
+            index += 7;
+            while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+                output.push(bytes[index] as char);
+                index += 1;
+            }
+            let start = index;
+            while index < bytes.len() && !bytes[index].is_ascii_whitespace() {
+                index += 1;
+            }
+            if index > start {
+                output.push_str("[REDACTED]");
+            }
+            continue;
+        }
+        if rest.starts_with("--machine-key=") {
+            output.push_str("--machine-key=");
+            index += "--machine-key=".len();
+            let start = index;
+            while index < bytes.len() && !bytes[index].is_ascii_whitespace() {
+                index += 1;
+            }
+            if index > start {
+                output.push_str("[REDACTED]");
+            }
+            continue;
+        }
+        if rest.starts_with("--machine-key ") {
+            output.push_str("--machine-key ");
+            index += "--machine-key ".len();
+            while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+                output.push(bytes[index] as char);
+                index += 1;
+            }
+            let start = index;
+            while index < bytes.len() && !bytes[index].is_ascii_whitespace() {
+                index += 1;
+            }
+            if index > start {
+                output.push_str("[REDACTED]");
+            }
+            continue;
+        }
+        if rest.starts_with("cmt_") || rest.starts_with("cmk_") || rest.starts_with("crk_") {
+            index += 4;
+            while index < bytes.len() && is_token_char(bytes[index]) {
+                index += 1;
+            }
+            output.push_str("[REDACTED]");
+            continue;
+        }
+        let ch = rest.chars().next().unwrap();
+        output.push(ch);
+        index += ch.len_utf8();
+    }
+    output
+}
+
+#[cfg(desktop)]
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    if input.chars().count() <= max_chars {
+        return input.to_string();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let truncated: String = input.chars().take(keep).collect();
+    format!("{truncated}…")
+}
+
+#[cfg(desktop)]
 fn daemon_failure_message(stdout: &str, stderr: &str) -> String {
-    let detail = if !stderr.trim().is_empty() {
+    let raw = if !stderr.trim().is_empty() {
         stderr.trim()
     } else if !stdout.trim().is_empty() {
         stdout.trim()
     } else {
         "The daemon process exited before it reported a reason."
     };
-    format!("The daemon couldn't start: {detail}")
+    let sanitized = redact_sensitive_text(&strip_ansi_sequences(raw));
+    let trimmed = sanitized.trim();
+    let detail = if trimmed.is_empty() {
+        "The daemon process exited before it reported a reason."
+    } else {
+        trimmed
+    };
+    truncate_chars(
+        &format!("The daemon couldn't start: {detail}"),
+        MAX_FAILURE_MESSAGE_CHARS,
+    )
 }
 
 #[cfg(desktop)]
@@ -590,11 +790,16 @@ pub async fn daemon_runtime_capability(
             })
         }
     };
-    let (node, npm) = tokio::join!(
+    let package_manager = daemon_config().command;
+    let (node, manager) = tokio::join!(
         probe_runtime_command("node", environment.clone()),
-        probe_runtime_command("npm", environment),
+        probe_runtime_command(package_manager, environment),
     );
-    Ok(evaluate_runtime_capability(node, npm))
+    Ok(evaluate_runtime_capability_for(
+        node,
+        manager,
+        package_manager,
+    ))
 }
 
 #[cfg(desktop)]
@@ -605,6 +810,8 @@ pub async fn daemon_pair(
     machine_id: Option<String>,
 ) -> Result<CommandResult, String> {
     crate::native_command_guard::guard(&window)?;
+    let _pair_guard = DaemonPairGuard::acquire(&DAEMON_PAIR_IN_FLIGHT)
+        .ok_or_else(|| "A daemon pairing request is already in progress.".to_string())?;
     let args = daemon_pair_args(&machine_key, machine_id.as_deref(), tauri::is_dev())?;
     let output = run_daemon(&args).await?;
     if output.success {
@@ -640,6 +847,14 @@ mod tests {
         );
         assert!(!missing_npm.available);
         assert!(missing_npm.reason.unwrap().contains("npm was not found"));
+
+        let missing_pnpm = evaluate_runtime_capability_for(
+            Ok("v22.0.0".to_string()),
+            Err("pnpm was not found".to_string()),
+            "pnpm",
+        );
+        assert!(!missing_pnpm.available);
+        assert!(missing_pnpm.reason.unwrap().contains("Install pnpm"));
     }
 
     #[test]
@@ -656,6 +871,48 @@ mod tests {
             daemon_failure_message("", ""),
             "The daemon couldn't start: The daemon process exited before it reported a reason."
         );
+    }
+
+    #[test]
+    fn daemon_failure_strips_ansi_redacts_tokens_and_truncates() {
+        let noisy = "\x1b[31mError:\x1b[0m failed with --machine-key cmt_abcdefghijklmnopqrstuvwxyz012345 and Bearer secret.token.123 and cmk_1234567890abcdef1234567890abcdef and crk_abcdef123456";
+        let message = daemon_failure_message("", noisy);
+        assert!(!message.contains('\x1b'));
+        assert!(!message.contains("cmt_"));
+        assert!(!message.contains("cmk_"));
+        assert!(!message.contains("crk_"));
+        assert!(!message.contains("secret.token.123"));
+        assert!(message.contains("[REDACTED]"));
+
+        let long = "x".repeat(900);
+        let truncated = daemon_failure_message("", &long);
+        assert!(truncated.chars().count() <= MAX_FAILURE_MESSAGE_CHARS);
+        assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn single_flight_pair_guard_prevents_overlapping_spawns() {
+        let flag = AtomicBool::new(false);
+        let guard = DaemonPairGuard::acquire(&flag).unwrap();
+        assert!(DaemonPairGuard::acquire(&flag).is_none());
+        drop(guard);
+        assert!(DaemonPairGuard::acquire(&flag).is_some());
+    }
+
+    #[test]
+    fn path_discovery_timeout_and_shell_validation_are_hardened() {
+        assert_eq!(PATH_DISCOVERY_TIMEOUT, Duration::from_secs(8));
+        assert!(valid_shell_path("/bin/zsh"));
+        assert!(!valid_shell_path(""));
+        assert!(!valid_shell_path("zsh"));
+        assert!(!valid_shell_path("relative/sh"));
+        assert!(!valid_shell_path("/bin/zsh\n/bin/sh"));
+
+        let command = shell_environment_command_for(
+            vec![("SHELL".to_string(), "relative-shell".to_string())],
+            false,
+        );
+        assert_eq!(command.get_program(), "/bin/sh");
     }
 
     #[test]
@@ -719,7 +976,10 @@ mod tests {
     fn daemon_endpoints_are_fixed_at_the_native_boundary() {
         assert_eq!(
             daemon_endpoints_for(true),
-            ("http://localhost:3000", "ws://localhost:8789")
+            (
+                "http://localhost:3000",
+                "ws://localhost:8789/api/ws/community-daemon"
+            )
         );
         assert_eq!(
             daemon_endpoints_for(false),
@@ -788,7 +1048,7 @@ mod tests {
     fn development_pairing_uses_only_fixed_local_endpoints() {
         let args = daemon_pair_args("cmt_abcdefghijklmnopqrstuvwxyz012345", None, true).unwrap();
         assert_eq!(args[5], "http://localhost:3000");
-        assert_eq!(args[7], "ws://localhost:8789");
+        assert_eq!(args[7], "ws://localhost:8789/api/ws/community-daemon");
         assert_eq!(args.len(), 8);
     }
 

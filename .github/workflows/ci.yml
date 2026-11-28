@@ -83,7 +83,6 @@ jobs:
       run_ui_e2e: ${{ steps.scope.outputs.run_ui_e2e }}
       run_resizable_panels_compat: ${{ steps.scope.outputs.run_resizable_panels_compat }}
       run_rust: ${{ steps.scope.outputs.run_rust }}
-      run_lighthouse: ${{ steps.scope.outputs.run_lighthouse }}
       run_knip: ${{ steps.scope.outputs.run_knip }}
       run_app_packed_artifact: ${{ steps.scope.outputs.run_app_packed_artifact }}
       static_tasks: ${{ steps.scope.outputs.static_tasks }}
@@ -741,42 +740,6 @@ jobs:
       - if: runner.os == 'Windows'
         run: cargo check --locked --target x86_64-pc-windows-msvc --all-targets
 
-  lighthouse:
-    name: Lighthouse SEO
-    needs: scope
-    if: needs.scope.outputs.run_lighthouse == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      BETTER_AUTH_SECRET: ci-lighthouse-secret
-      BETTER_AUTH_URL: http://localhost:3000
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Download execution plan
-        if: needs.scope.result == 'success'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: ${{ needs.scope.outputs.plan_artifact_name }}
-          path: .ci
-      - name: Validate execution plan
-        if: needs.scope.result == 'success'
-        env:
-          CI_EXECUTION_PLAN_FILE: .ci/execution-plan.json
-          CI_PLAN_HASH: ${{ needs.scope.outputs.plan_hash }}
-          CI_PROJECTION_NAME: run_lighthouse
-          CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_lighthouse }}
-        run: node scripts/ci/validate-execution-plan.mjs
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\n' > src/web/.dev.vars
-      - run: pnpm run db:migrate
-      - working-directory: src/web
-        run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
-
   ui-e2e-build:
     name: Web and Blog OpenNext artifacts
     needs: scope
@@ -1103,7 +1066,6 @@ jobs:
       - app-packed-artifact
       - e2e
       - desktop-rust
-      - lighthouse
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -1120,8 +1082,7 @@ jobs:
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows_workspace == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
           {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' }},"result":"${{ needs.e2e.result }}"},
-          {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"},
-          {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' }},"result":"${{ needs.lighthouse.result }}"}
+          {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"}
         ]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

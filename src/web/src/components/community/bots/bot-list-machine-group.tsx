@@ -1,4 +1,4 @@
-import { Network, Activity, ChevronDown, Monitor, MoreVertical, RotateCcw } from "@/components/icons/lucide";
+import { Network, Activity, ChevronDown, Link2, Monitor, MoreVertical, RotateCcw } from "@/components/icons/lucide";
 import { isPresenceOnline } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import {
@@ -125,6 +125,9 @@ export function renderBotMachineGroup(
                     </DropdownMenuItem>
                     <DropdownMenuItem data-testid={tid.botMembershipsMenu(bot.id)} onClick={() => controller.openMemberships(bot)}>
                       <Network className="size-4" /> Servers &amp; channels
+                    </DropdownMenuItem>
+                    <DropdownMenuItem data-testid={tid.botWebhooksMenu(bot.id)} onClick={() => controller.openWebhooks(bot)}>
+                      <Link2 className="size-4" /> Triggers
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => controller.openActivity(bot)}

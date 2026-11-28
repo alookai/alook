@@ -28,8 +28,9 @@ export function createComposerFilePickerKeyboard(
       let live = true
       let returned = false
       let restoring = false
+      let captureActive = true
       const current = () => live && !editor.isDestroyed && isCurrent() && readOwnerVersion() === ownerVersion &&
-        editor.view.dom.isConnected && editor.view.hasFocus() &&
+        editor.view.dom.isConnected &&
         editor.state.doc === doc && editor.state.selection.eq(selection)
       const command = (command: PickerCommand["command"]) => {
         try { return Promise.resolve(bridge.postMessage({ command, token })).catch(() => undefined) }
@@ -44,6 +45,7 @@ export function createComposerFilePickerKeyboard(
       const onNativeReturn = (event: Event) => {
         if ((event as CustomEvent<unknown>).detail !== token || !restoring) return
         const qualified = current() && returned
+        captureActive = false
         close()
         if (qualified) restore()
       }
@@ -53,16 +55,26 @@ export function createComposerFilePickerKeyboard(
         input.removeEventListener("cancel", onReturn)
         input.removeEventListener("change", onReturn)
         void captured.then((result) => {
-          if (!current() || result?.captured !== true) { close(); return }
+          if (result?.captured !== true) {
+            captureActive = false
+            close()
+            return
+          }
+          if (!current()) { close(); return }
           restoring = true
           void command("restorePicker").then((response) => {
-            if (live && response?.restoring !== true) close()
+            if (live && response?.restoring !== true) {
+              captureActive = false
+              close()
+            }
           })
         })
       }
       const close = () => {
         if (!live) return
         live = false
+        const shouldCancel = captureActive
+        captureActive = false
         input.removeEventListener("cancel", onReturn)
         input.removeEventListener("change", onReturn)
         window.removeEventListener("pointerdown", onTakeover, true)
@@ -72,7 +84,7 @@ export function createComposerFilePickerKeyboard(
         document.removeEventListener("visibilitychange", onVisibility)
         window.removeEventListener(COMPOSER_PICKER_RETURN_EVENT, onNativeReturn)
         editor.off("transaction", onTransaction)
-        void command("cancelPicker")
+        if (shouldCancel) void command("cancelPicker")
       }
       retire = close
       input.addEventListener("cancel", onReturn)
@@ -85,7 +97,12 @@ export function createComposerFilePickerKeyboard(
       window.addEventListener(COMPOSER_PICKER_RETURN_EVENT, onNativeReturn)
       editor.on("transaction", onTransaction)
       const captured = command("capturePicker")
-      void captured.then((response) => { if (live && response?.captured !== true) close() })
+      void captured.then((response) => {
+        if (live && response?.captured !== true) {
+          captureActive = false
+          close()
+        }
+      })
     },
   }
 }

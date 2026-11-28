@@ -27,7 +27,8 @@ export function UserBarExtensionDrawer({
   onDismiss: () => void
   userBarHeightCss?: string
 }) {
-  useNativeKeyboard()
+  const keyboard = useNativeKeyboard()
+  const overlayGpuKeyboard = keyboard?.mode === "overlay-gpu"
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const [retained, setRetained] = useAtom(useCreateAtom(children))
   const committedActive = useRef(children?.props.active)
@@ -43,9 +44,20 @@ export function UserBarExtensionDrawer({
   }, [children, host])
   const open = children !== null
   const content = children ?? retained
+  const gpuLayerActive = overlayGpuKeyboard && (open || content !== null)
 
   return (
-    <div ref={setHost} className="community-user-bar-drawer-viewport">
+    <div
+      ref={setHost}
+      data-alook-kb-gpu-layer={gpuLayerActive ? "true" : undefined}
+      data-alook-kb-gpu-offset={gpuLayerActive ? "user-bar" : undefined}
+      className={`community-user-bar-drawer-viewport${gpuLayerActive ? " alook-kb-gpu-layer" : ""}`}
+      style={gpuLayerActive
+        ? {
+            ["--alook-kb-layer-translate-y" as string]: `calc(max(0px, calc(var(--alook-kb-layout-progress, 0px) - ${userBarHeightCss})) - max(0px, calc(var(--alook-kb-visual-progress, 0px) - ${userBarHeightCss})))`,
+          }
+        : undefined}
+    >
       <SwipeRoot open={open} swipeDirection="down" modal={false} disablePointerDismissal
         onOpenChange={(next) => { if (!next) onDismiss() }}
         onOpenChangeComplete={(next) => { if (!next) setRetained(null) }}>

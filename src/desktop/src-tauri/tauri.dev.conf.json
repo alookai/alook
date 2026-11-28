@@ -14,7 +14,7 @@
           "remote": {
             "urls": ["http://localhost:3000"]
           },
-          "permissions": ["clipboard-manager:allow-write-image", "desktop-commands"]
+          "permissions": ["desktop-commands"]
         },
         "native-geometry",
         "native-geometry-windows",
@@ -25,7 +25,7 @@
         {
           "$schema": "../gen/schemas/desktop-schema.json",
           "identifier": "external-links-dev",
-          "description": "System-browser access for HTTP(S) links in the trusted development webview",
+          "description": "System handler access for HTTP(S), mailto, and tel links in the trusted development webview",
           "windows": ["main"],
           "platforms": ["linux", "macOS", "windows", "android", "iOS"],
           "local": true,
@@ -37,7 +37,9 @@
               "identifier": "opener:allow-open-url",
               "allow": [
                 { "url": "http://*" },
-                { "url": "https://*" }
+                { "url": "https://*" },
+                { "url": "mailto:*" },
+                { "url": "tel:*" }
               ]
             }
           ]
@@ -49,7 +51,7 @@
           "platforms": ["android", "iOS"],
           "local": true,
           "remote": { "urls": ["http://localhost:3000"] },
-          "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+          "permissions": ["window-lifecycle"]
         },
         {
           "$schema": "../gen/schemas/desktop-schema.json",

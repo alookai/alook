@@ -20,10 +20,18 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import com.google.firebase.messaging.FirebaseMessaging
 import java.lang.ref.WeakReference
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @InvokeArg
 class AcknowledgeRegistrationArgs {
     lateinit var providerToken: String
+}
+
+@InvokeArg
+class AckActivationArgs {
+    lateinit var notificationId: String
 }
 
 @InvokeArg
@@ -35,6 +43,11 @@ class DismissNotificationArgs {
 class DismissConversationArgs {
     lateinit var viewerUserId: String
     lateinit var targetId: String
+}
+
+@InvokeArg
+class ClearViewerArgs {
+    lateinit var viewerUserId: String
 }
 
 @InvokeArg
@@ -63,10 +76,14 @@ internal fun mobilePushPermissionState(
 )
 class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
     private val store = MobilePushStore(activity.applicationContext)
+    private val listenerLock = Any()
     private var listener: Channel? = null
+    @Volatile
+    private var presentationWebView: WeakReference<WebView>? = null
 
     override fun load(webView: WebView) {
         super.load(webView)
+        presentationWebView = WeakReference(webView)
         instance = WeakReference(this)
         createNotificationChannel(activity)
         intake(activity.intent)
@@ -145,9 +162,9 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
-    fun takeActivation(invoke: Invoke) {
+    fun peekActivation(invoke: Invoke) {
         try {
-            val route = store.takeActivation()
+            val route = store.peekActivation()
             if (route == null) {
                 invoke.resolve()
                 return
@@ -156,7 +173,30 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             response.put("notificationId", route.notificationId)
             response.put("messageId", route.messageId)
             response.put("targetId", route.targetId)
+            if (route.viewerUserId != null) {
+                response.put("viewerUserId", route.viewerUserId)
+            }
             invoke.resolve(response)
+        } catch (_: Exception) {
+            invoke.reject("Native push storage is unavailable", "store_unavailable")
+        }
+    }
+
+    @Command
+    fun ackActivation(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(AckActivationArgs::class.java)
+        } catch (_: Exception) {
+            invoke.reject("Notification acknowledgement is invalid", "invalid_request")
+            return
+        }
+        if (MobilePushRoute.create(args.notificationId, "message", "target") == null) {
+            invoke.reject("Notification acknowledgement is invalid", "invalid_request")
+            return
+        }
+        try {
+            store.ackActivation(args.notificationId)
+            invoke.resolve()
         } catch (_: Exception) {
             invoke.reject("Native push storage is unavailable", "store_unavailable")
         }
@@ -174,7 +214,7 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.reject("Notification dismissal is invalid", "invalid_request")
             return
         }
-        dismissMatchingNotifications(invoke, "Notification remains delivered") { tag ->
+        dismissMatchingNotifications(invoke) { tag ->
             mobilePushNotificationTagMatchesNotification(tag, args.notificationId)
         }
     }
@@ -193,14 +233,31 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.reject("Conversation dismissal is invalid", "invalid_request")
             return
         }
-        dismissMatchingNotifications(invoke, "Conversation notifications remain delivered") { tag ->
+        dismissMatchingNotifications(invoke) { tag ->
             mobilePushNotificationTagMatchesConversation(tag, args.viewerUserId, args.targetId)
+        }
+    }
+
+    @Command
+    fun clearViewer(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(ClearViewerArgs::class.java)
+        } catch (_: Exception) {
+            invoke.reject("Viewer notification clear is invalid", "invalid_request")
+            return
+        }
+        if (!validMobilePushTargetId(args.viewerUserId)) {
+            invoke.reject("Viewer notification clear is invalid", "invalid_request")
+            return
+        }
+        runCatching { store.clearViewerPending(args.viewerUserId) }
+        dismissMatchingNotifications(invoke) { tag ->
+            mobilePushNotificationTagMatchesViewer(tag, args.viewerUserId)
         }
     }
 
     private fun dismissMatchingNotifications(
         invoke: Invoke,
-        remainsMessage: String,
         matches: (String?) -> Boolean,
     ) {
         val manager = activity.getSystemService(NotificationManager::class.java)
@@ -210,11 +267,7 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
         }
         manager.activeNotifications.filter { matches(it.tag) }
             .forEach { manager.cancel(it.tag, it.id) }
-        if (manager.activeNotifications.any { matches(it.tag) }) {
-            invoke.reject(remainsMessage, "notification_unavailable")
-        } else {
-            invoke.resolve()
-        }
+        invoke.resolve()
     }
 
     @Command
@@ -225,7 +278,9 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.reject("Notification listener is invalid", "invalid_request")
             return
         }
-        listener = args.channel
+        synchronized(listenerLock) {
+            listener = args.channel
+        }
         invoke.resolveObject(args.channel.id)
     }
 
@@ -237,7 +292,17 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.reject("Notification listener is invalid", "invalid_request")
             return
         }
-        if (listener?.id == args.registrationId) listener = null
+        synchronized(listenerLock) {
+            if (listener?.id == args.registrationId) listener = null
+        }
+        invoke.resolve()
+    }
+
+    @Command
+    fun retireListener(invoke: Invoke) {
+        synchronized(listenerLock) {
+            listener = null
+        }
         invoke.resolve()
     }
 
@@ -275,20 +340,49 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
                 it.getStringExtra("viewerUserId"),
             )
         } ?: return
+        val secret = intent.getStringExtra(EXTRA_INTENT_SECRET)
+        intent.removeExtra("notificationId")
+        intent.removeExtra("messageId")
+        intent.removeExtra("targetId")
+        intent.removeExtra("viewerUserId")
+        intent.removeExtra(EXTRA_INTENT_SECRET)
         try {
+            if (!store.verifyLaunchIntent(activity.packageName, intent.action, secret, route)) {
+                return
+            }
             store.saveActivation(route)
-            intent.removeExtra("notificationId")
-            intent.removeExtra("messageId")
-            intent.removeExtra("targetId")
-            intent.removeExtra("viewerUserId")
             signal()
         } catch (_: Exception) {
             return
         }
     }
 
+    private fun shouldSuppressForeground(route: MobilePushRoute): Boolean {
+        val script = mobilePushPresentationScript(route) ?: return false
+        val webView = presentationWebView?.get() ?: return false
+        val latch = CountDownLatch(1)
+        val suppress = AtomicBoolean(false)
+        try {
+            activity.runOnUiThread {
+                try {
+                    webView.evaluateJavascript(script) { result ->
+                        suppress.set(mobilePushPresentationResultSuppresses(result))
+                        latch.countDown()
+                    }
+                } catch (_: Exception) {
+                    latch.countDown()
+                }
+            }
+            latch.await(500, TimeUnit.MILLISECONDS)
+        } catch (_: Exception) {
+            return false
+        }
+        return suppress.get()
+    }
+
     private fun signal() {
-        runCatching { listener?.send(JSObject()) }
+        val current = synchronized(listenerLock) { listener } ?: return
+        runCatching { current.send(JSObject()) }
     }
 
     private fun appVersion(): String? = runCatching {
@@ -296,11 +390,15 @@ class MobilePushPlugin(private val activity: Activity) : Plugin(activity) {
     }.getOrNull()
 
     companion object {
+        @Volatile
         private var instance: WeakReference<MobilePushPlugin>? = null
 
         fun signalCurrent() {
             instance?.get()?.signal()
         }
+
+        fun shouldSuppressForeground(route: MobilePushRoute): Boolean =
+            instance?.get()?.shouldSuppressForeground(route) ?: false
 
         fun createNotificationChannel(activity: Activity) {
             createNotificationChannel(activity.applicationContext)

@@ -1,7 +1,7 @@
 import React from "react"
 import { describe, expect, it, vi } from "vitest"
-import { render, screen } from "@/test/react-dom-harness"
-import { ConversationActivityContext } from "@/contexts/view-activity"
+import { render, screen, waitFor } from "@/test/react-dom-harness"
+import { ConversationActivityContext, ConversationPresentationContext } from "@/contexts/view-activity"
 import { ConversationSurface } from "./conversation-surface"
 import { MessageList } from "@/components/community/messages/message-list"
 import { ConversationFooterShell } from "@/components/community/messages/conversation-footer-shell"
@@ -109,5 +109,68 @@ describe("ConversationSurface", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Denied")
     expect(mockedMessageList).not.toHaveBeenCalled()
     view.unmount()
+  })
+
+  it("clips translated message content below the header and activates the GPU layer only in overlay-gpu mode", async () => {
+    const originalWebkit = Object.getOwnPropertyDescriptor(window, "webkit")
+    const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    Object.defineProperty(window, "webkit", {
+      configurable: true,
+      value: {
+        messageHandlers: {
+          alookKeyboard: {
+            postMessage: async () => ({
+              mode: "overlay-gpu",
+              targetInset: 0,
+              viewportWidth: 390,
+              durationMs: 0,
+              easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+              phase: "settled",
+              sequence: 0,
+            }),
+          },
+        },
+      },
+    })
+    const tree = (presented: boolean) => (
+      <ConversationPresentationContext value={presented}>
+        <ConversationSurface
+          channelId="ch_gpu"
+          subtype="text"
+          header={<header data-testid="surface-header">Header</header>}
+          messageListProps={{
+            channel: "general",
+            messages: [],
+            loading: false,
+            onOpenThread: vi.fn(),
+          }}
+          footer={<ComposerActivityProbe />}
+        />
+      </ConversationPresentationContext>
+    )
+    const view = render(tree(true))
+    try {
+      const surface = view.container.querySelector('[data-slot="community-conversation-surface"]')!
+      expect(surface).toHaveClass("overflow-hidden")
+      const listLayer = view.container.querySelector('[data-slot="community-message-list-keyboard-layer"]')!
+      await waitFor(() => expect(listLayer).toHaveAttribute("data-alook-kb-gpu-layer", "true"))
+      expect(listLayer).toHaveClass("alook-kb-gpu-layer")
+
+      view.rerender(tree(false))
+      expect(listLayer).not.toHaveAttribute("data-alook-kb-gpu-layer")
+      expect(listLayer).not.toHaveClass("alook-kb-gpu-layer")
+    } finally {
+      view.unmount()
+      document.documentElement.style.removeProperty("--alook-keyboard-progress")
+      document.documentElement.style.removeProperty("--alook-keyboard-bottom")
+      document.documentElement.style.removeProperty("--alook-kb-translate-y")
+      document.documentElement.style.removeProperty("--alook-kb-transition")
+      document.documentElement.removeAttribute("data-alook-kb-animating")
+      if (originalWebkit) Object.defineProperty(window, "webkit", originalWebkit)
+      else Reflect.deleteProperty(window, "webkit")
+      if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
+      else Reflect.deleteProperty(window, "__TAURI__")
+    }
   })
 })

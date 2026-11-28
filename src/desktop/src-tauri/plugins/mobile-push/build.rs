@@ -1,15 +1,7 @@
 fn main() {
-    tauri_plugin::Builder::new(&[
-        "snapshot",
-        "acknowledgeRegistration",
-        "takeActivation",
-        "dismissNotification",
-        "dismissConversation",
-        "listen",
-        "unlisten",
-    ])
-    .android_path("android")
-    .ios_path("ios")
-    .try_build()
-    .expect("failed to build mobile push plugin");
+    tauri_plugin::Builder::new(&[])
+        .android_path("android")
+        .ios_path("ios")
+        .try_build()
+        .expect("failed to build mobile push plugin");
 }

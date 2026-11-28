@@ -2909,11 +2909,18 @@ describe("useUserWs", () => {
   })
 
   it("parks on native suspend even with visible DOM and retains an early native resume until visible", async () => {
-    const listeners = new Map<string, () => void>()
-    const unlisten = vi.fn()
-    Object.assign(mockWindow, { __TAURI__: { window: { getCurrentWindow: () => ({
-      listen: async (event: string, handler: () => void) => { listeners.set(event, handler); return unlisten },
-    }) } } })
+    const channels: Array<{ onmessage: (payload?: unknown) => void }> = []
+    class Channel {
+      onmessage: (payload?: unknown) => void = () => undefined
+      constructor() { channels.push(this) }
+    }
+    const invoke = vi.fn(async (command: string) => (
+      command === "window_lifecycle_listen" ? { registrationId: 1, suspended: false } : undefined
+    ))
+    Object.assign(mockWindow, {
+      __TAURI__: { core: { Channel, invoke } },
+      __ALOOK_NATIVE_RUNTIME__: { formFactor: "mobile" },
+    })
     setupTokenFetch()
     const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), { onForeground, onConnectionStateChange })
@@ -2921,54 +2928,80 @@ describe("useUserWs", () => {
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
     const sent = ws.sent.length
-    listeners.get("tauri://suspended")!()
+    channels[0]!.onmessage("suspended")
     dispatchWindowFocus()
     await vi.advanceTimersByTimeAsync(40_000)
     expect(ws.sent).toHaveLength(sent)
     expect(ws.closed).toBe(false)
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
     mockDocument.visibilityState = "hidden"
-    listeners.get("tauri://resumed")!()
+    channels[0]!.onmessage("resumed")
     expect(onForeground).not.toHaveBeenCalled()
     mockDocument.visibilityState = "visible"
     mockDocument.dispatch("visibilitychange")
-    listeners.get("tauri://resumed")!()
+    channels[0]!.onmessage("resumed")
     mockDocument.dispatch("resume")
     dispatchPageShow(true)
     expect(onForeground).toHaveBeenCalledOnce()
     expect(connectionPings(ws)).toHaveLength(1)
     expect(MockWebSocket.instances).toHaveLength(1)
     for (const effect of effectMemo.values()) effect.cleanup?.()
-    expect(unlisten).toHaveBeenCalledTimes(2)
-    listeners.get("tauri://resumed")!()
+    expect(invoke).toHaveBeenLastCalledWith("window_lifecycle_unlisten", { registrationId: 1 })
+    channels[0]!.onmessage("resumed")
     expect(onForeground).toHaveBeenCalledOnce()
   })
 
-  it("keeps DOM recovery available when native resumed registration fails after suspended registered", async () => {
-    const callbacks = new Map<string, () => void>()
-    const resumed = deferred<() => void>()
-    const unlisten = vi.fn()
-    Object.assign(mockWindow, { __TAURI__: { window: { getCurrentWindow: () => ({
-      listen: (event: string, callback: () => void) => {
-        callbacks.set(event, callback)
-        return event === "tauri://resumed" ? resumed.promise : Promise.resolve(unlisten)
-      },
-    }) } } })
+  it("keeps DOM recovery available when native lifecycle channel registration fails", async () => {
+    const channels: Array<{ onmessage: (payload?: unknown) => void }> = []
+    class Channel {
+      onmessage: (payload?: unknown) => void = () => undefined
+      constructor() { channels.push(this) }
+    }
+    const registration = deferred<{ registrationId: number; suspended: boolean }>()
+    const invoke = vi.fn(() => registration.promise)
+    Object.assign(mockWindow, {
+      __TAURI__: { core: { Channel, invoke } },
+      __ALOOK_NATIVE_RUNTIME__: { formFactor: "mobile" },
+    })
     setupTokenFetch()
     const onForeground = vi.fn(), onConnectionStateChange = vi.fn()
     await mountHook(vi.fn(), { onForeground, onConnectionStateChange })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok", communityContract: BUSINESS_SCHEMA_VERSION })
-    callbacks.get("tauri://suspended")!()
-    resumed.reject(new Error("permission denied"))
+    channels[0]!.onmessage("suspended")
+    registration.reject(new Error("permission denied"))
     await flushPromises()
     dispatchHiddenToVisible()
-    callbacks.get("tauri://suspended")!()
+    channels[0]!.onmessage("suspended")
     expect(onForeground).toHaveBeenCalledOnce()
     expect(connectionPings(ws)).toHaveLength(1)
-    expect(unlisten).toHaveBeenCalledOnce()
     expect(MockWebSocket.instances).toEqual([ws])
+  })
+
+  it("hydrates suspended native snapshot on mount so remount while suspended stays parked", async () => {
+    const channels: Array<{ onmessage: (payload?: unknown) => void }> = []
+    class Channel {
+      onmessage: (payload?: unknown) => void = () => undefined
+      constructor() { channels.push(this) }
+    }
+    const invoke = vi.fn(async (command: string) => (
+      command === "window_lifecycle_listen" ? { registrationId: 5, suspended: true } : undefined
+    ))
+    Object.assign(mockWindow, {
+      __TAURI__: { core: { Channel, invoke } },
+      __ALOOK_NATIVE_RUNTIME__: { formFactor: "mobile" },
+    })
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), { onConnectionStateChange })
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(MockWebSocket.instances.every((socket) => socket.closed)).toBe(true)
+    const beforeAdvance = MockWebSocket.instances.length
+    await vi.advanceTimersByTimeAsync(40_000)
+    expect(MockWebSocket.instances).toHaveLength(beforeAdvance)
+    for (const effect of effectMemo.values()) effect.cleanup?.()
+    expect(invoke).toHaveBeenLastCalledWith("window_lifecycle_unlisten", { registrationId: 5 })
   })
 
 })

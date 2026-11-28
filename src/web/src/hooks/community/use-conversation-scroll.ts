@@ -7,6 +7,7 @@ import type { MessagePositionState, MessageRequest, MessageRequestResult, NewPos
 import type { ConversationListScope } from "@/lib/community/conversation-qualification"
 import { withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { messageScrollBehavior } from "@/lib/community/message-scroll-behavior"
+import { useNativeKeyboardSettle } from "@/hooks/use-native-keyboard"
 
 export type PositionOutcome = "pending" | "success" | "user-cancelled" | "cancelled" | "empty" | "error"
 type ViewportResizeAnchor = "tail" | "start"
@@ -1796,6 +1797,34 @@ export function useConversationScroll({
       }
     }
   }, [bumpState, compensateAnchor, reportReadingMessage, settleJumpIfLanded, syncTailFlags, syncUiSnapshot, transitionToReadingHistory, updateNewDividerVisibility])
+
+  useNativeKeyboardSettle(({ deltaInsetPx }) => {
+    const root = scrollRef.current
+    const ctx = propsRef.current
+    if (!root || !ctx.visible || root.clientHeight <= 0 || Math.abs(deltaInsetPx) <= 0.01) return
+    const state = stateRef.current
+    if (state.mode === "jumping-to-target") return
+    const maxScroll = Math.max(0, root.scrollHeight - root.clientHeight)
+    const prevGeo = prevGeometryRef.current
+    const browserClampedOnGrowth = !!prevGeo
+      && deltaInsetPx < 0
+      && root.clientHeight > prevGeo.clientHeight
+      && prevGeo.scrollTop > maxScroll
+      && Math.abs(root.scrollTop - maxScroll) <= 1
+    const baseScrollTop = browserClampedOnGrowth ? prevGeo.scrollTop : root.scrollTop
+    if (state.mode === "pinned-to-bottom") {
+      const nextTop = !followSuspendedRef.current && distanceFromEnd(root) <= CONVERSATION_TAIL_SPACE_PX + Math.max(0, deltaInsetPx)
+        ? maxScroll
+        : baseScrollTop + deltaInsetPx
+      writeScrollTopInstant(root, nextTop)
+      syncTailFlags(root)
+      return
+    }
+    writeScrollTopInstant(root, baseScrollTop + deltaInsetPx)
+    const refreshed = captureVisibleAnchor(root, ctx.items, ctx.viewportInsetEnd)
+    if (refreshed) stateRef.current = { mode: "reading-history", ...refreshed }
+    syncTailFlags(root)
+  })
 
   useEffect(() => () => {
     finishNewOp("retired")

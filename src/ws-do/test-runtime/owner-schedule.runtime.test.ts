@@ -541,4 +541,63 @@ describe("OwnerScheduleDurableObject workerd runtime (D1 + stateless DO timer)",
       fx.close()
     }
   })
+
+  it("backfills and dispatches an orphaned pending schedule run missing from bot private inbox on /resync-bots", async () => {
+    const fx = await seedHouseholdAndMessage({ machineConnected: false, channelType: "text" })
+    let reconnectClient: WebSocket | null = null
+    try {
+      const startAtMs = Date.now() - 1000
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "Orphan recovery check",
+        description: "Verify missing inbox backfill",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: null,
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
+
+      const claimed = await queries.communitySchedule.claimDueEventOccurrence(fx.db, created.event, Date.now())
+      expect(claimed?.status).toBe("pending")
+      const inboxAfterClaim = await queries.communityBotPrivateInbox.listPendingPrivateInboxEventsForBot(fx.db, fx.botId, 10)
+      expect(inboxAfterClaim).toHaveLength(1)
+      expect(inboxAfterClaim[0]?.sourceRefId).toBe(claimed?.id)
+
+      // Simulate an orphaned schedule run whose private inbox row was missing/lost.
+      await queries.communityBotPrivateInbox.deletePrivateInboxEventsForSource(fx.db, "schedule", created.event.id)
+      expect(await queries.communityBotPrivateInbox.listPendingPrivateInboxEventsForBot(fx.db, fx.botId, 10)).toEqual([])
+
+      const frames: unknown[] = []
+      const wsDoId = runtimeEnv.WS_DO.idFromName("community-machine:" + fx.doName)
+      const upgradeRes = await runtimeEnv.WS_DO.get(wsDoId).fetch(
+        new Request("https://worker.test/", {
+          headers: { Upgrade: "websocket", Authorization: `Bearer ${fx.credSecret}` },
+        }),
+      )
+      expect(upgradeRes.status).toBe(101)
+      reconnectClient = upgradeRes.webSocket!
+      reconnectClient.accept()
+      reconnectClient.addEventListener("message", (event) => frames.push(JSON.parse(String(event.data))))
+
+      const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-schedule/${fx.ownerId}/resync-bots`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ownerUserId: fx.ownerId, botIds: [fx.botId] }),
+      }))
+      expect(resyncRes.status).toBe(200)
+      expect(await resyncRes.json()).toEqual({ attempted: 1, dispatched: 1, blocked: 0 })
+      await new Promise((r) => setTimeout(r, 30))
+
+      expect(frames).toHaveLength(1)
+      const afterResync = await queries.communitySchedule.getScheduleEventById(fx.db, fx.ownerId, created.event.id)
+      expect(afterResync?.latestRun?.status).toBe("dispatched")
+    } finally {
+      try { reconnectClient?.close(1000, "done") } catch {}
+      fx.close()
+    }
+  })
 })

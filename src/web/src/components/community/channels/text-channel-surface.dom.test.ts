@@ -418,6 +418,41 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(headerProps).not.toHaveProperty("onBack")
   })
 
+  it("wires cached canShowLeaveChannel to ChannelHeader while live onLeaveChannel is pending", () => {
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const baseProps = {
+      channelId: "channel_1",
+      serverId: "server_1",
+      serverParam: "server_1",
+      channelName: "general",
+      viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+      canManagePins: false,
+      anchorMessageId: null,
+      notificationLevel: "default" as const,
+      onSetNotificationLevel: vi.fn(),
+      composerMembers: [],
+      composerMentionCandidates: undefined,
+      channelRefCandidates: [],
+      memberPanelProps: { members: [] },
+      manageMembersDialog: null,
+      uiHandlers: {},
+      onOpenThread: vi.fn(),
+      onOpenProfile: vi.fn(),
+      resolveUserName: (userId: string) => userId,
+    }
+    const view = render(React.createElement(TextChannelSurface, { ...baseProps, canShowLeaveChannel: true }))
+    expect(mockedChannelHeader.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({
+      showLeave: true,
+      onLeave: undefined,
+    }))
+    view.rerender(React.createElement(TextChannelSurface, { ...baseProps, canShowLeaveChannel: false }))
+    expect(mockedChannelHeader.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({
+      showLeave: false,
+      onLeave: undefined,
+    }))
+    view.unmount()
+  })
+
   it("keeps pinned reads available while gating live and preview Pin actions", async () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     const baseProps = {

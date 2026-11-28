@@ -13,6 +13,10 @@ const originalWebkit = Object.getOwnPropertyDescriptor(window, "webkit")
 const originalTauri = Object.getOwnPropertyDescriptor(window, "__TAURI__")
 afterEach(() => {
   document.documentElement.style.removeProperty("--alook-keyboard-progress")
+  document.documentElement.style.removeProperty("--alook-keyboard-bottom")
+  document.documentElement.style.removeProperty("--alook-kb-translate-y")
+  document.documentElement.style.removeProperty("--alook-kb-transition")
+  document.documentElement.removeAttribute("data-alook-kb-animating")
   if (originalWebkit) Object.defineProperty(window, "webkit", originalWebkit)
   else Reflect.deleteProperty(window, "webkit")
   if (originalTauri) Object.defineProperty(window, "__TAURI__", originalTauri)
@@ -279,5 +283,84 @@ describe("ConversationFooterShell", () => {
       </ConversationPresentationContext>,
     )
     expect(latestSlot!.capsuleHeight).toBe(0)
+  })
+
+  it("activates the GPU transform layer in overlay-gpu mode without mutating settled margin during animation", async () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth")
+    Object.defineProperty(window, "__TAURI__", { configurable: true, value: {} })
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 })
+    Object.defineProperty(window, "webkit", {
+      configurable: true,
+      value: {
+        messageHandlers: {
+          alookKeyboard: {
+            postMessage: async () => ({
+              mode: "overlay-gpu",
+              targetInset: 0,
+              viewportWidth: 400,
+              durationMs: 0,
+              easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+              phase: "settled",
+              sequence: 0,
+            }),
+          },
+        },
+      },
+    })
+    function Page({ presented }: { presented: boolean }) {
+      return (
+        <ConversationPresentationContext value={presented}>
+          <ConversationFooterShell data-testid="gpu-footer">
+            <input aria-label="GPU draft" defaultValue="Draft" />
+          </ConversationFooterShell>
+        </ConversationPresentationContext>
+      )
+    }
+    const view = render(<Page presented />)
+    try {
+      const footer = view.getByTestId("gpu-footer")
+      await waitFor(() => expect(footer).toHaveAttribute("data-alook-kb-gpu-layer", "true"))
+      expect(footer).toHaveClass("alook-kb-gpu-layer")
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: {
+            mode: "overlay-gpu",
+            targetInset: 300,
+            viewportWidth: 400,
+            durationMs: 250,
+            easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+            phase: "animating",
+            sequence: 1,
+          },
+        }))
+      })
+      expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("-300px")
+      expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress")).toBe("")
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent("alook:keyboard-change", {
+          detail: {
+            mode: "overlay-gpu",
+            targetInset: 300,
+            viewportWidth: 400,
+            durationMs: 0,
+            easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+            phase: "settled",
+            sequence: 2,
+          },
+        }))
+      })
+      expect(document.documentElement.style.getPropertyValue("--alook-kb-translate-y")).toBe("0px")
+      expect(document.documentElement.style.getPropertyValue("--alook-keyboard-progress"))
+        .toBe("max(0px, calc(75vw - var(--app-safe-area-bottom)))")
+
+      view.rerender(<Page presented={false} />)
+      expect(footer).not.toHaveAttribute("data-alook-kb-gpu-layer")
+      expect(footer).not.toHaveClass("alook-kb-gpu-layer")
+    } finally {
+      view.unmount()
+      if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth)
+    }
   })
 })

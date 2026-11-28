@@ -493,7 +493,7 @@ describe("CI workflow graph", () => {
     for (const job of [
       "auth-build", "blog-build", "static-checks", "test-linux", ...windowsTestJobs,
       "app-packed-artifact",
-      "e2e", "desktop-rust", "lighthouse", "ui-e2e-build", "e2e-ui", "resizable-panels-compat", "merge-reports",
+      "e2e", "desktop-rust", "ui-e2e-build", "e2e-ui", "resizable-panels-compat", "merge-reports",
       "ci-gate", "ui-e2e-gate",
     ]) {
       const definition = ciJob(job)
@@ -547,17 +547,6 @@ describe("CI workflow graph", () => {
     expect(e2e).toContain(`${daemonCondition}\n        run: pnpm --filter @alook/daemon run test:integration`)
   })
 
-  it("migrates Lighthouse's fresh local database before starting the web app", () => {
-    const lighthouse = ciJob("lighthouse")
-
-    expect(lighthouse).toContain("BETTER_AUTH_SECRET=ci-lighthouse-secret")
-    expect(lighthouse).toContain("- run: pnpm run db:migrate")
-    expect(lighthouse).toContain("npx @lhci/cli autorun --config=lighthouserc.json")
-    expect(lighthouse.indexOf("pnpm run db:migrate")).toBeLessThan(
-      lighthouse.indexOf("npx @lhci/cli autorun --config=lighthouserc.json"),
-    )
-  })
-
   it("consolidates static work and preserves non-blocking Knip steps", () => {
     const staticChecks = ciJob("static-checks")
     expect(ciWorkflow).not.toMatch(/^  quality:/m)
@@ -589,10 +578,12 @@ describe("CI workflow graph", () => {
         `{"name":"${job}","expected":\${{ ${expected} }},"result":"\${{ needs.${job}.result }}"}`,
       )
     }
-    for (const removed of ["quality", "knip", "build", "coverage"]) {
+    for (const removed of ["quality", "knip", "build", "coverage", "lighthouse"]) {
       expect(gate).not.toContain(`- ${removed}`)
       expect(gate).not.toContain(`"name":"${removed}"`)
     }
+    expect(ciWorkflow).not.toMatch(/^  lighthouse:/m)
+    expect(ciWorkflow).not.toContain("run_lighthouse")
   })
 
   it("runs the same strict DB check manually and through the required CI path", () => {
@@ -831,13 +822,19 @@ describe("Native message external-link opener", () => {
   const expectedPlatforms = ["linux", "macOS", "windows", "android", "iOS"]
   const expectedPermission = [{
     identifier: "opener:allow-open-url",
-    allow: [{ url: "http://*" }, { url: "https://*" }],
+    allow: [
+      { url: "http://*" },
+      { url: "https://*" },
+      { url: "mailto:*" },
+      { url: "tel:*" },
+    ],
   }]
   const scopedUrlAllowed = (href: string, capability: ExternalLinksCapability) => {
     const patterns = capability.permissions.flatMap((permission) => (
       permission.allow?.map((entry) => entry.url) ?? []
     ))
-    return patterns.includes(`${new URL(href).protocol}//*`)
+    const protocol = new URL(href).protocol
+    return patterns.includes(`${protocol}//*`) || patterns.includes(`${protocol}*`)
   }
 
   it("registers the official opener plugin in the common desktop/mobile builder", () => {
@@ -855,7 +852,7 @@ describe("Native message external-link opener", () => {
     expect(registration).toBeLessThan(desktopOnlyPlugins)
   })
 
-  it("grants only scoped HTTP(S) URL opening to the production five-platform app webview", () => {
+  it("grants only scoped HTTP(S), mailto, and tel URL opening to the production five-platform app webview", () => {
     expect(externalLinksCapability).toMatchObject({
       identifier: "external-links",
       windows: ["main"],
@@ -869,15 +866,16 @@ describe("Native message external-link opener", () => {
       "http://example.com:8080/path/to/story?source=chat#section",
       "https://example.com:9443/a/b?query=yes#fragment",
       "https://alook.ai/c/invite/abcdef?from=dm",
-    ].every((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(true)
-    expect([
       "mailto:friend@example.com",
       "tel:+15551234567",
+    ].every((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(true)
+    expect([
       "file:///tmp/private",
+      "javascript:alert(1)",
     ].some((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(false)
   })
 
-  it("reuses the same minimal HTTP(S) scope for the local development app webview", () => {
+  it("reuses the same minimal external-link scope for the local development app webview", () => {
     const capabilities = desktopDevConfig.app?.security?.capabilities ?? []
     const inlineOpener = capabilities.find((capability): capability is ExternalLinksCapability => (
       typeof capability !== "string"
@@ -909,8 +907,8 @@ describe("Native message external-link opener", () => {
       "opener:allow-open-path",
       "opener:allow-reveal-item-in-dir",
       "shell:",
-      "mailto:",
-      "tel:",
+      "file:",
+      "javascript:",
     ]) {
       expect(capabilityText).not.toContain(rejected)
     }
@@ -1277,8 +1275,6 @@ describe("Desktop updater release", () => {
 })
 
 describe("Desktop image clipboard", () => {
-  const writeImagePermission = "clipboard-manager:allow-write-image"
-
   it("registers the maintained plugin only in the desktop dependency chain", () => {
     expect(desktopCargoManifest).toMatch(
       /\[target\."cfg\(not\(any\(target_os = \\"android\\", target_os = \\"ios\\"\)\)\)"\.dependencies\][\s\S]*tauri-plugin-clipboard-manager = "2"/,
@@ -1300,7 +1296,7 @@ describe("Desktop image clipboard", () => {
       platforms: ["linux", "macOS", "windows"],
       local: false,
       remote: { urls: ["https://alook.ai"] },
-      permissions: [writeImagePermission, "desktop-commands"],
+      permissions: ["desktop-commands"],
     })
     expect(desktopDevConfig.app.security.capabilities).toEqual([
       "desktop-capability",
@@ -1310,7 +1306,7 @@ describe("Desktop image clipboard", () => {
         windows: ["main"],
         platforms: ["linux", "macOS", "windows"],
         remote: { urls: ["http://localhost:3000"] },
-        permissions: [writeImagePermission, "desktop-commands"],
+        permissions: ["desktop-commands"],
       }),
       "native-geometry",
       "native-geometry-windows",
@@ -1331,7 +1327,7 @@ describe("Desktop image clipboard", () => {
         windows: ["main"],
         platforms: ["android", "iOS"],
         remote: { urls: ["http://localhost:3000"] },
-        permissions: ["core:event:allow-listen", "core:event:allow-unlisten"],
+        permissions: ["window-lifecycle"],
       }),
       expect.objectContaining({ identifier: "native-oauth-dev", local: true, remote: { urls: ["http://localhost:3000"] }, permissions: ["native-oauth"] }),
       expect.objectContaining({

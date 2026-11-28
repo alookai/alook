@@ -22,6 +22,7 @@ import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { ConversationResourceProvider } from "@/hooks/community/conversation-resource-context"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 import { communityWsClaimSecondaryChannel, communityWsReleaseSecondaryChannel } from "@/hooks/community/use-community-ws"
+import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
 export function ThreadSplitParentSurface({
   serverId,
@@ -64,6 +65,12 @@ export function ThreadSplitParentSurface({
       communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
     }
   }, [active, channel.id, metadata.canRead, runtime, subscriptionOwner])
+  useNativeSystemNotificationConversationDismissal(
+    viewer.id,
+    { kind: "server", serverId, channelId: channel.id },
+    active && metadata.canRead,
+    { embedded: true },
+  )
   const members = useChannelMemberViewModel({
     serverId,
     channelId: channel.id,
@@ -108,6 +115,7 @@ export function ThreadSplitParentSurface({
           viewer={viewer}
           viewerRole={members.myRole}
           onNavigateParent={onNavigateParent}
+          canShowLeaveChannel={members.canShowLeaveChannel}
           onLeaveChannel={members.onLeaveChannel}
           notificationLevel={notificationLevel}
           onSetNotificationLevel={setNotificationLevel}
@@ -135,6 +143,7 @@ export function ThreadSplitParentSurface({
         canManagePins={canManageServer(members.myRole)}
         anchorMessageId={null}
         onNavigateParent={onNavigateParent}
+        canShowLeaveChannel={members.canShowLeaveChannel}
         onLeaveChannel={members.onLeaveChannel}
         notificationLevel={notificationLevel}
         onSetNotificationLevel={setNotificationLevel}

@@ -16,7 +16,7 @@ describe("ChannelHeader — overflow Leave action", () => {
 
     const splitThread = render(React.createElement(ChannelHeader, {
       channel: "Thread", kind: "thread", rightPanel: null, onToggle: vi.fn(),
-      compactActions: true, onLeave: vi.fn(),
+      compactActions: true, showLeave: true, onLeave: vi.fn(),
     }))
     expect(screen.queryByRole("button", { name: "More channel options" })).toBeNull()
     splitThread.unmount()
@@ -115,5 +115,37 @@ describe("ChannelHeader — overflow Leave action", () => {
     view.rerender(node("secret", true))
     expect(screen.queryByRole("dialog")).toBeNull()
     expect(onLeave).not.toHaveBeenCalled()
+  })
+
+  it("shows Leave from cached showLeave on a private forum with confirmation disabled until live onLeave resolves", async () => {
+    const user = setupUser()
+    const onLeave = vi.fn(() => Promise.resolve())
+    const baseProps = {
+      channel: "secret-forum",
+      kind: "forum" as const,
+      rightPanel: null,
+      onToggle: vi.fn(),
+      tools: { threads: false, pinned: false },
+      showLeave: true,
+    }
+    const view = render(React.createElement(ChannelHeader, baseProps))
+
+    await user.click(screen.getByRole("button", { name: "More channel options" }))
+    const leaveItem = await screen.findByRole("menuitem", { name: "Leave" })
+    expect(leaveItem).toHaveAttribute("data-variant", "destructive")
+    expect(document.querySelector('[data-slot="dropdown-menu-separator"]')).toBeNull()
+    await user.click(leaveItem)
+
+    expect(await screen.findByText("Leave /secret-forum?")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Leave" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled()
+
+    view.rerender(React.createElement(ChannelHeader, { ...baseProps, onLeave }))
+    const confirmBtn = screen.getByRole("button", { name: "Leave" })
+    expect(confirmBtn).toBeEnabled()
+    await user.click(confirmBtn)
+    await waitFor(() => expect(screen.queryByText("Leave /secret-forum?")).toBeNull())
+    expect(onLeave).toHaveBeenCalledOnce()
+    view.unmount()
   })
 })

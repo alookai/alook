@@ -3014,13 +3014,22 @@ body {
   bottom: max(var(--app-safe-area-bottom), var(--alook-keyboard-bottom, 0px));
 }
 
+.alook-kb-gpu-layer {
+  transform: translate3d(0, var(--alook-kb-layer-translate-y, var(--alook-kb-translate-y, 0px)), 0);
+  transition: var(--alook-kb-transition, none);
+}
+
+html[data-alook-kb-animating="true"] .alook-kb-gpu-layer {
+  will-change: transform;
+}
+
 .app-safe-portal-viewport {
   transform: translateZ(0);
 }
 
 @media (min-width: 640px) {
   html[data-alook-native-resize="true"] {
-    --app-popup-user-bar-clearance: max(0px, calc(3.75rem - max(0px, calc(var(--app-native-window-height) - var(--app-safe-area-top) - var(--app-native-window-safe-bottom) - var(--app-safe-height)))));
+    --app-popup-user-bar-clearance: max(0px, calc(3.75rem - max(0px, calc(var(--app-native-window-height) - var(--app-safe-area-top) - var(--app-native-window-safe-bottom) - var(--app-safe-height)), calc(var(--alook-keyboard-bottom, 0px) - var(--app-safe-area-bottom)))));
   }
 
   html[data-alook-native-resize="true"] .community-shell-extended[data-slot="community-shell-root"] {

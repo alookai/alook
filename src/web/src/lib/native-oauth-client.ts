@@ -18,11 +18,13 @@ export type NativeOauthView = {
   message?: "start_failed" | "expired" | "denied" | "invalid_callback" | "retry_required" | "unavailable" | "apple_update_required"
   attempt: NativeOauthSnapshot | null
 }
+export type NativeOauthWakeReason = "candidate_ready" | "window_resumed"
 export type NativeOauthDeps = {
   invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
-  listen: (ready: () => void) => Promise<() => void>
+  listen: (ready: (reason?: NativeOauthWakeReason) => void) => Promise<() => void>
   post: (endpoint: string, body: unknown) => Promise<{ ok: boolean; data: unknown }>
   hasSession: () => Promise<boolean>
+  readSessionId?: () => Promise<string | null>
   navigate: (path: string) => void
 }
 
@@ -34,7 +36,8 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
   let stopListening: (() => void) | undefined
   let processing = false
   let wakeAgain = false
-  let reconcileAgain = false
+  let wakeReasonAgain: NativeOauthWakeReason | undefined
+  let baselineSessionId: string | null = null
   let startQueue = Promise.resolve()
   let expiry: ReturnType<typeof setTimeout> | undefined
   const publish = (next: NativeOauthView) => {
@@ -59,29 +62,61 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
   const finish = async (attemptId: string, candidateId: string) => {
     await deps.invoke("native_oauth_finish", { attemptId, candidateId })
   }
-  const confirmSession = async () => {
-    try { return await deps.hasSession() } catch { return false }
+  const cancelOrphanedAttempt = async (attemptId: string) => {
+    const proof = await deps.invoke("native_oauth_cancel", { attemptId }).catch(() => null)
+    if (proof) await deps.post("cancel", nativeOauthProofSchema.parse(proof)).catch(() => {})
   }
-  const drain = async (reconcileSession = false) => {
+  const captureBaselineSession = async () => {
+    if (!deps.readSessionId) {
+      baselineSessionId = null
+      return
+    }
+    try {
+      baselineSessionId = await deps.readSessionId()
+    } catch {
+      baselineSessionId = null
+    }
+  }
+  const confirmSession = async () => {
+    try {
+      if (deps.readSessionId) {
+        const sessionId = await deps.readSessionId()
+        if (!sessionId) return false
+        if (baselineSessionId !== null && sessionId === baselineSessionId) return false
+        return true
+      }
+      return await deps.hasSession()
+    } catch {
+      return false
+    }
+  }
+  const mergeWakeReason = (
+    existing: NativeOauthWakeReason | undefined,
+    incoming: NativeOauthWakeReason | undefined,
+  ): NativeOauthWakeReason | undefined => {
+    if (existing === "candidate_ready" || incoming === "candidate_ready") return "candidate_ready"
+    return incoming ?? existing
+  }
+  const drain = async (reason?: NativeOauthWakeReason) => {
     if (disposed || !connected) return
     if (processing) {
       wakeAgain = true
-      reconcileAgain ||= reconcileSession
+      wakeReasonAgain = mergeWakeReason(wakeReasonAgain, reason)
       return
     }
     processing = true
     const version = generation
-    let shouldReconcile = reconcileSession
+    let activeReason = reason
     try {
       do {
-        shouldReconcile ||= reconcileAgain
-        reconcileAgain = false
+        activeReason = mergeWakeReason(activeReason, wakeReasonAgain)
+        wakeReasonAgain = undefined
         wakeAgain = false
         const candidate = exchangeSchema.nullable().parse(await deps.invoke("native_oauth_pending_exchange"))
         if (!current(version)) return
         if (!candidate) {
           const attempt = view.attempt
-          if (!shouldReconcile || !attempt?.waiting) return
+          if (!activeReason || !attempt?.waiting) return
           const snapshot = await readSnapshot()
           if (!current(version)) return
           if (snapshot && snapshot.attemptId !== attempt.attemptId) {
@@ -90,11 +125,23 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
           }
           const signedIn = await confirmSession()
           if (!current(version)) return
-          if (signedIn) deps.navigate(attempt.redirectPath)
-          else publish({ phase: "error", message: "retry_required", attempt: snapshot })
+          if (signedIn) {
+            if (snapshot) {
+              await cancelOrphanedAttempt(snapshot.attemptId)
+              if (!current(version)) return
+            }
+            setAttempt(null)
+            deps.navigate(attempt.redirectPath)
+          } else if (activeReason === "window_resumed" && snapshot) {
+            publish({ phase: "waiting", attempt: snapshot })
+          } else if (!snapshot) {
+            publish({ phase: "error", message: "retry_required", attempt: null })
+          } else {
+            publish({ phase: "waiting", attempt: snapshot })
+          }
           return
         }
-        shouldReconcile = false
+        activeReason = undefined
         const snapshot = await readSnapshot()
         if (!current(version)) return
         if (!snapshot || snapshot.attemptId !== candidate.attemptId) continue
@@ -104,7 +151,10 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
           if (await confirmSession()) {
             if (!current(version)) return
             await finish(attemptId, candidateId)
-            if (current(version)) deps.navigate(snapshot.redirectPath)
+            if (current(version)) {
+              setAttempt(null)
+              deps.navigate(snapshot.redirectPath)
+            }
           } else if (current(version)) {
             publish({ phase: "error", message: "retry_required", attempt: snapshot })
           }
@@ -125,7 +175,10 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
                 return
               }
               await finish(attemptId, candidateId)
-              if (current(version)) deps.navigate(success.data.redirectPath)
+              if (current(version)) {
+                setAttempt(null)
+                deps.navigate(success.data.redirectPath)
+              }
               return
             }
             const failure = z.object({ error: z.literal("invalid_handoff") }).strict().safeParse(response.data)
@@ -159,7 +212,10 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
           if (!current(version)) return
           if (signedIn) {
             await finish(attemptId, candidateId)
-            if (current(version)) deps.navigate(snapshot.redirectPath)
+            if (current(version)) {
+              setAttempt(null)
+              deps.navigate(snapshot.redirectPath)
+            }
           } else publish({ phase: "error", message: "retry_required", attempt: snapshot })
           return
         }
@@ -169,61 +225,96 @@ export function createNativeOauthController(deps: NativeOauthDeps, changed: (vie
     } finally {
       processing = false
       if (wakeAgain && !disposed) {
-        const reconcile = reconcileAgain
+        const nextReason = wakeReasonAgain
         wakeAgain = false
-        reconcileAgain = false
-        void drain(reconcile)
+        wakeReasonAgain = undefined
+        void drain(nextReason)
       }
+    }
+  }
+  const connectInternal = async (shouldDrain = true): Promise<boolean> => {
+    stopListening?.()
+    stopListening = undefined
+    connected = false
+    try {
+      const unsubscribe = await deps.listen((reason) => {
+        void drain(reason ?? "candidate_ready")
+      })
+      if (disposed) { unsubscribe(); return false }
+      stopListening = unsubscribe
+      const attempt = await readSnapshot()
+      if (disposed) return false
+      if (!attempt?.waiting) await captureBaselineSession()
+      if (disposed) return false
+      connected = true
+      if (shouldDrain) {
+        publish({ phase: attempt?.waiting ? "waiting" : "idle", attempt })
+        await drain()
+      }
+      return true
+    } catch (error) {
+      if (!disposed) publish(error === "store_unavailable"
+        ? { phase: "error", message: "unavailable", attempt: null }
+        : { phase: "unsupported", attempt: null })
+      return false
     }
   }
   return {
     async connect() {
       publish({ phase: "initializing", attempt: null })
-      try {
-        const unsubscribe = await deps.listen(() => { void drain(true) })
-        if (disposed) { unsubscribe(); return }
-        stopListening = unsubscribe
-        const attempt = await readSnapshot()
-        if (disposed) return
-        connected = true
-        publish({ phase: attempt?.waiting ? "waiting" : "idle", attempt })
-        await drain()
-      } catch (error) {
-        if (!disposed) publish(error === "store_unavailable"
-          ? { phase: "error", message: "unavailable", attempt: null }
-          : { phase: "unsupported", attempt: null })
-      }
+      await connectInternal(true)
     },
     start(provider: NativeOauthProvider, redirectPath: string) {
-      if (disposed || !connected || !isSafeRedirectPath(redirectPath)) return Promise.resolve()
+      if (disposed || !isSafeRedirectPath(redirectPath)) return Promise.resolve()
+      if (!connected && view.phase !== "error") return Promise.resolve()
       const version = ++generation
       publish({ phase: "preparing", attempt: view.attempt })
       const task = async () => {
         if (!current(version)) return
         let attemptId: string | undefined
         try {
+          if (!connected) {
+            const ready = await connectInternal(false)
+            if (!ready || !current(version)) return
+          }
+          await captureBaselineSession()
+          if (!current(version)) return
           const registration = nativeOauthRegistrationSchema.parse(await deps.invoke("native_oauth_prepare", { provider, redirectPath }))
           attemptId = registration.attemptId
-          if (!current(version)) return
+          if (!current(version)) {
+            await cancelOrphanedAttempt(attemptId)
+            return
+          }
           const attempt = await readSnapshot()
-          if (!current(version)) return
+          if (!current(version)) {
+            await cancelOrphanedAttempt(attemptId)
+            return
+          }
           publish({ phase: "preparing", attempt })
           const response = await deps.post("attempt", registration)
-          if (!current(version)) return
+          if (!current(version)) {
+            await cancelOrphanedAttempt(attemptId)
+            return
+          }
           const data = z.object({ startUrl: z.string() }).strict().parse(response.data)
           if (!response.ok) throw new Error("registration_failed")
           await deps.invoke("native_oauth_open_start", { attemptId, startUrl: data.startUrl })
-          if (!current(version)) return
+          if (!current(version)) {
+            await cancelOrphanedAttempt(attemptId)
+            return
+          }
           const waiting = await readSnapshot()
-          if (!current(version)) return
+          if (!current(version)) {
+            await cancelOrphanedAttempt(attemptId)
+            return
+          }
           publish({ phase: "waiting", attempt: waiting })
           void drain()
         } catch (error) {
-          if (!current(version)) return
           if (attemptId) {
-            const proof = await deps.invoke("native_oauth_cancel", { attemptId }).catch(() => null)
-            if (proof) await deps.post("cancel", nativeOauthProofSchema.parse(proof)).catch(() => {})
+            await cancelOrphanedAttempt(attemptId)
           }
+          if (!current(version)) return
           const nativeError = typeof error === "string"
             ? error
             : error instanceof Error
@@ -266,14 +357,23 @@ async function request(path: string, body?: unknown) {
   })
 }
 
+async function readBrowserSessionId(): Promise<string | null> {
+  const response = await request("/api/auth/get-session?disableCookieCache=true")
+  if (!response.ok) return null
+  const result = z.object({ session: z.object({ id: z.string().min(1) }).loose().nullable() }).loose().safeParse(await response.json())
+  return result.success ? result.data.session?.id ?? null : null
+}
+
 export const nativeOauthBrowserDeps: NativeOauthDeps = {
   invoke: tauriInvoke,
   async listen(ready) {
-    const bridge = (window as unknown as { __TAURI__?: { core?: { Channel?: new () => { onmessage: () => void } } } }).__TAURI__
+    const bridge = (window as unknown as { __TAURI__?: { core?: { Channel?: new () => { onmessage: (payload?: unknown) => void } } } }).__TAURI__
     const Channel = bridge?.core?.Channel
     if (!Channel) throw new Error("native_bridge_unavailable")
     const channel = new Channel()
-    channel.onmessage = ready
+    channel.onmessage = (payload?: unknown) => {
+      ready(payload === "window_resumed" ? "window_resumed" : "candidate_ready")
+    }
     const registrationId = await tauriInvoke<number>("native_oauth_listen", { channel })
     return () => { void tauriInvoke("native_oauth_unlisten", { registrationId }).catch(() => {}) }
   },
@@ -281,10 +381,9 @@ export const nativeOauthBrowserDeps: NativeOauthDeps = {
     const response = await request(`/api/auth/native/${endpoint}`, body)
     return { ok: response.ok, data: await response.json() }
   },
+  readSessionId: readBrowserSessionId,
   async hasSession() {
-    const response = await request("/api/auth/get-session?disableCookieCache=true")
-    const result = z.object({ session: z.object({ id: z.string() }).loose().nullable() }).loose().safeParse(await response.json())
-    return response.ok && result.success && result.data.session !== null
+    return (await readBrowserSessionId()) !== null
   },
   navigate(path) { window.location.assign(path) },
 }

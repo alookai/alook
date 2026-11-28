@@ -2911,4 +2911,37 @@ assert.deepEqual(dev.replacements, ['http://localhost:3000/c']);
         assert_eq!(apple.matches("alookIsTrustedMessageOrigin(message.frameInfo)").count(), 3);
         assert!(!apple.contains("alook-recovery.localhost"));
     }
+
+    #[test]
+    fn ios_root_scroll_lock_covers_community_and_sign_in_without_locking_document_routes() {
+        let apple = include_str!("../gen/apple/Sources/alook-desktop/main.mm");
+        let helper_start = apple
+            .find("static BOOL alookShouldLockRootScrollPath(NSString *path)")
+            .expect("missing alookShouldLockRootScrollPath helper");
+        let helper_end = apple[helper_start..]
+            .find("\n}\n")
+            .map(|offset| helper_start + offset + 2)
+            .expect("unterminated alookShouldLockRootScrollPath helper");
+        let helper = &apple[helper_start..helper_end];
+
+        assert!(helper.contains("if (path == nil) return NO;"));
+        assert!(helper.contains("[path isEqualToString:@\"/c\"]"));
+        assert!(helper.contains("[path hasPrefix:@\"/c/\"]"));
+        assert!(helper.contains("[path isEqualToString:@\"/sign-in\"]"));
+        assert!(helper.contains("[path hasPrefix:@\"/sign-in/\"]"));
+        assert!(!helper.contains("[path hasPrefix:@\"/sign-in\"]"));
+        assert!(!helper.contains("@\"/terms\""));
+        assert!(!helper.contains("@\"/privacy\""));
+        assert!(!helper.contains("@\"/blog\""));
+
+        let delegate_start = apple
+            .find("- (void)constrainRootScrollView:(UIScrollView *)scrollView {")
+            .expect("missing constrainRootScrollView implementation");
+        let delegate_end = apple[delegate_start..]
+            .find("\n}\n")
+            .map(|offset| delegate_start + offset + 2)
+            .expect("unterminated constrainRootScrollView method");
+        let delegate_body = &apple[delegate_start..delegate_end];
+        assert!(delegate_body.contains("!alookShouldLockRootScrollPath(webView.URL.path)"));
+    }
 }

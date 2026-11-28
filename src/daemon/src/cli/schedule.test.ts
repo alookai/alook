@@ -1,8 +1,10 @@
+import * as http from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import { Command } from "commander";
 import { makeRuntimeConfig, type HostCommand, type ScheduleEvent } from "@alook/shared";
 import { registerScheduleCommands } from "./schedule.js";
 import { createProxyServerApi } from "./proxyServerApi.js";
+import { CredentialBroker, startCredentialProxy } from "../credentials/credentialProxy.js";
 import { resolveProxyAuditOperation, resolveProxyCapability } from "../credentials/route-policy.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { AgentRouter } from "../manager/agentRouter.js";
@@ -141,6 +143,99 @@ describe("schedule CLI & proxy route policy", () => {
 
     const deleted = await runCli(["schedule", "delete", "sch_test_1"]);
     expect(deleted.success).toEqual({ deleted: true, id: "sch_test_1" });
+  });
+
+  it("executes schedule list/create/update/delete end-to-end through a real startCredentialProxy HTTP server", async () => {
+    const seen: Array<{ method: string; url: string; auth?: string }> = [];
+    const upstream = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        seen.push({
+          method: req.method ?? "GET",
+          url: req.url ?? "/",
+          auth: req.headers.authorization,
+        });
+        if (req.method === "GET" && req.url?.startsWith("/api/community/schedule/events")) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ events: [sampleEvent], occurrences: [], creators: [sampleEvent.createdBy] }));
+          return;
+        }
+        if (req.method === "POST" && req.url === "/api/community/schedule/events") {
+          res.writeHead(201, { "content-type": "application/json" });
+          res.end(JSON.stringify({ event: sampleEvent }));
+          return;
+        }
+        if (req.method === "PATCH" && req.url === "/api/community/schedule/events/sch_test_1") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({
+            event: {
+              ...sampleEvent,
+              lastExecution: {
+                ...sampleEvent.lastExecution!,
+                status: "completed",
+                ackedAt: "2026-11-26T01:05:00.000Z",
+                updatedAt: "2026-11-26T01:05:00.000Z",
+              },
+            },
+          }));
+          return;
+        }
+        if (req.method === "DELETE" && req.url === "/api/community/schedule/events/sch_test_1") {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "unexpected upstream route" }));
+      });
+    });
+
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const port = (upstream.address() as { port: number }).port;
+    const broker = new CredentialBroker({ upstreamBaseUrl: `http://127.0.0.1:${port}` });
+    const proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("bot_1", "launch_1", ["read", "send"], "cmk_real_secret");
+
+    try {
+      const api = createProxyServerApi({ proxyUrl: proxy.url, voucher: reg.voucher });
+      const runCli = async (argv: string[]) => {
+        const outputs: unknown[] = [];
+        const program = new Command().exitOverride();
+        registerScheduleCommands(program, () => api, (v) => outputs.push(v));
+        await program.parseAsync(argv, { from: "user" });
+        return outputs[0] as { success: Record<string, unknown> };
+      };
+
+      const listed = await runCli(["schedule", "list"]);
+      expect((listed.success.events as Array<{ id: string }>)[0]?.id).toBe("sch_test_1");
+
+      const created = await runCli([
+        "schedule",
+        "create",
+        "--title", "Weekly retro",
+        "--at", "2026-11-26T09:00:00+08:00",
+        "--message", "/Alook#5620/gus-infra#1801",
+      ]);
+      expect((created.success.event as { id: string }).id).toBe("sch_test_1");
+
+      const acked = await runCli(["schedule", "update", "sch_test_1", "--ack"]);
+      expect((acked.success.event as { lastExecution: { status: string } }).lastExecution.status).toBe("completed");
+
+      const deleted = await runCli(["schedule", "delete", "sch_test_1"]);
+      expect(deleted.success).toEqual({ deleted: true, id: "sch_test_1" });
+
+      expect(seen.map((req) => `${req.method} ${req.url}`)).toEqual([
+        "GET /api/community/schedule/events",
+        "POST /api/community/schedule/events",
+        "PATCH /api/community/schedule/events/sch_test_1",
+        "DELETE /api/community/schedule/events/sch_test_1",
+      ]);
+      expect(seen.every((req) => req.auth === "Bearer cmk_real_secret")).toBe(true);
+    } finally {
+      await proxy.close();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
   });
 
   it("delivers two recurring agent:event schedule triggers on the same bound message without WakeCoordinator suppression", async () => {

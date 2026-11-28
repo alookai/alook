@@ -2,6 +2,8 @@ mod commands;
 mod current_listener;
 #[cfg(desktop)]
 mod daemon_commands;
+#[cfg(desktop)]
+mod desktop_clipboard;
 mod file_save;
 #[cfg(desktop)]
 mod file_save_journal;
@@ -29,6 +31,8 @@ mod startup_log;
 #[cfg(desktop)]
 mod system_notifications;
 mod webview_recovery;
+#[cfg(any(mobile, test))]
+mod window_lifecycle;
 #[cfg(windows)]
 mod windows_startup;
 #[cfg(any(windows, test))]
@@ -102,6 +106,7 @@ pub fn run() {
 fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
     builder = builder
         .manage(mobile_share_image::MobileShareImageState::default())
+        .manage(window_lifecycle::WindowLifecycleState::default())
         .plugin(tauri_plugin_mobile_share_image::init())
         .plugin(tauri_plugin_file_save::init())
         .plugin(tauri_plugin_mobile_push::init());
@@ -116,11 +121,15 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         mobile_system_notification_runtime::mobile_system_notification_request_permission,
         mobile_system_notification_runtime::mobile_system_notification_snapshot,
         mobile_system_notification_runtime::mobile_system_notification_acknowledge_registration,
-        mobile_system_notification_runtime::mobile_system_notification_take_activation,
+        mobile_system_notification_runtime::mobile_system_notification_peek_activation,
+        mobile_system_notification_runtime::mobile_system_notification_ack_activation,
         mobile_system_notification_runtime::mobile_system_notification_dismiss,
         mobile_system_notification_runtime::mobile_system_notification_dismiss_conversation,
+        mobile_system_notification_runtime::mobile_system_notification_clear_viewer,
         mobile_system_notification_runtime::mobile_system_notification_listen,
         mobile_system_notification_runtime::mobile_system_notification_unlisten,
+        window_lifecycle::window_lifecycle_listen,
+        window_lifecycle::window_lifecycle_unlisten,
         native_oauth_runtime::native_oauth_snapshot,
         native_oauth_runtime::native_oauth_listen,
         native_oauth_runtime::native_oauth_unlisten,
@@ -159,6 +168,8 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         {
             native_oauth_runtime::retire_listener(webview.app_handle());
             file_save_runtime::retire(webview.app_handle());
+            mobile_system_notification_runtime::retire_listener(webview.app_handle());
+            window_lifecycle::retire_listener(webview.app_handle());
         }
     });
 
@@ -188,6 +199,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::set_window_theme,
         native_geometry::native_geometry_snapshot,
         commands::close_splashscreen,
+        desktop_clipboard::desktop_clipboard_write_image,
         zoom::desktop_zoom_shortcut,
         native_oauth_runtime::native_oauth_snapshot,
         native_oauth_runtime::native_oauth_listen,
@@ -200,10 +212,11 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         native_oauth_runtime::native_oauth_cancel,
         system_notifications::desktop_system_notification_show,
         system_notifications::desktop_system_notification_listen,
-        system_notifications::desktop_system_notification_take_activation,
-        system_notifications::desktop_system_notification_retry_activation,
+        system_notifications::desktop_system_notification_peek_activation,
+        system_notifications::desktop_system_notification_ack_activation,
         system_notifications::desktop_system_notification_dismiss,
         system_notifications::desktop_system_notification_dismiss_conversation,
+        system_notifications::desktop_system_notification_clear_viewer,
         system_notifications::desktop_system_notification_unlisten,
     ]);
 
@@ -289,6 +302,19 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
             native_oauth_runtime::retire_listener(webview.app_handle());
             file_save_runtime::retire(webview.app_handle());
             system_notifications::retire_listener(webview.app_handle());
+        }
+        #[cfg(target_os = "windows")]
+        if zoom::should_reapply_on_page_load(
+            webview.label(),
+            payload.event(),
+            payload.url(),
+            tauri::is_dev(),
+        ) {
+            if let Some(window) = webview.app_handle().get_webview_window("main") {
+                if let Err(error) = zoom::apply_restored(&window) {
+                    eprintln!("desktop startup zoom reapply failed: {error}");
+                }
+            }
         }
     });
 
@@ -384,10 +410,12 @@ fn run_app(builder: tauri::Builder<tauri::Wry>) {
                     tauri::WindowEvent::Suspended => {
                         webview_recovery::set_foreground(false);
                         startup_log::lifecycle(false);
+                        window_lifecycle::record_lifecycle(app, true);
                     }
                     tauri::WindowEvent::Resumed => {
                         webview_recovery::set_foreground(true);
                         startup_log::lifecycle(true);
+                        window_lifecycle::record_lifecycle(app, false);
                     }
                     _ => {}
                 }

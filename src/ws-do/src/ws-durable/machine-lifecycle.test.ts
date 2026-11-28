@@ -446,6 +446,101 @@ describe("WebSocketDurableObject", () => {
         expect(store.has("community-machine-identity")).toBe(false)
       })
 
+      it("grants newly accepted sockets a 15s ready-frame grace window before failing closed", async () => {
+        let nowMs = 10_000_000
+        vi.spyOn(Date, "now").mockImplementation(() => nowMs)
+        const { durable, store, getWebSockets, storage } = createDO()
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+          connectedAt: nowMs - 2_000,
+        })
+        getWebSockets.mockReturnValue([ws])
+
+        await durable.alarm()
+
+        expect(ws.close).not.toHaveBeenCalled()
+        expect(mockMarkMachineOffline).not.toHaveBeenCalled()
+        expect(store.has("community-machine-identity")).toBe(true)
+        expect(storage.setAlarm).toHaveBeenCalledWith(nowMs - 2_000 + 15_000)
+
+        nowMs += 13_000
+        mockMarkMachineOffline.mockResolvedValueOnce({
+          id: "cm_1",
+          status: "offline",
+          lastSeenAt: "now",
+        })
+
+        await durable.alarm()
+
+        expect(ws.close).toHaveBeenCalledWith(1008, "Daemon upgrade required")
+        expect(mockMarkMachineOffline).toHaveBeenCalledOnce()
+        expect(store.has("community-machine-identity")).toBe(false)
+      })
+
+      it("prunes expired reset-pending keys on alarm while keeping fresh ones and clears all on offline", async () => {
+        const nowMs = 20_000_000
+        vi.spyOn(Date, "now").mockReturnValue(nowMs)
+        const { durable, store, getWebSockets } = createDO()
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
+        store.set("reset-pending:l_stale", {
+          kind: "session_reset",
+          trigger: "single",
+          createdAt: nowMs - 11 * 60_000,
+        })
+        store.set("reset-pending:l_fresh", {
+          kind: "session_reset",
+          trigger: "single",
+          createdAt: nowMs - 60_000,
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: nowMs,
+        })
+        getWebSockets.mockReturnValue([ws])
+        mockTouchMachineHeartbeat.mockResolvedValueOnce({
+          machine: { id: "cm_1", status: "online", lastSeenAt: "now" },
+          priorLastSeenAt: "before",
+          priorAvailableRuntimes: [],
+          priorDaemonVersion: "0.1.0",
+          priorStatus: "online",
+        })
+
+        await durable.alarm()
+
+        expect(store.has("reset-pending:l_stale")).toBe(false)
+        expect(store.has("reset-pending:l_fresh")).toBe(true)
+
+        mockMarkMachineOffline.mockResolvedValueOnce({
+          id: "cm_1",
+          userId: "u_1",
+          status: "offline",
+          lastSeenAt: "now",
+        })
+        await durable.webSocketClose(ws as any, 1000, "done", true)
+
+        expect(store.has("reset-pending:l_fresh")).toBe(false)
+      })
+
       it("machine-keyed deadline owner expires D1 without a socket, poll, or daemon reconnect", async () => {
         vi.spyOn(Date, "now").mockReturnValue(30_000_000)
         const { durable, store, getWebSockets } = createDO()

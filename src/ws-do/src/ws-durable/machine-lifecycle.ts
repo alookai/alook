@@ -1,4 +1,5 @@
 import { publishMachinePresence } from "./machine-presence"
+import { clearAllPendingRestarts, pruneExpiredPendingRestarts } from "./machine-restart"
 import {
   COMMUNITY_MACHINE_HEARTBEAT_MS,
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
@@ -21,7 +22,16 @@ import type {
   WsDurableContext,
 } from "./internal"
 
+const MACHINE_READY_GRACE_MS = 15_000
+
 type DiagnosticAlarmHint = Readonly<{ machineId: string; deadlineAt: number }>
+
+async function ensureAlarmAtMost(context: WsDurableContext, targetMs: number): Promise<void> {
+  const current = await context.ctx.storage.getAlarm()
+  if (current == null || current > targetMs) {
+    await context.ctx.storage.setAlarm(targetMs)
+  }
+}
 
 function authenticatedMachineSockets(context: WsDurableContext): WebSocket[] {
   return context.ctx.getWebSockets().filter((socket) => {
@@ -129,6 +139,7 @@ async function markIdentityOffline(
   }).catch(() => { })
   await context.ctx.storage.delete(HANDLE_KEY)
   await context.ctx.storage.delete(IDENTITY_KEY)
+  await clearAllPendingRestarts(context)
   return true
 }
 
@@ -185,6 +196,7 @@ export async function handleCommunityMachineClose(
       // offline), so this close is terminal for the old DO identity.
       await context.ctx.storage.delete(HANDLE_KEY)
       await context.ctx.storage.delete(IDENTITY_KEY)
+      await clearAllPendingRestarts(context)
       return
     }
   } catch (err) {
@@ -197,12 +209,25 @@ export async function handleCommunityMachineClose(
 export async function handleMachineAlarm(context: WsDurableContext): Promise<void> {
   const now = Date.now()
   await sweepDiagnosticDeadlines(context, now)
+  await pruneExpiredPendingRestarts(context, now)
 
   const liveMachines: Array<{ userId: string; machineId: string }> = []
   let expiredMachineSocket = false
+  let earliestReadyDeadline: number | null = null
   for (const ws of authenticatedMachineSockets(context)) {
     const state = ws.deserializeAttachment() as CommunityMachineConnectionState
     if (state.controlHeartbeat !== true) {
+      if (
+        state.controlHeartbeat === undefined
+        && typeof state.connectedAt === "number"
+        && now - state.connectedAt < MACHINE_READY_GRACE_MS
+      ) {
+        const readyDeadline = state.connectedAt + MACHINE_READY_GRACE_MS
+        earliestReadyDeadline = earliestReadyDeadline === null
+          ? readyDeadline
+          : Math.min(earliestReadyDeadline, readyDeadline)
+        continue
+      }
       expiredMachineSocket = true
       try { ws.close(1008, "Daemon upgrade required") } catch { }
       continue
@@ -258,8 +283,17 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
     }
     if (currentLeaseCount > 0 || heartbeatUnavailable) {
       await scheduleHeartbeatAlarm(context)
+      if (earliestReadyDeadline !== null) {
+        await ensureAlarmAtMost(context, earliestReadyDeadline)
+      }
       return
     }
+  }
+
+  if (earliestReadyDeadline !== null) {
+    await scheduleHeartbeatAlarm(context)
+    await ensureAlarmAtMost(context, earliestReadyDeadline)
+    return
   }
 
   const stored = await context.ctx.storage.get<CommunityMachineHandle>(HANDLE_KEY)
@@ -274,6 +308,7 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
         // credential's presence.
         await context.ctx.storage.delete(HANDLE_KEY)
         await context.ctx.storage.delete(IDENTITY_KEY)
+        await clearAllPendingRestarts(context)
       }
     } catch (err) {
       context.log.warn("session expiry transition failed", { err: String(err) })
@@ -293,6 +328,7 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
   if (!machine) {
     await context.ctx.storage.delete(HANDLE_KEY)
     await context.ctx.storage.delete(IDENTITY_KEY)
+    await clearAllPendingRestarts(context)
     await scheduleHeartbeatAlarm(context)
     return
   }
@@ -315,6 +351,7 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
       if (!flipped) {
         await context.ctx.storage.delete(HANDLE_KEY)
         await context.ctx.storage.delete(IDENTITY_KEY)
+        await clearAllPendingRestarts(context)
       }
     } else {
       await publishMachinePresence(context, stored.userId, {
@@ -324,6 +361,7 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
         lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
       }).catch(() => { })
       await context.ctx.storage.delete(HANDLE_KEY)
+      await clearAllPendingRestarts(context)
     }
     await scheduleHeartbeatAlarm(context)
     return

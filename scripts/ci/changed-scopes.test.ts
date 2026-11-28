@@ -403,7 +403,6 @@ describe("canonical execution plan", () => {
     expect(result.jobs.test_linux).toBe(true)
     expect(result.jobs.ui_e2e).toBe(true)
     expect(result.jobs.e2e).toBe(false)
-    expect(result.jobs.lighthouse).toBe(false)
     expect(result.coverage.targets).toEqual([])
     expect(result.coverage.required_changed_files).toEqual([])
     expect(validateExecutionPlan(result)).toEqual(result)
@@ -503,7 +502,6 @@ describe("canonical execution plan", () => {
     expect(result.suites.build_tasks).toContain("@alook/web#build:blog")
     expect(result.suites.knip_tasks).toContain("@alook/web#knip")
     expect(result.jobs.blog_build).toBe(true)
-    expect(result.jobs.lighthouse).toBe(true)
     expect(result.jobs.app_packed_artifact).toBe(false)
   })
 
@@ -548,7 +546,6 @@ describe("canonical execution plan", () => {
     expect(result.ui.specs).toEqual([])
     expect(result.jobs.auth_build).toBe(true)
     expect(result.jobs.blog_build).toBe(false)
-    expect(result.jobs.lighthouse).toBe(false)
     expect(result.jobs.app_packed_artifact).toBe(false)
     expect(result.artifacts.worker_zones).toEqual([])
   })

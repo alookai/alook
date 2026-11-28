@@ -19,8 +19,9 @@ const hookMocks = vi.hoisted(() => ({
   desktop: true,
   mobile: false,
   listen: vi.fn(),
-  take: vi.fn(),
-  retryActivation: vi.fn(async () => undefined),
+  peek: vi.fn(),
+  ack: vi.fn(async () => undefined),
+  clearViewer: vi.fn(async () => undefined),
   dismiss: vi.fn(async () => undefined),
   dismissConversation: vi.fn(async () => undefined),
   revalidate: vi.fn(),
@@ -31,7 +32,9 @@ const hookMocks = vi.hoisted(() => ({
   mobilePost: vi.fn(),
   mobileAck: vi.fn(),
   mobileDelete: vi.fn(),
-  mobileTake: vi.fn(),
+  mobilePeek: vi.fn(),
+  mobileAckActivation: vi.fn(async () => undefined),
+  mobileClearViewer: vi.fn(async () => undefined),
   mobileDismiss: vi.fn(async () => undefined),
   mobileDismissConversation: vi.fn(async () => undefined),
   mobileRevalidate: vi.fn(),
@@ -51,8 +54,9 @@ vi.mock("@/lib/community/desktop-system-notification", async () => {
   return {
     ...actual,
     listenDesktopSystemNotificationActivations: hookMocks.listen,
-    takeDesktopSystemNotificationActivation: hookMocks.take,
-    retryDesktopSystemNotificationActivation: hookMocks.retryActivation,
+    peekDesktopSystemNotificationActivation: hookMocks.peek,
+    ackDesktopSystemNotificationActivation: hookMocks.ack,
+    clearDesktopSystemNotificationsForViewer: hookMocks.clearViewer,
     dismissDesktopSystemNotification: hookMocks.dismiss,
     dismissDesktopSystemNotificationConversation: hookMocks.dismissConversation,
   }
@@ -76,7 +80,9 @@ vi.mock("@/lib/community/mobile-system-notification", async () => {
     postMobileSystemNotificationRegistration: hookMocks.mobilePost,
     acknowledgeMobileSystemNotificationRegistration: hookMocks.mobileAck,
     deleteMobileSystemNotificationRegistration: hookMocks.mobileDelete,
-    takeMobileSystemNotificationActivation: hookMocks.mobileTake,
+    peekMobileSystemNotificationActivation: hookMocks.mobilePeek,
+    ackMobileSystemNotificationActivation: hookMocks.mobileAckActivation,
+    clearMobileSystemNotificationsForViewer: hookMocks.mobileClearViewer,
     dismissMobileSystemNotification: hookMocks.mobileDismiss,
     dismissMobileSystemNotificationConversation: hookMocks.mobileDismissConversation,
     revalidateMobileSystemNotificationActivation: hookMocks.mobileRevalidate,
@@ -88,6 +94,7 @@ import { CommunityRouteContext, type NativeNotificationConversationConsumer } fr
 import type { CommunityNavigationController } from "@/components/community/shell/use-community-navigation-controller"
 const activation: DesktopSystemNotificationActivation = {
   notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
+  viewerUserId: "viewer",
   target: { kind: "server", serverId: "server_1", channelId: "channel_1", messageId: "message_1", seq: 4 },
 }
 const target = { kind: "server" as const, serverId: "server_1", channelId: "channel_1" }
@@ -110,9 +117,11 @@ beforeEach(()=>{
   vi.resetAllMocks()
   hookMocks.desktop=true;hookMocks.mobile=false;consumer.current=null;intentRevision=0
   setRoute("/c/channels/server_1/channel_1")
-  hookMocks.listen.mockResolvedValue(vi.fn());hookMocks.take.mockResolvedValue(null)
+  hookMocks.listen.mockResolvedValue(vi.fn());hookMocks.peek.mockResolvedValue(null)
+  hookMocks.ack.mockResolvedValue(undefined);hookMocks.clearViewer.mockResolvedValue(undefined)
   hookMocks.dismiss.mockResolvedValue(undefined);hookMocks.dismissConversation.mockResolvedValue(undefined)
-  hookMocks.mobileListen.mockResolvedValue(vi.fn());hookMocks.mobileTake.mockResolvedValue(null)
+  hookMocks.mobileListen.mockResolvedValue(vi.fn());hookMocks.mobilePeek.mockResolvedValue(null)
+  hookMocks.mobileAckActivation.mockResolvedValue(undefined);hookMocks.mobileClearViewer.mockResolvedValue(undefined)
   hookMocks.mobileCheck.mockResolvedValue("denied");hookMocks.mobileDismiss.mockResolvedValue(undefined)
   hookMocks.mobileDismissConversation.mockResolvedValue(undefined)
   vi.spyOn(document,"visibilityState","get").mockReturnValue("visible")
@@ -132,11 +141,11 @@ describe("notification activation",()=>{
       useNativeSystemNotificationConversationDismissal("viewer", target, true)
     }, { wrapper: wrapped })
     expect(presentation({ viewerUserId: "viewer", targetId: "channel_1" })).toBeUndefined()
-    for (const call of [hookMocks.listen, hookMocks.take, hookMocks.mobileListen, hookMocks.mobileCheck, hookMocks.mobileTake, hookMocks.dismissConversation, hookMocks.mobileDismissConversation]) expect(call).not.toHaveBeenCalled()
+    for (const call of [hookMocks.listen, hookMocks.peek, hookMocks.mobileListen, hookMocks.mobileCheck, hookMocks.mobilePeek, hookMocks.dismissConversation, hookMocks.mobileDismissConversation]) expect(call).not.toHaveBeenCalled()
     act(() => { viewer = "viewer"; owner.registry.confirmAuthentication() })
     await waitFor(() => expect(presentation({ viewerUserId: "viewer", targetId: "channel_1" })).toBe(platform !== "web"))
-    if (platform === "desktop") await waitFor(() => expect(hookMocks.take).toHaveBeenCalledOnce())
-    if (platform === "mobile") await waitFor(() => expect(hookMocks.mobileTake).toHaveBeenCalledOnce())
+    if (platform === "desktop") await waitFor(() => expect(hookMocks.peek).toHaveBeenCalledOnce())
+    if (platform === "mobile") await waitFor(() => expect(hookMocks.mobilePeek).toHaveBeenCalledOnce())
     rendered.unmount()
   })
   it("retains the same confirmed native owner during a later network failure", async () => {
@@ -149,9 +158,9 @@ describe("notification activation",()=>{
     const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
       { client: owner.client, registry: owner.registry, retainOwner: true }, children)
     const rendered = renderOwnedHook(useNotifications, { wrapper: wrapped })
-    await waitFor(() => expect(hookMocks.take).toHaveBeenCalledOnce())
+    await waitFor(() => expect(hookMocks.peek).toHaveBeenCalledOnce())
     act(() => { viewer = undefined; wake() })
-    await waitFor(() => expect(hookMocks.take).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(hookMocks.peek).toHaveBeenCalledTimes(2))
     expect(hookMocks.listen).toHaveBeenCalledOnce()
     rendered.unmount()
   })
@@ -161,46 +170,61 @@ describe("notification activation",()=>{
     owner.registry.bindAuthentication(() => viewer, async () => {})
     owner.registry.confirmAuthentication()
     let release!: (value: DesktopSystemNotificationActivation) => void
-    hookMocks.take.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+    hookMocks.peek.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
     const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
       { client: owner.client, registry: owner.registry, retainOwner: true }, children)
     const rendered = renderOwnedHook(useNotifications, { wrapper: wrapped })
-    await waitFor(() => expect(hookMocks.take).toHaveBeenCalledOnce())
+    await waitFor(() => expect(hookMocks.peek).toHaveBeenCalledOnce())
     await act(async () => { viewer = nextViewer; release(activation) })
     expect(route.navigation.pushImmediate).not.toHaveBeenCalled()
     expect(window.sessionStorage.length).toBe(0)
     expect(hookMocks.dismiss).not.toHaveBeenCalled()
+    expect(hookMocks.ack).not.toHaveBeenCalled()
     expect(presentation({ viewerUserId: "viewer", targetId: "channel_1" })).toBe(false)
     rendered.unmount()
   })
-  it("queues and navigates immediately without starting a HTTP precheck",async()=>{
+  it("queues and navigates immediately without starting a HTTP precheck and acknowledges after navigation",async()=>{
     const fetch=vi.fn(()=>new Promise<Response>(()=>undefined));vi.stubGlobal("fetch",fetch)
     const calls:string[]=[]
     const controller=createDesktopSystemNotificationActivationController({
-      listen:async()=>()=>undefined,take:async()=>activation,
+      listen:async()=>()=>undefined,peek:async()=>activation,
+      ack:async(id)=>{calls.push(`ack:${id}`)},
+      expectedViewerUserId:"viewer",
       queueDismiss:()=>calls.push("queue"),navigate:(href)=>calls.push(href),
     })
     await controller.connect()
-    expect(calls).toEqual(["queue","/c/channels/server_1/channel_1"])
+    expect(calls).toEqual(["queue","/c/channels/server_1/channel_1",`ack:${activation.notificationId}`])
     expect(fetch).not.toHaveBeenCalled()
     controller.dispose()
   })
-  it("coalesces signals and retires a delayed take",async()=>{
+  it("discards and acknowledges cross-account desktop activations without navigating", async () => {
+    setRoute("/c/me/friends")
+    hookMocks.peek
+      .mockResolvedValueOnce({ ...activation, viewerUserId: "other_viewer" })
+      .mockResolvedValueOnce(null)
+    const rendered = renderHook(useNotifications, { wrapper })
+    await waitFor(() => expect(hookMocks.ack).toHaveBeenCalledExactlyOnceWith(activation.notificationId))
+    expect(route.navigation.pushImmediate).not.toHaveBeenCalled()
+    expect(hookMocks.dismiss).not.toHaveBeenCalled()
+    rendered.unmount()
+  })
+  it("coalesces signals and retires a delayed peek",async()=>{
     let wake!:()=>void;let release!:(value:DesktopSystemNotificationActivation|null)=>void
     const pending=new Promise<DesktopSystemNotificationActivation|null>(resolve=>{release=resolve})
-    const take=vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce(null)
+    const peek=vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce(null)
     const navigate=vi.fn()
-    const controller=createDesktopSystemNotificationActivationController({listen:async cb=>{wake=cb;return()=>undefined},take,queueDismiss:vi.fn(),navigate})
-    const connection=controller.connect();await waitFor(()=>expect(take).toHaveBeenCalledOnce())
+    const controller=createDesktopSystemNotificationActivationController({listen:async cb=>{wake=cb;return()=>undefined},peek,queueDismiss:vi.fn(),navigate})
+    const connection=controller.connect();await waitFor(()=>expect(peek).toHaveBeenCalledOnce())
     wake();release(activation);await connection
-    expect(take).toHaveBeenCalledTimes(2);expect(navigate).toHaveBeenCalledOnce()
-    controller.dispose();wake();expect(take).toHaveBeenCalledTimes(2)
+    expect(peek).toHaveBeenCalledTimes(2);expect(navigate).toHaveBeenCalledOnce()
+    controller.dispose();wake();expect(peek).toHaveBeenCalledTimes(2)
   })
   it("uses the actual route commit to consume the clicked ID",async()=>{
     setRoute("/c/me/friends")
-    hookMocks.take.mockResolvedValueOnce(activation)
+    hookMocks.peek.mockResolvedValueOnce(activation).mockResolvedValueOnce(null)
     const rendered=renderHook(useNotifications,{wrapper})
     await waitFor(()=>expect(route.navigation.pushImmediate).toHaveBeenCalledWith("/c/channels/server_1/channel_1"))
+    await waitFor(()=>expect(hookMocks.ack).toHaveBeenCalledExactlyOnceWith(activation.notificationId))
     expect(hookMocks.dismiss).not.toHaveBeenCalled()
     setRoute("/c/me/friends",true);rendered.rerender()
     expect(hookMocks.dismiss).not.toHaveBeenCalled()
@@ -212,8 +236,8 @@ describe("notification activation",()=>{
     hookMocks.desktop = false
     hookMocks.mobile = true
     setRoute("/c/me/friends")
-    const clicked = { notificationId: activation.notificationId, messageId: "message_1", targetId: "channel_1" }
-    hookMocks.mobileTake.mockResolvedValueOnce(clicked)
+    const clicked = { notificationId: activation.notificationId, messageId: "message_1", targetId: "channel_1", viewerUserId: "viewer" }
+    hookMocks.mobilePeek.mockResolvedValueOnce(clicked).mockResolvedValueOnce(null)
     const fetch = vi.fn(() => new Promise<Response>(() => undefined))
     vi.stubGlobal("fetch", fetch)
     const queue = createNativeSystemNotificationDismissalQueue({
@@ -229,6 +253,7 @@ describe("notification activation",()=>{
     })
     const rendered = renderHook(useNotifications, { wrapper })
     await waitFor(() => expect(route.navigation.pushImmediate).toHaveBeenCalledExactlyOnceWith("/c/messages/message_1"))
+    await waitFor(() => expect(hookMocks.mobileAckActivation).toHaveBeenCalledExactlyOnceWith(clicked.notificationId))
     expect(queuedAtNavigation).toBe(clicked.notificationId)
     expect(queue.peek("mobile", "viewer", "/c/messages/message_1")).toBe(clicked.notificationId)
     expect(hookMocks.mobileRevalidate).not.toHaveBeenCalled()
@@ -251,16 +276,17 @@ describe("notification activation",()=>{
     hookMocks.desktop = false
     hookMocks.mobile = true
     setRoute("/c/me/friends")
-    const clicked = { notificationId: activation.notificationId, messageId: "message_1", targetId: "channel_1" }
+    const clicked = { notificationId: activation.notificationId, messageId: "message_1", targetId: "channel_1", viewerUserId: "viewer" }
     let release!: (value: typeof clicked) => void
-    hookMocks.mobileTake.mockReturnValueOnce(new Promise<typeof clicked>(resolve => { release = resolve }))
+    hookMocks.mobilePeek.mockReturnValueOnce(new Promise<typeof clicked>(resolve => { release = resolve }))
     const rendered = renderHook(useNotifications, { wrapper })
-    await waitFor(() => expect(hookMocks.mobileTake).toHaveBeenCalledOnce())
+    await waitFor(() => expect(hookMocks.mobilePeek).toHaveBeenCalledOnce())
     rendered.unmount()
     await act(async () => { release(clicked) })
     expect(route.navigation.pushImmediate).not.toHaveBeenCalled()
     expect(window.sessionStorage.length).toBe(0)
     expect(hookMocks.mobileDismiss).not.toHaveBeenCalled()
+    expect(hookMocks.mobileAckActivation).not.toHaveBeenCalled()
   })
   it.each(["dm", "channel"] as const)("navigates a cached mobile %s directly and clears only after route commit", async kind => {
     hookMocks.desktop = false
@@ -268,8 +294,8 @@ describe("notification activation",()=>{
     setRoute("/c/me/friends")
     const owner = await createCommunityQueryOwner()
     await seedConversationEntry(owner.client, kind === "dm" ? dmConversationEntryFixture() : conversationEntryFixture())
-    const clicked = { notificationId: activation.notificationId, messageId: "m1", targetId: "c1" }
-    hookMocks.mobileTake.mockResolvedValueOnce(clicked)
+    const clicked = { notificationId: activation.notificationId, messageId: "m1", targetId: "c1", viewerUserId: "viewer" }
+    hookMocks.mobilePeek.mockResolvedValueOnce(clicked).mockResolvedValueOnce(null)
     const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
       { client: owner.client, registry: owner.registry, retainOwner: true }, createElement(wrapper, null, children))
     const rendered = renderOwnedHook(useNotifications, { wrapper: wrapped })
@@ -290,8 +316,8 @@ describe("notification activation",()=>{
     await seedConversationEntry(owner.client, combination === "dm with server" ? dmConversationEntryFixture() : conversationEntryFixture())
     const channel = owner.registry.collections.channels.get("c1")!
     await writeCommunityCollectionRows(owner.registry, "channels", [{ ...channel, serverId: combination === "dm with server" ? "s1" : null }], row => row.id)
-    const clicked = { notificationId: activation.notificationId, messageId: "m1", targetId: "c1" }
-    hookMocks.mobileTake.mockResolvedValueOnce(clicked)
+    const clicked = { notificationId: activation.notificationId, messageId: "m1", targetId: "c1", viewerUserId: "viewer" }
+    hookMocks.mobilePeek.mockResolvedValueOnce(clicked).mockResolvedValueOnce(null)
     const fetch = vi.fn(() => new Promise<Response>(() => undefined))
     vi.stubGlobal("fetch", fetch)
     const wrapped = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider,
@@ -386,7 +412,7 @@ describe("current native conversation",()=>{
     const identity = { viewerUserId: "viewer", targetId: "channel_1" }
     const probes: { consumerPresent: boolean; authorized: boolean | undefined }[] = []
     const nativeCalls = () => ({
-      take: hookMocks.take.mock.calls.length,
+      peek: hookMocks.peek.mock.calls.length,
       dismiss: hookMocks.dismiss.mock.calls.length,
       conversation: hookMocks.dismissConversation.mock.calls.length,
     })
@@ -448,7 +474,7 @@ describe("current native conversation",()=>{
     const stop = vi.fn()
     hookMocks.mobileListen.mockResolvedValue(stop)
     hookMocks.mobileCheck.mockRejectedValue(new Error("offline"))
-    hookMocks.mobileTake.mockResolvedValue(null)
+    hookMocks.mobilePeek.mockResolvedValue(null)
     const owner = await createCommunityQueryOwner("viewer_1")
     const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true }, children)
     const rendered = renderOwnedHook(() => useNativeSystemNotifications("viewer_1", route.frame, route.navigation, consumer), { wrapper })
@@ -466,6 +492,51 @@ describe("current native conversation",()=>{
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
     expect(hookMocks.mobileCheck).toHaveBeenCalledTimes(2)
     expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("retries transient mobile signal listener failures with backoff and cleans up on unmount", async () => {
+    vi.useFakeTimers()
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    const stop = vi.fn()
+    hookMocks.mobileListen
+      .mockRejectedValueOnce(new Error("bridge_not_ready"))
+      .mockResolvedValueOnce(stop)
+    hookMocks.mobileCheck.mockResolvedValue("denied")
+    hookMocks.mobilePeek.mockResolvedValue(null)
+    const owner = await createCommunityQueryOwner("viewer_1")
+    const wrapped = ({ children }: PropsWithChildren) => createElement(
+      CommunityTestProvider,
+      { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true },
+      children,
+    )
+    const rendered = renderOwnedHook(
+      () => useNativeSystemNotifications("viewer_1", route.frame, route.navigation, consumer),
+      { wrapper: wrapped },
+    )
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(hookMocks.mobileListen).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
+    expect(hookMocks.mobileListen).toHaveBeenCalledTimes(2)
+    rendered.unmount()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("dismisses and suppresses an embedded split parent surface alongside a child thread", async () => {
+    setRoute("/c/channels/server_1/thread_1")
+    const parentTarget = { kind: "server" as const, serverId: "server_1", channelId: "parent_1" }
+    const threadTarget = { kind: "server" as const, serverId: "server_1", channelId: "thread_1" }
+    const rendered = renderHook(() => {
+      useNotifications()
+      useNativeSystemNotificationConversationDismissal("viewer", threadTarget, true)
+      useNativeSystemNotificationConversationDismissal("viewer", parentTarget, true, { embedded: true })
+    }, { wrapper })
+
+    await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledWith("viewer", threadTarget))
+    await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledWith("viewer", parentTarget))
+    expect(presentation({ viewerUserId: "viewer", targetId: "thread_1" })).toBe(true)
+    expect(presentation({ viewerUserId: "viewer", targetId: "parent_1" })).toBe(true)
+    rendered.unmount()
   })
 
 })

@@ -27,20 +27,31 @@ const messages = {
   apple_update_required: "Update Alook to continue with Apple. GitHub, Google, and email still work.",
 } as const
 
+export type SocialSignInNativeHandle = {
+  view: NativeOauthView | null
+  lastProvider: NativeOauthProvider
+  start: (provider: NativeOauthProvider, redirectPath: string) => void
+  cancel: () => void
+}
+
 export function SocialSignIn({
   postLoginUrl,
   appleEnabled = false,
   lastUsedMethod = null,
+  nativeOauth,
 }: {
   postLoginUrl: string
   appleEnabled?: boolean
   lastUsedMethod?: LoginMethod | null
+  nativeOauth?: SocialSignInNativeHandle
 }) {
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
-  const [native, setNative] = useAtom(useCreateAtom<NativeOauthView | null>(null))
+  const [localNative, setLocalNative] = useAtom(useCreateAtom<NativeOauthView | null>(null))
   const browserState = useCreateAtom<{ provider: NativeOauthProvider | null; failed: boolean }>({ provider: null, failed: false })
   const [browser, setBrowser] = useAtom(browserState)
-  const [lastProvider, setLastProvider] = useAtom(useCreateAtom<NativeOauthProvider>("github"))
+  const [localLastProvider, setLocalLastProvider] = useAtom(useCreateAtom<NativeOauthProvider>("github"))
+  const native = nativeOauth ? nativeOauth.view : localNative
+  const lastProvider = nativeOauth ? nativeOauth.lastProvider : localLastProvider
 
   useEffect(() => {
     if (isTauri()) return
@@ -56,9 +67,9 @@ export function SocialSignIn({
   }, [setBrowser])
 
   useEffect(() => {
-    if (!isTauri()) return
+    if (!isTauri() || nativeOauth) return
     const instance = createNativeOauthController(nativeOauthBrowserDeps, (view) => {
-      setNative(view)
+      setLocalNative(view)
     })
     controller.current = instance
     void instance.connect()
@@ -66,11 +77,11 @@ export function SocialSignIn({
       instance.dispose()
       if (controller.current === instance) controller.current = null
     }
-  }, [setNative])
+  }, [nativeOauth, setLocalNative])
 
   const start = (provider: NativeOauthProvider) => {
     if (!isTauri() && browserState.get().provider) return
-    setLastProvider(provider)
+    if (!nativeOauth) setLocalLastProvider(provider)
     if (!isTauri()) {
       const pending = { provider, failed: false }
       setBrowser(pending)
@@ -93,7 +104,9 @@ export function SocialSignIn({
       )
       return
     }
-    if (controller.current) void controller.current.start(provider, safeRedirectPath(postLoginUrl))
+    const redirectPath = safeRedirectPath(postLoginUrl)
+    if (nativeOauth) nativeOauth.start(provider, redirectPath)
+    else if (controller.current) void controller.current.start(provider, redirectPath)
   }
 
   const busy =
@@ -216,7 +229,8 @@ export function SocialSignIn({
                 className="h-11 px-3 sm:h-8"
                 data-testid="native-oauth-cancel"
                 onClick={() => {
-                  void controller.current?.cancel()
+                  if (nativeOauth) nativeOauth.cancel()
+                  else void controller.current?.cancel()
                 }}
               >
                 Cancel

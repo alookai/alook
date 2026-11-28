@@ -5,7 +5,7 @@ import { useCreateAtom } from "@tanstack/react-store";
 import { useQuery, useMutation } from "@tanstack/react-query"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { CircleHelp, Copy, Loader2, RefreshCw, TerminalIcon } from "@/components/icons/lucide";
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
@@ -49,6 +49,8 @@ type DaemonRuntimeCapability = {
   reason: string | null
   nodeVersion: string | null
 }
+
+export const DESKTOP_CONNECT_TIMEOUT_MS = 30_000
 
 function nativeErrorMessage(error: unknown, fallback: string): string {
   if (typeof error === "string" && error.trim()) return error.trim()
@@ -150,9 +152,18 @@ export function PairMachineSheet({
       return { key }
     },
   })
+  const [connectTimedOut, setConnectTimedOut] = useState(false)
+  const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearConnectTimer = useCallback(() => {
+    if (connectTimerRef.current !== null) {
+      clearTimeout(connectTimerRef.current)
+      connectTimerRef.current = null
+    }
+  }, [])
   const currentLaunch = launch.variables?.assert.signal === source.signal
   const connecting = currentLaunch && launch.isPending
   const started = currentLaunch && launch.isSuccess && launch.data.key === pendingTokenId
+  const connectTimedOutActive = connectTimedOut && started && !connectedHostname
   const launchError = currentLaunch && launch.error && !(launch.error instanceof DOMException && launch.error.name === "AbortError")
     ? nativeErrorMessage(launch.error, "Couldn't start the local connector. Run the command below in a terminal instead.") : null
   const command = pendingTokenId ? buildPairCommand(pendingTokenId, mode.kind === "reconnect" ? mode.machineId : undefined) : ""
@@ -165,12 +176,23 @@ export function PairMachineSheet({
   }
   const connectDesktop = async () => {
     if (!pendingTokenId || connecting || !runtimeCapability?.available) return
+    clearConnectTimer()
+    setConnectTimedOut(false)
     const assert = source.capture()
     assert()
     try {
       await launch.mutateAsync({ key: pendingTokenId, machineId: mode.kind === "reconnect" ? mode.machineId : null, assert })
       assert()
-      toast.success(isReconnect ? "Machine reconnected" : "This computer is connecting")
+      toast.success(isReconnect ? "Reconnecting machine…" : "This computer is connecting")
+      const timer = setTimeout(() => {
+        connectTimerRef.current = null
+        try { assert(); setConnectTimedOut(true) } catch {}
+      }, DESKTOP_CONNECT_TIMEOUT_MS)
+      connectTimerRef.current = timer
+      assert.signal.addEventListener("abort", () => {
+        clearTimeout(timer)
+        if (connectTimerRef.current === timer) connectTimerRef.current = null
+      }, { once: true })
     } catch (error) {
       try { assert() } catch { return }
       if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(nativeErrorMessage(error, "Couldn't start the daemon. Run the command below in a terminal instead."))
@@ -205,6 +227,7 @@ export function PairMachineSheet({
             launchError={launchError}
             connecting={connecting}
             started={started}
+            connectTimedOut={connectTimedOutActive}
             onConnectDesktop={connectDesktop}
             connectedHostname={connectedHostname}
           />
@@ -230,6 +253,7 @@ export function PairMachineSteps({
   launchError = null,
   connecting = false,
   started = false,
+  connectTimedOut = false,
   onConnectDesktop,
   concise = false,
 }: {
@@ -250,6 +274,7 @@ export function PairMachineSteps({
   launchError?: string | null
   connecting?: boolean
   started?: boolean
+  connectTimedOut?: boolean
   onConnectDesktop?: () => void
   concise?: boolean
 }) {
@@ -269,6 +294,7 @@ export function PairMachineSteps({
           launchError={launchError}
           connecting={connecting}
           started={started}
+          connectTimedOut={connectTimedOut}
           onConnectDesktop={onConnectDesktop}
           concise={concise}
         />
@@ -297,6 +323,7 @@ function Step1({
   launchError,
   connecting,
   started,
+  connectTimedOut,
   onConnectDesktop,
   concise,
 }: {
@@ -312,6 +339,7 @@ function Step1({
   launchError: string | null
   connecting: boolean
   started: boolean
+  connectTimedOut: boolean
   onConnectDesktop?: () => void
   concise: boolean
 }) {
@@ -402,24 +430,32 @@ function Step1({
                 <Button
                   data-testid={tid.machinePairDesktopConnect}
                   onClick={onConnectDesktop}
-                  disabled={connecting || started}
+                  disabled={connecting || (started && !connectTimedOut)}
                   className="w-full"
                 >
                   {connecting && <Loader2 className="size-4 animate-spin" />}
-                  {connecting ? "Connecting…" : started ? "Connecting…" : "Connect this computer"}
+                  {connecting
+                    ? "Connecting…"
+                    : connectTimedOut
+                      ? "Retry connection"
+                      : started
+                        ? "Connecting…"
+                        : "Connect this computer"}
                 </Button>
               )}
-              {(checkingRuntime || !runtimeCapability?.available || launchError) && (
+              {(checkingRuntime || !runtimeCapability?.available || launchError || connectTimedOut) && (
                 <p
                   data-testid={tid.machinePairRuntimeHint}
-                  role={launchError || runtimeCapability?.reason ? "status" : undefined}
+                  role={launchError || connectTimedOut || runtimeCapability?.reason ? "status" : undefined}
                   className="text-sm text-muted-foreground"
                 >
                   {launchError
                     ? `${launchError} The terminal command remains available below.`
-                    : checkingRuntime
-                      ? "Checking this computer for Node.js and npm…"
-                      : runtimeCapability?.reason ?? "Node.js and npm are required for one-click connection."}
+                    : connectTimedOut
+                      ? "The daemon started, but this computer hasn't connected yet. Retry or run the terminal command below."
+                      : checkingRuntime
+                        ? "Checking this computer for Node.js and npm…"
+                        : runtimeCapability?.reason ?? "Node.js and npm are required for one-click connection."}
                 </p>
               )}
             </div>

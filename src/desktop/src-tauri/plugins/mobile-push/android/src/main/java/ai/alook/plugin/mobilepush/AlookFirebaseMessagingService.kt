@@ -18,8 +18,19 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         val route = MobilePushRoute.fromMap(message.data) ?: return
-        val content = message.notification ?: return
+        val (title, body) = mobilePushNotificationContent(
+            message.data,
+            message.notification?.title,
+            message.notification?.body,
+        ) ?: return
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return
+        if (MobilePushPlugin.shouldSuppressForeground(route)) return
+
+        val store = MobilePushStore(applicationContext)
+        val intentSecret = runCatching {
+            store.recordDeliveredNotification(route.notificationId)
+            store.intentSecret()
+        }.getOrNull() ?: return
 
         MobilePushPlugin.createNotificationChannel(applicationContext)
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName) ?: return
@@ -29,6 +40,7 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
         launchIntent.putExtra("messageId", route.messageId)
         launchIntent.putExtra("targetId", route.targetId)
         route.viewerUserId?.let { launchIntent.putExtra("viewerUserId", it) }
+        launchIntent.putExtra(EXTRA_INTENT_SECRET, intentSecret)
         val requestCode = mobilePushNotificationRequestCode(route.notificationId)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -38,8 +50,8 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(ai.alook.plugin.mobilepush.R.drawable.ic_alook_notification)
-            .setContentTitle(content.title ?: "Alook")
-            .setContentText(content.body ?: "New message")
+            .setContentTitle(title)
+            .setContentText(body)
             .setAutoCancel(MOBILE_PUSH_NOTIFICATION_AUTO_CANCEL)
             .setContentIntent(pendingIntent)
             .setGroup(route.targetId)

@@ -30,7 +30,6 @@ src/videos/**/out/
 .claude/
 .impeccable.md
 .playwright-mcp/
-.lighthouseci/
 src/daemon/LICENSE
 .superpowers/
 

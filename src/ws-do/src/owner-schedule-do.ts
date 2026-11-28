@@ -2,14 +2,11 @@ import { DurableObject } from "cloudflare:workers"
 import {
   createDb,
   createLogger,
-  formatHandle,
-  makeRuntimeConfig,
+  dispatchBotPrivateInboxEvent,
   queries,
-  resolveModelConfig,
-  visibilityIsDmParticipant,
+  resyncBotPrivateInboxForBots,
   withD1Retry,
   WS_EVENTS,
-  type Database,
   type HostCommand,
   type StoredScheduleRun,
 } from "@alook/shared"
@@ -23,79 +20,6 @@ const RESYNC_RUN_BATCH_LIMIT = 50
 
 type ScheduleChangeReason = "created" | "updated" | "deleted" | "run_updated"
 
-function buildScheduleEventPrompt(input: {
-  eventId: string
-  title: string
-  description: string
-  scheduledAtMs: number
-  channelRef: string
-  seq: number
-  channelType: string | null
-}): string {
-  const isForumOpener = input.channelType === "forum"
-  const replyTarget = isForumOpener ? `${input.channelRef}/#${input.seq}` : input.channelRef
-  const replyCommand = isForumOpener
-    ? `$ALOOK_CLI message send --target "${replyTarget}" --remind-after 0 --stdin`
-    : `$ALOOK_CLI message send --target "${input.channelRef}" --reply "#${input.seq}" --remind-after 0 --stdin`
-  const historyCommand = isForumOpener
-    ? `$ALOOK_CLI channel history --channel "${replyTarget}" --limit 10`
-    : `$ALOOK_CLI channel history --channel "${input.channelRef}" --around ${input.seq} --limit 5`
-
-  const lines = [
-    "[Scheduled Task — Execute Now]",
-    `Task: ${input.title} (${input.eventId})`,
-    `Scheduled time (UTC): ${new Date(input.scheduledAtMs).toISOString()}`,
-    `Bound message: ${input.channelRef}#${input.seq}`,
-  ]
-  if (input.description.trim().length > 0) {
-    lines.push("Instructions:", input.description.trim())
-  }
-  lines.push(
-    "Execute this scheduled task now. Do not merely check whether the schedule exists.",
-    `Inspect context if needed: ${historyCommand}`,
-    `Reply to the bound conversation with: ${replyCommand}`,
-    `After finishing this scheduled task, mark it done with: $ALOOK_CLI schedule update ${input.eventId} --ack`,
-  )
-  return lines.join("\n")
-}
-
-async function canBotAccessMessageSurface(
-  db: Database,
-  channelId: string,
-  botUserId: string,
-  channelType: string | null,
-): Promise<boolean> {
-  if (!channelType) return false
-  if (visibilityIsDmParticipant(channelType)) {
-    const dm = await withD1Retry(
-      () => queries.communityDm.getDM(db, channelId),
-      { route: "owner-schedule:dm-surface" },
-    )
-    if (!dm) return false
-    const peer = await withD1Retry(
-      () => queries.communityDm.getDMPeer(db, channelId, botUserId),
-      { route: "owner-schedule:dm-peer" },
-    )
-    if (!peer) return false
-    const blocked = await withD1Retry(
-      () => queries.communityFriendship.isBlocked(db, botUserId, peer.otherUserId),
-      { route: "owner-schedule:dm-block" },
-    )
-    return !blocked
-  }
-  const channel = await withD1Retry(
-    () => queries.communityChannel.getChannelForMember(db, channelId, botUserId),
-    { route: "owner-schedule:channel-member" },
-  )
-  return channel !== null
-}
-
-/**
- * Stateless per-owner alarm timer and dispatch coordinator.
- * All schedule events and runs are persisted in D1; this DO holds only
- * the ownerUserId key while an alarm is active and wipes itself via
- * `deleteAll()` once no future occurrences remain.
- */
 export class OwnerScheduleDurableObject extends DurableObject<Env> {
   private readonly inFlightRuns = new Set<string>()
 
@@ -179,111 +103,38 @@ export class OwnerScheduleDurableObject extends DurableObject<Env> {
     this.inFlightRuns.add(run.id)
     try {
       const db = createDb(this.env.DB)
-      const current = await withD1Retry(
-        () => queries.communitySchedule.getScheduleRunById(db, run.id),
-        { route: "owner-schedule:get-run" },
-      )
-      if (!current || current.status !== "pending") return "skipped"
-
-      const nowMs = Date.now()
-
-      const markBlocked = async (reason: string): Promise<"blocked_access"> => {
-        await withD1Retry(
-          () => queries.communitySchedule.updatePendingRunStatus(db, run.id, {
-            status: "blocked_access",
-            lastError: reason,
-            updatedAtMs: nowMs,
-          }),
-          { route: "owner-schedule:mark-blocked" },
-        )
-        await this.notifyOwnerChanged(ownerUserId, run.eventId, "run_updated")
-        return "blocked_access"
-      }
-
-      const markPendingError = async (reason: string): Promise<"pending"> => {
-        await withD1Retry(
-          () => queries.communitySchedule.updatePendingRunStatus(db, run.id, {
+      const { event } = await withD1Retry(
+        () =>
+          queries.communityBotPrivateInbox.enqueuePrivateInboxEvent(db, {
+            ownerUserId,
+            botUserId: run.botUserId,
+            sourceKind: "schedule",
+            sourceId: run.eventId,
+            sourceRefId: run.id,
+            dedupeKey: String(run.scheduledAtMs),
+            eventType: "schedule.triggered",
+            summary: run.titleSnapshot,
+            promptText: "",
             status: "pending",
-            lastError: reason,
-            updatedAtMs: nowMs,
+            nowMs: run.createdAtMs,
           }),
-          { route: "owner-schedule:mark-pending-error" },
-        )
-        await this.notifyOwnerChanged(ownerUserId, run.eventId, "run_updated")
-        return "pending"
-      }
-
-      const botCtx = await withD1Retry(
-        () => queries.communityBot.getBotWakeContext(db, current.botUserId),
-        { route: "owner-schedule:bot-wake-context" },
+        { route: "owner-schedule:enqueue-private-inbox" },
       )
-      if (botCtx.state !== "ready") {
-        if (botCtx.state === "bot_unbound") return await markPendingError("bot_unbound")
-        return await markBlocked(botCtx.state)
-      }
-      if (botCtx.ownerUserId !== ownerUserId) {
-        return await markBlocked("owner_mismatch")
-      }
+      if (event.status !== "pending") return "skipped"
 
-      const msg = await withD1Retry(
-        () => queries.communityMessage.getWakeMessageScopeById(db, current.sourceMessageId),
-        { route: "owner-schedule:source-message" },
+      const result = await dispatchBotPrivateInboxEvent(
+        db,
+        (machineId, command) => this.pushAgentEventToMachine(machineId, command),
+        event,
+        {
+          notifyScheduleChange: (ownerId, eventId, reason) =>
+            this.notifyOwnerChanged(ownerId, eventId, reason),
+        },
       )
-      if (!msg) return await markBlocked("source_message_deleted")
-
-      const channelType = await withD1Retry(
-        () => queries.communityChannel.getChannelType(db, msg.channelId),
-        { route: "owner-schedule:source-channel-type" },
-      )
-      const canRead = await canBotAccessMessageSurface(db, msg.channelId, current.botUserId, channelType)
-      if (!canRead) return await markBlocked("source_message_inaccessible")
-
-      const channelRef = await withD1Retry(
-        () => queries.communityAgentInbox.resolveUnreadNoticeChannel(db, { channelId: msg.channelId }, current.botUserId),
-        { route: "owner-schedule:source-channel-ref" },
-      )
-      if (!channelRef) return await markBlocked("source_channel_unresolvable")
-
-      const prompt = buildScheduleEventPrompt({
-        eventId: current.eventId,
-        title: current.titleSnapshot,
-        description: current.descriptionSnapshot,
-        scheduledAtMs: current.scheduledAtMs,
-        channelRef,
-        seq: msg.seq,
-        channelType,
-      })
-
-      const command: Extract<HostCommand, { type: "agent:event" }> = {
-        type: "agent:event",
-        agentId: botCtx.botUserId,
-        config: makeRuntimeConfig({
-          runtime: botCtx.runtime,
-          model: resolveModelConfig(botCtx.modelName),
-          reasoningEffort: botCtx.reasoningEffort ?? undefined,
-          runtimeConfigRevision: botCtx.runtimeConfigRevision,
-          agentName: botCtx.name,
-          agentHandle: `@${formatHandle(botCtx.name, botCtx.discriminator)}`,
-        }),
-        launchId: `schrun_${current.id}`,
-        prompt,
-      }
-
-      const { sent } = await this.pushAgentEventToMachine(botCtx.machineId, command)
-      if (sent > 0) {
-        await withD1Retry(
-          () => queries.communitySchedule.updatePendingRunStatus(db, run.id, {
-            status: "dispatched",
-            lastError: null,
-            updatedAtMs: Date.now(),
-          }),
-          { route: "owner-schedule:mark-dispatched" },
-        )
-        await this.notifyOwnerChanged(ownerUserId, current.eventId, "run_updated")
-        return "dispatched"
-      }
-
-      return await markPendingError("machine_offline")
+      if (result.outcome === "dispatched") return "dispatched"
+      if (result.outcome === "blocked_access") return "blocked_access"
+      if (result.outcome === "pending") return "pending"
+      return "skipped"
     } catch (err) {
       log.warn("schedule_run_dispatch_failed", { runId: run.id, eventId: run.eventId, err: String(err) })
       return "pending"
@@ -366,33 +217,27 @@ export class OwnerScheduleDurableObject extends DurableObject<Env> {
       return Response.json({ error: "invalid json" }, { status: 400 })
     }
     const ownerUserId = body.ownerUserId
-    const botIdSet = new Set(
-      Array.isArray(body.botIds)
-        ? body.botIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-        : [],
-    )
-    if (!ownerUserId || botIdSet.size === 0) {
+    const botIds = Array.isArray(body.botIds)
+      ? body.botIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : []
+    if (!ownerUserId || botIds.length === 0) {
       return Response.json({ attempted: 0, dispatched: 0, blocked: 0 })
     }
 
     const db = createDb(this.env.DB)
     await this.syncAlarmFromD1(ownerUserId, Date.now())
-    const pendingRuns = await withD1Retry(
-      () => queries.communitySchedule.listPendingRunsForOwner(db, ownerUserId, RESYNC_RUN_BATCH_LIMIT),
-      { route: "owner-schedule:list-pending-resync" },
+    const result = await resyncBotPrivateInboxForBots(
+      db,
+      (machineId, command) => this.pushAgentEventToMachine(machineId, command),
+      ownerUserId,
+      botIds,
+      {
+        limitPerBot: RESYNC_RUN_BATCH_LIMIT,
+        notifyScheduleChange: (ownerId, eventId, reason) =>
+          this.notifyOwnerChanged(ownerId, eventId, reason),
+      },
     )
 
-    let attempted = 0
-    let dispatched = 0
-    let blocked = 0
-    for (const run of pendingRuns) {
-      if (!botIdSet.has(run.botUserId)) continue
-      const result = await this.dispatchPendingRun(run, ownerUserId)
-      if (result !== "skipped") attempted += 1
-      if (result === "dispatched") dispatched += 1
-      if (result === "blocked_access") blocked += 1
-    }
-
-    return Response.json({ attempted, dispatched, blocked })
+    return Response.json(result)
   }
 }

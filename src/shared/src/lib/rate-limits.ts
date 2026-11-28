@@ -34,6 +34,7 @@ export const RATE_LIMITS = {
   "community:upload": { windowMs: 60_000, max: 30, failClosed: true },
   "community:pageOpen": { windowMs: 60_000, max: 60, failClosed: true },
   "newsletter:subscribe": { windowMs: 3_600_000, max: 10 },
+  "webhook:ingest": { windowMs: 60_000, max: 60, failClosed: true },
 } as const
 
 export type RateLimitName = keyof typeof RATE_LIMITS

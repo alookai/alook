@@ -14,10 +14,12 @@ import { cachedConversationNavigationHref } from "@/lib/community/navigation-met
 import { useCommunityRouteFrame, type NativeNotificationConversationConsumer, type CommunityNavigationController } from "@/contexts/community/route-frame"
 import { isDesktop, isMobile } from "@alook/shared"
 import {
+  ackDesktopSystemNotificationActivation,
+  clearDesktopSystemNotificationsForViewer,
   dismissDesktopSystemNotification,
   dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
-  takeDesktopSystemNotificationActivation,
+  peekDesktopSystemNotificationActivation,
   traceNotificationDiagnostic,
 } from "@/lib/community/desktop-system-notification"
 import {
@@ -25,8 +27,10 @@ import {
   type DesktopSystemNotificationActivation,
 } from "@/lib/community/system-notification-route"
 import {
+  ackMobileSystemNotificationActivation,
   acknowledgeMobileSystemNotificationRegistration,
   checkMobileSystemNotificationPermission,
+  clearMobileSystemNotificationsForViewer,
   clearPendingMobileSystemNotificationUnregistration,
   createMobileSystemNotificationActivationController,
   createMobileSystemNotificationRegistrationController,
@@ -34,12 +38,12 @@ import {
   dismissMobileSystemNotification,
   dismissMobileSystemNotificationConversation,
   listenMobileSystemNotificationSignals,
+  peekMobileSystemNotificationActivation,
   postMobileSystemNotificationRegistration,
   readPendingMobileSystemNotificationUnregistration,
   requestMobileSystemNotificationPermission,
   resumeMobileSystemNotificationRegistration,
   snapshotMobileSystemNotificationRegistration,
-  takeMobileSystemNotificationActivation,
 } from "@/lib/community/mobile-system-notification"
 import {
   createNativeSystemNotificationConversationDismissalQueue,
@@ -141,11 +145,24 @@ function queueNativeSystemNotificationConversationDismissal(
   drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, original)
 }
 
+const embeddedNotificationConsumers = new Set<NativeNotificationConversationConsumer>()
+
+export async function clearNativeSystemNotificationsForViewer(viewerUserId: string): Promise<void> {
+  if (!viewerUserId) return
+  if (isDesktop()) {
+    await clearDesktopSystemNotificationsForViewer(viewerUserId).catch(() => undefined)
+  } else if (isMobile()) {
+    await clearMobileSystemNotificationsForViewer(viewerUserId).catch(() => undefined)
+  }
+}
+
 export function useNativeSystemNotificationConversationDismissal(
   viewerUserId: string,
   target: NativeSystemNotificationConversation,
   ready: boolean,
+  options?: { embedded?: boolean },
 ) {
+  const embedded = options?.embedded === true
   const client = useQueryClient()
   const registry = useOptionalCommunityDbRegistry()!
   const onlineAccount = useSelector(registry.authenticationBindings, registry.isOnlineAccount)
@@ -182,10 +199,13 @@ export function useNativeSystemNotificationConversationDismissal(
         }
         const route = current.current
         let intentCurrent: boolean | undefined
+        const routeMatches = embedded
+          ? !route.navigation.navigationPending
+          : !route.navigation.navigationPending
+            && route.frame.pathname === systemNotificationHref(dismissalTarget)
+            && normalizeCommunityHref(route.navigation.publishedHref).pathname === route.frame.pathname
         const matches = viewer === viewerUserId && targetId === channelId && (intentCurrent = intent())
-          && document.visibilityState === "visible" && !route.navigation.navigationPending
-          && route.frame.pathname === systemNotificationHref(dismissalTarget)
-          && normalizeCommunityHref(route.navigation.publishedHref).pathname === route.frame.pathname
+          && document.visibilityState === "visible" && routeMatches
         traceNotificationDiagnostic("ready.matches", { viewerUserId, viewer, targetId, dismissalTarget,
           sourceCurrent: true, intentCurrent: intentCurrent ?? null, matches,
           frame: route.frame, publishedHref: route.navigation.publishedHref,
@@ -197,20 +217,28 @@ export function useNativeSystemNotificationConversationDismissal(
         queueNativeSystemNotificationConversationDismissal(platform, viewerUserId, dismissalTarget, queue, client, original)
       },
     }
-    const actual = current.current
-    if (notificationConsumerRef && !actual.navigation.navigationPending
-      && actual.frame.pathname === systemNotificationHref(dismissalTarget)
-      && normalizeCommunityHref(actual.navigation.publishedHref).pathname === actual.frame.pathname) {
-      notificationConsumerRef.current = consumer
+    if (embedded) {
+      embeddedNotificationConsumers.add(consumer)
+    } else {
+      const actual = current.current
+      if (notificationConsumerRef && !actual.navigation.navigationPending
+        && actual.frame.pathname === systemNotificationHref(dismissalTarget)
+        && normalizeCommunityHref(actual.navigation.publishedHref).pathname === actual.frame.pathname) {
+        notificationConsumerRef.current = consumer
+      }
     }
     consumer.requestDismiss()
     const onVisible = () => { if (document.visibilityState === "visible") consumer.requestDismiss() }
     document.addEventListener("visibilitychange", onVisible)
     return () => {
       document.removeEventListener("visibilitychange", onVisible)
-      if (notificationConsumerRef?.current === consumer) notificationConsumerRef.current = null
+      if (embedded) {
+        embeddedNotificationConsumers.delete(consumer)
+      } else if (notificationConsumerRef?.current === consumer) {
+        notificationConsumerRef.current = null
+      }
     }
-  }, [channelId, client, kind, ready, serverId, source, viewerUserId, notificationConsumerRef,
+  }, [channelId, client, embedded, kind, ready, serverId, source, viewerUserId, notificationConsumerRef,
     frame.pathname, navigation.publishedHref, navigation.navigationPending, captureIntent, onlineAccount, registry])
 }
 
@@ -236,8 +264,10 @@ function dismissPendingNativeSystemNotification(
 
 export type DesktopSystemNotificationActivationDeps = {
   listen: (ready: () => void) => Promise<() => void>
-  take: () => Promise<DesktopSystemNotificationActivation | null>
-  queueDismiss: (notificationId: string, href: string) => void
+  peek: () => Promise<DesktopSystemNotificationActivation | null>
+  ack?: (notificationId: string) => Promise<void>
+  expectedViewerUserId?: string
+  queueDismiss: (notificationId: string, href: string, targetId?: string) => void
   navigate: (href: string) => void
 }
 
@@ -245,9 +275,12 @@ export function createDesktopSystemNotificationActivationController(
   deps: DesktopSystemNotificationActivationDeps,
 ) {
   const activation = createNotificationActivationDrain({
-    take: () => deps.take(),
+    peek: () => deps.peek(),
+    ack: deps.ack,
+    expectedViewerUserId: deps.expectedViewerUserId,
     hrefFor: (value) => systemNotificationHref(value.target),
-    queueDismiss: (id, href) => deps.queueDismiss(id, href),
+    targetIdFor: (value) => value.target.channelId,
+    queueDismiss: (id, href, targetId) => deps.queueDismiss(id, href, targetId),
     navigate: (href) => deps.navigate(href),
   })
   let unlisten: (() => void) | undefined
@@ -276,11 +309,18 @@ export function useNativeSystemNotifications(
   const currentRoute = useRef({ frame, navigation })
   const committedDismissal = useRef<() => void>(() => undefined)
   const conversationDismissal = useRef<RequestNativeConversationDismissal | null>(null)
+  const previousViewerRef = useRef<string | null>(null)
   useLayoutEffect(() => { currentRoute.current = { frame, navigation } }, [frame, navigation])
   const client = useQueryClient()
   const registry = useOptionalCommunityDbRegistry()!
   const onlineAccount = useSelector(registry.authenticationBindings, registry.isOnlineAccount)
   const source = useCommunityViewSource(`native-notifications:${viewerUserId}`)
+  useEffect(() => {
+    if (previousViewerRef.current && previousViewerRef.current !== viewerUserId) {
+      void clearNativeSystemNotificationsForViewer(previousViewerRef.current)
+    }
+    previousViewerRef.current = viewerUserId
+  }, [viewerUserId])
   useEffect(() => {
     if (!onlineAccount || !registry.isOnlineAccount()) return
     let original: ReturnType<typeof source.capture>
@@ -291,12 +331,26 @@ export function useNativeSystemNotifications(
       try { original() } catch { return false }
       if (!identity || typeof identity !== "object" || Array.isArray(identity)) return false
       const value = identity as Record<string, unknown>
-      return Object.keys(value).length === 2 && typeof value.viewerUserId === "string"
-        && typeof value.targetId === "string" && value.viewerUserId === viewerUserId
-        && notificationConsumer.current?.matches(value.viewerUserId, value.targetId) === true
+      if (Object.keys(value).length !== 2 || typeof value.viewerUserId !== "string"
+        || typeof value.targetId !== "string" || value.viewerUserId !== viewerUserId) {
+        return false
+      }
+      if (notificationConsumer.current?.matches(value.viewerUserId, value.targetId) === true) {
+        return true
+      }
+      for (const embedded of embeddedNotificationConsumers) {
+        if (embedded.matches(value.viewerUserId, value.targetId)) return true
+      }
+      return false
     }
     presentationWindow.alookNativeNotificationPresentationV1 = presentation
-    const requestCurrentDismissal = () => { try { original() } catch { return }; notificationConsumer.current?.requestDismiss() }
+    const requestCurrentDismissal = () => {
+      try { original() } catch { return }
+      notificationConsumer.current?.requestDismiss()
+      for (const embedded of embeddedNotificationConsumers) {
+        embedded.requestDismiss()
+      }
+    }
     const key = (...parts: readonly unknown[]) => ["community", "native-notifications", viewerUserId, ...parts]
     const dismissal = createNativeSystemNotificationDismissalQueue({
       getItem: (key) => window.sessionStorage.getItem(key),
@@ -347,9 +401,16 @@ export function useNativeSystemNotifications(
       window.addEventListener("online", drainConversations)
       const browserDeps: DesktopSystemNotificationActivationDeps = {
         listen: (wake) => listenDesktopSystemNotificationActivations(() => { requestCurrentDismissal(); wake() }),
-        take: () => nativeCommand(client, key("desktop", "take"), original, takeDesktopSystemNotificationActivation),
-        queueDismiss: (notificationId, href) => {
-          original(); dismissal.queue("desktop", viewerUserId, notificationId, href)
+        peek: () => nativeCommand(client, key("desktop", "peek"), original, peekDesktopSystemNotificationActivation),
+        ack: (notificationId) => nativeCommand(
+          client,
+          key("desktop", "ack", notificationId),
+          original,
+          () => ackDesktopSystemNotificationActivation(notificationId),
+        ),
+        expectedViewerUserId: viewerUserId,
+        queueDismiss: (notificationId, href, targetId) => {
+          original(); dismissal.queue("desktop", viewerUserId, notificationId, href, targetId)
         },
         navigate: (href) => { original(); currentRoute.current.navigation.pushImmediate(href); dismissPending() },
       }
@@ -381,20 +442,57 @@ export function useNativeSystemNotifications(
       clearPendingUnregistration: clearPendingMobileSystemNotificationUnregistration,
     })
     const activation = createMobileSystemNotificationActivationController({
-      take: () => nativeCommand(client, key("mobile", "take"), original, takeMobileSystemNotificationActivation),
+      peek: () => nativeCommand(client, key("mobile", "peek"), original, peekMobileSystemNotificationActivation),
+      ack: (notificationId) => nativeCommand(
+        client,
+        key("mobile", "ack", notificationId),
+        original,
+        () => ackMobileSystemNotificationActivation(notificationId),
+      ),
+      expectedViewerUserId: viewerUserId,
       resolveHref: (activation) => {
         original()
         return cachedConversationNavigationHref(client, viewerUserId, activation.targetId)
       },
-      queueDismiss: (notificationId, href) => {
-        original(); dismissal.queue("mobile", viewerUserId, notificationId, href)
+      queueDismiss: (notificationId, href, targetId) => {
+        original(); dismissal.queue("mobile", viewerUserId, notificationId, href, targetId)
       },
       navigate: (href) => { original(); currentRoute.current.navigation.pushImmediate(href); dismissPending() },
     })
     let disposed = false
     let unlisten: (() => void) | undefined
+    let listenInFlight = false
+    let listenAttempt = 0
+    let listenRetryTimer: ReturnType<typeof setTimeout> | undefined
+
+    const ensureMobileListener = async (): Promise<void> => {
+      if (disposed || unlisten || listenInFlight) return
+      listenInFlight = true
+      try {
+        const stop = await listenMobileSystemNotificationSignals(synchronize)
+        if (disposed) {
+          stop()
+          return
+        }
+        unlisten = stop
+        listenAttempt = 0
+      } catch {
+        unlisten = undefined
+        if (!disposed) {
+          const delay = nativeRetryDelays[Math.min(listenAttempt, nativeRetryDelays.length - 1)]!
+          listenAttempt += 1
+          clearTimeout(listenRetryTimer)
+          listenRetryTimer = setTimeout(() => {
+            void ensureMobileListener()
+          }, delay)
+        }
+      } finally {
+        listenInFlight = false
+      }
+    }
 
     const synchronize = () => {
+      void ensureMobileListener()
       requestCurrentDismissal()
       dismissPending()
       drainNativeSystemNotificationConversationDismissals("mobile", viewerUserId, conversationDismissals, client, original)
@@ -409,19 +507,14 @@ export function useNativeSystemNotifications(
 
     drainNativeSystemNotificationConversationDismissals("mobile", viewerUserId, conversationDismissals, client, original)
     void (async () => {
-      try {
-        const stop = await listenMobileSystemNotificationSignals(synchronize)
-        if (disposed) stop()
-        else unlisten = stop
-      } catch {
-        unlisten = undefined
-      }
+      await ensureMobileListener()
       if (disposed) return
       await Promise.all([registration.sync(true), activation.drain()])
     })()
 
     return () => {
       disposed = true
+      clearTimeout(listenRetryTimer)
       window.removeEventListener("online", synchronize)
       document.removeEventListener("visibilitychange", onVisibilityChange)
       unlisten?.()

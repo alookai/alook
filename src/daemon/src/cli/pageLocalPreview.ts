@@ -401,7 +401,7 @@ async function captureUrlWithCdp(
   } finally {
     cdp?.close();
     await terminateProcessTree(child);
-    await rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
   }
 }
 

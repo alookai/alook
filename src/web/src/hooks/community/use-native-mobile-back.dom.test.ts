@@ -36,11 +36,11 @@ describe("Tauri public Android Back entry", () => {
     return { callbacks, unregister, register }
   }
 
-  it("registers once and uses the current structural parent and consumed root policy", async () => {
+  it("registers for non-root routes, unregisters at root so Android can exit, and re-registers on child or overlay", async () => {
     const { callbacks, unregister, register } = installBridge()
     expect("__TAURI__" in window).toBe(true)
     const replacePath = vi.fn()
-    const props = { dismissShellOverlay: () => false, parentPath: "/c/channels/s1", replacePath }
+    const props = { dismissShellOverlay: () => false, parentPath: "/c/channels/s1" as string | null, replacePath }
     const renderer = render(createElement(Harness, props))
     await waitFor(() => { expect(register).toHaveBeenCalledOnce() })
     act(() => { callbacks[0]({ canGoBack: true }) })
@@ -49,15 +49,47 @@ describe("Tauri public Android Back entry", () => {
     renderer.rerender(createElement(Harness, { ...props, parentPath: "/c/me" }))
     act(() => { callbacks[0]({ canGoBack: false }) })
     expect(replacePath).toHaveBeenLastCalledWith("/c/me")
-    renderer.rerender(createElement(Harness, { ...props, parentPath: null }))
-    act(() => { callbacks[0]({ canGoBack: true }) })
-    expect(replacePath).toHaveBeenCalledTimes(2)
     expect(register).toHaveBeenCalledOnce()
 
-    renderer.unmount()
+    renderer.rerender(createElement(Harness, { ...props, parentPath: null }))
     await waitFor(() => { expect(unregister).toHaveBeenCalledOnce() })
     act(() => { callbacks[0]({ canGoBack: true }) })
     expect(replacePath).toHaveBeenCalledTimes(2)
+
+    renderer.rerender(createElement(Harness, { ...props, parentPath: null, hasShellOverlay: true }))
+    await waitFor(() => { expect(register).toHaveBeenCalledTimes(2) })
+
+    renderer.unmount()
+    await waitFor(() => { expect(unregister).toHaveBeenCalledTimes(2) })
+    act(() => { callbacks[1]({ canGoBack: true }) })
+    expect(replacePath).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not register on initial root mount until a native back layer opens", async () => {
+    const { callbacks, unregister, register } = installBridge()
+    const replacePath = vi.fn()
+    const close = vi.fn()
+    const renderer = render(createElement("div", null,
+      createElement(Harness, { dismissShellOverlay: () => false, parentPath: null, replacePath }),
+    ))
+    expect(register).not.toHaveBeenCalled()
+
+    renderer.rerender(createElement("div", null,
+      createElement(Harness, { dismissShellOverlay: () => false, parentPath: null, replacePath }),
+      createElement(Dialog, { defaultOpen: true, onOpenChange: (open) => { if (!open) close() } },
+        createElement(DialogContent, null,
+          createElement(DialogTitle, null, "Root overlay"),
+          createElement(DialogDescription, null, "Test content"),
+        ),
+      ),
+    ))
+    await screen.findByRole("dialog", { name: "Root overlay" })
+    await waitFor(() => { expect(register).toHaveBeenCalledOnce() })
+    act(() => { callbacks[0]({ canGoBack: true }) })
+    await waitFor(() => { expect(screen.queryByRole("dialog")).toBeNull() })
+    expect(close).toHaveBeenCalledOnce()
+    await waitFor(() => { expect(unregister).toHaveBeenCalledOnce() })
+    renderer.unmount()
   })
 
   it("gives the public callback to a real top Dialog before the page", async () => {
@@ -190,7 +222,7 @@ describe("Tauri public Android Back entry", () => {
     const error = new Error("registration denied")
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const { register } = installBridge([Promise.reject(error)])
-    const renderer = render(createElement(Harness, { dismissShellOverlay: () => false, parentPath: null, replacePath: vi.fn() }))
+    const renderer = render(createElement(Harness, { dismissShellOverlay: () => false, parentPath: "/c/me", replacePath: vi.fn() }))
     await waitFor(() => { expect(report).toHaveBeenCalledWith("Native Back listener failed", error) })
     expect(register).toHaveBeenCalledOnce()
     renderer.unmount()
@@ -256,6 +288,60 @@ describe("useNativeMobileBack", () => {
     expect(replacePath).not.toHaveBeenCalled()
     renderer.unmount()
   })
+
+  it("does not swallow Back when document.activeElement is null", () => {
+    const replacePath = vi.fn()
+    const renderer = render(createElement(Harness, {
+      dismissShellOverlay: () => false,
+      parentPath: "/c/me",
+      replacePath,
+    }))
+    const activeSpy = vi.spyOn(document, "activeElement", "get").mockReturnValue(null)
+    try {
+      expect(dispatchBack().defaultPrevented).toBe(true)
+      expect(replacePath).toHaveBeenCalledExactlyOnceWith("/c/me")
+    } finally {
+      activeSpy.mockRestore()
+      renderer.unmount()
+    }
+  })
+
+  it.each(["blur", "visibilitychange", "pagehide"] as const)(
+    "clears stale IME composition state on %s when compositionend is missed",
+    (eventKind) => {
+      const replacePath = vi.fn()
+      const input = document.createElement("input")
+      input.dataset.nativeBackTestLayer = "true"
+      document.body.append(input)
+      const renderer = render(createElement(Harness, {
+        dismissShellOverlay: () => false,
+        parentPath: "/c/me",
+        replacePath,
+      }))
+      input.focus()
+      act(() => {
+        input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }))
+      })
+      act(() => { dispatchBack() })
+      expect(replacePath).not.toHaveBeenCalled()
+
+      act(() => {
+        if (eventKind === "blur") {
+          window.dispatchEvent(new FocusEvent("blur"))
+        } else if (eventKind === "visibilitychange") {
+          vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden")
+          document.dispatchEvent(new Event("visibilitychange"))
+        } else {
+          window.dispatchEvent(new PageTransitionEvent("pagehide"))
+        }
+      })
+
+      act(() => { dispatchBack() })
+      expect(replacePath).toHaveBeenCalledExactlyOnceWith("/c/me")
+      vi.restoreAllMocks()
+      renderer.unmount()
+    },
+  )
 
   it("replaces a detail route and consumes back at a root route", () => {
     const dismissShellOverlay = vi.fn(() => false)

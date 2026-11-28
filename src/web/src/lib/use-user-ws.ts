@@ -915,6 +915,16 @@ export function useUserWs(
   useEffect(() => {
     const mountedAt = Date.now()
     lastSentinelTickAtRef.current = mountedAt
+    const unlistenNative = listenNativeWindowLifecycle({
+      suspended: () => {
+        nativeSuspendedRef.current = true
+        suspendConnection(false)
+      },
+      resumed: () => {
+        nativeSuspendedRef.current = false
+        requestForegroundRecovery("resume", true)
+      },
+    })
     void connect()
     const onVisibilityChange = () => {
       if (isBackground()) {
@@ -943,16 +953,6 @@ export function useUserWs(
       requestForegroundRecovery("online", true)
     }
     const onOffline = () => suspendForOffline()
-    const unlistenNative = listenNativeWindowLifecycle({
-      suspended: () => {
-        nativeSuspendedRef.current = true
-        suspendConnection(false)
-      },
-      resumed: () => {
-        nativeSuspendedRef.current = false
-        requestForegroundRecovery("resume", true)
-      },
-    })
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisibilityChange)
       document.addEventListener("freeze", onFreeze)

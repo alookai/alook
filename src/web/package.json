@@ -1,6 +1,6 @@
 {
   "name": "@alook/web",
-  "version": "0.1.72",
+  "version": "0.1.74",
   "private": true,
   "scripts": {
     "dev": "node scripts/dev-zones.mjs",
@@ -35,7 +35,6 @@
     "seed:stress": "tsx scripts/seed-stress.ts",
     "perf:switch": "tsx scripts/perf-report.ts --clear && playwright test --config playwright.perf.config.ts && tsx scripts/perf-report.ts",
     "typecheck": "tsc --noEmit",
-    "seo:check": "lhci autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs",
     "test:blog": "vitest run --config blog/vitest.workspace.config.ts",
     "test:auth": "vitest run --config auth/vitest.config.ts",
     "typecheck:blog": "tsc --noEmit -p blog/tsconfig.json",
@@ -77,7 +76,6 @@
     "@tanstack/react-store": "0.11.2",
     "@tanstack/react-virtual": "3.14.26",
     "@tanstack/store": "0.11.2",
-    "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
     "@tiptap/extension-list": "^3.35.0",
     "@tiptap/extension-mention": "^3.35.0",
     "@tiptap/pm": "^3.35.0",
@@ -139,7 +137,6 @@
   "devDependencies": {
     "@alook/test-utils": "workspace:*",
     "@cloudflare/vitest-plugin": "1.8.5",
-    "@lhci/cli": "^0.16.1",
     "@mdx-js/rollup": "3.1.1",
     "@playwright/test": "^1.65.1",
     "@serwist/turbopack": "9.5.15",

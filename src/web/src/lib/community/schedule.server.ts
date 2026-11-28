@@ -331,36 +331,3 @@ export function validateScheduleFields(input: {
   const durationMinutes = input.durationMinutes ?? SCHEDULE_DEFAULT_DURATION_MINUTES
   return { ok: true, startAtMs, recurrence, durationMinutes }
 }
-
-export async function resyncOwnerScheduleForBots(
-  db: Database,
-  env: Env,
-  ownerUserId: string,
-  botIds: readonly string[],
-): Promise<{ attempted: number; dispatched: number; blocked: number }> {
-  if (botIds.length === 0) return { attempted: 0, dispatched: 0, blocked: 0 }
-  try {
-    const pendingRuns = await withD1Retry(
-      () => queries.communitySchedule.listPendingRunsForOwner(db, ownerUserId, 50),
-      { route: "schedule:resync-check-pending" },
-    )
-    const botIdSet = new Set(botIds)
-    if (!pendingRuns.some((run) => botIdSet.has(run.botUserId))) {
-      return { attempted: 0, dispatched: 0, blocked: 0 }
-    }
-    const res = await ownerScheduleFetch(env, ownerUserId, "/resync-bots", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ownerUserId, botIds }),
-    })
-    if (!res.ok) return { attempted: 0, dispatched: 0, blocked: 0 }
-    const data = (await res.json()) as { attempted?: number; dispatched?: number; blocked?: number }
-    return {
-      attempted: typeof data.attempted === "number" ? data.attempted : 0,
-      dispatched: typeof data.dispatched === "number" ? data.dispatched : 0,
-      blocked: typeof data.blocked === "number" ? data.blocked : 0,
-    }
-  } catch {
-    return { attempted: 0, dispatched: 0, blocked: 0 }
-  }
-}

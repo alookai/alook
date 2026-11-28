@@ -1,10 +1,10 @@
-import type { RouterContext } from "../router-context"
+import { decodePathSegment, type RouterContext } from "../router-context"
 
 export async function handleOwnerSchedule({ request, env, url }: RouterContext): Promise<Response | null> {
   const match = url.pathname.match(/^\/owner-schedule\/([^/]+)(\/.*)$/)
   if (!match) return null
 
-  const ownerUserId = decodeURIComponent(match[1]!)
+  const ownerUserId = decodePathSegment(match[1]!)
   const innerPath = match[2]!
   if (!ownerUserId) return Response.json({ error: "invalid ownerUserId" }, { status: 400 })
 

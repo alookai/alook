@@ -84,7 +84,11 @@ export function getClientPlatform(): "mobile" | "desktop" | "unknown" {
   return "unknown";
 }
 
-export async function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export async function tauriInvoke<T>(
+  command: string,
+  args?: Record<string, unknown> | ArrayBuffer | Uint8Array | number[],
+  options?: { headers?: Record<string, string> },
+): Promise<T> {
   if (!isTauri()) {
     throw new Error("tauriInvoke called outside of Tauri context");
   }
@@ -92,11 +96,17 @@ export async function tauriInvoke<T>(command: string, args?: Record<string, unkn
   if (!tauri) {
     throw new Error("window.__TAURI__ not available");
   }
-  const core = tauri.core as { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<T> } | undefined;
+  const core = tauri.core as {
+    invoke: (
+      cmd: string,
+      args?: Record<string, unknown> | ArrayBuffer | Uint8Array | number[],
+      options?: { headers?: Record<string, string> },
+    ) => Promise<T>;
+  } | undefined;
   if (!core?.invoke) {
     throw new Error("window.__TAURI__.core.invoke not available");
   }
-  return core.invoke(command, args);
+  return options ? core.invoke(command, args, options) : core.invoke(command, args);
 }
 
 export function resolveMode(signals: ModeSignals): AlookMode {

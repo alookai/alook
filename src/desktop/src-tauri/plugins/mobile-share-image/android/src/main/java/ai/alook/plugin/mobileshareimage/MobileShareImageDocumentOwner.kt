@@ -59,7 +59,7 @@ class MobileShareImageDocumentOwner(private val activity: ComponentActivity) {
     }
 
     fun detach() {
-        MobileShareImageCoordinator.detach(generation)
+        MobileShareImageCoordinator.detach(generation, activity.isFinishing)
         resultAdapter.detach()
     }
 
@@ -96,8 +96,8 @@ internal object MobileShareImageCoordinator {
         }
     }
 
-    fun detach(generation: String) {
-        core.detach(generation)
+    fun detach(generation: String, finishing: Boolean = false) {
+        core.detach(generation, finishing)
     }
 
     fun liveToken(): String? = core.liveToken()

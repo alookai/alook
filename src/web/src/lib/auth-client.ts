@@ -3,7 +3,9 @@ import { beginSessionSignOut } from "./session-transport"
 import { authClient, currentSessionViewer } from "./auth-session"
 export { authClient, signIn, signUp, useSession, currentSessionViewer } from "./auth-session"
 import { PUSH_INSTALLATION_ID_HEADER } from "@/lib/community/notification-device-schema"
+import { clearDesktopSystemNotificationsForViewer } from "@/lib/community/desktop-system-notification"
 import {
+  clearMobileSystemNotificationsForViewer,
   readPendingMobileSystemNotificationUnregistration,
   resumeMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
@@ -53,7 +55,13 @@ async function signOutOriginal(assertOriginal: () => void, args: Parameters<type
       },
     })
     if ("error" in result && result.error) { assertActive(); resumeMobileSystemNotificationRegistration() }
-    else { assertActive() }
+    else {
+      assertActive()
+      if (accountId) {
+        void clearDesktopSystemNotificationsForViewer(accountId).catch(() => undefined)
+        void clearMobileSystemNotificationsForViewer(accountId).catch(() => undefined)
+      }
+    }
     return result
   } catch (error) {
     try { assertActive(); resumeMobileSystemNotificationRegistration() } catch {}

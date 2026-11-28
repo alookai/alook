@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "external-links",
-  "description": "System-browser access for HTTP(S) links in the main webview",
+  "description": "System handler access for HTTP(S), mailto, and tel links in the main webview",
   "windows": ["main"],
   "platforms": ["linux", "macOS", "windows", "android", "iOS"],
   "local": false,
@@ -13,7 +13,9 @@
       "identifier": "opener:allow-open-url",
       "allow": [
         { "url": "http://*" },
-        { "url": "https://*" }
+        { "url": "https://*" },
+        { "url": "mailto:*" },
+        { "url": "tel:*" }
       ]
     }
   ]

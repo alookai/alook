@@ -24,6 +24,20 @@ pub struct Activation {
     pub notification_id: String,
     pub message_id: String,
     pub target_id: String,
+    #[serde(default)]
+    pub viewer_user_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AckActivationRequest {
+    pub notification_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearViewerRequest {
+    pub viewer_user_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

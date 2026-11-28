@@ -1,6 +1,7 @@
 use crate::{
-    AcknowledgeRequest, Activation, DismissConversationRequest, DismissRequest, Error,
-    ListenRequest, PermissionResponse, RegistrationSnapshot, UnlistenRequest,
+    AckActivationRequest, AcknowledgeRequest, Activation, ClearViewerRequest,
+    DismissConversationRequest, DismissRequest, Error, ListenRequest, PermissionResponse,
+    RegistrationSnapshot, UnlistenRequest,
 };
 use serde::de::DeserializeOwned;
 use tauri::{
@@ -60,9 +61,16 @@ impl<R: Runtime> MobilePush<R> {
             .map_err(Into::into)
     }
 
-    pub async fn take_activation(&self) -> Result<Option<Activation>, Error> {
+    pub async fn peek_activation(&self) -> Result<Option<Activation>, Error> {
         self.0
-            .run_mobile_plugin_async("takeActivation", ())
+            .run_mobile_plugin_async("peekActivation", ())
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn ack_activation(&self, notification_id: String) -> Result<(), Error> {
+        self.0
+            .run_mobile_plugin_async("ackActivation", AckActivationRequest { notification_id })
             .await
             .map_err(Into::into)
     }
@@ -91,6 +99,13 @@ impl<R: Runtime> MobilePush<R> {
             .map_err(Into::into)
     }
 
+    pub async fn clear_viewer(&self, viewer_user_id: String) -> Result<(), Error> {
+        self.0
+            .run_mobile_plugin_async("clearViewer", ClearViewerRequest { viewer_user_id })
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn listen(&self, channel: Channel<()>) -> Result<u64, Error> {
         self.0
             .run_mobile_plugin_async("listen", ListenRequest { channel })
@@ -101,6 +116,13 @@ impl<R: Runtime> MobilePush<R> {
     pub async fn unlisten(&self, registration_id: u64) -> Result<(), Error> {
         self.0
             .run_mobile_plugin_async("unlisten", UnlistenRequest { registration_id })
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn retire_listener(&self) -> Result<(), Error> {
+        self.0
+            .run_mobile_plugin_async("retireListener", ())
             .await
             .map_err(Into::into)
     }

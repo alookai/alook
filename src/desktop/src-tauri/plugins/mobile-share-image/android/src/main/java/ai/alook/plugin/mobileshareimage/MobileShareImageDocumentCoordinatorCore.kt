@@ -110,9 +110,29 @@ internal class MobileShareImageDocumentCoordinatorCore(
         }
     }
 
-    fun detach(generation: String) {
-        synchronized(lock) {
+    fun detach(generation: String, finishing: Boolean = false) {
+        val abandoned = synchronized(lock) {
             if (owner?.generation == generation) owner = null
+            val active = pending
+            if (
+                finishing &&
+                active != null &&
+                active.ownerGeneration == generation &&
+                active.phase != MobileShareImageDocumentPhase.WRITING &&
+                active.phase != MobileShareImageDocumentPhase.TERMINAL
+            ) {
+                active.phase = MobileShareImageDocumentPhase.TERMINAL
+                pending = null
+                active
+            } else {
+                null
+            }
+        }
+        abandoned?.let {
+            settleFailure(
+                it,
+                MobileShareImageFailure("cancelled", "Document save was cancelled"),
+            )
         }
     }
 
@@ -149,7 +169,6 @@ internal class MobileShareImageDocumentCoordinatorCore(
                 ) {
                     active.phase = MobileShareImageDocumentPhase.TERMINAL
                     pending = null
-                    if (owner?.generation == active.ownerGeneration) owner = null
                     active
                 } else {
                     null

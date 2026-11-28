@@ -38,4 +38,92 @@ describe("AGY native read-only quota", () => {
     expect(await readAgyQuota({ command, timeoutMs: 500 })).toMatchObject({ status: "error", code: "unavailable" });
     expect(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0)).toThrow();
   });
+
+  it("classifies structured ERROR payloads from parseAgyQuota without collapsing them into invalid_response", () => {
+    const epoch = "A".repeat(22);
+    expect(parseAgyQuota({
+      status: "ERROR",
+      error: "Eligibility check failed: Your current account is not eligible for Antigravity, because it is not currently available in your location.",
+    }, epoch)).toEqual({ status: "error", sourceEpoch: epoch, code: "provider_error", retryable: false });
+    expect(parseAgyQuota({
+      status: "ERROR",
+      error: "Authentication required: please sign in again",
+    }, epoch)).toEqual({ status: "error", sourceEpoch: epoch, code: "unauthorized", retryable: false });
+    expect(parseAgyQuota({
+      status: "ERROR",
+      error: "dial tcp: lookup cloudcode-pa.googleapis.com: ECONNREFUSED",
+    }, epoch)).toEqual({ status: "error", sourceEpoch: epoch, code: "network", retryable: true });
+    expect(parseAgyQuota({
+      status: "ERROR",
+      error: "HTTP 429 Too Many Requests: rate limit exceeded",
+    }, epoch)).toEqual({ status: "error", sourceEpoch: epoch, code: "provider_error", retryable: true });
+  });
+
+  it.skipIf(process.platform === "win32").each([
+    {
+      name: "region eligibility rejection on exit 1",
+      exitCode: 1,
+      stdout: JSON.stringify({
+        conversation_id: "",
+        status: "ERROR",
+        response: "",
+        error: "Eligibility check failed: Your current account is not eligible for Antigravity, because it is not currently available in your location.",
+        num_turns: 0,
+      }),
+      stderr: "error: Eligibility check failed: Your current account is not eligible for Antigravity, because it is not currently available in your location.",
+      expected: { status: "error", code: "provider_error", retryable: false },
+    },
+    {
+      name: "auth failure on exit 1",
+      exitCode: 1,
+      stdout: JSON.stringify({ status: "ERROR", error: "Not authenticated. Sign in required." }),
+      stderr: "",
+      expected: { status: "error", code: "unauthorized", retryable: false },
+    },
+    {
+      name: "network failure on exit 1",
+      exitCode: 1,
+      stdout: "",
+      stderr: "error: fetch failed: ECONNREFUSED 127.0.0.1:7897",
+      expected: { status: "error", code: "network", retryable: true },
+    },
+    {
+      name: "rate limit on exit 1",
+      exitCode: 1,
+      stdout: JSON.stringify({ status: "ERROR", error: "Upstream service unavailable (503)" }),
+      stderr: "",
+      expected: { status: "error", code: "provider_error", retryable: true },
+    },
+    {
+      name: "malformed JSON on exit 0",
+      exitCode: 0,
+      stdout: "not-valid-json",
+      stderr: "",
+      expected: { status: "error", code: "invalid_response", retryable: true },
+    },
+    {
+      name: "opaque CLI crash on exit 1",
+      exitCode: 1,
+      stdout: "",
+      stderr: "fatal: segmentation fault",
+      expected: { status: "error", code: "unavailable", retryable: true },
+    },
+  ])("surfaces structured quota error for $name", async ({ exitCode, stdout, stderr, expected }) => {
+    const root = mkdtempSync(join(tmpdir(), "alook-agy-quota-err-")); roots.push(root);
+    const command = join(root, "agy");
+    writeFileSync(
+      command,
+      `#!${process.execPath}
+if (process.argv[2] === 'models') {
+  console.log('gemini\\tGemini');
+  process.exit(0);
+}
+if (${JSON.stringify(stderr)}) process.stderr.write(${JSON.stringify(stderr)} + '\\n');
+if (${JSON.stringify(stdout)}) process.stdout.write(${JSON.stringify(stdout)} + '\\n');
+process.exit(${exitCode});
+`,
+      { mode: 0o755 },
+    );
+    expect(await readAgyQuota({ command })).toMatchObject(expected);
+  });
 });

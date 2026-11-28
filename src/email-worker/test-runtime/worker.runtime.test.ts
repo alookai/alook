@@ -18,6 +18,22 @@ describe("OTP worker production entrypoint", () => {
     expect((await worker.fetch(new Request("https://worker.test/unknown"))).status).toBe(405)
   })
 
+  it("rejects malformed JSON and invalid field types on /send/otp with 400", async () => {
+    for (const body of [
+      "{not-json",
+      "null",
+      JSON.stringify({ to: 123, subject: "Code" }),
+      JSON.stringify({ to: "user@example.com", subject: "Code", html: 42 }),
+    ]) {
+      const response = await worker.fetch(new Request("https://worker.test/send/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }))
+      expect(response.status).toBe(400)
+    }
+  })
+
   it("keeps deployed IMAP objects inert without deleting their retained storage", async () => {
     const stub = runtimeEnv.IMAP_POLLER.get(runtimeEnv.IMAP_POLLER.idFromName(crypto.randomUUID()))
     expect((await stub.fetch(new Request("https://imap.test/start", { method: "POST" }))).status).toBe(410)

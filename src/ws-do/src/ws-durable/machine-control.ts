@@ -15,6 +15,7 @@ import type {
   WsDurableContext,
 } from "./internal"
 import { registerDiagnosticDeadline, scheduleHeartbeatAlarm } from "./machine-lifecycle"
+import { clearAllPendingRestarts } from "./machine-restart"
 
 export type MachineControlHooks = Readonly<{
   recordPendingRestarts: (body: string) => Promise<void>
@@ -113,9 +114,10 @@ export async function handleMachineControlFetch(
     })
     const sent = forwardToCommunityMachine(context, frame).sent
     if (sent > 0) {
+      const createdAt = Date.now()
       const attribution: RestartAttribution = providerSwitch
-        ? { kind: "provider_switch", from: from as string, to: to as string }
-        : { kind: "model_switch", from: from as string | null, to: to as string | null }
+        ? { kind: "provider_switch", from: from as string, to: to as string, createdAt }
+        : { kind: "model_switch", from: from as string | null, to: to as string | null, createdAt }
       await context.ctx.storage.put<RestartAttribution>(restartPendingKey(launchId), attribution)
     }
     return new Response(JSON.stringify({ sent }), {
@@ -246,6 +248,7 @@ export async function acceptCommunityMachineWebSocket(
     machineId: auth.machineId,
     userId: auth.userId,
     authenticated: true,
+    connectedAt: Date.now(),
   } as ConnectionState)
 
   const identity: CommunityMachineIdentity = {
@@ -283,6 +286,7 @@ async function forceCloseCommunityMachine(
   await context.ctx.storage.delete(HANDLE_KEY)
   const hadError = (await context.ctx.storage.get(RUNTIME_ERROR_KEY)) !== undefined
   await context.ctx.storage.delete(RUNTIME_ERROR_KEY)
+  await clearAllPendingRestarts(context)
   if (identity && hadError) {
     await fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => { })
   }

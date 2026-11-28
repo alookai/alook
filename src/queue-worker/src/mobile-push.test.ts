@@ -19,6 +19,8 @@ vi.mock("@alook/shared", async (importOriginal) => {
 })
 
 import { processMobilePush } from "./mobile-push"
+import { createFcmAccessTokenProvider } from "./providers/fcm"
+import type { PushProviderResult } from "./providers/token-encoding"
 import {
   PushProviderError,
   type PushProviderStage,
@@ -93,9 +95,9 @@ function dependencies() {
         viewerUserId: "user-1",
       },
     })),
-    createFcmAccessToken: vi.fn(async () => "access-token"),
-    sendApns: vi.fn(async () => ({ outcome: "sent" as const })),
-    sendFcm: vi.fn(async () => ({ outcome: "invalid-token" as const })),
+    getFcmAccessToken: vi.fn(async () => "access-token"),
+    sendApns: vi.fn(async (): Promise<PushProviderResult> => ({ outcome: "sent" })),
+    sendFcm: vi.fn(async (): Promise<PushProviderResult> => ({ outcome: "invalid-token" })),
   }
 }
 
@@ -270,9 +272,10 @@ describe("mobile-push processing", () => {
     ["apns", "key_import", "sendApns", undefined],
     ["apns", "sign", "sendApns", undefined],
     ["apns", "provider_send", "sendApns", 503],
-    ["fcm", "key_import", "createFcmAccessToken", undefined],
-    ["fcm", "sign", "createFcmAccessToken", undefined],
-    ["fcm", "oauth_fetch", "createFcmAccessToken", 503],
+    ["fcm", "credential_fingerprint", "getFcmAccessToken", undefined],
+    ["fcm", "key_import", "getFcmAccessToken", undefined],
+    ["fcm", "sign", "getFcmAccessToken", undefined],
+    ["fcm", "oauth_fetch", "getFcmAccessToken", 503],
     ["fcm", "provider_send", "sendFcm", 503],
   ] as const)(
     "logs only approved keys for %s/%s failures",
@@ -316,6 +319,80 @@ describe("mobile-push processing", () => {
       }
     },
   )
+
+  it("drops a rejected FCM payload without disabling the device or leaking content", async () => {
+    const deps = dependencies()
+    deps.sendFcm.mockResolvedValue({ outcome: "invalid-payload" as const })
+
+    await expect(processMobilePush(
+      {} as never,
+      env,
+      { ...task, installationId: "installation-android" },
+      deps,
+    )).resolves.toEqual({
+      outcome: "processed",
+      attempted: 1,
+      sent: 0,
+      invalidated: 0,
+    })
+
+    expect(deps.disableDevice).not.toHaveBeenCalled()
+    expect(mockLogWarn).toHaveBeenCalledWith("mobile_push_device_rejected", {
+      messageId: "message-1",
+      deviceId: "device-android",
+      provider: "fcm",
+      stage: "provider_send",
+      httpStatus: 400,
+      durationMs: expect.any(Number),
+    })
+    expect(Object.keys(mockLogWarn.mock.calls[0]![1]).sort()).toEqual([
+      "deviceId",
+      "durationMs",
+      "httpStatus",
+      "messageId",
+      "provider",
+      "stage",
+    ])
+    const logged = JSON.stringify([
+      ...mockLogInfo.mock.calls,
+      ...mockLogWarn.mock.calls,
+    ])
+    expect(logged).not.toContain("private message body")
+    expect(logged).not.toContain("plain-ciphertext")
+    expect(logged).not.toContain("access-token")
+  })
+
+  it("reuses a cached FCM access token across separate single-device Android deliveries", async () => {
+    const createAccessToken = vi.fn(async () => "cached-fcm-token")
+    const baseDeps = dependencies()
+    const deps = {
+      ...baseDeps,
+      getFcmAccessToken: createFcmAccessTokenProvider({
+        createFingerprint: async (config) => config.clientEmail,
+        createAccessToken,
+      }),
+    }
+    deps.sendFcm.mockResolvedValue({ outcome: "sent" })
+
+    const androidTask = { ...task, installationId: "installation-android" }
+    await expect(processMobilePush({} as never, env, androidTask, deps)).resolves.toEqual({
+      outcome: "processed",
+      attempted: 1,
+      sent: 1,
+      invalidated: 0,
+    })
+    await expect(processMobilePush({} as never, env, androidTask, deps)).resolves.toEqual({
+      outcome: "processed",
+      attempted: 1,
+      sent: 1,
+      invalidated: 0,
+    })
+
+    expect(createAccessToken).toHaveBeenCalledTimes(1)
+    expect(deps.sendFcm).toHaveBeenCalledTimes(2)
+    expect(deps.sendFcm).toHaveBeenNthCalledWith(1, expect.objectContaining({ accessToken: "cached-fcm-token" }))
+    expect(deps.sendFcm).toHaveBeenNthCalledWith(2, expect.objectContaining({ accessToken: "cached-fcm-token" }))
+  })
 
   it("skips when no active devices remain without loading message target details", async () => {
     const deps = dependencies()

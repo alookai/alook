@@ -18,6 +18,7 @@ class SystemGestureRegionTest {
         assertNull(SystemGestureRegion.fromWindow(0, 0, 1080, 24, 24))
         assertNull(SystemGestureRegion.fromWindow(1080, 0, 0, 24, 24))
         assertEquals(SystemGestureRegion(100, 0, 100), SystemGestureRegion.fromWindow(1080, 0, 100, 200, 24))
+        assertEquals(SystemGestureRegion(80, 20, 100), SystemGestureRegion.fromWindow(100, 0, 100, 80, 80))
         assertEquals("{\"left\":24,\"right\":36,\"width\":1080}", SystemGestureRegion(24, 36, 1080).toJson())
     }
 }

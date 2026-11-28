@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { runInDurableObject } from "cloudflare:test"
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { env, exports } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 
@@ -76,6 +76,39 @@ describe("automation rolling limits in real workerd", () => {
     expect((await target.fetch(new Request("https://worker.test/check-automation", { method: "POST", body: "null" }))).status).toBe(400)
     await runInDurableObject(target, async (_instance, state) => {
       expect(await state.storage.get("automation")).toBeUndefined()
+    })
+  })
+
+  it("cleans up expired fixed-window and rolling automation storage via DO alarm", async () => {
+    const fixedTarget = stub()
+    const fixedRes = await fixedTarget.fetch(new Request("https://worker.test/check", {
+      method: "POST",
+      body: JSON.stringify({ windowMs: 1_000, max: 2 }),
+    }))
+    expect(await fixedRes.json()).toEqual({ allowed: true })
+
+    await runInDurableObject(fixedTarget, async (_instance, state) => {
+      expect(await state.storage.getAlarm()).toBeTypeOf("number")
+      await state.storage.put("state", { count: 1, windowStart: Date.now() - 2_000, windowEnd: Date.now() - 1_000 })
+      await state.storage.setAlarm(Date.now() - 1_000)
+    })
+    expect(await runDurableObjectAlarm(fixedTarget)).toBe(true)
+    await runInDurableObject(fixedTarget, async (_instance, state) => {
+      expect(await state.storage.get("state")).toBeUndefined()
+      expect(await state.storage.getAlarm()).toBeNull()
+    })
+
+    const rollingTarget = stub()
+    expect(await (await check(rollingTarget, 2, "day")).json()).toEqual({ allowed: true })
+    await runInDurableObject(rollingTarget, async (_instance, state) => {
+      expect(await state.storage.getAlarm()).toBeTypeOf("number")
+      await state.storage.put("automation", [Date.now() - 86_400_001])
+      await state.storage.setAlarm(Date.now() - 1_000)
+    })
+    expect(await runDurableObjectAlarm(rollingTarget)).toBe(true)
+    await runInDurableObject(rollingTarget, async (_instance, state) => {
+      expect(await state.storage.get("automation")).toBeUndefined()
+      expect(await state.storage.getAlarm()).toBeNull()
     })
   })
 })

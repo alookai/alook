@@ -30,6 +30,18 @@ const PLATFORM_MAP: Record<string, PlatformSpec> = {
     suffix: ".rpm",
     architecture: /(?:^|[._-])(?:amd64|x64|x86_64)(?:[._-]|$)/i,
   },
+  "linux-aarch64-appimage": {
+    suffix: ".AppImage",
+    architecture: /(?:^|[._-])(?:aarch64|arm64)(?:[._-]|$)/i,
+  },
+  "linux-aarch64-deb": {
+    suffix: ".deb",
+    architecture: /(?:^|[._-])(?:aarch64|arm64)(?:[._-]|$)/i,
+  },
+  "linux-aarch64-rpm": {
+    suffix: ".rpm",
+    architecture: /(?:^|[._-])(?:aarch64|arm64)(?:[._-]|$)/i,
+  },
   "windows-x86_64-msi": {
     suffix: ".msi",
     architecture: /(?:^|[._-])(?:x64|x86_64)(?:[._-]|$)/i,
@@ -37,6 +49,14 @@ const PLATFORM_MAP: Record<string, PlatformSpec> = {
   "windows-x86_64-nsis": {
     suffix: "-setup.exe",
     architecture: /(?:^|[._-])(?:x64|x86_64)(?:[._-]|$)/i,
+  },
+  "windows-aarch64-msi": {
+    suffix: ".msi",
+    architecture: /(?:^|[._-])(?:aarch64|arm64)(?:[._-]|$)/i,
+  },
+  "windows-aarch64-nsis": {
+    suffix: "-setup.exe",
+    architecture: /(?:^|[._-])(?:aarch64|arm64)(?:[._-]|$)/i,
   },
 };
 
@@ -102,7 +122,9 @@ export async function GET(
 
   let signature: string;
   try {
-    const sigRes = await fetch(desktopRelease.signature.browser_download_url);
+    const sigRes = await fetch(desktopRelease.signature.browser_download_url, {
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!sigRes.ok) {
       return NextResponse.json({ error: "Failed to fetch update signature" }, { status: 502 });
     }
