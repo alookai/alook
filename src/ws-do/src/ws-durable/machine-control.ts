@@ -1,6 +1,7 @@
 import { waitForModelDiscovery } from "./model-discovery-wait"
+import { getCachedImQrStatus, waitForImQrStart } from "./machine-im"
 import { readBoundedJsonRequest } from "../community-browser-event-ingress"
-import { MachineRefreshCommandSchema, createDb, PII_REQUEST_MAX_BYTES, PiiCommandSchema, DiagnosticCollectCommandSchema, RuntimeModelDiscoveryCommandSchema, RUNTIME_MODEL_CATALOG_FINGERPRINT_HEADER, queries } from "@alook/shared"
+import { ImCommandSchema, MachineRefreshCommandSchema, createDb, PII_REQUEST_MAX_BYTES, PiiCommandSchema, DiagnosticCollectCommandSchema, RuntimeModelDiscoveryCommandSchema, RUNTIME_MODEL_CATALOG_FINGERPRINT_HEADER, queries } from "@alook/shared"
 import {
   HANDLE_KEY,
   IDENTITY_KEY,
@@ -53,6 +54,25 @@ export async function handleMachineControlFetch(
     const command = PiiCommandSchema.safeParse(input.ok ? input.value : null)
     if (!command.success) return new Response(JSON.stringify({ error: "invalid request" }), { status: 400, headers: { "Content-Type": "application/json" } })
     return new Response(JSON.stringify(forwardToCommunityMachine(context, JSON.stringify(command.data), "pii")), { headers: { "Content-Type": "application/json" } })
+  }
+
+  if (url.pathname === "/im" && request.method === "POST") {
+    const input = await readBoundedJsonRequest(request, 16 * 1024)
+    const command = ImCommandSchema.safeParse(input.ok ? input.value : null)
+    if (!command.success) return new Response(JSON.stringify({ error: "invalid request" }), { status: 400, headers: { "Content-Type": "application/json" } })
+    const dispatch = () => forwardToCommunityMachine(context, JSON.stringify(command.data), "imConnector")
+    if (url.searchParams.get("wait") === "1" && command.data.type === "im:qr_start") {
+      const result = await waitForImQrStart(context, command.data, dispatch)
+      return Response.json(result)
+    }
+    return new Response(JSON.stringify(dispatch()), { headers: { "Content-Type": "application/json" } })
+  }
+
+  if (url.pathname === "/im-qr-status" && request.method === "GET") {
+    const triggerId = url.searchParams.get("triggerId")?.trim()
+    if (!triggerId) return Response.json({ error: "invalid request" }, { status: 400 })
+    const state = await getCachedImQrStatus(context, triggerId)
+    return Response.json({ state })
   }
 
   if (url.pathname === "/refresh" && request.method === "POST") {
@@ -293,7 +313,7 @@ async function forceCloseCommunityMachine(
   return closed
 }
 
-function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop" | "machineRefresh" | "pii"): { sent: number; unsupported: number } {
+function forwardToCommunityMachine(context: WsDurableContext, message: string, capability?: "modelDiscovery" | "machineStop" | "machineRefresh" | "pii" | "imConnector"): { sent: number; unsupported: number } {
   let sent = 0
   let unsupported = 0
   for (const ws of context.ctx.getWebSockets()) {

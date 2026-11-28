@@ -1,5 +1,6 @@
 export const communityProxyRoutes = {
   channelMessages: (channelId: string) => `/api/community/channels/${channelId}/messages`,
+  externalSend: "/api/community/messages/external-send",
   messageProperties: (messageId: string) => `/api/community/messages/${messageId}/properties`,
   inboxPull: "/api/community/users/me/inbox/pull",
   inboxAck: "/api/community/users/me/inbox/ack",
@@ -39,6 +40,7 @@ export function resolveProxyCapability(method: string, pathname: string): string
 
   const isMessagesDoor = /\/channels\/[^/]+\/messages(\/|$|\?)/.test(pathname)
   if (isMessagesDoor) return method === "GET" ? "read" : "send";
+  if (method === "POST" && pathname === communityProxyRoutes.externalSend) return "send";
   if (/\/messages\/[^/]+\/properties(\/|$|\?)/.test(pathname)) {
     return method === "GET" ? "read" : "send";
   }
@@ -67,6 +69,7 @@ export function resolveProxyAuditOperation(pathname: string, method?: string): s
   if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
     return method === "GET" ? "read" : "send";
   }
+  if (method === "POST" && canonical === communityProxyRoutes.externalSend) return "send";
   if (/^\/api\/community\/channels\/[^/]+\/members(\/|$)/.test(canonical)) return "channelMember";
 
   if (/^\/api\/community\/channels\/[^/]+\/attachments\/[^/]+/.test(canonical)) return "attachmentDownload";
@@ -131,6 +134,7 @@ export function resolveProxyRoute(pathname: string, method?: string, requestUrl 
     auditOperation: resolveProxyAuditOperation(pathname, method),
     propertyMetadata: propertyAuditMetadata(method ?? "", pathname, requestUrl),
     filterPiiSend: method === "POST" && /^\/api\/community\/channels\/[^/]+\/messages\/?$/.test(pathname),
+    externalSend: method === "POST" && pathname === communityProxyRoutes.externalSend,
     inboxObservation: method !== "POST" ? null
       : pathname === communityProxyRoutes.inboxPull ? "pull"
       : pathname === communityProxyRoutes.inboxAck ? "ack" : null,

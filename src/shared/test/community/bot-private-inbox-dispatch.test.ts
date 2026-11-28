@@ -391,4 +391,69 @@ describe("dispatchBotPrivateInboxEvent — activity log wake_trigger audit", () 
       },
     ])
   })
+
+  it("records wake_trigger audit row with reason=im when an IM trigger dispatches", async () => {
+    const createdIm = await communityBotWebhook.createBotWebhook(db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "My Telegram",
+      provider: "telegram",
+      tokenHash: "tg_tok_hash_1",
+      signingSecretEnc: "v1:aa:bb",
+      outboundCredsEnc: "v1:cc:dd",
+      eventFilter: null,
+      instruction: "",
+      nowMs: 1_700_000_000_000,
+    })
+    expect(createdIm.ok).toBe(true)
+    if (!createdIm.ok) return
+
+    const delivery = await communityBotWebhook.createBotWebhookDelivery(db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      webhookId: createdIm.webhook.id,
+      externalDeliveryId: "tg-update-1",
+      direction: "inbound",
+      senderId: "123456",
+      senderLabel: "Alice",
+      chatLabel: "Release Ops",
+      eventType: "im.message",
+      summary: "Check PR #1514",
+      promptText: '{"kind":"im","platform":"telegram","ref":"ext_tg_1","text":"Check PR #1514"}',
+      status: "pending",
+      nowMs: 1_700_000_001_000,
+    })
+
+    const broadcasts: BotAuditWakeBroadcastEvent[] = []
+    const result = await dispatchBotPrivateInboxEvent(
+      db,
+      async () => ({ sent: 1 }),
+      delivery.delivery,
+      {
+        broadcastBotAuditEvent: async (ev) => {
+          broadcasts.push(ev)
+        },
+      },
+    )
+
+    expect(result.outcome).toBe("dispatched")
+    const rows = await communityBotAuditLog.listOwnedBotActivityEvents(db, {
+      botId: "bot_1",
+      ownerUserId: "owner_1",
+      limit: 10,
+    })
+    expect(rows).toHaveLength(1)
+    const parsedPayload = AuditLogWakeTriggerPayloadSchema.parse(JSON.parse(rows![0]!.payload))
+    expect(parsedPayload).toEqual({
+      reason: "im",
+      triggerId: createdIm.webhook.id,
+      triggerName: "My Telegram",
+      platform: "telegram",
+      senderLabel: "Alice",
+      chatLabel: "Release Ops",
+      summary: "Check PR #1514",
+    })
+    expect(broadcasts).toHaveLength(1)
+    expect(broadcasts[0]?.payload).toEqual(parsedPayload)
+  })
 })

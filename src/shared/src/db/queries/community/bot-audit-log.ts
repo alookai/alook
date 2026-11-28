@@ -65,6 +65,15 @@ export type WakeTriggerPayload =
       title: string;
       channel?: string;
       seq?: number;
+    }
+  | {
+      reason: "im";
+      triggerId: string;
+      triggerName: string;
+      platform: "telegram" | "feishu" | "slack" | "wechat";
+      senderLabel: string;
+      chatLabel?: string;
+      summary: string;
     };
 
 /**

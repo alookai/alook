@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
+  BOT_IM_EXTERNAL_SEND_MAX_BYTES,
   CommunityAgentSendRequestSchema,
   DECISION_CARD_MAX_BYTES,
   DecisionCardInputSchema,
+  ExternalSendRequestSchema,
   PiiLocalRequestSchema,
   PII_TEXT_MAX_BYTES,
   decisionCardUtf8Bytes,
@@ -151,6 +153,43 @@ export async function filterPiiRequest(request: IncomingMessage, botId: string, 
   return { body: Buffer.from(JSON.stringify(body)), triggeredFilters };
 }
 
+export async function filterPiiExternalSendRequest(
+  request: IncomingMessage,
+  botId: string,
+  pii?: PiiProxy,
+): Promise<{
+  body: Buffer;
+  externalRef: string;
+  text: string;
+  triggeredFilters: { id: string; name: string }[];
+}> {
+  const raw = await readJson(request);
+  const parsed = ExternalSendRequestSchema.safeParse(raw);
+  if (!parsed.success) throw new PiiError("PII_INVALID_REQUEST");
+  if (!pii) {
+    return {
+      body: Buffer.from(JSON.stringify(parsed.data)),
+      externalRef: parsed.data.externalRef,
+      text: parsed.data.text,
+      triggeredFilters: [],
+    };
+  }
+  const { text, triggeredFilters } = await pii.filterWithResult(botId, parsed.data.text);
+  if (Buffer.byteLength(text, "utf8") > BOT_IM_EXTERNAL_SEND_MAX_BYTES) {
+    throw new PiiError("PII_OUTPUT_TOO_LARGE");
+  }
+  const next = { externalRef: parsed.data.externalRef, text };
+  if (!ExternalSendRequestSchema.safeParse(next).success) {
+    throw new PiiError("PII_INVALID_RESULT");
+  }
+  return {
+    body: Buffer.from(JSON.stringify(next)),
+    externalRef: next.externalRef,
+    text: next.text,
+    triggeredFilters,
+  };
+}
+
 
 export function forwardPiiSendResponse(upstream: IncomingMessage, response: ServerResponse, triggeredFilters: { id: string; name: string }[]): void {
   const chunks: Buffer[] = [];
@@ -180,9 +219,14 @@ export function forwardPiiSendResponse(upstream: IncomingMessage, response: Serv
       const value: unknown = JSON.parse(body.toString("utf8"));
       if (value && typeof value === "object" && !Array.isArray(value)
         && (value as { state?: unknown }).state === "sent"
-        && (value as { message?: unknown }).message && typeof (value as { message: unknown }).message === "object"
-        && typeof (value as { message: { channel?: unknown } }).message.channel === "string"
-        && typeof (value as { message: { seq?: unknown } }).message.seq === "string") {
+        && (
+          (
+            (value as { message?: unknown }).message && typeof (value as { message: unknown }).message === "object"
+            && typeof (value as { message: { channel?: unknown } }).message.channel === "string"
+            && typeof (value as { message: { seq?: unknown } }).message.seq === "string"
+          )
+          || typeof (value as { externalRef?: unknown }).externalRef === "string"
+        )) {
         output = Buffer.from(JSON.stringify({ ...value, pii: { triggeredFilters } }));
       }
     } catch {}

@@ -1,4 +1,5 @@
 import { handleBotPii } from "./pii-events"
+import { handleBotImStatus } from "./im-status-events"
 import { handleScheduleChanged } from "./schedule-events"
 import { handleServerRailChanged } from "./server-rail-reconciliation"
 
@@ -108,6 +109,7 @@ export const communityWsRegistry = {
   "community:machine.updated": { handler: handleMachineUpdated, reconnectPolicies: ["machines"] },
   "community:machine.removed": { handler: handleMachineRemoved, reconnectPolicies: ["machines"] },
   "community:bot.pii": { handler: handleBotPii, reconnectPolicies: ["machines"] },
+  "community:bot.im_status": { handler: handleBotImStatus, reconnectPolicies: ["machines"] },
   "community:runtime.models": { handler: handleRuntimeModels, reconnectPolicies: ["machines"] },
   "community:bot.audit_event": { handler: handleBotAuditEvent, reconnectPolicies: ["bot-audits"] },
   "community:schedule.changed": { handler: handleScheduleChanged, reconnectPolicies: ["schedule"] },

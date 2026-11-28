@@ -206,6 +206,20 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<SendResponse>(res, "send");
   }
 
+  async function callExternalSend(
+    req: Parameters<NonNullable<ServerApi["externalSend"]>>[0],
+  ): Promise<Awaited<ReturnType<NonNullable<ServerApi["externalSend"]>>>> {
+    const res = await fetchImpl(`${base}${communityProxyRoutes.externalSend}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify(req),
+    });
+    return parseJsonResponse(res, "externalSend");
+  }
+
   async function callRead(req: ReadRequest): Promise<Page<Message>> {
     // The ref + seq anchors go on the query string (a GET has no body). Encode
     // the ref — it carries `/` and can carry `#`/`@` in DM handles. Precedent:
@@ -704,6 +718,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     inboxSnapshot: (_r: { agentId: AgentId }) => callInboxSnapshot(),
     ack: callAck,
     send: callSend,
+    externalSend: callExternalSend,
     pageList: async (req) => {
       const query = new URLSearchParams();
       if (req.limit !== undefined) query.set("limit", String(req.limit));

@@ -267,6 +267,7 @@ export const communityWsEventFixtures = {
   },
   "community:machine.updated": { type: "community:machine.updated", machine },
   "community:bot.pii": { type: "community:bot.pii", machineId: "machine-1", botId: "bot-1", requestId: "request-1", result: { status: "complete", snapshot: { revision: 1, plugins: [{ id: "plugin-1", name: "Email", description: "Redacts emails", enabled: true }] } } },
+  "community:bot.im_status": { type: "community:bot.im_status", machineId: "machine-1", botId: "bot-1", triggerId: "bwh_1", provider: "wechat", status: "pending", sessionId: "qr_1", qrUrl: "https://ilinkai.weixin.qq.com/qr/1", expiresAt: "2026-01-01T00:05:00.000Z", botAccountLabel: null, error: null },
   "community:runtime.models": { type: "community:runtime.models", machineId: "machine-1", requestId: "request-1", runtimeId: "codex", result: { status: "complete", catalog: null } },
   "community:machine.removed": { type: "community:machine.removed", machineId: "machine-1" },
   "community:bot.audit_event": {
@@ -332,6 +333,7 @@ export const requiredFixturePaths = {
   "community:machine.updated": ["machine"],
   "community:runtime.models": ["requestId"],
   "community:bot.pii": ["requestId"],
+  "community:bot.im_status": ["triggerId"],
   "community:machine.removed": ["machineId"],
   "community:bot.audit_event": ["payload"],
   "community:schedule.changed": ["eventId"],

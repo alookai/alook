@@ -788,10 +788,21 @@ export const AuditLogScheduleWakeTriggerPayloadSchema = z.object({
   seq: CommunityAgentPositiveSeqSchema.optional(),
 });
 
+export const AuditLogImWakeTriggerPayloadSchema = z.object({
+  reason: z.literal("im"),
+  triggerId: z.string().min(1),
+  triggerName: z.string().min(1).max(120),
+  platform: z.enum(["telegram", "feishu", "slack", "wechat"]),
+  senderLabel: z.string().min(1).max(120),
+  chatLabel: z.string().max(120).optional(),
+  summary: z.string().min(1).max(240),
+});
+
 export const AuditLogWakeTriggerPayloadSchema = z.union([
   AuditLogChatWakeTriggerPayloadSchema,
   AuditLogWebhookWakeTriggerPayloadSchema,
   AuditLogScheduleWakeTriggerPayloadSchema,
+  AuditLogImWakeTriggerPayloadSchema,
 ]);
 export type AuditLogWakeTriggerPayload = z.infer<typeof AuditLogWakeTriggerPayloadSchema>;
 

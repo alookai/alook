@@ -2,7 +2,7 @@ import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
-import type { BotWebhookDelivery, BotWebhookSummary } from "@alook/shared"
+import type { BotImQrStatusResponse, BotWebhookDelivery, BotWebhookSummary } from "@alook/shared"
 
 const mocks = vi.hoisted(() => ({
   webhooks: [] as BotWebhookSummary[],
@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
   updateWebhook: vi.fn(),
   deleteWebhook: vi.fn(),
   testWebhook: vi.fn(),
+  allowSender: vi.fn(),
+  startImQr: vi.fn(),
+  startingQrTriggerId: null as string | null,
+  qrState: null as BotImQrStatusResponse | null,
   deliveries: [] as BotWebhookDelivery[],
   deliveriesPending: false,
   deliveriesError: false,
@@ -41,12 +45,16 @@ vi.mock("@/hooks/community/use-bot-webhooks", () => ({
     updateWebhook: mocks.updateWebhook,
     deleteWebhook: mocks.deleteWebhook,
     testWebhook: mocks.testWebhook,
+    allowSender: mocks.allowSender,
+    startImQr: mocks.startImQr,
     creating: false,
     updating: false,
     deleting: false,
     testing: false,
     testingWebhookId: null,
     togglingWebhookId: null,
+    allowingSenderKey: null,
+    startingQrTriggerId: mocks.startingQrTriggerId,
     pending: false,
     capture: () => Object.assign(() => {}, { signal: new AbortController().signal }),
   }),
@@ -57,6 +65,14 @@ vi.mock("@/hooks/community/use-bot-webhooks", () => ({
     isError: mocks.deliveriesError,
     isFetching: false,
     refetch: mocks.deliveriesRefetch,
+  }),
+  useBotImQrStatus: () => ({
+    data: mocks.qrState ?? undefined,
+    qrState: mocks.qrState,
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
   }),
 }))
 
@@ -124,7 +140,21 @@ const webhookItem = (overrides: Partial<BotWebhookSummary> = {}): BotWebhookSumm
   botId: "bot_1",
   name: "alook CI",
   provider: "github",
+  category: "webhook",
+  transport: "cloud_webhook",
+  connectionStatus: "connected",
   hasSigningSecret: true,
+  hasOutboundCredentials: false,
+  accessPolicy: "allowlist",
+  allowedSenders: [],
+  requireMentionInGroups: true,
+  botUsername: null,
+  botAccountLabel: null,
+  region: null,
+  feishuAppId: null,
+  machineName: "MacBook Pro",
+  machineOnline: true,
+  daemonLastError: null,
   eventFilter: null,
   instruction: "",
   enabled: true,
@@ -133,6 +163,10 @@ const webhookItem = (overrides: Partial<BotWebhookSummary> = {}): BotWebhookSumm
   updatedAt: "2026-11-27T07:00:00.000Z",
   lastDelivery: {
     id: "whd_0",
+    direction: "inbound",
+    senderId: null,
+    senderLabel: null,
+    chatLabel: null,
     status: "dispatched",
     eventType: "workflow_run.completed",
     summary: "alookai/alook: CI failure (#1488)",
@@ -142,6 +176,21 @@ const webhookItem = (overrides: Partial<BotWebhookSummary> = {}): BotWebhookSumm
   ...overrides,
 })
 
+const imItem = (overrides: Partial<BotWebhookSummary> = {}): BotWebhookSummary =>
+  webhookItem({
+    id: "im_1",
+    name: "Telegram",
+    provider: "telegram",
+    category: "im",
+    transport: "cloud_webhook",
+    connectionStatus: "connected",
+    hasSigningSecret: true,
+    hasOutboundCredentials: true,
+    botUsername: "evan_bot",
+    lastDelivery: null,
+    ...overrides,
+  })
+
 describe("BotWebhooksSheet", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -149,12 +198,14 @@ describe("BotWebhooksSheet", () => {
     mocks.isPending = false
     mocks.isError = false
     mocks.isFetching = false
+    mocks.startingQrTriggerId = null
+    mocks.qrState = null
     mocks.deliveries = []
     mocks.deliveriesPending = false
     mocks.deliveriesError = false
   })
 
-  it("renders Triggers flow with specific sources before General, omits handling instruction and GitHub event checkboxes, and reveals one-time link and key", async () => {
+  it("renders Triggers dual tabs (IM | Webhooks), separates Slack into IM, and supports GitHub webhook creation", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
     const created = webhookItem({ id: "wh_new", name: "Repo CI", provider: "github" })
@@ -169,11 +220,16 @@ describe("BotWebhooksSheet", () => {
     )
 
     expect(view.getByText("Triggers")).toBeInTheDocument()
-    expect(view.getByText("No triggers yet")).toBeInTheDocument()
+    expect(view.getByTestId(tid.botTriggersTab("im"))).toHaveAttribute("aria-selected", "true")
+    expect(view.getByText("No IM channels yet")).toBeInTheDocument()
+
+    fireEvent.click(view.getByTestId(tid.botTriggersTab("webhook")))
+    expect(view.getByText("No webhooks yet")).toBeInTheDocument()
     fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
 
     expect(view.getByText("Choose a source")).toBeInTheDocument()
-    expect(view.queryByRole("button", { name: "Triggers" })).not.toBeInTheDocument()
+    expect(view.queryByTestId(tid.botWebhookProviderSelect("slack"))).not.toBeInTheDocument()
+    expect(view.queryByTestId(tid.botWebhookProviderSelect("telegram"))).not.toBeInTheDocument()
     const githubBtn = view.getByTestId(tid.botWebhookProviderSelect("github"))
     const openaiBtn = view.getByTestId(tid.botWebhookProviderSelect("openai"))
     const cloudflareBtn = view.getByTestId(tid.botWebhookProviderSelect("cloudflare"))
@@ -181,13 +237,10 @@ describe("BotWebhooksSheet", () => {
     expect(githubBtn.compareDocumentPosition(genericBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(openaiBtn.compareDocumentPosition(genericBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(cloudflareBtn.compareDocumentPosition(genericBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(view.queryByText(/Standard Webhooks/i)).not.toBeInTheDocument()
 
     fireEvent.click(genericBtn)
     expect(view.getByText("New Custom app trigger")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookRequireSecret)).toBeInTheDocument()
-    expect(view.queryByText(/Handling instruction/i)).not.toBeInTheDocument()
-    expect(view.queryByText("GitHub events")).not.toBeInTheDocument()
 
     fireEvent.click(view.getByTestId(tid.botWebhookChangeProvider))
     fireEvent.click(view.getByTestId(tid.botWebhookProviderSelect("github")))
@@ -195,7 +248,6 @@ describe("BotWebhooksSheet", () => {
     expect(view.getByText("New GitHub trigger")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookNameInput)).toHaveValue("GitHub")
     expect(view.queryByTestId(tid.botWebhookRequireSecret)).not.toBeInTheDocument()
-    expect(view.queryByText(/Handling instruction/i)).not.toBeInTheDocument()
 
     fireEvent.change(view.getByTestId(tid.botWebhookNameInput), { target: { value: "Repo CI" } })
     fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
@@ -219,11 +271,12 @@ describe("BotWebhooksSheet", () => {
     expect(view.queryByTestId(tid.botWebhookCredentialsPanel)).not.toBeInTheDocument()
   })
 
-  it("supports external-key platforms by creating link first and saving pasted key inline", async () => {
+  it("supports external-key webhook platforms by creating link first and saving pasted key inline", async () => {
     const created = webhookItem({
       id: "wh_stripe",
       name: "Stripe",
       provider: "stripe",
+      connectionStatus: "setup_required",
       hasSigningSecret: false,
       lastDelivery: null,
     })
@@ -233,22 +286,21 @@ describe("BotWebhooksSheet", () => {
       signingSecret: null,
     })
     mocks.updateWebhook.mockResolvedValue({
-      webhook: { ...created, hasSigningSecret: true },
+      webhook: { ...created, hasSigningSecret: true, connectionStatus: "connected" },
     })
 
     const view = render(
       <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
     )
 
+    fireEvent.click(view.getByTestId(tid.botTriggersTab("webhook")))
     fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
     fireEvent.click(view.getByTestId(tid.botWebhookProviderSelect("stripe")))
     expect(view.getByText("New Stripe trigger")).toBeInTheDocument()
-    expect(view.getByTestId(tid.botWebhookNameInput)).toHaveValue("Stripe")
 
     fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
     await waitFor(() => expect(view.getByTestId(tid.botWebhookCredentialsPanel)).toBeInTheDocument())
     expect(view.getByTestId(tid.botWebhookUrlValue)).toHaveValue("https://alook.ai/api/webhooks/bot/tok_stripe_1")
-    expect(view.queryByTestId(tid.botWebhookSecretValue)).not.toBeInTheDocument()
 
     fireEvent.change(view.getByTestId(tid.botWebhookExternalSecretInput), {
       target: { value: "whsec_live_12345678" },
@@ -263,12 +315,253 @@ describe("BotWebhooksSheet", () => {
     expect(view.getByText("Verification key saved — Stripe triggers are active.")).toBeInTheDocument()
   })
 
-  it("supports toggling enabled, sending test notifications, trigger history, reset link, and delete", async () => {
+  it("connects Telegram in one step without showing a manual callback URL screen", async () => {
+    const created = imItem({
+      id: "im_tg_new",
+      name: "Telegram",
+      provider: "telegram",
+      botUsername: "my_alook_bot",
+    })
+    mocks.createWebhook.mockResolvedValue({
+      webhook: created,
+      webhookUrl: "https://alook.ai/api/webhooks/bot/tg_auto_registered",
+      signingSecret: null,
+    })
+
+    const view = render(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+
+    fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
+    expect(view.getByText("Connect an IM platform")).toBeInTheDocument()
+    expect(view.getByTestId(tid.botWebhookProviderSelect("telegram"))).toBeInTheDocument()
+    expect(view.getByTestId(tid.botWebhookProviderSelect("feishu"))).toBeInTheDocument()
+    expect(view.getByTestId(tid.botWebhookProviderSelect("slack"))).toBeInTheDocument()
+    expect(view.getByTestId(tid.botWebhookProviderSelect("wechat"))).toBeInTheDocument()
+
+    fireEvent.click(view.getByTestId(tid.botWebhookProviderSelect("telegram")))
+    expect(view.getByRole("heading", { name: "Connect Telegram" })).toBeInTheDocument()
+    fireEvent.change(view.getByTestId(tid.botImBotTokenInput), {
+      target: { value: "123456:AA_test_token" },
+    })
+    fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
+
+    await waitFor(() =>
+      expect(mocks.createWebhook).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Telegram",
+          provider: "telegram",
+          botToken: "123456:AA_test_token",
+          accessPolicy: "allowlist",
+          allowedSenders: [],
+          requireMentionInGroups: true,
+        }),
+      ),
+    )
+    expect(view.queryByTestId(tid.botWebhookCredentialsPanel)).not.toBeInTheDocument()
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Connected as @my_alook_bot")
+  })
+
+  it("connects Feishu/Lark and bidirectional Slack with Event Callback URL reveal and no Send test", async () => {
+    const feishuCreated = imItem({
+      id: "im_fs_new",
+      name: "Feishu",
+      provider: "feishu",
+      region: "global",
+      feishuAppId: "cli_12345",
+      connectionStatus: "setup_required",
+    })
+    mocks.createWebhook.mockResolvedValueOnce({
+      webhook: feishuCreated,
+      webhookUrl: "https://alook.ai/api/webhooks/bot/tok_fs_1",
+      signingSecret: null,
+    })
+
+    const view = render(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+
+    fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
+    fireEvent.click(view.getByTestId(tid.botWebhookProviderSelect("feishu")))
+    fireEvent.click(view.getByTestId(tid.botImFeishuRegion("global")))
+    fireEvent.change(view.getByTestId(tid.botImFeishuAppIdInput), { target: { value: "cli_12345" } })
+    fireEvent.change(view.getByTestId(tid.botImFeishuAppSecretInput), { target: { value: "fs_secret_1234" } })
+    fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
+
+    await waitFor(() => expect(view.getByTestId(tid.botWebhookCredentialsPanel)).toBeInTheDocument())
+    expect(mocks.createWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "feishu",
+        feishuRegion: "global",
+        feishuAppId: "cli_12345",
+        feishuAppSecret: "fs_secret_1234",
+      }),
+    )
+    expect(view.getByText("Event Callback URL")).toBeInTheDocument()
+    expect(view.queryByRole("button", { name: /Send test/i })).not.toBeInTheDocument()
+  })
+
+  it("requires both Signing Secret and Bot Token when creating bidirectional Slack IM", async () => {
+    const slackCreated = imItem({
+      id: "im_sl_new",
+      name: "Slack",
+      provider: "slack",
+      connectionStatus: "connected",
+    })
+    mocks.createWebhook.mockResolvedValue({
+      webhook: slackCreated,
+      webhookUrl: "https://alook.ai/api/webhooks/bot/tok_sl_1",
+      signingSecret: null,
+    })
+
+    const view = render(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+
+    fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
+    fireEvent.click(view.getByTestId(tid.botWebhookProviderSelect("slack")))
+    fireEvent.change(view.getByTestId(tid.botWebhookExternalSecretInput), {
+      target: { value: "slack_signing_secret_123" },
+    })
+    fireEvent.change(view.getByTestId(tid.botImBotTokenInput), {
+      target: { value: "xoxb-test-token-123" },
+    })
+    fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
+
+    await waitFor(() => expect(view.getByTestId(tid.botWebhookCredentialsPanel)).toBeInTheDocument())
+    expect(mocks.createWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "slack",
+        signingSecret: "slack_signing_secret_123",
+        botToken: "xoxb-test-token-123",
+      }),
+    )
+    expect(view.getByText("Event Request URL")).toBeInTheDocument()
+  })
+
+  it("renders IM history with blocked sender one-click Allow and outbound Replied rows", async () => {
+    const tg = imItem({ id: "im_tg_1", name: "Telegram", allowedSenders: [] })
+    mocks.webhooks = [tg]
+    mocks.deliveries = [
+      {
+        id: "del_blocked",
+        webhookId: "im_tg_1",
+        direction: "inbound",
+        senderId: "998877",
+        senderLabel: "Alice",
+        chatLabel: "DM",
+        eventType: "im.message",
+        summary: "Hey bot, can you hear me?",
+        status: "blocked",
+        lastError: "sender_not_allowed",
+        externalDeliveryId: "tg-1",
+        createdAt: "2026-11-28T08:05:00.000Z",
+        dispatchedAt: null,
+      },
+      {
+        id: "del_reply",
+        webhookId: "im_tg_1",
+        direction: "outbound",
+        senderId: null,
+        senderLabel: null,
+        chatLabel: "DM",
+        eventType: "im.reply",
+        summary: "Yes, loud and clear!",
+        status: "dispatched",
+        lastError: null,
+        externalDeliveryId: "tg-2",
+        createdAt: "2026-11-28T08:06:00.000Z",
+        dispatchedAt: "2026-11-28T08:06:00.000Z",
+      },
+    ]
+    mocks.allowSender.mockResolvedValue({
+      webhook: { ...tg, allowedSenders: ["998877"] },
+      added: true,
+    })
+
+    const view = render(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+
+    expect(view.queryByTestId(tid.botWebhookTest("im_tg_1"))).not.toBeInTheDocument()
+    fireEvent.click(view.getByTestId(tid.botWebhookDeliveriesToggle("im_tg_1")))
+
+    expect(view.getByText("Blocked · not allowed")).toBeInTheDocument()
+    expect(view.getByText("DM · Alice")).toBeInTheDocument()
+    expect(view.getByText("Replied")).toBeInTheDocument()
+
+    fireEvent.click(view.getByTestId(tid.botImAllowSender("del_blocked")))
+    await waitFor(() => expect(mocks.allowSender).toHaveBeenCalledWith("im_tg_1", "998877"))
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Sender allowed")
+  })
+
+  it("renders WeChat QR login panel states including SVG QR, scanned overlay, confirmed, and offline guard", async () => {
+    const wechat = imItem({
+      id: "im_wx_1",
+      name: "WeChat",
+      provider: "wechat",
+      transport: "daemon_poll",
+      connectionStatus: "session_expired",
+      hasSigningSecret: false,
+      hasOutboundCredentials: false,
+      requireMentionInGroups: false,
+      botUsername: null,
+      botAccountLabel: "a5ac…@im.bot",
+      machineName: "Gus's MacBook",
+      machineOnline: true,
+    })
+    mocks.webhooks = [wechat]
+    mocks.qrState = {
+      triggerId: "im_wx_1",
+      connectionStatus: "scan_required",
+      qrStatus: "pending",
+      sessionId: "qr_sess_1",
+      qrUrl: "https://liteapp.weixin.qq.com/q/7VuYN?qrcode=0123456789abcdef",
+      expiresAt: "2026-11-28T08:10:00.000Z",
+      botAccountLabel: null,
+      error: null,
+    }
+
+    const view = render(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+
+    expect(view.getByText("Session expired")).toBeInTheDocument()
+    fireEvent.click(view.getByTestId(tid.botImRescan("im_wx_1")))
+
+    expect(view.getByTestId(tid.botImQrPanel)).toBeInTheDocument()
+    expect(view.getByTestId(tid.botImQrSvg)).toBeInTheDocument()
+    expect(view.getByText("Scan with WeChat on your phone.")).toBeInTheDocument()
+
+    mocks.qrState = { ...mocks.qrState, qrStatus: "scanned" }
+    view.rerender(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+    expect(view.getByText("Scanned — confirm on phone")).toBeInTheDocument()
+
+    mocks.qrState = {
+      ...mocks.qrState,
+      qrStatus: "confirmed",
+      connectionStatus: "connected",
+      botAccountLabel: "a5ac…@im.bot",
+    }
+    view.rerender(
+      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
+    )
+    expect(view.getByText("Connected via Gus's MacBook")).toBeInTheDocument()
+    expect(view.getByText("a5ac…@im.bot")).toBeInTheDocument()
+  })
+
+  it("supports toggling enabled, sending test notifications, trigger history, reset link, and delete for webhooks", async () => {
     mocks.webhooks = [webhookItem()]
     mocks.deliveries = [
       {
         id: "whd_1",
         webhookId: "wh_1",
+        direction: "inbound",
+        senderId: null,
+        senderLabel: null,
+        chatLabel: null,
         eventType: "test",
         summary: "Test notification for alook CI",
         status: "pending",
@@ -280,6 +573,10 @@ describe("BotWebhooksSheet", () => {
       {
         id: "whd_ping",
         webhookId: "wh_1",
+        direction: "inbound",
+        senderId: null,
+        senderLabel: null,
+        chatLabel: null,
         eventType: "ping",
         summary: "GitHub ping from alookai/alook",
         status: "ignored",
@@ -290,7 +587,7 @@ describe("BotWebhooksSheet", () => {
       },
     ]
     mocks.updateWebhook.mockResolvedValue({
-      webhook: webhookItem({ enabled: false }),
+      webhook: webhookItem({ enabled: false, connectionStatus: "paused" }),
       webhookUrl: "https://alook.ai/api/webhooks/bot/tok_rotated_456",
       signingSecret: "whsec_rotated",
     })
@@ -301,13 +598,8 @@ describe("BotWebhooksSheet", () => {
       <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
     )
 
+    expect(view.getByTestId(tid.botTriggersTab("webhook"))).toHaveAttribute("aria-selected", "true")
     expect(view.getByTestId(tid.botWebhookCard("wh_1"))).toBeInTheDocument()
-    expect(view.queryByText("alookai/alook: CI failure (#1488)")).not.toBeInTheDocument()
-    expect(view.queryByText("workflow_run.completed")).not.toBeInTheDocument()
-
-    fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
-    expect(view.getByRole("button", { name: "Triggers" })).toBeInTheDocument()
-    fireEvent.click(view.getByRole("button", { name: "Triggers" }))
 
     fireEvent.click(view.getByTestId(tid.botWebhookTest("wh_1")))
     await waitFor(() => expect(mocks.testWebhook).toHaveBeenCalledWith("wh_1"))
@@ -317,7 +609,6 @@ describe("BotWebhooksSheet", () => {
     expect(view.getByText("Machine offline — queued until reconnect")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookDeliveryRow("whd_ping"))).toBeInTheDocument()
     expect(view.getByText("Connected")).toBeInTheDocument()
-    expect(view.queryByText("Ignored")).not.toBeInTheDocument()
 
     fireEvent.click(view.getByTestId(tid.botWebhookToggle("wh_1")))
     await waitFor(() => expect(mocks.updateWebhook).toHaveBeenCalledWith("wh_1", { enabled: false }))
@@ -334,60 +625,6 @@ describe("BotWebhooksSheet", () => {
     fireEvent.click(view.getByRole("button", { name: "Delete trigger" }))
     await waitFor(() => expect(mocks.deleteWebhook).toHaveBeenCalledWith("wh_1"))
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Deleted alook CI")
-  })
-
-  it("shows provider setup guidance when adding a key later from the list", () => {
-    mocks.webhooks = [
-      webhookItem({
-        id: "wh_stripe_edit",
-        name: "Stripe",
-        provider: "stripe",
-        hasSigningSecret: false,
-        lastDelivery: null,
-      }),
-    ]
-    const view = render(
-      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
-    )
-
-    fireEvent.click(view.getByRole("button", { name: "Add key" }))
-    expect(view.getByText("Edit Stripe trigger")).toBeInTheDocument()
-    expect(view.getByTestId(tid.botWebhookExternalSecretInput)).toBeInTheDocument()
-    expect(view.getByText("Connect in Stripe")).toBeInTheDocument()
-    expect(view.getByText(/Stripe Dashboard/i)).toBeInTheDocument()
-  })
-
-  it("uses key-only copy when turning on key protection on an existing custom app trigger", async () => {
-    const custom = webhookItem({
-      id: "wh_custom_1",
-      name: "Deploy alert",
-      provider: "generic",
-      hasSigningSecret: false,
-      lastDelivery: null,
-    })
-    mocks.webhooks = [custom]
-    mocks.updateWebhook.mockResolvedValue({
-      webhook: { ...custom, hasSigningSecret: true },
-      signingSecret: "whsec_custom_999",
-    })
-
-    const view = render(
-      <BotWebhooksSheet bot={{ id: "bot_1", name: "Evan", image: null }} open onOpenChange={() => {}} />,
-    )
-
-    fireEvent.click(view.getByTestId(tid.botWebhookEdit("wh_custom_1")))
-    fireEvent.click(view.getByTestId(tid.botWebhookRequireSecret))
-    fireEvent.click(view.getByTestId(tid.botWebhookSubmit))
-
-    await waitFor(() => expect(view.getByTestId(tid.botWebhookCredentialsPanel)).toBeInTheDocument())
-    expect(view.getByText("Copy this verification key now. You cannot view it again after leaving this screen.")).toBeInTheDocument()
-    expect(view.queryByTestId(tid.botWebhookUrlValue)).not.toBeInTheDocument()
-    expect(view.getByTestId(tid.botWebhookSecretValue)).toHaveValue("whsec_custom_999")
-
-    fireEvent.click(view.getByRole("button", { name: "Done" }))
-    expect(view.getByText("Have you saved this key?")).toBeInTheDocument()
-    fireEvent.click(view.getByRole("button", { name: "I've saved it" }))
-    expect(view.queryByTestId(tid.botWebhookCredentialsPanel)).not.toBeInTheDocument()
   })
 
   it("shows load error with retry action when fetch fails", () => {

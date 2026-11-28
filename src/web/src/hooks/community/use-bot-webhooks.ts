@@ -2,11 +2,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  BotImAllowSenderResponseSchema,
+  BotImQrStartResponseSchema,
+  BotImQrStatusResponseSchema,
   BotWebhookCreateResponseSchema,
   BotWebhookDeliveriesResponseSchema,
   BotWebhookListResponseSchema,
   BotWebhookTestResponseSchema,
   BotWebhookUpdateResponseSchema,
+  type BotImAllowSenderResponse,
+  type BotImQrStartResponse,
+  type BotImQrStatusResponse,
   type BotWebhookCreateInput,
   type BotWebhookCreateResponse,
   type BotWebhookDelivery,
@@ -26,6 +32,10 @@ function webhooksBasePath(botId: string) {
 function toLastDelivery(delivery: BotWebhookDelivery): BotWebhookSummary["lastDelivery"] {
   return {
     id: delivery.id,
+    direction: delivery.direction,
+    senderId: delivery.senderId,
+    senderLabel: delivery.senderLabel,
+    chatLabel: delivery.chatLabel,
     status: delivery.status,
     eventType: delivery.eventType,
     summary: delivery.summary,
@@ -144,6 +154,10 @@ export function useBotWebhooks(botId: string, open: boolean) {
         queryKey: communityKeys.botWebhookDeliveries(botId, webhookId),
         exact: true,
       })
+      client.removeQueries({
+        queryKey: communityKeys.botImQrStatus(botId, webhookId),
+        exact: true,
+      })
       void client.invalidateQueries({ queryKey, exact: true }).catch(() => undefined)
     },
   })
@@ -197,6 +211,71 @@ export function useBotWebhooks(botId: string, open: boolean) {
     },
   })
 
+  const allowSenderMutation = useMutation<
+    BotImAllowSenderResponse,
+    Error,
+    { webhookId: string; senderId: string }
+  >({
+    mutationKey: [...queryKey, "allow-sender"],
+    retry: false,
+    mutationFn: async ({ webhookId, senderId }) => {
+      const view = source.capture()
+      view()
+      const raw = await origin.fetch<unknown>(
+        `${webhooksBasePath(botId)}/${encodeURIComponent(webhookId)}/allow-sender`,
+        {
+          method: "POST",
+          body: JSON.stringify({ senderId }),
+          signal: view.signal,
+          assertActive: view,
+        },
+      )
+      view()
+      return BotImAllowSenderResponseSchema.parse(raw)
+    },
+    onSuccess: ({ webhook }) => {
+      client.setQueryData<{ webhooks: BotWebhookSummary[] }>(queryKey, (current) => {
+        if (!current) return { webhooks: [webhook] }
+        return {
+          webhooks: current.webhooks.map((item) => (item.id === webhook.id ? webhook : item)),
+        }
+      })
+      void client.invalidateQueries({ queryKey, exact: true }).catch(() => undefined)
+    },
+  })
+
+  const startImQrMutation = useMutation<BotImQrStartResponse, Error, string>({
+    mutationKey: [...queryKey, "im-qr-start"],
+    retry: false,
+    mutationFn: async (triggerId) => {
+      const view = source.capture()
+      view()
+      const raw = await origin.fetch<unknown>(
+        `${webhooksBasePath(botId)}/${encodeURIComponent(triggerId)}/im-qr`,
+        {
+          method: "POST",
+          signal: view.signal,
+          assertActive: view,
+        },
+      )
+      view()
+      return BotImQrStartResponseSchema.parse(raw)
+    },
+    onSuccess: (started, triggerId) => {
+      const qrKey = communityKeys.botImQrStatus(botId, triggerId)
+      client.setQueryData<BotImQrStatusResponse>(qrKey, (current) => ({
+        triggerId,
+        connectionStatus: current?.connectionStatus ?? "scan_required",
+        qrStatus: started.status,
+        sessionId: started.sessionId,
+        qrUrl: started.qrUrl,
+        expiresAt: started.expiresAt,
+        botAccountLabel: current?.botAccountLabel ?? null,
+        error: null,
+      }))
+    },
+  })
+
   return {
     ...query,
     webhooks: query.data?.webhooks ?? [],
@@ -205,6 +284,9 @@ export function useBotWebhooks(botId: string, open: boolean) {
       updateMutation.mutateAsync({ webhookId, input }),
     deleteWebhook: deleteMutation.mutateAsync,
     testWebhook: testMutation.mutateAsync,
+    allowSender: (webhookId: string, senderId: string) =>
+      allowSenderMutation.mutateAsync({ webhookId, senderId }),
+    startImQr: startImQrMutation.mutateAsync,
     creating: createMutation.isPending,
     updating: updateMutation.isPending,
     deleting: deleteMutation.isPending,
@@ -214,11 +296,17 @@ export function useBotWebhooks(botId: string, open: boolean) {
       updateMutation.isPending && updateMutation.variables?.input.enabled !== undefined
         ? updateMutation.variables.webhookId
         : null,
+    allowingSenderKey: allowSenderMutation.isPending && allowSenderMutation.variables
+      ? `${allowSenderMutation.variables.webhookId}:${allowSenderMutation.variables.senderId}`
+      : null,
+    startingQrTriggerId: startImQrMutation.isPending ? (startImQrMutation.variables ?? null) : null,
     pending:
       createMutation.isPending ||
       updateMutation.isPending ||
       deleteMutation.isPending ||
-      testMutation.isPending,
+      testMutation.isPending ||
+      allowSenderMutation.isPending ||
+      startImQrMutation.isPending,
     capture: source.capture,
   }
 }
@@ -258,5 +346,47 @@ export function useBotWebhookDeliveries(
   return {
     ...query,
     deliveries: query.data?.deliveries ?? [],
+  }
+}
+
+export function useBotImQrStatus(
+  botId: string,
+  triggerId: string | null,
+  open: boolean,
+) {
+  const origin = useCommunityMutationOrigin()
+  const source = useCommunityViewSource(
+    `bot-im-qr:${botId}:${triggerId ?? "none"}`,
+    open && Boolean(triggerId),
+  )
+  const queryKey = communityKeys.botImQrStatus(botId, triggerId ?? "__none__")
+
+  const query = useQuery<BotImQrStatusResponse>({
+    queryKey,
+    enabled: open && Boolean(botId) && Boolean(triggerId),
+    staleTime: 0,
+    retry: false,
+    refetchInterval: (q) => {
+      const status = q.state.data?.qrStatus
+      return status === "pending" || status === "scanned" ? 2_500 : false
+    },
+    queryFn: async ({ signal }) => {
+      const view = source.capture()
+      view()
+      const raw = await origin.fetch<unknown>(
+        `${webhooksBasePath(botId)}/${encodeURIComponent(triggerId!)}/im-qr`,
+        {
+          signal: AbortSignal.any([signal, view.signal]),
+          assertActive: view,
+        },
+      )
+      view()
+      return BotImQrStatusResponseSchema.parse(raw)
+    },
+  })
+
+  return {
+    ...query,
+    qrState: query.data ?? null,
   }
 }

@@ -216,18 +216,38 @@ export async function dispatchBotPrivateInboxEvent(
     const provider = (webhook?.provider || "generic").slice(0, 64)
     const eventType = (event.eventType.trim() || "event").slice(0, 120)
     const summary = (event.summary.trim() || eventType || "Trigger event").slice(0, 240)
+    const imPlatform =
+      webhook !== null &&
+      webhook.category === "im" &&
+      (webhook.provider === "telegram" ||
+        webhook.provider === "feishu" ||
+        webhook.provider === "slack" ||
+        webhook.provider === "wechat")
+        ? webhook.provider
+        : null
+    const auditPayload: WakeTriggerPayload = imPlatform
+      ? {
+          reason: "im",
+          triggerId: event.sourceId,
+          triggerName,
+          platform: imPlatform,
+          senderLabel: (event.senderLabel?.trim() || event.senderId?.trim() || "Unknown sender").slice(0, 120),
+          ...(event.chatLabel?.trim() ? { chatLabel: event.chatLabel.trim().slice(0, 120) } : {}),
+          summary,
+        }
+      : {
+          reason: "webhook",
+          triggerId: event.sourceId,
+          triggerName,
+          provider,
+          eventType,
+          summary,
+        }
     await recordPrivateInboxWakeAudit(db, opts.broadcastBotAuditEvent, {
       botId: event.botUserId,
       ownerUserId: event.ownerUserId,
       launchId: event.id,
-      payload: {
-        reason: "webhook",
-        triggerId: event.sourceId,
-        triggerName,
-        provider,
-        eventType,
-        summary,
-      },
+      payload: auditPayload,
     })
     return { outcome: "dispatched", event: updated }
   }

@@ -1,7 +1,11 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { sql } from "drizzle-orm"
 import { user } from "./schema"
-import type { BotPrivateInboxSourceKind, BotPrivateInboxStatus } from "../bot-private-inbox"
+import type {
+  BotPrivateInboxDirection,
+  BotPrivateInboxSourceKind,
+  BotPrivateInboxStatus,
+} from "../bot-private-inbox"
 
 export const communityBotPrivateInbox = sqliteTable(
   "community_bot_private_inbox",
@@ -17,6 +21,10 @@ export const communityBotPrivateInbox = sqliteTable(
     sourceId: text("source_id").notNull(),
     sourceRefId: text("source_ref_id"),
     dedupeKey: text("dedupe_key"),
+    direction: text("direction").$type<BotPrivateInboxDirection>().notNull().default("inbound"),
+    senderId: text("sender_id"),
+    senderLabel: text("sender_label"),
+    chatLabel: text("chat_label"),
     eventType: text("event_type").notNull(),
     summary: text("summary").notNull(),
     promptText: text("prompt_text").notNull(),

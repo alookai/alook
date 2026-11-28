@@ -1,5 +1,50 @@
 import { MachineRefreshCommandSchema } from "./machine-refresh-contract";
 import { PiiCommandSchema, type PiiCommand, type PiiResultFrame } from "./pii-contract";
+import {
+  ImConfigSyncCommandSchema,
+  ImQrStartCommandSchema,
+  type ExternalSendRequest,
+  type ExternalSendResponse,
+  type ImCommand,
+  type ImStatusFrame,
+} from "./im-contract";
+export {
+  IM_CONNECTOR_CAPABILITY,
+  BOT_IM_PROVIDERS,
+  BOT_DAEMON_IM_PROVIDERS,
+  BOT_IM_ACCESS_POLICIES,
+  BOT_IM_QR_STATUSES,
+  BOT_IM_DAEMON_STATUSES,
+  BOT_IM_STATUS_FRAME_STATUSES,
+  BOT_IM_MAX_ALLOWED_SENDERS,
+  BOT_IM_SENDER_ID_MAX_LENGTH,
+  BOT_IM_EXTERNAL_REF_MAX_LENGTH,
+  BOT_IM_EXTERNAL_SEND_MAX_BYTES,
+  ImQrStartCommandSchema,
+  ImConfigSyncCommandSchema,
+  ImCommandSchema,
+  ImStatusFrameSchema,
+  ExternalSendRequestSchema,
+  ExternalSendResponseSchema,
+  DaemonImTriggerConfigSchema,
+  DaemonImDeliveryReportSchema,
+} from "./im-contract";
+export type {
+  BotImProvider,
+  BotDaemonImProvider,
+  BotImAccessPolicy,
+  BotImQrStatus,
+  BotImDaemonStatus,
+  BotImStatusFrameStatus,
+  ImQrStartCommand,
+  ImConfigSyncCommand,
+  ImCommand,
+  ImStatusFrame,
+  ExternalSendRequest,
+  ExternalSendResponse,
+  DaemonImTriggerConfig,
+  DaemonImDeliveryReport,
+} from "./im-contract";
 import type { BotFeedbackInput } from "./community-feedback";
 import type { DecisionCardAgentPayload, DecisionCardInput } from "./community-decision-card";
 import type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
@@ -701,6 +746,8 @@ export interface ServerApi {
 
   /** Send a message to a channel ref. May be held by the freshness guard. */
   send(req: SendRequest): Promise<SendResponse>;
+  /** Reply to an external IM trigger ref (`ext_tg_*`, `ext_fs_*`, `ext_sl_*`, `ext_wx_*`). */
+  externalSend?(req: ExternalSendRequest): Promise<ExternalSendResponse>;
   pageList(req: { limit?: number; cursor?: string }): Promise<{ total: number; pages: { id: string; type: string; title: string; createdAt: string; messageCount: number }[]; nextCursor?: string }>;
   pageDelete(req: { id: string }): Promise<{ deleted: true }>;
   pageCover(req: { id: string; data: Uint8Array; contentType: string }): Promise<{ id: string; etag: string }>;
@@ -822,6 +869,7 @@ export type HostCommand =
   | { type: "machine:heartbeat"; nonce: string }
   | RuntimeModelDiscoveryCommand
   | PiiCommand
+  | ImCommand
   | AgentInterruptRequest
   | {
     type: "agent:wake";
@@ -1033,6 +1081,15 @@ export type BotAuditEventPayload =
             title: string;
             channel?: ChannelRef;
             seq?: Seq;
+          }
+        | {
+            reason: "im";
+            triggerId: string;
+            triggerName: string;
+            platform: "telegram" | "feishu" | "slack" | "wechat";
+            senderLabel: string;
+            chatLabel?: string;
+            summary: string;
           };
     }
   | {
@@ -1096,6 +1153,7 @@ export interface HostControlChannel {
   reportReady(ready: HostReady): Promise<void>;
   reportRuntimeModels?(frame: HostRuntimeModelsFrame): void;
   reportPiiResult?(frame: PiiResultFrame): void;
+  reportImStatus?(frame: ImStatusFrame): void;
   /**
    * On-demand resend of the current `ready` snapshot. Used by AgentRouter's
    * runtime-health mutations to push an updated report without waiting for a
@@ -1553,6 +1611,8 @@ export function formatSeq(seq: Seq): string {
 export const HostCommandSchema = z.discriminatedUnion("type", [
   RuntimeModelDiscoveryCommandSchema,
   PiiCommandSchema,
+  ImQrStartCommandSchema,
+  ImConfigSyncCommandSchema,
   z.strictObject({
     type: z.literal("machine:heartbeat"),
     nonce: z.string().min(1).max(128),

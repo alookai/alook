@@ -1480,4 +1480,87 @@ describe("startCredentialProxy — upstream timeout / connection-leak fix", () =
     ]);
     expect(upstream.seen.every((r) => r.authorization === `Bearer ${REAL_KEY}`)).toBe(true);
   });
+
+  it("filters PII and intercepts local ext_wx_ sends while forwarding cloud external-send upstream", async () => {
+    const upstream = await startUpstream({
+      body: JSON.stringify({
+        state: "sent",
+        externalRef: "ext_tg_123",
+        platform: "telegram",
+        messageId: "55",
+      }),
+    });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onLocalExternalSend = vi.fn(async (input) => ({
+      ok: true as const,
+      response: {
+        state: "sent" as const,
+        externalRef: input.externalRef,
+        platform: "wechat" as const,
+        messageId: "wx_msg_1",
+      },
+    }));
+    const pii = {
+      filterWithResult: vi.fn(async (_agentId: string, text: string) => ({
+        text: text.replace("SECRET", "[REDACTED]"),
+        triggeredFilters: text.includes("SECRET") ? [{ id: "pii_1", name: "secret" }] : [],
+      })),
+      local: vi.fn(async () => ({ plugins: [] })),
+    };
+    proxy = await startCredentialProxy(broker, { onLocalExternalSend, pii });
+    const reg = broker.mint("agent-im", "l", ["send"], REAL_KEY);
+    const readOnly = broker.mint("agent-ro", "l", ["read"], REAL_KEY);
+    const headers = { Authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" };
+
+    // Read-only voucher is rejected before PII or upstream.
+    const denied = await fetch(`${proxy.url}/api/community/messages/external-send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${readOnly.voucher}`, "content-type": "application/json" },
+      body: JSON.stringify({ externalRef: "ext_tg_123", text: "hi" }),
+    });
+    expect(denied.status).toBe(403);
+
+    // Local WeChat ref is PII-filtered and handled locally without touching upstream.
+    const wxRes = await fetch(`${proxy.url}/api/community/messages/external-send`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ externalRef: "ext_wx_local1", text: "ping SECRET" }),
+    });
+    expect(wxRes.status).toBe(200);
+    expect(await wxRes.json()).toEqual({
+      state: "sent",
+      externalRef: "ext_wx_local1",
+      platform: "wechat",
+      messageId: "wx_msg_1",
+      pii: { triggeredFilters: [{ id: "pii_1", name: "secret" }] },
+    });
+    expect(onLocalExternalSend).toHaveBeenCalledWith({
+      agentId: "agent-im",
+      externalRef: "ext_wx_local1",
+      text: "ping [REDACTED]",
+    });
+    expect(upstream.seen).toHaveLength(0);
+
+    // Cloud Telegram ref is PII-filtered and forwarded upstream with pii metadata attached to response.
+    const tgRes = await fetch(`${proxy.url}/api/community/messages/external-send`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ externalRef: "ext_tg_123", text: "hello SECRET" }),
+    });
+    expect(tgRes.status).toBe(200);
+    expect(await tgRes.json()).toEqual({
+      state: "sent",
+      externalRef: "ext_tg_123",
+      platform: "telegram",
+      messageId: "55",
+      pii: { triggeredFilters: [{ id: "pii_1", name: "secret" }] },
+    });
+    expect(upstream.seen).toHaveLength(1);
+    expect(upstream.seen[0]?.path).toBe("/api/community/messages/external-send");
+    expect(JSON.parse(upstream.seen[0]?.body ?? "{}")).toEqual({
+      externalRef: "ext_tg_123",
+      text: "hello [REDACTED]",
+    });
+  });
 });

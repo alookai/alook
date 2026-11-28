@@ -172,6 +172,7 @@ export {
   AuditLogTextPayloadSchema,
   AuditLogTurnInterruptPayloadSchema,
   AuditLogWakeTriggerPayloadSchema,
+  AuditLogImWakeTriggerPayloadSchema,
   AuditLogModelChangedPayloadSchema,
   AuditLogProviderChangedPayloadSchema,
   AuditLogSessionResetPayloadSchema,
@@ -433,6 +434,7 @@ export type {
   CommunityMachineUpdated,
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
+  CommunityBotImStatus,
   CommunityScheduleChanged,
   CommunityWsEvent,
   CommunityResourceWsEvent,
@@ -623,6 +625,7 @@ export { channelReorderRequestSchema, type ChannelReorderRequest, type ChannelCa
 export type { PlatformMachineRequest, PlatformBotRequest } from "./community-platform";
 
 export * from "./pii-contract";
+export * from "./im-contract";
 
 export * from "./business-schema-version";
 export * from "./community-cache";
@@ -658,4 +661,9 @@ export type {
   StoredBotPrivateInboxSummary,
 } from "./db/queries/community/bot-private-inbox";
 export * from "./bot-webhook";
-export type { StoredBotWebhook, StoredBotWebhookDelivery, StoredBotWebhookLastDelivery } from "./db/queries/community/bot-webhook";
+export type {
+  StoredBotImReplyRef,
+  StoredBotWebhook,
+  StoredBotWebhookDelivery,
+  StoredBotWebhookLastDelivery,
+} from "./db/queries/community/bot-webhook";

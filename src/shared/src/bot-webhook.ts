@@ -1,13 +1,59 @@
 import { z } from "zod"
+import {
+  BOT_IM_ACCESS_POLICIES,
+  BOT_IM_DAEMON_STATUSES,
+  BOT_IM_MAX_ALLOWED_SENDERS,
+  BOT_IM_PROVIDERS,
+  BOT_IM_QR_STATUSES,
+  BOT_IM_SENDER_ID_MAX_LENGTH,
+  BotImAccessPolicySchema,
+  BotImDaemonStatusSchema,
+  BotImProviderSchema,
+  BotImQrStatusSchema,
+  type BotImAccessPolicy,
+  type BotImDaemonStatus,
+  type BotImProvider,
+  type BotImQrStatus,
+} from "./im-contract"
+
+export const BOT_TRIGGER_CATEGORIES = ["webhook", "im"] as const
+export const BotTriggerCategorySchema = z.enum(BOT_TRIGGER_CATEGORIES)
+export type BotTriggerCategory = z.infer<typeof BotTriggerCategorySchema>
+
+export const BOT_TRIGGER_TRANSPORTS = ["cloud_webhook", "daemon_poll"] as const
+export const BotTriggerTransportSchema = z.enum(BOT_TRIGGER_TRANSPORTS)
+export type BotTriggerTransport = z.infer<typeof BotTriggerTransportSchema>
+
+export const BOT_TRIGGER_CONNECTION_STATUSES = [
+  "connected",
+  "setup_required",
+  "scan_required",
+  "session_expired",
+  "machine_offline",
+  "paused",
+  "error",
+] as const
+export const BotTriggerConnectionStatusSchema = z.enum(BOT_TRIGGER_CONNECTION_STATUSES)
+export type BotTriggerConnectionStatus = z.infer<typeof BotTriggerConnectionStatusSchema>
+
+export const BOT_IM_FEISHU_REGIONS = ["cn", "global"] as const
+export const BotImFeishuRegionSchema = z.enum(BOT_IM_FEISHU_REGIONS)
+export type BotImFeishuRegion = z.infer<typeof BotImFeishuRegionSchema>
+
+export const BOT_IM_TEXT_MAX_LENGTH = 4_096
+export const BOT_IM_REPLY_REF_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 export const BOT_WEBHOOK_PROVIDERS = [
+  "telegram",
+  "feishu",
+  "slack",
+  "wechat",
   "github",
   "linear",
   "sentry",
   "stripe",
   "vercel",
   "gitlab",
-  "slack",
   "openai",
   "resend",
   "clerk",
@@ -19,7 +65,17 @@ export const BOT_WEBHOOK_PROVIDERS = [
   "generic",
 ] as const
 
-export const BOT_WEBHOOK_DELIVERY_STATUSES = ["pending", "dispatched", "ignored", "failed"] as const
+export const BOT_WEBHOOK_DELIVERY_STATUSES = [
+  "pending",
+  "dispatched",
+  "blocked",
+  "ignored",
+  "failed",
+] as const
+
+export const BOT_WEBHOOK_DELIVERY_DIRECTIONS = ["inbound", "outbound"] as const
+export const BotWebhookDeliveryDirectionSchema = z.enum(BOT_WEBHOOK_DELIVERY_DIRECTIONS)
+export type BotWebhookDeliveryDirection = z.infer<typeof BotWebhookDeliveryDirectionSchema>
 
 export const BOT_WEBHOOK_NAME_MAX_LENGTH = 80
 export const BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH = 500
@@ -41,21 +97,27 @@ export const BotWebhookProviderSchema = z.enum(BOT_WEBHOOK_PROVIDERS)
 export type BotWebhookProvider = z.infer<typeof BotWebhookProviderSchema>
 
 export type BotWebhookProtocol =
+  | "telegram"
+  | "feishu"
+  | "slack"
+  | "wechat"
   | "github"
   | "linear"
   | "sentry"
   | "stripe"
   | "vercel"
   | "gitlab"
-  | "slack"
   | "standard_webhooks"
   | "generic"
 
-export type BotWebhookSecretMode = "generated" | "external" | "optional"
+export type BotWebhookSecretMode = "generated" | "external" | "optional" | "none"
 
 export interface BotWebhookProviderMeta {
   id: BotWebhookProvider
   label: string
+  category: BotTriggerCategory
+  transport: BotTriggerTransport
+  supportsGroups: boolean
   shortDescription: string
   defaultNamePlaceholder: string
   protocol: BotWebhookProtocol
@@ -66,9 +128,84 @@ export interface BotWebhookProviderMeta {
 }
 
 export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookProviderMeta> = {
+  telegram: {
+    id: "telegram",
+    label: "Telegram",
+    category: "im",
+    transport: "cloud_webhook",
+    supportsGroups: true,
+    shortDescription: "Direct messages and @mentions in Telegram groups",
+    defaultNamePlaceholder: "e.g. Telegram",
+    protocol: "telegram",
+    secretMode: "none",
+    secretLabel: "Bot Token",
+    secretPlaceholder: "123456789:AA...",
+    setupSteps: [
+      "Open @BotFather in Telegram and run /newbot to create a bot.",
+      "Copy the HTTP API Bot Token and paste it here.",
+      "Alook registers the webhook automatically — message your bot right away.",
+    ],
+  },
+  feishu: {
+    id: "feishu",
+    label: "Feishu / Lark",
+    category: "im",
+    transport: "cloud_webhook",
+    supportsGroups: true,
+    shortDescription: "Direct messages and @mentions in Feishu or Lark",
+    defaultNamePlaceholder: "e.g. Feishu",
+    protocol: "feishu",
+    secretMode: "none",
+    secretLabel: "App Secret",
+    secretPlaceholder: "Paste Feishu App Secret",
+    setupSteps: [
+      "In Feishu / Lark Open Platform, create a Custom App and copy its App ID and App Secret.",
+      "Under Events & Callbacks, choose HTTP Callback and paste the Event Callback URL from Alook.",
+      "Subscribe to im.message.receive_v1, enable Bot capability, and publish the app version.",
+    ],
+  },
+  slack: {
+    id: "slack",
+    label: "Slack",
+    category: "im",
+    transport: "cloud_webhook",
+    supportsGroups: true,
+    shortDescription: "Direct messages, @mentions, and threaded replies in Slack",
+    defaultNamePlaceholder: "e.g. Slack",
+    protocol: "slack",
+    secretMode: "external",
+    secretLabel: "Signing Secret",
+    secretPlaceholder: "Paste Slack Signing Secret",
+    setupSteps: [
+      "In Slack App → Basic Information, copy the Signing Secret; in OAuth & Permissions, copy the Bot User OAuth Token (xoxb-...) with chat:write and app_mentions:read / im:history scopes.",
+      "Save them here, then open Event Subscriptions in Slack and paste the Trigger link.",
+      "Subscribe to app_mention and message.im events and save.",
+    ],
+  },
+  wechat: {
+    id: "wechat",
+    label: "WeChat",
+    category: "im",
+    transport: "daemon_poll",
+    supportsGroups: false,
+    shortDescription: "1:1 direct messages via personal WeChat (iLink) on your machine",
+    defaultNamePlaceholder: "e.g. WeChat",
+    protocol: "wechat",
+    secretMode: "none",
+    secretLabel: "QR Login",
+    secretPlaceholder: "",
+    setupSteps: [
+      "Make sure your bot's bound machine is online.",
+      "Generate a QR code and scan it with WeChat on your phone to connect.",
+      "Send a 1:1 message to the linked WeChat bot to chat.",
+    ],
+  },
   github: {
     id: "github",
     label: "GitHub",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "CI runs, PR reviews, issues, and releases",
     defaultNamePlaceholder: "e.g. alook CI",
     protocol: "github",
@@ -84,6 +221,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   linear: {
     id: "linear",
     label: "Linear",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Issues, comments, and project updates",
     defaultNamePlaceholder: "e.g. Product issues",
     protocol: "linear",
@@ -99,6 +239,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   sentry: {
     id: "sentry",
     label: "Sentry",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Production errors and alert rules",
     defaultNamePlaceholder: "e.g. Prod errors",
     protocol: "sentry",
@@ -114,6 +257,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   stripe: {
     id: "stripe",
     label: "Stripe",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Payments, subscriptions, and disputes",
     defaultNamePlaceholder: "e.g. Billing alerts",
     protocol: "stripe",
@@ -129,6 +275,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   vercel: {
     id: "vercel",
     label: "Vercel",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Deployment status and build failures",
     defaultNamePlaceholder: "e.g. Web deploys",
     protocol: "vercel",
@@ -144,6 +293,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   gitlab: {
     id: "gitlab",
     label: "GitLab",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Merge requests, pipelines, and issues",
     defaultNamePlaceholder: "e.g. GitLab CI",
     protocol: "gitlab",
@@ -156,24 +308,12 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
       "Pick the triggers you want and save.",
     ],
   },
-  slack: {
-    id: "slack",
-    label: "Slack",
-    shortDescription: "Slack mentions and channel events",
-    defaultNamePlaceholder: "e.g. Slack alerts",
-    protocol: "slack",
-    secretMode: "external",
-    secretLabel: "Verification key",
-    secretPlaceholder: "Paste Slack Signing Secret",
-    setupSteps: [
-      "In Slack App → Basic Information, copy the Signing Secret and paste it here first.",
-      "Then open Event Subscriptions in Slack and paste the Trigger link.",
-      "Slack will verify the link automatically; pick the events you want and save.",
-    ],
-  },
   openai: {
     id: "openai",
     label: "OpenAI",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Batch jobs, responses, and fine-tuning",
     defaultNamePlaceholder: "e.g. OpenAI jobs",
     protocol: "standard_webhooks",
@@ -189,6 +329,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   resend: {
     id: "resend",
     label: "Resend",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Email deliveries, bounces, and inbound mail",
     defaultNamePlaceholder: "e.g. Email bounces",
     protocol: "standard_webhooks",
@@ -204,6 +347,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   clerk: {
     id: "clerk",
     label: "Clerk",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "User sign-ups, sessions, and org events",
     defaultNamePlaceholder: "e.g. User signups",
     protocol: "standard_webhooks",
@@ -219,6 +365,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   polar: {
     id: "polar",
     label: "Polar",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Orders, subscriptions, and benefits",
     defaultNamePlaceholder: "e.g. Polar orders",
     protocol: "standard_webhooks",
@@ -234,6 +383,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   cloudflare: {
     id: "cloudflare",
     label: "Cloudflare",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Workers, Pages, and account alerts",
     defaultNamePlaceholder: "e.g. Cloudflare alerts",
     protocol: "generic",
@@ -249,6 +401,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   grafana: {
     id: "grafana",
     label: "Grafana",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Alerting rules and incident alerts",
     defaultNamePlaceholder: "e.g. Grafana alerts",
     protocol: "generic",
@@ -264,6 +419,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   datadog: {
     id: "datadog",
     label: "Datadog",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Monitors, SLOs, and infra alerts",
     defaultNamePlaceholder: "e.g. Datadog monitors",
     protocol: "generic",
@@ -279,6 +437,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   n8n: {
     id: "n8n",
     label: "n8n",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Workflow automations and triggers",
     defaultNamePlaceholder: "e.g. n8n workflow",
     protocol: "generic",
@@ -294,6 +455,9 @@ export const BOT_WEBHOOK_PROVIDER_META: Record<BotWebhookProvider, BotWebhookPro
   generic: {
     id: "generic",
     label: "Custom app",
+    category: "webhook",
+    transport: "cloud_webhook",
+    supportsGroups: false,
     shortDescription: "Zapier, Make, scripts, or any custom app",
     defaultNamePlaceholder: "e.g. Deploy alert",
     protocol: "generic",
@@ -328,8 +492,107 @@ const SigningSecretInputSchema = z
   .min(BOT_WEBHOOK_SECRET_MIN_LENGTH, `Verification key must be at least ${BOT_WEBHOOK_SECRET_MIN_LENGTH} characters`)
   .max(BOT_WEBHOOK_SECRET_MAX_LENGTH, `Verification key must be at most ${BOT_WEBHOOK_SECRET_MAX_LENGTH} characters`)
 
+const ImAllowedSenderSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(BOT_IM_SENDER_ID_MAX_LENGTH)
+
+export const BotImAllowedSendersSchema = z
+  .array(ImAllowedSenderSchema)
+  .max(BOT_IM_MAX_ALLOWED_SENDERS)
+  .transform((items) => [...new Set(items)])
+
+export const BotImConfigSchema = z.object({
+  region: BotImFeishuRegionSchema.optional(),
+  botUsername: z.string().max(128).nullable().optional(),
+  botAccountLabel: z.string().max(128).nullable().optional(),
+  feishuAppId: z.string().max(128).nullable().optional(),
+  feishuVerifiedAtMs: z.number().int().nonnegative().nullable().optional(),
+  slackVerifiedAtMs: z.number().int().nonnegative().nullable().optional(),
+  accessPolicy: BotImAccessPolicySchema.default("allowlist"),
+  allowedSenders: z.array(z.string().max(BOT_IM_SENDER_ID_MAX_LENGTH)).max(BOT_IM_MAX_ALLOWED_SENDERS).default([]),
+  requireMentionInGroups: z.boolean().default(true),
+  daemonStatus: BotImDaemonStatusSchema.nullable().optional(),
+  daemonLastError: z.string().max(512).nullable().optional(),
+  daemonUpdatedAtMs: z.number().int().nonnegative().nullable().optional(),
+})
+export type BotImConfig = z.infer<typeof BotImConfigSchema>
+
+export const DEFAULT_BOT_IM_CONFIG: BotImConfig = {
+  accessPolicy: "allowlist",
+  allowedSenders: [],
+  requireMentionInGroups: true,
+}
+
+export function parseBotImConfig(raw: string | null | undefined): BotImConfig {
+  if (!raw) return { ...DEFAULT_BOT_IM_CONFIG, allowedSenders: [] }
+  try {
+    const parsed = BotImConfigSchema.safeParse(JSON.parse(raw))
+    if (parsed.success) return parsed.data
+  } catch {
+    // Fall back to safe defaults on malformed JSON.
+  }
+  return { ...DEFAULT_BOT_IM_CONFIG, allowedSenders: [] }
+}
+
+export function isBotImProvider(provider: BotWebhookProvider): provider is BotImProvider {
+  return (BOT_IM_PROVIDERS as readonly string[]).includes(provider)
+}
+
+export function getProviderCategory(provider: BotWebhookProvider): BotTriggerCategory {
+  return BOT_WEBHOOK_PROVIDER_META[provider].category
+}
+
+export function getProviderTransport(provider: BotWebhookProvider): BotTriggerTransport {
+  return BOT_WEBHOOK_PROVIDER_META[provider].transport
+}
+
+export function computeBotTriggerConnectionStatus(input: {
+  provider: BotWebhookProvider
+  category: BotTriggerCategory
+  transport: BotTriggerTransport
+  enabled: boolean
+  hasSigningSecret: boolean
+  hasOutboundCredentials: boolean
+  config: BotImConfig
+  machineOnline?: boolean | null
+}): BotTriggerConnectionStatus {
+  if (!input.enabled) return "paused"
+
+  if (input.transport === "daemon_poll") {
+    if (input.machineOnline === false) return "machine_offline"
+    const daemonStatus = input.config.daemonStatus
+    if (daemonStatus === "connected") return "connected"
+    if (daemonStatus === "session_expired") return "session_expired"
+    if (daemonStatus === "error") return "error"
+    return "scan_required"
+  }
+
+  if (input.category === "im") {
+    if (input.provider === "telegram") {
+      return input.hasOutboundCredentials && input.hasSigningSecret ? "connected" : "setup_required"
+    }
+    if (input.provider === "feishu") {
+      if (!input.hasOutboundCredentials || !input.config.feishuAppId) return "setup_required"
+      return input.config.feishuVerifiedAtMs ? "connected" : "setup_required"
+    }
+    if (input.provider === "slack") {
+      return input.hasSigningSecret && input.hasOutboundCredentials ? "connected" : "setup_required"
+    }
+  }
+
+  const meta = BOT_WEBHOOK_PROVIDER_META[input.provider]
+  if (meta.secretMode === "external" && !input.hasSigningSecret) return "setup_required"
+  return "connected"
+}
+
 export const BotWebhookLastDeliverySchema = z.strictObject({
   id: z.string().min(1),
+  direction: BotWebhookDeliveryDirectionSchema.optional(),
+  senderId: z.string().nullable().optional(),
+  senderLabel: z.string().nullable().optional(),
+  chatLabel: z.string().nullable().optional(),
   status: BotWebhookDeliveryStatusSchema,
   eventType: z.string().min(1),
   summary: z.string(),
@@ -341,6 +604,10 @@ export type BotWebhookLastDelivery = z.infer<typeof BotWebhookLastDeliverySchema
 export const BotWebhookDeliverySchema = z.strictObject({
   id: z.string().min(1),
   webhookId: z.string().min(1),
+  direction: BotWebhookDeliveryDirectionSchema,
+  senderId: z.string().nullable(),
+  senderLabel: z.string().nullable(),
+  chatLabel: z.string().nullable(),
   eventType: z.string().min(1),
   summary: z.string(),
   status: BotWebhookDeliveryStatusSchema,
@@ -356,7 +623,21 @@ export const BotWebhookSummarySchema = z.strictObject({
   botId: z.string().min(1),
   name: z.string().min(1),
   provider: BotWebhookProviderSchema,
+  category: BotTriggerCategorySchema,
+  transport: BotTriggerTransportSchema,
+  connectionStatus: BotTriggerConnectionStatusSchema,
   hasSigningSecret: z.boolean(),
+  hasOutboundCredentials: z.boolean(),
+  accessPolicy: BotImAccessPolicySchema,
+  allowedSenders: z.array(z.string()),
+  requireMentionInGroups: z.boolean(),
+  botUsername: z.string().nullable(),
+  botAccountLabel: z.string().nullable(),
+  region: BotImFeishuRegionSchema.nullable(),
+  feishuAppId: z.string().nullable(),
+  machineName: z.string().nullable(),
+  machineOnline: z.boolean().nullable(),
+  daemonLastError: z.string().nullable(),
   eventFilter: z.array(z.string()).nullable(),
   instruction: z.string(),
   enabled: z.boolean(),
@@ -367,6 +648,8 @@ export const BotWebhookSummarySchema = z.strictObject({
 })
 export type BotWebhookSummary = z.infer<typeof BotWebhookSummarySchema>
 
+const ImSecretFieldSchema = z.string().trim().min(1).max(512)
+
 export const BotWebhookCreateSchema = z.strictObject({
   name: z.string().trim().min(1, "Name is required").max(BOT_WEBHOOK_NAME_MAX_LENGTH),
   provider: BotWebhookProviderSchema,
@@ -374,6 +657,15 @@ export const BotWebhookCreateSchema = z.strictObject({
   instruction: z.string().trim().max(BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH).optional().default(""),
   requireSecret: z.boolean().optional(),
   signingSecret: SigningSecretInputSchema.optional(),
+  botToken: ImSecretFieldSchema.optional(),
+  feishuRegion: BotImFeishuRegionSchema.optional(),
+  feishuAppId: z.string().trim().min(1).max(128).optional(),
+  feishuAppSecret: ImSecretFieldSchema.optional(),
+  feishuVerificationToken: z.string().trim().max(256).optional(),
+  feishuEncryptKey: z.string().trim().max(256).optional(),
+  accessPolicy: BotImAccessPolicySchema.optional(),
+  allowedSenders: BotImAllowedSendersSchema.optional(),
+  requireMentionInGroups: z.boolean().optional(),
 })
 export type BotWebhookCreateInput = z.infer<typeof BotWebhookCreateSchema>
 
@@ -386,6 +678,15 @@ export const BotWebhookUpdateSchema = z
     requireSecret: z.boolean().optional(),
     signingSecret: SigningSecretInputSchema.optional(),
     rotateCredentials: z.boolean().optional(),
+    botToken: ImSecretFieldSchema.optional(),
+    feishuRegion: BotImFeishuRegionSchema.optional(),
+    feishuAppId: z.string().trim().min(1).max(128).optional(),
+    feishuAppSecret: ImSecretFieldSchema.optional(),
+    feishuVerificationToken: z.string().trim().max(256).optional(),
+    feishuEncryptKey: z.string().trim().max(256).optional(),
+    accessPolicy: BotImAccessPolicySchema.optional(),
+    allowedSenders: BotImAllowedSendersSchema.optional(),
+    requireMentionInGroups: z.boolean().optional(),
   })
   .refine(
     (v) =>
@@ -395,14 +696,23 @@ export const BotWebhookUpdateSchema = z
       v.instruction !== undefined ||
       v.requireSecret !== undefined ||
       v.signingSecret !== undefined ||
-      v.rotateCredentials === true,
+      v.rotateCredentials === true ||
+      v.botToken !== undefined ||
+      v.feishuRegion !== undefined ||
+      v.feishuAppId !== undefined ||
+      v.feishuAppSecret !== undefined ||
+      v.feishuVerificationToken !== undefined ||
+      v.feishuEncryptKey !== undefined ||
+      v.accessPolicy !== undefined ||
+      v.allowedSenders !== undefined ||
+      v.requireMentionInGroups !== undefined,
     { message: "At least one field must be provided" },
   )
 export type BotWebhookUpdateInput = z.infer<typeof BotWebhookUpdateSchema>
 
 export const BotWebhookCreateResponseSchema = z.strictObject({
   webhook: BotWebhookSummarySchema,
-  webhookUrl: z.url(),
+  webhookUrl: z.url().optional(),
   signingSecret: z.string().nullable(),
 })
 export type BotWebhookCreateResponse = z.infer<typeof BotWebhookCreateResponseSchema>
@@ -428,6 +738,108 @@ export const BotWebhookTestResponseSchema = z.strictObject({
   delivery: BotWebhookDeliverySchema,
 })
 export type BotWebhookTestResponse = z.infer<typeof BotWebhookTestResponseSchema>
+
+export const BotImAllowSenderRequestSchema = z.strictObject({
+  senderId: ImAllowedSenderSchema,
+})
+export type BotImAllowSenderRequest = z.infer<typeof BotImAllowSenderRequestSchema>
+
+export const BotImAllowSenderResponseSchema = z.strictObject({
+  webhook: BotWebhookSummarySchema,
+  added: z.boolean(),
+})
+export type BotImAllowSenderResponse = z.infer<typeof BotImAllowSenderResponseSchema>
+
+export const BotImQrStartResponseSchema = z.strictObject({
+  sessionId: z.string().min(1),
+  qrUrl: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+  status: BotImQrStatusSchema,
+})
+export type BotImQrStartResponse = z.infer<typeof BotImQrStartResponseSchema>
+
+export const BotImQrStatusResponseSchema = z.strictObject({
+  triggerId: z.string().min(1),
+  connectionStatus: BotTriggerConnectionStatusSchema,
+  qrStatus: BotImQrStatusSchema,
+  sessionId: z.string().nullable(),
+  qrUrl: z.string().nullable(),
+  expiresAt: z.iso.datetime().nullable(),
+  botAccountLabel: z.string().nullable(),
+  error: z.string().nullable(),
+})
+export type BotImQrStatusResponse = z.infer<typeof BotImQrStatusResponseSchema>
+
+export const IM_REPLY_REF_PREFIX: Record<BotImProvider, string> = {
+  telegram: "ext_tg_",
+  feishu: "ext_fs_",
+  slack: "ext_sl_",
+  wechat: "ext_wx_",
+}
+
+export function parseImReplyRefPlatform(ref: string): BotImProvider | null {
+  const trimmed = ref.trim()
+  if (trimmed.startsWith(IM_REPLY_REF_PREFIX.telegram)) return "telegram"
+  if (trimmed.startsWith(IM_REPLY_REF_PREFIX.feishu)) return "feishu"
+  if (trimmed.startsWith(IM_REPLY_REF_PREFIX.slack)) return "slack"
+  if (trimmed.startsWith(IM_REPLY_REF_PREFIX.wechat)) return "wechat"
+  return null
+}
+
+export interface BotImEventLineInput {
+  platform: BotImProvider
+  triggerName: string
+  ref: string
+  chatType: "dm" | "group"
+  chatName?: string | null
+  senderId: string
+  senderName?: string | null
+  text: string
+  mentioned?: boolean
+  time: string
+  instruction?: string | null
+}
+
+export function buildBotImEventLine(input: BotImEventLineInput): string {
+  const boundedText = truncateText(input.text, BOT_IM_TEXT_MAX_LENGTH)
+  const payload: Record<string, unknown> = {
+    kind: "im",
+    platform: input.platform,
+    trigger: input.triggerName.trim() || input.platform,
+    ref: input.ref,
+    chat: input.chatName?.trim()
+      ? { type: input.chatType, name: singleLine(input.chatName, 120) }
+      : { type: input.chatType },
+    sender: input.senderName?.trim()
+      ? { id: input.senderId, name: singleLine(input.senderName, 120) }
+      : { id: input.senderId },
+    text: boundedText,
+    ...(input.mentioned !== undefined ? { mentioned: input.mentioned } : {}),
+    time: input.time,
+  }
+  const trimmedInstruction = input.instruction?.trim()
+  if (trimmedInstruction) {
+    payload.instruction = truncateText(trimmedInstruction, BOT_WEBHOOK_INSTRUCTION_MAX_LENGTH)
+  }
+  return JSON.stringify(payload)
+}
+
+export {
+  BOT_IM_ACCESS_POLICIES,
+  BOT_IM_DAEMON_STATUSES,
+  BOT_IM_MAX_ALLOWED_SENDERS,
+  BOT_IM_PROVIDERS,
+  BOT_IM_QR_STATUSES,
+  BOT_IM_SENDER_ID_MAX_LENGTH,
+  BotImAccessPolicySchema,
+  BotImDaemonStatusSchema,
+  BotImProviderSchema,
+  BotImQrStatusSchema,
+  type BotImAccessPolicy,
+  type BotImDaemonStatus,
+  type BotImProvider,
+  type BotImQrStatus,
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)

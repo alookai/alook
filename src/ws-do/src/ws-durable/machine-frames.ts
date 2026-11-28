@@ -1,4 +1,5 @@
 import { handlePiiResultFrame } from "./machine-pii"
+import { handleImStatusFrame } from "./machine-im"
 import { handleRuntimeModelsFrame } from "./machine-models"
 import { IDENTITY_KEY } from "./internal"
 import type { CommunityMachineIdentity, WsDurableContext } from "./internal"
@@ -79,6 +80,7 @@ export async function handleCommunityMachineMessage(
     identity,
   )) return
   if (await handlePiiResultFrame(context, parsed, identity)) return
+  if (await handleImStatusFrame(context, parsed, identity)) return
   if (await handleRuntimeModelsFrame(context, parsed, identity)) return
   await handleReadyFrame(
     context,
