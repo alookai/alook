@@ -213,6 +213,21 @@ const desktopUpdateRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/api/desktop/update/[target]/[arch]/[current_version]/route.ts"),
   "utf8",
 )
+const releaseManifestLib = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/lib/release-manifest.ts"),
+  "utf8",
+)
+const downloadCatalogCacheLib = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/lib/download-catalog-cache.ts"),
+  "utf8",
+)
+const githubReleasesLib = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/src/lib/github-releases.ts"),
+  "utf8",
+)
+const syncReleasesWorkflow = normalizeWorkflow(
+  readFileSync(resolve(workflowRoot, "sync-releases.yml"), "utf8"),
+)
 const publishWorkflows = ["publish-app.yml", "publish-daemon.yml"]
   .map((name) => normalizeWorkflow(readFileSync(resolve(workflowRoot, name), "utf8")))
 const publishDaemonWorkflow = normalizeWorkflow(
@@ -1142,7 +1157,11 @@ describe("Desktop updater release", () => {
   it("keeps every build private until one publisher revalidates all four stages", () => {
     expect(autoTagReleaseWorkflow).toContain('--title "$TAG"')
     expect(desktopReleaseWorkflow.match(/contents: write/g)).toHaveLength(1)
-    expect(desktopReleaseWorkflow).not.toContain("id-token: write")
+    const desktopBeforeSync = desktopReleaseWorkflow.slice(
+      0,
+      desktopReleaseWorkflow.indexOf("\n  sync-release-manifest:\n"),
+    )
+    expect(desktopBeforeSync).not.toContain("id-token: write")
     expect(desktopReleaseWorkflow).toContain("group: desktop-release-${{ github.ref }}")
     expect(desktopReleaseWorkflow).toContain("cancel-in-progress: false")
     expect(desktopReleaseWorkflow).toContain("needs: [build-unix, build-windows]")
@@ -1201,12 +1220,14 @@ describe("Desktop updater release", () => {
     ]) {
       expect(desktopReleaseArtifacts).toContain(`"${platform}"`)
     }
-    expect(desktopUpdateRoute).toContain('"darwin-aarch64-app"')
-    expect(desktopUpdateRoute).toContain('"linux-x86_64-appimage"')
-    expect(desktopUpdateRoute).toContain('"linux-x86_64-deb"')
-    expect(desktopUpdateRoute).toContain('"linux-x86_64-rpm"')
-    expect(desktopUpdateRoute).toContain('"windows-x86_64-msi"')
-    expect(desktopUpdateRoute).toContain('"windows-x86_64-nsis"')
+    expect(releaseManifestLib).toContain('"darwin-aarch64-app"')
+    expect(releaseManifestLib).toContain('"linux-x86_64-appimage"')
+    expect(releaseManifestLib).toContain('"linux-x86_64-deb"')
+    expect(releaseManifestLib).toContain('"linux-x86_64-rpm"')
+    expect(releaseManifestLib).toContain('"windows-x86_64-msi"')
+    expect(releaseManifestLib).toContain('"windows-x86_64-nsis"')
+    expect(desktopUpdateRoute).toContain("isDesktopUpdaterPlatformKey")
+    expect(desktopUpdateRoute).toContain("readReleaseManifestFromKv")
   })
 
   it("uses an inline unsigned-build overlay without mutating tracked configuration", () => {
@@ -1538,5 +1559,42 @@ describe("Native OAuth association contract", () => {
       .not.toContain("--outdir auth/dist")
     expect(directWorkerModules[3].packageJson.scripts["test:auth"]).toContain("auth/vitest.config.ts")
     expect(directWorkerModules[3].packageJson.scripts["test:auth:runtime"]).toContain("auth/vitest.runtime.config.mts")
+  })
+})
+
+describe("Push-on-release manifest sync contract", () => {
+  it("eliminates runtime api.github.com calls from web download and desktop updater paths", () => {
+    expect(githubReleasesLib).not.toContain("api.github.com")
+    expect(downloadCatalogCacheLib).not.toContain("api.github.com")
+    expect(downloadCatalogCacheLib).not.toContain("unstable_cache")
+    expect(downloadCatalogCacheLib).toContain("readReleaseManifestFromKv")
+    expect(desktopUpdateRoute).not.toContain("api.github.com")
+    expect(desktopUpdateRoute).not.toContain("fetch(")
+  })
+
+  it("serializes OIDC manifest sync and hooks desktop and mobile release workflows", () => {
+    expect(syncReleasesWorkflow).toMatch(/^on:\n  workflow_call:\n  workflow_dispatch:\n/m)
+    expect(syncReleasesWorkflow).toContain("group: sync-release-manifest")
+    expect(syncReleasesWorkflow).toContain("cancel-in-progress: false")
+    expect(syncReleasesWorkflow).toContain("contents: read")
+    expect(syncReleasesWorkflow).toContain("id-token: write")
+    expect(syncReleasesWorkflow).toContain("node scripts/ci/sync-release-manifest.mjs")
+
+    const desktopSyncJob = desktopReleaseWorkflow.slice(
+      desktopReleaseWorkflow.indexOf("\n  sync-release-manifest:\n"),
+    )
+    expect(desktopSyncJob).toContain("needs: publish")
+    expect(desktopSyncJob).toContain("contents: read")
+    expect(desktopSyncJob).toContain("id-token: write")
+    expect(desktopSyncJob).toContain("uses: ./.github/workflows/sync-releases.yml")
+
+    const mobileSyncJob = mobileReleaseWorkflow.slice(
+      mobileReleaseWorkflow.indexOf("\n  sync-release-manifest:\n"),
+    )
+    expect(mobileSyncJob).toContain("needs: build-android")
+    expect(mobileSyncJob).toContain("if: github.event_name == 'push'")
+    expect(mobileSyncJob).toContain("contents: read")
+    expect(mobileSyncJob).toContain("id-token: write")
+    expect(mobileSyncJob).toContain("uses: ./.github/workflows/sync-releases.yml")
   })
 })
