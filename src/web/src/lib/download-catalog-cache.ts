@@ -1,21 +1,32 @@
-import { unstable_cache } from "next/cache"
-import { readDownloadCatalog, type DownloadCatalog } from "./download-catalog"
-import { RELEASE_CACHE_SECONDS } from "./github-releases"
-
-class DownloadCatalogUnavailable extends Error {}
-
-const readCachedCatalog = unstable_cache(async () => {
-  const catalog = await readDownloadCatalog()
-  if (catalog.unavailable) throw new DownloadCatalogUnavailable("download_catalog_unavailable")
-  return catalog
-}, ["public-download-installers-v1"], { revalidate: RELEASE_CACHE_SECONDS })
+import { getCloudflareContext } from "@opennextjs/cloudflare"
+import type { DownloadCatalog } from "./download-catalog"
+import { readReleaseManifestFromKv } from "./release-manifest"
 
 export async function readCachedDownloadCatalog(): Promise<DownloadCatalog> {
+  let kv: KVNamespace | undefined
   try {
-    return await readCachedCatalog()
-  } catch (error) {
-    if (error instanceof DownloadCatalogUnavailable) return { installers: [], unavailable: true }
-    console.warn("download_catalog_cache_unavailable")
-    return readDownloadCatalog()
+    const { env } = await getCloudflareContext({ async: true })
+    kv = env.CACHE_KV
+  } catch {
+    console.warn("download_catalog_unavailable", { stage: "context" })
+    return { installers: [], unavailable: true }
   }
+
+  if (!kv) {
+    console.warn("download_catalog_unavailable", { stage: "binding" })
+    return { installers: [], unavailable: true }
+  }
+
+  const result = await readReleaseManifestFromKv(kv)
+  if (result.status === "ok") {
+    return { installers: result.manifest.installers, unavailable: false }
+  }
+
+  if (result.status === "corrupt") {
+    console.warn("download_catalog_unavailable", { stage: "manifest", reason: result.reason })
+  } else if (result.status === "error") {
+    console.warn("download_catalog_unavailable", { stage: "kv", error_kind: result.errorKind })
+  }
+
+  return { installers: [], unavailable: true }
 }

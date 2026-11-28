@@ -444,3 +444,10 @@ jobs:
           [.deb](${base}/Alook_${VERSION}_amd64.deb) | [.rpm](${base}/Alook-${VERSION}-1.x86_64.rpm) | [.AppImage](${base}/Alook_${VERSION}_amd64.AppImage)
           EOF
           gh release edit "$TAG" --notes-file "$notes"
+
+  sync-release-manifest:
+    needs: publish
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/sync-releases.yml

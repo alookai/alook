@@ -1,90 +1,113 @@
-import { createHash } from "node:crypto"
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import type { CachedFetchValue } from "next/dist/server/response-cache"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DOWNLOAD_TARGETS } from "./download-platforms"
-import { RELEASE_CACHE_SECONDS } from "./github-releases"
+import { RELEASE_MANIFEST_KV_KEY, type ReleaseManifest } from "./release-manifest"
 
-await vi.hoisted(async () => {
-  const { AsyncLocalStorage } = await import("node:async_hooks")
-  vi.stubGlobal("AsyncLocalStorage", AsyncLocalStorage)
-})
+const mocks = vi.hoisted(() => ({
+  getCloudflareContext: vi.fn(),
+  kvGet: vi.fn(),
+  fetch: vi.fn(),
+}))
 
-const { readCachedDownloadCatalog } = await import("./download-catalog-cache")
+vi.mock("@opennextjs/cloudflare", () => ({
+  getCloudflareContext: mocks.getCloudflareContext,
+}))
 
-const entries = new Map<string, CachedFetchValue>()
-let stale = false
-const cacheGet = vi.fn(async (key: string) => {
-  const value = entries.get(key)
-  return value ? { value, isStale: stale } : null
-})
-const cacheSet = vi.fn(async (key: string, value: CachedFetchValue) => { entries.set(key, structuredClone(value)) })
+import { readCachedDownloadCatalog } from "./download-catalog-cache"
 
-function response(version = "1.0.0") {
-  const names = ["latest.json", ...DOWNLOAD_TARGETS.map(target => target.id === "linux-rpm"
-    ? `Alook-${version}-1.x86_64.rpm` : `Alook_${version}${target.suffix}`)]
-  return new Response(JSON.stringify([{
-    tag_name: `v${version}`, draft: false, prerelease: false,
-    body: "Full provider metadata that must not enter the compact catalog",
-    assets: names.map(name => ({ name, size: 1000, state: "uploaded", browser_download_url: `https://github.com/alookai/alook/releases/download/v${version}/${encodeURIComponent(name)}` })),
-  }]))
+function makeManifest(desktopVersion = "1.2.0", androidVersion = "1.3.0"): ReleaseManifest {
+  return {
+    schemaVersion: 1,
+    syncedAt: "2026-11-28T04:00:00.000Z",
+    installers: DOWNLOAD_TARGETS.map((target) => {
+      const version = target.id === "android-apk" ? androidVersion : desktopVersion
+      const filename =
+        target.id === "linux-rpm"
+          ? `Alook-${version}-1.x86_64.rpm`
+          : `Alook_${version}${target.suffix}`
+      return {
+        id: target.id,
+        version,
+        url: `https://github.com/alookai/alook/releases/download/v${version}/${encodeURIComponent(filename)}`,
+        bytes: 12_345_678,
+      }
+    }),
+    desktopUpdater: null,
+  }
 }
 
-beforeEach(() => {
-  entries.clear()
-  stale = false
-  cacheGet.mockClear()
-  cacheSet.mockClear()
-  vi.stubGlobal("__incrementalCache", {
-    generateSimpleCacheKey: async (key: string) => createHash("sha256").update(key).digest("hex"),
-    get: cacheGet,
-    set: cacheSet,
+describe("readCachedDownloadCatalog", () => {
+  const warnings: unknown[][] = []
+
+  beforeEach(() => {
+    warnings.length = 0
+    mocks.getCloudflareContext.mockReset()
+    mocks.kvGet.mockReset()
+    mocks.fetch.mockReset()
+
+    vi.stubGlobal("fetch", mocks.fetch)
+    vi.spyOn(console, "warn").mockImplementation((...args) => {
+      warnings.push(args)
+    })
+    mocks.getCloudflareContext.mockResolvedValue({
+      env: { CACHE_KV: { get: mocks.kvGet } },
+    })
   })
-  vi.spyOn(console, "warn").mockImplementation(() => {})
-})
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
-it("reuses the real Next Data Cache result without rereading provider metadata", async () => {
-  const fetch = vi.fn().mockImplementation(async () => response())
-  vi.stubGlobal("fetch", fetch)
-  const first = await readCachedDownloadCatalog()
-  expect(first.installers).toHaveLength(8)
-  expect(await readCachedDownloadCatalog()).toEqual(first)
-  expect(fetch).toHaveBeenCalledTimes(1)
-  const cached = [...entries.values()]
-  expect(cached).toHaveLength(1)
-  expect(cached[0].revalidate).toBe(RELEASE_CACHE_SECONDS)
-  expect(JSON.parse(cached[0].data.body)).toEqual(first)
-  expect(cached[0].data.body).not.toContain("Full provider metadata")
-})
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
 
-it("does not cache a failed source read and recovers on the next request", async () => {
-  const fetch = vi.fn().mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
-    .mockImplementation(async () => response())
-  vi.stubGlobal("fetch", fetch)
-  expect(await readCachedDownloadCatalog()).toEqual({ installers: [], unavailable: true })
-  expect(entries.size).toBe(0)
-  expect((await readCachedDownloadCatalog()).installers).toHaveLength(8)
-  expect(fetch).toHaveBeenCalledTimes(2)
-  expect(cacheSet).toHaveBeenCalledTimes(1)
-})
+  it("reads installers exclusively from CACHE_KV with zero network fetch calls", async () => {
+    const manifest = makeManifest()
+    mocks.kvGet.mockResolvedValueOnce(JSON.stringify(manifest))
 
-it("refreshes stale installer data through Next's actual cache wrapper", async () => {
-  let version = "1.0.0"
-  const fetch = vi.fn().mockImplementation(async () => response(version))
-  vi.stubGlobal("fetch", fetch)
-  expect((await readCachedDownloadCatalog()).installers.every(item => item.version === version)).toBe(true)
-  version = "1.0.1"
-  stale = true
-  expect((await readCachedDownloadCatalog()).installers.every(item => item.version === version)).toBe(true)
-  expect(fetch).toHaveBeenCalledTimes(2)
-  expect(cacheGet).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ revalidate: 300 }))
-})
+    const result = await readCachedDownloadCatalog()
 
-it("keeps valid downloads available when the cache backend fails", async () => {
-  cacheGet.mockRejectedValueOnce(new Error("private cache backend detail"))
-  const fetch = vi.fn().mockImplementation(async () => response())
-  vi.stubGlobal("fetch", fetch)
-  expect((await readCachedDownloadCatalog()).installers).toHaveLength(8)
-  expect(fetch).toHaveBeenCalledTimes(1)
-  expect(console.warn).toHaveBeenCalledWith("download_catalog_cache_unavailable")
+    expect(mocks.kvGet).toHaveBeenCalledWith(RELEASE_MANIFEST_KV_KEY, "text")
+    expect(result).toEqual({ installers: manifest.installers, unavailable: false })
+    expect(result.installers).toHaveLength(8)
+    expect(warnings).toEqual([])
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns unavailable cleanly when CACHE_KV has not been seeded yet", async () => {
+    mocks.kvGet.mockResolvedValueOnce(null)
+
+    const result = await readCachedDownloadCatalog()
+
+    expect(result).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([])
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns unavailable and logs a concise warning when stored manifest is corrupt", async () => {
+    mocks.kvGet.mockResolvedValueOnce("{corrupt-json")
+
+    const result = await readCachedDownloadCatalog()
+
+    expect(result).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "manifest", reason: "invalid_json" }]])
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns unavailable and logs safe error_kind when KV read throws", async () => {
+    mocks.kvGet.mockRejectedValueOnce(new TypeError("private kv failure message"))
+
+    const result = await readCachedDownloadCatalog()
+
+    expect(result).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "kv", error_kind: "TypeError" }]])
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns unavailable without falling back to GitHub when Cloudflare context fails", async () => {
+    mocks.getCloudflareContext.mockRejectedValueOnce(new Error("missing worker context"))
+
+    const result = await readCachedDownloadCatalog()
+
+    expect(result).toEqual({ installers: [], unavailable: true })
+    expect(warnings).toEqual([["download_catalog_unavailable", { stage: "context" }]])
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
 })

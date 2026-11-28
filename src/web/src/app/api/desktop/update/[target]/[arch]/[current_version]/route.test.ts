@@ -1,14 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  RELEASE_MANIFEST_KV_KEY,
+  type DesktopUpdaterPlatformKey,
+  type ReleaseManifest,
+} from "@/lib/release-manifest"
 
-const mockFetch = vi.fn();
-vi.stubGlobal("fetch", mockFetch);
+const mocks = vi.hoisted(() => ({
+  getCloudflareContext: vi.fn(),
+  kvGet: vi.fn(),
+  fetch: vi.fn(),
+}))
 
-import { GET } from "./route";
+vi.mock("@opennextjs/cloudflare", () => ({
+  getCloudflareContext: mocks.getCloudflareContext,
+}))
 
-interface Asset {
-  name: string;
-  browser_download_url: string;
-}
+import { GET } from "./route"
 
 function makeRequest(
   target: string,
@@ -18,32 +25,13 @@ function makeRequest(
 ) {
   const url = new URL(
     `http://localhost/api/desktop/update/${target}/${arch}/${currentVersion}`,
-  );
-  url.searchParams.set("bundle_type", bundleType);
-  return new Request(url);
+  )
+  url.searchParams.set("bundle_type", bundleType)
+  return new Request(url)
 }
 
 function makeParams(target: string, arch: string, currentVersion: string) {
-  return { params: Promise.resolve({ target, arch, current_version: currentVersion }) };
-}
-
-function makeAsset(name: string): Asset {
-  return { name, browser_download_url: `https://example.com/${name}` };
-}
-
-function makeRelease(version: string, assets: Asset[] = []) {
-  return {
-    draft: false,
-    prerelease: false,
-    tag_name: `v${version}`,
-    body: "Release notes",
-    published_at: "2026-06-01T00:00:00Z",
-    assets,
-  };
-}
-
-function updaterAssets(...names: string[]) {
-  return names.flatMap((name) => [makeAsset(name), makeAsset(`${name}.sig`)]);
+  return { params: Promise.resolve({ target, arch, current_version: currentVersion }) }
 }
 
 async function requestUpdate(
@@ -55,68 +43,118 @@ async function requestUpdate(
   return GET(
     makeRequest(target, arch, currentVersion, bundleType),
     makeParams(target, arch, currentVersion),
-  );
+  )
+}
+
+function releaseUrl(version: string, filename: string) {
+  return `https://github.com/alookai/alook/releases/download/v${version}/${encodeURIComponent(filename)}`
+}
+
+function makeManifest(
+  version: string,
+  platforms: Partial<Record<DesktopUpdaterPlatformKey, { url: string; signature: string }>>,
+): ReleaseManifest {
+  return {
+    schemaVersion: 1,
+    syncedAt: "2026-11-28T04:00:00.000Z",
+    installers: [],
+    desktopUpdater: {
+      version,
+      notes: "Release notes",
+      pub_date: "2026-06-01T00:00:00Z",
+      platforms,
+    },
+  }
 }
 
 describe("GET /api/desktop/update/[target]/[arch]/[current_version]", () => {
   beforeEach(() => {
-    mockFetch.mockReset();
-  });
+    mocks.getCloudflareContext.mockReset()
+    mocks.kvGet.mockReset()
+    mocks.fetch.mockReset()
 
-  it("returns 502 when GitHub API fails", async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", mocks.fetch)
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    mocks.getCloudflareContext.mockResolvedValue({
+      env: { CACHE_KV: { get: mocks.kvGet } },
+    })
+  })
 
-    const res = await requestUpdate("darwin", "aarch64", "1.0.0");
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
 
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "Failed to fetch releases" });
-  });
+  it("returns 204 for unsupported updater targets before touching KV or network", async () => {
+    const res = await requestUpdate("freebsd", "x86_64", "1.0.0", "app")
+    expect(res.status).toBe(204)
+    expect(mocks.kvGet).not.toHaveBeenCalled()
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
 
-  it("returns 204 when no desktop release exists", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        { draft: false, prerelease: false, tag_name: "web-v1.0.0", assets: [] },
-      ],
-    });
+  it("returns 204 for an invalid current version before touching KV or network", async () => {
+    const res = await requestUpdate("darwin", "aarch64", "1.0.0.1")
+    expect(res.status).toBe(204)
+    expect(mocks.kvGet).not.toHaveBeenCalled()
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
 
-    expect((await requestUpdate("darwin", "aarch64", "1.0.0")).status).toBe(204);
-  });
+  it("returns 503 no-store when CACHE_KV manifest is missing, null desktopUpdater, corrupt, or throws", async () => {
+    mocks.kvGet.mockResolvedValueOnce(null)
+    const missing = await requestUpdate("darwin", "aarch64", "1.0.0")
+    expect(missing.status).toBe(503)
+    expect(missing.headers.get("Cache-Control")).toBe("no-store")
 
-  it("returns 204 when current_version is already latest", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        makeRelease("1.0.0", updaterAssets("Alook_1.0.0_aarch64.app.tar.gz")),
-      ],
-    });
+    mocks.kvGet.mockResolvedValueOnce(
+      JSON.stringify({
+        schemaVersion: 1,
+        syncedAt: "2026-11-28T04:00:00.000Z",
+        installers: [],
+        desktopUpdater: null,
+      }),
+    )
+    const noDesktop = await requestUpdate("darwin", "aarch64", "1.0.0")
+    expect(noDesktop.status).toBe(503)
+    expect(noDesktop.headers.get("Cache-Control")).toBe("no-store")
 
-    expect((await requestUpdate("darwin", "aarch64", "1.0.0")).status).toBe(204);
-  });
+    mocks.kvGet.mockResolvedValueOnce("{corrupt")
+    const corrupt = await requestUpdate("darwin", "aarch64", "1.0.0")
+    expect(corrupt.status).toBe(503)
 
-  it.each([["freebsd", "x86_64", "app"]])(
-    "returns 204 for unsupported %s-%s-%s updater targets",
-    async (target, arch, bundleType) => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        makeRelease("2.0.0", updaterAssets("Alook_2.0.0_amd64.AppImage")),
-      ],
-    });
+    mocks.kvGet.mockRejectedValueOnce(new Error("kv failure"))
+    const kvError = await requestUpdate("darwin", "aarch64", "1.0.0")
+    expect(kvError.status).toBe(503)
 
-    expect((await requestUpdate(target, arch, "1.0.0", bundleType)).status).toBe(204);
-    expect(mockFetch).not.toHaveBeenCalled();
-    },
-  );
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
 
-  it("returns 204 when the matching binary has no signature asset", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [makeRelease("2.0.0", [makeAsset("Alook_2.0.0_aarch64.app.tar.gz")])],
-    });
+  it("returns 204 when current_version is already latest or newer", async () => {
+    const manifest = makeManifest("1.0.0", {
+      "darwin-aarch64-app": {
+        url: releaseUrl("1.0.0", "Alook_1.0.0_aarch64.app.tar.gz"),
+        signature: "sig-1",
+      },
+    })
+    mocks.kvGet.mockResolvedValue(JSON.stringify(manifest))
 
-    expect((await requestUpdate("darwin", "aarch64", "1.0.0")).status).toBe(204);
-  });
+    expect((await requestUpdate("darwin", "aarch64", "1.0.0")).status).toBe(204)
+    expect((await requestUpdate("darwin", "aarch64", "2.0.0")).status).toBe(204)
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns 204 when the requested platform is absent from desktopUpdater.platforms", async () => {
+    const manifest = makeManifest("2.0.0", {
+      "darwin-aarch64-app": {
+        url: releaseUrl("2.0.0", "Alook_2.0.0_aarch64.app.tar.gz"),
+        signature: "sig-arm",
+      },
+    })
+    mocks.kvGet.mockResolvedValueOnce(JSON.stringify(manifest))
+
+    const res = await requestUpdate("windows", "x86_64", "1.0.0", "nsis")
+    expect(res.status).toBe(204)
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
 
   it.each([
     ["darwin", "aarch64", "app", "Alook_2.0.0_aarch64.app.tar.gz"],
@@ -131,190 +169,33 @@ describe("GET /api/desktop/update/[target]/[arch]/[current_version]", () => {
     ["windows", "x86_64", "nsis", "Alook_2.0.0_x64-setup.exe"],
     ["windows", "aarch64", "msi", "Alook_2.0.0_arm64_en-US.msi"],
     ["windows", "aarch64", "nsis", "Alook_2.0.0_arm64-setup.exe"],
-  ])(
-    "returns the exact Tauri v2 %s-%s-%s artifact and signature",
+  ] as const)(
+    "returns the exact Tauri v2 %s-%s-%s artifact and signature from CACHE_KV with zero network calls",
     async (target, arch, bundleType, assetName) => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [makeRelease("2.0.0", updaterAssets(assetName))],
-      });
-      mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "sig-content-here" });
+      const platformKey = `${target}-${arch}-${bundleType}` as DesktopUpdaterPlatformKey
+      const url = releaseUrl("2.0.0", assetName)
+      const manifest = makeManifest("2.0.0", {
+        [platformKey]: { url, signature: `${platformKey}-sig` },
+      })
+      mocks.kvGet.mockResolvedValueOnce(JSON.stringify(manifest))
 
-      const res = await requestUpdate(target, arch, "1.0.0", bundleType);
+      const res = await requestUpdate(target, arch, "1.0.0", bundleType)
 
-      expect(res.status).toBe(200);
-      expect(mockFetch.mock.calls[1]?.[1]).toEqual(
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      );
+      expect(res.status).toBe(200)
+      expect(res.headers.get("Cache-Control")).toBe("public, max-age=300")
+      expect(mocks.kvGet).toHaveBeenCalledWith(RELEASE_MANIFEST_KV_KEY, "text")
       expect(await res.json()).toEqual({
         version: "2.0.0",
         notes: "Release notes",
         pub_date: "2026-06-01T00:00:00Z",
         platforms: {
-          [`${target}-${arch}-${bundleType}`]: {
-            url: `https://example.com/${assetName}`,
-            signature: "sig-content-here",
+          [platformKey]: {
+            url,
+            signature: `${platformKey}-sig`,
           },
         },
-      });
+      })
+      expect(mocks.fetch).not.toHaveBeenCalled()
     },
-  );
-
-  it("keeps Windows MSI and NSIS assets distinct", async () => {
-    const assets = updaterAssets(
-      "Alook_2.0.0_x64_en-US.msi",
-      "Alook_2.0.0_x64-setup.exe",
-    );
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [makeRelease("2.0.0", assets)] });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "msi-signature" });
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [makeRelease("2.0.0", assets)] });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "nsis-signature" });
-
-    const msi = await requestUpdate("windows", "x86_64", "1.0.0", "msi");
-    const nsis = await requestUpdate("windows", "x86_64", "1.0.0", "nsis");
-
-    expect((await msi.json()).platforms["windows-x86_64-msi"].url).toContain(".msi");
-    expect((await nsis.json()).platforms["windows-x86_64-nsis"].url).toContain("-setup.exe");
-  });
-
-  it("keeps Linux package formats distinct from AppImage", async () => {
-    const assets = updaterAssets(
-      "Alook_2.0.0_amd64.AppImage",
-      "Alook_2.0.0_amd64.deb",
-      "Alook-2.0.0-1.x86_64.rpm",
-    );
-    for (const [bundleType, suffix] of [
-      ["appimage", ".AppImage"],
-      ["deb", ".deb"],
-      ["rpm", ".rpm"],
-    ] as const) {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [makeRelease("2.0.0", assets)],
-      });
-      mockFetch.mockResolvedValueOnce({ ok: true, text: async () => `${bundleType}-signature` });
-
-      const response = await requestUpdate("linux", "x86_64", "1.0.0", bundleType);
-      expect((await response.json()).platforms[`linux-x86_64-${bundleType}`].url).toContain(
-        suffix,
-      );
-    }
-  });
-
-  it("selects each macOS architecture even when assets are reversed", async () => {
-    const assets = updaterAssets(
-      "Alook_2.0.0_x64.app.tar.gz",
-      "Alook_2.0.0_aarch64.app.tar.gz",
-    );
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [makeRelease("2.0.0", assets)] });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "arm-signature" });
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [makeRelease("2.0.0", assets)] });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "intel-signature" });
-
-    const arm = await requestUpdate("darwin", "aarch64", "1.0.0");
-    const intel = await requestUpdate("darwin", "x86_64", "1.0.0");
-
-    expect((await arm.json()).platforms["darwin-aarch64-app"].url).toContain("aarch64");
-    expect((await intel.json()).platforms["darwin-x86_64-app"].url).toContain("x64");
-  });
-
-  it("ignores invalid non-SemVer tags and selects the next valid release", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        makeRelease("1.0.0.1", updaterAssets("Alook_1.0.0.1_aarch64.app.tar.gz")),
-        makeRelease("1.1.0", updaterAssets("Alook_1.1.0_aarch64.app.tar.gz")),
-      ],
-    });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "signature" });
-
-    const res = await requestUpdate("darwin", "aarch64", "1.0.0");
-
-    expect(res.status).toBe(200);
-    expect((await res.json()).version).toBe("1.1.0");
-  });
-
-  it("returns 204 for an invalid current version", async () => {
-    expect((await requestUpdate("darwin", "aarch64", "1.0.0.1")).status).toBe(204);
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("searches up to 100 releases and skips interleaved non-desktop releases", async () => {
-    const unrelated = Array.from({ length: 12 }, (_, index) => ({
-      ...makeRelease(`9.0.${index}`),
-      tag_name: `cli-v9.0.${index}`,
-    }));
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        ...unrelated,
-        makeRelease("2.0.0", updaterAssets("Alook_2.0.0_aarch64.app.tar.gz")),
-      ],
-    });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "signature" });
-
-    const res = await requestUpdate("darwin", "aarch64", "1.0.0");
-
-    expect(res.status).toBe(200);
-    expect((await res.json()).version).toBe("2.0.0");
-    expect(mockFetch.mock.calls[0][0]).toContain("per_page=100");
-  });
-
-  it("selects the highest compatible signed SemVer regardless of API order", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        makeRelease("1.1.0", updaterAssets("Alook_1.1.0_aarch64.app.tar.gz")),
-        makeRelease("3.0.0", [makeAsset("Alook_3.0.0_aarch64.app.tar.gz")]),
-        makeRelease("2.0.0", updaterAssets("Alook_2.0.0_aarch64.app.tar.gz")),
-      ],
-    });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "signature" });
-
-    const res = await requestUpdate("darwin", "aarch64", "1.0.0");
-
-    expect(res.status).toBe(200);
-    expect((await res.json()).version).toBe("2.0.0");
-  });
-
-  it("returns 502 when signature fetch fails", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        makeRelease("2.0.0", updaterAssets("Alook_2.0.0_aarch64.app.tar.gz")),
-      ],
-    });
-    mockFetch.mockResolvedValueOnce({ ok: false });
-
-    const res = await requestUpdate("darwin", "aarch64", "1.0.0");
-
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "Failed to fetch update signature" });
-  });
-
-  it("returns 502 when the signature body is empty", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        makeRelease("2.0.0", updaterAssets("Alook_2.0.0_amd64.AppImage")),
-      ],
-    });
-    mockFetch.mockResolvedValueOnce({ ok: true, text: async () => "  \n" });
-
-    const res = await requestUpdate("linux", "x86_64", "1.0.0", "appimage");
-
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "Update signature is empty" });
-  });
-
-  it("returns 204 when the current version is newer", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        makeRelease("1.0.0", updaterAssets("Alook_1.0.0_aarch64.app.tar.gz")),
-      ],
-    });
-
-    expect((await requestUpdate("darwin", "aarch64", "2.0.0")).status).toBe(204);
-  });
-});
+  )
+})
