@@ -1,5 +1,5 @@
 import { FORUM_ARCHIVE_TAG, communityReadSchemas, messagePreviewText, type CommunityChannelResource, type CommunityThreadsRead, type CommunityMessageResource, type CommunityMemberRelation } from "@alook/shared"
-import type { InfiniteData } from "@tanstack/react-query"
+import { replaceEqualDeep, type InfiniteData } from "@tanstack/react-query"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { ForumThread, Msg, Thread } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
@@ -83,6 +83,53 @@ export function forumFeedWindow(page: CommunityThreadResources): ForumFeedPage {
 export function forumFeedMatchesTags(filter: string | null, tags: readonly string[]) {
   const archived = tags.includes(FORUM_ARCHIVE_TAG)
   return filter === FORUM_ARCHIVE_TAG ? archived : !archived && (filter === null || tags.includes(filter))
+}
+
+export function reconcileForumFeedFirstPage(
+  previous: InfiniteData<ForumFeedPage, string | null> | undefined,
+  fresh: ForumFeedPage,
+): InfiniteData<ForumFeedPage, string | null> {
+  if (
+    !previous
+    || !Array.isArray(previous.pages)
+    || previous.pages.length === 0
+    || !Array.isArray(previous.pageParams)
+    || previous.pages.length !== previous.pageParams.length
+  ) {
+    return { pages: [fresh], pageParams: [null] }
+  }
+  if (
+    previous.pages.length === 1
+    || !fresh.hasMore
+    || !fresh.nextCursor
+    || fresh.nextCursor !== previous.pageParams[1]
+  ) {
+    if (
+      previous.pages.length === 1
+      && previous.pageParams[0] === null
+      && replaceEqualDeep(previous.pages[0], fresh) === previous.pages[0]
+    ) {
+      return previous
+    }
+    return { pages: [fresh], pageParams: [null] }
+  }
+  const freshThreadIds = new Set(fresh.threads.map((thread) => thread.id))
+  const freshOpenerIds = new Set(
+    fresh.threads.flatMap((thread) => (thread.openerMessageId ? [thread.openerMessageId] : [])),
+  )
+  const remainingPages = previous.pages.slice(1).map((olderPage) => ({
+    ...olderPage,
+    threads: olderPage.threads.filter(
+      (thread) =>
+        !freshThreadIds.has(thread.id)
+        && (!thread.openerMessageId || !freshOpenerIds.has(thread.openerMessageId)),
+    ),
+  }))
+  const candidate: InfiniteData<ForumFeedPage, string | null> = {
+    pages: [fresh, ...remainingPages],
+    pageParams: [null, ...previous.pageParams.slice(1)],
+  }
+  return replaceEqualDeep(previous, candidate) === previous ? previous : candidate
 }
 
 export function removeForumPostFromFeed(data: InfiniteData<ForumFeedPage> | undefined, childChannelId: string, openerMessageId: string) {

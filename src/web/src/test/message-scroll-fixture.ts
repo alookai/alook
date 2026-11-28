@@ -34,11 +34,15 @@ function isScrollRoot(node: HTMLElement) {
   const testId = node.getAttribute("data-testid")
   return testId === "scroll" || testId === "community-message-scroller" || testId === "community-forum-post-list"
 }
+function isFlowRowsContainer(node: HTMLElement | null | undefined): boolean {
+  return Boolean(node?.hasAttribute("data-message-rows") && node.style.position !== "relative")
+}
 function findNativeRows(root: HTMLElement): HTMLElement | null {
   const content = root.firstElementChild as HTMLElement | null
   const rows = content?.firstElementChild as HTMLElement | null
-  if (rows?.hasAttribute("data-message-rows")) return rows
-  return root.querySelector<HTMLElement>("[data-message-rows]")
+  if (rows && isFlowRowsContainer(rows)) return rows
+  const candidate = root.querySelector<HTMLElement>("[data-message-rows]")
+  return candidate && isFlowRowsContainer(candidate) ? candidate : null
 }
 let cachedRootsVersion = -1
 let cachedScrollRoots: HTMLElement[] = []
@@ -163,7 +167,7 @@ function invalidateMetricsCache() {
   cachedScrollRoots = []
 }
 function fastNodeHeight(node: HTMLElement): number {
-  if (node.hasAttribute("data-message-rows")) {
+  if (isFlowRowsContainer(node)) {
     return nativeRowsMetrics(node, rootFor(node)).totalHeight
   }
   const wrapper = node.hasAttribute("data-index") ? node : node.closest<HTMLElement>("[data-index]")
@@ -181,12 +185,12 @@ function listOffset(container: HTMLElement | null, root: HTMLElement | null | un
 }
 function rowGeometry(node: HTMLElement) {
   const root = rootFor(node)
-  if (node.hasAttribute("data-message-rows")) {
+  if (isFlowRowsContainer(node)) {
     const metrics = nativeRowsMetrics(node, root)
     return DOMRect.fromRect({ y: metrics.topOffset + (root?.clientTop ?? 0) - (root?.scrollTop ?? 0), width, height: metrics.totalHeight })
   }
   const wrapper = node.hasAttribute("data-index") ? node : node.closest<HTMLElement>("[data-index]")
-  const rowsContainer = wrapper?.parentElement?.hasAttribute("data-message-rows") ? wrapper.parentElement : null
+  const rowsContainer = isFlowRowsContainer(wrapper?.parentElement) ? wrapper!.parentElement : null
   if (wrapper && rowsContainer) {
     const metrics = nativeRowsMetrics(rowsContainer, root)
     const entry = metrics.offsets.get(wrapper)

@@ -1,13 +1,18 @@
 import { dehydrate } from "@tanstack/react-query"
+import "fake-indexeddb/auto"
 import { afterEach, expect, it, vi } from "vitest"
 import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
-import { PERSIST_BUSTER, readCommunityRestoredCollections } from "@/lib/query-persister"
+import { conversationEntryFixture, dmConversationEntryFixture, seedConversationEntry } from "@/test/conversation-entry-fixtures"
+import { profileResourceFixture, serverResourceFixture } from "@/test/community-resource-fixtures"
+import { clearPersistedCache, createCommunityRestorePersister, createIdbPersister, MAX_PERSISTED_MESSAGES_PER_SCOPE, PERSIST_BUSTER, PERSIST_MAX_AGE_MS, readCommunityRestoredCollections, shouldDehydrateCommunityQuery } from "@/lib/query-persister"
+import { persistQueryClientRestore } from "@tanstack/react-query-persist-client"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
+import { captureCommunityLiveSnapshotToken, discardCommunityRestoreReplacements, publishCommunityMessages, restoreCommunityCollections } from "@/lib/community-db/sync"
 import { retireCommunityAccount } from "./account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
 import { assessConversationScope, conversationEntryOptions, currentConversationReadState, findConversationEntryWindow } from "./conversation-entry"
+import { appendContiguousTailMessageToWindow } from "./message-reconcile"
 import type { MessageWindowData } from "./message-window"
 import { restoreConversationDisplayWindows } from "./restored-conversation-window"
 
@@ -114,4 +119,226 @@ it.each(["other account", "missing access", "revoked", "retired", "missing profi
   if (condition === "missing body") await writeCommunityCollectionRows(registry, "messages", [], row => row.id)
   restoreConversationDisplayWindows(registry, input)
   expect(client.getQueryData(key)).toBeUndefined()
+})
+
+it.each(["channel", "dm"] as const)("persists and cold-restores contiguous tail messages for %s while rejecting gaps and revoked scopes", async kind => {
+  const account = `tail-persist-${kind}-${crypto.randomUUID()}`
+  const source = await createCommunityQueryOwner(account)
+  const writer = createIdbPersister(account)
+  const reader = createIdbPersister(account)
+  try {
+    const entry = kind === "dm" ? dmConversationEntryFixture() : conversationEntryFixture()
+    entry.viewerId = account
+    entry.channel = { ...entry.channel, creatorId: account }
+    entry.profiles = [
+      ...entry.profiles,
+      profileResourceFixture({ id: account, name: "Viewer" }),
+    ]
+    entry.messages = [1, 2].map((seq) => ({
+      ...entry.messages[0],
+      id: `m${seq}`,
+      seq,
+      authorId: seq === 1 ? "peer" : account,
+      createdAt: `2026-10-01T00:00:0${seq}.000Z`,
+    }))
+    entry.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 2 }
+    if (kind === "channel") {
+      await writeCommunityCollectionRows(
+        source.registry,
+        "servers",
+        [serverResourceFixture({ id: "s1", ownerId: account })],
+        (row) => row.id,
+      )
+    }
+    await seedConversationEntry(source.client, entry)
+
+    const contiguous = {
+      ...entry.messages[0],
+      id: "m3",
+      seq: 3,
+      authorId: account,
+      content: "Sent tail",
+      createdAt: "2026-10-01T00:00:03.000Z",
+    }
+    await publishCommunityMessages(source.client, {
+      channelId: "c1",
+      messages: [contiguous],
+      profiles: entry.profiles,
+      proof: { token: captureCommunityLiveSnapshotToken(source.client, "c1") },
+    })
+    expect(appendContiguousTailMessageToWindow(source.client, "c1", contiguous)).toBe(true)
+    // Duplicate append is a no-op.
+    expect(appendContiguousTailMessageToWindow(source.client, "c1", contiguous)).toBe(false)
+
+    // Non-contiguous gap (seq 5 when latest is 3) must NOT be spliced.
+    const gapped = {
+      ...entry.messages[0],
+      id: "m5",
+      seq: 5,
+      authorId: "peer",
+      content: "After gap",
+      createdAt: "2026-10-01T00:00:05.000Z",
+    }
+    await publishCommunityMessages(source.client, {
+      channelId: "c1",
+      messages: [gapped],
+      profiles: entry.profiles,
+      proof: { token: captureCommunityLiveSnapshotToken(source.client, "c1") },
+    })
+    expect(appendContiguousTailMessageToWindow(source.client, "c1", gapped)).toBe(false)
+
+    // Revoked scope must reject contiguous seq 4.
+    const blocked = {
+      ...entry.messages[0],
+      id: "m4",
+      seq: 4,
+      authorId: "peer",
+      content: "After revoke",
+      createdAt: "2026-10-01T00:00:04.000Z",
+    }
+    await publishCommunityMessages(source.client, {
+      channelId: "c1",
+      messages: [blocked],
+      profiles: entry.profiles,
+      proof: { token: captureCommunityLiveSnapshotToken(source.client, "c1") },
+    })
+    source.registry.runtime.ws.actions.revokeChannelAccess(entry.channel.serverId, "c1")
+    expect(appendContiguousTailMessageToWindow(source.client, "c1", blocked)).toBe(false)
+    source.registry.runtime.ws.actions.rememberChannelAccess(entry.channel.serverId, "c1")
+
+    await writer.persistClient({
+      timestamp: Date.now(),
+      buster: PERSIST_BUSTER,
+      clientState: dehydrate(source.client, { shouldDehydrateQuery: shouldDehydrateCommunityQuery }),
+    })
+    writer.stopPersisting()
+    await source.registry.cleanup()
+    source.client.clear()
+
+    const next = await createCommunityQueryOwner(account)
+    const restore = createCommunityRestorePersister(reader, account)
+    await persistQueryClientRestore({
+      queryClient: next.client,
+      persister: restore.persister,
+      buster: PERSIST_BUSTER,
+      maxAge: PERSIST_MAX_AGE_MS,
+    })
+    const input = restore.takeCollections()
+    await restoreCommunityCollections(next.registry, input)
+    next.registry.captureRestoredCollections(input)
+    next.registry.runtime.ws.actions.activateProfileAccount(account)
+    discardCommunityRestoreReplacements(next.registry)
+    restoreConversationDisplayWindows(next.registry, input)
+
+    const key = communityKeys.channelMessages("c1")
+    const restored = next.client.getQueryData<MessageWindowData>(key)!
+    expect(restored.pages[0].messages.map((row) => row.id)).toEqual(["m1", "m2", "m3"])
+    expect(restored.pages[0].latestSeq).toBe(3)
+    expect(restored.pages[0].newestCursor).toBe("2026-10-01T00:00:03.000Z|m3")
+
+    // Reconcile entry=1 after cold restore produces zero duplicates and intact cursors.
+    const refreshedEntry = {
+      ...entry,
+      messages: [...entry.messages, contiguous],
+      page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 3 },
+    }
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(refreshedEntry, {
+      headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_CONTRACT_VERSION) },
+    }))
+    await next.client.query(conversationEntryOptions(next.client, { channelId: "c1", serverId: entry.channel.serverId }))
+    await next.client.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })?.promise
+    const settled = next.client.getQueryData<MessageWindowData>(key)!
+    expect(settled.pages[0].messages.map((row) => row.id)).toEqual(["m1", "m2", "m3"])
+    expect(settled.pages[0].hasMoreNewer).toBe(false)
+    expect(settled.pages[0].hasMoreOlder).toBe(false)
+    expect(settled.pages[0].newestCursor).toBe("2026-10-01T00:00:03.000Z|m3")
+    await next.registry.cleanup()
+    next.client.clear()
+  } finally {
+    writer.stopPersisting()
+    reader.stopPersisting()
+    await clearPersistedCache(account)
+  }
+})
+
+it("bounds persisted newest window to MAX_PERSISTED_MESSAGES_PER_SCOPE while retaining the appended tail", async () => {
+  const account = `tail-bound-${crypto.randomUUID()}`
+  const source = await createCommunityQueryOwner(account)
+  const writer = createIdbPersister(account)
+  const reader = createIdbPersister(account)
+  try {
+    const entry = dmConversationEntryFixture()
+    entry.viewerId = account
+    entry.channel = { ...entry.channel, creatorId: account }
+    entry.profiles = [...entry.profiles, profileResourceFixture({ id: account, name: "Viewer" })]
+    entry.messages = Array.from({ length: MAX_PERSISTED_MESSAGES_PER_SCOPE }, (_, index) => ({
+      ...entry.messages[0],
+      id: `m${index + 1}`,
+      seq: index + 1,
+      authorId: "peer",
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index + 1)).toISOString(),
+    }))
+    entry.page = {
+      olderCursor: null,
+      newerCursor: null,
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      latestSeq: MAX_PERSISTED_MESSAGES_PER_SCOPE,
+    }
+    await seedConversationEntry(source.client, entry)
+
+    const tailSeq = MAX_PERSISTED_MESSAGES_PER_SCOPE + 1
+    const tailMessage = {
+      ...entry.messages[0],
+      id: `m${tailSeq}`,
+      seq: tailSeq,
+      authorId: account,
+      content: "Newest tail beyond cap",
+      createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, tailSeq)).toISOString(),
+    }
+    await publishCommunityMessages(source.client, {
+      channelId: "c1",
+      messages: [tailMessage],
+      profiles: entry.profiles,
+      proof: { token: captureCommunityLiveSnapshotToken(source.client, "c1") },
+    })
+    expect(appendContiguousTailMessageToWindow(source.client, "c1", tailMessage)).toBe(true)
+
+    await writer.persistClient({
+      timestamp: Date.now(),
+      buster: PERSIST_BUSTER,
+      clientState: dehydrate(source.client, { shouldDehydrateQuery: shouldDehydrateCommunityQuery }),
+    })
+    writer.stopPersisting()
+    await source.registry.cleanup()
+    source.client.clear()
+
+    const next = await createCommunityQueryOwner(account)
+    const restore = createCommunityRestorePersister(reader, account)
+    await persistQueryClientRestore({
+      queryClient: next.client,
+      persister: restore.persister,
+      buster: PERSIST_BUSTER,
+      maxAge: PERSIST_MAX_AGE_MS,
+    })
+    const input = restore.takeCollections()
+    await restoreCommunityCollections(next.registry, input)
+    next.registry.captureRestoredCollections(input)
+    next.registry.runtime.ws.actions.activateProfileAccount(account)
+    discardCommunityRestoreReplacements(next.registry)
+    restoreConversationDisplayWindows(next.registry, input)
+
+    const restored = next.client.getQueryData<MessageWindowData>(communityKeys.channelMessages("c1"))!
+    expect(restored.pages[0].messages).toHaveLength(MAX_PERSISTED_MESSAGES_PER_SCOPE)
+    expect(restored.pages[0].messages[0]).toEqual({ id: "m2", seq: 2 })
+    expect(restored.pages[0].messages.at(-1)).toEqual({ id: `m${tailSeq}`, seq: tailSeq })
+    expect(restored.pages[0].hasMoreOlder).toBe(true)
+    expect(restored.pages[0].latestSeq).toBe(tailSeq)
+    await next.registry.cleanup()
+    next.client.clear()
+  } finally {
+    writer.stopPersisting()
+    reader.stopPersisting()
+    await clearPersistedCache(account)
+  }
 })

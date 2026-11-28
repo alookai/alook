@@ -26,6 +26,9 @@ import { reconcileWindow } from "@/lib/community/message-reconcile"
 import { useConversationEntry } from "./use-conversation-entry"
 import { useChannelMetadata } from "./use-channel-metadata"
 import { useDmMessages, useMessages } from "./use-messages"
+import { useSendDmMessage, useSendMessage } from "./mutations/messages"
+import { handleMessageCreate } from "./community-ws/message-events"
+import type { CommunityWsHandlerContext } from "./community-ws/handler-context"
 import { useForumFeed } from "./use-forum-feed"
 import { useMessageListController } from "@/components/community/messages/message-list-controller"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize } from "@/test/message-scroll-fixture"
@@ -2046,6 +2049,254 @@ describe("cache-first New boundary and jump", () => {
     } finally {
       view.unmount()
       owner.client.clear()
+    }
+  })
+})
+
+describe("cold-start cached tail persistence for sent and contiguous WS messages", () => {
+  it.each(["channel", "dm"] as const)("persists a sent %s message through cold restore before entry=1 resolves and reconciles without duplicates", async (kind) => {
+    const account = `cold-send-tail-${kind}-${crypto.randomUUID()}`
+    const source = await createCommunityQueryOwner(account)
+    const writer = createIdbPersister(account)
+    const reader = createIdbPersister(account)
+    try {
+      const base = kind === "dm" ? dmConversationEntryFixture() : fixture()
+      base.viewerId = account
+      base.channel = { ...base.channel, creatorId: account }
+      base.profiles = [...base.profiles, profileResourceFixture({ id: account, name: "Viewer" })]
+      base.messages = [1, 2].map((seq) => ({
+        ...base.messages[0],
+        id: `m${seq}`,
+        seq,
+        authorId: seq === 1 ? "peer" : account,
+        content: `Initial ${seq}`,
+        createdAt: `2026-10-01T00:00:0${seq}.000Z`,
+      }))
+      base.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 2 }
+      if (kind === "channel") {
+        await writeCommunityCollectionChanges(source.registry, "servers", [serverResourceFixture({ id: "s1", ownerId: account })])
+      }
+      await seedConversationEntry(source.client, base)
+
+      const sent = {
+        ...base.messages[0],
+        id: "m3",
+        seq: 3,
+        authorId: account,
+        clientNonce: "nonce-3",
+        content: "Just sent before reload",
+        createdAt: "2026-10-01T00:00:03.000Z",
+      }
+      load.mockResolvedValueOnce({ message: sent, profiles: base.profiles, relatedMessages: [] })
+      const sourceWrapper = ({ children }: PropsWithChildren) => (
+        <QueryClientProvider client={source.client}>
+          <CommunityDbProvider registry={source.registry}>{children}</CommunityDbProvider>
+        </QueryClientProvider>
+      )
+      const sender = renderHook(
+        () => (kind === "dm" ? useSendDmMessage() : useSendMessage()),
+        { wrapper: sourceWrapper },
+      )
+      await act(async () => {
+        if (kind === "dm") {
+          await (sender.result.current as ReturnType<typeof useSendDmMessage>).mutateAsync({
+            dmId: "c1",
+            content: sent.content,
+            nonce: "nonce-3",
+          })
+        } else {
+          await (sender.result.current as ReturnType<typeof useSendMessage>).mutateAsync({
+            serverId: "s1",
+            channelId: "c1",
+            content: sent.content,
+            nonce: "nonce-3",
+            author: { id: account, name: "Viewer", avatar: "V" },
+          })
+        }
+      })
+      sender.unmount()
+
+      await writer.persistClient({
+        timestamp: Date.now(),
+        buster: PERSIST_BUSTER,
+        clientState: dehydrate(source.client, { shouldDehydrateQuery: shouldDehydrateCommunityQuery }),
+      })
+      writer.stopPersisting()
+      await source.registry.cleanup()
+      source.client.clear()
+
+      const next = await createCommunityQueryOwner(account)
+      const restore = createCommunityRestorePersister(reader, account)
+      await persistQueryClientRestore({
+        queryClient: next.client,
+        persister: restore.persister,
+        buster: PERSIST_BUSTER,
+        maxAge: PERSIST_MAX_AGE_MS,
+      })
+      const input = restore.takeCollections()
+      await restoreCommunityCollections(next.registry, input)
+      next.registry.captureRestoredCollections(input)
+      next.registry.runtime.ws.actions.activateProfileAccount(account)
+      discardCommunityRestoreReplacements(next.registry)
+      restoreConversationDisplayWindows(next.registry, input)
+
+      const refreshed = {
+        ...base,
+        messages: [...base.messages, sent],
+        page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 3 },
+      }
+      const held = deferred<typeof refreshed>()
+      load.mockReturnValue(held.promise)
+      const nextWrapper = ({ children }: PropsWithChildren) => (
+        <QueryClientProvider client={next.client}>
+          <CommunityDbProvider registry={next.registry}>{children}</CommunityDbProvider>
+        </QueryClientProvider>
+      )
+      const restoredHook = renderHook(
+        () => (kind === "dm" ? useDmMessages("c1", { viewerUserId: account }) : useMessages("c1", { serverId: "s1", viewerUserId: account })),
+        { wrapper: nextWrapper },
+      )
+      try {
+        await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+        // Immediately present on the cold-restored cached window before entry=1 resolves.
+        expect(restoredHook.result.current.messages.map((message) => message.id)).toEqual(["m1", "m2", "m3"])
+        expect(restoredHook.result.current.initialDisplayReady).toBe(true)
+
+        await act(async () => { held.resolve(refreshed) })
+        await waitFor(() => expect(restoredHook.result.current.hasMoreNewer).toBe(false))
+        // Reconciled landing has zero duplicates and intact boundaries.
+        expect(restoredHook.result.current.messages.map((message) => message.id)).toEqual(["m1", "m2", "m3"])
+        expect(restoredHook.result.current.historyStartKnown).toBe(true)
+        expect(restoredHook.result.current.latestSeq).toBe(3)
+      } finally {
+        restoredHook.unmount()
+        await next.registry.cleanup()
+        next.client.clear()
+      }
+    } finally {
+      writer.stopPersisting()
+      reader.stopPersisting()
+      await clearPersistedCache(account)
+    }
+  })
+
+  it("persists contiguous WS message.create across cold restore while refusing non-contiguous gaps", async () => {
+    const account = `cold-ws-tail-${crypto.randomUUID()}`
+    const source = await createCommunityQueryOwner(account)
+    const writer = createIdbPersister(account)
+    const reader = createIdbPersister(account)
+    try {
+      const base = fixture()
+      base.viewerId = account
+      base.channel = { ...base.channel, creatorId: account }
+      base.profiles = [...base.profiles, profileResourceFixture({ id: account, name: "Viewer" })]
+      base.messages = [1, 2].map((seq) => ({
+        ...base.messages[0],
+        id: `m${seq}`,
+        seq,
+        authorId: "peer",
+        content: `Initial ${seq}`,
+        createdAt: `2026-10-01T00:00:0${seq}.000Z`,
+      }))
+      base.page = { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 2 }
+      await writeCommunityCollectionChanges(source.registry, "servers", [serverResourceFixture({ id: "s1", ownerId: account })])
+      await seedConversationEntry(source.client, base)
+
+      const wsContext: CommunityWsHandlerContext = {
+        queryClient: source.client,
+        wsStore: source.runtime.ws,
+        communityStore: source.runtime.ui,
+        deliveryMode: "single",
+        sub: { channelId: "c1" },
+        viewerUserIdRef: { current: account },
+        matchesFocus: () => true,
+        projection: {
+          invalidate: vi.fn(),
+          invalidateForumSidebar: vi.fn(),
+          invalidateFriends: vi.fn(),
+          invalidatePins: vi.fn(),
+        } as unknown as CommunityWsHandlerContext["projection"],
+        contract: base.contractVersion,
+      }
+
+      const contiguous = {
+        ...base.messages[0],
+        id: "m3",
+        seq: 3,
+        authorId: "peer",
+        authorName: "Peer",
+        authorAvatarVersion: 5,
+        content: "Contiguous WS tail",
+        createdAt: "2026-10-01T00:00:03.000Z",
+      }
+      const gapped = {
+        ...base.messages[0],
+        id: "m6",
+        seq: 6,
+        authorId: "peer",
+        authorName: "Peer",
+        authorAvatarVersion: 5,
+        content: "Gapped WS message",
+        createdAt: "2026-10-01T00:00:06.000Z",
+      }
+      handleMessageCreate(
+        { type: "community:message.create", serverId: "s1", channelId: "c1", message: contiguous, profiles: base.profiles },
+        wsContext,
+      )
+      handleMessageCreate(
+        { type: "community:message.create", serverId: "s1", channelId: "c1", message: gapped, profiles: base.profiles },
+        wsContext,
+      )
+
+      await writer.persistClient({
+        timestamp: Date.now(),
+        buster: PERSIST_BUSTER,
+        clientState: dehydrate(source.client, { shouldDehydrateQuery: shouldDehydrateCommunityQuery }),
+      })
+      writer.stopPersisting()
+      await source.registry.cleanup()
+      source.client.clear()
+
+      const next = await createCommunityQueryOwner(account)
+      const restore = createCommunityRestorePersister(reader, account)
+      await persistQueryClientRestore({
+        queryClient: next.client,
+        persister: restore.persister,
+        buster: PERSIST_BUSTER,
+        maxAge: PERSIST_MAX_AGE_MS,
+      })
+      const input = restore.takeCollections()
+      await restoreCommunityCollections(next.registry, input)
+      next.registry.captureRestoredCollections(input)
+      next.registry.runtime.ws.actions.activateProfileAccount(account)
+      discardCommunityRestoreReplacements(next.registry)
+      restoreConversationDisplayWindows(next.registry, input)
+
+      const held = deferred<typeof base>()
+      load.mockReturnValue(held.promise)
+      const nextWrapper = ({ children }: PropsWithChildren) => (
+        <QueryClientProvider client={next.client}>
+          <CommunityDbProvider registry={next.registry}>{children}</CommunityDbProvider>
+        </QueryClientProvider>
+      )
+      const restoredHook = renderHook(
+        () => useMessages("c1", { serverId: "s1", viewerUserId: account }),
+        { wrapper: nextWrapper },
+      )
+      try {
+        await waitFor(() => expect(load).toHaveBeenCalledOnce())
+        // Contiguous m3 is immediately visible; gapped m6 was NOT spliced.
+        expect(restoredHook.result.current.messages.map((message) => message.id)).toEqual(["m1", "m2", "m3"])
+        expect(restoredHook.result.current.latestSeq).toBe(3)
+      } finally {
+        restoredHook.unmount()
+        await next.registry.cleanup()
+        next.client.clear()
+      }
+    } finally {
+      writer.stopPersisting()
+      reader.stopPersisting()
+      await clearPersistedCache(account)
     }
   })
 })

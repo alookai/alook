@@ -19,7 +19,7 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { clearTypingIndicator, typingScopeKey } from "@/lib/community/typing"
 import type { CommunityWsHandlerContext } from "@/hooks/community/community-ws/handler-context"
-import { scheduleFocusedMessageGapRepair } from "@/lib/community/message-reconcile"
+import { appendContiguousTailMessageToWindow, scheduleFocusedMessageGapRepair } from "@/lib/community/message-reconcile"
 import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-reservation"
 import {
   approvalProfilePatches,
@@ -67,6 +67,7 @@ export function handleMessageCreate(
     && matchesFocus(event)
   const projected = projectCommunityWsEventToDb(queryClient, event, contract)
   if (!projected) return
+  appendContiguousTailMessageToWindow(queryClient, event.channelId, projected)
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {
       channelId: event.channelId,

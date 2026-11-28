@@ -251,15 +251,124 @@ describe("conversation entry canonical publication", () => {
     }
   })
 
-  it("preserves a valid multipage forum feed and its cursors", async () => {
+  it("reconciles page 0 of a valid multipage forum feed when page 0 cursor matches pageParams[1]", async () => {
     const { client } = await createCommunityQueryOwner()
     const key = communityKeys.forumFeed("c1", null)
-    const previous = { pages: [{ threads: [], nextCursor: "older" }, { threads: [], nextCursor: null }], pageParams: [null, "older"] }
+    const initial = forumConversationEntryFixture()
+    await publishConversationEntry(client, target, initial, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const previous = {
+      pages: [
+        { serverId: "s1", parentType: "forum", threads: [], hasMore: true, nextCursor: "older" },
+        { serverId: "s1", parentType: "forum", threads: [{ id: "t1", openerMessageId: "m1", participantIds: [] }], hasMore: false },
+      ],
+      pageParams: [null, "older"],
+    }
     client.setQueryData(key, previous)
-    const value = forumConversationEntryFixture()
-    const resource = await publishConversationEntry(client, target, value, { token: captureCommunityLiveSnapshotToken(client, "c1") })
-    expect(client.getQueryData(key)).toBe(previous)
-    expect(findConversationEntryWindow(client, target, resource, value.readState)?.key).toEqual(key)
+    const fresh = forumConversationEntryFixture()
+    const secondOpener = { ...fresh.forumFeed!.included.messages[0], id: "m2", seq: 2, content: "Second post", createdAt: "2026-10-01T00:00:02.000Z" }
+    const secondThread = { ...fresh.forumFeed!.threads[0], id: "t2", parentMessageId: "m2", name: "Second post", createdAt: "2026-10-01T00:00:02.000Z" }
+    fresh.forumFeed = {
+      ...fresh.forumFeed!,
+      threads: [secondThread, fresh.forumFeed!.threads[0]],
+      included: { ...fresh.forumFeed!.included, messages: [secondOpener, fresh.forumFeed!.included.messages[0]] },
+      page: { hasMore: true, nextCursor: "older" },
+    }
+    const resource = await publishConversationEntry(client, target, fresh, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    expect(client.getQueryData(key)).toEqual({
+      pages: [
+        {
+          serverId: "s1",
+          parentType: "forum",
+          threads: [
+            { id: "t2", openerMessageId: "m2", participantIds: [] },
+            { id: "t1", openerMessageId: "m1", participantIds: [] },
+          ],
+          hasMore: true,
+          nextCursor: "older",
+        },
+        { serverId: "s1", parentType: "forum", threads: [], hasMore: false },
+      ],
+      pageParams: [null, "older"],
+    })
+    expect(findConversationEntryWindow(client, target, resource, fresh.readState)?.key).toEqual(key)
+  })
+
+  it.each(["cursor-shifted", "shrunk"] as const)("resets a multipage forum feed to fresh page 0 when %s", async reason => {
+    const { client } = await createCommunityQueryOwner()
+    const key = communityKeys.forumFeed("c1", null)
+    const initial = forumConversationEntryFixture()
+    await publishConversationEntry(client, target, initial, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const previous = {
+      pages: [
+        { serverId: "s1", parentType: "forum", threads: [], hasMore: true, nextCursor: "older" },
+        { serverId: "s1", parentType: "forum", threads: [{ id: "t1", openerMessageId: "m1", participantIds: [] }], hasMore: false },
+      ],
+      pageParams: [null, "older"],
+    }
+    client.setQueryData(key, previous)
+    const fresh = forumConversationEntryFixture()
+    const secondOpener = { ...fresh.forumFeed!.included.messages[0], id: "m2", seq: 2, content: "Second post", createdAt: "2026-10-01T00:00:02.000Z" }
+    const secondThread = { ...fresh.forumFeed!.threads[0], id: "t2", parentMessageId: "m2", name: "Second post", createdAt: "2026-10-01T00:00:02.000Z" }
+    fresh.forumFeed = {
+      ...fresh.forumFeed!,
+      threads: [secondThread],
+      included: { ...fresh.forumFeed!.included, messages: [secondOpener] },
+      page: reason === "cursor-shifted"
+        ? { hasMore: true, nextCursor: "newer-boundary" }
+        : { hasMore: false, nextCursor: null },
+    }
+    const resource = await publishConversationEntry(client, target, fresh, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    expect(client.getQueryData(key)).toEqual({
+      pages: [
+        {
+          serverId: "s1",
+          parentType: "forum",
+          threads: [{ id: "t2", openerMessageId: "m2", participantIds: [] }],
+          hasMore: reason === "cursor-shifted",
+          ...(reason === "cursor-shifted" ? { nextCursor: "newer-boundary" } : {}),
+        },
+      ],
+      pageParams: [null],
+    })
+    expect(findConversationEntryWindow(client, target, resource, fresh.readState)?.key).toEqual(key)
+  })
+
+  it("refreshes a stale cached forum feed on entry=1 and marks entry stale when attention seq is ahead", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const initial = forumConversationEntryFixture()
+    load.mockResolvedValueOnce(initial)
+    const options = conversationEntryOptions(client, target)
+    await client.query({ ...options, select: undefined })
+    expect(load).toHaveBeenCalledOnce()
+
+    // Within staleTime without newer attention, cached forum entry is reused without refetch.
+    await client.query({ ...conversationEntryOptions(client, target), select: undefined })
+    expect(load).toHaveBeenCalledOnce()
+
+    // When Inbox attention reports a newer unread opener seq, forum entry becomes stale immediately.
+    await writeCommunityCollectionRows(registry, "attentionScopes", [{
+      scopeId: "c1",
+      channelId: "c1",
+      serverId: "s1",
+      parentChannelId: null,
+      ordinaryUnread: true,
+      lastUnreadSeq: 2,
+      lastAttentionSeq: 2,
+      attentionCount: 1,
+    }], (row) => row.scopeId)
+
+    const updated = forumConversationEntryFixture()
+    const secondOpener = { ...updated.forumFeed!.included.messages[0], id: "m2", seq: 2, content: "New post", createdAt: "2026-10-01T00:00:02.000Z" }
+    const secondThread = { ...updated.forumFeed!.threads[0], id: "t2", parentMessageId: "m2", name: "New post", createdAt: "2026-10-01T00:00:02.000Z" }
+    updated.forumFeed = {
+      ...updated.forumFeed!,
+      threads: [secondThread, updated.forumFeed!.threads[0]],
+      included: { ...updated.forumFeed!.included, messages: [secondOpener, updated.forumFeed!.included.messages[0]] },
+    }
+    load.mockResolvedValueOnce(updated)
+    await client.query({ ...conversationEntryOptions(client, target), select: undefined })
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(client.getQueryData<{ pages: Array<{ threads: Array<{ id: string; openerMessageId: string | null }> }> }>(communityKeys.forumFeed("c1", null))?.pages[0]?.threads.map(t => t.openerMessageId)).toEqual(["m2", "m1"])
   })
 
   it("publishes a cold DM peer closure without another directory or message body cache", async () => {

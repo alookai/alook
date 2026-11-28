@@ -2,7 +2,7 @@ import { completeCommunityPublication } from "@/lib/community-db/sync"
 import { COMMUNITY_RESOURCE_CONTRACT_VERSION } from "@alook/shared"
 import { isFailedMessageRepair, reconcileConversationLanding } from "@/lib/community/message-reconcile"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
-import { hashKey, notifyManager, queryOptions, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
+import { hashKey, notifyManager, queryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { COMMUNITY_CONTRACT_HEADER, CommunityConversationEntryReadSchema, type CommunityConversationEntryRead, type CommunityReadStateResource, type CommunityMessageResources } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -21,7 +21,7 @@ import {
 import { messageWindowPage, type MessagesPageParam } from "./models/message"
 import { messageWindowIdentity, type InitialMessageWindow, type MessageWindowData } from "./message-window"
 import { isConversationAnchorMissingError, retryConversationRead, withConversationReadDeadline } from "./conversation-read"
-import { forumFeedWindow, normalizeThreadResources, type ForumFeedPage } from "@/lib/community/forum-feed-window"
+import { forumFeedWindow, normalizeThreadResources, reconcileForumFeedFirstPage, type ForumFeedPage } from "@/lib/community/forum-feed-window"
 
 export type ConversationEntryTarget = {
   channelId: string
@@ -148,8 +148,13 @@ function publishConversationEntryResult(
       const page = normalizeThreadResources(channel.id, entry.forumFeed)
       void publishCommunityForumFeed(client, channel.id, page, proof)
       void afterCommunityCollectionWrites(registry, () => {
-      if (conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) publication.retainedWindow = true
-      else client.setQueryData(windowKey, { pages: [forumFeedWindow(page)], pageParams: [null] })
+        const fresh = forumFeedWindow(page)
+        if (conversationDisplayWindows(client, target, { channelId: channel.id, proof: qualified, windowKey })?.some(window => hashKey(window.key) === hashKey(windowKey))) {
+          publication.retainedWindow = true
+          client.setQueryData<InfiniteData<ForumFeedPage, string | null>>(windowKey, (previous) => reconcileForumFeedFirstPage(previous, fresh))
+        } else {
+          client.setQueryData(windowKey, { pages: [fresh], pageParams: [null] })
+        }
       })
     }
     else {
@@ -477,10 +482,22 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
       const pointer = knownPointer && resource.readStateRevision <= (knownPointer.observedRevision ?? -1) ? knownPointer : resource.readStateAtEntry
       const window = findConversationEntryWindow(client, target, resource, pointer)
       if (!window) return 0
-      if (!target.anchorMessageId && !target.tag && messageWindowIdentity(window.key)) {
-        const cachedWindow = client.getQueryData<MessageWindowData>(window.key)!
-        const observedLatest = Math.max(0, ...cachedWindow.pages.map(page => page.latestSeq ?? 0))
-        if (knownConversationLatestSeq(client, target.channelId) > observedLatest) return 0
+      if (!target.anchorMessageId && !target.tag) {
+        if (messageWindowIdentity(window.key)) {
+          const cachedWindow = client.getQueryData<MessageWindowData>(window.key)!
+          const observedLatest = Math.max(0, ...cachedWindow.pages.map(page => page.latestSeq ?? 0))
+          if (knownConversationLatestSeq(client, target.channelId) > observedLatest) return 0
+        } else {
+          const feed = client.getQueryData<InfiniteData<ForumFeedPage, string | null>>(window.key)
+          const messages = getCommunityDbRegistry(client)?.collections.messages
+          const observedLatest = Math.max(
+            0,
+            ...(feed?.pages.flatMap((page) =>
+              page.threads.map((thread) => (thread.openerMessageId ? messages?.get(thread.openerMessageId)?.seq ?? 0 : 0)),
+            ) ?? []),
+          )
+          if (knownConversationLatestSeq(client, target.channelId) > observedLatest) return 0
+        }
       }
       return 5_000
     },

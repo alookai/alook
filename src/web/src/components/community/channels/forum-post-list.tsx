@@ -174,17 +174,22 @@ function ForumPostListOwner({ posts, loading, tag, positionScope, hasMore, loadi
     virtualizer, count: posts.length, enabled: !loading,
     hasMore, isFetching: isFetching || loadingMore, isError, onLoad: onLoadMore, edge: "end",
   })
+  const readPositionReady = !posts.length ? !loading : positionReady
   return <ScrollAreaRoot className="relative flex min-h-0 flex-1 flex-col">
     <ScrollAreaViewport ref={bindScrollRoot} role="main" data-testid={tid.forumPostList} data-community-conversation-subtype="forum"
       aria-busy={presentation.showSkeleton || undefined} aria-label={presentation.showSkeleton ? "Loading forum" : undefined}
       className={`min-h-0 flex-1 overflow-x-clip overflow-y-auto scroll-fade-y scroll-fade-4 [overflow-anchor:none] ${FORUM_LIST_SPACING_CLASS}`}>
-      <ScrollAreaContent className="flex min-h-full flex-col">
-        {!posts.length && loading ? <div data-message-list-content aria-hidden="false" data-read-position-ready="false">{loadingContent}</div>
-          : !posts.length ? <div className="flex min-h-full flex-1 flex-col" data-message-list-content aria-hidden="false" data-read-position-ready="true"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
+      <ScrollAreaContent
+        data-message-list-content
+        aria-hidden="false"
+        data-read-position-ready={readPositionReady ? "true" : "false"}
+        className="flex min-h-full flex-col"
+      >
+        {!posts.length && loading ? <div>{loadingContent}</div>
+          : !posts.length ? <div className="flex min-h-full flex-1 flex-col"><EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." /></div>
           : <VirtualRows directDomUpdatesMode="position" items={posts} virtualizer={virtualizer}
             renderItem={(post, index) => <ForumPostListItem first={index === 0} onActivate={onOpenPost ? () => onOpenPost(post.id) : undefined}>{renderPost(post, index)}</ForumPostListItem>}
-            containerAttributes={{ "data-message-list-content": "", "aria-hidden": false,
-              "data-read-position-ready": positionReady ? "true" : "false" }} />}
+            containerAttributes={{ "data-message-rows": "" }} />}
       </ScrollAreaContent>
     </ScrollAreaViewport>
     <ScrollBar orientation="vertical" />

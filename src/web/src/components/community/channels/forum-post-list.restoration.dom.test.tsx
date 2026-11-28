@@ -16,7 +16,11 @@ describe("Forum native list identity and ordinary reconstruction", () => {
     const view = render(<ForumPostList posts={posts} renderPost={renderPost} loadingContent={<span>Loading</span>} />)
     resize()
     const root = view.getByTestId("community-forum-post-list")
-    expect(root.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "true")
+    const content = root.firstElementChild
+    expect(content).toHaveAttribute("data-message-list-content")
+    expect(content).toHaveAttribute("aria-hidden", "false")
+    expect(content).toHaveAttribute("data-read-position-ready", "true")
+    expect(content?.firstElementChild).toHaveAttribute("data-message-rows")
     expect(root.scrollTop).toBe(0)
   })
 
