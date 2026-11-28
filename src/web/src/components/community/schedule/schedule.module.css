@@ -1,17 +1,3 @@
-/* Alook Technostalgia frameless schedule controls, shimmer skeletons & motion tokens.
- * Built strictly on Alook's existing --tn-* and semantic theme tokens so light
- * (warm paper / beige plastic / CD blue) and dark (pure black / glass / neon)
- * stay in lockstep without duplicating theme palettes. */
-
-@keyframes scheduleShimmerSweep {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
 @keyframes scheduleProgressGlide {
   0% {
     transform: translateX(-100%) scaleX(0.35);
@@ -24,46 +10,79 @@
   }
 }
 
-@keyframes scheduleNowPulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px color-mix(in oklab, var(--primary) 0%, transparent);
+@keyframes scheduleFadeIn {
+  from {
+    opacity: 0;
   }
-  50% {
-    box-shadow: 0 0 0 2px var(--background), 0 0 0 6px color-mix(in oklab, var(--primary) 26%, transparent);
+  to {
+    opacity: 1;
   }
 }
 
-/* High-visibility shimmer skeleton in BOTH light warm paper and dark #000 surfaces */
-.skeletonShimmer {
-  background-color: color-mix(in oklab, var(--foreground) 8%, var(--background));
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in oklab, var(--foreground) 7%, transparent) 45%,
-    color-mix(in oklab, var(--foreground) 13%, transparent) 50%,
-    color-mix(in oklab, var(--foreground) 7%, transparent) 55%,
-    transparent 100%
-  );
-  background-size: 220% 100%;
-  animation: scheduleShimmerSweep 1.55s cubic-bezier(0.25, 0.8, 0.25, 1) infinite;
+@keyframes scheduleSlideFromRight {
+  from {
+    opacity: 0.45;
+    transform: translate3d(16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
 
-:global(.dark) .skeletonShimmer,
-:global([data-tn-mode="dark"]) .skeletonShimmer {
-  background-color: rgb(255 255 255 / 11%);
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgb(255 255 255 / 8%) 42%,
-    rgb(255 255 255 / 19%) 50%,
-    rgb(255 255 255 / 8%) 58%,
-    transparent 100%
-  );
-  background-size: 220% 100%;
+@keyframes scheduleSlideFromLeft {
+  from {
+    opacity: 0.45;
+    transform: translate3d(-16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
 
-/* Subtle header indeterminate progress rail for uncached date switches */
+@keyframes scheduleSlideFromRightSoft {
+  from {
+    opacity: 0.55;
+    transform: translate3d(10px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes scheduleSlideFromLeftSoft {
+  from {
+    opacity: 0.55;
+    transform: translate3d(-10px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.contentFadeIn {
+  animation: scheduleFadeIn 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.slideFromRight {
+  animation: scheduleSlideFromRight 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.slideFromLeft {
+  animation: scheduleSlideFromLeft 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.slideFromRightSoft {
+  animation: scheduleSlideFromRightSoft 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.slideFromLeftSoft {
+  animation: scheduleSlideFromLeftSoft 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 .loadingRail {
   position: absolute;
   inset-inline: 0;
@@ -117,8 +136,7 @@
   color: var(--muted-foreground);
   transition:
     background-color 140ms ease-out,
-    color 140ms ease-out,
-    transform 90ms ease-out;
+    color 140ms ease-out;
 }
 
 .navStep:hover {
@@ -127,7 +145,7 @@
 }
 
 .navStep:active {
-  transform: scale(0.92);
+  background: color-mix(in oklab, var(--foreground) 11%, transparent);
 }
 
 .todayKey {
@@ -147,8 +165,7 @@
     0 1.5px 0 color-mix(in oklab, var(--border) 95%, rgb(120 95 60 / 35%)),
     0 2px 4px rgb(60 45 20 / 12%);
   transition:
-    transform 90ms ease-out,
-    box-shadow 120ms ease-out,
+    box-shadow 140ms ease-out,
     filter 140ms ease-out;
 }
 
@@ -157,7 +174,6 @@
 }
 
 .todayKey:active {
-  transform: translateY(1px);
   box-shadow:
     inset 0 1px 2px rgb(60 45 20 / 16%),
     0 0 0 transparent;
@@ -182,7 +198,6 @@
     inset 0 0 0 1px rgb(140 160 220 / 32%);
 }
 
-/* Bot filter pill harmonizes SelectTrigger with the recessed pill deck */
 .filterPill {
   height: 34px !important;
   border-radius: 999px !important;
@@ -214,7 +229,6 @@
   background: #121215 !important;
 }
 
-/* Interactive month/range heading trigger */
 .monthTrigger {
   display: inline-flex;
   align-items: center;
@@ -238,7 +252,7 @@
   border-radius: 999px;
   background: var(--muted);
   color: var(--muted-foreground);
-  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), background-color 140ms ease-out, color 140ms ease-out;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 140ms ease-out, color 140ms ease-out;
 }
 
 .monthTrigger:hover .monthChevron,
@@ -250,11 +264,7 @@
   transform: rotate(180deg);
 }
 
-/* Mobile 7-day recessed tactile strip */
 .dayStrip {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
   padding: 5px;
   border-radius: 18px;
   background: var(--muted);
@@ -271,6 +281,80 @@
     inset 0 0 0 1px rgb(255 255 255 / 8%);
 }
 
+.dayStripTrack {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.dayStripPill {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: calc((100% - 24px) / 7);
+  border-radius: 13px;
+  pointer-events: none;
+  will-change: transform;
+  transition:
+    transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 150ms ease-out;
+  background: linear-gradient(var(--tn-paper-raised, var(--card)), color-mix(in oklab, var(--muted) 70%, var(--card)));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 1.5px 0 color-mix(in oklab, var(--border) 95%, rgb(120 95 60 / 35%)),
+    0 3px 6px -2px rgb(60 45 20 / 16%);
+}
+
+.dayStripPillDragging {
+  transition: none;
+}
+
+.dayStripPillToday {
+  background: linear-gradient(color-mix(in oklab, var(--primary) 86%, white), var(--primary));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 1.5px 0 var(--tn-blue-side, var(--primary)),
+    0 4px 10px -3px color-mix(in oklab, var(--primary) 50%, transparent);
+}
+
+:global(.dark) .dayStripPill,
+:global([data-tn-mode="dark"]) .dayStripPill {
+  background:
+    radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 26%), transparent 65%),
+    #16161a;
+  box-shadow:
+    inset 0 0 0 1px rgb(140 160 220 / 34%),
+    0 4px 12px -4px rgb(91 124 255 / 32%);
+}
+
+:global(.dark) .dayStripPillToday,
+:global([data-tn-mode="dark"]) .dayStripPillToday {
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgb(150 175 255 / 28%), transparent 65%),
+    var(--primary);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 24%),
+    0 0 16px -2px rgb(91 124 255 / 55%);
+}
+
+.desktopDayPillSlot {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  z-index: 0;
+  display: flex;
+  width: calc(100% / 7);
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  will-change: transform;
+  transition:
+    transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 140ms ease-out;
+}
+
 .dayKey {
   position: relative;
   display: flex;
@@ -282,11 +366,7 @@
   border-radius: 13px;
   padding: 5px 2px;
   color: var(--muted-foreground);
-  transition: color 140ms ease-out, transform 90ms ease-out;
-}
-
-.dayKey:active {
-  transform: scale(0.95);
+  transition: color 140ms ease-out;
 }
 
 .dayKey[data-selected="true"] {
@@ -302,47 +382,10 @@
   color: #f2f5ff;
 }
 
-/* Shared-element gliding pill inside the mobile 7-day strip */
-.dayKeyPill {
-  position: absolute;
-  inset: 0;
-  border-radius: 13px;
-  background: linear-gradient(var(--tn-paper-raised, var(--card)), color-mix(in oklab, var(--muted) 70%, var(--card)));
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 90%),
-    0 1.5px 0 color-mix(in oklab, var(--border) 95%, rgb(120 95 60 / 35%)),
-    0 3px 6px -2px rgb(60 45 20 / 16%);
+.daySwipeTrackSettling {
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.dayKeyPillToday {
-  background: linear-gradient(color-mix(in oklab, var(--primary) 86%, white), var(--primary));
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 35%),
-    0 1.5px 0 var(--tn-blue-side, var(--primary)),
-    0 4px 10px -3px color-mix(in oklab, var(--primary) 50%, transparent);
-}
-
-:global(.dark) .dayKeyPill,
-:global([data-tn-mode="dark"]) .dayKeyPill {
-  background:
-    radial-gradient(120% 140% at 50% 120%, rgb(91 124 255 / 26%), transparent 65%),
-    #16161a;
-  box-shadow:
-    inset 0 0 0 1px rgb(140 160 220 / 34%),
-    0 4px 12px -4px rgb(91 124 255 / 32%);
-}
-
-:global(.dark) .dayKeyPillToday,
-:global([data-tn-mode="dark"]) .dayKeyPillToday {
-  background:
-    radial-gradient(120% 120% at 50% 0%, rgb(150 175 255 / 28%), transparent 65%),
-    var(--primary);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 24%),
-    0 0 16px -2px rgb(91 124 255 / 55%);
-}
-
-/* Tactile cobalt today numeral disc */
 .todayDisc {
   background: linear-gradient(color-mix(in oklab, var(--primary) 88%, white), var(--primary));
   color: var(--primary-foreground);
@@ -358,7 +401,6 @@
     0 0 14px -2px rgb(91 124 255 / 60%);
 }
 
-/* Subtle half-hour drafting guide inside frameless week cells */
 .hourCell {
   position: relative;
 }
@@ -373,49 +415,33 @@
   pointer-events: none;
 }
 
-/* Live current-time indicator dot */
-.nowDot {
-  animation: scheduleNowPulse 2.8s ease-in-out infinite;
-}
-
-/* Tactile week event block hover/press feedback */
 .eventBlock {
   transition:
-    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
     background-color 140ms ease-out,
     border-color 140ms ease-out,
-    box-shadow 160ms ease-out;
+    box-shadow 140ms ease-out;
 }
 
 .eventBlock:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px -4px rgb(31 26 21 / 16%);
+  box-shadow: 0 3px 10px -4px rgb(31 26 21 / 14%);
 }
 
 :global(.dark) .eventBlock:hover,
 :global([data-tn-mode="dark"]) .eventBlock:hover {
-  box-shadow: 0 6px 16px -4px rgb(0 0 0 / 55%);
+  box-shadow: 0 4px 12px -4px rgb(0 0 0 / 50%);
 }
 
-.eventBlock:active {
-  transform: scale(0.985);
-}
-
-/* Frameless ledger row hover/press transition */
 .ledgerRow {
-  transition:
-    background-color 140ms ease-out,
-    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.ledgerRow:active {
-  transform: scale(0.995);
+  transition: background-color 140ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeletonShimmer,
-  .loadingRailBar,
-  .nowDot {
+  .contentFadeIn,
+  .slideFromRight,
+  .slideFromLeft,
+  .slideFromRightSoft,
+  .slideFromLeftSoft,
+  .loadingRailBar {
     animation: none;
   }
   .navStep,
@@ -424,16 +450,11 @@
   .monthTrigger,
   .monthChevron,
   .dayKey,
+  .dayStripPill,
+  .desktopDayPillSlot,
+  .daySwipeTrackSettling,
   .eventBlock,
   .ledgerRow {
-    transition: opacity 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
-  }
-  .todayKey:active,
-  .dayKey:active,
-  .navStep:active,
-  .eventBlock:hover,
-  .eventBlock:active,
-  .ledgerRow:active {
-    transform: none;
+    transition: none;
   }
 }

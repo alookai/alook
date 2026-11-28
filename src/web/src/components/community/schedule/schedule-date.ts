@@ -125,10 +125,7 @@ export function formatLocalTimeZoneFull(): string {
 
 export function formatMobileDayHeading(date: Date, now: Date): string {
   const heading = formatAgendaDayLabel(date, now)
-  if (heading.isToday || heading.primary === "Tomorrow" || heading.primary === "Yesterday") {
-    return `${heading.primary} · ${heading.secondary}`
-  }
-  return `${heading.primary}, ${heading.secondary}`
+  return `${heading.primary} · ${heading.secondary}`
 }
 
 export function formatHourLabel(hour: number): string {
@@ -172,12 +169,12 @@ export function formatAgendaDayLabel(date: Date, now: Date): {
   if (diffDays === 1) return { primary: "Tomorrow", secondary, isToday: false }
   if (diffDays === -1) return { primary: "Yesterday", secondary, isToday: false }
   return {
-    primary: new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(target),
-    secondary: new Intl.DateTimeFormat(undefined, {
+    primary: new Intl.DateTimeFormat(undefined, {
       month: "short",
       day: "numeric",
-      year: target.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+      year: "numeric",
     }).format(target),
+    secondary: new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(target),
     isToday: false,
   }
 }

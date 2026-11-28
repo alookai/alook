@@ -1,7 +1,6 @@
 "use client"
 
 import { useMemo } from "react"
-import { motion } from "motion/react"
 import { CalendarDays } from "@/components/icons/lucide"
 import { EmptyState } from "@/components/community/empty-state"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -11,7 +10,6 @@ import { ScheduleActorAvatar } from "./schedule-actor"
 import {
   formatAgendaDayLabel,
   formatTimeRange,
-  formatWeekdayShort,
   groupOccurrencesByDay,
 } from "./schedule-date"
 import { ScheduleAgendaInlineSkeleton } from "./schedule-skeleton"
@@ -24,8 +22,6 @@ import {
 } from "./schedule-status"
 import type { ScheduleOccurrenceItem } from "./schedule-types"
 import styles from "./schedule.module.css"
-
-const EASE_OUT_EXPO: [number, number, number, number] = [0.16, 1, 0.3, 1]
 
 export function ScheduleAgendaView({
   rangeKey,
@@ -46,42 +42,37 @@ export function ScheduleAgendaView({
 }) {
   const now = useMemo(() => new Date(), [])
   const groups = useMemo(() => groupOccurrencesByDay(occurrences), [occurrences])
+  const rangeMotionClass = direction > 0
+    ? styles.slideFromRight
+    : direction < 0
+      ? styles.slideFromLeft
+      : undefined
 
   return (
-    <ScrollArea className="min-h-0 flex-1 bg-background" contentClassName="flex min-h-full flex-col">
+    <ScrollArea className="min-h-0 flex-1 bg-background" contentClassName="flex min-h-full flex-col overflow-x-hidden">
       {refreshing ? (
         <div data-testid={tid.scheduleAgenda} className="flex flex-1 flex-col">
           <ScheduleAgendaInlineSkeleton />
         </div>
       ) : groups.length === 0 ? (
-        <motion.div
+        <div
           key={`empty:${rangeKey ?? "default"}`}
-          initial={{ opacity: 0, y: direction * 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, ease: EASE_OUT_EXPO }}
           data-testid={tid.scheduleAgenda}
-          className="flex flex-1 flex-col items-center justify-center px-6 py-16"
+          className={cn("flex flex-1 flex-col items-center justify-center px-6 py-16", rangeMotionClass)}
         >
           <EmptyState icon={CalendarDays} label={emptyLabel} />
-        </motion.div>
+        </div>
       ) : (
-        <motion.div
+        <div
           key={rangeKey ?? "agenda"}
-          initial={{ opacity: 0.4, y: direction * 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, ease: EASE_OUT_EXPO }}
           data-testid={tid.scheduleAgenda}
-          className="flex flex-col divide-y divide-border/50 pb-6"
+          className={cn("flex flex-col divide-y divide-border/50 pb-6", rangeMotionClass)}
         >
-          {groups.map((group, groupIndex) => {
+          {groups.map((group) => {
             const heading = formatAgendaDayLabel(group.date, now)
-            const monthShort = new Intl.DateTimeFormat(undefined, { month: "short" }).format(group.date)
             return (
-              <motion.section
+              <section
                 key={group.dayKey}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.19, delay: Math.min(groupIndex * 0.03, 0.14), ease: EASE_OUT_EXPO }}
                 aria-label={`${heading.primary} ${heading.secondary}`}
                 className="grid min-w-0 gap-2 px-4 py-4 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-6 sm:px-6 sm:py-5"
               >
@@ -99,14 +90,14 @@ export function ScheduleAgendaView({
                   <div className="flex min-w-0 flex-col">
                     <h2
                       className={cn(
-                        "text-sm leading-tight font-semibold",
+                        "text-sm leading-tight font-semibold tabular-nums",
                         heading.isToday ? "text-primary" : "text-foreground",
                       )}
                     >
                       {heading.primary}
                     </h2>
                     <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                      {formatWeekdayShort(group.date)}, {monthShort}
+                      {heading.secondary}
                     </span>
                   </div>
                 </div>
@@ -171,10 +162,10 @@ export function ScheduleAgendaView({
                     )
                   })}
                 </div>
-              </motion.section>
+              </section>
             )
           })}
-        </motion.div>
+        </div>
       )}
     </ScrollArea>
   )

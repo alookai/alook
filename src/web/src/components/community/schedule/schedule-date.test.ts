@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  formatAgendaDayLabel,
+  formatMobileDayHeading,
   formatWeekRangeLabel,
   getWeekDays,
   groupOccurrencesByDay,
@@ -87,5 +89,25 @@ describe("schedule-date", () => {
     const groups = groupOccurrencesByDay([d1, d3, d2])
     expect(groups.map((g) => g.dayKey)).toEqual(["2026-11-25", "2026-11-26"])
     expect(groups[0]?.items.map((item) => item.eventId)).toEqual(["2", "3"])
+  })
+
+  it("keeps relative Agenda titles for Yesterday/Today/Tomorrow and uses explicit month/day/year beyond them", () => {
+    const now = new Date(2026, 10, 29, 10, 0)
+    expect(formatAgendaDayLabel(new Date(2026, 10, 28), now).primary).toBe("Yesterday")
+    expect(formatAgendaDayLabel(new Date(2026, 10, 29), now)).toMatchObject({ primary: "Today", isToday: true })
+    expect(formatAgendaDayLabel(new Date(2026, 10, 30), now).primary).toBe("Tomorrow")
+
+    const afterTomorrow = formatAgendaDayLabel(new Date(2026, 11, 1), now)
+    expect(afterTomorrow.primary).toContain("2026")
+    expect(afterTomorrow.primary).not.toBe(afterTomorrow.secondary)
+    expect(afterTomorrow.secondary).toBe(
+      new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(new Date(2026, 11, 1)),
+    )
+
+    const beforeYesterday = formatAgendaDayLabel(new Date(2026, 10, 25), now)
+    expect(beforeYesterday.primary).toContain("2026")
+    expect(formatMobileDayHeading(new Date(2026, 11, 1), now)).toBe(
+      `${afterTomorrow.primary} · ${afterTomorrow.secondary}`,
+    )
   })
 })

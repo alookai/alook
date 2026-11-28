@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
-import { render, setupUser } from "@/test/react-dom-harness"
+import { act, fireEvent, mockElementGeometry, render, setupUser } from "@/test/react-dom-harness"
 import type {
   ScheduleActor,
   ScheduleBoundMessageState,
@@ -285,5 +285,80 @@ describe("ScheduleWorkspace", () => {
 
     expect(view.getByTestId(tid.scheduleAgenda)).toBeInTheDocument()
     expect(view.getByTestId(tid.schedulePage).querySelector('[data-schedule-inline-skeleton="agenda"]')).not.toBeNull()
+  })
+
+  it("supports mobile left/right swipe to switch next/previous day, ignores vertical drag, and suppresses click after swipe", () => {
+    vi.useFakeTimers()
+    try {
+      const view = render(<Harness initialView="week" />)
+      const surface = view.getByTestId(tid.scheduleWeekGrid).querySelector<HTMLElement>('[data-schedule-swipe-surface="true"]')!
+      expect(surface).not.toBeNull()
+      const restoreGeometry = mockElementGeometry(surface, { width: 390, height: 500, clientWidth: 390, clientHeight: 500 })
+
+      const dayStrip = view.getByRole("tablist", { name: "Days of week" })
+      const selectedTabDate = () => {
+        const selected = dayStrip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        return selected?.textContent ?? ""
+      }
+      expect(selectedTabDate()).toContain("25")
+
+      const pointer = (type: "pointerDown" | "pointerMove" | "pointerUp", clientX: number, clientY: number) => {
+        fireEvent[type](surface, {
+          pointerId: 1,
+          pointerType: "touch",
+          isPrimary: true,
+          clientX,
+          clientY,
+        })
+      }
+
+      pointer("pointerDown", 240, 180)
+      pointer("pointerMove", 130, 184)
+      pointer("pointerUp", 130, 184)
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(selectedTabDate()).toContain("26")
+
+      pointer("pointerDown", 140, 180)
+      pointer("pointerMove", 250, 182)
+      pointer("pointerUp", 250, 182)
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(selectedTabDate()).toContain("25")
+
+      pointer("pointerDown", 200, 180)
+      pointer("pointerMove", 206, 260)
+      pointer("pointerUp", 206, 260)
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(selectedTabDate()).toContain("25")
+
+      const card = surface.querySelector<HTMLElement>(`[data-testid="${tid.scheduleEvent("sch_1")}"]`)!
+      expect(card).not.toBeNull()
+      fireEvent.pointerDown(card, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 240, clientY: 160 })
+      fireEvent.pointerMove(card, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 150, clientY: 162 })
+      fireEvent.pointerUp(card, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 150, clientY: 162 })
+      fireEvent.click(card)
+      expect(view.queryByTestId(tid.scheduleDetailSheet)).toBeNull()
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(selectedTabDate()).toContain("26")
+
+      restoreGeometry()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("renders concrete month/day/year titles in Agenda for dates past Tomorrow", () => {
+    const view = render(<Harness initialView="agenda" />)
+    const agenda = view.getByTestId(tid.scheduleAgenda)
+    const headings = Array.from(agenda.querySelectorAll("h2")).map((node) => node.textContent ?? "")
+    expect(headings.length).toBeGreaterThan(0)
+    expect(headings.every((title) => title.includes("2026"))).toBe(true)
   })
 })
