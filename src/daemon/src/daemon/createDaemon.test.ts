@@ -2039,6 +2039,22 @@ describe("createDaemon — terminal usage shutdown contract", () => {
     } finally { quota.resolve(null); await ctx.daemon.stop(); }
   });
 
+  it("does not block daemon.stop() on a pending background provider quota poll", async () => {
+    const quota = gate<null>();
+    const reader = vi.fn(() => quota.promise);
+    const ctx = await setup({ runtimeReport: [{ id: "claude", status: "healthy" }], providerQuotaReader: reader }, "claude");
+    try {
+      await vi.waitFor(() => expect(reader).toHaveBeenCalledWith("claude"));
+      await expect(Promise.race([
+        ctx.daemon.stop().then(() => "stopped"),
+        new Promise((resolve) => setTimeout(() => resolve("timed_out"), 2_000)),
+      ])).resolves.toBe("stopped");
+    } finally {
+      quota.resolve(null);
+      await ctx.daemon.stop();
+    }
+  });
+
   it.each([false, true])("closes WS early and settles accepted persistence despite failed stop=%s", async (failedStop) => {
     const persistenceStarted = gate<void>();
     const persist = gate<void>();

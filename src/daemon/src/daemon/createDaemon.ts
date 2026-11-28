@@ -364,12 +364,14 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     [...providerQuotaByBackend.keys()].flatMap((backend) => { const snapshot = providerQuotaSnapshot(backend); return snapshot ? [snapshot] : []; });
   const refreshMachineQuota = (backend: string | undefined): void => {
     if (stopping || !supportsBuiltinQuotaPolling(backend)) return;
-    void trackTelemetry(providerQuotaReader(backend).then((observed) => {
+    // Best-effort read-only background quota poll: results are discarded once
+    // stopping is true, so never register in telemetryTasks or block stop().
+    void providerQuotaReader(backend).then((observed) => {
       if (stopping || !observed) return;
       recordProviderQuota(backend, observed);
       const snapshot = providerQuotaSnapshot(backend);
       if (snapshot) requestReadyQuotaResend([snapshot]);
-    }).catch(() => { log.warn("machine quota read failed", { backend }); }));
+    }).catch(() => { log.warn("machine quota read failed", { backend }); });
   };
   const tokenUsageAvailability = new Map<string, { backendId: BuiltinBackendId; status: "available" | "unavailable" }>();
   const activityPayload = async (
