@@ -14,7 +14,6 @@ import { ReasoningEffortField } from "@/components/community/bots/reasoning-effo
 import { BotRuntimeFields } from "@/components/community/bots/bot-runtime-fields"
 import { BotMachineField } from "@/components/community/bots/bot-machine-field"
 import { BotActivityModal } from "@/components/community/bots/bot-activity-modal"
-import { BotActivityHeatmap } from "@/components/community/bots/bot-activity-heatmap"
 import { BotTokenUsageHeatmap } from "@/components/community/bots/bot-token-usage-chart"
 import { BotMembershipsSheet } from "@/components/community/bots/bot-memberships-sheet"
 import { BotWebhooksSheet } from "@/components/community/bots/bot-webhooks-sheet"
@@ -28,7 +27,6 @@ import type { BotPlanSummary, BotSummary, BotTokenUsage } from "@/hooks/communit
 import type { MachineBackendQuota, MachineSummary } from "@/hooks/community/use-machines"
 import type { BugReportPhase } from "@/hooks/community/use-bot-bug-report"
 import type { AuditEvent } from "@/hooks/community/use-bot-audit-log"
-import type { BotActivityDay } from "@/lib/community/models/people"
 import type { AvatarDraft } from "@/lib/avatar/model"
 import { useAvatarDraftPreview } from "@/lib/avatar/use-avatar-draft-preview"
 import { communityKeys } from "@/lib/query-keys"
@@ -135,10 +133,6 @@ const RUNTIME_OPTIONS: BotRuntimeOption[] = [
 ] as unknown as BotRuntimeOption[]
 
 const alli = DEMO_PROFILES.get("demo-alli")
-const ACTIVITY: BotActivityDay[] = Array.from({ length: 30 }, (_, i) => i)
-  .filter((i) => i % 4 !== 3)
-  .map((i) => ({ day: dayKey(i), handledCount: (i * 7) % 23, sentCount: (i * 5) % 17 }))
-  .reverse()
 const USAGE: BotTokenUsage = {
   capability: "supported",
   days: Array.from({ length: 30 }, (_, i) => 29 - i).map((offset) => ({
@@ -152,7 +146,7 @@ const USAGE: BotTokenUsage = {
 const BOT: BotSummary = {
   id: "demo-alli", name: alli?.name ?? "Alli", description: alli?.aboutMe ?? "The designer.", image: alli?.avatar ?? "avatar:beam:Alli",
   avatarVersion: 0, machineId: "m-mac", runtime: "claude", modelName: "claude-opus-5-5", reasoningEffort: "high", runtimeConfigRevision: 3,
-  isActive: true, presence: "online", lastRefreshContextAt: iso(60 * 17), dailyActivity: ACTIVITY, usage: USAGE,
+  isActive: true, presence: "online", lastRefreshContextAt: iso(60 * 17), usage: USAGE,
 }
 const PLAN: BotPlanSummary = { isFounder: false, plan: { id: "plus", displayName: "Plus" }, limit: 5, ownedCount: 4, activeCount: 3 }
 
@@ -356,9 +350,6 @@ function FormFieldSpecimens() {
 function UsageSpecimens() {
   return (
     <>
-      <Specimen label="Activity heatmap" note="30 days, handled and sent"><Pad>
-        <div style={row}><BotActivityHeatmap days={ACTIVITY} /><BotActivityHeatmap days={[]} /></div>
-      </Pad></Specimen>
       <Specimen label="Token usage" note="30 days; hover a day. Unsupported renders nothing."><Pad>
         <BotTokenUsageHeatmap botId={BOT.id} usage={USAGE} />
       </Pad></Specimen>

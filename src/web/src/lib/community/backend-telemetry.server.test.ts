@@ -4,7 +4,7 @@ vi.mock("@alook/shared", async (original) => {
   const actual = await original<typeof import("@alook/shared")>()
   return { ...actual, queries: { ...actual.queries,
     communityMachine: { ...actual.queries.communityMachine, listMachinesForUser: mocks.machines, listMachineBackendQuotasForUser: vi.fn(async () => new Map()) },
-    communityBot: { ...actual.queries.communityBot, listBotsForOwner: mocks.bots, getBotDailyActivityForOwner: vi.fn(async () => new Map()), getBotDailyTokenUsageForOwner: vi.fn(async () => new Map()) },
+    communityBot: { ...actual.queries.communityBot, listBotsForOwner: mocks.bots, getBotDailyTokenUsageForOwner: vi.fn(async () => new Map()) },
     productPlan: { ...actual.queries.productPlan, resolveMachinesMaxForUser: vi.fn(async () => ({ plan: "free", value: 10 })), getBotCapacitySummary: vi.fn(async () => ({ plan: "free", limit: 10, ownedCount: 4, activeCount: 4 })) },
   } }
 })

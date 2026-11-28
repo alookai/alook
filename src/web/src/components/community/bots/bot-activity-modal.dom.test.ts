@@ -90,7 +90,6 @@ const bot = {
   runtime: "codex",
   modelName: null,
   lastRefreshContextAt: null,
-  dailyActivity: [],
 }
 
 function event(id: string, createdAt: string) {

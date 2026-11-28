@@ -565,35 +565,6 @@ export const communityPushDevice = sqliteTable(
   ],
 );
 
-export const communityBotApprovalRequest = sqliteTable(
-  "community_bot_approval_request",
-  {
-    id: text("id").primaryKey().$defaultFn(() => "bar_" + nanoid()),
-    botId: text("bot_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    kind: text("kind").notNull(),
-    serverId: text("server_id").references(() => communityServer.id, {
-      onDelete: "cascade",
-    }),
-    requestedByUserId: text("requested_by_user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    dmMessageId: text("dm_message_id")
-      .notNull()
-      .references(() => communityMessage.id, { onDelete: "cascade" }),
-    status: text("status").notNull().default("pending"),
-    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-    resolvedAt: text("resolved_at"),
-  },
-  (t) => [
-    index("idx_community_bot_approval_bot").on(t.botId, t.status),
-    index("idx_community_bot_approval_server_lookup").on(t.serverId),
-    index("idx_community_bot_approval_requester_lookup").on(t.requestedByUserId),
-    index("idx_community_bot_approval_message_lookup").on(t.dmMessageId),
-  ]
-);
-
 // Retain the last 500 audit events per bot.
 export const communityBotActivityEvent = sqliteTable(
   "community_bot_activity_event",
@@ -617,30 +588,6 @@ export const communityBotActivityEvent = sqliteTable(
     // the direction the planner picks.
     index("idx_bot_activity_event_bot_created").on(t.botId, t.createdAt, t.id),
   ]
-);
-
-// 22. community_bot_daily_activity
-// Per-bot, per-calendar-day rollup powering the my-bots activity heatmap:
-// how many messages the bot HANDLED (woke for) and SENT that day. One row per
-// (botId, day); each counter is bumped +1 via an upsert that rides an EXISTING
-// write batch (handled → the wake_trigger audit batch; sent → the community
-// message insert batch), so there is no new hot-path round-trip. `day` is a
-// UTC `YYYY-MM-DD` key computed by a single shared helper so both upserts agree
-// on the day boundary. Unlike `user.handledMessageCount` (the lifecycle counter
-// this replaces), this is a CALENDAR fact: it is NEVER zeroed on nap/reset and
-// never touched by the FSM. Read is the last 30 days per bot (≤30 rows, covered
-// by the PK), so no rolling prune is required.
-export const communityBotDailyActivity = sqliteTable(
-  "community_bot_daily_activity",
-  {
-    botId: text("bot_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    day: text("day").notNull(),
-    handledCount: integer("handled_count").notNull().default(0),
-    sentCount: integer("sent_count").notNull().default(0),
-  },
-  (t) => [primaryKey({ columns: [t.botId, t.day] })]
 );
 
 export const communityBotDailyTokenUsage = sqliteTable(

@@ -268,7 +268,6 @@ export async function createMessageWithThread(params: {
   clientNonce?: string
   expectedSeq?: number
   source?: "cli" | "daemon-http" | "web"
-  extraStatements?: unknown[]
   extraStatementsForMessage?: (messageId: string) => unknown[]
   embeds?: string
 }): Promise<CreateMessageWithThreadResult> {
@@ -285,7 +284,6 @@ export async function createMessageWithThread(params: {
     attachmentIds: params.attachmentIds,
     clientNonce: params.clientNonce,
     expectedSeq: params.expectedSeq,
-    extraStatements: params.extraStatements,
     extraStatementsForMessage: params.extraStatementsForMessage,
     embeds: params.embeds,
     forumThread: {

@@ -181,7 +181,6 @@ const bot = (id: string, machineId: string): BotSummary => ({
   modelName: null,
   isActive: true,
   lastRefreshContextAt: null,
-  dailyActivity: [],
 })
 
 describe("useBotListController", () => {

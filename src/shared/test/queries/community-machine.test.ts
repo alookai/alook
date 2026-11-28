@@ -43,13 +43,12 @@ describe("machine queries on migrated SQLite", () => {
     await expect(q.findCredentialByHash(db, credential.credentialHash)).resolves.toMatchObject({ credentialId: credential.id, machineId: "target" });
     const [used] = await db.select().from(communityMachineCredential).where(eq(communityMachineCredential.id, credential.id));
     expect(used?.lastUsedAt).toEqual(expect.any(String));
-    await q.revokeCredential(db, credential.id);
-    await expect(q.findCredentialByHash(db, credential.credentialHash)).resolves.toBeNull();
 
     const next = { ...credential, id: "credential-2", credentialHash: "c".repeat(64), doName: "new-target-do" };
     await db.insert(communityMachineCredential).values(next).run();
     await expect(q.revokeCredentialsForMachine(db, "other", "target")).resolves.toEqual({ doNames: [] });
-    await expect(q.revokeCredentialsForMachine(db, "owner", "target")).resolves.toEqual({ doNames: [next.doName] });
+    await expect(q.revokeCredentialsForMachine(db, "owner", "target")).resolves.toEqual({ doNames: [credential.doName, next.doName] });
+    await expect(q.findCredentialByHash(db, credential.credentialHash)).resolves.toBeNull();
     await expect(q.findCredentialByHash(db, next.credentialHash)).resolves.toBeNull();
     await expect(q.findCredentialByHash(db, neighbor.credentialHash)).resolves.toMatchObject({ machineId: "neighbor" });
 
@@ -77,14 +76,9 @@ describe("machine queries on migrated SQLite", () => {
     await expect(q.claimPairingToken(db, "expired")).rejects.toThrow(/not claimable/);
     await expect(q.claimPairingToken(db, "pair")).resolves.toEqual({ tokenId: "pair", userId: "owner" });
     await expect(q.claimPairingToken(db, "pair")).rejects.toThrow(/not claimable/);
-    const previousUse = "2000-01-01T00:00:00Z";
-    await db.update(communityMachineToken).set({ lastUsedAt: previousUse }).where(eq(communityMachineToken.id, "pair")).run();
-    await q.touchTokenLastUsed(db, "pair");
-    const [paired] = await db.select().from(communityMachineToken).where(eq(communityMachineToken.id, "pair"));
-    expect(paired).toMatchObject({ status: "active", lastUsedAt: expect.any(String) });
-    expect(paired?.lastUsedAt).not.toBe(previousUse);
     await q.revokeToken(db, "pair");
-    await expect(q.findTokenById(db, "pair")).resolves.toMatchObject({ status: "revoked" });
+    const [revoked] = await db.select().from(communityMachineToken).where(eq(communityMachineToken.id, "pair"));
+    expect(revoked).toMatchObject({ status: "revoked" });
 
     const observedAt = "2026-09-07T06:00:00Z";
     const quota = { agentBackendId: "codex-cli" as const, status: "error" as const, sourceEpoch: "e".repeat(22), errorCode: "unavailable", retryable: true, observedAt, updatedAt: observedAt };
@@ -142,16 +136,18 @@ function rotateEpoch(
 
 describe("community/machine exports", () => {
   it("exports the documented helpers", () => {
-    expect(typeof q.touchTokenLastUsed).toBe("function");
     expect(typeof q.revokeToken).toBe("function");
     expect(typeof q.getMachineByIdForUser).toBe("function");
     expect(typeof q.listMachinesForUser).toBe("function");
     expect(typeof q.deleteMachineForUser).toBe("function");
     expect(typeof sessionEpoch.transitionMachineSessionEpoch).toBe("function");
-    expect(typeof q.revokeCredential).toBe("function");
   });
 
   it("does not export legacy machineUuid helpers", () => {
+    expect((q as any).findActiveToken).toBeUndefined();
+    expect((q as any).findTokenById).toBeUndefined();
+    expect((q as any).touchTokenLastUsed).toBeUndefined();
+    expect((q as any).revokeCredential).toBeUndefined();
     expect((q as any).machineUuidFromTokenId).toBeUndefined();
     expect((q as any).tokenIdFromMachineUuid).toBeUndefined();
     expect((q as any).upsertMachineForUser).toBeUndefined();
@@ -436,69 +432,6 @@ describe("reconcileBotActivityFromRunningAgents", () => {
     };
     const changed = await q.reconcileBotActivityFromRunningAgents(db, "cm_1", ["bot_a"]);
     expect(changed).toEqual([]);
-  });
-});
-
-describe("findActiveToken", () => {
-  it("returns null when no row matches", async () => {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
-    chain.limit = vi.fn(() => Promise.resolve([]));
-    expect(await q.findActiveToken(chain, "cmt_x")).toBeNull();
-  });
-  it("returns the row when present", async () => {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
-    chain.limit = vi.fn(() => Promise.resolve([{ id: "cmt_x", userId: "u_1" }]));
-    expect(await q.findActiveToken(chain, "cmt_x")).toEqual({
-      tokenId: "cmt_x",
-      userId: "u_1",
-    });
-  });
-});
-
-describe("findTokenById returns machineId (nullable)", () => {
-  it("passes through null machineId for first-pair tokens", async () => {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
-    chain.limit = vi.fn(() =>
-      Promise.resolve([
-        {
-          id: "cmt_a",
-          userId: "u_1",
-          machineId: null,
-          status: "pending",
-          expiresAt: "9999",
-        },
-      ])
-    );
-    const r = await q.findTokenById(chain, "cmt_a");
-    expect(r?.machineId).toBeNull();
-  });
-  it("returns bound machineId for reconnect tokens", async () => {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
-    chain.limit = vi.fn(() =>
-      Promise.resolve([
-        {
-          id: "cmt_a",
-          userId: "u_1",
-          machineId: "cm_existing",
-          status: "pending",
-          expiresAt: "9999",
-        },
-      ])
-    );
-    const r = await q.findTokenById(chain, "cmt_a");
-    expect(r?.machineId).toBe("cm_existing");
   });
 });
 

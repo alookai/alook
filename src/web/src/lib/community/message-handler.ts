@@ -165,15 +165,6 @@ export async function createCommunityMessage(params: {
    * and fires no side effects. Absent = today's behavior (no dedup lookup).
    */
   clientNonce?: string
-  /**
-   * Extra Drizzle statements to commit in the SAME batch as the message insert
-   * (zero new round-trip). Threaded straight into `createMessage`. The bot-send
-   * routes use this to bump the per-day sent-activity heatmap rollup; human
-   * sends pass nothing. Runs only if the row is written (shares the batch's
-   * all-or-nothing fate; a lost CAS seq claim skips it). This handler stays
-   * identity-agnostic — the bot-only caller supplies the statement.
-   */
-  extraStatements?: unknown[]
   extraStatementsForMessage?: (messageId: string) => unknown[]
   forumThread?: Parameters<typeof queries.communityMessage.createMessage>[1]["forumThread"]
   type?: string
@@ -202,7 +193,6 @@ export async function createCommunityMessage(params: {
     deferBroadcast,
     attachmentIds,
     clientNonce,
-    extraStatements,
     extraStatementsForMessage,
     type,
     embeds,
@@ -441,7 +431,7 @@ export async function createCommunityMessage(params: {
   const qualifiesForFirstAgentReply = authorKind === "bot"
     && (source === "cli" || source === "daemon-http")
   const messageId = qualifiesForFirstAgentReply || extraStatementsForMessage ? nanoid() : undefined
-  const messageStatements = [...(extraStatements ?? []), ...(messageId ? extraStatementsForMessage?.(messageId) ?? [] : [])]
+  const messageStatements = messageId ? extraStatementsForMessage?.(messageId) ?? [] : []
   const conversationType = target.kind === "dm"
     ? "dm"
     : target.kind === "thread" || target.kind === "forum"

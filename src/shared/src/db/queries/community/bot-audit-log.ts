@@ -325,37 +325,3 @@ export async function insertBotAuditProviderChanged(
     payload: JSON.stringify({ from: data.from, to: data.to }),
   });
 }
-
-/**
- * Error audit write — a launch/runtime failure the owner should see (see
- * `AuditLogErrorPayloadSchema`). Unlike the other writers this is fed by the
- * DAEMON (via the `bot_audit_event` frame → ws-do), not the web API: a bot
- * that spawns with a bad model, hangs past the handshake deadline, or exits
- * abnormally gets a visible row instead of going silent. `sessionId`/
- * `launchId` are carried from the failing launch when known.
- */
-export async function insertBotAuditError(
-  db: Database,
-  data: {
-    botId: string;
-    sessionId?: string | null;
-    launchId?: string | null;
-    scope: "spawn" | "runtime" | "exit" | "handshake_timeout" | "model_switch" | "reset";
-    code: string;
-    message: string;
-    model: string | null;
-  }
-): Promise<{ id: string; createdAt: string } | null> {
-  return insertBotActivityEventAndPrune(db, {
-    botId: data.botId,
-    sessionId: data.sessionId ?? null,
-    launchId: data.launchId ?? null,
-    kind: "error",
-    payload: JSON.stringify({
-      scope: data.scope,
-      code: data.code,
-      message: data.message,
-      model: data.model,
-    }),
-  });
-}

@@ -11,7 +11,6 @@ const mockCreateBot = vi.fn()
 const mockGetUserPublic = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
 const mockListBotsForOwner = vi.fn()
-const mockGetBotDailyActivityForOwner = vi.fn()
 const mockGetBotDailyTokenUsageForOwner = vi.fn()
 const mockEnsureNewSiblingBotFriendships = vi.fn()
 const mockGetBotCapacitySummary = vi.fn()
@@ -32,7 +31,6 @@ vi.mock("@alook/shared", async () => {
         getMachineForOwner: (...a: unknown[]) => mockGetMachineForOwner(...a),
         createBot: (...a: unknown[]) => mockCreateBot(...a),
         listBotsForOwner: (...a: unknown[]) => mockListBotsForOwner(...a),
-        getBotDailyActivityForOwner: (...a: unknown[]) => mockGetBotDailyActivityForOwner(...a),
         getBotDailyTokenUsageForOwner: (...a: unknown[]) => mockGetBotDailyTokenUsageForOwner(...a),
         isBotEntitlementLimitError: (error: unknown) => error instanceof Error && error.message.includes("BOT_ENTITLEMENT_LIMIT_REACHED"),
       },
@@ -378,44 +376,16 @@ describe("GET /api/community/bots — heatmap activity", () => {
 
   it("projects the owner's bots for a runner without exposing private owner usage", async () => {
     mockResolveBotActor.mockResolvedValueOnce({ kind: "bot", actor: { botUserId: "requester", ownerUserId: "owner", machineId: "m1", isActive: true } })
-    mockListBotsForOwner.mockResolvedValueOnce([{ id: "sibling", name: "Reviewer", discriminator: "0042", machineId: "m2", runtime: "codex-cli", modelName: "custom/model", reasoningEffort: "high", isActive: true, presence: "online", dailyActivity: ["private"], description: "private" }])
+    mockListBotsForOwner.mockResolvedValueOnce([{ id: "sibling", name: "Reviewer", discriminator: "0042", machineId: "m2", runtime: "codex-cli", modelName: "custom/model", reasoningEffort: "high", isActive: true, presence: "online", usage: ["private"], description: "private" }])
     const response = await GET(new NextRequest("http://localhost/api/community/bots", { headers: { Authorization: "Bearer crk_test_fixture" } }), ctx)
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ bots: [{ id: "sibling", handle: "Reviewer#0042", name: "Reviewer", machineId: "m2", backendId: "codex-cli", model: "custom/model", reasoningEffort: "high", isActive: true, presence: "online" }] })
     expect(mockListBotsForOwner).toHaveBeenCalledWith({}, "owner")
-    expect(mockGetBotDailyActivityForOwner).not.toHaveBeenCalled()
     expect(mockGetBotCapacitySummary).not.toHaveBeenCalled()
-  })
-  it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
-    mockListBotsForOwner.mockResolvedValue([
-      { ...catalogBot("bot_1"), name: "A" },
-      { ...catalogBot("bot_2"), name: "B" },
-    ])
-    const byBot = new Map<string, unknown[]>([
-      ["bot_1", [{ day: "2026-07-31", handledCount: 3, sentCount: 1 }]],
-    ])
-    mockGetBotDailyActivityForOwner.mockResolvedValue(byBot)
-
-    const res = await GET(getReq(), ctx)
-    expect(res.status).toBe(200)
-    const body = (await res.json()) as { bots: Array<{ id: string; dailyActivity: unknown[] }> }
-    // bot_1 gets its rows; bot_2 (absent from the map) defaults to [] — the
-    // normal new-bot path, not an error.
-    expect(body.bots.find((b) => b.id === "bot_1")?.dailyActivity).toEqual([
-      { day: "2026-07-31", handledCount: 3, sentCount: 1 },
-    ])
-    expect(body.bots.find((b) => b.id === "bot_2")?.dailyActivity).toEqual([])
-    // Scoped to the caller (u1) and a 30-day (29-days-ago) window.
-    expect(mockGetBotDailyActivityForOwner).toHaveBeenCalledWith(
-      expect.anything(),
-      "u1",
-      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-    )
   })
 
   it("returns an empty bots array when the owner has none", async () => {
     mockListBotsForOwner.mockResolvedValue([])
-    mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
     expect((await res.json()) as { bots: unknown[] }).toEqual({
@@ -440,7 +410,6 @@ describe("GET /api/community/bots — heatmap activity", () => {
       catalogBot("bot_pi", "pi"),
       catalogBot("bot_unknown", "custom"),
     ])
-    mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map([
       ["bot_pi", [{
         botId: "bot_pi",
@@ -509,7 +478,6 @@ describe("GET /api/community/bots — heatmap activity", () => {
         ...catalogBot("bot_1", "codex-cli"),
         tokenUsageTimeZone: "Asia/Shanghai",
       }])
-      mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
       mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map())
 
       const res = await GET(getReq(), ctx)

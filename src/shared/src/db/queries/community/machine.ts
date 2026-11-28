@@ -151,60 +151,6 @@ export async function claimPairingToken(
   return { tokenId: rows[0]!.id, userId: rows[0]!.userId };
 }
 
-export async function findActiveToken(
-  db: Database,
-  tokenId: string
-): Promise<{ tokenId: string; userId: string } | null> {
-  const rows = await db
-    .select({ id: communityMachineToken.id, userId: communityMachineToken.userId })
-    .from(communityMachineToken)
-    .where(
-      and(
-        eq(communityMachineToken.id, tokenId),
-        eq(communityMachineToken.status, "active")
-      )
-    )
-    .limit(1);
-  if (rows.length === 0) return null;
-  return { tokenId: rows[0]!.id, userId: rows[0]!.userId };
-}
-
-export async function findTokenById(
-  db: Database,
-  tokenId: string
-): Promise<{
-  tokenId: string;
-  userId: string;
-  machineId: string | null;
-  status: string;
-  expiresAt: string;
-} | null> {
-  const rows = await db
-    .select()
-    .from(communityMachineToken)
-    .where(eq(communityMachineToken.id, tokenId))
-    .limit(1);
-  if (rows.length === 0) return null;
-  const r = rows[0]!;
-  return {
-    tokenId: r.id,
-    userId: r.userId,
-    machineId: r.machineId ?? null,
-    status: r.status,
-    expiresAt: r.expiresAt,
-  };
-}
-
-export async function touchTokenLastUsed(
-  db: Database,
-  tokenId: string
-): Promise<void> {
-  await db
-    .update(communityMachineToken)
-    .set({ lastUsedAt: new Date().toISOString() })
-    .where(eq(communityMachineToken.id, tokenId));
-}
-
 export async function revokeToken(db: Database, tokenId: string): Promise<void> {
   await db
     .update(communityMachineToken)
@@ -475,22 +421,6 @@ export async function getActiveDoNamesForMachine(
       )
     );
   return rows.map((r) => r.doName);
-}
-
-/** Soft-revoke a single credential by opaque id. */
-export async function revokeCredential(
-  db: Database,
-  credentialId: string
-): Promise<void> {
-  await db
-    .update(communityMachineCredential)
-    .set({ revokedAt: new Date().toISOString() })
-    .where(
-      and(
-        eq(communityMachineCredential.id, credentialId),
-        isNull(communityMachineCredential.revokedAt)
-      )
-    );
 }
 
 /**

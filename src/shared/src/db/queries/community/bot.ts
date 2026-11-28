@@ -29,7 +29,6 @@ import {
   communityServerMember,
   communityUserProfile,
   communityReadState,
-  communityBotDailyActivity,
   communityBotDailyTokenUsage,
   communityBotActivityEvent,
   communityChannel,
@@ -1159,90 +1158,6 @@ export function touchBotRefreshContextForAuditEventStatement(
       or(isNull(user.lastRefreshContextAt), lt(user.lastRefreshContextAt, createdAt)),
       exists(exactInsertedEvent),
     ));
-}
-
-/**
- * Drizzle statement that bumps a bot's per-day activity rollup by one, for the
- * my-bots heatmap. `column` selects which counter — `handled` (rides the
- * wake_trigger audit batch, one bump per message the bot woke for) or `sent`
- * (rides the community_message insert batch, one bump per message the bot
- * sends). Exposed as a statement builder (not an awaited write) so it composes
- * into the SAME `db.batch([...])` as that existing write — no new hot-path
- * round-trip. `day` MUST come from `utcDayKey` (the single day-boundary source)
- * so handled and sent for the same calendar day land in the same `(botId, day)`
- * row. Sharing the host batch's all-or-nothing fate is acceptable: a dropped +1
- * on a D1 blip is far cheaper than a per-message extra round-trip.
- *
- * Unlike the retired `handledMessageCount`, this rollup is a CALENDAR fact — it
- * is never zeroed on nap/reset and never touched by the FSM.
- */
-export function bumpBotDailyActivityStatement(
-  db: Database,
-  botId: string,
-  day: string,
-  column: "handled" | "sent"
-) {
-  const isHandled = column === "handled";
-  return db
-    .insert(communityBotDailyActivity)
-    .values({
-      botId,
-      day,
-      handledCount: isHandled ? 1 : 0,
-      sentCount: isHandled ? 0 : 1,
-    })
-    .onConflictDoUpdate({
-      target: [communityBotDailyActivity.botId, communityBotDailyActivity.day],
-      set: isHandled
-        ? { handledCount: sql`${communityBotDailyActivity.handledCount} + 1` }
-        : { sentCount: sql`${communityBotDailyActivity.sentCount} + 1` },
-    });
-}
-
-export interface BotDailyActivityRow {
-  day: string;
-  handledCount: number;
-  sentCount: number;
-}
-
-/**
- * Batch read of per-day activity for ALL of an owner's bots in a single query,
- * so the my-bots list attaches heatmaps without N+1. Rows are scoped to bots
- * the caller owns (join on `user.ownerUserId`, isBot, not soft-deleted) and to
- * `day >= sinceDay`. Returns a Map keyed by botId → that bot's rows (ascending
- * day); a bot with no activity is simply absent from the map (the caller
- * defaults it to `[]`).
- */
-export async function getBotDailyActivityForOwner(
-  db: Database,
-  ownerId: string,
-  sinceDay: string
-): Promise<Map<string, BotDailyActivityRow[]>> {
-  const rows = await db
-    .select({
-      botId: communityBotDailyActivity.botId,
-      day: communityBotDailyActivity.day,
-      handledCount: communityBotDailyActivity.handledCount,
-      sentCount: communityBotDailyActivity.sentCount,
-    })
-    .from(communityBotDailyActivity)
-    .innerJoin(user, eq(user.id, communityBotDailyActivity.botId))
-    .where(
-      and(
-        eq(user.ownerUserId, ownerId),
-        eq(user.isBot, true),
-        isNull(user.deletedAt),
-        gte(communityBotDailyActivity.day, sinceDay)
-      )
-    )
-    .orderBy(communityBotDailyActivity.day);
-  const byBot = new Map<string, BotDailyActivityRow[]>();
-  for (const r of rows) {
-    const list = byBot.get(r.botId) ?? [];
-    list.push({ day: r.day, handledCount: r.handledCount, sentCount: r.sentCount });
-    byBot.set(r.botId, list);
-  }
-  return byBot;
 }
 
 /**

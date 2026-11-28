@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { flattenError } from "zod"
-import { queries, withD1Retry, CommunityAgentSendRequestSchema, utcDayKey, WS_EVENTS, PARTICIPANT_SOURCE, COMMUNITY_CONTRACT_HEADER, COMMUNITY_RESOURCE_CONTRACT_VERSION, CommunityMessagePostedSchema, type CommunityContract } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentSendRequestSchema, WS_EVENTS, PARTICIPANT_SOURCE, COMMUNITY_CONTRACT_HEADER, COMMUNITY_RESOURCE_CONTRACT_VERSION, CommunityMessagePostedSchema, type CommunityContract } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { mapPostedMessageForApi, readCommunityMessageProfiles } from "./message-payload"
 import { checkRateLimit } from "@/lib/rate-limit"
@@ -114,7 +114,7 @@ async function humanMessageConfirmation(db: ReturnType<typeof getDb>, contract: 
 /**
  * Bot arm — ref-in-body (`channel`), the former `send` verb's behavior verbatim:
  * single resolve WITH create-if-missing, channel-alignment gate, CAS via
- * `expectedSeq`, SENT-heatmap bump, agent-message response. Target resolution +
+ * `expectedSeq`, agent-message response. Target resolution +
  * per-surface auth flow through the shared door-core (single mask entry).
  */
 export async function handleBotSend(
@@ -158,9 +158,6 @@ export async function handleBotSend(
       ...(expectedSeq !== undefined ? { expectedSeq } : {}),
       source: "cli",
       ...(pagePublication ? { embeds: pagePublication.embeds, extraStatementsForMessage: pagePublication.statements } : {}),
-      extraStatements: [
-        queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
-      ],
     })
 
   const replayResponse = async () => {
@@ -314,9 +311,6 @@ export async function handleBotSend(
       explicitMentionedUserIds: preparedQuestion.explicitMentionedUserIds,
     } : {}),
     ...(pagePublication ? { embeds: pagePublication.embeds, extraStatementsForMessage: pagePublication.statements } : {}),
-    extraStatements: [
-      queries.communityBot.bumpBotDailyActivityStatement(db, botUserId, utcDayKey(new Date()), "sent"),
-    ],
   })
   if (!result.ok) {
     if (requireAlignment && result.status === 409) {

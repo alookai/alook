@@ -13,11 +13,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 // middleware has stopped being stateless.
 const pairingQuerySpies = {
   claimPairingToken: vi.fn(),
-  findActiveToken: vi.fn(),
-  findTokenById: vi.fn(),
   createPairingToken: vi.fn(),
   createReconnectPairingToken: vi.fn(),
-  touchTokenLastUsed: vi.fn(),
   revokeToken: vi.fn(),
   findActiveCredentialByBearer: vi.fn(),
   findCredentialByHash: vi.fn(),

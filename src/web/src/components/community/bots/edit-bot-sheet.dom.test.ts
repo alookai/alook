@@ -184,7 +184,6 @@ const BOT: BotSummary = {
   runtime: "claude",
   modelName: null,
   lastRefreshContextAt: null,
-  dailyActivity: [],
 }
 
 function renderSheet(bot: BotSummary = BOT) {

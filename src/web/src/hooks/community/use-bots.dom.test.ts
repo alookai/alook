@@ -117,7 +117,6 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         modelName: null,
         isActive: true,
         lastRefreshContextAt: null,
-        dailyActivity: [],
       }],
     })
     const { useBots } = await import("./use-bots")
@@ -204,7 +203,6 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         runtime: null,
         modelName: null,
         lastRefreshContextAt: null,
-        dailyActivity: [],
       },
     })
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
@@ -322,7 +320,6 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         runtime: null,
         modelName: null,
         lastRefreshContextAt: null,
-        dailyActivity: [],
       },
     })
 

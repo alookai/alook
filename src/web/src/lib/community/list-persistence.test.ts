@@ -6,7 +6,7 @@ import { createIdbPersister, PERSIST_BUSTER, shouldPersistQuery } from "@/lib/qu
 import { persistentCommunityListResource } from "./list-persistence"
 
 const machine = { id: "machine", hostname: "host", displayName: "Computer", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "1", createdAt: "created", updatedAt: "updated", status: "online", lastSeenAt: "now", availableRuntimes: [{ id: "codex", status: "healthy" }], lastRuntimeError: { requested: "bad", available: [], at: "now" }, quota: [{ limits: "private observation" }] }
-const bot = { id: "bot", machineId: "machine", runtime: "codex", modelName: "model", reasoningEffort: null, runtimeConfigRevision: 4, isActive: true, dailyActivity: [{ day: "today" }], lastRefreshContextAt: "now", usage: { capability: "supported" }, name: "Duplicate name", image: "duplicate-avatar", presence: "online" }
+const bot = { id: "bot", machineId: "machine", runtime: "codex", modelName: "model", reasoningEffort: null, runtimeConfigRevision: 4, isActive: true, lastRefreshContextAt: "now", usage: { capability: "supported" }, name: "Duplicate name", image: "duplicate-avatar", presence: "online" }
 
 describe("native list resource persistence", () => {
   it("keeps stable metadata while removing machine observations and account allowance", () => {

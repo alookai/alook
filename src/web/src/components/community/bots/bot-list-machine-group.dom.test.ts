@@ -78,7 +78,6 @@ const bot = (overrides: Partial<BotSummary> = {}): BotSummary => ({
   modelName: "claude-opus-4-6",
   isActive: true,
   lastRefreshContextAt: null,
-  dailyActivity: [],
   ...overrides,
 })
 

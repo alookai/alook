@@ -9,7 +9,6 @@ vi.mock("@/lib/db", () => ({
 
 let actorKind: "human" | "bot" = "bot"
 
-const mockSentStatement = vi.fn(() => ({ activity: "sent" }))
 const mockCreateMessageWithThread = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockRequireMessageSurfaceAccess = vi.fn()
@@ -24,7 +23,6 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       ...actual.queries,
-      communityBot: { ...actual.queries.communityBot, bumpBotDailyActivityStatement: (...args: unknown[]) => mockSentStatement(...args) },
       communityAgentInbox: {
         ...actual.queries.communityAgentInbox,
         getLatestSeqForScope: (...args: unknown[]) => mockGetLatestSeqForScope(...args),
@@ -106,8 +104,6 @@ describe("forum sends open a thread through the canonical message route", () => 
       expectedSeq: 4,
     }))
     expect(await response.json()).toEqual(expect.objectContaining({ state: "sent", threadId: "thread_1" }))
-    expect(mockSentStatement).toHaveBeenCalledWith({}, "bot_1", expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), "sent")
-    expect(mockCreateMessageWithThread).toHaveBeenCalledWith(expect.objectContaining({ extraStatements: [{ activity: "sent" }] }))
   })
 
   it("passes pending attachment ids to the structural primitive for scope-safe rebind", async () => {
