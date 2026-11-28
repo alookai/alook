@@ -185,13 +185,12 @@ describe("createMessageWithThread — atomic message composition", () => {
     mockGetThreadChannelByParentMessage.mockReset().mockResolvedValue(thread)
   })
 
-  it("passes structure, attachments and activity to the same message write before broadcasting", async () => {
+  it("passes structure and attachments to the same message write before broadcasting", async () => {
     const broadcast = vi.fn()
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1" }, attachments: [], broadcast })
-    const sent = { statement: "sent" }
-    const result = await createMessageWithThread({ ...input, expectedSeq: 8, attachmentIds: ["a"], extraStatements: [sent] })
+    const result = await createMessageWithThread({ ...input, expectedSeq: 8, attachmentIds: ["a"] })
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(expect.objectContaining({
-      expectedSeq: 8, extraStatements: [sent],
+      expectedSeq: 8, attachmentIds: ["a"],
       forumThread: { id: expect.any(String), name: "Title", serverId: "s1" },
     }))
     expect(result).toEqual({ ok: true, message: { id: "msg_1" }, attachments: [], thread })

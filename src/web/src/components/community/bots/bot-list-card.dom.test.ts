@@ -95,7 +95,6 @@ function bot(over: Partial<BotSummary>): BotSummary {
     modelName: null,
     isActive: true,
     lastRefreshContextAt: null,
-    dailyActivity: [],
     ...over,
   }
 }

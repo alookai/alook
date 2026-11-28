@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query"
 import { parseCommunityBotsProfileRead, CommunityBotProfileSummarySchema, type CommunityBotsProfileRead } from "@alook/shared"
 import type { DailyUsageMetric, ReasoningEffort, StoredModelObservation } from "@alook/shared"
-import type { BotActivityDay, CommunityProfilePatch } from "./models/people"
+import type { CommunityProfilePatch } from "./models/people"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
 import { apiFetchProfiles } from "./account-cache-lifecycle"
@@ -41,10 +41,6 @@ export type BotSummary = {
   // awake-duration "Awake 17h" (Gus #672/#674 — how long the agent has been
   // awake since that refresh, not "X ago"); null (never refreshed) omits it.
   lastRefreshContextAt?: string | null
-  // Per-day handled/sent activity for the last 30 days (heatmap, Gus #608).
-  // Sparse — only days with activity; oldest→newest; [] for a brand-new bot.
-  // The heatmap builds the full 30-day calendar and fills from this by day-key.
-  dailyActivity?: BotActivityDay[]
   // Owner-only 30-day provider telemetry. Older optimistic mutation payloads
   // can omit it until the bots query refetches, which renders the unknown-state
   // placeholder instead of inventing zero usage.

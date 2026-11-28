@@ -81,7 +81,6 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
       ALTER TABLE user ADD COLUMN avatarVersion INTEGER DEFAULT 0;
       UPDATE user SET name='Author' WHERE id='author';
       UPDATE user SET name='Peer' WHERE id='peer';
-      CREATE TABLE community_bot_daily_activity (bot_id TEXT NOT NULL, day TEXT NOT NULL, handled_count INTEGER NOT NULL DEFAULT 0, sent_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(bot_id, day));
       INSERT INTO community_attachment(id, uploader_id, r2_key, filename, created_at) VALUES ('a', 'author', 'original', 'a.png', 'now');
     `)
   })
@@ -106,10 +105,9 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_message").get()).toEqual({ count: 1 })
     expect(fixture.sqlite.prepare("SELECT message_id FROM community_message_attachment").get()).toEqual({ message_id: bodies[0].message.id })
     expect(dispatchCommittedMessage).toHaveBeenCalledOnce()
-    if (kind === "bot") expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
   })
 
-  it("concurrent bot forum titles return the same complete thread and count sent once", async () => {
+  it("concurrent bot forum titles return the same complete thread", async () => {
     targetKind = "forum"
     const responses = await Promise.all([POST(request(), { params: { id: "channel" } }), POST(request(), { params: { id: "channel" } })])
     const bodies = await Promise.all(responses.map((response) => response.json()))
@@ -120,7 +118,6 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_channel WHERE type='thread'").get()).toEqual({ count: 1 })
     expect(fixture.sqlite.prepare("SELECT id FROM community_attachment").get()).toEqual({ id: "a" })
     expect(fixture.sqlite.prepare("SELECT * FROM community_message_attachment").all()).toEqual([])
-    expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
   })
 
   it.each(["channel", "forum"] as const)("Automation %s sends with unread messages and concurrent nonce persist once", async (kind) => {
@@ -139,7 +136,6 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(bodies[1]).toMatchObject({ state: "sent", seq: "#2" })
     expect(bodies.filter((body) => body.deduped)).toHaveLength(1)
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_message WHERE author_id='author'").get()).toEqual({ count: 1 })
-    expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
     expect(dispatchCommittedMessage).toHaveBeenCalledOnce()
     if (kind === "forum") {
       expect(bodies[0].threadId).toBeTruthy()
@@ -162,7 +158,7 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(body).toMatchObject({ state: "sent", deduped: true })
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_message").get()).toEqual({ count: 1 })
   })
-  it("notification failure after a forum commit preserves storage and replay counts once", async () => {
+  it("notification failure after a forum commit preserves storage and replay dedupes", async () => {
     targetKind = "forum"
     nonceReads = 2
     vi.mocked(dispatchCommittedMessage).mockRejectedValueOnce(new Error("notification offline"))
@@ -173,7 +169,6 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_channel WHERE type='thread'").get()).toEqual({ count: 1 })
     const response = await POST(request(), { params: { id: "channel" } })
     expect(await response.json()).toMatchObject({ state: "sent", message: { id: committed.id }, deduped: true })
-    expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
     expect(dispatchCommittedMessage).toHaveBeenCalledOnce()
   })
 

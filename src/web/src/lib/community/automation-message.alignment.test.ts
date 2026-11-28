@@ -18,7 +18,6 @@ vi.mock("@alook/shared", async (original) => {
       toAgentMessage: async (_db: unknown, row: { seq: number }) => ({ ...row, seq: `#${row.seq}` }),
     },
     communityReadState: { ...actual.queries.communityReadState, getReadState: m.read },
-    communityBot: { ...actual.queries.communityBot, bumpBotDailyActivityStatement: () => ({ sent: true }) },
   } }
 })
 vi.mock("./message-door", () => ({ resolveMessageTarget: m.resolve }))

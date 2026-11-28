@@ -85,13 +85,6 @@ function seedDb() {
       emoji TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT '2026-11-20T00:00:00.000Z'
     );
-    CREATE TABLE community_bot_daily_activity (
-      bot_id TEXT NOT NULL,
-      day TEXT NOT NULL,
-      handled_count INTEGER NOT NULL DEFAULT 0,
-      sent_count INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (bot_id, day)
-    );
     CREATE TABLE community_message_mark (
       id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL REFERENCES community_message(id),

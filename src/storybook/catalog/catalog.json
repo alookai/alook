@@ -8,7 +8,7 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 380,
+    "composition": 379,
     "environment": 14,
     "direct": 168,
     "nonvisual": 32
@@ -1941,21 +1941,6 @@
         {
           "story": "web-business-product-compositions--bots-models-and-privacy",
           "region": "Active bots: normal, over-limit, Founder and absent summary"
-        }
-      ],
-      "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
-    },
-    {
-      "source": "src/web/src/components/community/bots/bot-activity-heatmap.tsx",
-      "application": "Web",
-      "candidates": [
-        "BotActivityHeatmap"
-      ],
-      "kind": "composition",
-      "examples": [
-        {
-          "story": "web-business-product-compositions--bots-models-and-privacy",
-          "region": "Activity heatmap: hover a day"
         }
       ],
       "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."

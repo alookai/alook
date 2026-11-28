@@ -20,16 +20,6 @@ export async function readCommunityBots(db: Database, userId: string) {
     queries.communityBot.listBotsForOwner(db, userId),
     queries.productPlan.getBotCapacitySummary(db, userId),
   ])
-  // Attach each bot's last-30-day activity for the my-bots heatmap. One batched
-  // read scoped to the owner's bots (no N+1); bots with no rows default to [].
-  // The FE pads missing days to zero cells, so an empty array is the normal
-  // new-bot path.
-  const sinceDay = utcDayKeyDaysAgo(new Date(), 29)
-  const activityByBot = await queries.communityBot.getBotDailyActivityForOwner(
-    db,
-    userId,
-    sinceDay,
-  )
   const now = new Date()
   const usageSinceDay = utcDayKeyDaysAgo(now, DAILY_TOKEN_USAGE_WINDOW_DAYS)
   const usageByBot = await queries.communityBot.getBotDailyTokenUsageForOwner(
@@ -37,13 +27,12 @@ export async function readCommunityBots(db: Database, userId: string) {
     userId,
     usageSinceDay,
   )
-  const withActivity = bots.map((bot) => {
+  const withUsage = bots.map((bot) => {
     const { tokenUsageTimeZone, ...publicBot } = bot
     const usageDays = tokenUsageDayWindow(now, tokenUsageTimeZone)
     return {
       ...publicBot,
       image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
-      dailyActivity: activityByBot.get(bot.id) ?? [],
       usage: {
         capability: tokenUsageCapability(bot.runtime),
         days: usageDays.map((day, index) => {
@@ -62,7 +51,7 @@ export async function readCommunityBots(db: Database, userId: string) {
     }
   })
   const result = {
-    bots: withActivity,
+    bots: withUsage,
     plan: capacity.plan,
     isFounder: capacity.isFounder,
     limit: capacity.limit,

@@ -884,16 +884,6 @@
     ],
     "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
   },
-  "src/web/src/components/community/bots/bot-activity-heatmap.tsx": {
-    "kind": "composition",
-    "examples": [
-      {
-        "story": "web-business-product-compositions--bots-models-and-privacy",
-        "region": "Activity heatmap: hover a day"
-      }
-    ],
-    "reason": "The indicated original component is mounted in this named product region. Its supported local inputs are examples; runtime rendering and interactions still need qualification."
-  },
   "src/web/src/components/community/bots/bot-activity-modal.tsx": {
     "kind": "composition",
     "examples": [

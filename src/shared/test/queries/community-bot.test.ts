@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm"
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3"
 import Sqlite from "better-sqlite3"
 import { communityAgentRunnerKey, communityBotBinding } from "../../src/db/community-machine-schema"
-import { communityBotDailyActivity, communityBotDailyTokenUsage, communityServer, communityServerMember } from "../../src/db/community-schema"
+import { communityBotDailyTokenUsage, communityServer, communityServerMember } from "../../src/db/community-schema"
 import { user } from "../../src/db/schema"
 import * as q from "../../src/db/queries/community/bot"
 import { createMigratedDb } from "../helpers/migrated-db"
@@ -616,63 +616,15 @@ it("reads daily activity and usage only for live owned bots from the requested d
       { botId: "gone", day: since },
       { botId: "foreign", day: since },
     ]
-    await db.insert(communityBotDailyActivity).values(days.map(row => ({ ...row, handledCount: 4, sentCount: 3 }))).run()
     await db.insert(communityBotDailyTokenUsage).values(days.map(row => ({
       ...row, inputTokens: 6, outputTokens: 2, cacheTokens: null, updatedAt: row.day + "T12:00:00Z",
     }))).run()
-    const activity = await q.getBotDailyActivityForOwner(db, "owner_1", since)
     const usage = await q.getBotDailyTokenUsageForOwner(db, "owner_1", since)
     const expectedDays = [since, "2026-09-08"]
-    expect([...activity]).toEqual([["target", expectedDays.map(day => ({ day, handledCount: 4, sentCount: 3 }))]])
     expect([...usage]).toEqual([["target", expectedDays.map(day => ({ botId: "target", day, metrics: { input: 6, output: 2, cache: null } }))]])
   } finally {
     sqlite.close()
   }
-})
-
-describe("bumpBotDailyActivityStatement", () => {
-
-  it("handled: inserts (1,0) and ON CONFLICT bumps handled_count", async () => {
-    const { sqlite, db } = createMigratedDatabase()
-    try {
-      const target = await q.createBot(db, { ownerId: "owner_1", name: "Counter", machineId: "machine_1", runtime: "codex" })
-      const neighbor = await q.createBot(db, { ownerId: "owner_1", name: "Neighbor", machineId: "machine_1", runtime: "codex" })
-      const day = "2026-07-31"
-      const read = (botId: string, value: string) => sqlite.prepare("SELECT handled_count,sent_count FROM community_bot_daily_activity WHERE bot_id=? AND day=?").get(botId, value)
-      await q.bumpBotDailyActivityStatement(db, target.botId, day, "handled")
-      expect(read(target.botId, day)).toEqual({ handled_count: 1, sent_count: 0 })
-      sqlite.prepare("UPDATE community_bot_daily_activity SET handled_count=6,sent_count=9 WHERE bot_id=? AND day=?").run(target.botId, day)
-      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,31,47)").run(neighbor.botId, day)
-      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,33,55)").run(target.botId, "2026-08-01")
-      await q.bumpBotDailyActivityStatement(db, target.botId, day, "handled")
-      await q.bumpBotDailyActivityStatement(db, target.botId, day, "handled")
-      expect(read(target.botId, day)).toEqual({ handled_count: 8, sent_count: 9 })
-      expect(read(neighbor.botId, day)).toEqual({ handled_count: 31, sent_count: 47 })
-      expect(read(target.botId, "2026-08-01")).toEqual({ handled_count: 33, sent_count: 55 })
-      expect(sqlite.pragma("foreign_key_check")).toEqual([])
-    } finally { sqlite.close() }
-  })
-
-  it("sent: inserts (0,1) and ON CONFLICT bumps sent_count", async () => {
-    const { sqlite, db } = createMigratedDatabase()
-    try {
-      const target = await q.createBot(db, { ownerId: "owner_1", name: "Counter", machineId: "machine_1", runtime: "codex" })
-      const neighbor = await q.createBot(db, { ownerId: "owner_1", name: "Neighbor", machineId: "machine_1", runtime: "codex" })
-      const day = "2026-07-31"
-      const read = (botId: string, value: string) => sqlite.prepare("SELECT handled_count,sent_count FROM community_bot_daily_activity WHERE bot_id=? AND day=?").get(botId, value)
-      await q.bumpBotDailyActivityStatement(db, target.botId, day, "sent")
-      expect(read(target.botId, day)).toEqual({ handled_count: 0, sent_count: 1 })
-      sqlite.prepare("UPDATE community_bot_daily_activity SET handled_count=6,sent_count=9 WHERE bot_id=? AND day=?").run(target.botId, day)
-      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,31,47)").run(neighbor.botId, day)
-      sqlite.prepare("INSERT INTO community_bot_daily_activity (bot_id,day,handled_count,sent_count) VALUES (?,?,33,55)").run(target.botId, "2026-08-01")
-      await q.bumpBotDailyActivityStatement(db, target.botId, day, "sent")
-      await q.bumpBotDailyActivityStatement(db, target.botId, day, "sent")
-      expect(read(target.botId, day)).toEqual({ handled_count: 6, sent_count: 11 })
-      expect(read(neighbor.botId, day)).toEqual({ handled_count: 31, sent_count: 47 })
-      expect(read(target.botId, "2026-08-01")).toEqual({ handled_count: 33, sent_count: 55 })
-      expect(sqlite.pragma("foreign_key_check")).toEqual([])
-    } finally { sqlite.close() }
-  })
 })
 
 

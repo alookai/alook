@@ -47,7 +47,6 @@ function bot(id: string, overrides: Partial<BotSummary> = {}): BotSummary {
     isActive: true,
     presence: "online",
     lastRefreshContextAt: null,
-    dailyActivity: [],
     ...overrides,
   }
 }

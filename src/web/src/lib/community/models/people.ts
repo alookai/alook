@@ -70,10 +70,3 @@ export type InviteRow = {
   by: string
   creatorId: string | null
 }
-
-export type BotActivityDay = {
-  // Calendar day, "YYYY-MM-DD".
-  day: string
-  handledCount: number
-  sentCount: number
-}

@@ -528,7 +528,7 @@ export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
 export { BotCreationError, resolveBotCreationConfiguration, BotCreationProposalSchema, BotCreationSubmitSchema, BotCreationPayloadSchema, BotCreationDecisionSchema, BOT_CREATION_MAX_ITEMS, BOT_CREATION_BODY_MAX_BYTES } from "./community-bot-creation";
 export type { BotCreationProposal, BotCreationSubmit, BotCreationItem, BotCreationPayload } from "./community-bot-creation";
-export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerRail, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity, communityPushDevice } from "./db/community-schema";
+export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerRail, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityPushDevice } from "./db/community-schema";
 
 export { Logger, createLogger } from "./logger"
 export type { LogLevel, LoggerOptions } from "./logger"

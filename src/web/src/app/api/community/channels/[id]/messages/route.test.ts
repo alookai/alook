@@ -51,7 +51,6 @@ const mockForumFirstMessages = vi.fn()
 const mockForumTags = vi.fn()
 const mockForumParticipants = vi.fn()
 const mockHasDeliverableUnreadForAgentScope = vi.fn()
-const mockBumpBotDailyActivityStatement = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
 const mockGetUserByNameAndDiscriminator = vi.fn()
@@ -169,9 +168,6 @@ vi.mock("@alook/shared", async () => {
       communityReadState: {
         getReadState: (...a: unknown[]) => mockGetReadState(...a),
         getChannelReadStateSnapshot: (...a: unknown[]) => mockGetChannelReadStateSnapshot(...a),
-      },
-      communityBot: {
-        bumpBotDailyActivityStatement: (...a: unknown[]) => mockBumpBotDailyActivityStatement(...a),
       },
       communityFunnelAnalytics: {
         recordFirstAgentReplyPersistedStatement: (...a: unknown[]) => mockRecordFirstAgentReplyPersistedStatement(...a),
@@ -296,7 +292,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetLatestSeqForScope.mockResolvedValue(0)
     mockGetReadState.mockResolvedValue(null)
     mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
-    mockBumpBotDailyActivityStatement.mockReturnValue({})
     mockToAgentMessage.mockImplementation(async (_db, row, _user, attachments) => ({ ...row, attachments }))
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
     mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
@@ -363,7 +358,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
       createChannel: mockCreateChannel,
       createMessage: mockCreateMessage,
       createMentions: mockCreateMentions,
-      activity: mockBumpBotDailyActivityStatement,
       agentProjection: mockToAgentMessage,
       dispatch: mockDispatchCommittedMessage,
       channelFanout: mockFanOutToChannel,
@@ -382,7 +376,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(await res.json()).toEqual({ error: "Message rejected: duplicate or substantially similar content adds no new information to this channel.", code: "duplicate_message" })
     expect(mockHasDeliverableUnreadForAgentScope.mock.invocationCallOrder[0]).toBeLessThan(mockDuplicateCheck.mock.invocationCallOrder[0]!)
     expect(mockCreateMessage).not.toHaveBeenCalled()
-    expect(mockBumpBotDailyActivityStatement).not.toHaveBeenCalled()
     expect(mockCreateChannel).not.toHaveBeenCalled()
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
