@@ -448,6 +448,7 @@ export class AgentRouter {
             id: `${cmd.agentId}:wake:${cmd.unreadNotice.channel}:${cmd.unreadNotice.latestSeq}:admission:${this.nextWakeAdmissionOrdinal++}`,
             seq: cmd.unreadNotice.latestSeq,
             text,
+            includeWakeFooter: true,
           });
           // Honest-ack diagnostic: a wake that produced NO executable effect was only
           // coalesced into the inbox. Coalescing is BENIGN and routine for the

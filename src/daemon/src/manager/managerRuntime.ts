@@ -1303,8 +1303,10 @@ export class AgentProcessManager {
     if (!snapshotDiagnostics) return { deliveryPhase };
     return { deliveryPhase, ...snapshotDiagnostics.metrics };
   }
-  private withFooter(text: string): string {
-    return this.opts.wakePromptFooter ? `${text}\n\n${this.opts.wakePromptFooter}` : text;
+  private withFooter(text: string, includeWakeFooter = false): string {
+    return includeWakeFooter && this.opts.wakePromptFooter
+      ? `${text}\n\n${this.opts.wakePromptFooter}`
+      : text;
   }
   private stampNow(text: string): string {
     return this.opts.stampWakePromptTime ? `[${nowLocalISO()}] ${text}` : text;
@@ -1315,7 +1317,7 @@ export class AgentProcessManager {
       preparedInput: message.preparedInput ?? {
         id: message.id!,
         kind: "user",
-        text: this.stampNow(this.withFooter(message.text)),
+        text: this.stampNow(this.withFooter(message.text, message.includeWakeFooter)),
         sequence: message.seq,
       },
     };
@@ -1641,7 +1643,7 @@ export class AgentProcessManager {
     if (!initial) throw new Error(`AgentProcessManager: spawn for ${agentId} has no command`);
     this.dispatch({ type: "queue_delivery", agentId, messages: pending });
     const first = this.prepareDelivery(initial);
-    const prompt = this.withFooter(first.text);
+    const prompt = this.withFooter(first.text, first.includeWakeFooter);
     const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
     this.liveBackendIds.set(agentId, driver.id);
     const base = this.opts.baseContextFor(agentId);
