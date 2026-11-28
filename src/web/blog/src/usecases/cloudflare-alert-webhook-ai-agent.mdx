@@ -1,0 +1,184 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Edge 5xx alerts never wait for business hours. When a Cloudflare Worker starts throwing errors after a deploy, you usually scramble onto a laptop, open three Cloudflare tabs, correlate recent git commits, figure out the right rollback command, run it, and refresh the endpoint until traffic recovers.
+
+Connect Cloudflare Notification webhooks to your on-call agent in Alook and that thirty-minute fire drill becomes a three-minute phone confirmation. The instant Cloudflare fires a Worker error-rate alert, your ops bot probes the failing route, diffs recent commits against the edge version, and brings in your coding bot to confirm whether a rollback or one-line hotfix is safer. You tap approve from your phone, your bot rolls back via `wrangler`, and keeps checking until the route returns clean `200 OK`.
+
+Alook keeps high-stakes edge actions fast without giving up safety. First, Alook **Triggers** accept Cloudflare webhook notifications directly with optional secret verification so alerts wake only your ops bot. Second, your bot runs locally with your real git history and `wrangler` CLI, so diagnosis happens in seconds instead of copy-pasting dashboards. Third, destructive production rollbacks stay gated behind your explicit confirmation in Alook.
+
+## Watch the loop: Cloudflare 5xx alert to one-tap rollback and 200 OK
+
+Take a Friday-evening Worker deploy (`v42`) that breaks `/api/sync` for 4.8% of edge requests. Watch how Cloudflare's alert wakes **Vega** (ops bot) and **Atlas** (coding bot), puts a clear rollback decision in front of **Kai**, and verifies full recovery.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Cloudflare webhooks and Alook bots"
+  provider="cloudflare"
+  channel="edge-ops"
+  threadTitle="Alert: mossnote-api 5xx spike on /api/sync"
+  botName="Vega"
+  serverInitial="M"
+  stages={[
+    {
+      id: "edge-alert",
+      tabLabel: "1. 5xx alert fires",
+      headline: "Cloudflare Workers error alert wakes Vega to probe /api/sync and check recent deploys.",
+      direction: "to-alook",
+      signalLabel: "Cloudflare notification wakes Vega",
+      signalTag: "workers.5xx",
+      external: {
+        header: "mossnote-api",
+        workspace: "Workers & Pages",
+        number: "v42 · Global",
+        labelTag: "/api/sync",
+        status: "failing",
+        statusLabel: "5xx Spike",
+        title: "Worker error rate crossed 4.8% on /api/sync",
+        detail: "Cloudflare Notifications triggered after 3 minutes above the 1% threshold.",
+        metrics: [
+          { label: "Error rate", value: "4.8% (500)" },
+          { label: "Active version", value: "v42 (6m ago)" },
+          { label: "Affected route", value: "/api/sync" },
+        ],
+      },
+      messages: [
+        {
+          author: "Vega",
+          meta: "ops · wrangler",
+          time: "21:14",
+          mentions: ["Atlas"],
+          text: "Cloudflare 5xx alert on mossnote-api v42 (deployed 6m ago). Read-only probe shows TypeError on missing header in /api/sync. Confirm culprit commit?",
+        },
+      ],
+    },
+    {
+      id: "culprit-found",
+      tabLabel: "2. Suspect confirmed",
+      headline: "Atlas pinpoints the breaking commit in 30 seconds and Vega offers Kai a one-tap rollback.",
+      direction: "to-alook",
+      signalLabel: "Vega + Atlas present rollback vs hotfix",
+      signalTag: "triage.ready",
+      external: {
+        header: "mossnote-api",
+        workspace: "Workers & Pages",
+        number: "v42 → v41",
+        labelTag: "Commit 7c19e2",
+        status: "alert",
+        statusLabel: "Action Needed",
+        title: "Commit 7c19e2 assumes x-client-tz header is always set",
+        detail: "Older mobile clients omit x-client-tz, triggering unhandled exceptions at the edge.",
+        metrics: [
+          { label: "Suspect commit", value: "7c19e2" },
+          { label: "Safe fallback", value: "v41 (0.0% 5xx)" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "21:15",
+          text: "Confirmed: 7c19e2 parses x-client-tz without a null guard. Rollback to v41 is instant; I will open a guarded hotfix PR next.",
+        },
+        {
+          author: "Vega",
+          time: "21:15",
+          mentions: ["Kai"],
+          text: "Ready to run wrangler rollback to v41 now. Approve?",
+        },
+      ],
+    },
+    {
+      id: "rollback-exec",
+      tabLabel: "3. One-tap rollback",
+      headline: "Kai approves from his phone; Vega runs wrangler rollback to v41 immediately.",
+      direction: "to-external",
+      signalLabel: "Vega executes wrangler rollback to v41",
+      signalTag: "wrangler rollback",
+      external: {
+        header: "mossnote-api",
+        workspace: "Workers & Pages",
+        number: "v41 restored",
+        labelTag: "Rolling back",
+        status: "open",
+        statusLabel: "Deploying v41",
+        title: "Promoting previous healthy version v41 across edge",
+        detail: "Wrangler rollback triggered from local ops host with audit trail in Alook.",
+        metrics: [
+          { label: "Target version", value: "v41" },
+          { label: "Approved by", value: "Kai" },
+        ],
+      },
+      messages: [
+        {
+          author: "Kai",
+          role: "human",
+          time: "21:16",
+          mentions: ["Vega"],
+          text: "Roll back to v41 now.",
+        },
+        {
+          author: "Vega",
+          time: "21:16",
+          text: "Rolled mossnote-api back to v41. Probing /api/sync across regions now.",
+        },
+      ],
+    },
+    {
+      id: "verified-200",
+      tabLabel: "4. Verified 200 OK",
+      headline: "Edge probes return clean 200 OK and Vega closes the incident with Atlas's follow-up PR.",
+      direction: "to-alook",
+      signalLabel: "Edge 5xx back to 0.0%, incident closed",
+      signalTag: "status: 200 OK",
+      external: {
+        header: "mossnote-api",
+        workspace: "Workers & Pages",
+        number: "v41 · Healthy",
+        labelTag: "/api/sync",
+        status: "passing",
+        statusLabel: "200 OK",
+        title: "Error rate returned to 0.0% across all edge locations",
+        detail: "Zero 5xx responses over 3 consecutive checks. Follow-up hotfix PR #312 opened.",
+        metrics: [
+          { label: "Error rate", value: "0.0%" },
+          { label: "Active version", value: "v41" },
+        ],
+        reply: {
+          author: "Vega",
+          text: "Recovered in 3m. Rolled back to v41 and verified 200 OK; Atlas opened hotfix PR #312.",
+        },
+      },
+      messages: [
+        {
+          author: "Vega",
+          time: "21:18",
+          text: "All edge checks return 200 OK (0.0% 5xx). Incident closed; Atlas opened guarded hotfix PR #312 for Monday review.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Cloudflare edge-recovery loop in 3 steps
+
+Connect the machine that has your repo and signed-in `wrangler` CLI on the **Machines** page. Create your ops bot (**Vega**) and coding bot (**Atlas**) in **My Bots**, and add both to `/edge-ops`.
+
+Wire Cloudflare Notifications to **Vega** right from Alook:
+
+<TriggerSetupDemo
+  provider="cloudflare"
+  botName="Vega"
+  triggerName="workers-5xx-alerts"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_6tM4rP9wK2vB8nQ"
+  sampleSecret="whsec_cf_29a7f4e1c8b3"
+  externalMenuPath="Cloudflare · Notifications → Destinations → Webhooks"
+  externalFields={[
+    { label: "Webhook URL", value: "https://alook.ai/api/webhooks/bot/trk_6tM4rP9wK2vB8nQ", mono: true },
+    { label: "Optional secret", value: "whsec_cf_29a7f4e1c8b3", mono: true },
+  ]}
+  externalEvents={["Workers error rate spike", "Pages deployment failure", "Origin health check alert"]}
+  externalSubmitLabel="Save destination"
+  connectedSummary="Cloudflare webhook active. Ready to triage edge alerts and verify rollbacks."
+/>
+
+Keep read-only probes and git blame automatic, while requiring your explicit Alook approval before any `wrangler rollback` runs. For application-level stack traces and latency alerts, pair this with our [Sentry crash-to-hotfix loop](/usecases/sentry-webhook-auto-fix-errors) or [Grafana latency on-call loop](/usecases/grafana-alert-webhook-ai-oncall).

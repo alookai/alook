@@ -1,0 +1,173 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Selling paid access as an indie maker or small team creates repetitive manual fulfillment. Every time someone buys a Pro license or sponsor tier on Polar, you interrupt deep work to invite their GitHub account to a private repo, send a community invite link, write a personal welcome note, and remember to check back the next day to make sure they actually got set up.
+
+Connect Polar webhooks to your community ops agent in Alook and paid orders fulfill themselves end to end. When `order.paid` arrives, your bot grants the right repo and private channel perks using your local CLI tools, drafts a tailored welcome message based on the buyer's public GitHub profile, logs the new customer in your revenue channel, and checks day-1 activation automatically.
+
+Three Alook features make this fulfillment loop reliable. First, Alook **Triggers** verify Polar's Standard Webhooks signing key privately on your ops bot and queue orders cleanly if your computer is sleeping. Second, your bot runs locally with your real `gh` CLI and fulfillment scripts without shipping admin tokens to a third-party SaaS. Third, external buyer emails stay gated behind your quick confirmation or explicit welcome template rules.
+
+## Watch the loop: Polar paid order to automated perks and day-1 activation
+
+Take a `$99.00` Pro Team license order on Polar from `@linus-dev`. Watch how `order.paid` wakes **Milo** (community ops bot) to provision GitHub and Alook perks immediately, send a tailored onboarding note, and verify activation the next day.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Polar webhooks and Alook bots"
+  provider="polar"
+  channel="customers"
+  threadTitle="Polar Order #PLR-418: Pro Team ($99)"
+  botName="Milo"
+  serverInitial="M"
+  stages={[
+    {
+      id: "order-paid",
+      tabLabel: "1. Order paid",
+      headline: "Polar order.paid wakes Milo locally with the buyer's tier and GitHub handle.",
+      direction: "to-alook",
+      signalLabel: "order.paid wakes Milo to fulfill perks",
+      signalTag: "order.paid",
+      external: {
+        header: "PLR-418",
+        workspace: "Orders · Pro Team",
+        number: "#PLR-418",
+        amount: "$99.00",
+        status: "passing",
+        statusLabel: "Paid",
+        title: "New Pro Team annual license purchased",
+        detail: "Buyer @linus-dev completed checkout via Polar.",
+        metrics: [
+          { label: "Tier", value: "Pro Team" },
+          { label: "GitHub", value: "@linus-dev" },
+        ],
+      },
+      messages: [
+        {
+          author: "Milo",
+          meta: "ops · gh",
+          time: "15:02",
+          text: "New Polar Pro Team order ($99) from @linus-dev. Provisioning private starter repo invite and Alook VIP channel access now.",
+        },
+      ],
+    },
+    {
+      id: "perks-granted",
+      tabLabel: "2. Perks granted",
+      headline: "Milo grants private GitHub repo access, issues the license key, and drafts a personal welcome.",
+      direction: "to-external",
+      signalLabel: "Milo provisions repo invite and license benefits",
+      signalTag: "benefits.grant",
+      external: {
+        header: "PLR-418",
+        workspace: "Benefits · Fulfilled",
+        number: "#PLR-418",
+        amount: "$99.00",
+        status: "passing",
+        statusLabel: "Fulfilled",
+        title: "All 3 Pro Team benefits provisioned automatically",
+        detail: "Checked @linus-dev's public TypeScript stack to tailor quick-start instructions.",
+        checks: [
+          { name: "GitHub repo invite (@linus-dev)", status: "pass", duration: "2s" },
+          { name: "License key issued", status: "pass", duration: "1s" },
+          { name: "Alook VIP invite link", status: "pass", duration: "1s" },
+        ],
+      },
+      messages: [
+        {
+          author: "Milo",
+          time: "15:03",
+          mentions: ["Elena"],
+          text: "Repo invite + license key are live for @linus-dev. Drafted a short welcome note tailored to their Next.js stack. Send now?",
+        },
+      ],
+    },
+    {
+      id: "welcome-sent",
+      tabLabel: "3. Welcome sent",
+      headline: "Elena approves in one tap; Milo sends the welcome guide and arms a 24h activation check.",
+      direction: "to-external",
+      signalLabel: "Welcome email sent and 24h check scheduled",
+      signalTag: "welcome.sent",
+      external: {
+        header: "PLR-418",
+        workspace: "Customers · Onboarding",
+        number: "#PLR-418",
+        labelTag: "Onboarding",
+        status: "open",
+        statusLabel: "Welcome Sent",
+        title: "Tailored Next.js quick-start delivered to buyer",
+        detail: "Buyer accepted the GitHub collaborator invite within 8 minutes.",
+        metrics: [
+          { label: "Repo invite", value: "Accepted" },
+          { label: "Next check", value: "In 24 hours" },
+        ],
+      },
+      messages: [
+        {
+          author: "Elena",
+          role: "human",
+          time: "15:04",
+          mentions: ["Milo"],
+          text: "Send it and check back tomorrow if they haven't joined VIP.",
+        },
+        {
+          author: "Milo",
+          time: "15:04",
+          text: "Sent the welcome note and scheduled a 24h activation check.",
+        },
+      ],
+    },
+    {
+      id: "activated",
+      tabLabel: "4. Day-1 activated",
+      headline: "Buyer clones the repo and joins the VIP channel; Milo marks onboarding complete.",
+      direction: "to-alook",
+      signalLabel: "Buyer activated on day 1; onboarding closed",
+      signalTag: "activated",
+      external: {
+        header: "PLR-418",
+        workspace: "Customers · Active",
+        number: "#PLR-418",
+        amount: "$99.00",
+        status: "passing",
+        statusLabel: "Activated",
+        title: "Customer completed setup and joined #vip-pro",
+        detail: "Zero manual fulfillment steps required from the founder.",
+        reply: {
+          author: "Milo",
+          text: "Day-1 activation verified: @linus-dev cloned the starter repo and introduced themselves in #vip-pro.",
+        },
+      },
+      messages: [
+        {
+          author: "Milo",
+          time: "10:00",
+          text: "24h check complete: @linus-dev accepted the repo invite, activated their license key, and posted in #vip-pro. Closing onboarding.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Polar fulfillment loop in 3 steps
+
+Connect the machine with your `gh` CLI and license script on the **Machines** page. Create **Milo** in **My Bots** and add Milo to `/customers`.
+
+Wire Polar to **Milo** right from Alook:
+
+<TriggerSetupDemo
+  provider="polar"
+  botName="Milo"
+  triggerName="polar-orders"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_6pH2nM8kR4vQ1xB"
+  sampleSecret="whsec_plr_5a9d2f7c1e8b4032"
+  externalMenuPath="Polar · Settings → Webhooks → Add Endpoint"
+  externalFields={[
+    { label: "URL", value: "https://alook.ai/api/webhooks/bot/trk_6pH2nM8kR4vQ1xB", mono: true },
+    { label: "Secret", value: "whsec_plr_5a9d2f7c1e8b4032", mono: true },
+  ]}
+  externalEvents={["order.paid", "subscription.active", "subscription.canceled"]}
+  externalSubmitLabel="Add Endpoint"
+  connectedSummary="Polar Standard Webhooks key saved. Ready to auto-fulfill paid orders and track activation."
+/>
+
+Pair this fulfillment flow with [Clerk high-intent sign-up onboarding](/usecases/clerk-webhook-signup-onboarding-ai) to cover free-to-paid teams before checkout too.

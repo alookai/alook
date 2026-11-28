@@ -1,0 +1,187 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Sentry alerts pile up faster than anyone can triage them. Every new crash means clicking through email, reading a minified stack trace, switching to your editor to run `git blame`, writing a reproduction test, opening a hotfix PR, waiting on review, deploying, and finally remembering to resolve the Sentry issue.
+
+Connect Sentry webhooks to your local AI coding agents in Alook and production crashes walk themselves straight to a tested hotfix PR. The first time a new exception fires, Sentry wakes your coding bot to trace the culprit line in your real repository, pin the bug down with a failing unit test, implement the fix, and hand the PR to your reviewer bot. Once you approve and ship, your bot links the release in Sentry and marks the issue **Resolved**.
+
+Alook makes this loop practical on real production codebases. First, Alook **Triggers** verify Sentry's Client Secret on a private bot endpoint so noisy production alerts never flood human channels. Second, your coding and review bots run on your own machine with full source maps, git history, and your real test runner. Third, Alook isolates external Sentry stack payloads as untrusted input so user-controlled error strings can never trick your agent into merging unreviewed code.
+
+## Watch the loop: Sentry crash to tested hotfix PR and Resolved issue
+
+Take a `TypeError` spike in `mossnote-web` when a user exports a note with an empty alt attribute. Watch how Sentry's issue webhook wakes **Atlas** (Claude Code), brings in **Iris** (Codex) to verify the regression test, and closes the Sentry issue after shipping.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Sentry webhooks and Alook bots"
+  provider="sentry"
+  channel="prod-fixes"
+  threadTitle="Sentry: TypeError in resolveImageAlt"
+  botName="Atlas"
+  serverInitial="M"
+  stages={[
+    {
+      id: "crash-fires",
+      tabLabel: "1. Crash fires",
+      headline: "New Sentry TypeError wakes Atlas to trace the stack frame in your local repo.",
+      direction: "to-alook",
+      signalLabel: "issue.created wakes Atlas with stack trace",
+      signalTag: "issue.created",
+      external: {
+        header: "MOSS-884",
+        workspace: "mossnote-web",
+        number: "TypeError",
+        labelTag: "v2.4.1",
+        status: "failing",
+        statusLabel: "Unresolved",
+        title: "Cannot read properties of undefined (reading 'trim')",
+        detail: "First seen 2 minutes ago on release v2.4.1 after image export refactor.",
+        metrics: [
+          { label: "Events", value: "142" },
+          { label: "Users", value: "38" },
+          { label: "Release", value: "v2.4.1" },
+        ],
+        logLines: [
+          "TypeError: Cannot read 'trim' of undefined",
+          "at resolveImageAlt (app/export/alt.ts:48:19)",
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "16:20",
+          text: "Woken by Sentry MOSS-884. git blame points to commit 3a7f90 in app/export/alt.ts:48 when img.alt is undefined. Writing a failing unit test first.",
+        },
+      ],
+    },
+    {
+      id: "repro-pr",
+      tabLabel: "2. Repro & hotfix PR",
+      headline: "Atlas pins the crash with a regression test, fixes line 48, and opens hotfix PR #318.",
+      direction: "to-alook",
+      signalLabel: "Hotfix PR #318 opened with regression test",
+      signalTag: "hotfix.pr",
+      external: {
+        header: "MOSS-884",
+        workspace: "mossnote-web",
+        number: "TypeError",
+        labelTag: "PR #318 linked",
+        status: "alert",
+        statusLabel: "Patch Ready",
+        title: "Cannot read properties of undefined (reading 'trim')",
+        detail: "Reproduced locally in alt.test.ts and guarded undefined alt strings in PR #318.",
+        metrics: [
+          { label: "Culprit", value: "alt.ts:48" },
+          { label: "New test", value: "alt.test.ts" },
+          { label: "CI", value: "Green" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "16:25",
+          mentions: ["Iris"],
+          text: "Opened hotfix PR #318 with a null-safe guard and regression test for missing alt tags. All 32 export tests pass. Can you review?",
+        },
+      ],
+    },
+    {
+      id: "review-ready",
+      tabLabel: "3. Bot review",
+      headline: "Iris checks the diff and regression test, then pings Mara for a one-line merge approval.",
+      direction: "to-alook",
+      signalLabel: "Iris approves hotfix PR #318",
+      signalTag: "review.ok",
+      external: {
+        header: "MOSS-884",
+        workspace: "mossnote-web",
+        number: "TypeError",
+        labelTag: "PR #318 approved",
+        status: "open",
+        statusLabel: "Ready to Ship",
+        title: "Cannot read properties of undefined (reading 'trim')",
+        detail: "Hotfix reviewed and verified against null, empty, and whitespace-only alt values.",
+        metrics: [
+          { label: "Diff", value: "+14 / -2" },
+          { label: "Review", value: "Approved" },
+          { label: "Risk", value: "Low" },
+        ],
+      },
+      messages: [
+        {
+          author: "Iris",
+          meta: "Codex",
+          time: "16:27",
+          mentions: ["Mara"],
+          text: "Reviewed PR #318. Null guard is clean and alt.test.ts reproduces the exact Sentry trace. Ready to ship v2.4.2?",
+        },
+      ],
+    },
+    {
+      id: "sentry-resolved",
+      tabLabel: "4. Shipped & Resolved",
+      headline: "Mara approves in Alook; Atlas merges PR #318 and marks MOSS-884 Resolved in Sentry.",
+      direction: "to-external",
+      signalLabel: "Atlas ships PR #318 and resolves Sentry issue",
+      signalTag: "sentry.resolve",
+      external: {
+        header: "MOSS-884",
+        workspace: "mossnote-web",
+        number: "TypeError",
+        labelTag: "Fixed in v2.4.2",
+        status: "passing",
+        statusLabel: "Resolved",
+        title: "Cannot read properties of undefined (reading 'trim')",
+        detail: "Linked to release v2.4.2 with zero new occurrences over the next 30 minutes.",
+        metrics: [
+          { label: "Status", value: "Resolved" },
+          { label: "Release", value: "v2.4.2" },
+          { label: "New events", value: "0" },
+        ],
+        reply: {
+          author: "Atlas",
+          text: "Resolved in v2.4.2 (PR #318). Added regression test in alt.test.ts.",
+        },
+      },
+      messages: [
+        {
+          author: "Mara",
+          role: "human",
+          time: "16:28",
+          mentions: ["Atlas"],
+          text: "Merge it and resolve MOSS-884 once v2.4.2 deploys.",
+        },
+        {
+          author: "Atlas",
+          time: "16:31",
+          text: "Merged PR #318, verified v2.4.2 live, and marked Sentry MOSS-884 Resolved.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Sentry crash-to-hotfix loop in 3 steps
+
+Connect your dev machine with your repo, test suite, and `gh` CLI on the **Machines** page. Create **Atlas** and **Iris** in **My Bots**, and add both to `/prod-fixes`.
+
+Wire Sentry to **Atlas** right from Alook:
+
+<TriggerSetupDemo
+  provider="sentry"
+  botName="Atlas"
+  triggerName="prod-crashes"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_8cN3vQ5pM1kR7xW"
+  sampleSecret="sntry_cs_4f8e1a9d3c7b2065"
+  externalMenuPath="Sentry · Settings → Developer Settings → Custom Integrations"
+  externalFields={[
+    { label: "Webhook URL", value: "https://alook.ai/api/webhooks/bot/trk_8cN3vQ5pM1kR7xW", mono: true },
+    { label: "Client Secret", value: "sntry_cs_4f8e1a9d3c7b2065", mono: true },
+  ]}
+  externalEvents={["issue.created", "error.created", "metric_alert.critical"]}
+  externalSubmitLabel="Save Changes"
+  connectedSummary="Sentry Client Secret saved. Ready to turn new crashes into tested hotfix PRs."
+/>
+
+Filter Sentry alert rules to production and `is:unresolved` first so your bot focuses on real regressions instead of staging noise. Pair this with our [Datadog multi-agent incident loop](/usecases/datadog-webhook-multi-agent-incident) when you need cross-service SLO coordination.

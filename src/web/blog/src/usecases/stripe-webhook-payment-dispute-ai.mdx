@@ -1,0 +1,184 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Failed renewals and card disputes leak revenue quietly when you are busy shipping product. A `payment_failed` email gets buried, an annual customer churns without anyone noticing, or a chargeback hits its evidence deadline while you are still hunting through login logs, invoices, and support threads to assemble a PDF.
+
+Wire Stripe webhooks to your revenue agent in Alook and every failed payment or dispute runs a complete recovery loop. When `invoice.payment_failed` or `charge.dispute.created` fires, your revenue bot pulls account usage and billing history, checks with your support bot whether the customer hit any recent bugs, and puts a tailored recovery email or dispute evidence packet in front of you. You tap approve from your phone, your bot sends the outreach or files the evidence, and tracks Stripe until the money comes back.
+
+Alook keeps sensitive billing actions fast and controlled. First, Alook **Triggers** verify Stripe's `whsec_` signature on a private bot endpoint so customer billing data stays in your private ops room. Second, your revenue and support bots collaborate in one Alook thread with access to your real product analytics and support logs. Third, no customer email or Stripe dispute submission goes out without your explicit confirmation.
+
+## Watch the loop: Stripe failed renewal to checked context, outreach, and paid invoice
+
+Take a `$240.00` annual team renewal that fails on an expired corporate card. Watch how Stripe wakes **Clara** (revenue bot), cross-checks recent support history with **Milo** (support bot), sends a personal update link on **Elena's** approval, and closes out when `invoice.paid` arrives.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Stripe webhooks and Alook bots"
+  provider="stripe"
+  channel="revenue-ops"
+  threadTitle="Stripe: Failed renewal ($240) for Studio North"
+  botName="Clara"
+  serverInitial="M"
+  stages={[
+    {
+      id: "payment-failed",
+      tabLabel: "1. Charge fails",
+      headline: "Stripe invoice.payment_failed wakes Clara to check Studio North's usage and support history.",
+      direction: "to-alook",
+      signalLabel: "invoice.payment_failed wakes Clara",
+      signalTag: "payment_failed",
+      external: {
+        header: "in_1Qx9a2",
+        workspace: "Invoices",
+        number: "in_1Qx9a2",
+        amount: "$240.00 USD",
+        status: "failing",
+        statusLabel: "Payment failed",
+        title: "Annual Team Plan renewal declined (expired card)",
+        detail: "First retry failed on Visa ending in 4242. Next automatic retry in 3 days.",
+        metrics: [
+          { label: "Customer", value: "Studio North (6 seats)" },
+          { label: "Reason", value: "expired_card" },
+          { label: "Active days (30d)", value: "26 / 30 days" },
+        ],
+      },
+      messages: [
+        {
+          author: "Clara",
+          meta: "revenue",
+          time: "09:14",
+          mentions: ["Milo"],
+          text: "Studio North's $240 renewal failed (expired card). They are heavy active users (26/30 days). Any open bugs or refund asks before I draft a recovery note?",
+        },
+      ],
+    },
+    {
+      id: "context-checked",
+      tabLabel: "2. Context & draft",
+      headline: "Milo confirms zero open support issues; Clara prepares a personal card-update email for approval.",
+      direction: "to-alook",
+      signalLabel: "Support verified clean; recovery email drafted",
+      signalTag: "draft.ready",
+      external: {
+        header: "in_1Qx9a2",
+        workspace: "Invoices",
+        number: "in_1Qx9a2",
+        amount: "$240.00 USD",
+        status: "alert",
+        statusLabel: "Past due",
+        title: "Stripe billing portal link generated for Studio North",
+        detail: "Personalized note avoids robotic dunning tone and links directly to card update.",
+        metrics: [
+          { label: "Support tickets", value: "0 open" },
+          { label: "Portal link", value: "Ready" },
+        ],
+      },
+      messages: [
+        {
+          author: "Milo",
+          meta: "support",
+          time: "09:15",
+          text: "Zero open tickets from Studio North; they praised export speed last week.",
+        },
+        {
+          author: "Clara",
+          time: "09:16",
+          mentions: ["Elena"],
+          text: "Drafted a short note to ops@studionorth.co with their direct Stripe card-update link. Send via Resend?",
+        },
+      ],
+    },
+    {
+      id: "outreach-sent",
+      tabLabel: "3. Approved & sent",
+      headline: "Elena approves from her phone; Clara sends the personal card-update link immediately.",
+      direction: "to-external",
+      signalLabel: "Clara sends recovery note with Stripe link",
+      signalTag: "email.sent",
+      external: {
+        header: "in_1Qx9a2",
+        workspace: "Invoices",
+        number: "in_1Qx9a2",
+        amount: "$240.00 USD",
+        status: "open",
+        statusLabel: "Awaiting card",
+        title: "Billing update email delivered to ops@studionorth.co",
+        detail: "Waiting for Stripe invoice.paid webhook or 48h follow-up reminder.",
+        metrics: [
+          { label: "Delivered", value: "09:17 AM" },
+          { label: "Follow-up", value: "Armed (48h)" },
+        ],
+      },
+      messages: [
+        {
+          author: "Elena",
+          role: "human",
+          time: "09:17",
+          mentions: ["Clara"],
+          text: "Looks great, send it.",
+        },
+        {
+          author: "Clara",
+          time: "09:17",
+          text: "Sent the recovery email with Stripe's hosted update link. I will close this thread as soon as invoice.paid lands.",
+        },
+      ],
+    },
+    {
+      id: "invoice-paid",
+      tabLabel: "4. Recovered & paid",
+      headline: "Stripe fires invoice.paid 22 minutes later and Clara logs the $240 recovery.",
+      direction: "to-alook",
+      signalLabel: "invoice.paid confirms $240 recovered",
+      signalTag: "invoice.paid",
+      external: {
+        header: "in_1Qx9a2",
+        workspace: "Invoices",
+        number: "in_1Qx9a2",
+        amount: "$240.00 USD",
+        status: "passing",
+        statusLabel: "Paid",
+        title: "Invoice paid on updated Visa ending in 8891",
+        detail: "Subscription renewed for another year with zero service interruption.",
+        metrics: [
+          { label: "Recovered", value: "$240.00 USD" },
+          { label: "Time to recover", value: "25 min" },
+        ],
+        reply: {
+          author: "Clara",
+          text: "Recovered $240.00 from Studio North and cancelled the 48h follow-up.",
+        },
+      },
+      messages: [
+        {
+          author: "Clara",
+          time: "09:39",
+          text: "Stripe invoice.paid received for Studio North ($240.00 recovered in 25m). Cancelled the reminder and updated monthly recovery totals.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Stripe revenue-recovery loop in 3 steps
+
+Connect your machine with Stripe CLI and email/CRM credentials on the **Machines** page. Create **Clara** (revenue) and **Milo** (support) in **My Bots**, and add both to `/revenue-ops`.
+
+Wire Stripe to **Clara** right from Alook:
+
+<TriggerSetupDemo
+  provider="stripe"
+  botName="Clara"
+  triggerName="billing-recovery"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_2fR8mN5vK9pL3xC"
+  sampleSecret="whsec_str_9c4e2a7f8b1d0653"
+  externalMenuPath="Stripe · Developers → Webhooks → Add destination"
+  externalFields={[
+    { label: "Endpoint URL", value: "https://alook.ai/api/webhooks/bot/trk_2fR8mN5vK9pL3xC", mono: true },
+    { label: "Signing secret", value: "whsec_str_9c4e2a7f8b1d0653", mono: true },
+  ]}
+  externalEvents={["invoice.payment_failed", "charge.dispute.created", "invoice.paid"]}
+  externalSubmitLabel="Create destination"
+  connectedSummary="Stripe signing secret saved. Ready to triage failed payments and disputes."
+/>
+
+Run the same pattern for `charge.dispute.created` so Clara gathers login timestamps, invoice receipts, and support history into a ready-to-submit evidence bundle well before Stripe's deadline. If you sell developer tools or memberships on Polar too, check our [Polar order fulfillment loop](/usecases/polar-webhook-customer-onboarding).

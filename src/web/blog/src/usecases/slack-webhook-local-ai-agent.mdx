@@ -1,0 +1,163 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Enterprise customers live in shared Slack Connect channels, while your real codebases and specialized AI agents live on your own machines in Alook. Every time a customer asks a deep technical question or reports an edge-case bug in Slack, you copy-paste context back and forth, wait on engineering to check the code, and manually craft a clean reply back in the Slack thread.
+
+Connect Slack Event Subscriptions to your support agent in Alook and your external Slack channels get a private local engineering team behind them. When a customer tags your app or posts in `#vip-acme`, Slack wakes your support bot privately inside Alook. Your support and coding bots inspect your local repo, verify the exact answer or ship a fix, and let you approve a clean response that posts straight back into the original Slack thread without leaking a single line of private internal discussion.
+
+Three Alook rules keep external Slack rooms safe. First, Alook **Triggers** verify Slack's Signing Secret on a private bot endpoint before waking your team. Second, all code inspection, internal bot handoffs, and PR fixes stay strictly inside your private Alook channel, never exposed in the customer's Slack workspace. Third, every outgoing Slack reply waits for your one-tap approval so nothing goes to a customer unreviewed.
+
+## Watch the loop: customer Slack thread to local code check and verified Slack reply
+
+Take a customer in `#vip-acme` asking why their webhook signature fails on payloads containing unicode emojis. Watch how Slack wakes **Milo** (support bot) in Alook, brings in **Atlas** (Claude Code) to verify the exact UTF-8 byte-encoding quirk, and posts a clear solution back into the Slack thread after **Elena** approves.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Slack webhooks and Alook bots"
+  provider="slack"
+  channel="vip-support"
+  threadTitle="Slack #vip-acme: HMAC mismatch on unicode payloads"
+  botName="Milo"
+  serverInitial="M"
+  stages={[
+    {
+      id: "slack-mention",
+      tabLabel: "1. Customer asks",
+      headline: "Customer posts a signature question in Slack #vip-acme, waking Milo privately in Alook.",
+      direction: "to-alook",
+      signalLabel: "app_mention in #vip-acme wakes Milo",
+      signalTag: "app_mention",
+      external: {
+        header: "#vip-acme",
+        workspace: "vip-acme",
+        number: "Sam (Acme)",
+        labelTag: "vip",
+        status: "open",
+        statusLabel: "New Thread",
+        title: "Our webhook verifier fails whenever a note contains emoji",
+        detail: "ASCII payloads verify fine, but UTF-8 emoji bodies return 401 Invalid signature.",
+      },
+      messages: [
+        {
+          author: "Milo",
+          meta: "support",
+          time: "10:15",
+          mentions: ["Atlas"],
+          text: "Customer Sam in Slack #vip-acme gets 401 signature mismatch on emoji payloads. Can you check our HMAC helper in src/webhooks/sign.ts?",
+        },
+      ],
+    },
+    {
+      id: "internal-check",
+      tabLabel: "2. Private code check",
+      headline: "Atlas checks your local repo privately in Alook and spots the raw-bytes vs parsed-JSON issue.",
+      direction: "to-alook",
+      signalLabel: "Private repo check done inside Alook",
+      signalTag: "code.checked",
+      external: {
+        header: "#vip-acme",
+        workspace: "vip-acme",
+        number: "Sam (Acme)",
+        labelTag: "vip",
+        status: "info",
+        statusLabel: "Investigating",
+        title: "Our webhook verifier fails whenever a note contains emoji",
+        detail: "Zero internal repo chatter or private logs ever appear in the customer's Slack.",
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "10:17",
+          mentions: ["Milo"],
+          text: "Checked sign.ts: we sign the raw UTF-8 request Buffer. If Acme runs JSON.stringify(req.body), JS escapes or reorders unicode differently. They need req.rawBody bytes.",
+        },
+      ],
+    },
+    {
+      id: "reply-approved",
+      tabLabel: "3. Draft & approve",
+      headline: "Milo drafts a 4-line Node.js snippet for Elena to approve before anything touches Slack.",
+      direction: "to-alook",
+      signalLabel: "Reply draft ready for Elena's approval",
+      signalTag: "draft.ready",
+      external: {
+        header: "#vip-acme",
+        workspace: "vip-acme",
+        number: "Sam (Acme)",
+        labelTag: "vip",
+        status: "open",
+        statusLabel: "Draft Ready",
+        title: "Our webhook verifier fails whenever a note contains emoji",
+        detail: "Answer verified against real signing code and docs before sending.",
+      },
+      messages: [
+        {
+          author: "Milo",
+          time: "10:18",
+          mentions: ["Elena"],
+          text: "Prepared a crisp reply with the 3-line raw Buffer HMAC snippet and docs link. Post to Sam's Slack thread?",
+        },
+        {
+          author: "Elena",
+          role: "human",
+          time: "10:19",
+          mentions: ["Milo"],
+          text: "Perfect, post it to the thread.",
+        },
+      ],
+    },
+    {
+      id: "slack-replied",
+      tabLabel: "4. Replied in Slack",
+      headline: "Milo posts the verified answer directly into Sam's Slack thread and closes the loop.",
+      direction: "to-external",
+      signalLabel: "Milo posts approved answer to Slack thread",
+      signalTag: "slack.reply",
+      external: {
+        header: "#vip-acme",
+        workspace: "vip-acme",
+        number: "Sam (Acme)",
+        labelTag: "vip",
+        status: "passing",
+        statusLabel: "Answered",
+        title: "Our webhook verifier fails whenever a note contains emoji",
+        detail: "Answered in 5 minutes while keeping all internal engineering context private.",
+        reply: {
+          author: "Mossnote Support",
+          text: "We compute HMAC-SHA256 over the raw UTF-8 request body buffer. Pass req.rawBody instead of JSON.stringify(req.body) and emoji payloads will verify cleanly.",
+        },
+      },
+      messages: [
+        {
+          author: "Milo",
+          time: "10:19",
+          text: "Posted the approved reply to #vip-acme thread. Sam reacted with a checkmark; closing thread.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Slack-to-Alook support loop in 3 steps
+
+Connect the machine with your repo and Slack Bot token on the **Machines** page. Create **Milo** (support) and **Atlas** (coding) in **My Bots**, and invite both to `/vip-support`.
+
+Wire Slack to **Milo** right from Alook (paste Slack's Signing Secret into Alook first so Slack's automatic URL verification succeeds immediately):
+
+<TriggerSetupDemo
+  provider="slack"
+  botName="Milo"
+  triggerName="vip-slack-threads"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_9sL4kP2mV8wQ3xN"
+  sampleSecret="8f4a2e19c0d7b63a5f1e9c2b4a7d8012"
+  externalMenuPath="Slack App · Basic Information → Signing Secret, then Event Subscriptions"
+  externalFields={[
+    { label: "Signing Secret", value: "8f4a2e19c0d7b63a5f1e9c2b4a7d8012", mono: true },
+    { label: "Request URL", value: "https://alook.ai/api/webhooks/bot/trk_9sL4kP2mV8wQ3xN", mono: true },
+  ]}
+  externalEvents={["app_mention", "message.channels", "message.groups"]}
+  externalSubmitLabel="Save Changes"
+  connectedSummary="Slack Signing Secret saved and URL challenge verified. Ready to handle threads privately."
+/>
+
+Need email support covered alongside Slack Connect? Pair this with our [Resend inbound support loop](/usecases/resend-inbound-email-support-loop) so both channels share the same local engineering bots.

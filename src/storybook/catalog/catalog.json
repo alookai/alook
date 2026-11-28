@@ -8,10 +8,10 @@
   ],
   "summary": {
     "server-output": 11,
-    "composition": 379,
+    "composition": 380,
     "environment": 14,
-    "nonvisual": 32,
-    "direct": 166
+    "direct": 168,
+    "nonvisual": 32
   },
   "entries": [
     {
@@ -526,6 +526,53 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/blog/src/components/guides/trigger-external-surface.tsx",
+      "application": "Blog",
+      "candidates": [
+        "StatusIcon",
+        "TriggerExternalSurface"
+      ],
+      "kind": "composition",
+      "examples": [
+        {
+          "story": "blog-components--trigger-flow",
+          "region": "External platform workspace pane rendered inside the interactive Trigger flow demo"
+        }
+      ],
+      "reason": "The authored story mounts the original visual component inside TriggerFlowDemo."
+    },
+    {
+      "source": "src/web/blog/src/components/guides/trigger-flow-demo.tsx",
+      "application": "Blog",
+      "candidates": [
+        "TriggerFlowDemo"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "blog-components--trigger-flow",
+          "region": "Full two-app external platform to Alook Trigger flow demo with animated signal bridge"
+        }
+      ],
+      "reason": "The authored story mounts the original TriggerFlowDemo component directly."
+    },
+    {
+      "source": "src/web/blog/src/components/guides/trigger-setup-demo.tsx",
+      "application": "Blog",
+      "candidates": [
+        "CopyablePreviewField",
+        "TriggerSetupDemo"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "blog-components--trigger-setup",
+          "region": "Three-step Alook Triggers setup walkthrough reusing WebhookProviderIcon and shared UI controls"
+        }
+      ],
+      "reason": "The authored story mounts the original TriggerSetupDemo component directly."
     },
     {
       "source": "src/web/src/app/(auth)/layout.tsx",
@@ -9511,6 +9558,18 @@
       "id": "blog-components--use-case-story",
       "title": "Blog/Components",
       "name": "Use Case Story",
+      "source": "src/storybook/stories/blog/components.stories.tsx"
+    },
+    {
+      "id": "blog-components--trigger-flow",
+      "title": "Blog/Components",
+      "name": "Trigger Flow",
+      "source": "src/storybook/stories/blog/components.stories.tsx"
+    },
+    {
+      "id": "blog-components--trigger-setup",
+      "title": "Blog/Components",
+      "name": "Trigger Setup",
       "source": "src/storybook/stories/blog/components.stories.tsx"
     },
     {

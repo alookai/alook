@@ -1,0 +1,167 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Frontend deploys break silently right after you switch tabs. You push a commit, close your laptop or jump into another task, and twenty minutes later a designer asks why the preview link is missing. By the time you dig through Vercel build logs, fix a stray type import, re-push, and grab desktop and mobile screenshots for review, an hour is gone.
+
+Wire Vercel deployment webhooks into your local frontend agent in Alook and broken builds fix themselves before anyone notices. A `deployment.error` event wakes your coding bot to pull the failing build log, repair the PR branch locally, and push again. Once Vercel emits `deployment.ready`, your bot opens the real preview URL in a browser on your computer, verifies zero console errors, captures desktop and mobile screenshots, and drops them straight into your design review channel.
+
+Three Alook mechanics keep this loop tight. First, Alook **Triggers** verify every Vercel webhook signature privately on your bot and queue events automatically if your computer is offline. Second, because your frontend agent runs on your own machine with your local repo and real browser tooling, it fixes code and inspects the live preview without brittle CI screenshot scripts. Third, every webhook payload arrives marked as untrusted external data so only your workspace rules decide which PR branches the bot can push to.
+
+## Watch the loop: failed Vercel build to verified preview screenshots
+
+Take a landing-page pricing update on PR #188 where a missing image import breaks the Vercel build. Watch how `deployment.error` wakes **Nova** (Claude Code) to fix and re-push, and how `deployment.ready` triggers a live browser verification pass for **Lea** (designer).
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Vercel webhooks and Alook bots"
+  provider="vercel"
+  channel="design-review"
+  threadTitle="PR #188: Updated pricing table"
+  botName="Nova"
+  serverInitial="M"
+  stages={[
+    {
+      id: "build-error",
+      tabLabel: "1. Build fails",
+      headline: "Vercel deployment.error wakes Nova locally with the failed preview build details.",
+      direction: "to-alook",
+      signalLabel: "deployment.error wakes Nova to inspect logs",
+      signalTag: "deployment.error",
+      external: {
+        header: "dpl_9a4f2c",
+        workspace: "mossnote / web",
+        number: "pr-188 · 4c91e2a",
+        labelTag: "Preview",
+        status: "failing",
+        statusLabel: "Error",
+        title: "Build failed during Next.js typecheck",
+        detail: "Preview deployment aborted after 42s and fired a Vercel webhook.",
+        logLines: [
+          "Type error: Property 'annualPrice' missing",
+          "src/components/pricing-grid.tsx:64:18",
+          "Command 'pnpm build' exited with 1",
+        ],
+      },
+      messages: [
+        {
+          author: "Nova",
+          meta: "Claude Code",
+          time: "14:04",
+          text: "Caught Vercel build failure on PR #188. Pulled the log: pricing-grid.tsx missed annualPrice on the Starter tier prop.",
+        },
+      ],
+    },
+    {
+      id: "fix-pushed",
+      tabLabel: "2. Fix & redeploy",
+      headline: "Nova fixes the TypeScript prop locally, runs pnpm build, and pushes commit 9b3d0f1.",
+      direction: "to-external",
+      signalLabel: "Nova pushes fix to PR #188 to trigger redeploy",
+      signalTag: "git push",
+      external: {
+        header: "dpl_9a4f9e",
+        workspace: "mossnote / web",
+        number: "pr-188 · 9b3d0f1",
+        labelTag: "Preview",
+        status: "open",
+        statusLabel: "Building",
+        title: "Redeploying PR #188 after local typecheck pass",
+        detail: "Vercel picked up commit 9b3d0f1 and started a fresh preview build.",
+        meta: "mossnote-git-pr-188.vercel.app",
+      },
+      messages: [
+        {
+          author: "Nova",
+          meta: "auto-fix",
+          time: "14:06",
+          text: "Added annualPrice to StarterTier, verified local typecheck and build, and pushed 9b3d0f1 to trigger a fresh Vercel preview.",
+        },
+      ],
+    },
+    {
+      id: "preview-ready",
+      tabLabel: "3. Preview ready",
+      headline: "Vercel deployment.ready wakes Nova to open the live preview URL in a real browser.",
+      direction: "to-alook",
+      signalLabel: "deployment.ready wakes Nova for browser QA",
+      signalTag: "deployment.ready",
+      external: {
+        header: "dpl_9a4f9e",
+        workspace: "mossnote / web",
+        number: "pr-188 · 9b3d0f1",
+        labelTag: "Preview",
+        status: "passing",
+        statusLabel: "Ready",
+        title: "Preview deployment live with zero build warnings",
+        detail: "Build succeeded in 38s and emitted deployment.ready to Alook.",
+        meta: "https://mossnote-git-pr-188.vercel.app",
+      },
+      messages: [
+        {
+          author: "Nova",
+          meta: "browser QA",
+          time: "14:08",
+          text: "Opened mossnote-git-pr-188.vercel.app at 1280px and 390px. Zero console errors, zero horizontal overflow, pricing toggle works.",
+        },
+      ],
+    },
+    {
+      id: "design-handoff",
+      tabLabel: "4. Verified handoff",
+      headline: "Nova delivers the live preview link and dual-viewport screenshots to Lea in Alook.",
+      direction: "to-alook",
+      signalLabel: "Design review ready with verified screenshots",
+      signalTag: "qa.verified",
+      external: {
+        header: "dpl_9a4f9e",
+        workspace: "mossnote / web",
+        number: "pr-188 · 9b3d0f1",
+        labelTag: "Preview",
+        status: "passing",
+        statusLabel: "Ready",
+        title: "Verified preview linked on PR #188",
+        detail: "Desktop and mobile captures checked clean before design review.",
+        meta: "https://mossnote-git-pr-188.vercel.app",
+      },
+      messages: [
+        {
+          author: "Nova",
+          time: "14:09",
+          mentions: ["Lea"],
+          text: "Preview is green and browser-checked (desktop + 390px screenshots attached). Ready for your visual sign-off.",
+        },
+        {
+          author: "Lea",
+          role: "human",
+          time: "14:11",
+          mentions: ["Nova"],
+          text: "Looks crisp on both sizes. Go ahead and mark PR #188 ready to merge.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Vercel auto-fix preview loop in 3 steps
+
+Connect your dev machine with your frontend repository and local browser tool on the **Machines** page. Create your frontend bot (**Nova**) in **My Bots** and add it to `/design-review`.
+
+Wire Vercel to **Nova** right from Alook:
+
+<TriggerSetupDemo
+  provider="vercel"
+  botName="Nova"
+  triggerName="web-previews"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_7pR2kM9vC4wN1xH"
+  sampleSecret="vrc_wh_91a8e4c2b7f03d5a"
+  externalMenuPath="Vercel · Team Settings → Webhooks → Create Webhook"
+  externalFields={[
+    { label: "Endpoint", value: "https://alook.ai/api/webhooks/bot/trk_7pR2kM9vC4wN1xH", mono: true },
+    { label: "Projects", value: "mossnote-web", mono: false },
+    { label: "Webhook secret", value: "vrc_wh_91a8e4c2b7f03d5a", mono: true },
+  ]}
+  externalEvents={["deployment.error", "deployment.ready"]}
+  externalSubmitLabel="Create Webhook"
+  connectedSummary="Vercel signing key saved. Ready to catch broken builds and verify previews."
+/>
+
+Limit auto-fixes to preview branches first so production deploys always stay behind your merge gate. Once your team wants edge alerts covered after launch too, pair this with our [Cloudflare Workers alert and rollback loop](/usecases/cloudflare-alert-webhook-ai-agent).

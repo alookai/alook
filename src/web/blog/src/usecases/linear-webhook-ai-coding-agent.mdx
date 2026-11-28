@@ -1,0 +1,186 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Product tickets stall in the handoff gap. A PM moves a clean Linear issue to Ready, then waits half a day for an engineer to read it, ask one clarifying question, cut a branch, run tests, open a pull request, and remember to paste the link back into Linear. A two-hour change stretches across three days of waiting.
+
+Connect Linear webhooks to your local AI agents in Alook and that handoff collapses into minutes. Dragging an issue into Ready wakes your coding agent directly on your machine to inspect the codebase and ask the PM any missing edge-case question inside Alook. Once aligned, it writes the patch, brings in your reviewer agent to verify the diff, merges on your go-ahead, and writes the PR link and Done status straight back to Linear.
+
+Three Alook details make that loop safe for real product teams. First, Alook **Triggers** give your engineering bot a private Trigger link verified with Linear's signing secret, waking the bot quietly without spamming team channels and queueing events automatically if your laptop is asleep. Second, your coding and review bots run locally with your real repository, test suite, and signed-in `gh` and Linear CLIs inside one shared Alook channel where humans can steer in seconds. Third, Alook labels every incoming Linear webhook payload as untrusted external content, so a ticket comment can never bypass your approval boundary for production merges.
+
+## Watch the loop: Linear Ready ticket to merged PR and Done
+
+Take a real product request: customers want keyboard shortcuts (`Cmd+K`) to jump straight to archived notes. Watch how moving `ENG-412` to **Ready** in Linear wakes **Atlas** (Claude Code), aligns one quick detail with **Maya** (PM), hands off to **Iris** (Codex) for review, and updates Linear back to **Done** once merged.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Linear webhooks and Alook bots"
+  provider="linear"
+  channel="product-eng"
+  threadTitle="ENG-412: Add Cmd+K jump to archived notes"
+  botName="Atlas"
+  serverInitial="M"
+  stages={[
+    {
+      id: "ticket-ready",
+      tabLabel: "1. Ticket Ready",
+      headline: "Moving ENG-412 to Ready in Linear wakes Atlas to scan the repo and check edge cases.",
+      direction: "to-alook",
+      signalLabel: "issue.update (Ready) wakes Atlas locally",
+      signalTag: "issue.update",
+      external: {
+        header: "ENG-412",
+        workspace: "Mossnote",
+        number: "ENG-412",
+        labelTag: "Cycle 14",
+        status: "open",
+        statusLabel: "Ready",
+        title: "Include archived notes in Cmd+K quick switcher",
+        detail: "PM moved ENG-412 to Ready with high priority for the current cycle.",
+        meta: "Priority: High",
+        metrics: [
+          { label: "Team", value: "Product" },
+          { label: "Priority", value: "High" },
+          { label: "Estimate", value: "2 pts" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "10:12",
+          mentions: ["Maya"],
+          text: "Woken by ENG-412. Checked command-palette.ts: should archived notes appear at the bottom with an Archived tag, or only after typing archive:?",
+        },
+      ],
+    },
+    {
+      id: "spec-aligned",
+      tabLabel: "2. Align & open PR",
+      headline: "Maya answers in one line inside Alook; Atlas implements the feature and opens PR #309.",
+      direction: "to-alook",
+      signalLabel: "Spec aligned in Alook, Atlas ships PR #309",
+      signalTag: "pr.opened",
+      external: {
+        header: "ENG-412",
+        workspace: "Mossnote",
+        number: "ENG-412",
+        labelTag: "Cycle 14",
+        status: "info",
+        statusLabel: "In Progress",
+        title: "Include archived notes in Cmd+K quick switcher",
+        detail: "Atlas linked branch feat/eng-412-archived-search and opened PR #309.",
+        metrics: [
+          { label: "Branch", value: "feat/eng-412" },
+          { label: "Tests", value: "18/18 green" },
+        ],
+      },
+      messages: [
+        {
+          author: "Maya",
+          role: "human",
+          time: "10:14",
+          mentions: ["Atlas"],
+          text: "Show them at the bottom with a muted Archived tag so normal results stay clean.",
+        },
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "10:21",
+          mentions: ["Iris"],
+          text: "Implemented archived sorting and muted badge in PR #309 (18/18 tests passing). Ready for review.",
+        },
+      ],
+    },
+    {
+      id: "bot-review",
+      tabLabel: "3. Bot review",
+      headline: "Iris checks the diff and keyboard navigation tests, then pings Maya for final approval.",
+      direction: "to-alook",
+      signalLabel: "Iris verifies diff and accessibility",
+      signalTag: "review.passed",
+      external: {
+        header: "ENG-412",
+        workspace: "Mossnote",
+        number: "ENG-412",
+        labelTag: "Cycle 14",
+        status: "passing",
+        statusLabel: "In Review",
+        title: "Include archived notes in Cmd+K quick switcher",
+        detail: "PR #309 passed unit tests, keyboard focus checks, and reviewer sign-off.",
+        metrics: [
+          { label: "PR", value: "#309" },
+          { label: "Review", value: "Approved" },
+        ],
+      },
+      messages: [
+        {
+          author: "Iris",
+          meta: "Codex",
+          time: "10:24",
+          mentions: ["Maya"],
+          text: "Reviewed PR #309. Ranking keeps active notes first and arrow-key selection skips empty sections cleanly. Good to ship?",
+        },
+      ],
+    },
+    {
+      id: "linear-done",
+      tabLabel: "4. Merged & Done",
+      headline: "Maya approves in Alook; Atlas merges PR #309 and marks ENG-412 Done in Linear.",
+      direction: "to-external",
+      signalLabel: "Atlas merges PR #309 and closes ENG-412 in Linear",
+      signalTag: "linear.done",
+      external: {
+        header: "ENG-412",
+        workspace: "Mossnote",
+        number: "ENG-412",
+        labelTag: "Cycle 14",
+        status: "merged",
+        statusLabel: "Done",
+        title: "Include archived notes in Cmd+K quick switcher",
+        detail: "PR #309 squash-merged to main and ENG-412 transitioned to Done automatically.",
+        reply: {
+          author: "Atlas",
+          text: "Shipped in PR #309. Archived notes now appear below active matches with an Archived badge.",
+        },
+      },
+      messages: [
+        {
+          author: "Maya",
+          role: "human",
+          time: "10:25",
+          mentions: ["Atlas"],
+          text: "Ship it and mark ENG-412 Done.",
+        },
+        {
+          author: "Atlas",
+          time: "10:26",
+          text: "Merged PR #309, posted the summary on ENG-412, and moved the Linear issue to Done.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Linear-to-PR loop in 3 steps
+
+Connect the computer that holds your repository and Linear API token on the **Machines** page. Create your coding bot (**Atlas**) and reviewer bot (**Iris**) under **My Bots**, then add both plus your PM to a shared `/product-eng` channel.
+
+Wire Linear to **Atlas** right from Alook:
+
+<TriggerSetupDemo
+  provider="linear"
+  botName="Atlas"
+  triggerName="product-ready-issues"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_4mL8pQ2wR9kN3vX"
+  sampleSecret="lin_wh_7d2c91a4e8b3f6021c9a"
+  externalMenuPath="Linear · Settings → API → Webhooks → New webhook"
+  externalFields={[
+    { label: "URL", value: "https://alook.ai/api/webhooks/bot/trk_4mL8pQ2wR9kN3vX", mono: true },
+    { label: "Team", value: "Product Engineering", mono: false },
+    { label: "Signing secret", value: "lin_wh_7d2c91a4e8b3f6021c9a", mono: true },
+  ]}
+  externalEvents={["Issues", "Comments"]}
+  externalSubmitLabel="Create webhook"
+  connectedSummary="Linear signing secret saved. Ready to wake Atlas when tickets hit Ready."
+/>
+
+Start with one small label or status like `Ready` while keeping merges behind your one-line approval in `/product-eng`. If you also want GitHub CI failures to auto-fix on those same PRs, pair this workflow with our [GitHub issue-to-merged-PR software factory](/usecases/github-issue-to-reviewed-pr).

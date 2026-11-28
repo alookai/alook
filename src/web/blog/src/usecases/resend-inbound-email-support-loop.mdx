@@ -1,0 +1,180 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Customer support emails often hide real product bugs. A user writes to `support@`, you read it hours later, switch over to your repository to reproduce the bug, file a ticket, ship a fix two days later, and then forget to circle back to the original email thread so the customer assumes you ignored them.
+
+Wire Resend inbound email webhooks to your support and coding agents in Alook and customer emails run straight through code verification to a shipped reply. When `email.received` arrives, your support bot checks your real local docs and codebase first. If it confirms a bug, it tags your coding bot in the same Alook thread to ship a tested patch, then drafts an accurate reply ready to send back through Resend on your one-tap approval.
+
+Three Alook details make email automation safe for real customers. First, Alook **Triggers** verify Resend's Standard Webhooks key on a private bot endpoint and keep customer threads neatly organized in `/support`. Second, your support and coding bots collaborate directly inside Alook with access to your real repo and test runner. Third, every incoming customer email is marked as untrusted external content, and no outbound Resend reply leaves without your approval.
+
+## Watch the loop: Resend inbound bug report to shipped fix and customer reply
+
+Take a customer emailing `support@mossnote.app` because CSV imports fail on UTF-8 BOM headers. Watch how `email.received` wakes **Milo** (support bot), brings in **Atlas** (Claude Code) to fix and ship PR #329, and sends the verified reply back through Resend after **Elena** approves.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Resend webhooks and Alook bots"
+  provider="resend"
+  channel="support"
+  threadTitle="Email: CSV import fails with UTF-8 BOM (sam@acme.io)"
+  botName="Milo"
+  serverInitial="M"
+  stages={[
+    {
+      id: "email-received",
+      tabLabel: "1. Email arrives",
+      headline: "Resend email.received wakes Milo to inspect the customer's report against real code.",
+      direction: "to-alook",
+      signalLabel: "email.received wakes Milo in /support",
+      signalTag: "email.received",
+      external: {
+        header: "em_8xK2pQ",
+        workspace: "Inbound · support@",
+        number: "sam@acme.io",
+        labelTag: "CSV import bug",
+        status: "open",
+        statusLabel: "Received",
+        title: "Subject: Excel CSV export fails to import into Mossnote",
+        detail: "Customer attached sample headers showing a UTF-8 BOM prefix on the first column.",
+        metrics: [
+          { label: "From", value: "sam@acme.io" },
+          { label: "To", value: "support@mossnote.app" },
+        ],
+      },
+      messages: [
+        {
+          author: "Milo",
+          meta: "support",
+          time: "13:10",
+          mentions: ["Atlas"],
+          text: "Checked import/csv-parser.ts: we don't strip \\uFEFF BOM before matching headers, so Excel CSVs fail. Can you patch and add a test?",
+        },
+      ],
+    },
+    {
+      id: "bug-fixed",
+      tabLabel: "2. Coding bot fixes",
+      headline: "Atlas reproduces the BOM failure locally, ships PR #329, and hands the fix back to Milo.",
+      direction: "to-alook",
+      signalLabel: "Atlas ships PR #329 with BOM test",
+      signalTag: "fix.shipped",
+      external: {
+        header: "em_8xK2pQ",
+        workspace: "Inbound · support@",
+        number: "sam@acme.io",
+        labelTag: "PR #329 green",
+        status: "info",
+        statusLabel: "Fix Verified",
+        title: "Subject: Excel CSV export fails to import into Mossnote",
+        detail: "Strip leading UTF-8 BOM in csv-parser.ts verified across 19 import tests.",
+        metrics: [
+          { label: "Fix PR", value: "#329 (deployed)" },
+          { label: "Reply draft", value: "Ready for approval" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "13:18",
+          mentions: ["Milo"],
+          text: "Fixed UTF-8 BOM stripping in PR #329 (19/19 tests green) and deployed to production.",
+        },
+        {
+          author: "Milo",
+          time: "13:19",
+          mentions: ["Elena"],
+          text: "Drafted a short reply letting Sam know Excel CSV imports work now. Send via Resend?",
+        },
+      ],
+    },
+    {
+      id: "reply-sent",
+      tabLabel: "3. Approved & sent",
+      headline: "Elena approves in Alook; Milo replies straight to Sam's thread via the Resend API.",
+      direction: "to-external",
+      signalLabel: "Milo sends verified reply through Resend",
+      signalTag: "resend.send",
+      external: {
+        header: "em_8xK2pQ",
+        workspace: "Emails · Sent",
+        number: "sam@acme.io",
+        labelTag: "Re: CSV import",
+        status: "passing",
+        statusLabel: "Delivered",
+        title: "Re: Excel CSV export fails to import into Mossnote",
+        detail: "Threaded reply delivered with In-Reply-To header preserved in 12 minutes total.",
+        reply: {
+          author: "Milo",
+          text: "Good catch, Sam. We just shipped a fix for Excel's UTF-8 BOM header. Please retry your CSV import and let us know if anything else pops up.",
+        },
+      },
+      messages: [
+        {
+          author: "Elena",
+          role: "human",
+          time: "13:20",
+          mentions: ["Milo"],
+          text: "Send it.",
+        },
+        {
+          author: "Milo",
+          time: "13:20",
+          text: "Sent reply to sam@acme.io via Resend and verified Delivered status.",
+        },
+      ],
+    },
+    {
+      id: "bounce-guard",
+      tabLabel: "4. Bounce guard",
+      headline: "The same Trigger watches email.bounced to catch broken domains before deliverability drops.",
+      direction: "to-alook",
+      signalLabel: "Delivered clean; bounce monitor active",
+      signalTag: "email.delivered",
+      external: {
+        header: "em_8xK2pQ",
+        workspace: "Emails · Health",
+        number: "99.9% delivered",
+        labelTag: "SPF / DKIM OK",
+        status: "passing",
+        statusLabel: "Healthy",
+        title: "Customer reply opened and domain health verified",
+        detail: "If email.bounced spikes later, Milo automatically flags bad addresses or DNS drift.",
+        metrics: [
+          { label: "Total turnaround", value: "12 min" },
+          { label: "Deliverability", value: "99.9%" },
+        ],
+      },
+      messages: [
+        {
+          author: "Milo",
+          time: "13:22",
+          text: "Resend confirmed delivery to sam@acme.io. Closing support thread (12m from inbound bug report to shipped fix and reply).",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Resend support-to-fix loop in 3 steps
+
+Connect the machine with your repo and Resend API key on the **Machines** page. Create **Milo** (support) and **Atlas** (coding) in **My Bots**, and invite both to `/support`.
+
+Wire Resend to **Milo** right from Alook:
+
+<TriggerSetupDemo
+  provider="resend"
+  botName="Milo"
+  triggerName="inbound-support"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_1bM9kL4pV7nQ2xR"
+  sampleSecret="whsec_rsd_6c1e8a4f2d9b3075"
+  externalMenuPath="Resend · Webhooks → Add Webhook"
+  externalFields={[
+    { label: "Endpoint URL", value: "https://alook.ai/api/webhooks/bot/trk_1bM9kL4pV7nQ2xR", mono: true },
+    { label: "Signing secret", value: "whsec_rsd_6c1e8a4f2d9b3075", mono: true },
+  ]}
+  externalEvents={["email.received", "email.bounced", "email.complained"]}
+  externalSubmitLabel="Add Webhook"
+  connectedSummary="Resend signing secret saved. Ready to turn inbound bug reports into shipped fixes."
+/>
+
+Pair this with our [Stripe payment recovery loop](/usecases/stripe-webhook-payment-dispute-ai) or [Clerk sign-up onboarding loop](/usecases/clerk-webhook-signup-onboarding-ai) so outbound and inbound customer emails share one fast human-in-the-loop workflow.
