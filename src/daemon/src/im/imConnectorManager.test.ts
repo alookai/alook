@@ -136,9 +136,11 @@ describe("ImConnectorManager + WeChatIlinkAdapter", () => {
       expect(delivered).toHaveLength(1);
     }, { timeout: 2000 });
 
-    // Verify 0600 file permissions and local persistence.
+    // Verify 0600 file permissions (POSIX only) and local persistence.
     const stateFile = join(rootDir, "bot_1", "im", "wechat-bwh_wx_1.json");
-    expect(statSync(stateFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect(statSync(stateFile).mode & 0o777).toBe(0o600);
+    }
     expect(readFileSync(stateFile, "utf8")).toContain("wx_secret_token_999");
 
     // Verify inbound NDJSON never leaks context_token or bot_token.
