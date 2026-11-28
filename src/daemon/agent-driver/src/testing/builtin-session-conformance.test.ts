@@ -356,10 +356,11 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           {
             const prompts = stdinMessages.filter((message) => message.method === "session/prompt");
             if (backend === "agy") {
-              for (const prompt of prompts.slice(agyPromptCursor, turn)) write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
-              agyPromptCursor = turn;
+              const end = Math.min(turn, prompts.length);
+              for (const prompt of prompts.slice(agyPromptCursor, end)) write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
+              agyPromptCursor = end;
             } else {
-              const prompt = prompts[turn - 1]!;
+              const prompt = prompts[Math.min(turn, prompts.length) - 1]!;
               write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
             }
           }

@@ -1503,7 +1503,7 @@ describe("backend-owned delivery behavior", () => {
     expect(await session.send({ id: "same-a", kind: "user", text: "same" })).toMatchObject({ status: "queued" });
     expect(await session.send({ id: "same-b", kind: "user", text: "same" })).toMatchObject({ status: "queued" });
     await emit(driver, { kind: "compaction_finished" });
-    expect(driver.writes).toEqual(["same", "same"]);
+    expect(driver.writes).toEqual(["same\n\nsame"]);
     const accepted: string[] = [];
     while (accepted.length < 2) {
       const next = await iterator.next();
@@ -1753,7 +1753,7 @@ describe("backend-owned delivery behavior", () => {
     emitNow(driver, { kind: "compaction_finished" });
     emitNow(driver, { kind: "review_finished" });
     const events = await take(iterator as never, 9);
-    expect(driver.writes).toEqual(["follow two", "follow three"]);
+    expect(driver.writes).toEqual(["follow two\n\nfollow three"]);
     expect(events.filter((event) => event.type === "command_accepted").map((event) => event.commandId))
       .toEqual(["one", "two", "three"]);
     expect(session.snapshot()).toMatchObject({
@@ -1774,13 +1774,146 @@ describe("backend-owned delivery behavior", () => {
     emitNow(driver, { kind: "compaction_finished" });
     emitNow(driver, { kind: "review_finished" });
     const events = await take(iterator as never, 9);
-    expect(driver.writes).toEqual(["follow two", "follow three"]);
+    expect(driver.writes).toEqual(["follow two\n\nfollow three"]);
     expect(events.filter((event) => event.type === "command_failed").map((event) => event.commandId))
       .toEqual(["two", "three"]);
     expect(session.snapshot()).toMatchObject({
       activeTurn: { commandIds: ["one"] },
       queuedCommands: [],
     });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("coalesces queued next-turn messages into one turn while preserving all commandIds and byte cap", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "antigravity:test:1" };
+    const sent: Array<{ mode: string; text: string; inputIds: string[] }> = [];
+    lane.sendImpl = async (input) => {
+      sent.push({
+        mode: input.mode,
+        text: input.text,
+        inputIds: (input.inputs ?? []).map((ref) => ref.commandId),
+      });
+      return { ok: true, acceptedAs: "prompt", receipt: `antigravity:test:${sent.length + 1}` };
+    };
+    const { session } = makeSession("antigravity", { lane });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event as never); })();
+
+    await session.start({ id: "root", kind: "user", text: "root" });
+    const bigA = "a".repeat(40 * 1024);
+    const bigB = "b".repeat(40 * 1024);
+    await expect(session.send({ id: "w1", kind: "user", text: "webhook 1" })).resolves.toMatchObject({ status: "queued" });
+    await expect(session.send({ id: "w2", kind: "user", text: bigA })).resolves.toMatchObject({ status: "queued" });
+    await expect(session.send({ id: "w3", kind: "user", text: bigB })).resolves.toMatchObject({ status: "queued" });
+
+    lane.emit({ kind: "turn_end", turnOwner: "antigravity:test:1", outcome: "success" });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({
+      mode: "idle",
+      text: `webhook 1\n\n${bigA}`,
+      inputIds: ["w1", "w2"],
+    });
+    expect(session.snapshot()).toMatchObject({
+      activeTurn: { commandIds: ["w1", "w2"] },
+      queuedCommands: [{ commandId: "w3", kind: "user" }],
+    });
+
+    lane.emit({ kind: "turn_end", turnOwner: "antigravity:test:2", outcome: "success" });
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({
+      mode: "idle",
+      text: bigB,
+      inputIds: ["w3"],
+    });
+    lane.emit({ kind: "turn_end", turnOwner: "antigravity:test:3", outcome: "success" });
+
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(observed.filter((e) => e.type === "command_accepted").map((e) => e.commandId))
+      .toEqual(["root", "w1", "w2", "w3"]);
+    expect(observed.filter((e) => e.type === "turn_completed").map((e) => e.commandIds))
+      .toEqual([["root"], ["w1", "w2"], ["w3"]]);
+  });
+
+  it("stops safe-boundary batching before a next_turn item and coalesces remaining items on the next turn", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "grok:test:1" };
+    const sent: Array<{ mode: string; text: string; inputIds: string[] }> = [];
+    lane.sendImpl = async (input) => {
+      sent.push({
+        mode: input.mode,
+        text: input.text,
+        inputIds: (input.inputs ?? []).map((ref) => ref.commandId),
+      });
+      return {
+        ok: true,
+        acceptedAs: input.mode === "busy" ? "steer" : "prompt",
+        receipt: input.mode === "busy" ? "grok:test:1" : "grok:test:2",
+      };
+    };
+    const { session } = makeSafeBoundarySession("grok", { lane });
+    await session.start({ id: "root", kind: "user", text: "root" });
+    lane.emit({ kind: "compaction_started" });
+    await session.send({ id: "s1", kind: "user", text: "steer 1" });
+    await session.send({ id: "s2", kind: "user", text: "steer 2" });
+    await session.send({ id: "n1", kind: "user", text: "next 1", delivery: "next_turn" });
+    await session.send({ id: "n2", kind: "user", text: "next 2" });
+
+    lane.emit({ kind: "compaction_finished" });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({
+      mode: "busy",
+      text: "steer 1\n\nsteer 2",
+      inputIds: ["s1", "s2"],
+    });
+    expect(session.snapshot().queuedCommands.map((q) => q.commandId)).toEqual(["n1", "n2"]);
+
+    lane.emit({ kind: "turn_end", turnOwner: "grok:test:1", outcome: "success" });
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({
+      mode: "idle",
+      text: "next 1\n\nnext 2",
+      inputIds: ["n1", "n2"],
+    });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("coalesces burst steers waiting behind an in-flight lane admission into one steer send", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    const firstSteerGate = deferredValue<LaneAdmission>();
+    const sent: Array<{ mode: string; text: string; inputIds: string[] }> = [];
+    lane.sendImpl = (input) => {
+      sent.push({
+        mode: input.mode,
+        text: input.text,
+        inputIds: (input.inputs ?? []).map((ref) => ref.commandId),
+      });
+      if (sent.length === 1) return firstSteerGate.promise;
+      return Promise.resolve({ ok: true, acceptedAs: "steer", receipt: "codex:test:1" });
+    };
+    const { session } = makeSession("codex", { lane });
+    await session.start({ id: "root", kind: "user", text: "root" });
+
+    const p2 = session.send({ id: "two", kind: "user", text: "webhook 1" });
+    const p3 = session.send({ id: "three", kind: "user", text: "webhook 2" });
+    const p4 = session.send({ id: "four", kind: "user", text: "calendar 1" });
+    const p5 = session.send({ id: "five", kind: "user", text: "unread wake" });
+    expect(sent).toEqual([{ mode: "busy", text: "webhook 1", inputIds: ["two"] }]);
+
+    firstSteerGate.resolve({ ok: true, acceptedAs: "steer", receipt: "codex:test:1" });
+    await expect(Promise.all([p2, p3, p4, p5])).resolves.toEqual([
+      expect.objectContaining({ status: "accepted", delivery: "steer", commandId: "two" }),
+      expect.objectContaining({ status: "accepted", delivery: "steer", commandId: "three" }),
+      expect.objectContaining({ status: "accepted", delivery: "steer", commandId: "four" }),
+      expect.objectContaining({ status: "accepted", delivery: "steer", commandId: "five" }),
+    ]);
+    expect(sent).toEqual([
+      { mode: "busy", text: "webhook 1", inputIds: ["two"] },
+      { mode: "busy", text: "webhook 2\n\ncalendar 1\n\nunread wake", inputIds: ["three", "four", "five"] },
+    ]);
+    expect(session.snapshot().activeTurn?.commandIds).toEqual(["root", "two", "three", "four", "five"]);
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

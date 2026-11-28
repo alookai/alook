@@ -74,7 +74,7 @@ interface CommandRecord {
 }
 
 interface SafeBoundaryDelivery {
-  item: QueuedCommand;
+  items: QueuedCommand[];
   activeTurn: { turnId: string; commandIds: string[] };
   finalized: boolean;
 }
@@ -84,6 +84,7 @@ interface SteeringDelivery {
   activeTurn: ActiveTurn;
   finalized: boolean;
   failure?: AgentDriverError;
+  resolve(receipt: DeliveryReceipt): void;
   cancel(error: AgentDriverError): void;
   cancellation: Promise<never>;
 }
@@ -120,6 +121,9 @@ interface SemanticAssembler {
 
 const SEMANTIC_ASSEMBLER_MAX_BYTES = 1_048_576;
 const WORK_HEARTBEAT_MIN_INTERVAL_MS = 1_000;
+const QUEUED_BATCH_MAX_BYTES = 64 * 1024;
+const QUEUED_BATCH_SEPARATOR = "\n\n";
+const QUEUED_BATCH_SEPARATOR_BYTES = Buffer.byteLength(QUEUED_BATCH_SEPARATOR, "utf8");
 
 function emptySemanticAssembler(): SemanticAssembler {
   return { chunks: [], bytes: 0, truncated: false };
@@ -250,6 +254,8 @@ implements AgentSession<Specs, Id> {
   private compacting = false;
   private reviewing = false;
   private readonly steeringDeliveries = new Set<SteeringDelivery>();
+  private readonly pendingSteers: SteeringDelivery[] = [];
+  private pendingSteerFlushTurn?: ActiveTurn;
   private laneAdmissionTail: Promise<void> = Promise.resolve();
   private laneAdmissionPending = 0;
   /**
@@ -1222,45 +1228,77 @@ implements AgentSession<Specs, Id> {
       && this.queued[0]!.message.delivery !== "next_turn";
   }
 
+  private takeBatch<T>(
+    queue: T[],
+    getMessage: (entry: T) => AgentMessage,
+    opts: { stopAtNextTurn?: boolean; predicate?: (entry: T) => boolean } = {},
+  ): T[] {
+    const batch: T[] = [];
+    let totalBytes = 0;
+    while (queue.length > 0) {
+      const next = queue[0]!;
+      if (opts.predicate && !opts.predicate(next)) break;
+      const message = getMessage(next);
+      if (opts.stopAtNextTurn && message.delivery === "next_turn") break;
+      const nextBytes = Buffer.byteLength(message.text, "utf8");
+      const projected = batch.length === 0
+        ? nextBytes
+        : totalBytes + QUEUED_BATCH_SEPARATOR_BYTES + nextBytes;
+      if (batch.length > 0 && projected > QUEUED_BATCH_MAX_BYTES) break;
+      queue.shift();
+      batch.push(next);
+      totalBytes = projected;
+    }
+    return batch;
+  }
+
   private async drainSafeBoundaryQueue(): Promise<void> {
     while (this.canFlushSafeBoundaryQueue()) {
-      const item = this.queued.shift()!;
+      const items = this.takeBatch(this.queued, (entry) => entry.message, { stopAtNextTurn: true });
+      if (items.length === 0) return;
       const activeTurn = this.activeTurn!;
-      const delivery: SafeBoundaryDelivery = { item, activeTurn, finalized: false };
+      const delivery: SafeBoundaryDelivery = { items, activeTurn, finalized: false };
       this.safeBoundaryDelivery = delivery;
+      const messages = items.map((item) => item.message);
+      const text = messages.map((message) => message.text).join(QUEUED_BATCH_SEPARATOR);
       try {
-        await this.sendLane(item.message.text, "busy", [item.message]);
+        await this.sendLane(text, "busy", messages);
       } catch (error) {
         if (error instanceof StructuredLaneAdmissionError && error.code === "runtime_busy") {
-          this.queued.unshift(item);
+          this.queued.unshift(...items);
           this.toolBoundaryFlushDisabled = true;
           return;
         }
         if (!delivery.finalized) {
-          this.recordQueueDwell(item);
           delivery.finalized = true;
-          this.emit({
-            type: "command_failed",
-            scope: "input",
-            commandId: item.message.id,
-            turnId: activeTurn.turnId,
-            error: driverError("process", "delivery_failed", String(error), true),
-          });
+          const failure = driverError("process", "delivery_failed", String(error), true);
+          for (const item of items) {
+            this.recordQueueDwell(item);
+            this.emit({
+              type: "command_failed",
+              scope: "input",
+              commandId: item.message.id,
+              turnId: activeTurn.turnId,
+              error: failure,
+            });
+          }
         }
         continue;
       } finally {
         if (this.safeBoundaryDelivery === delivery) this.safeBoundaryDelivery = undefined;
       }
       if (delivery.finalized) continue;
-      this.recordQueueDwell(item);
       delivery.finalized = true;
-      activeTurn.commandIds.push(item.message.id);
-      this.emit({
-        type: "command_accepted",
-        commandId: item.message.id,
-        turnId: activeTurn.turnId,
-        delivery: "steer",
-      });
+      for (const item of items) {
+        this.recordQueueDwell(item);
+        activeTurn.commandIds.push(item.message.id);
+        this.emit({
+          type: "command_accepted",
+          commandId: item.message.id,
+          turnId: activeTurn.turnId,
+          delivery: "steer",
+        });
+      }
     }
   }
 
@@ -1272,13 +1310,16 @@ implements AgentSession<Specs, Id> {
     const delivery = this.safeBoundaryDelivery;
     if (!delivery || delivery.finalized) return;
     delivery.finalized = true;
-    this.emit({
-      type: "command_failed",
-      scope: "input",
-      commandId: delivery.item.message.id,
-      turnId: delivery.activeTurn.turnId,
-      error: driverError(category, code, message),
-    });
+    const error = driverError(category, code, message);
+    for (const item of delivery.items) {
+      this.emit({
+        type: "command_failed",
+        scope: "input",
+        commandId: item.message.id,
+        turnId: delivery.activeTurn.turnId,
+        error,
+      });
+    }
   }
 
   private failTurnAdmission(
@@ -1337,9 +1378,10 @@ implements AgentSession<Specs, Id> {
 
   private async startNextQueued(): Promise<void> {
     if (this.state !== "idle" || this.queued.length === 0 || this.processTurnEnded || this.retiringLane) return;
-    const item = this.queued.shift()!;
-    this.recordQueueDwell(item);
-    await this.startTurn([item.message], "prompt");
+    const items = this.takeBatch(this.queued, (entry) => entry.message);
+    if (items.length === 0) return;
+    for (const item of items) this.recordQueueDwell(item);
+    await this.startTurn(items.map((item) => item.message), "prompt");
   }
 
   private onLaneError(
@@ -1534,56 +1576,25 @@ implements AgentSession<Specs, Id> {
   }
 
   private async deliverSteer(message: AgentMessage, activeTurn: ActiveTurn): Promise<DeliveryReceipt> {
+    let resolveReceipt!: (receipt: DeliveryReceipt) => void;
+    const settled = new Promise<DeliveryReceipt>((resolve) => { resolveReceipt = resolve; });
     let rejectCancellation!: (error: AgentDriverError) => void;
     const cancellation = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
     const delivery: SteeringDelivery = {
       message,
       activeTurn,
       finalized: false,
+      resolve: resolveReceipt,
       cancellation,
       cancel(error) {
         rejectCancellation(error);
       },
     };
     this.steeringDeliveries.add(delivery);
-    const physical = this.enqueueLaneAdmission(async (): Promise<DeliveryReceipt> => {
-      try {
-        if (delivery.finalized || this.activeTurn !== activeTurn) {
-          throw delivery.failure ?? driverError(
-            "cancelled",
-            "turn_closed_before_command_acceptance",
-            "Turn closed before command acceptance",
-          );
-        }
-        await this.sendLane(message.text, "busy", [message]);
-        if (delivery.finalized || this.activeTurn !== activeTurn) {
-          throw delivery.failure ?? driverError(
-            "cancelled",
-            "turn_closed_before_command_acceptance",
-            "Turn closed before command acceptance",
-          );
-        }
-        delivery.finalized = true;
-        activeTurn.commandIds.push(message.id);
-        this.emit({ type: "command_accepted", commandId: message.id, turnId: activeTurn.turnId, delivery: "steer" });
-        return { status: "accepted", delivery: "steer", commandId: message.id, turnId: activeTurn.turnId };
-      } catch (error) {
-        if (!delivery.finalized && this.activeTurn === activeTurn && error instanceof StructuredLaneAdmissionError && error.code === "runtime_busy") {
-          delivery.finalized = true;
-          return this.queue(message, "runtime_busy");
-        }
-        const failure = delivery.failure ?? (typeof error === "object" && error !== null && "category" in error
-          ? error as AgentDriverError
-          : driverError("process", "delivery_failed", String(error), true));
-        if (!delivery.finalized) {
-          delivery.finalized = true;
-          this.emit({ type: "command_failed", scope: "input", commandId: message.id, turnId: activeTurn.turnId, error: failure });
-        }
-        return { status: "rejected", reason: "runtime_unavailable", error: failure };
-      }
-    });
+    this.pendingSteers.push(delivery);
+    this.scheduleSteerFlush(activeTurn);
     try {
-      return await Promise.race([physical, cancellation]);
+      return await Promise.race([settled, cancellation]);
     } catch (error) {
       const failure = delivery.failure ?? (typeof error === "object" && error !== null && "category" in error
         ? error as AgentDriverError
@@ -1596,6 +1607,89 @@ implements AgentSession<Specs, Id> {
     } finally {
       this.steeringDeliveries.delete(delivery);
     }
+  }
+
+  private scheduleSteerFlush(activeTurn: ActiveTurn): void {
+    if (this.pendingSteerFlushTurn === activeTurn) return;
+    this.pendingSteerFlushTurn = activeTurn;
+    void this.enqueueLaneAdmission(async () => {
+      if (this.pendingSteerFlushTurn === activeTurn) this.pendingSteerFlushTurn = undefined;
+      while (this.pendingSteers.length > 0 && this.pendingSteers[0]!.finalized) {
+        this.pendingSteers.shift();
+      }
+      const batch = this.takeBatch(
+        this.pendingSteers,
+        (entry) => entry.message,
+        { predicate: (entry) => !entry.finalized && entry.activeTurn === activeTurn },
+      );
+      if (batch.length === 0) return;
+      let deferredToQueue = false;
+      try {
+        if (this.activeTurn !== activeTurn || batch.every((entry) => entry.finalized)) {
+          throw driverError(
+            "cancelled",
+            "turn_closed_before_command_acceptance",
+            "Turn closed before command acceptance",
+          );
+        }
+        const messages = batch.map((entry) => entry.message);
+        const text = messages.map((msg) => msg.text).join(QUEUED_BATCH_SEPARATOR);
+        await this.sendLane(text, "busy", messages);
+        if (this.activeTurn !== activeTurn) {
+          throw driverError(
+            "cancelled",
+            "turn_closed_before_command_acceptance",
+            "Turn closed before command acceptance",
+          );
+        }
+        for (const entry of batch) {
+          if (entry.finalized) continue;
+          entry.finalized = true;
+          activeTurn.commandIds.push(entry.message.id);
+          this.emit({ type: "command_accepted", commandId: entry.message.id, turnId: activeTurn.turnId, delivery: "steer" });
+          entry.resolve({ status: "accepted", delivery: "steer", commandId: entry.message.id, turnId: activeTurn.turnId });
+        }
+      } catch (error) {
+        if (
+          this.activeTurn === activeTurn
+          && error instanceof StructuredLaneAdmissionError
+          && error.code === "runtime_busy"
+        ) {
+          deferredToQueue = true;
+          for (const entry of batch) {
+            if (entry.finalized) continue;
+            entry.finalized = true;
+            entry.resolve(this.queue(entry.message, "runtime_busy"));
+          }
+          // Preserve strict FIFO: move any remaining pending steers for this turn behind the queued batch.
+          while (this.pendingSteers.length > 0 && this.pendingSteers[0]!.activeTurn === activeTurn) {
+            const remaining = this.pendingSteers.shift()!;
+            if (remaining.finalized) continue;
+            remaining.finalized = true;
+            remaining.resolve(this.queue(remaining.message, "runtime_busy"));
+          }
+          return;
+        }
+        for (const entry of batch) {
+          const failure = entry.failure ?? (typeof error === "object" && error !== null && "category" in error
+            ? error as AgentDriverError
+            : driverError("process", "delivery_failed", String(error), true));
+          if (!entry.finalized) {
+            entry.finalized = true;
+            this.emit({ type: "command_failed", scope: "input", commandId: entry.message.id, turnId: activeTurn.turnId, error: failure });
+          }
+          entry.resolve({ status: "rejected", reason: "runtime_unavailable", error: failure });
+        }
+      } finally {
+        if (
+          !deferredToQueue
+          && this.activeTurn === activeTurn
+          && this.pendingSteers.some((entry) => !entry.finalized && entry.activeTurn === activeTurn)
+        ) {
+          this.scheduleSteerFlush(activeTurn);
+        }
+      }
+    });
   }
 
   private failSteeringDeliveries(
