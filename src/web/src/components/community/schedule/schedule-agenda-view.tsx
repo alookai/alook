@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
+import { motion } from "motion/react"
 import { CalendarDays } from "@/components/icons/lucide"
 import { EmptyState } from "@/components/community/empty-state"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -13,6 +14,7 @@ import {
   formatWeekdayShort,
   groupOccurrencesByDay,
 } from "./schedule-date"
+import { ScheduleAgendaInlineSkeleton } from "./schedule-skeleton"
 import {
   ScheduleRecurrenceBadge,
   ScheduleRunStatusBadge,
@@ -23,13 +25,21 @@ import {
 import type { ScheduleOccurrenceItem } from "./schedule-types"
 import styles from "./schedule.module.css"
 
+const EASE_OUT_EXPO: [number, number, number, number] = [0.16, 1, 0.3, 1]
+
 export function ScheduleAgendaView({
+  rangeKey,
+  direction = 0,
+  refreshing = false,
   occurrences,
   selectedOccurrenceKey,
   onSelectOccurrence,
   onOpenSourceMessage,
   emptyLabel = "No scheduled tasks in this range. Ask a bot to set up a schedule.",
 }: {
+  rangeKey?: string
+  direction?: -1 | 0 | 1
+  refreshing?: boolean
   occurrences: readonly ScheduleOccurrenceItem[]
   selectedOccurrenceKey: string | null
   onSelectOccurrence: (occurrence: ScheduleOccurrenceItem) => void
@@ -41,21 +51,39 @@ export function ScheduleAgendaView({
 
   return (
     <ScrollArea className="min-h-0 flex-1 bg-background" contentClassName="flex min-h-full flex-col">
-      {groups.length === 0 ? (
-        <div
+      {refreshing ? (
+        <div data-testid={tid.scheduleAgenda} className="flex flex-1 flex-col">
+          <ScheduleAgendaInlineSkeleton />
+        </div>
+      ) : groups.length === 0 ? (
+        <motion.div
+          key={`empty:${rangeKey ?? "default"}`}
+          initial={{ opacity: 0, y: direction * 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: EASE_OUT_EXPO }}
           data-testid={tid.scheduleAgenda}
           className="flex flex-1 flex-col items-center justify-center px-6 py-16"
         >
           <EmptyState icon={CalendarDays} label={emptyLabel} />
-        </div>
+        </motion.div>
       ) : (
-        <div data-testid={tid.scheduleAgenda} className="flex flex-col divide-y divide-border/50 pb-6">
-          {groups.map((group) => {
+        <motion.div
+          key={rangeKey ?? "agenda"}
+          initial={{ opacity: 0.4, y: direction * 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: EASE_OUT_EXPO }}
+          data-testid={tid.scheduleAgenda}
+          className="flex flex-col divide-y divide-border/50 pb-6"
+        >
+          {groups.map((group, groupIndex) => {
             const heading = formatAgendaDayLabel(group.date, now)
             const monthShort = new Intl.DateTimeFormat(undefined, { month: "short" }).format(group.date)
             return (
-              <section
+              <motion.section
                 key={group.dayKey}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.19, delay: Math.min(groupIndex * 0.03, 0.14), ease: EASE_OUT_EXPO }}
                 aria-label={`${heading.primary} ${heading.secondary}`}
                 className="grid min-w-0 gap-2 px-4 py-4 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-6 sm:px-6 sm:py-5"
               >
@@ -148,10 +176,10 @@ export function ScheduleAgendaView({
                     )
                   })}
                 </div>
-              </section>
+              </motion.section>
             )
           })}
-        </div>
+        </motion.div>
       )}
     </ScrollArea>
   )

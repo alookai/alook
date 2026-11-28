@@ -211,4 +211,45 @@ describe("ScheduleWorkspace", () => {
     await user.click(empty.getByTestId(tid.scheduleAskBot))
     expect(onOpenBots).toHaveBeenCalledOnce()
   })
+
+  it("keeps the workspace and grid mounted with inline shimmer skeleton while refreshing a new date range", () => {
+    const view = render(
+      <ScheduleWorkspace
+        view="week"
+        onViewChange={vi.fn()}
+        anchorDate={ANCHOR}
+        onAnchorDateChange={vi.fn()}
+        selectedBotId={null}
+        onSelectedBotIdChange={vi.fn()}
+        bots={[ALLI]}
+        occurrences={makeFixtureOccurrences()}
+        refreshing
+        onOpenSourceMessage={vi.fn()}
+      />,
+    )
+
+    const page = view.getByTestId(tid.schedulePage)
+    expect(page).toHaveAttribute("data-schedule-refreshing", "true")
+    expect(view.getByTestId(tid.scheduleWeekGrid)).toBeInTheDocument()
+    expect(view.getByRole("progressbar", { name: "Loading schedule range" })).toBeInTheDocument()
+    expect(page.querySelector('[data-schedule-inline-skeleton="week"]')).not.toBeNull()
+
+    view.rerender(
+      <ScheduleWorkspace
+        view="agenda"
+        onViewChange={vi.fn()}
+        anchorDate={ANCHOR}
+        onAnchorDateChange={vi.fn()}
+        selectedBotId={null}
+        onSelectedBotIdChange={vi.fn()}
+        bots={[ALLI]}
+        occurrences={makeFixtureOccurrences()}
+        refreshing
+        onOpenSourceMessage={vi.fn()}
+      />,
+    )
+
+    expect(view.getByTestId(tid.scheduleAgenda)).toBeInTheDocument()
+    expect(view.getByTestId(tid.schedulePage).querySelector('[data-schedule-inline-skeleton="agenda"]')).not.toBeNull()
+  })
 })

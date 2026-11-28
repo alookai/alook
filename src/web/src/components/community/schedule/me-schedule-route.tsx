@@ -4,11 +4,12 @@ import { useCallback, useMemo, useState } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import { useScheduleEvents } from "@/hooks/community/use-schedule"
+import { usePrefetchAdjacentScheduleRanges, useScheduleEvents } from "@/hooks/community/use-schedule"
 import { useStartBotChat } from "@/hooks/community/use-start-bot-chat"
 import { mapScheduleListResponse } from "@/lib/community/schedule"
 import { useUiHandlers } from "@/stores/community"
 import {
+  addLocalDays,
   getAgendaQueryRange,
   getWeekQueryRange,
   startOfLocalDay,
@@ -33,12 +34,24 @@ export default function MeSchedulePage() {
   const [anchorDate, setAnchorDate] = useState<Date>(() => startOfLocalDay(new Date()))
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
 
+  const stepDays = view === "week" ? 7 : 14
   const queryRange = useMemo(
     () => (view === "week" ? getWeekQueryRange(anchorDate) : getAgendaQueryRange(anchorDate, 30)),
     [anchorDate, view],
   )
+  const adjacentRanges = useMemo(() => {
+    const prevAnchor = addLocalDays(anchorDate, -stepDays)
+    const nextAnchor = addLocalDays(anchorDate, stepDays)
+    const prev = view === "week" ? getWeekQueryRange(prevAnchor) : getAgendaQueryRange(prevAnchor, 30)
+    const next = view === "week" ? getWeekQueryRange(nextAnchor) : getAgendaQueryRange(nextAnchor, 30)
+    return { prevFrom: prev.from, prevTo: prev.to, nextFrom: next.from, nextTo: next.to }
+  }, [anchorDate, stepDays, view])
 
   const scheduleQuery = useScheduleEvents(queryRange)
+  usePrefetchAdjacentScheduleRanges({
+    ...adjacentRanges,
+    enabled: !scheduleQuery.isPending,
+  })
 
   const avatarByUserId = useMemo(() => {
     const map = new Map<string, string | null>()
@@ -118,7 +131,8 @@ export default function MeSchedulePage() {
       onSelectedBotIdChange={setSelectedBotId}
       bots={scheduleBots}
       occurrences={mapped?.occurrences ?? []}
-      loading={scheduleQuery.isPending}
+      loading={scheduleQuery.isPending && !scheduleQuery.data}
+      refreshing={scheduleQuery.isFetching && scheduleQuery.isPlaceholderData}
       error={loadError}
       retrying={scheduleQuery.isFetching}
       onRetry={() => {

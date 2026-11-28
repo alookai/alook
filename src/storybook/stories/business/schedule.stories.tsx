@@ -167,7 +167,13 @@ const SAMPLE_OCCURRENCES: ScheduleOccurrenceItem[] = [
   },
 ]
 
-function ScheduleSpecimen({ initialView }: { initialView: ScheduleViewMode }) {
+function ScheduleSpecimen({
+  initialView,
+  refreshing = false,
+}: {
+  initialView: ScheduleViewMode
+  refreshing?: boolean
+}) {
   const [view, setView] = useState<ScheduleViewMode>(initialView)
   const [anchorDate, setAnchorDate] = useState<Date>(ANCHOR)
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
@@ -182,6 +188,7 @@ function ScheduleSpecimen({ initialView }: { initialView: ScheduleViewMode }) {
         onSelectedBotIdChange={setSelectedBotId}
         bots={[ALLI, ELWIRA, CECILIA]}
         occurrences={SAMPLE_OCCURRENCES}
+        refreshing={refreshing}
         onBack={() => undefined}
         onOpenSourceMessage={() => undefined}
         onAskBot={() => undefined}
@@ -196,7 +203,7 @@ const meta = {
   component: ScheduleSpecimen,
   tags: ["autodocs", "ai-generated"],
   parameters: { layout: "fullscreen" },
-  args: { initialView: "week" },
+  args: { initialView: "week", refreshing: false },
 } satisfies Meta<typeof ScheduleSpecimen>
 
 export default meta
@@ -208,6 +215,10 @@ export const WeekView: Story = {
 
 export const AgendaView: Story = {
   args: { initialView: "agenda" },
+}
+
+export const RefreshingWeek: Story = {
+  args: { initialView: "week", refreshing: true },
 }
 
 export const LoadingSkeleton: Story = {

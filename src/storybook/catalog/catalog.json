@@ -4487,7 +4487,10 @@
       "source": "src/web/src/components/community/schedule/schedule-skeleton.tsx",
       "application": "Web",
       "candidates": [
-        "SchedulePageSkeleton"
+        "ScheduleAgendaInlineSkeleton",
+        "SchedulePageSkeleton",
+        "ScheduleWeekInlineSkeleton",
+        "ShimmerBar"
       ],
       "kind": "direct",
       "examples": [
@@ -9993,6 +9996,12 @@
       "id": "web-business-schedule--agenda-view",
       "title": "Web/Business/Schedule",
       "name": "Agenda View",
+      "source": "src/storybook/stories/business/schedule.stories.tsx"
+    },
+    {
+      "id": "web-business-schedule--refreshing-week",
+      "title": "Web/Business/Schedule",
+      "name": "Refreshing Week",
       "source": "src/storybook/stories/business/schedule.stories.tsx"
     },
     {
