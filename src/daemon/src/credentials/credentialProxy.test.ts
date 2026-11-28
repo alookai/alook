@@ -311,6 +311,66 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(upstream.seen.every(request => request.authorization === `Bearer ${REAL_KEY}`)).toBe(true);
   });
 
+  it("forwards schedule event routes through the canonical door with read/send capabilities and rejects unknown schedule subpaths", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const audited: Array<{ agentId: string; method: string; path: string; operation: string | null }> = [];
+    proxy = await startCredentialProxy(broker, {
+      onProxyRequest: (agentId, method, path, _propertyMetadata, operation) => {
+        audited.push({ agentId, method, path, operation: operation ?? null });
+      },
+    });
+    const full = broker.mint("bot-schedule", "launch", ["read", "send"], REAL_KEY);
+    const readOnly = broker.mint("bot-readonly", "launch", ["read"], REAL_KEY);
+
+    const allowed: Array<[string, string, string]> = [
+      ["GET", "/api/community/schedule/events?creatorHandle=%40Elwira%238700", "scheduleList"],
+      ["POST", "/api/community/schedule/events", "scheduleCreate"],
+      ["GET", "/api/community/schedule/events/sch_1", "scheduleGet"],
+      ["PATCH", "/api/community/schedule/events/sch_1", "scheduleUpdate"],
+      ["DELETE", "/api/community/schedule/events/sch_1", "scheduleDelete"],
+    ];
+    for (const [method, path] of allowed) {
+      const response = await fetch(`${proxy.url}${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${full.voucher}`,
+          ...(method === "POST" || method === "PATCH" ? { "content-type": "application/json" } : {}),
+        },
+        ...(method === "POST" || method === "PATCH" ? { body: "{}" } : {}),
+      });
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+
+    for (const [method, path] of [
+      ["POST", "/api/community/schedule/events"],
+      ["PATCH", "/api/community/schedule/events/sch_1"],
+      ["DELETE", "/api/community/schedule/events/sch_1"],
+    ]) {
+      const denied = await fetch(`${proxy.url}${path}`, {
+        method,
+        headers: { authorization: `Bearer ${readOnly.voucher}` },
+      });
+      expect(denied.status).toBe(403);
+      await denied.text();
+    }
+
+    for (const badPath of ["/api/community/schedule/admin", "/api/community/schedule/events/sch_1/extra"]) {
+      const rejected = await fetch(`${proxy.url}${badPath}`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${full.voucher}` },
+      });
+      expect(rejected.status).toBe(404);
+      expect(await rejected.json()).toEqual({ error: "unknown API route", code: "not_found" });
+    }
+
+    expect(upstream.seen).toHaveLength(allowed.length);
+    expect(upstream.seen.every((request) => request.authorization === `Bearer ${REAL_KEY}`)).toBe(true);
+    expect(audited.map((entry) => entry.operation)).toEqual(allowed.map(([, , op]) => op));
+  });
+
   it("consumes a valid reminder locally with voucher-derived identity and no audit/forward", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
