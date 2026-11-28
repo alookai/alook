@@ -272,7 +272,7 @@ pub fn register_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<
                     if crate::windows_startup::consume_placeholder(url) {
                         return true;
                     }
-                    navigation_allowed(url, tauri::is_dev())
+                    main_webview_navigation_allowed(url, tauri::is_dev())
                 })
                 .build(),
         )
@@ -285,6 +285,56 @@ pub(crate) fn navigation_allowed(url: &Url, development: bool) -> bool {
         cfg!(windows),
         cfg!(any(windows, target_os = "android")),
     )
+}
+
+pub(crate) fn main_webview_navigation_allowed(url: &Url, development: bool) -> bool {
+    navigation_allowed(url, development) || embedded_page_navigation_allowed(url, development)
+}
+
+fn is_valid_single_dns_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= 63
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn embedded_page_navigation_allowed(url: &Url, development: bool) -> bool {
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+
+    // Sandboxed editor subframes (e.g. Sheets chart/interactive frames) load via `srcdoc`.
+    if url.as_str() == "about:srcdoc" {
+        return true;
+    }
+
+    if url.scheme() == "https" && url.port_or_known_default() == Some(443) {
+        if let Some(host) = url.host_str() {
+            if host == "page.alook.ai" {
+                return true;
+            }
+            if let Some(label) = host.strip_suffix(".alook.page") {
+                return is_valid_single_dns_label(label);
+            }
+        }
+        return false;
+    }
+
+    if development && url.scheme() == "http" && url.port() == Some(8795) {
+        if let Some(host) = url.host_str() {
+            if host == "localhost" {
+                return true;
+            }
+            if let Some(label) = host.strip_suffix(".content.localhost") {
+                return is_valid_single_dns_label(label);
+            }
+        }
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -2237,6 +2287,90 @@ for(const state of ['loading','complete']) {
             &Url::parse("http://127.0.0.1:3000/c").unwrap(),
             true,
         ));
+    }
+
+    #[test]
+    fn embedded_page_navigation_is_scoped_to_on_navigation_and_never_widens_recovery_origin() {
+        for target in [
+            "https://page.alook.ai/alook/open/art_abc123456789#ticket=xyz",
+            "https://page.alook.ai/a/art_abc123456789?sourceMessageId=msg_1",
+            "https://page.alook.ai:443/a/art_abc123456789",
+            "https://art-abc123456789.alook.page/slides/token/",
+            "https://art-abc123456789--opaque123.alook.page/",
+            "https://art-abc123456789.alook.page:443/",
+            "about:srcdoc",
+        ] {
+            let url = Url::parse(target).unwrap();
+            assert!(
+                main_webview_navigation_allowed(&url, false),
+                "main webview rejected embedded page {target}"
+            );
+            assert!(
+                !navigation_allowed(&url, false),
+                "recovery/main-origin policy must still reject {target}"
+            );
+        }
+
+        for target in [
+            "http://page.alook.ai/a/art_abc123456789",
+            "https://page.alook.ai:8443/a/art_abc123456789",
+            "https://user@page.alook.ai/a/art_abc123456789",
+            "https://evil.page.alook.ai/a/art_abc123456789",
+            "https://alook.page/",
+            "http://art-abc123456789.alook.page/",
+            "https://art-abc123456789.alook.page:8443/",
+            "https://user@art-abc123456789.alook.page/",
+            "https://a.b.alook.page/",
+            "https://-bad.alook.page/",
+            "https://bad-.alook.page/",
+            "https://art-abc.alook.page.evil.test/",
+            "http://localhost:8795/alook/open/art_abc123456789",
+            "http://art-abc123456789.content.localhost:8795/",
+            "about:blank",
+            "javascript:alert(1)",
+            "data:text/html,<h1>hi</h1>",
+        ] {
+            let url = Url::parse(target).unwrap();
+            assert!(
+                !main_webview_navigation_allowed(&url, false),
+                "production main webview accepted {target}"
+            );
+        }
+
+        for dev_target in [
+            "http://localhost:8795/alook/open/art_abc123456789",
+            "http://art-abc123456789.content.localhost:8795/slides/token/",
+        ] {
+            let url = Url::parse(dev_target).unwrap();
+            assert!(
+                main_webview_navigation_allowed(&url, true),
+                "dev main webview rejected {dev_target}"
+            );
+            assert!(
+                !navigation_allowed(&url, true),
+                "dev recovery/main-origin policy must still reject {dev_target}"
+            );
+        }
+
+        for bad_dev_target in [
+            "http://a.b.content.localhost:8795/",
+            "http://user@localhost:8795/",
+            "http://localhost:8796/",
+        ] {
+            let url = Url::parse(bad_dev_target).unwrap();
+            assert!(
+                !main_webview_navigation_allowed(&url, true),
+                "dev main webview accepted {bad_dev_target}"
+            );
+        }
+    }
+
+    #[test]
+    fn ios_release_app_bound_domains_include_alook_ai_and_alook_page() {
+        let plist = include_str!("../Info.ios.release.plist");
+        assert!(plist.contains("<key>WKAppBoundDomains</key>"));
+        assert!(plist.contains("<string>alook.ai</string>"));
+        assert!(plist.contains("<string>alook.page</string>"));
     }
 
     #[test]

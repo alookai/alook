@@ -37,6 +37,9 @@ mod tests {
                 "http://user@localhost:3000/c",
                 "http://user:password@localhost:3000/c",
                 "https://alook.ai:8443/c",
+                "https://page.alook.ai/a/art_1234567890",
+                "https://art-1234567890.alook.page/slides/token/",
+                "http://localhost:8795/a/art_1234567890",
                 "alook-recovery://localhost/bootstrap",
                 "http://alook-recovery.localhost/bootstrap",
             ] {
