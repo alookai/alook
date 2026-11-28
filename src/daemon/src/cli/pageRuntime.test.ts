@@ -23,7 +23,7 @@ async function makeFakeRuntimeTarball(baseDir: string) {
     '  console.log(JSON.stringify({ ok: true, argv: args, stdin: data }));',
     '  process.exit(0);',
     '}',
-    'console.log(JSON.stringify({ ok: true, argv: args }));',
+    'console.log(JSON.stringify({ ok: true, argv: args, serverHome: process.env.OPEN_ARTIFACT_TYPE_SERVER_HOME }));',
   ].join("\n") + "\n");
   await writeFile(join(src, "guides", "slides", "SKILL.md"), "# Slides Skill\nUse project/deck.json.\n");
   await writeFile(join(src, "guides", "slides", "reference", "format.md"), "# Slides Format\n");
@@ -81,9 +81,22 @@ describe("pageRuntime", () => {
 
       await expect(readPageGuide(second, "slides", "../SKILL.md")).rejects.toThrow("Invalid Page guide reference");
 
-      const cliRes = await runPageLocalCli(second, ["check", "/tmp/demo"]);
+      const cliRes = await runPageLocalCli(second, ["check", "/tmp/demo"], {
+        env: { ALOOK_HOME: alookHome },
+      });
       expect(cliRes.exitCode).toBe(0);
-      expect(JSON.parse(cliRes.stdout)).toEqual({ ok: true, argv: ["check", "/tmp/demo"] });
+      expect(JSON.parse(cliRes.stdout)).toEqual({
+        ok: true,
+        argv: ["check", "/tmp/demo"],
+        serverHome: join(alookHome, "page-runtime", ".server-state", "0.16.3-testkey-aabbcc"),
+      });
+
+      const customHomeRes = await runPageLocalCli(second, ["check", "/tmp/demo"], {
+        env: { ALOOK_HOME: alookHome, OPEN_ARTIFACT_TYPE_SERVER_HOME: join(tmp, "custom-state") },
+      });
+      expect(JSON.parse(customHomeRes.stdout)).toMatchObject({
+        serverHome: join(tmp, "custom-state"),
+      });
 
       const stdinRes = await runPageLocalCli(second, ["echo-stdin", "-"], {
         stdinStream: Readable.from(['{"kind":"applyEdits","base":0,"edits":[]}']),

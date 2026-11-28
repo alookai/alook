@@ -346,10 +346,16 @@ export async function runPageLocalCli(
   options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; stdin?: string | Buffer; stdinStream?: PageLocalStdinStream } = {},
 ): Promise<LocalCliResult> {
   const timeoutMs = options.timeoutMs ?? 60_000;
+  const childEnv: NodeJS.ProcessEnv = { ...(options.env ?? process.env) };
+  if (!childEnv.OPEN_ARTIFACT_TYPE_SERVER_HOME?.trim()) {
+    const stateDir = join(runtimeCacheRoot(childEnv), ".server-state", runtime.cacheKey);
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    childEnv.OPEN_ARTIFACT_TYPE_SERVER_HOME = stateDir;
+  }
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(process.execPath, [runtime.cliPath, ...args], {
       cwd: options.cwd ?? process.cwd(),
-      env: { ...(options.env ?? process.env) },
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
