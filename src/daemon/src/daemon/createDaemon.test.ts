@@ -439,6 +439,8 @@ describe("createDaemon", () => {
       });
       expect(starts[0]!.text).toContain("Lead briefing\n\n## Recent local context");
       expect(starts[0]!.text).toContain("No recent session files were found.");
+      expect(starts[0]!.text).toMatch(/^\[[^\]]+\] Lead briefing/);
+      expect(starts[0]!.text).not.toContain("Use `alook inbox pull` to read your messages.");
     } finally {
       await daemon.stop();
     }

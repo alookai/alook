@@ -4791,7 +4791,7 @@ describe("AgentProcessManager — stopped delivery and original inputs", () => {
       mgr.deliver("a1", { id: "root", seq: 1, text: "root" });
       await vi.advanceTimersByTimeAsync(0);
       await first.fire("runtime_event", { kind: "session_init", sessionId: "first-backend" });
-      mgr.deliver("a1", { id: "retry", seq: 2, text: "retry text" });
+      mgr.deliver("a1", { id: "retry", seq: 2, text: "retry text", includeWakeFooter: true });
       await vi.advanceTimersByTimeAsync(0);
       const input = vi.mocked(first.send).mock.calls[0]![0];
       expect(input).toEqual({ id: "retry", kind: "user", text: expect.stringMatching(/^\[[^\]]+\] retry text\n\noriginal footer$/), sequence: 2 });
@@ -4801,17 +4801,75 @@ describe("AgentProcessManager — stopped delivery and original inputs", () => {
         error: { category: "process", code: "delivery_failed", message: "failed", retryable: true },
       });
       expect(first.stop).toHaveBeenCalledOnce();
-      expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "retry", seq: 2, text: "retry text", preparedInput: input }]);
+      expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "retry", seq: 2, text: "retry text", includeWakeFooter: true, preparedInput: input }]);
       await first.fire("runtime_event", { kind: "turn_end" });
       expect(first.send).toHaveBeenCalledOnce();
       expect(second.start).not.toHaveBeenCalled();
-      expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "retry", seq: 2, text: "retry text", preparedInput: input }]);
+      expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "retry", seq: 2, text: "retry text", includeWakeFooter: true, preparedInput: input }]);
       await first.fire("exit", { reason: "requested" });
       await vi.advanceTimersByTimeAsync(0);
       expect(second.start).toHaveBeenCalledExactlyOnceWith(input);
       expect(second.send).not.toHaveBeenCalled();
       expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", inbox: [], execution: { sessionInstanceId: "epoch-second" } });
       await second.fire("exit", { reason: "requested" });
+    } finally {
+      await mgr.stopAll();
+      vi.useRealTimers();
+    }
+  });
+
+  it("appends wakePromptFooter only when includeWakeFooter is true while keeping timestamps on all deliveries", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-13T07:00:00Z"));
+    const session = b1Session([], "first", "test-turn", "epoch-footer");
+    session.send = vi.fn(async (input: AgentMessage) => ({
+      status: "accepted" as const,
+      delivery: "prompt" as const,
+      commandId: input.id,
+      turnId: "test-turn",
+    }));
+    const { mgr } = b1Manager({
+      sessions: [session],
+      stampWakePromptTime: true,
+      wakePromptFooter: "Use `alook inbox pull` to read your messages.",
+    });
+    try {
+      mgr.deliver("a1", { id: "event-spawn", text: "[External Webhook Notification]\nPayload" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.mocked(session.start).mock.calls[0]![0]).toEqual({
+        id: "event-spawn",
+        kind: "user",
+        text: expect.stringMatching(/^\[[^\]]+\] \[External Webhook Notification\]\nPayload$/),
+        sequence: undefined,
+      });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "footer-backend" });
+      await session.fire("runtime_event", { kind: "turn_end" });
+
+      mgr.deliver("a1", { id: "event-send", text: "Calendar reminder" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.mocked(session.send).mock.calls[0]![0]).toEqual({
+        id: "event-send",
+        kind: "user",
+        text: expect.stringMatching(/^\[[^\]]+\] Calendar reminder$/),
+        sequence: undefined,
+      });
+
+      mgr.deliver("a1", {
+        id: "chat-wake",
+        seq: 3,
+        text: "You have unread messages.",
+        includeWakeFooter: true,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.mocked(session.send).mock.calls[1]![0]).toEqual({
+        id: "chat-wake",
+        kind: "user",
+        text: expect.stringMatching(
+          /^\[[^\]]+\] You have unread messages\.\n\nUse `alook inbox pull` to read your messages\.$/,
+        ),
+        sequence: 3,
+      });
+      await session.fire("exit", { reason: "requested" });
     } finally {
       await mgr.stopAll();
       vi.useRealTimers();

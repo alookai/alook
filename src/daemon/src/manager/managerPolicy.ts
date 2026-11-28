@@ -6,6 +6,7 @@ export interface AgentMsg {
   id?: string;
   seq?: number;
   text: string;
+  includeWakeFooter?: boolean;
   readonly preparedInput?: AgentMessage;
 }
 

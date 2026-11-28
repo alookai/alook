@@ -33,7 +33,7 @@ function fakeManager(
   initialStatuses: Record<string, "idle" | "starting" | "running" | "stopping"> = {},
   deliverReturns?: boolean,
 ) {
-  const delivers: Array<{ agentId: string; id?: string; text: string; seq?: number }> = [];
+  const delivers: Array<{ agentId: string; id?: string; text: string; seq?: number; includeWakeFooter?: boolean }> = [];
   const registers: Array<{ agentId: string; sessionId?: string; launchId?: string }> = [];
   const forgets: string[] = [];
   const resets: Array<{ agentId: string; rewakePrompt: string; launchId: string; barrierType?: string }> = [];
@@ -46,8 +46,14 @@ function fakeManager(
       registers.push({ agentId, sessionId: launch?.sessionId, launchId: launch?.launchId });
       order.push(`register:${agentId}`);
     },
-    deliver(agentId: string, m: { id?: string; seq?: number; text: string }) {
-      delivers.push({ agentId, id: m.id, text: m.text, seq: m.seq });
+    deliver(agentId: string, m: { id?: string; seq?: number; text: string; includeWakeFooter?: boolean }) {
+      delivers.push({
+        agentId,
+        id: m.id,
+        text: m.text,
+        seq: m.seq,
+        ...(m.includeWakeFooter !== undefined ? { includeWakeFooter: m.includeWakeFooter } : {}),
+      });
       order.push(`deliver:${agentId}`);
       return deliverReturns;
     },
@@ -138,6 +144,7 @@ describe("AgentRouter — agent:wake", () => {
       id: "a1:wake:/demo#1234/general:7:admission:1",
       text: "You have unread messages.",
       seq: 7,
+      includeWakeFooter: true,
     }]);
     expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
   });
@@ -166,6 +173,7 @@ describe("AgentRouter — agent:wake", () => {
       id: "a1:wake:/demo#1234/general:7:admission:1",
       text: "custom: /demo#1234/general#7",
       seq: 7,
+      includeWakeFooter: true,
     }]);
   });
 
