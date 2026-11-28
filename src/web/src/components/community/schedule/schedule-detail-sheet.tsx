@@ -1,6 +1,5 @@
 "use client"
 
-import { motion } from "motion/react"
 import { TriangleAlertIcon } from "@/components/icons/lucide"
 import { Avatar } from "@/components/community/avatar"
 import { AttachmentCard } from "@/components/community/messages/attachment-card"
@@ -9,6 +8,7 @@ import { MessageBody } from "@/components/community/messages/message-body"
 import { MessageImageAttachment } from "@/components/community/messages/message-image-attachment"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { selectHtmlPreviews } from "@/lib/community/html-preview-markdown"
 import { tid } from "@/lib/community/testids"
@@ -29,8 +29,6 @@ import type {
   ScheduleSourceMessage,
 } from "./schedule-types"
 import styles from "./schedule.module.css"
-
-const EASE_OUT_EXPO: [number, number, number, number] = [0.16, 1, 0.3, 1]
 
 function formatFullDateTime(iso: string): string {
   const date = new Date(iso)
@@ -65,14 +63,14 @@ function BoundMessageSkeleton() {
       data-schedule-bound-message="loading"
       className="flex items-start gap-2.5"
     >
-      <div className={cn(styles.skeletonShimmer, "size-10 shrink-0 rounded-full")} />
+      <Skeleton aria-hidden className="size-10 shrink-0 rounded-full" />
       <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
         <div className="flex items-center gap-2">
-          <div className={cn(styles.skeletonShimmer, "h-4 w-24 rounded-md")} />
-          <div className={cn(styles.skeletonShimmer, "h-3 w-14 rounded-md")} />
+          <Skeleton aria-hidden className="h-4 w-24 rounded-md" />
+          <Skeleton aria-hidden className="h-3 w-14 rounded-md" />
         </div>
-        <div className={cn(styles.skeletonShimmer, "h-4 w-full max-w-88 rounded-md")} />
-        <div className={cn(styles.skeletonShimmer, "h-4 w-3/4 max-w-64 rounded-md")} />
+        <Skeleton aria-hidden className="h-4 w-full max-w-88 rounded-md" />
+        <Skeleton aria-hidden className="h-4 w-3/4 max-w-64 rounded-md" />
       </div>
     </div>
   )
@@ -86,13 +84,9 @@ function BoundMessageRendered({ message }: { message: ScheduleBoundMessage }) {
   )
 
   return (
-    <motion.div
-      key={message.id}
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.16, ease: EASE_OUT_EXPO }}
+    <div
       data-schedule-bound-message="ready"
-      className="flex items-start gap-2.5"
+      className={cn(styles.contentFadeIn, "flex items-start gap-2.5")}
     >
       <Avatar
         label={message.authorAvatar}
@@ -135,7 +129,7 @@ function BoundMessageRendered({ message }: { message: ScheduleBoundMessage }) {
           <p className="text-sm italic text-muted-foreground">Empty message</p>
         ) : null}
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -248,13 +242,7 @@ export function ScheduleDetailSheet({
       bodyClassName="px-0 py-0"
     >
       {event && occurrence ? (
-        <motion.div
-          key={occurrence.occurrenceKey}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.18, ease: EASE_OUT_EXPO }}
-          className="flex flex-col divide-y divide-border/50"
-        >
+        <div className="flex flex-col divide-y divide-border/50">
           <section className="flex flex-col gap-4 px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-center gap-1.5">
               <ScheduleRecurrenceBadge recurrence={event.recurrence} />
@@ -343,7 +331,7 @@ export function ScheduleDetailSheet({
             source={event.sourceMessage}
             boundMessage={boundMessage}
           />
-        </motion.div>
+        </div>
       ) : null}
     </CommunitySheet>
   )

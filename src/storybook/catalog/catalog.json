@@ -4564,8 +4564,7 @@
       "candidates": [
         "ScheduleAgendaInlineSkeleton",
         "SchedulePageSkeleton",
-        "ScheduleWeekInlineSkeleton",
-        "ShimmerBar"
+        "ScheduleWeekInlineSkeleton"
       ],
       "kind": "direct",
       "examples": [
@@ -4599,6 +4598,7 @@
       "source": "src/web/src/components/community/schedule/schedule-week-view.tsx",
       "application": "Web",
       "candidates": [
+        "MobileDayPane",
         "ScheduleWeekView"
       ],
       "kind": "composition",

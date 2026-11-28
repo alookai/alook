@@ -2,12 +2,8 @@
 
 import { ChevronLeft } from "@/components/icons/lucide"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import styles from "./schedule.module.css"
-
-function ShimmerBar({ className }: { className?: string }) {
-  return <div aria-hidden className={cn(styles.skeletonShimmer, "rounded-md", className)} />
-}
 
 const WEEK_INLINE_PLACEHOLDERS: ReadonlyArray<{
   colIndex: number
@@ -38,10 +34,10 @@ export function ScheduleWeekInlineSkeleton() {
             <div
               key={idx}
               style={{ top: placeholder.topPx, height: placeholder.heightPx }}
-              className="absolute inset-x-1.5 flex flex-col gap-1.5 overflow-hidden rounded-lg border border-border/45 bg-card/85 p-2 backdrop-blur-xs dark:border-white/12 dark:bg-white/6"
+              className="absolute inset-x-1.5 flex flex-col gap-1.5 overflow-hidden rounded-lg border border-border/45 bg-card/85 p-2 backdrop-blur-xs dark:border-white/12 dark:bg-card/70"
             >
-              <ShimmerBar className="h-3 w-3/4 rounded" />
-              <ShimmerBar className="h-2.5 w-1/2 rounded" />
+              <Skeleton aria-hidden className="h-3 w-3/4 rounded" />
+              <Skeleton aria-hidden className="h-2.5 w-1/2 rounded" />
             </div>
           ))}
         </div>
@@ -65,25 +61,25 @@ export function ScheduleAgendaInlineSkeleton() {
           className="grid gap-3 px-4 py-4 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-6 sm:px-6 sm:py-5"
         >
           <div className="flex items-center gap-3 sm:items-start sm:pt-1">
-            <ShimmerBar className="size-9 shrink-0 rounded-full" />
+            <Skeleton aria-hidden className="size-9 shrink-0 rounded-full" />
             <div className="flex flex-col gap-1.5">
-              <ShimmerBar className="h-3.5 w-20 rounded" />
-              <ShimmerBar className="h-3 w-16 rounded" />
+              <Skeleton aria-hidden className="h-3.5 w-20 rounded" />
+              <Skeleton aria-hidden className="h-3 w-16 rounded" />
             </div>
           </div>
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 rounded-xl border border-border/45 p-3 dark:border-white/10">
               <div className="flex items-center justify-between gap-2">
-                <ShimmerBar className="h-3 w-24 rounded" />
-                <ShimmerBar className="h-4 w-16 rounded-full" />
+                <Skeleton aria-hidden className="h-3 w-24 rounded" />
+                <Skeleton aria-hidden className="h-4 w-16 rounded-full" />
               </div>
-              <ShimmerBar className="h-4 w-3/5 rounded" />
-              <ShimmerBar className="h-3 w-2/5 rounded" />
+              <Skeleton aria-hidden className="h-4 w-3/5 rounded" />
+              <Skeleton aria-hidden className="h-3 w-2/5 rounded" />
             </div>
             {group === 0 ? (
               <div className="flex flex-col gap-2 rounded-xl border border-border/45 p-3 dark:border-white/10">
-                <ShimmerBar className="h-3 w-28 rounded" />
-                <ShimmerBar className="h-4 w-2/5 rounded" />
+                <Skeleton aria-hidden className="h-3 w-28 rounded" />
+                <Skeleton aria-hidden className="h-4 w-2/5 rounded" />
               </div>
             ) : null}
           </div>
@@ -122,70 +118,87 @@ export function SchedulePageSkeleton({
                   <ChevronLeft className="size-5" />
                 </Button>
               ) : reserveBackSlot ? (
-                <ShimmerBar className="size-8 shrink-0 rounded-md sm:hidden" />
+                <span aria-hidden className="-ml-2.5 size-11 shrink-0 sm:hidden" />
               ) : null}
-              <ShimmerBar className="h-7 w-40 rounded-lg" />
+              <Skeleton aria-hidden className="h-6 w-36 rounded-md" />
             </div>
-            <ShimmerBar className="hidden h-3 w-36 rounded sm:block" />
-            <ShimmerBar className="h-8.5 w-28 rounded-full sm:hidden" />
+            <Skeleton aria-hidden className="hidden h-3 w-28 rounded sm:block" />
+            <Skeleton aria-hidden className="h-8 w-28 rounded-full sm:hidden" />
           </div>
           <div className="flex items-center justify-between gap-2 sm:justify-end">
-            <ShimmerBar className="hidden h-8.5 w-32 rounded-full sm:block" />
-            <ShimmerBar className="h-8.5 flex-1 rounded-full sm:w-38 sm:flex-none" />
-            <ShimmerBar className="h-8.5 w-36 rounded-full" />
+            <Skeleton aria-hidden className="hidden h-8 w-32 rounded-full sm:block" />
+            <Skeleton aria-hidden className="h-8 w-32 rounded-full" />
+            <Skeleton aria-hidden className="h-8 w-28 rounded-full" />
           </div>
-        </div>
-        <div aria-hidden className={styles.loadingRail}>
-          <div className={styles.loadingRailBar} />
         </div>
       </header>
 
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 bg-muted/35 px-4 py-2.5 dark:bg-white/4 sm:px-6">
-        <ShimmerBar className="h-3.5 w-64 max-w-[60%] rounded" />
-        <ShimmerBar className="h-6 w-32 rounded-full" />
-      </div>
-
       <div className="flex min-h-0 flex-1 flex-col sm:hidden">
-        <div className="border-b border-border/50 px-4 pt-3 pb-3">
-          <ShimmerBar className="h-17 w-full rounded-[18px]" />
-          <div className="mt-3 flex items-center justify-between">
-            <ShimmerBar className="h-3.5 w-32 rounded" />
-            <ShimmerBar className="h-3.5 w-14 rounded" />
+        <div className="border-b border-border/50 px-4 py-3">
+          <div className="grid grid-cols-7 gap-1.5 rounded-2xl bg-muted/60 p-1.5">
+            {Array.from({ length: 7 }).map((_, idx) => (
+              <div key={idx} className="flex flex-col items-center gap-1.5 py-1.5">
+                <Skeleton aria-hidden className="h-2.5 w-6 rounded" />
+                <Skeleton aria-hidden className="h-4 w-5 rounded" />
+              </div>
+            ))}
           </div>
         </div>
-        <ScheduleAgendaInlineSkeleton />
+        <div className="flex flex-col divide-y divide-border/45">
+          {[0, 1, 2].map((idx) => (
+            <div key={idx} className="flex flex-col gap-2.5 px-4 py-3.5">
+              <div className="flex items-center justify-between">
+                <Skeleton aria-hidden className="h-3 w-24 rounded" />
+                <Skeleton aria-hidden className="h-4 w-16 rounded-full" />
+              </div>
+              <Skeleton aria-hidden className="h-4 w-3/4 rounded" />
+              <Skeleton aria-hidden className="h-3 w-1/2 rounded" />
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="hidden min-h-0 flex-1 flex-col sm:flex">
-        <div className="grid shrink-0 grid-cols-[4rem_repeat(7,minmax(0,1fr))] border-b border-border/65">
-          <div className="flex items-end justify-end border-r border-border/45 pr-2.5 pb-2">
-            <ShimmerBar className="h-3 w-9 rounded" />
-          </div>
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex flex-col items-center justify-center gap-1.5 border-r border-border/35 py-2.5 last:border-r-0"
-            >
-              <ShimmerBar className="h-2.5 w-7 rounded" />
-              <ShimmerBar className="size-8 rounded-full" />
-              <ShimmerBar className="h-1.5 w-5 rounded-full" />
-            </div>
-          ))}
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-cols-[4rem_repeat(7,minmax(0,1fr))] overflow-hidden">
-          <div className="flex flex-col gap-11 border-r border-border/45 px-2.5 pt-10">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <ShimmerBar key={i} className="ml-auto h-2.5 w-8 rounded" />
+        <div className="grid shrink-0 grid-cols-[4rem_minmax(0,1fr)] border-b border-border/65">
+          <div className="border-r border-border/45" />
+          <div className="grid grid-cols-7">
+            {Array.from({ length: 7 }).map((_, idx) => (
+              <div key={idx} className="flex flex-col items-center gap-1.5 border-r border-border/35 py-2.5 last:border-r-0">
+                <Skeleton aria-hidden className="h-3 w-8 rounded" />
+                <Skeleton aria-hidden className="size-8 rounded-full" />
+              </div>
             ))}
           </div>
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="flex flex-col gap-4 border-r border-border/35 p-2 pt-6 last:border-r-0">
-              <ShimmerBar className="h-14 w-full rounded-lg" />
-              <ShimmerBar className="mt-6 h-24 w-full rounded-lg" />
-              <ShimmerBar className="mt-4 h-12 w-full rounded-lg" />
-            </div>
-          ))}
+        </div>
+
+        <div className="relative grid min-h-0 flex-1 grid-cols-[4rem_minmax(0,1fr)] overflow-hidden">
+          <div className="border-r border-border/45 px-2 pt-3">
+            {Array.from({ length: 10 }).map((_, idx) => (
+              <div key={idx} className="h-15 text-right">
+                <Skeleton aria-hidden className="ml-auto h-2.5 w-8 rounded" />
+              </div>
+            ))}
+          </div>
+          <div className="relative grid grid-cols-7">
+            {Array.from({ length: 7 }).map((_, colIdx) => (
+              <div key={colIdx} className="relative border-r border-border/35 last:border-r-0">
+                {Array.from({ length: 10 }).map((_, rowIdx) => (
+                  <div key={rowIdx} className="h-15 border-b border-border/40" />
+                ))}
+                {colIdx % 2 === 0 ? (
+                  <div
+                    className={cn(
+                      "absolute inset-x-1.5 flex flex-col gap-1.5 rounded-lg border border-border/45 bg-card/85 p-2 dark:border-white/10 dark:bg-card/70",
+                      colIdx === 2 ? "top-28 h-20" : "top-16 h-14",
+                    )}
+                  >
+                    <Skeleton aria-hidden className="h-3 w-3/4 rounded" />
+                    <Skeleton aria-hidden className="h-2.5 w-1/2 rounded" />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
