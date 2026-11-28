@@ -1397,4 +1397,27 @@ describe("startCredentialProxy — upstream timeout / connection-leak fix", () =
     const r = await post(proxy.url, reg.voucher, "/send");
     expect(r.status).toBe(200);
   });
+
+  it("forwards canonical /api/community/pages routes through the real credential proxy HTTP door", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("agent-pages", "l", ["attach", "read", "send"], REAL_KEY);
+    const headers = { Authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" };
+
+    expect((await fetch(`${proxy.url}/api/community/pages`, { method: "POST", headers, body: JSON.stringify({ archiveAttachmentId: "att_1" }) })).status).toBe(200);
+    expect((await fetch(`${proxy.url}/api/community/pages?limit=10`, { method: "GET", headers })).status).toBe(200);
+    expect((await fetch(`${proxy.url}/api/community/pages/page_1/cover`, { method: "PUT", headers: { Authorization: `Bearer ${reg.voucher}`, "content-type": "image/png" }, body: new Uint8Array([137, 80, 78, 71]) })).status).toBe(200);
+    expect((await fetch(`${proxy.url}/api/community/pages/page_1/operations`, { method: "POST", headers, body: JSON.stringify({ kind: "manifest" }) })).status).toBe(200);
+    expect((await fetch(`${proxy.url}/api/community/pages/page_1`, { method: "DELETE", headers })).status).toBe(200);
+    expect(upstream.seen.map((r) => `${r.method} ${r.path}`)).toEqual([
+      "POST /api/community/pages",
+      "GET /api/community/pages?limit=10",
+      "PUT /api/community/pages/page_1/cover",
+      "POST /api/community/pages/page_1/operations",
+      "DELETE /api/community/pages/page_1",
+    ]);
+    expect(upstream.seen.every((r) => r.authorization === `Bearer ${REAL_KEY}`)).toBe(true);
+  });
 });
