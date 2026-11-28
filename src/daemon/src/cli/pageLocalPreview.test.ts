@@ -31,7 +31,7 @@ describe("captureLocalPagePreview", () => {
         join(dir, "index.html"),
         '<!doctype html><html><body style="margin:0;height:800px;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;font:700 42px sans-serif"><h1>Pre-Upload Local Cover</h1></body></html>',
       );
-      const preview = await captureLocalPagePreview(dir, { browserPath, settleMs: 150, timeoutMs: 15_000 });
+      const preview = await captureLocalPagePreview(dir, { browserPath, settleMs: 150, timeoutMs: 25_000 });
       expect(preview.type).toBe("page");
       expect(preview.contentType).toBe("image/png");
       expect(preview.width).toBe(1280);
@@ -40,7 +40,7 @@ describe("captureLocalPagePreview", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("rejects an empty generic page directory before launching a browser", async () => {
     const dir = await mkdtemp(join(tmpdir(), "alook-local-invalid-"));

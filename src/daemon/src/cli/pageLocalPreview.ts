@@ -338,6 +338,7 @@ async function captureUrlWithCdp(
       "--remote-debugging-port=0",
       `--user-data-dir=${userDataDir}`,
       ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
+      ...(process.platform === "linux" ? ["--disable-dev-shm-usage", "--password-store=basic"] : []),
       `--window-size=${width},${height}`,
       "--force-device-scale-factor=1",
       "--hide-scrollbars",
@@ -347,14 +348,14 @@ async function captureUrlWithCdp(
       "--disable-background-networking",
       "--disable-extensions",
       "--mute-audio",
-      ...(process.platform === "linux" && process.getuid?.() === 0 ? ["--no-sandbox"] : []),
+      ...(process.platform === "linux" && (process.getuid?.() === 0 || Boolean(process.env.CI)) ? ["--no-sandbox"] : []),
       "about:blank",
     ], {
       stdio: ["ignore", "ignore", "pipe"],
       detached: process.platform !== "win32",
     });
 
-    const cdpPort = await waitForDevToolsPort(child, Math.min(10_000, timeoutMs));
+    const cdpPort = await waitForDevToolsPort(child, Math.min(15_000, timeoutMs));
     const wsUrl = await resolvePageTargetWsUrl(cdpPort, deadline);
     cdp = await CdpSession.connect(wsUrl, Math.max(2_000, deadline - Date.now()));
 
