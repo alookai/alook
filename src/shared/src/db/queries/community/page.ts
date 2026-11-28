@@ -19,9 +19,13 @@ function readableLinks(db: Database, readerId: string) {
     .where(and(eq(communityMessagePage.pageId, communityPage.id), messageChannelReadableSql(db, readerId, channelColumns)));
 }
 
-export async function getReadableResource(db: Database, id: string, readerId: string, key: "id" | "artifactId" = "id") {
-  const [row] = await db.select().from(communityPage).where(and(eq(communityPage[key], id), activeActor(db, readerId),
+function getReadableResourceQuery(db: Database, id: string, readerId: string, key: "id" | "artifactId" = "id") {
+  return db.select().from(communityPage).where(and(eq(communityPage[key], id), activeActor(db, readerId),
     or(eq(communityPage.botId, readerId), exists(readableLinks(db, readerId))))).limit(1);
+}
+
+export async function getReadableResource(db: Database, id: string, readerId: string, key: "id" | "artifactId" = "id") {
+  const [row] = await getReadableResourceQuery(db, id, readerId, key);
   return row ?? null;
 }
 
@@ -44,13 +48,17 @@ export function pageBindingStatement(db: Database, data: { id: string; messageId
   return db.insert(communityMessagePage).values({ messageId: data.messageId, pageId: sql<string>`(${authorized})` });
 }
 
-async function readablePage(db: Database, key: "id" | "artifactId", value: string, readerId: string, sourceMessageId?: string) {
-  const rows = await db.select({ ...getTableColumns(communityPage), messageId: communityMessage.id, sourceBotId: communityMessage.authorId, channelId: communityMessage.channelId, channelType: communityChannel.type })
+function readablePageQuery(db: Database, key: "id" | "artifactId", value: string, readerId: string, sourceMessageId?: string) {
+  return db.select({ ...getTableColumns(communityPage), messageId: communityMessage.id, sourceBotId: communityMessage.authorId, channelId: communityMessage.channelId, channelType: communityChannel.type })
     .from(communityPage).innerJoin(communityMessagePage, eq(communityMessagePage.pageId, communityPage.id))
     .innerJoin(communityMessage, eq(communityMessage.id, communityMessagePage.messageId))
     .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
     .where(and(eq(communityPage[key], value), ...(sourceMessageId ? [eq(communityMessagePage.messageId, sourceMessageId)] : []), activeActor(db, readerId),
       messageChannelReadableSql(db, readerId, channelColumns))).limit(sourceMessageId ? 1 : 2);
+}
+
+async function readablePage(db: Database, key: "id" | "artifactId", value: string, readerId: string, sourceMessageId?: string) {
+  const rows = await readablePageQuery(db, key, value, readerId, sourceMessageId);
   return rows.length === 1 ? rows[0]! : null;
 }
 
@@ -63,12 +71,26 @@ export function getReadablePageForArtifact(db: Database, artifactId: string, rea
 export function getPublishedPage(db: Database, id: string, actorId: string) {
   return getReadableResource(db, id, actorId);
 }
-export async function listReadablePageChannels(db: Database, artifactId: string, readerId: string) {
-  return db.selectDistinct({ channelId: communityMessage.channelId }).from(communityPage)
+
+function listReadablePageChannelsQuery(db: Database, artifactId: string, readerId: string) {
+  return db.selectDistinct({ channelId: communityMessage.channelId, channelType: communityChannel.type }).from(communityPage)
     .innerJoin(communityMessagePage, eq(communityMessagePage.pageId, communityPage.id))
     .innerJoin(communityMessage, eq(communityMessage.id, communityMessagePage.messageId))
     .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
     .where(and(eq(communityPage.artifactId, artifactId), activeActor(db, readerId), messageChannelReadableSql(db, readerId, channelColumns)));
+}
+
+export async function listReadablePageChannels(db: Database, artifactId: string, readerId: string) {
+  return listReadablePageChannelsQuery(db, artifactId, readerId);
+}
+
+export async function getPageAccessContext(db: Database, artifactId: string, readerId: string) {
+  const pageQuery = getReadableResourceQuery(db, artifactId, readerId, "artifactId");
+  const channelsQuery = listReadablePageChannelsQuery(db, artifactId, readerId);
+  const [pageRows, channels] = typeof db.batch === "function"
+    ? await db.batch([pageQuery, channelsQuery])
+    : await Promise.all([pageQuery, channelsQuery]);
+  return { page: pageRows[0] ?? null, channels };
 }
 
 export async function getOwnedPage(db: Database, id: string, botId: string) {
@@ -103,8 +125,14 @@ const viewerTicket = z.strictObject({ userId: z.string().min(1), pageId: z.strin
 export async function createPageViewerTicket(db: Database, input: { hash: string; userId: string; pageId: string; origin: string; sourceMessageId: string; expiresAt: string; now: string }) {
   const identifier = `alook-page:${input.userId}`;
   const expired = db.select({ id: verification.id }).from(verification).where(and(eq(verification.identifier, identifier), lt(verification.expiresAt, input.now))).orderBy(asc(verification.expiresAt)).limit(32);
-  await db.delete(verification).where(inArray(verification.id, expired));
-  await db.insert(verification).values({ id: `alook-page:${input.hash}`, identifier, value: JSON.stringify({ userId: input.userId, pageId: input.pageId, origin: input.origin, sourceMessageId: input.sourceMessageId }), expiresAt: input.expiresAt, createdAt: input.now, updatedAt: input.now });
+  const cleanup = db.delete(verification).where(inArray(verification.id, expired));
+  const insert = db.insert(verification).values({ id: `alook-page:${input.hash}`, identifier, value: JSON.stringify({ userId: input.userId, pageId: input.pageId, origin: input.origin, sourceMessageId: input.sourceMessageId }), expiresAt: input.expiresAt, createdAt: input.now, updatedAt: input.now });
+  if (typeof db.batch === "function") {
+    await db.batch([cleanup, insert]);
+  } else {
+    await cleanup;
+    await insert;
+  }
 }
 export async function consumePageViewerTicket(db: Database, hash: string, origin: string, now: string) {
   const [row] = await db.delete(verification).where(and(eq(verification.id, `alook-page:${hash}`), gt(verification.expiresAt, now))).returning({ value: verification.value });
@@ -112,6 +140,11 @@ export async function consumePageViewerTicket(db: Database, hash: string, origin
   let input: unknown; try { input = JSON.parse(row.value); } catch { return null; }
   const parsed = viewerTicket.safeParse(input);
   if (!parsed.success || parsed.data.origin !== origin) return null;
-  const page = await getReadablePage(db, parsed.data.pageId, parsed.data.userId, parsed.data.sourceMessageId);
-  return page ? { page, userId: parsed.data.userId } : null;
+  const pageQuery = readablePageQuery(db, "id", parsed.data.pageId, parsed.data.userId, parsed.data.sourceMessageId);
+  const userQuery = db.select({ id: user.id, name: user.name }).from(user).where(and(eq(user.id, parsed.data.userId), isNull(user.deletedAt))).limit(1);
+  const [pageRows, userRows] = typeof db.batch === "function"
+    ? await db.batch([pageQuery, userQuery])
+    : await Promise.all([pageQuery, userQuery]);
+  const page = pageRows.length === 1 ? pageRows[0]! : null;
+  return page ? { page, userId: parsed.data.userId, user: userRows[0] ?? null } : null;
 }

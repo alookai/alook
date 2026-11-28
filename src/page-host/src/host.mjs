@@ -124,28 +124,59 @@ export function adaptSessionResponse(response, origin) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers, ...(response.webSocket ? { webSocket: response.webSocket } : {}) });
 }
 
-function bootstrap(artifactId, origins) {
+function contentPreconnectOrigin(contentOrigin, artifactId) {
+  if (typeof contentOrigin !== "string" || !contentOrigin) return null;
+  try {
+    const url = new URL(contentOrigin.replace("{id}", artifactId.replace("_", "-")));
+    if (url.username || url.password || (url.protocol !== "https:" && url.protocol !== "http:")) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function shellPreloadLinks(shellHtml) {
+  if (typeof shellHtml !== "string" || !shellHtml) return "";
+  const seen = new Set();
+  const links = [];
+  for (const match of shellHtml.matchAll(/(?:href|src)="(\/_open-artifact\/shell\/assets\/[A-Za-z0-9._-]+\.(?:css|js))"/g)) {
+    const asset = match[1];
+    if (seen.has(asset)) continue;
+    seen.add(asset);
+    if (asset.endsWith(".css")) links.push(`<link rel="preload" as="style" href="${asset}">`);
+    else links.push(`<link rel="modulepreload" href="${asset}" crossorigin>`);
+    if (links.length >= 8) break;
+  }
+  return links.join("");
+}
+
+function bootstrap(artifactId, origins, hints = {}) {
   const nonce = randomBytes(18).toString("base64url");
+  const preconnect = contentPreconnectOrigin(hints.contentOrigin, artifactId);
+  const preconnectTag = preconnect ? `<link rel="preconnect" href="${preconnect}">` : "";
+  const preloadTags = shellPreloadLinks(hints.shellHtml);
   const script = `
 const ticket = new URLSearchParams(location.hash.slice(1)).get('ticket');
 history.replaceState(null, '', location.pathname);
 fetch('/alook/session', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ticket,artifactId:${JSON.stringify(artifactId)}})})
 .then(async response => { if (!response.ok) throw new Error('This Page could not be opened. Return to Alook and try again.'); const identity = await response.json(); location.replace('/a/'+${JSON.stringify(artifactId)}+'?'+new URLSearchParams({sourceMessageId:identity.sourceMessageId})); })
 .catch(error => { document.body.textContent=error.message; });`;
-  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Alook Page</title><body>Opening Page…<script nonce="${nonce}">${script}</script>`;
-  return new Response(html, { headers: { ...privateHeaders, "content-type": "text/html; charset=utf-8", "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${origins.join(" ")}` } });
+  const connectSrc = preconnect ? `'self' ${preconnect}` : "'self'";
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Alook Page</title>${preconnectTag}${preloadTags}<body>Opening Page…<script nonce="${nonce}">${script}</script>`;
+  return new Response(html, { headers: { ...privateHeaders, "content-type": "text/html; charset=utf-8", "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}' 'self'; style-src 'self'; connect-src ${connectSrc}; base-uri 'none'; form-action 'none'; frame-ancestors ${origins.join(" ")}` } });
 }
 
 export async function handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, actionsOfType, purgeArtifact }) {
   const url = new URL(request.url);
   if (!site.config || site.configError) return json({ error: "Page host unavailable" }, 503);
+  let sessionTiming;
   try {
     const origins = embedOrigins(env.ALOOK_EMBED_ORIGINS);
     if (url.origin !== site.config.appOrigin) {
       return allowContentEmbedding(await site.fetch(request, ctx), site.config.appOrigin, origins);
     }
     const open = /^\/alook\/open\/(art_[a-z0-9]{10,40})$/.exec(url.pathname);
-    if (open && request.method === "GET") return bootstrap(open[1], origins);
+    if (open && request.method === "GET") return bootstrap(open[1], origins, { contentOrigin: site.config.contentOrigin, shellHtml: site.build?.shellHtml });
     if (url.pathname === "/api/open-artifact.embed" && request.method === "GET") return json({ hosts: origins });
     if (url.pathname === "/api/open-artifact.artifacts.ask" && request.method === "POST") {
       if (request.headers.get("origin") !== url.origin) return json({ error: "Forbidden" }, 403);
@@ -163,14 +194,24 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
       if (request.headers.get("origin") !== url.origin || !request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "Forbidden" }, 403);
       const body = await bodyJson(request);
       if (typeof body.ticket !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.ticket) || !artifactIdPattern.test(body.artifactId)) return json({ error: "Invalid viewer ticket" }, 400);
-      const response = await webFetch(env, "/api/community/pages/viewer-exchange", { ticket: body.ticket, origin: url.origin });
-      if (!response.ok) return json({ error: "Page access expired" }, response.status === 404 ? 404 : 503);
+      const started = performance.now();
+      const timings = [];
+      sessionTiming = () => [...timings, `alook_session;dur=${Math.max(0, performance.now() - started).toFixed(1)}`].join(", ");
+      const measure = async (name, action) => {
+        const phaseStarted = performance.now();
+        try { return await action(); }
+        finally { timings.push(`${name};dur=${Math.max(0, performance.now() - phaseStarted).toFixed(1)}`); }
+      };
+      const catalogPromise = measure("oa_catalog", () => site.ready());
+      catalogPromise.catch(() => {});
+      const response = await measure("alook_exchange", () => webFetch(env, "/api/community/pages/viewer-exchange", { ticket: body.ticket, origin: url.origin }));
+      if (!response.ok) return json({ error: "Page access expired" }, response.status === 404 ? 404 : 503, { "server-timing": sessionTiming() });
       const identity = await bodyJson(response);
-      if (typeof identity.subject !== "string" || !identity.subject || identity.subject.length > 128 || typeof identity.name !== "string" || identity.artifactId !== body.artifactId || !sourceMessageId(identity.sourceMessageId)) return json({ error: "Invalid Page identity" }, 403);
-      const catalog = await site.ready();
-      const user = await ensureUser(catalog, identity.subject, identity.name.slice(0, 256));
-      const cookie = await startSession(user, request, { catalog, config: site.config, now: () => new Date(), log: () => {} });
-      return json({ ok: true, sourceMessageId: identity.sourceMessageId }, 200, { "set-cookie": pageSessionCookie(cookie, url.origin) });
+      if (typeof identity.subject !== "string" || !identity.subject || identity.subject.length > 128 || typeof identity.name !== "string" || identity.artifactId !== body.artifactId || !sourceMessageId(identity.sourceMessageId)) return json({ error: "Invalid Page identity" }, 403, { "server-timing": sessionTiming() });
+      const catalog = await catalogPromise;
+      const user = await measure("oa_user", () => ensureUser(catalog, identity.subject, identity.name.slice(0, 256)));
+      const cookie = await measure("oa_session", () => startSession(user, request, { catalog, config: site.config, now: () => new Date(), log: () => {} }));
+      return json({ ok: true, sourceMessageId: identity.sourceMessageId }, 200, { "set-cookie": pageSessionCookie(cookie, url.origin), "server-timing": sessionTiming() });
     }
     const deletion = /^\/alook\/resources\/(art_[a-z0-9]{10,40})$/.exec(url.pathname);
     if (deletion && request.method === "DELETE") {
@@ -181,6 +222,7 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
       const artifact = await catalog.getArtifact(deletion[1]);
       if (artifact && artifact.ownerUser !== alookUserId(subject)) return json({ error: "Page not found" }, 404);
       if (artifact) {
+        site.access?.invalidate?.(artifact.id);
         await catalog.trashArtifact(artifact.id);
         await purgeArtifact(catalog, id => site.removeArtifact(id), { id: artifact.id, actor: { kind: "user", id: alookUserId(subject) }, reason: "owner" });
       }
@@ -242,6 +284,6 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
     return /^\/a\/art_[a-z0-9]{10,40}$/.test(url.pathname) ? allowShellEmbedding(response, origins) : response;
   } catch (error) {
     const status = error && typeof error === "object" && Number.isInteger(error.status) ? error.status : 503;
-    return json({ error: status === 413 ? "Page request too large" : "Page host unavailable" }, status);
+    return json({ error: status === 413 ? "Page request too large" : "Page host unavailable" }, status, sessionTiming ? { "server-timing": sessionTiming() } : {});
   }
 }

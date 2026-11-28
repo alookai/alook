@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const db = getPrimaryDb(env.DB)
   const result = hash ? await queries.communityPage.consumePageViewerTicket(db, hash, origin, new Date().toISOString()) : null
   if (!result) return NextResponse.json({ error: "Invalid viewer ticket" }, { status: 404, headers: { "Cache-Control": "private, no-store" } })
-  const user = await queries.user.getUserPublic(db, result.userId)
+  const user = result.user !== undefined ? result.user : await queries.user.getUserPublic(db, result.userId)
   if (!user) return NextResponse.json({ error: "Invalid viewer ticket" }, { status: 404 })
   return NextResponse.json({ subject: user.id, name: user.name, pageId: result.page.id, artifactId: result.page.artifactId, sourceMessageId: result.page.messageId }, {
     headers: { "Cache-Control": "private, no-store" },

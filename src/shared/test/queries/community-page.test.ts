@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMigratedDb } from "../helpers/migrated-db";
 import { assertNoBusinessTableScans, type BoundQuery, queryPlan } from "../helpers/query-plan";
 import { createAttachment, getOwnedAttachmentById } from "../../src/db/queries/community/attachment";
-import { getOwnedPage, deleteOwnedPage, listOwnedPages, createPage, getReadableResource, listReadablePageChannels, consumePageViewerTicket, createPageViewerTicket, getReadablePage, getReadablePageForArtifact, pageBindingStatement } from "../../src/db/queries/community/page";
+import { getOwnedPage, deleteOwnedPage, listOwnedPages, createPage, getReadableResource, getPageAccessContext, listReadablePageChannels, consumePageViewerTicket, createPageViewerTicket, getReadablePage, getReadablePageForArtifact, pageBindingStatement } from "../../src/db/queries/community/page";
 
 describe("Page bindings use current message access", () => {
   let store: ReturnType<typeof createMigratedDb>;
@@ -133,7 +133,7 @@ describe("Page bindings use current message access", () => {
       consumePageViewerTicket(store.db, ticket.hash, ticket.origin, now),
     ]);
     expect(consumed.filter(Boolean)).toHaveLength(1);
-    expect(consumed.find(Boolean)).toMatchObject({ userId: "reader", page: { id: "page" } });
+    expect(consumed.find(Boolean)).toMatchObject({ userId: "reader", page: { id: "page" }, user: { id: "reader", name: "reader" } });
     await createPageViewerTicket(store.db, { ...ticket, hash: "expired" });
     await expect(consumePageViewerTicket(store.db, "expired", ticket.origin, ticket.expiresAt)).resolves.toBeNull();
     await createPageViewerTicket(store.db, { ...ticket, hash: "wrong-origin" });
@@ -196,5 +196,24 @@ describe("Page bindings use current message access", () => {
     for (const query of reads) assertNoBusinessTableScans(store.sqlite, query);
     store.sqlite.prepare('UPDATE user SET "deletedAt"=? WHERE id=?').run("now", "bot");
     await expect(getOwnedAttachmentById(store.db, uploaded.id, "bot")).resolves.toBeNull();
+  });
+
+  it("fetches page access context with channel types using indexed lookups", async () => {
+    await resource("ctx-page");
+    await pageBindingStatement(store.db, binding("ctx-page", "public-message"));
+    await pageBindingStatement(store.db, binding("ctx-page", "dm-message"));
+    reads = [];
+    const ctx = await getPageAccessContext(store.db, "art_ctx-page", "reader");
+    expect(ctx.page).toMatchObject({ id: "ctx-page", botId: "bot" });
+    expect(ctx.channels).toEqual(expect.arrayContaining([
+      { channelId: "public", channelType: "text" },
+      { channelId: "dm", channelType: "dm" },
+    ]));
+    for (const query of reads) {
+      assertNoBusinessTableScans(store.sqlite, query);
+    }
+    const denied = await getPageAccessContext(store.db, "art_ctx-page", "outsider");
+    expect(denied.page).toBeNull();
+    expect(denied.channels).toEqual([]);
   });
 });

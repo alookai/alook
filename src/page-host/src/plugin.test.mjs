@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { alookSubject, alookUserId, alookWebFetch } from "./plugin.mjs";
+import { ALOOK_AUTHZ_CACHE_SECONDS, alookSubject, alookUserId, alookWebFetch } from "./plugin.mjs";
 import plugins from "./plugins.mjs";
 const plugin = plugins.alook;
 
 const secret = "only-a-test-service-key-with-32-bytes";
-const ctx = (fetch) => ({ config: { secret, origin: "https://alook.example.invalid" }, fetch, signal: new AbortController().signal });
-const input = (principal) => ({ principal, artifact: { id: "art_1234567890" }, role: "owner" });
+const ctx = (fetch, signal = new AbortController().signal) => ({ config: { secret, origin: "https://alook.example.invalid" }, fetch, signal });
+const input = (principal, artifactId = "art_1234567890") => ({ principal, artifact: { id: artifactId }, role: "owner" });
 
 test("Alook principal encoding is reversible and does not accept another provider's ids", () => {
   assert.equal(alookSubject({ kind: "user", id: alookUserId("person_1") }), "person_1");
@@ -45,7 +45,8 @@ test("roles come only from live Alook checks with the real account and artifact"
   assert.equal(await role(null), null);
   await assert.rejects(role("owner"), /Invalid Alook/);
   assert.equal(calls, 4);
-  assert.equal(plugin.authz.cacheSeconds, 0);
+  assert.equal(plugin.authz.cacheSeconds, ALOOK_AUTHZ_CACHE_SECONDS);
+  assert.equal(plugin.authz.cacheSeconds, 2);
 });
 
 test("failed permission checks do not grant the upstream owner or share role", async () => {

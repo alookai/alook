@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useMemo, useRef, useState } from "react"
+import { preconnect } from "react-dom"
 import { useQuery } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
@@ -228,6 +229,9 @@ function OpenArtifactSheetSurface({
 
   const verifiedOrigin = verifiedEmbed?.ok ? verifiedEmbed.origin : null
   const verifiedUrl = verifiedEmbed?.ok ? verifiedEmbed.url : null
+  if (verifiedOrigin) {
+    preconnect(verifiedOrigin)
+  }
   const errorInfo = tokenQuery.isError ? classifyPageViewerError(tokenQuery.error) : null
 
   const { shellReady, placeHash, savedState } = useOpenArtifactShellBridge({

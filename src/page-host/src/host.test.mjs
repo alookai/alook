@@ -12,7 +12,11 @@ function fixture() {
   const artifacts = new Map();
   const calls = [];
   const site = {
-    config: { appOrigin: app },
+    config: { appOrigin: app, contentOrigin: "https://{id}.alook.page" },
+    build: {
+      shellHtml: '<!doctype html><head><link rel="stylesheet" href="/_open-artifact/shell/assets/shell-abc123.css"><script type="module" src="/_open-artifact/shell/assets/shell-abc123.js"></script></head>',
+    },
+    access: { invalidate: (artifactId) => { calls.push(["invalidate", artifactId]); } },
     fetch: async () => new Response("upstream", { headers: { "content-type": "text/html", "content-security-policy": "default-src 'self'; script-src 'self'; frame-ancestors 'none'", "x-frame-options": "DENY" } }),
     ready: async () => ({
       getUser: async (key) => users.get(key),
@@ -57,13 +61,20 @@ test("only the app's exact successful Shell path becomes frameable", async () =>
   assert.equal((await f.run(new Request(`http://content.localhost:8795/a/${id}`))).headers.get("x-frame-options"), "DENY");
 });
 
-test("the bootstrap removes its fragment before exchanging the ticket and never places it in a redirect query", async () => {
+test("the bootstrap removes its fragment before exchanging the ticket, preconnects content, preloads shell assets, and never places the ticket in a redirect query", async () => {
   const f = fixture();
   const response = await f.run(new Request(`${app}/alook/open/${id}`));
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
-  assert.match(response.headers.get("content-security-policy"), /frame-ancestors http:\/\/localhost:3000/);
+  const csp = response.headers.get("content-security-policy");
+  assert.match(csp, /frame-ancestors http:\/\/localhost:3000/);
+  assert.match(csp, /script-src 'nonce-[^']+' 'self'/);
+  assert.match(csp, /style-src 'self'/);
+  assert.match(csp, /connect-src 'self' https:\/\/art-1234567890abcdef\.alook\.page;/);
   const html = await response.text();
+  assert.match(html, /<link rel="preconnect" href="https:\/\/art-1234567890abcdef\.alook\.page">/);
+  assert.match(html, /<link rel="preload" as="style" href="\/_open-artifact\/shell\/assets\/shell-abc123\.css">/);
+  assert.match(html, /<link rel="modulepreload" href="\/_open-artifact\/shell\/assets\/shell-abc123\.js" crossorigin>/);
   assert.match(html, /history.replaceState/);
   assert.match(html, /fetch\('\/alook\/session'/);
   assert.doesNotMatch(html, /\?ticket=/);
@@ -74,7 +85,9 @@ test("session bootstrap rejects other origins and creates only a member for a ve
   const req = (origin, artifactId = id) => new Request(`${app}/alook/session`, {
     method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ ticket: "a".repeat(43), artifactId }),
   });
-  assert.equal((await f.run(req("https://evil.invalid"))).status, 403);
+  const forbidden = await f.run(req("https://evil.invalid"));
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.headers.get("server-timing"), null);
   assert.equal(f.calls.length, 0);
   const response = await f.run(req(app));
   assert.equal(response.status, 200);
@@ -86,6 +99,88 @@ test("session bootstrap rejects other origins and creates only a member for a ve
   f.env.ALOOK_WEB.fetch = async () => Response.json({ subject: "reader", name: "A person", artifactId: "art_foreign12345" });
   assert.equal((await f.run(req(app))).status, 403);
   assert.equal(f.calls.filter(([kind]) => kind === "session").length, 1);
+});
+
+test("session timings attribute a delayed exchange, overlap catalog readiness, and never expose identity or change cookie and source", async () => {
+  const f = fixture();
+  const exchange = f.env.ALOOK_WEB.fetch;
+  const ready = f.site.ready;
+  let exchangeActive = false;
+  let catalogActive = false;
+  let overlapped = false;
+  f.env.ALOOK_WEB.fetch = async (request) => {
+    exchangeActive = true;
+    if (catalogActive) overlapped = true;
+    try {
+      await new Promise(resolve => setTimeout(resolve, 15));
+      return await exchange(request);
+    } finally {
+      exchangeActive = false;
+    }
+  };
+  f.site.ready = async () => {
+    catalogActive = true;
+    if (exchangeActive) overlapped = true;
+    try {
+      await new Promise(resolve => setTimeout(resolve, 8));
+      return await ready();
+    } finally {
+      catalogActive = false;
+    }
+  };
+  const ticket = "a".repeat(43);
+  const response = await f.run(new Request(`${app}/alook/session`, {
+    method: "POST", headers: { "content-type": "application/json", origin: app }, body: JSON.stringify({ ticket, artifactId: id }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(overlapped, true);
+  assert.deepEqual(await response.json(), { ok: true, sourceMessageId: "entry-a" });
+  assert.equal(response.headers.get("set-cookie"), "oa_session=opaque; HttpOnly; Path=/; SameSite=Lax");
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  const header = response.headers.get("server-timing");
+  const timings = new Map(header.split(", ").map(value => {
+    const match = /^([a-z_]+);dur=(\d+(?:\.\d+)?)$/.exec(value);
+    assert.ok(match, value);
+    return [match[1], Number(match[2])];
+  }));
+  assert.deepEqual(new Set(timings.keys()), new Set(["alook_exchange", "oa_catalog", "oa_user", "oa_session", "alook_session"]));
+  assert.equal(timings.size, 5);
+  assert.ok(timings.get("alook_exchange") >= 5);
+  assert.ok(timings.get("alook_session") >= timings.get("alook_exchange"));
+  for (const value of [ticket, serviceKey, id, "reader", "A person", "entry-a", "opaque"]) assert.equal(header.includes(value), false);
+});
+
+test("session failures report the failed backend phase without creating a session", async () => {
+  const f = fixture();
+  f.site.ready = async () => { throw new Error("catalog unavailable"); };
+  const response = await f.run(new Request(`${app}/alook/session`, {
+    method: "POST", headers: { "content-type": "application/json", origin: app }, body: JSON.stringify({ ticket: "a".repeat(43), artifactId: id }),
+  }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "Page host unavailable" });
+  const names = new Set(response.headers.get("server-timing").split(", ").map(value => value.split(";")[0]));
+  assert.deepEqual(names, new Set(["alook_exchange", "oa_catalog", "alook_session"]));
+  assert.equal(f.calls.some(([kind]) => kind === "session" || kind === "user"), false);
+});
+
+test("rejected viewer tickets fail fast without waiting for a stalled catalog", async () => {
+  const f = fixture();
+  let releaseCatalog;
+  f.env.ALOOK_WEB.fetch = async () => new Response(null, { status: 404 });
+  f.site.ready = () => new Promise((_resolve, reject) => { releaseCatalog = () => reject(new Error("late catalog error")); });
+  const result = await Promise.race([
+    f.run(new Request(`${app}/alook/session`, {
+      method: "POST", headers: { "content-type": "application/json", origin: app }, body: JSON.stringify({ ticket: "a".repeat(43), artifactId: id }),
+    })),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("404 waited on stalled catalog")), 200)),
+  ]);
+  assert.equal(result.status, 404);
+  assert.equal(f.calls.some(([kind]) => kind === "session" || kind === "user"), false);
+  const names = new Set(result.headers.get("server-timing").split(", ").map(value => value.split(";")[0]));
+  assert.deepEqual(names, new Set(["alook_exchange", "alook_session"]));
+  // Late catalog rejection after fast-fail must not surface as an unhandled rejection.
+  releaseCatalog();
+  await new Promise(resolve => setTimeout(resolve, 10));
 });
 
 test("publish requires the service credential and never replaces an existing Page", async () => {
@@ -177,5 +272,6 @@ test("whole-resource deletion requires the creator and retains a failed destruct
   f.site.removeArtifact = remove;
   assert.equal((await f.run(req("creator"))).status, 200);
   assert.equal(f.artifacts.has(id), false);
+  assert.ok(f.calls.some(([kind, targetId]) => kind === "invalidate" && targetId === id));
   assert.equal((await f.run(req("creator"))).status, 200);
 });

@@ -1,10 +1,12 @@
 "use client"
 
 import { useState } from "react"
+import { preconnect } from "react-dom"
 import { ArrowUpRight, File, FileText, Presentation } from "@/components/icons/lucide"
 import {
   buildPageCoverUrl,
   describePageType,
+  resolvePageHostPreconnectOrigin,
   type AlookPageEmbed,
   type AlookPageOpenTarget,
 } from "@/lib/community/open-artifact"
@@ -239,6 +241,10 @@ export function OpenArtifactCard({
   const typeInfo = describePageType(page.type)
   const fallbackKind = resolveFallbackKind(page.type)
   const coverUrl = buildPageCoverUrl(page.id, sourceMessageId)
+  const preconnectOrigin = resolvePageHostPreconnectOrigin()
+  if (preconnectOrigin) {
+    preconnect(preconnectOrigin)
+  }
   const [coverStatus, setCoverStatus] = useState<{ url: string; state: "loaded" | "error" } | null>(null)
   const isLoaded = coverStatus?.url === coverUrl && coverStatus.state === "loaded"
   const isError = coverStatus?.url === coverUrl && coverStatus.state === "error"
