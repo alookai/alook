@@ -47,7 +47,6 @@ export function ScheduleWeekView({
   occurrences,
   selectedOccurrenceKey,
   onSelectOccurrence,
-  onOpenSourceMessage,
 }: {
   weekKey?: string
   direction?: -1 | 0 | 1
@@ -58,7 +57,6 @@ export function ScheduleWeekView({
   occurrences: readonly ScheduleOccurrenceItem[]
   selectedOccurrenceKey: string | null
   onSelectOccurrence: (occurrence: ScheduleOccurrenceItem) => void
-  onOpenSourceMessage: (messageId: string) => void
 }) {
   const now = useScheduleClockMinute()
   const scrollViewportRef = useRef<HTMLDivElement>(null)
@@ -238,10 +236,7 @@ export function ScheduleWeekView({
                             <ScheduleActorAvatar actor={event.creator} size={18} />
                             <span className="truncate font-medium text-foreground/85">{event.creator.name}</span>
                           </span>
-                          <ScheduleSourceRefPill
-                            source={event.sourceMessage}
-                            onOpenSourceMessage={onOpenSourceMessage}
-                          />
+                          <ScheduleSourceRefPill source={event.sourceMessage} />
                         </div>
                       </motion.div>
                     )

@@ -152,6 +152,8 @@ export const communityKeys = {
   schedule: () => [...communityKeys.all, "schedule"] as const,
   scheduleEvents: (params: { from: string; to: string }) =>
     [...communityKeys.schedule(), "events", params.from, params.to] as const,
+  scheduleSourceMessage: (messageId: string) =>
+    [...communityKeys.schedule(), "source-message", messageId] as const,
   botPii: (machineId: string, botId: string) => [...communityKeys.all, "pii", machineId, botId] as const,
   billing: () => [...communityKeys.all, "billing"] as const,
   bugReport: (reportId: string) =>

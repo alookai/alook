@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react"
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
-import { scheduleEventsQueryOptions } from "@/lib/community/schedule"
+import { ApiError } from "@/lib/errors"
+import {
+  scheduleEventsQueryOptions,
+  scheduleSourceMessageQueryOptions,
+  type ScheduleBoundMessageState,
+} from "@/lib/community/schedule"
 
 const SCHEDULE_STALE_TIME_MS = 30_000
 
@@ -17,6 +22,39 @@ export function useScheduleEvents(params: {
     staleTime: SCHEDULE_STALE_TIME_MS,
     enabled: params.enabled ?? true,
   })
+}
+
+export function useScheduleBoundMessage(
+  messageId: string | null | undefined,
+  enabled: boolean,
+): ScheduleBoundMessageState {
+  const active = Boolean(enabled && messageId)
+  const query = useQuery({
+    ...scheduleSourceMessageQueryOptions(messageId ?? "__none__"),
+    enabled: active,
+    staleTime: SCHEDULE_STALE_TIME_MS,
+    retry: (count, error) => !(error instanceof ApiError && [403, 404].includes(error.status)) && count < 1,
+  })
+
+  if (!active) {
+    return { status: "idle", message: null }
+  }
+  if (query.data) {
+    return { status: "ready", message: query.data }
+  }
+  if (query.isPending) {
+    return { status: "loading", message: null }
+  }
+  if (query.error instanceof ApiError && [403, 404].includes(query.error.status)) {
+    return { status: "unavailable", message: null }
+  }
+  return {
+    status: "error",
+    message: null,
+    onRetry: () => {
+      void query.refetch()
+    },
+  }
 }
 
 export function usePrefetchAdjacentScheduleRanges(params: {

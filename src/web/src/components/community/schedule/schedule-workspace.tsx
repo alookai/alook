@@ -25,6 +25,7 @@ import { ScheduleDetailSheet } from "./schedule-detail-sheet"
 import { SchedulePageSkeleton } from "./schedule-skeleton"
 import type {
   ScheduleActor,
+  ScheduleBoundMessageState,
   ScheduleOccurrenceItem,
   ScheduleViewMode,
 } from "./schedule-types"
@@ -49,7 +50,9 @@ export function ScheduleWorkspace({
   retrying = false,
   onRetry,
   onBack,
-  onOpenSourceMessage,
+  selectedOccurrenceKey: controlledSelectedOccurrenceKey,
+  onSelectedOccurrenceKeyChange,
+  boundMessage,
   onAskBot,
   askingBot = false,
   onOpenBots,
@@ -68,13 +71,24 @@ export function ScheduleWorkspace({
   retrying?: boolean
   onRetry?: () => void
   onBack?: () => void
-  onOpenSourceMessage: (messageId: string) => void
+  selectedOccurrenceKey?: string | null
+  onSelectedOccurrenceKeyChange?: (key: string | null) => void
+  boundMessage?: ScheduleBoundMessageState
   onAskBot?: (botId: string) => void
   askingBot?: boolean
   onOpenBots?: () => void
 }) {
   const [datePopoverOpen, setDatePopoverOpen] = useState(false)
-  const [selectedOccurrenceKey, setSelectedOccurrenceKey] = useState<string | null>(null)
+  const [uncontrolledSelectedOccurrenceKey, setUncontrolledSelectedOccurrenceKey] = useState<string | null>(null)
+  const selectedOccurrenceKey = controlledSelectedOccurrenceKey !== undefined
+    ? controlledSelectedOccurrenceKey
+    : uncontrolledSelectedOccurrenceKey
+  const setSelectedOccurrenceKey = (nextKey: string | null) => {
+    if (controlledSelectedOccurrenceKey === undefined) {
+      setUncontrolledSelectedOccurrenceKey(nextKey)
+    }
+    onSelectedOccurrenceKeyChange?.(nextKey)
+  }
   const anchorMs = anchorDate.getTime()
   const [navTrack, setNavTrack] = useState<{ anchorMs: number; direction: -1 | 0 | 1 }>({
     anchorMs,
@@ -390,7 +404,6 @@ export function ScheduleWorkspace({
               occurrences={filteredOccurrences}
               selectedOccurrenceKey={selectedOccurrenceKey}
               onSelectOccurrence={(item) => setSelectedOccurrenceKey(item.occurrenceKey)}
-              onOpenSourceMessage={onOpenSourceMessage}
             />
           </motion.div>
         ) : (
@@ -408,7 +421,6 @@ export function ScheduleWorkspace({
               occurrences={filteredOccurrences}
               selectedOccurrenceKey={selectedOccurrenceKey}
               onSelectOccurrence={(item) => setSelectedOccurrenceKey(item.occurrenceKey)}
-              onOpenSourceMessage={onOpenSourceMessage}
             />
           </motion.div>
         )}
@@ -419,10 +431,7 @@ export function ScheduleWorkspace({
           onOpenChange={(nextOpen) => {
             if (!nextOpen) setSelectedOccurrenceKey(null)
           }}
-          onOpenSourceMessage={(messageId) => {
-            setSelectedOccurrenceKey(null)
-            onOpenSourceMessage(messageId)
-          }}
+          boundMessage={boundMessage}
         />
       </section>
     </MotionConfig>

@@ -4,7 +4,11 @@ import { useCallback, useMemo, useState } from "react"
 import { useCommunityModuleLocation } from "@/contexts/community/module-route"
 import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
-import { usePrefetchAdjacentScheduleRanges, useScheduleEvents } from "@/hooks/community/use-schedule"
+import {
+  usePrefetchAdjacentScheduleRanges,
+  useScheduleBoundMessage,
+  useScheduleEvents,
+} from "@/hooks/community/use-schedule"
 import { useStartBotChat } from "@/hooks/community/use-start-bot-chat"
 import { mapScheduleListResponse } from "@/lib/community/schedule"
 import { useUiHandlers } from "@/stores/community"
@@ -33,6 +37,7 @@ export default function MeSchedulePage() {
   const [view, setView] = useState<ScheduleViewMode>("week")
   const [anchorDate, setAnchorDate] = useState<Date>(() => startOfLocalDay(new Date()))
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
+  const [selectedOccurrenceKey, setSelectedOccurrenceKey] = useState<string | null>(null)
 
   const stepDays = view === "week" ? 7 : 14
   const queryRange = useMemo(
@@ -93,12 +98,20 @@ export default function MeSchedulePage() {
     return Array.from(byId.values())
   }, [bots.bots, mapped?.creators])
 
-  const handleOpenSourceMessage = useCallback(
-    (messageId: string) => {
-      handlers.cancelPendingNavigation?.()
-      router.push(`/c/messages/${encodeURIComponent(messageId)}`)
-    },
-    [handlers, router],
+  const activeSourceMessageId = useMemo(() => {
+    if (!selectedOccurrenceKey || !mapped) return null
+    const found = mapped.occurrences.find(
+      (item) =>
+        item.occurrenceKey === selectedOccurrenceKey
+        && (!selectedBotId || item.event.creator.id === selectedBotId),
+    )
+    if (!found || !found.event.sourceMessage.accessible) return null
+    return found.event.sourceMessage.messageId
+  }, [mapped, selectedBotId, selectedOccurrenceKey])
+
+  const boundMessage = useScheduleBoundMessage(
+    activeSourceMessageId,
+    Boolean(activeSourceMessageId),
   )
 
   const handleAskBot = useCallback(
@@ -139,7 +152,9 @@ export default function MeSchedulePage() {
         void scheduleQuery.refetch()
       }}
       onBack={() => handlers.goBackMobile?.()}
-      onOpenSourceMessage={handleOpenSourceMessage}
+      selectedOccurrenceKey={selectedOccurrenceKey}
+      onSelectedOccurrenceKeyChange={setSelectedOccurrenceKey}
+      boundMessage={boundMessage}
       onAskBot={handleAskBot}
       askingBot={askingBot}
       onOpenBots={handleOpenBots}

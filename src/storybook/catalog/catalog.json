@@ -4472,6 +4472,9 @@
       "source": "src/web/src/components/community/schedule/schedule-detail-sheet.tsx",
       "application": "Web",
       "candidates": [
+        "BoundMessageRendered",
+        "BoundMessageSection",
+        "BoundMessageSkeleton",
         "ScheduleDetailSheet"
       ],
       "kind": "composition",
@@ -10002,6 +10005,24 @@
       "id": "web-business-schedule--refreshing-week",
       "title": "Web/Business/Schedule",
       "name": "Refreshing Week",
+      "source": "src/storybook/stories/business/schedule.stories.tsx"
+    },
+    {
+      "id": "web-business-schedule--detail-sheet-dm-message",
+      "title": "Web/Business/Schedule",
+      "name": "Detail Sheet Dm Message",
+      "source": "src/storybook/stories/business/schedule.stories.tsx"
+    },
+    {
+      "id": "web-business-schedule--detail-sheet-loading",
+      "title": "Web/Business/Schedule",
+      "name": "Detail Sheet Loading",
+      "source": "src/storybook/stories/business/schedule.stories.tsx"
+    },
+    {
+      "id": "web-business-schedule--detail-sheet-unavailable",
+      "title": "Web/Business/Schedule",
+      "name": "Detail Sheet Unavailable",
       "source": "src/storybook/stories/business/schedule.stories.tsx"
     },
     {

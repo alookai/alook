@@ -1,5 +1,7 @@
 export type {
   ScheduleActor,
+  ScheduleBoundMessage,
+  ScheduleBoundMessageState,
   ScheduleOccurrenceItem,
   ScheduleOccurrenceRunStatus,
   ScheduleRecurrenceSummary,

@@ -4,6 +4,7 @@ import { tid } from "@/lib/community/testids"
 import { render, setupUser } from "@/test/react-dom-harness"
 import type {
   ScheduleActor,
+  ScheduleBoundMessageState,
   ScheduleOccurrenceItem,
   ScheduleViewMode,
 } from "./schedule-types"
@@ -44,7 +45,7 @@ function makeFixtureOccurrences(): ScheduleOccurrenceItem[] {
         sourceMessage: {
           messageId: "msg_standup",
           accessible: true,
-          channelLabel: "/Alook#5620/gus-board#42",
+          channelLabel: "/.dm/Alli#6011#14",
           excerpt: "Please send a daily standup digest here.",
         },
         lastExecution: { status: "dispatched", scheduledAt: start1, updatedAt: start1 },
@@ -82,13 +83,13 @@ function makeFixtureOccurrences(): ScheduleOccurrenceItem[] {
 function Harness({
   initialView = "agenda",
   bots = [ALLI, ELWIRA],
-  onOpenSourceMessage = vi.fn(),
+  boundMessage,
   onAskBot = vi.fn(),
   onOpenBots = vi.fn(),
 }: {
   initialView?: ScheduleViewMode
   bots?: readonly ScheduleActor[]
-  onOpenSourceMessage?: (messageId: string) => void
+  boundMessage?: ScheduleBoundMessageState
   onAskBot?: (botId: string) => void
   onOpenBots?: () => void
 }) {
@@ -105,7 +106,7 @@ function Harness({
       onSelectedBotIdChange={setSelectedBotId}
       bots={bots}
       occurrences={makeFixtureOccurrences()}
-      onOpenSourceMessage={onOpenSourceMessage}
+      boundMessage={boundMessage}
       onAskBot={onAskBot}
       onOpenBots={onOpenBots}
     />
@@ -124,37 +125,73 @@ describe("ScheduleWorkspace", () => {
     expect(view.getByText("Daily standup summary")).toBeInTheDocument()
   })
 
-  it("displays read-only task detail and clickable message-ref pills without edit or delete actions", async () => {
+  it("renders read-only task detail with inline bound message and non-navigating ref pill", async () => {
     const user = setupUser()
-    const onOpenSourceMessage = vi.fn()
-    const view = render(<Harness initialView="agenda" onOpenSourceMessage={onOpenSourceMessage} />)
+    const boundMessage: ScheduleBoundMessageState = {
+      status: "ready",
+      message: {
+        id: "msg_standup",
+        authorId: "user_gus",
+        authorName: "Gus",
+        authorAvatar: "G",
+        createdAt: new Date(2026, 10, 24, 21, 15).toISOString(),
+        content: "Every morning at 9:30, post a concise standup digest here.",
+      },
+    }
+    const view = render(<Harness initialView="agenda" boundMessage={boundMessage} />)
 
     const agendaRow = view.getByTestId(tid.scheduleEvent("sch_1"))
-    const agendaPill = agendaRow.querySelector("button")
-    expect(agendaPill).not.toBeNull()
-    await user.click(agendaPill!)
-    expect(onOpenSourceMessage).toHaveBeenCalledWith("msg_standup")
-    expect(view.queryByTestId(tid.scheduleDetailSheet)).toBeNull()
+    expect(agendaRow.querySelector("button")).toBeNull()
+    await user.click(agendaRow)
 
-    onOpenSourceMessage.mockClear()
-    await user.click(view.getByTestId(tid.scheduleEvent("sch_1")))
-    expect(view.getByTestId(tid.scheduleDetailSheet)).toBeInTheDocument()
+    const sheet = view.getByTestId(tid.scheduleDetailSheet)
+    expect(sheet).toBeInTheDocument()
     expect(view.getByText("Scheduled by")).toBeInTheDocument()
     expect(view.queryByRole("button", { name: "Edit event" })).toBeNull()
     expect(view.queryByRole("button", { name: "Delete event" })).toBeNull()
     expect(view.queryByRole("button", { name: "Open original message" })).toBeNull()
     expect(view.getAllByText("Dispatched").length).toBeGreaterThan(0)
+
     const detailPill = view.getByTestId(tid.scheduleSourceLink)
-    expect(detailPill).toHaveTextContent("Alook /")
-    expect(detailPill).toHaveTextContent("gus-board")
-    expect(detailPill).toHaveTextContent("#42")
+    expect(detailPill.tagName).toBe("SPAN")
+    expect(detailPill).toHaveTextContent("DM /")
+    expect(detailPill).toHaveTextContent("@Alli")
+    expect(detailPill).toHaveTextContent("#14")
     await user.click(detailPill)
-    expect(onOpenSourceMessage).toHaveBeenCalledWith("msg_standup")
+    expect(view.getByTestId(tid.scheduleDetailSheet)).toBeInTheDocument()
+
+    expect(view.getByText("Gus")).toBeInTheDocument()
+    expect(view.getByText("Every morning at 9:30, post a concise standup digest here.")).toBeInTheDocument()
 
     await user.click(view.getByTestId(tid.scheduleEvent("sch_2")))
     expect(view.getByText("Original message is unavailable")).toBeInTheDocument()
     expect(view.getAllByText("Access blocked").length).toBeGreaterThan(0)
     expect(view.queryByTestId(tid.scheduleSourceLink)).toBeNull()
+  })
+
+  it("renders inline bound message loading shimmer and retryable error fallback", async () => {
+    const user = setupUser()
+    const onRetry = vi.fn()
+    const loadingView = render(
+      <Harness
+        initialView="agenda"
+        boundMessage={{ status: "loading", message: null }}
+      />,
+    )
+    await user.click(loadingView.getByTestId(tid.scheduleEvent("sch_1")))
+    expect(loadingView.getByRole("status", { name: "Loading bound message" })).toBeInTheDocument()
+    loadingView.unmount()
+
+    const errorView = render(
+      <Harness
+        initialView="agenda"
+        boundMessage={{ status: "error", message: null, onRetry }}
+      />,
+    )
+    await user.click(errorView.getByTestId(tid.scheduleEvent("sch_1")))
+    expect(errorView.getByText("Please send a daily standup digest here.")).toBeInTheDocument()
+    await user.click(errorView.getByRole("button", { name: "Retry" }))
+    expect(onRetry).toHaveBeenCalledOnce()
   })
 
   it("renders completed execution state and acknowledged timestamp from --ack", async () => {
@@ -183,7 +220,6 @@ describe("ScheduleWorkspace", () => {
         onSelectedBotIdChange={vi.fn()}
         bots={[ALLI]}
         occurrences={[completedOccurrence]}
-        onOpenSourceMessage={vi.fn()}
       />,
     )
     expect(view.getByText("Completed")).toBeInTheDocument()
@@ -224,7 +260,6 @@ describe("ScheduleWorkspace", () => {
         bots={[ALLI]}
         occurrences={makeFixtureOccurrences()}
         refreshing
-        onOpenSourceMessage={vi.fn()}
       />,
     )
 
@@ -245,7 +280,6 @@ describe("ScheduleWorkspace", () => {
         bots={[ALLI]}
         occurrences={makeFixtureOccurrences()}
         refreshing
-        onOpenSourceMessage={vi.fn()}
       />,
     )
 

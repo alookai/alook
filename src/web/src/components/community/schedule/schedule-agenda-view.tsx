@@ -34,7 +34,6 @@ export function ScheduleAgendaView({
   occurrences,
   selectedOccurrenceKey,
   onSelectOccurrence,
-  onOpenSourceMessage,
   emptyLabel = "No scheduled tasks in this range. Ask a bot to set up a schedule.",
 }: {
   rangeKey?: string
@@ -43,7 +42,6 @@ export function ScheduleAgendaView({
   occurrences: readonly ScheduleOccurrenceItem[]
   selectedOccurrenceKey: string | null
   onSelectOccurrence: (occurrence: ScheduleOccurrenceItem) => void
-  onOpenSourceMessage: (messageId: string) => void
   emptyLabel?: string
 }) {
   const now = useMemo(() => new Date(), [])
@@ -166,10 +164,7 @@ export function ScheduleAgendaView({
                                 {event.creator.name}
                               </span>
                             </span>
-                            <ScheduleSourceRefPill
-                              source={event.sourceMessage}
-                              onOpenSourceMessage={onOpenSourceMessage}
-                            />
+                            <ScheduleSourceRefPill source={event.sourceMessage} />
                           </div>
                         </div>
                       </div>
