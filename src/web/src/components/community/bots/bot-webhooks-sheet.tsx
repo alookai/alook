@@ -11,7 +11,6 @@ import {
   BotWebhookCreateSchema,
   BotWebhookUpdateSchema,
   type BotWebhookDelivery,
-  type BotWebhookDeliveryStatus,
   type BotWebhookProvider,
   type BotWebhookSummary,
 } from "@alook/shared"
@@ -87,26 +86,39 @@ function formatDeliveryError(error: string | null): string | null {
       return "Bot is inactive"
     case "bot_unbound":
       return "Bot has no machine assigned"
+    case "event_filtered":
+      return null
     default:
       return error
   }
 }
 
-function triggerStateNote(status: BotWebhookDeliveryStatus, lastError: string | null): string | null {
-  switch (status) {
+function isConnectionHandshake(delivery: Pick<BotWebhookDelivery, "status" | "eventType">): boolean {
+  return (
+    delivery.status === "ignored" &&
+    (delivery.eventType === "ping" || delivery.eventType === "url_verification")
+  )
+}
+
+function triggerStateNote(
+  delivery: Pick<BotWebhookDelivery, "status" | "eventType" | "lastError">,
+): string | null {
+  if (isConnectionHandshake(delivery)) return "Connected"
+  switch (delivery.status) {
     case "dispatched":
       return null
     case "pending":
-      return lastError === "machine_offline" ? "Queued · offline" : "Pending"
+      return delivery.lastError === "machine_offline" ? "Queued · offline" : "Pending"
     case "ignored":
-      return "Ignored"
+      return delivery.lastError === "event_filtered" ? "Filtered" : "Skipped"
     case "failed":
       return "Failed"
   }
 }
 
-function triggerDotClass(status: BotWebhookDeliveryStatus): string {
-  switch (status) {
+function triggerDotClass(delivery: Pick<BotWebhookDelivery, "status" | "eventType">): string {
+  if (isConnectionHandshake(delivery)) return "bg-status-online"
+  switch (delivery.status) {
     case "dispatched":
       return "bg-status-online"
     case "failed":
@@ -681,7 +693,7 @@ function TriggerHistoryPanel({
       ) : (
         <ul className="divide-y divide-border/50">
           {deliveriesQuery.deliveries.map((delivery: BotWebhookDelivery) => {
-            const stateNote = triggerStateNote(delivery.status, delivery.lastError)
+            const stateNote = triggerStateNote(delivery)
             const errorDetail = formatDeliveryError(delivery.lastError)
             return (
               <li
@@ -692,7 +704,7 @@ function TriggerHistoryPanel({
                 <div className="flex items-center gap-2 text-xs">
                   <span
                     aria-hidden="true"
-                    className={cn("inline-block size-1.5 shrink-0 rounded-full", triggerDotClass(delivery.status))}
+                    className={cn("inline-block size-1.5 shrink-0 rounded-full", triggerDotClass(delivery))}
                   />
                   <span className="font-medium text-foreground">
                     {formatRelativeTime(delivery.createdAt)}
@@ -992,7 +1004,6 @@ function BotWebhooksSheetContent({
                     const toggling = webhooksApi.togglingWebhookId === webhook.id
                     const testingThis = webhooksApi.testingWebhookId === webhook.id
                     const needsExternalSecret = meta.secretMode === "external" && !webhook.hasSigningSecret
-                    const lastErrorText = formatDeliveryError(webhook.lastDelivery?.lastError ?? null)
                     return (
                       <li
                         key={webhook.id}
@@ -1033,21 +1044,6 @@ function BotWebhooksSheetContent({
                             }}
                           />
                         </div>
-
-                        {webhook.lastDelivery && !historyExpanded ? (
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <span
-                              aria-hidden="true"
-                              className={cn("inline-block size-1.5 shrink-0 rounded-full", triggerDotClass(webhook.lastDelivery.status))}
-                            />
-                            <span className="min-w-0 flex-1 truncate" title={webhook.lastDelivery.summary}>
-                              {webhook.lastDelivery.summary}
-                            </span>
-                            {lastErrorText ? (
-                              <span className="w-full text-xs text-muted-foreground">{lastErrorText}</span>
-                            ) : null}
-                          </div>
-                        ) : null}
 
                         <div className="flex flex-wrap items-center gap-1">
                           {needsExternalSecret ? (

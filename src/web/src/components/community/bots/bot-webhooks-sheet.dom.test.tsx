@@ -277,6 +277,17 @@ describe("BotWebhooksSheet", () => {
         createdAt: "2026-11-27T08:05:00.000Z",
         dispatchedAt: null,
       },
+      {
+        id: "whd_ping",
+        webhookId: "wh_1",
+        eventType: "ping",
+        summary: "GitHub ping from alookai/alook",
+        status: "ignored",
+        lastError: null,
+        externalDeliveryId: null,
+        createdAt: "2026-11-27T08:00:00.000Z",
+        dispatchedAt: null,
+      },
     ]
     mocks.updateWebhook.mockResolvedValue({
       webhook: webhookItem({ enabled: false }),
@@ -291,7 +302,7 @@ describe("BotWebhooksSheet", () => {
     )
 
     expect(view.getByTestId(tid.botWebhookCard("wh_1"))).toBeInTheDocument()
-    expect(view.getByText("alookai/alook: CI failure (#1488)")).toBeInTheDocument()
+    expect(view.queryByText("alookai/alook: CI failure (#1488)")).not.toBeInTheDocument()
     expect(view.queryByText("workflow_run.completed")).not.toBeInTheDocument()
 
     fireEvent.click(view.getByTestId(tid.botWebhooksCreateOpen))
@@ -304,6 +315,9 @@ describe("BotWebhooksSheet", () => {
     expect(view.getByText("Recent triggers")).toBeInTheDocument()
     expect(view.getByTestId(tid.botWebhookDeliveryRow("whd_1"))).toBeInTheDocument()
     expect(view.getByText("Machine offline — queued until reconnect")).toBeInTheDocument()
+    expect(view.getByTestId(tid.botWebhookDeliveryRow("whd_ping"))).toBeInTheDocument()
+    expect(view.getByText("Connected")).toBeInTheDocument()
+    expect(view.queryByText("Ignored")).not.toBeInTheDocument()
 
     fireEvent.click(view.getByTestId(tid.botWebhookToggle("wh_1")))
     await waitFor(() => expect(mocks.updateWebhook).toHaveBeenCalledWith("wh_1", { enabled: false }))
