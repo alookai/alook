@@ -1,7 +1,25 @@
 import { z } from "zod"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError, CommunityResourceError } from "@/lib/errors"
-import type { OpenArtifactSavedState } from "./open-artifact-policy"
+import { normalizeAllowedOrigin, type OpenArtifactSavedState } from "./open-artifact-policy"
+
+const PRODUCTION_PAGE_HOST_ORIGIN = "https://page.alook.ai"
+
+export function resolvePageHostPreconnectOrigin(options?: {
+  envOrigin?: string
+  hostname?: string
+}): string | null {
+  const configured = options?.envOrigin ?? process.env.NEXT_PUBLIC_ALOOK_PAGE_ORIGIN
+  if (configured) {
+    return normalizeAllowedOrigin(configured)
+  }
+  const hostname = options?.hostname ?? (typeof window !== "undefined" ? window.location.hostname : "")
+  const normalizedHost = hostname.trim().toLowerCase()
+  if (normalizedHost === "alook.ai" || normalizedHost.endsWith(".alook.ai")) {
+    return PRODUCTION_PAGE_HOST_ORIGIN
+  }
+  return null
+}
 
 const ALOOK_PAGE_EMBED_KIND = "alook_page" as const
 

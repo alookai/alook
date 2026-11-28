@@ -8,6 +8,7 @@ import {
   describePageType,
   extractAlookPagesFromEmbeds,
   fetchPageViewerToken,
+  resolvePageHostPreconnectOrigin,
   submitPageComment,
 } from "./open-artifact"
 
@@ -104,5 +105,14 @@ describe("open-artifact", () => {
       body: JSON.stringify({ text: "Looks good" }),
       signal: undefined,
     })
+  })
+
+  it("resolves Page host preconnect origin from explicit env or production alook.ai hostnames only", () => {
+    expect(resolvePageHostPreconnectOrigin({ envOrigin: "https://pages.staging.invalid" })).toBe("https://pages.staging.invalid")
+    expect(resolvePageHostPreconnectOrigin({ envOrigin: "javascript:alert(1)" })).toBeNull()
+    expect(resolvePageHostPreconnectOrigin({ hostname: "alook.ai" })).toBe("https://page.alook.ai")
+    expect(resolvePageHostPreconnectOrigin({ hostname: "app.alook.ai" })).toBe("https://page.alook.ai")
+    expect(resolvePageHostPreconnectOrigin({ hostname: "localhost" })).toBeNull()
+    expect(resolvePageHostPreconnectOrigin({ hostname: "evil-alook.ai" })).toBeNull()
   })
 })
