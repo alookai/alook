@@ -18,7 +18,6 @@ import { resolveModelConfig } from "./community/bot-model"
 import { makeRuntimeConfig } from "./runtime-config"
 import { buildScheduleEventPrompt } from "./schedule"
 import { visibilityIsDmParticipant } from "./utils/community-roles"
-import { utcDayKey } from "./utils/day-key"
 import { formatHandle } from "./lib/discriminator"
 
 export type PushAgentEventFn = (
@@ -60,15 +59,11 @@ async function recordPrivateInboxWakeAudit(
   },
 ): Promise<void> {
   try {
-    const inserted = await communityBotAuditLog.insertBotAuditWakeTrigger(
-      db,
-      {
-        botId: input.botId,
-        launchId: input.launchId,
-        payload: input.payload,
-      },
-      [communityBot.bumpBotDailyActivityStatement(db, input.botId, utcDayKey(new Date()), "handled")],
-    )
+    const inserted = await communityBotAuditLog.insertBotAuditWakeTrigger(db, {
+      botId: input.botId,
+      launchId: input.launchId,
+      payload: input.payload,
+    })
     if (!inserted || !broadcastBotAuditEvent) return
     try {
       await broadcastBotAuditEvent({

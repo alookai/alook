@@ -130,7 +130,7 @@ describe("dispatchBotPrivateInboxEvent — activity log wake_trigger audit", () 
     sqlite.close()
   })
 
-  it("records wake_trigger audit row, bumps handled rollup, and broadcasts when a webhook dispatches", async () => {
+  it("records wake_trigger audit row and broadcasts when a webhook dispatches", async () => {
     const createdWebhook = await communityBotWebhook.createBotWebhook(db, {
       ownerUserId: "owner_1",
       botUserId: "bot_1",
@@ -198,9 +198,6 @@ describe("dispatchBotPrivateInboxEvent — activity log wake_trigger audit", () 
         launchId: delivery.delivery.id,
       },
     ])
-
-    const daily = await db.select().from(communitySchema.communityBotDailyActivity)
-    expect(daily).toMatchObject([{ botId: "bot_1", handledCount: 1 }])
   })
 
   it("does not write an audit row when machine is offline, and falls back gracefully if trigger was deleted before resync", async () => {
