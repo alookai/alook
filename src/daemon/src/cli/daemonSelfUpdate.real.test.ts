@@ -201,8 +201,9 @@ async function terminateCurrent(baseDir: string): Promise<void> {
   const owner = readOwner(baseDir);
   if (alive(owner.pid)) {
     try { process.kill(owner.pid, "SIGTERM"); } catch { /* best effort */ }
-    await waitFor(() => !alive(owner.pid), 15_000).catch(() => {
+    await waitFor(() => !alive(owner.pid), 15_000).catch(async () => {
       try { process.kill(owner.pid, "SIGKILL"); } catch { /* best effort */ }
+      await waitFor(() => !alive(owner.pid), 5_000).catch(() => false);
       return true;
     });
   }
