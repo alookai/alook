@@ -1438,6 +1438,32 @@ export async function main(argv = process.argv.slice(2), io: CliIo = {}): Promis
   const program = buildProgram(stdin);
   let internalExitCode = 0;
   try {
+    // True verbatim passthrough for `alook page local <cmd> [args...]`:
+    // prevent parent `page` options (--out, --id, --stdin) or root flags (--agent)
+    // from being consumed by Commander before reaching the local Open Artifact CLI.
+    if (
+      argv[0] === "page"
+      && argv[1] === "local"
+      && !(argv.length === 3 && (argv[2] === "-h" || argv[2] === "--help"))
+    ) {
+      const forwarded = argv.slice(2);
+      if (forwarded.length === 0) {
+        throw new CliError("page local: pass a local Open Artifact subcommand and arguments (e.g. check <dir>)");
+      }
+      const runtime = await ensurePageRuntime();
+      const result = await runPageLocalCli(runtime, forwarded, {
+        ...(stdin.isTTY ? {} : { stdinStream: stdin }),
+      });
+      if (result.exitCode !== 0) {
+        printEnvelope({
+          error: result.stderr.trim() || result.stdout.trim() || `page local exited with code ${result.exitCode}`,
+          code: `EXIT_${result.exitCode}`,
+        });
+      } else {
+        printEnvelope({ success: result });
+      }
+      return 0;
+    }
     await program.parseAsync(argv, { from: "user" });
   } catch (err) {
     if (err instanceof CommanderError) {

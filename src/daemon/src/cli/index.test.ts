@@ -2659,7 +2659,7 @@ it("page guide, page local (with piped stdin and non-zero exit), and page previe
     'if (args[0] === "fail") { console.error("refused"); process.exit(1); }',
     'if (args[0] === "open") { console.log(JSON.stringify({ url: "http://127.0.0.1:41234/docs/tok/" })); process.exit(0); }',
     'let input = "";',
-    'for await (const chunk of process.stdin) input += chunk;',
+    'if (args.includes("-")) { for await (const chunk of process.stdin) input += chunk; }',
     'console.log(JSON.stringify({ argv: args, stdin: input }));',
   ].join("\n") + "\n");
   const prevRuntimeDir = process.env.ALOOK_PAGE_RUNTIME_DIR;
@@ -2681,6 +2681,19 @@ it("page guide, page local (with piped stdin and non-zero exit), and page previe
     const localEnv = parseEnvelope(cap.lines()) as { success: { exitCode: number; stdout: string } };
     expect(localEnv.success.exitCode).toBe(0);
     expect(JSON.parse(localEnv.success.stdout)).toEqual({ argv: ["update", "/tmp/d", "-"], stdin: '{"ops":["hello"]}' });
+
+    // Regression: parent `page` options (--out, --id, --stdin) must pass through untouched to `page local`.
+    cap.lines().length = 0;
+    await main(["page", "local", "archive", "/tmp/demo", "--out", "/tmp/result.zip"]);
+    const archiveEnv = parseEnvelope(cap.lines()) as { success: { exitCode: number; stdout: string } };
+    expect(archiveEnv.success.exitCode).toBe(0);
+    expect(JSON.parse(archiveEnv.success.stdout).argv).toEqual(["archive", "/tmp/demo", "--out", "/tmp/result.zip"]);
+
+    cap.lines().length = 0;
+    await main(["page", "local", "echo", "/tmp/demo", "--id", "example", "--type", "docs", "--json"]);
+    const idEnv = parseEnvelope(cap.lines()) as { success: { exitCode: number; stdout: string } };
+    expect(idEnv.success.exitCode).toBe(0);
+    expect(JSON.parse(idEnv.success.stdout).argv).toEqual(["echo", "/tmp/demo", "--id", "example", "--type", "docs", "--json"]);
 
     cap.lines().length = 0;
     await main(["page", "local", "fail"]);

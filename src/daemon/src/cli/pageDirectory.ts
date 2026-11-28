@@ -24,6 +24,21 @@ function detectBuiltinType(paths: ReadonlySet<string>): string | null {
   return null;
 }
 
+/**
+ * Single source of truth for which relative paths inside a Page directory are
+ * exposed to both archive packaging and local static preview. Excludes hidden
+ * machine/repo files (.env, .git, _agent, .DS_Store) and any node_modules tree.
+ */
+export function isAllowedPageRelativePath(relPath: string): boolean {
+  const normalized = relPath.replace(/^\/+/, "");
+  if (!normalized || normalized.includes("\\")) return false;
+  const segments = normalized.split("/");
+  if (segments.some(seg => !seg || seg === "." || seg === ".." || seg.toLowerCase() === "node_modules")) {
+    return false;
+  }
+  return archiveKeeps(normalized) && archiveKeeps(foldedName(normalized));
+}
+
 export async function preparePageDirectory(directory: string) {
   const root = resolve(directory);
   if (!(await lstat(root)).isDirectory()) throw new Error("Page source must be a directory");

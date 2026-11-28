@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { delimiter, extname, join, resolve } from "node:path";
 import WebSocket from "ws";
 import { PAGE_COVER_MAX_BYTES, pageCoverContentType } from "@alook/shared";
-import { preparePageDirectory } from "./pageDirectory.js";
+import { isAllowedPageRelativePath, preparePageDirectory } from "./pageDirectory.js";
 import { ensurePageRuntime, runPageLocalCli, type EnsurePageRuntimeOptions } from "./pageRuntime.js";
 
 export interface LocalPagePreviewResult {
@@ -258,17 +258,36 @@ class CdpSession {
   }
 }
 
-async function startStaticPageServer(absDir: string): Promise<{ server: ReturnType<typeof createServer>; port: number }> {
+export async function startStaticPageServer(absDir: string): Promise<{ server: ReturnType<typeof createServer>; port: number }> {
+  const realRoot = realpathSync(resolve(absDir));
   const server = createServer((req, res) => {
     void (async () => {
       try {
         const urlPath = decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname);
         const rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
-        const filePath = resolve(absDir, rel);
-        if (filePath !== absDir && !filePath.startsWith(`${absDir}/`) && !filePath.startsWith(`${absDir}\\`)) {
+        // Enforce the exact same allowed-file boundary as upload packaging:
+        // exclude .env, .git, _agent, .DS_Store, node_modules, and hidden machine files.
+        if (!isAllowedPageRelativePath(rel) || rel === ".artifact.json") {
+          res.statusCode = 404;
+          res.end("Not Found");
+          return;
+        }
+        const filePath = resolve(realRoot, rel);
+        if (filePath !== realRoot && !filePath.startsWith(`${realRoot}/`) && !filePath.startsWith(`${realRoot}\\`)) {
           res.statusCode = 403;
           res.end("Forbidden");
           return;
+        }
+        // Reject any symlink segment along the path (matching preparePageDirectory's zero-symlink rule).
+        let cursor = realRoot;
+        for (const segment of rel.split("/")) {
+          cursor = join(cursor, segment);
+          const segInfo = await lstat(cursor).catch(() => null);
+          if (!segInfo || segInfo.isSymbolicLink()) {
+            res.statusCode = 404;
+            res.end("Not Found");
+            return;
+          }
         }
         const info = await lstat(filePath).catch(() => null);
         if (!info || info.isSymbolicLink() || !info.isFile()) {
@@ -276,8 +295,14 @@ async function startStaticPageServer(absDir: string): Promise<{ server: ReturnTy
           res.end("Not Found");
           return;
         }
-        res.setHeader("content-type", STATIC_MIME[extname(filePath).toLowerCase()] ?? "application/octet-stream");
-        res.end(await readFile(filePath));
+        const realFile = realpathSync(filePath);
+        if (!realFile.startsWith(`${realRoot}/`) && !realFile.startsWith(`${realRoot}\\`)) {
+          res.statusCode = 403;
+          res.end("Forbidden");
+          return;
+        }
+        res.setHeader("content-type", STATIC_MIME[extname(realFile).toLowerCase()] ?? "application/octet-stream");
+        res.end(await readFile(realFile));
       } catch {
         res.statusCode = 500;
         res.end("Internal Server Error");
@@ -494,7 +519,9 @@ async function captureBuiltinArtifactDirectory(
     const editorUrl = new URL("./index.html", targetUrl.endsWith("/") ? targetUrl : `${targetUrl}/`).href;
     const readyExpression = type === "sheets"
       ? "document.readyState === 'complete' && document.querySelector('[role=gridcell]') !== null"
-      : "document.readyState === 'complete' && !!document.body && (document.body.innerText.trim().length > 0 || document.querySelector('canvas,svg,img,video,iframe') !== null)";
+      : type === "motion"
+        ? "document.readyState === 'complete' && !!document.body && !document.body.innerText.includes('Loading the animation') && (document.querySelector('canvas,svg,video') !== null || document.body.innerText.trim().length > 0)"
+        : "document.readyState === 'complete' && !!document.body && (document.body.innerText.trim().length > 0 || document.querySelector('canvas,svg,img,video,iframe') !== null)";
     return await captureUrlWithCdp(editorUrl, {
       browserPath,
       width,

@@ -145,16 +145,18 @@ export function packLocalRuntime() {
     const dstTypeDir = join(stageDir, "guides", type);
     mkdirSync(dstTypeDir, { recursive: true });
     cpSync(skillPath, join(dstTypeDir, "SKILL.md"));
-    const refDir = join(srcTypeDir, "reference");
+    const refDirs = [join(srcTypeDir, "reference"), join(srcTypeDir, "artifact-type", "reference")];
     const refs = [];
-    if (existsSync(refDir)) {
+    for (const refDir of refDirs) {
+      if (!existsSync(refDir)) continue;
       const dstRefDir = join(dstTypeDir, "reference");
       mkdirSync(dstRefDir, { recursive: true });
       for (const name of readdirSync(refDir).filter(f => f.endsWith(".md")).sort()) {
         cpSync(join(refDir, name), join(dstRefDir, name));
-        refs.push(name);
+        if (!refs.includes(name)) refs.push(name);
       }
     }
+    refs.sort();
     guideSummary[type] = refs;
   }
 

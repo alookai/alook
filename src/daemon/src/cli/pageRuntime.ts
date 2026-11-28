@@ -30,8 +30,8 @@ const ARTIFACT_TYPE_SET = new Set<string>(PAGE_ARTIFACT_TYPES);
  * so overlay changes never silently reuse an older local cache.
  */
 export const PAGE_RUNTIME_PIN = {
-  cacheKey: "0.16.3-a325e46c37f9-2fbc4e382ad0",
-  sha256: "c67ce834c643b25c65c23c3689716a7607e56afce637cd4b33c9b59150fbf02a",
+  cacheKey: "0.16.3-a325e46c37f9-b8a6621d4f5a",
+  sha256: "e6809b5258747a31c0eb2d3a48e258ffbc066870386244e66f61de6b3394e1fd",
   urlForKey: (cacheKey: string) =>
     `https://github.com/alookai/alook/releases/download/page-runtime-${cacheKey}/alook-page-runtime-${cacheKey}.tar.gz`,
 } as const;
@@ -156,9 +156,13 @@ async function downloadAndVerifyTarball(
   const hash = createHash("sha256");
   const writer = createWriteStream(destPath, { mode: 0o600 });
   let total = 0;
+  let streamError: Error | null = null;
+  const onWriterError = (err: Error) => { streamError = err; };
+  writer.on("error", onWriterError);
   const reader = response.body.getReader();
   try {
     while (true) {
+      if (streamError) throw streamError;
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
@@ -169,17 +173,23 @@ async function downloadAndVerifyTarball(
       hash.update(value);
       if (!writer.write(value)) {
         await new Promise<void>((res, rej) => {
-          writer.once("drain", res);
-          writer.once("error", rej);
+          if (streamError) { rej(streamError); return; }
+          const onDrain = () => { writer.off("error", onErr); res(); };
+          const onErr = (err: Error) => { writer.off("drain", onDrain); rej(err); };
+          writer.once("drain", onDrain);
+          writer.once("error", onErr);
         });
       }
     }
     await new Promise<void>((res, rej) => {
+      if (streamError) { rej(streamError); return; }
       writer.end((err?: Error | null) => (err ? rej(err) : res()));
     });
   } catch (error) {
     writer.destroy();
     throw error;
+  } finally {
+    writer.off("error", onWriterError);
   }
   const actual = hash.digest("hex");
   if (actual.toLowerCase() !== expectedSha256.toLowerCase()) {
@@ -325,7 +335,10 @@ export async function readPageGuide(runtime: ResolvedPageRuntime, type?: string,
     throw new Error(`Missing SKILL.md for type '${type}' in ${typeDir}`);
   }
   const content = await readFile(skillPath, "utf8");
-  return { type, path: skillPath, references, content: `${ALOOK_GUIDE_HEADER}\n${content}` };
+  const extraNote = type === "page"
+    ? "> **Alook `page` note**: Include root `.artifact.json` (`{\"type\":\"page\",\"title\":\"...\"}`) beside `index.html` for `alook page upload`, and read reference files via `alook page guide --type page --ref <file>`.\n\n"
+    : "";
+  return { type, path: skillPath, references, content: `${ALOOK_GUIDE_HEADER}${extraNote}\n${content}` };
 }
 
 export interface LocalCliResult {
