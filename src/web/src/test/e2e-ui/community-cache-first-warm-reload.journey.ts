@@ -400,10 +400,10 @@ async function delayedPageListFailure(page: Page, matches: (url: URL) => boolean
 
 async function expectPageListColdRecovery(options: {
   page: Page; viewerId: string; href: string; expected: PersistedExpectation[]; resources: CaseResources
-  matches: (url: URL) => boolean; primary: (url: URL) => boolean
+  matches: (url: URL) => boolean; primary: (url: URL) => boolean; recovery?: (url: URL) => boolean
   open: () => Promise<void>; assertCached: () => Promise<void>
 }) {
-  const { page, viewerId, href, expected, resources, matches, primary, open, assertCached } = options
+  const { page, viewerId, href, expected, resources, matches, primary, recovery = primary, open, assertCached } = options
   await expectPersistedClosure(page, viewerId, expected)
   const original = await persistedSnapshot(page, viewerId)
   await page.routeWebSocket(url => url.pathname.endsWith("/user"), socket => { void socket.close({ code: 1012, reason: "page-list cold restore" }) })
@@ -428,7 +428,7 @@ async function expectPageListColdRecovery(options: {
       await open()
       await expect.poll(next.held).toBeGreaterThan(0)
       await assertCached()
-      const response = page.waitForResponse(response => primary(new URL(response.url())) && response.request().method() === "GET" && response.ok())
+      const response = page.waitForResponse(response => recovery(new URL(response.url())) && response.request().method() === "GET" && response.ok())
       await next.release()
       expect((await confirmCommunityFixtureApiResponse(response)).status()).toBe(200)
       await assertCached()
@@ -499,9 +499,10 @@ for (const surface of ["forum", "friends", "marked"] as const) for (const empty 
         await expect(list.getByRole("alert")).toHaveCount(0)
       }
     }
-    const firstResponse = page.waitForResponse(response => response.ok() && (surface === "forum"
-      ? new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages` && new URL(response.url()).searchParams.get("entry") === "1"
-      : primary(new URL(response.url()))))
+    const recovery = surface === "forum"
+      ? (url: URL) => url.pathname === `/api/community/channels/${channelId}/messages` && url.searchParams.get("entry") === "1"
+      : primary
+    const firstResponse = page.waitForResponse(response => response.ok() && recovery(new URL(response.url())))
     await page.goto(href)
     await open()
     const initial = await confirmCommunityFixtureApiResponse(firstResponse)
@@ -519,7 +520,7 @@ for (const surface of ["forum", "friends", "marked"] as const) for (const empty 
           { key: ["community", "db", viewerId, "messages"], containsId: firstBody.id })
       } else expected.push({ key: ["community", "db", viewerId, surface === "friends" ? "friendships" : "messages"], containsId: targetId })
     }
-    await expectPageListColdRecovery({ page, viewerId, href, expected, matches, primary, open, assertCached, resources: caseResources })
+    await expectPageListColdRecovery({ page, viewerId, href, expected, matches, primary, recovery, open, assertCached, resources: caseResources })
     if (empty) {
       await page.goto(`${WEB_URL}/api/health`)
       await clearQueryPersistence(page, viewerId)
