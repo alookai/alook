@@ -212,6 +212,50 @@ try {
   assert.equal((await operate({ kind: "read", path: "index.html" })).content, content);
   console.log("Native optimistic file write, stale conflict and non-overwriting publication retry: PASS");
   if (process.env.KEEP_NATIVE_PAGE_HOST !== "1") {
+    const headersText = await readFile(join(assets, "_headers"), "utf8");
+    assert.match(headersText, /\/_open-artifact\/editors\/_shared\/assets\/\*\r?\n\s+Cache-Control: public, max-age=31536000, immutable/);
+    assert.match(headersText, /\/_open-artifact\/editors\/_shared\/assets\/chart-frame\.txt\r?\n\s+! Cache-Control\r?\n\s+Cache-Control: no-store/);
+    assert.match(headersText, /\/_open-artifact\/editors\/_shared\/assets\/interactive-frame\.txt\r?\n\s+! Cache-Control\r?\n\s+Cache-Control: no-store/);
+    console.log("Built static _headers sets immutable cache for hashed editor assets and no-store for unhashed frames: PASS");
+
+    const burstStartChecks = checks;
+    const burst = await Promise.all(
+      Array.from({ length: 6 }, () => mf.dispatchFetch(new URL("api/frame/session", inner), { headers: { origin: inner.origin } })),
+    );
+    for (const res of burst) assert.equal(res.status, 200);
+    const burstDelta = checks - burstStartChecks;
+    assert.ok(burstDelta <= 1, `Expected <= 1 authz check for 6 concurrent reads, got ${burstDelta}`);
+    const warmChecks = checks;
+    const cachedHit = await mf.dispatchFetch(new URL("api/frame/session", inner), { headers: { origin: inner.origin } });
+    assert.equal(cachedHit.status, 200);
+    assert.equal(checks, warmChecks, "Expected immediate follow-up read within 2s cache window to avoid extra /access check");
+
+    // Worst-case HTTP revocation latency right after a cache hit must expire within the 2s short cache bound.
+    allowed = false;
+    const revokeStarted = Date.now();
+    let revokedStatus = 200;
+    while (Date.now() - revokeStarted < 4_500) {
+      const probe = await mf.dispatchFetch(new URL("api/frame/session", inner), { headers: { origin: inner.origin } });
+      revokedStatus = probe.status;
+      if (revokedStatus === 403) break;
+      await new Promise(done => setTimeout(done, 100));
+    }
+    const revokeElapsedMs = Date.now() - revokeStarted;
+    assert.equal(revokedStatus, 403, `Expected 403 after short-cache expiry, got ${revokedStatus}`);
+    assert.ok(revokeElapsedMs <= 3_500, `Expected post-cache-hit revocation <= 3500ms, got ${revokeElapsedMs}ms`);
+    console.log(`Post-cache-hit revocation expired cleanly (${revokeElapsedMs}ms): PASS`);
+
+    // Denials are never negatively cached: re-granting access succeeds immediately, and a cold 6-request burst coalesces to 1 /access check.
+    allowed = true;
+    const coldBurstStartChecks = checks;
+    const coldBurst = await Promise.all(
+      Array.from({ length: 6 }, () => mf.dispatchFetch(new URL("api/frame/session", inner), { headers: { origin: inner.origin } })),
+    );
+    for (const res of coldBurst) assert.equal(res.status, 200);
+    const coldBurstDelta = checks - coldBurstStartChecks;
+    assert.equal(coldBurstDelta, 1, `Expected 6 cold concurrent reads to coalesce into 1 /access check, got ${coldBurstDelta}`);
+    console.log(`Instant re-grant + cold concurrent burst coalescing (6 reads -> ${coldBurstDelta} /access check): PASS`);
+
     const live = await mf.dispatchFetch(new URL("api/frame/events?c=nativeqa-client-0001", inner), { headers: { upgrade: "websocket", "sec-websocket-protocol": "baoyu-sse", origin: inner.origin } });
     assert.equal(live.status, 101);
     live.webSocket.accept();
@@ -236,8 +280,15 @@ try {
     const docsSession = await mf.dispatchFetch(`${app}/alook/session`, { method: "POST", headers: { origin: app, "content-type": "application/json" }, body: JSON.stringify({ ticket: ticket("docs-entry"), artifactId }) });
     assert.equal(docsSession.status, 200);
     const docsCookie = docsSession.headers.get("set-cookie").split(";")[0];
-    const docsShell = await mf.dispatchFetch(`${app}/a/${artifactId}?sourceMessageId=docs-entry`, { headers: { cookie: docsCookie } });
-    assert.equal(docsShell.status, 200);
+    const siteBurstStartChecks = checks;
+    const siteBurst = await Promise.all(
+      Array.from({ length: 4 }, () => mf.dispatchFetch(`${app}/a/${artifactId}?sourceMessageId=docs-entry`, { headers: { cookie: docsCookie } })),
+    );
+    for (const res of siteBurst) assert.equal(res.status, 200);
+    const siteBurstDelta = checks - siteBurstStartChecks;
+    assert.equal(siteBurstDelta, 1, `Expected 4 cold concurrent Site Shell opens to coalesce into 1 /access check, got ${siteBurstDelta}`);
+    console.log(`Real Site Worker + registry concurrent burst coalescing (4 Shell opens -> ${siteBurstDelta} /access check): PASS`);
+    const docsShell = siteBurst[0];
     const docsBoot = JSON.parse(/window\.__OPEN_ARTIFACT_BOOT__\s*=\s*(.*?);<\/script>/.exec(await docsShell.text())[1]);
     const docsInner = new URL(docsBoot.page);
     const docsDocument = await mf.dispatchFetch(docsInner);

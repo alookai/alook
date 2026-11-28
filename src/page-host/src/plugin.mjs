@@ -1,5 +1,7 @@
 import { Buffer } from "node:buffer";
 
+export const ALOOK_AUTHZ_CACHE_SECONDS = 2;
+
 export function alookUserId(subject) {
   return `alook_${Buffer.from(subject).toString("base64url")}`;
 }
@@ -49,7 +51,7 @@ export default {
     identity() { return { reject: "Open this Page from its Alook message." }; },
   },
   authz: {
-    cacheSeconds: 0,
+    cacheSeconds: ALOOK_AUTHZ_CACHE_SECONDS,
     async role({ principal, artifact }, ctx) {
       const subject = alookSubject(principal);
       if (!subject) return null;
@@ -59,7 +61,10 @@ export default {
         body: JSON.stringify({ subject, artifactId: artifact.id }),
         signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(5000)]),
       });
-      if (!response.ok) throw new Error("Alook permission check unavailable");
+      if (!response.ok) {
+        await response.body?.cancel?.().catch(() => {});
+        throw new Error("Alook permission check unavailable");
+      }
       const answer = await response.json();
       if (answer?.role === "editor" || answer?.role === "viewer" || answer?.role === null) return answer.role;
       throw new Error("Invalid Alook permission answer");
