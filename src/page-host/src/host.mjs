@@ -139,6 +139,7 @@ fetch('/alook/session', {method:'POST',headers:{'content-type':'application/json
 export async function handlePageHostRequest(request, env, ctx, { site, startSession, authenticate, actionsOfType, purgeArtifact }) {
   const url = new URL(request.url);
   if (!site.config || site.configError) return json({ error: "Page host unavailable" }, 503);
+  let sessionTiming;
   try {
     const origins = embedOrigins(env.ALOOK_EMBED_ORIGINS);
     if (url.origin !== site.config.appOrigin) {
@@ -163,14 +164,22 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
       if (request.headers.get("origin") !== url.origin || !request.headers.get("content-type")?.startsWith("application/json")) return json({ error: "Forbidden" }, 403);
       const body = await bodyJson(request);
       if (typeof body.ticket !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.ticket) || !artifactIdPattern.test(body.artifactId)) return json({ error: "Invalid viewer ticket" }, 400);
-      const response = await webFetch(env, "/api/community/pages/viewer-exchange", { ticket: body.ticket, origin: url.origin });
-      if (!response.ok) return json({ error: "Page access expired" }, response.status === 404 ? 404 : 503);
+      const started = performance.now();
+      const timings = [];
+      sessionTiming = () => [...timings, `alook_session;dur=${Math.max(0, performance.now() - started).toFixed(1)}`].join(", ");
+      const measure = async (name, action) => {
+        const phaseStarted = performance.now();
+        try { return await action(); }
+        finally { timings.push(`${name};dur=${Math.max(0, performance.now() - phaseStarted).toFixed(1)}`); }
+      };
+      const response = await measure("alook_exchange", () => webFetch(env, "/api/community/pages/viewer-exchange", { ticket: body.ticket, origin: url.origin }));
+      if (!response.ok) return json({ error: "Page access expired" }, response.status === 404 ? 404 : 503, { "server-timing": sessionTiming() });
       const identity = await bodyJson(response);
-      if (typeof identity.subject !== "string" || !identity.subject || identity.subject.length > 128 || typeof identity.name !== "string" || identity.artifactId !== body.artifactId || !sourceMessageId(identity.sourceMessageId)) return json({ error: "Invalid Page identity" }, 403);
-      const catalog = await site.ready();
-      const user = await ensureUser(catalog, identity.subject, identity.name.slice(0, 256));
-      const cookie = await startSession(user, request, { catalog, config: site.config, now: () => new Date(), log: () => {} });
-      return json({ ok: true, sourceMessageId: identity.sourceMessageId }, 200, { "set-cookie": pageSessionCookie(cookie, url.origin) });
+      if (typeof identity.subject !== "string" || !identity.subject || identity.subject.length > 128 || typeof identity.name !== "string" || identity.artifactId !== body.artifactId || !sourceMessageId(identity.sourceMessageId)) return json({ error: "Invalid Page identity" }, 403, { "server-timing": sessionTiming() });
+      const catalog = await measure("oa_catalog", () => site.ready());
+      const user = await measure("oa_user", () => ensureUser(catalog, identity.subject, identity.name.slice(0, 256)));
+      const cookie = await measure("oa_session", () => startSession(user, request, { catalog, config: site.config, now: () => new Date(), log: () => {} }));
+      return json({ ok: true, sourceMessageId: identity.sourceMessageId }, 200, { "set-cookie": pageSessionCookie(cookie, url.origin), "server-timing": sessionTiming() });
     }
     const deletion = /^\/alook\/resources\/(art_[a-z0-9]{10,40})$/.exec(url.pathname);
     if (deletion && request.method === "DELETE") {
@@ -242,6 +251,6 @@ export async function handlePageHostRequest(request, env, ctx, { site, startSess
     return /^\/a\/art_[a-z0-9]{10,40}$/.test(url.pathname) ? allowShellEmbedding(response, origins) : response;
   } catch (error) {
     const status = error && typeof error === "object" && Number.isInteger(error.status) ? error.status : 503;
-    return json({ error: status === 413 ? "Page request too large" : "Page host unavailable" }, status);
+    return json({ error: status === 413 ? "Page request too large" : "Page host unavailable" }, status, sessionTiming ? { "server-timing": sessionTiming() } : {});
   }
 }

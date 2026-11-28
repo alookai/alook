@@ -74,7 +74,9 @@ test("session bootstrap rejects other origins and creates only a member for a ve
   const req = (origin, artifactId = id) => new Request(`${app}/alook/session`, {
     method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ ticket: "a".repeat(43), artifactId }),
   });
-  assert.equal((await f.run(req("https://evil.invalid"))).status, 403);
+  const forbidden = await f.run(req("https://evil.invalid"));
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.headers.get("server-timing"), null);
   assert.equal(f.calls.length, 0);
   const response = await f.run(req(app));
   assert.equal(response.status, 200);
@@ -86,6 +88,46 @@ test("session bootstrap rejects other origins and creates only a member for a ve
   f.env.ALOOK_WEB.fetch = async () => Response.json({ subject: "reader", name: "A person", artifactId: "art_foreign12345" });
   assert.equal((await f.run(req(app))).status, 403);
   assert.equal(f.calls.filter(([kind]) => kind === "session").length, 1);
+});
+
+test("session timings attribute a delayed exchange without exposing identity or changing its cookie and source", async () => {
+  const f = fixture();
+  const exchange = f.env.ALOOK_WEB.fetch;
+  f.env.ALOOK_WEB.fetch = async (request) => {
+    await new Promise(resolve => setTimeout(resolve, 12));
+    return exchange(request);
+  };
+  const ticket = "a".repeat(43);
+  const response = await f.run(new Request(`${app}/alook/session`, {
+    method: "POST", headers: { "content-type": "application/json", origin: app }, body: JSON.stringify({ ticket, artifactId: id }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, sourceMessageId: "entry-a" });
+  assert.equal(response.headers.get("set-cookie"), "oa_session=opaque; HttpOnly; Path=/; SameSite=Lax");
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  const header = response.headers.get("server-timing");
+  const timings = new Map(header.split(", ").map(value => {
+    const match = /^([a-z_]+);dur=(\d+(?:\.\d+)?)$/.exec(value);
+    assert.ok(match, value);
+    return [match[1], Number(match[2])];
+  }));
+  assert.deepEqual([...timings.keys()], ["alook_exchange", "oa_catalog", "oa_user", "oa_session", "alook_session"]);
+  assert.ok(timings.get("alook_exchange") >= 5);
+  assert.ok(timings.get("alook_session") >= timings.get("alook_exchange"));
+  for (const value of [ticket, serviceKey, id, "reader", "A person", "entry-a", "opaque"]) assert.equal(header.includes(value), false);
+});
+
+test("session failures report the failed backend phase without creating a session", async () => {
+  const f = fixture();
+  f.site.ready = async () => { throw new Error("catalog unavailable"); };
+  const response = await f.run(new Request(`${app}/alook/session`, {
+    method: "POST", headers: { "content-type": "application/json", origin: app }, body: JSON.stringify({ ticket: "a".repeat(43), artifactId: id }),
+  }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "Page host unavailable" });
+  const names = response.headers.get("server-timing").split(", ").map(value => value.split(";")[0]);
+  assert.deepEqual(names, ["alook_exchange", "oa_catalog", "alook_session"]);
+  assert.equal(f.calls.some(([kind]) => kind === "session" || kind === "user"), false);
 });
 
 test("publish requires the service credential and never replaces an existing Page", async () => {
