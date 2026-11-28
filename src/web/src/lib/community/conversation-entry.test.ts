@@ -251,7 +251,7 @@ describe("conversation entry canonical publication", () => {
     }
   })
 
-  it("reconciles page 0 of a valid multipage forum feed while preserving older pages and cursors", async () => {
+  it("reconciles page 0 of a valid multipage forum feed when page 0 cursor matches pageParams[1]", async () => {
     const { client } = await createCommunityQueryOwner()
     const key = communityKeys.forumFeed("c1", null)
     const initial = forumConversationEntryFixture()
@@ -271,6 +271,7 @@ describe("conversation entry canonical publication", () => {
       ...fresh.forumFeed!,
       threads: [secondThread, fresh.forumFeed!.threads[0]],
       included: { ...fresh.forumFeed!.included, messages: [secondOpener, fresh.forumFeed!.included.messages[0]] },
+      page: { hasMore: true, nextCursor: "older" },
     }
     const resource = await publishConversationEntry(client, target, fresh, { token: captureCommunityLiveSnapshotToken(client, "c1") })
     expect(client.getQueryData(key)).toEqual({
@@ -288,6 +289,46 @@ describe("conversation entry canonical publication", () => {
         { serverId: "s1", parentType: "forum", threads: [], hasMore: false },
       ],
       pageParams: [null, "older"],
+    })
+    expect(findConversationEntryWindow(client, target, resource, fresh.readState)?.key).toEqual(key)
+  })
+
+  it.each(["cursor-shifted", "shrunk"] as const)("resets a multipage forum feed to fresh page 0 when %s", async reason => {
+    const { client } = await createCommunityQueryOwner()
+    const key = communityKeys.forumFeed("c1", null)
+    const initial = forumConversationEntryFixture()
+    await publishConversationEntry(client, target, initial, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    const previous = {
+      pages: [
+        { serverId: "s1", parentType: "forum", threads: [], hasMore: true, nextCursor: "older" },
+        { serverId: "s1", parentType: "forum", threads: [{ id: "t1", openerMessageId: "m1", participantIds: [] }], hasMore: false },
+      ],
+      pageParams: [null, "older"],
+    }
+    client.setQueryData(key, previous)
+    const fresh = forumConversationEntryFixture()
+    const secondOpener = { ...fresh.forumFeed!.included.messages[0], id: "m2", seq: 2, content: "Second post", createdAt: "2026-10-01T00:00:02.000Z" }
+    const secondThread = { ...fresh.forumFeed!.threads[0], id: "t2", parentMessageId: "m2", name: "Second post", createdAt: "2026-10-01T00:00:02.000Z" }
+    fresh.forumFeed = {
+      ...fresh.forumFeed!,
+      threads: [secondThread],
+      included: { ...fresh.forumFeed!.included, messages: [secondOpener] },
+      page: reason === "cursor-shifted"
+        ? { hasMore: true, nextCursor: "newer-boundary" }
+        : { hasMore: false, nextCursor: null },
+    }
+    const resource = await publishConversationEntry(client, target, fresh, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    expect(client.getQueryData(key)).toEqual({
+      pages: [
+        {
+          serverId: "s1",
+          parentType: "forum",
+          threads: [{ id: "t2", openerMessageId: "m2", participantIds: [] }],
+          hasMore: reason === "cursor-shifted",
+          ...(reason === "cursor-shifted" ? { nextCursor: "newer-boundary" } : {}),
+        },
+      ],
+      pageParams: [null],
     })
     expect(findConversationEntryWindow(client, target, resource, fresh.readState)?.key).toEqual(key)
   })

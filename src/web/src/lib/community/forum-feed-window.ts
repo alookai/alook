@@ -98,9 +98,17 @@ export function reconcileForumFeedFirstPage(
   ) {
     return { pages: [fresh], pageParams: [null] }
   }
-  if (previous.pages.length === 1) {
-    const existing = previous.pages[0]
-    if (previous.pageParams[0] === null && replaceEqualDeep(existing, fresh) === existing) {
+  if (
+    previous.pages.length === 1
+    || !fresh.hasMore
+    || !fresh.nextCursor
+    || fresh.nextCursor !== previous.pageParams[1]
+  ) {
+    if (
+      previous.pages.length === 1
+      && previous.pageParams[0] === null
+      && replaceEqualDeep(previous.pages[0], fresh) === previous.pages[0]
+    ) {
       return previous
     }
     return { pages: [fresh], pageParams: [null] }
@@ -109,16 +117,6 @@ export function reconcileForumFeedFirstPage(
   const freshOpenerIds = new Set(
     fresh.threads.flatMap((thread) => (thread.openerMessageId ? [thread.openerMessageId] : [])),
   )
-  const previousFirst = previous.pages[0]!
-  const nextCursor = previousFirst.nextCursor ?? fresh.nextCursor
-  const hasMore = Boolean(nextCursor) && (previousFirst.nextCursor ? (previousFirst.hasMore ?? true) : fresh.hasMore)
-  const nextFirst: ForumFeedPage = {
-    serverId: fresh.serverId,
-    parentType: fresh.parentType,
-    threads: fresh.threads,
-    hasMore,
-    ...(nextCursor ? { nextCursor } : {}),
-  }
   const remainingPages = previous.pages.slice(1).map((olderPage) => ({
     ...olderPage,
     threads: olderPage.threads.filter(
@@ -128,7 +126,7 @@ export function reconcileForumFeedFirstPage(
     ),
   }))
   const candidate: InfiniteData<ForumFeedPage, string | null> = {
-    pages: [nextFirst, ...remainingPages],
+    pages: [fresh, ...remainingPages],
     pageParams: [null, ...previous.pageParams.slice(1)],
   }
   return replaceEqualDeep(previous, candidate) === previous ? previous : candidate
