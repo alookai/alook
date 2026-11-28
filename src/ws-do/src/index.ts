@@ -1,4 +1,5 @@
 import { handleMachinePii } from "./routes/community-machine-pii"
+import { handleMachineIm } from "./routes/community-machine-im"
 import { handleMachineModels } from "./routes/community-machine-models"
 import { handleAuditBroadcast } from "./routes/audit-broadcast"
 import {
@@ -71,6 +72,8 @@ export default {
     response = await handleSinglePresence(context)
     if (response) return response
     response = await handleMachinePii(context)
+    if (response) return response
+    response = await handleMachineIm(context)
     if (response) return response
     response = await handleMachineModels(context)
     if (response) return response

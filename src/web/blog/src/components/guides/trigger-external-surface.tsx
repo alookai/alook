@@ -836,11 +836,29 @@ export function TriggerExternalSurface({
     );
   }
 
-  // 12–16. OpenAI / Resend / Clerk / Polar / Cloudflare — Brand-authentic SaaS consoles
+  // 12–19. OpenAI / Resend / Clerk / Polar / Cloudflare + IM — Brand-authentic surfaces
   const brandStyle: Record<
-    "openai" | "resend" | "clerk" | "polar" | "cloudflare",
+    "openai" | "resend" | "clerk" | "polar" | "cloudflare" | "telegram" | "feishu" | "wechat",
     { bar: string; accentText: string; surface: string; border: string }
   > = {
+    telegram: {
+      bar: "bg-[#f0f9ff] text-[#0c4a6e] border-[#bae6fd] dark:bg-[#0c1d2b] dark:text-[#e0f2fe] dark:border-[#1e3a52]",
+      accentText: "text-[#26a5e4]",
+      surface: "bg-white text-[#0f172a] dark:bg-[#0e1621] dark:text-[#f1f5f9]",
+      border: "border-[#bae6fd] dark:border-[#1e3a52]",
+    },
+    feishu: {
+      bar: "bg-[#eef6ff] text-[#1d2129] border-[#cde2ff] dark:bg-[#101c2e] dark:text-[#f2f3f5] dark:border-[#1f3454]",
+      accentText: "text-[#3370ff] dark:text-[#6698ff]",
+      surface: "bg-white text-[#1d2129] dark:bg-[#11151d] dark:text-[#f2f3f5]",
+      border: "border-[#cde2ff] dark:border-[#1f3454]",
+    },
+    wechat: {
+      bar: "bg-[#f2fbf5] text-[#14331f] border-[#c8eed5] dark:bg-[#0f2216] dark:text-[#ecfdf3] dark:border-[#1f442d]",
+      accentText: "text-[#07c160]",
+      surface: "bg-white text-[#14331f] dark:bg-[#101713] dark:text-[#ecfdf3]",
+      border: "border-[#c8eed5] dark:border-[#1f442d]",
+    },
     openai: {
       bar: "bg-[#fafafa] text-[#171717] border-[#e5e5e5] dark:bg-[#171717] dark:text-[#fafafa] dark:border-[#2e2e2e]",
       accentText: "text-[#10a37f]",

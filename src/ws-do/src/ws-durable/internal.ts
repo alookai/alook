@@ -35,6 +35,7 @@ export type ConnectionState =
     authenticated: boolean
     connectedAt?: number
     pii?: boolean
+    imConnector?: boolean
     modelDiscovery?: boolean
     machineRefresh?: boolean
     machineStop?: boolean

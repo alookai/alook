@@ -243,6 +243,48 @@ describe("BotActivityRow — wake_trigger", () => {
     )
   })
 
+  it("renders IM trigger wakes for DM and group messages", () => {
+    const dmRenderer = render({
+      id: "e-im-1",
+      kind: "wake_trigger",
+      payload: {
+        reason: "im",
+        triggerId: "im_1",
+        triggerName: "Telegram",
+        platform: "telegram",
+        senderLabel: "Alice",
+        summary: "帮我看下 PR #1514",
+      },
+      sessionId: null,
+      launchId: "im_1",
+      createdAt: "2026-11-28T05:00:00.000Z",
+    })
+    expect(rowText(dmRenderer, "bot-activity-event-wake_trigger")).toBe(
+      "Telegram · Alice — 帮我看下 PR #1514",
+    )
+    dmRenderer.unmount()
+
+    const groupRenderer = render({
+      id: "e-im-2",
+      kind: "wake_trigger",
+      payload: {
+        reason: "im",
+        triggerId: "im_2",
+        triggerName: "Feishu",
+        platform: "feishu",
+        senderLabel: "Bob",
+        chatLabel: "#release",
+        summary: "Ship build 42?",
+      },
+      sessionId: null,
+      launchId: "im_2",
+      createdAt: "2026-11-28T05:01:00.000Z",
+    })
+    expect(rowText(groupRenderer, "bot-activity-event-wake_trigger")).toBe(
+      "Feishu / Lark · #release · Bob — Ship build 42?",
+    )
+  })
+
   it("renders chat unread and mention wakes unchanged", () => {
     const renderer = render({
       id: "e-chat-1",

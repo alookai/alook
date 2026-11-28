@@ -156,12 +156,46 @@ function RowBody({ event }: { event: AuditEvent }) {
       channel?: string | null
       seq?: number | null
       senderHandle?: string
-      reason?: "unread" | "mention" | "webhook" | "schedule"
+      reason?: "unread" | "mention" | "webhook" | "schedule" | "im"
       triggerName?: string
       provider?: string
+      platform?: string
+      senderLabel?: string
+      chatLabel?: string
       summary?: string
       title?: string
     } | null
+    if (p?.reason === "im") {
+      const platformLabel =
+        p.platform && Object.hasOwn(BOT_WEBHOOK_PROVIDER_META, p.platform)
+          ? BOT_WEBHOOK_PROVIDER_META[p.platform as BotWebhookProvider].label
+          : p.triggerName?.trim() || "IM"
+      const chatLabel = p.chatLabel?.trim() || null
+      const senderLabel = p.senderLabel?.trim() || "Unknown sender"
+      const summary = p.summary?.trim() || ""
+      const header = chatLabel
+        ? `${platformLabel} · ${chatLabel} · ${senderLabel}`
+        : `${platformLabel} · ${senderLabel}`
+      const detail = summary ? `${header} — ${summary}` : header
+      return (
+        <TruncatedAuditLog fullText={detail} data-testid="bot-activity-event-wake_trigger">
+          {platformLabel} <span className="text-muted-foreground/60">·</span>{" "}
+          {chatLabel ? (
+            <>
+              {chatLabel} <span className="text-muted-foreground/60">·</span>{" "}
+            </>
+          ) : null}
+          {senderLabel}
+          {summary ? (
+            <>
+              {" "}
+              <span className="text-muted-foreground/60">—</span>{" "}
+              <span className="text-muted-foreground">{summary}</span>
+            </>
+          ) : null}
+        </TruncatedAuditLog>
+      )
+    }
     if (p?.reason === "webhook") {
       const providerLabel =
         p.provider &&

@@ -47,6 +47,10 @@ const nonRunnableInvocationAllowlist = new Map<string, RegExp[]>([
     "src/storybook/stories/business/decision-card.stories.tsx",
     [new RegExp(String.raw`structured questions via \`alook ${commandWordsPattern} --ask\`\.`)],
   ],
+  [
+    "src/web/src/lib/community/audit-event-summary.test.ts",
+    [new RegExp(String.raw`\}\)\)\.toBe\("alook ${commandWordsPattern}"\)`)],
+  ],
 ]);
 
 const environmentCliPattern = String.raw`(?:\$ALOOK_CLI|\$\{ALOOK_CLI\}|\$\{CLI\})`;

@@ -1,4 +1,5 @@
 import {
+  computeBotTriggerConnectionStatus,
   dispatchBotPrivateInboxEvent,
   resyncBotPrivateInboxForBots,
   type BotAuditWakeBroadcastEvent,
@@ -326,6 +327,10 @@ function toBotWebhookLastDelivery(
   if (!row) return null
   return {
     id: row.id,
+    direction: row.direction,
+    senderId: row.senderId,
+    senderLabel: row.senderLabel,
+    chatLabel: row.chatLabel,
     status: row.status,
     eventType: row.eventType,
     summary: row.summary,
@@ -338,6 +343,10 @@ export function toBotWebhookDelivery(row: StoredBotPrivateInboxEvent): BotWebhoo
   return {
     id: row.id,
     webhookId: row.sourceId,
+    direction: row.direction,
+    senderId: row.senderId,
+    senderLabel: row.senderLabel,
+    chatLabel: row.chatLabel,
     eventType: row.eventType,
     summary: row.summary,
     status: row.status,
@@ -348,16 +357,50 @@ export function toBotWebhookDelivery(row: StoredBotPrivateInboxEvent): BotWebhoo
   }
 }
 
+export interface BotTriggerMachineContext {
+  machineName?: string | null
+  machineOnline?: boolean | null
+}
+
 export function toBotWebhookSummary(
   row: StoredBotWebhook,
   lastDelivery?: StoredBotPrivateInboxSummary | StoredBotPrivateInboxEvent | null,
+  machineContext?: BotTriggerMachineContext,
 ): BotWebhookSummary {
+  const hasSigningSecret = row.signingSecretEnc !== null
+  const hasOutboundCredentials = row.outboundCredsEnc !== null
+  const machineOnline =
+    machineContext?.machineOnline !== undefined ? machineContext.machineOnline : null
+  const connectionStatus = computeBotTriggerConnectionStatus({
+    provider: row.provider,
+    category: row.category,
+    transport: row.transport,
+    enabled: row.enabled,
+    hasSigningSecret,
+    hasOutboundCredentials,
+    config: row.config,
+    machineOnline,
+  })
   return {
     id: row.id,
     botId: row.botUserId,
     name: row.name,
     provider: row.provider,
-    hasSigningSecret: row.signingSecretEnc !== null,
+    category: row.category,
+    transport: row.transport,
+    connectionStatus,
+    hasSigningSecret,
+    hasOutboundCredentials,
+    accessPolicy: row.config.accessPolicy,
+    allowedSenders: row.config.allowedSenders,
+    requireMentionInGroups: row.config.requireMentionInGroups,
+    botUsername: row.config.botUsername ?? null,
+    botAccountLabel: row.config.botAccountLabel ?? null,
+    region: row.config.region ?? null,
+    feishuAppId: row.config.feishuAppId ?? null,
+    machineName: machineContext?.machineName ?? null,
+    machineOnline,
+    daemonLastError: row.config.daemonLastError ?? null,
     eventFilter: row.eventFilter,
     instruction: row.instruction,
     enabled: row.enabled,
@@ -368,7 +411,7 @@ export function toBotWebhookSummary(
   }
 }
 
-async function broadcastBotAuditEvent(
+export async function broadcastBotAuditEvent(
   env: Env,
   event: BotAuditWakeBroadcastEvent,
 ): Promise<void> {

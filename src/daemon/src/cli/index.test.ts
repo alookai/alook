@@ -2711,3 +2711,55 @@ it("page guide, page local (with piped stdin and non-zero exit), and page previe
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
+
+describe("message send --external-ref", () => {
+  it("sends an external IM reply via api.externalSend without requiring --remind-after", async () => {
+    const externalSend = vi.fn(async () => ({
+      state: "sent" as const,
+      externalRef: "ext_tg_abc123",
+      platform: "telegram" as const,
+      messageId: "99",
+      pii: { triggeredFilters: [{ id: "f1", name: "phone" }] },
+    }));
+    setApiForTesting(stubApi({ externalSend }));
+
+    const code = await mainWithStdin(["message", "send", "--external-ref", "ext_tg_abc123", "--stdin"], "Reply body");
+    expect(code).toBe(0);
+    expect(externalSend).toHaveBeenCalledWith({
+      externalRef: "ext_tg_abc123",
+      text: "Reply body",
+    });
+    expect(mockArmMessageReminder).not.toHaveBeenCalled();
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        sent: "ext_tg_abc123",
+        platform: "telegram",
+        messageId: "99",
+        pii: { triggeredFilters: [{ id: "f1", name: "phone" }] },
+        reminder: { armed: false, reason: "external IM replies do not arm Alook channel reminders" },
+      },
+    });
+  });
+
+  it("rejects combining --external-ref with --target or Alook-only message flags", async () => {
+    const externalSend = vi.fn();
+    setApiForTesting(stubApi({ externalSend }));
+
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--external-ref", "ext_tg_1", "--stdin"], "hi");
+    expect(parseEnvelope(cap.lines()).error).toContain("mutually exclusive");
+
+    cap.lines().length = 0;
+    await mainWithStdin(["message", "send", "--external-ref", "ext_tg_1", "--reply", "#3", "--stdin"], "hi");
+    expect(parseEnvelope(cap.lines()).error).toContain("--external-ref");
+
+    cap.lines().length = 0;
+    await mainWithStdin(["message", "send", "--external-ref", "ext_tg_1", "--ask", "--stdin"], '{"summary":"x","questions":[]}');
+    expect(parseEnvelope(cap.lines()).error).toContain("--external-ref");
+
+    cap.lines().length = 0;
+    await mainWithStdin(["message", "send", "--external-ref", "ext_tg_1", "--attachment", "att_1", "--stdin"], "hi");
+    expect(parseEnvelope(cap.lines()).error).toContain("--external-ref");
+
+    expect(externalSend).not.toHaveBeenCalled();
+  });
+});

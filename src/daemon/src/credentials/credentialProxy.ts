@@ -47,9 +47,9 @@ import * as https from "https";
 import * as os from "os";
 import * as path from "path";
 import { URL } from "url";
-import { formatRef, parseRef, type Cursor, type Message } from "../server/contract.js";
+import { formatRef, parseRef, type Cursor, type ExternalSendResponse, type Message } from "../server/contract.js";
 import { parseNameAndTag } from "@alook/shared/lib/discriminator";
-import { LOCAL_PII_PATH, handleLocalPii, filterPiiRequest, forwardPiiSendResponse, writePiiError, type PiiProxy } from "../pii/proxy.js";
+import { LOCAL_PII_PATH, handleLocalPii, filterPiiRequest, filterPiiExternalSendRequest, forwardPiiSendResponse, writePiiError, type PiiProxy } from "../pii/proxy.js";
 
 export const LOCAL_MESSAGE_REMINDER_PATH = "/__alook/local/message-reminder";
 const LOCAL_MESSAGE_REMINDER_BODY_MAX_BYTES = 4 * 1024;
@@ -301,6 +301,15 @@ export interface CredentialProxyOptions {
   onMessageReminderArm?: (
     input: LocalMessageReminderArmInput,
   ) => LocalMessageReminderArmResult | Promise<LocalMessageReminderArmResult>;
+  /** Handle local daemon-hosted IM replies (e.g. WeChat `ext_wx_*`) without leaking tokens to cloud. */
+  onLocalExternalSend?: (input: {
+    agentId: string;
+    externalRef: string;
+    text: string;
+  }) => Promise<
+    | { ok: true; response: ExternalSendResponse }
+    | { ok: false; status: number; error: string }
+  >;
   /**
    * Max time (ms) a forwarded upstream request may stay open before the proxy
    * gives up on it. Without this, a slow/hung upstream (or an agent that
@@ -577,7 +586,51 @@ export async function startCredentialProxy(
     }
     let filteredBody: Buffer | undefined;
     let piiTriggeredFilters: { id: string; name: string }[] = [];
-    if (options.pii && route.filterPiiSend) {
+    if (route.externalSend) {
+      let extFiltered: Awaited<ReturnType<typeof filterPiiExternalSendRequest>>;
+      try {
+        extFiltered = await filterPiiExternalSendRequest(req, reg.agentId, options.pii);
+        filteredBody = extFiltered.body;
+        piiTriggeredFilters = extFiltered.triggeredFilters;
+      } catch (error) {
+        writePiiError(res, error);
+        return;
+      }
+      if (res.destroyed) return;
+      if (extFiltered.externalRef.startsWith("ext_wx_")) {
+        if (onProxyRequest) {
+          try {
+            onProxyRequest(reg.agentId, req.method ?? "POST", pathname, route.propertyMetadata, route.auditOperation);
+          } catch {
+            // observational callback
+          }
+        }
+        if (!options.onLocalExternalSend) {
+          writeJson(res, 503, { error: "WeChat IM connector unavailable", code: "im_unavailable" });
+          return;
+        }
+        try {
+          const localResult = await options.onLocalExternalSend({
+            agentId: reg.agentId,
+            externalRef: extFiltered.externalRef,
+            text: extFiltered.text,
+          });
+          if (!localResult.ok) {
+            writeJson(res, localResult.status, { error: localResult.error });
+            return;
+          }
+          writeJson(res, 200, {
+            ...localResult.response,
+            ...(piiTriggeredFilters.length > 0 ? { pii: { triggeredFilters: piiTriggeredFilters } } : {}),
+          });
+        } catch (err) {
+          writeJson(res, 502, {
+            error: err instanceof Error ? err.message : "Local external send failed",
+          });
+        }
+        return;
+      }
+    } else if (options.pii && route.filterPiiSend) {
       try {
         const filtered = await filterPiiRequest(req, reg.agentId, options.pii);
         filteredBody = filtered.body;

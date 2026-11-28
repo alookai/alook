@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
+  BOT_IM_PROVIDERS,
+  BOT_IM_TEXT_MAX_LENGTH,
   BOT_WEBHOOK_PROMPT_MAX_LENGTH,
   BOT_WEBHOOK_PROVIDER_META,
   BOT_WEBHOOK_PROVIDERS,
   BotWebhookCreateSchema,
   BotWebhookUpdateSchema,
+  DEFAULT_BOT_IM_CONFIG,
+  buildBotImEventLine,
   buildBotWebhookEventPrompt,
+  computeBotTriggerConnectionStatus,
   formatGenericWebhookEvent,
   formatGitHubWebhookEvent,
   formatGitLabWebhookEvent,
@@ -15,6 +20,7 @@ import {
   formatStandardWebhookEvent,
   formatStripeWebhookEvent,
   formatVercelWebhookEvent,
+  parseImReplyRefPlatform,
 } from "./bot-webhook"
 
 describe("bot-webhook schemas and formatters", () => {
@@ -187,5 +193,95 @@ describe("bot-webhook schemas and formatters", () => {
         "Cloudflare",
       ).summary,
     ).toContain("Cloudflare: Worker exception rate high")
+  })
+
+  it("computes IM connection status without inbound_only and formats compact NDJSON IM lines", () => {
+    expect(BOT_IM_PROVIDERS).toEqual(["telegram", "feishu", "slack", "wechat"])
+    for (const imProvider of BOT_IM_PROVIDERS) {
+      expect(BOT_WEBHOOK_PROVIDER_META[imProvider].category).toBe("im")
+    }
+    expect(BOT_WEBHOOK_PROVIDER_META.wechat.transport).toBe("daemon_poll")
+    expect(BOT_WEBHOOK_PROVIDER_META.wechat.supportsGroups).toBe(false)
+    expect(BOT_WEBHOOK_PROVIDER_META.telegram.transport).toBe("cloud_webhook")
+
+    // Slack missing outbound token falls back to setup_required (no inbound_only).
+    expect(
+      computeBotTriggerConnectionStatus({
+        provider: "slack",
+        category: "im",
+        transport: "cloud_webhook",
+        enabled: true,
+        hasSigningSecret: true,
+        hasOutboundCredentials: false,
+        config: DEFAULT_BOT_IM_CONFIG,
+      }),
+    ).toBe("setup_required")
+    expect(
+      computeBotTriggerConnectionStatus({
+        provider: "slack",
+        category: "im",
+        transport: "cloud_webhook",
+        enabled: true,
+        hasSigningSecret: true,
+        hasOutboundCredentials: true,
+        config: DEFAULT_BOT_IM_CONFIG,
+      }),
+    ).toBe("connected")
+
+    // WeChat daemon_poll states.
+    expect(
+      computeBotTriggerConnectionStatus({
+        provider: "wechat",
+        category: "im",
+        transport: "daemon_poll",
+        enabled: true,
+        hasSigningSecret: false,
+        hasOutboundCredentials: false,
+        config: DEFAULT_BOT_IM_CONFIG,
+        machineOnline: false,
+      }),
+    ).toBe("machine_offline")
+    expect(
+      computeBotTriggerConnectionStatus({
+        provider: "wechat",
+        category: "im",
+        transport: "daemon_poll",
+        enabled: true,
+        hasSigningSecret: false,
+        hasOutboundCredentials: false,
+        config: { ...DEFAULT_BOT_IM_CONFIG, daemonStatus: "session_expired" },
+        machineOnline: true,
+      }),
+    ).toBe("session_expired")
+
+    const line = buildBotImEventLine({
+      platform: "telegram",
+      triggerName: "My Telegram",
+      ref: "ext_tg_abc123",
+      chatType: "group",
+      chatName: "Release Ops",
+      senderId: "123456",
+      senderName: "Alice",
+      text: "line1\nline2 " + "x".repeat(BOT_IM_TEXT_MAX_LENGTH + 100),
+      mentioned: true,
+      time: "2026-11-28T11:40:00.000Z",
+      instruction: "Reply concisely",
+    })
+    expect(line).not.toContain("\n")
+    const parsed = JSON.parse(line)
+    expect(parsed.kind).toBe("im")
+    expect(parsed.platform).toBe("telegram")
+    expect(parsed.ref).toBe("ext_tg_abc123")
+    expect(parsed.chat).toEqual({ type: "group", name: "Release Ops" })
+    expect(parsed.sender).toEqual({ id: "123456", name: "Alice" })
+    expect(parsed.mentioned).toBe(true)
+    expect(parsed.instruction).toBe("Reply concisely")
+    expect(parsed.text.length).toBeLessThanOrEqual(BOT_IM_TEXT_MAX_LENGTH)
+
+    expect(parseImReplyRefPlatform("ext_tg_1")).toBe("telegram")
+    expect(parseImReplyRefPlatform("ext_fs_1")).toBe("feishu")
+    expect(parseImReplyRefPlatform("ext_sl_1")).toBe("slack")
+    expect(parseImReplyRefPlatform("ext_wx_1")).toBe("wechat")
+    expect(parseImReplyRefPlatform("bad_ref")).toBeNull()
   })
 })

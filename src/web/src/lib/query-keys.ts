@@ -172,6 +172,8 @@ export const communityKeys = {
   botWebhooks: (botId: string) => [...communityKeys.all, "bot", botId, "webhooks"] as const,
   botWebhookDeliveries: (botId: string, webhookId: string) =>
     [...communityKeys.botWebhooks(botId), webhookId, "deliveries"] as const,
+  botImQrStatus: (botId: string, triggerId: string) =>
+    [...communityKeys.botWebhooks(botId), triggerId, "im-qr"] as const,
   botNotificationSetting: (botId: string, scope: "server" | "channel", scopeId: string) =>
     [...communityKeys.all, "bot", botId, "notification-settings", scope, scopeId] as const,
 

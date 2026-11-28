@@ -1,5 +1,5 @@
 import { publishMachinePresence } from "./machine-presence"
-import { PII_CAPABILITY } from "@alook/shared"
+import { IM_CONNECTOR_CAPABILITY, PII_CAPABILITY } from "@alook/shared"
 import {
   CONTROL_HEARTBEAT_CAPABILITY,
   MACHINE_STOP_CAPABILITY,
@@ -88,6 +88,7 @@ export async function handleReadyFrame(
       ...state,
       controlHeartbeat,
       pii: ready.capabilities.includes(PII_CAPABILITY),
+      imConnector: ready.capabilities.includes(IM_CONNECTOR_CAPABILITY),
       modelDiscovery: ready.capabilities.includes(RUNTIME_MODEL_DISCOVERY_CAPABILITY),
       machineStop: ready.capabilities.includes(MACHINE_STOP_CAPABILITY),
       machineRefresh: ready.capabilities.includes(MACHINE_REFRESH_CAPABILITY),

@@ -1,4 +1,5 @@
 import { PiiResultSchema } from "./pii-contract"
+import { BotDaemonImProviderSchema, BotImStatusFrameStatusSchema } from "./im-contract"
 import { z } from "zod"
 import { COMMUNITY_CONTRACT_VERSION } from "./community-contract"
 import { CommunityMachineSummarySchema, RuntimeModelDiscoveryResultSchema } from "./schemas"
@@ -368,6 +369,20 @@ const communityBotPiiSchema = z.strictObject({
   result: PiiResultSchema,
 })
 
+const communityBotImStatusSchema = z.strictObject({
+  type: z.literal("community:bot.im_status"),
+  machineId: z.string().min(1),
+  botId: z.string().min(1),
+  triggerId: z.string().min(1),
+  provider: BotDaemonImProviderSchema,
+  status: BotImStatusFrameStatusSchema,
+  sessionId: nullableString.optional(),
+  qrUrl: nullableString.optional(),
+  expiresAt: nullableString.optional(),
+  botAccountLabel: nullableString.optional(),
+  error: nullableString.optional(),
+})
+
 const communityScheduleChangedSchema = z.strictObject({
   type: z.literal("community:schedule.changed"),
   eventId: string,
@@ -376,6 +391,7 @@ const communityScheduleChangedSchema = z.strictObject({
 
 const commonCommunityEventSchemas = [
   communityBotPiiSchema,
+  communityBotImStatusSchema,
   communityMessageUpdatedSchema,
   communityReactionAddSchema,
   communityReactionRemoveSchema,
@@ -486,6 +502,7 @@ export type CommunityRuntimeModels = Extract<CommunityWsEvent, { type: "communit
 export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
 export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "community:machine.removed" }>
 export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
+export type CommunityBotImStatus = Extract<CommunityWsEvent, { type: "community:bot.im_status" }>
 export type CommunityScheduleChanged = Extract<CommunityWsEvent, { type: "community:schedule.changed" }>
 
 export type BotAddedFrame = {
@@ -557,6 +574,7 @@ export const WS_EVENTS = {
   MACHINE_UPDATED: "community:machine.updated",
   RUNTIME_MODELS: "community:runtime.models",
   BOT_PII: "community:bot.pii",
+  BOT_IM_STATUS: "community:bot.im_status",
   MACHINE_REMOVED: "community:machine.removed",
   BOT_AUDIT_EVENT: "community:bot.audit_event",
   SCHEDULE_CHANGED: "community:schedule.changed",

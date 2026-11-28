@@ -2250,7 +2250,9 @@
         "ProviderChooser",
         "SetupStepsList",
         "TriggerForm",
-        "TriggerHistoryPanel"
+        "TriggerHistoryPanel",
+        "TriggerStatusBadge",
+        "WeChatQrPanel"
       ],
       "kind": "composition",
       "examples": [

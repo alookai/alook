@@ -3,6 +3,7 @@ import { nanoid } from "nanoid"
 import type { Database } from "../../index"
 import { communityBotPrivateInbox } from "../../community-bot-private-inbox-schema"
 import type {
+  BotPrivateInboxDirection,
   BotPrivateInboxSourceKind,
   BotPrivateInboxStatus,
 } from "../../../bot-private-inbox"
@@ -15,6 +16,10 @@ export interface StoredBotPrivateInboxEvent {
   sourceId: string
   sourceRefId: string | null
   dedupeKey: string | null
+  direction: BotPrivateInboxDirection
+  senderId: string | null
+  senderLabel: string | null
+  chatLabel: string | null
   eventType: string
   summary: string
   promptText: string
@@ -27,6 +32,10 @@ export interface StoredBotPrivateInboxEvent {
 export interface StoredBotPrivateInboxSummary {
   id: string
   sourceId: string
+  direction: BotPrivateInboxDirection
+  senderId: string | null
+  senderLabel: string | null
+  chatLabel: string | null
   eventType: string
   summary: string
   status: BotPrivateInboxStatus
@@ -43,6 +52,10 @@ function mapInboxRow(row: typeof communityBotPrivateInbox.$inferSelect): StoredB
     sourceId: row.sourceId,
     sourceRefId: row.sourceRefId ?? null,
     dedupeKey: row.dedupeKey ?? null,
+    direction: row.direction ?? "inbound",
+    senderId: row.senderId ?? null,
+    senderLabel: row.senderLabel ?? null,
+    chatLabel: row.chatLabel ?? null,
     eventType: row.eventType,
     summary: row.summary,
     promptText: row.promptText,
@@ -63,6 +76,10 @@ export async function enqueuePrivateInboxEvent(
     sourceId: string
     sourceRefId?: string | null
     dedupeKey?: string | null
+    direction?: BotPrivateInboxDirection
+    senderId?: string | null
+    senderLabel?: string | null
+    chatLabel?: string | null
     eventType: string
     summary: string
     promptText: string
@@ -76,6 +93,10 @@ export async function enqueuePrivateInboxEvent(
   const id = input.id ?? `bpi_${nanoid(16)}`
   const dedupeKey = input.dedupeKey?.trim() || null
   const sourceRefId = input.sourceRefId?.trim() || null
+  const direction: BotPrivateInboxDirection = input.direction ?? "inbound"
+  const senderId = input.senderId?.trim() || null
+  const senderLabel = input.senderLabel?.trim() || null
+  const chatLabel = input.chatLabel?.trim() || null
 
   const insertedRows = await db
     .insert(communityBotPrivateInbox)
@@ -87,6 +108,10 @@ export async function enqueuePrivateInboxEvent(
       sourceId: input.sourceId,
       sourceRefId,
       dedupeKey,
+      direction,
+      senderId,
+      senderLabel,
+      chatLabel,
       eventType: input.eventType,
       summary: input.summary,
       promptText: input.promptText,
@@ -125,6 +150,10 @@ export async function enqueuePrivateInboxEvent(
         sourceId: input.sourceId,
         sourceRefId,
         dedupeKey,
+        direction,
+        senderId,
+        senderLabel,
+        chatLabel,
         eventType: input.eventType,
         summary: input.summary,
         promptText: input.promptText,
@@ -267,6 +296,10 @@ export async function getLatestPrivateInboxEventForSource(
     .select({
       id: communityBotPrivateInbox.id,
       sourceId: communityBotPrivateInbox.sourceId,
+      direction: communityBotPrivateInbox.direction,
+      senderId: communityBotPrivateInbox.senderId,
+      senderLabel: communityBotPrivateInbox.senderLabel,
+      chatLabel: communityBotPrivateInbox.chatLabel,
       eventType: communityBotPrivateInbox.eventType,
       summary: communityBotPrivateInbox.summary,
       status: communityBotPrivateInbox.status,
@@ -287,6 +320,10 @@ export async function getLatestPrivateInboxEventForSource(
   return {
     id: row.id,
     sourceId: row.sourceId,
+    direction: row.direction ?? "inbound",
+    senderId: row.senderId ?? null,
+    senderLabel: row.senderLabel ?? null,
+    chatLabel: row.chatLabel ?? null,
     eventType: row.eventType,
     summary: row.summary,
     status: row.status,

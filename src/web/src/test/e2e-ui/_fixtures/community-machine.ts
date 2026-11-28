@@ -18,7 +18,11 @@ type MachineSocket = {
   off(event: "message", listener: (data: unknown) => void): void
 }
 
-export function connectMachine(credential: string, resources: CaseResources, scope: { machineId: string; headers: Record<string, string> }) {
+export function connectMachine(
+  credential: string,
+  resources: CaseResources,
+  scope: { machineId: string; headers: Record<string, string>; capabilities?: string[] },
+) {
   const requireFromDaemon = createRequire(resolve(REPO_ROOT, "src/daemon/package.json"))
   const { WebSocket } = requireFromDaemon("ws") as {
     WebSocket: new (url: string, options: { headers: Record<string, string> }) => MachineSocket
@@ -57,7 +61,7 @@ export function connectMachine(credential: string, resources: CaseResources, sco
       if (!machine) throw new Error("Owned machine missing before ready")
       const { hostname, platform, arch, osRelease, daemonVersion, availableRuntimes } = machine
       socket.send(JSON.stringify({ type: "ready", hostname, platform, arch, osRelease, daemonVersion,
-        runtimeReport: availableRuntimes, runningAgents: [], capabilities: ["control-heartbeat-v1"] }))
+        runtimeReport: availableRuntimes, runningAgents: [], capabilities: ["control-heartbeat-v1", ...(scope.capabilities ?? [])] }))
       await expect.poll(async () => {
         if (failure) throw failure
         expect(socket.readyState).toBe(1)

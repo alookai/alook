@@ -78,9 +78,17 @@ export type {
   EnrollmentApi,
   ServerApiError,
   ParsedRef,
+  ImQrStartCommand,
+  ImConfigSyncCommand,
+  ImCommand,
+  ImStatusFrame,
+  ExternalSendRequest,
+  ExternalSendResponse,
+  DaemonImTriggerConfig,
+  DaemonImDeliveryReport,
 } from "@alook/shared/community-cli-contract";
 
-export { RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "@alook/shared/community-cli-contract";
+export { RUNTIME_MODEL_DISCOVERY_CAPABILITY, IM_CONNECTOR_CAPABILITY } from "@alook/shared/community-cli-contract";
 
 export {
   CONTROL_HEARTBEAT_CAPABILITY,

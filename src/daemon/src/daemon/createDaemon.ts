@@ -3,7 +3,9 @@ import { resolveProxyAuditOperation } from "../credentials/route-policy.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 
 import { homedir } from "os";
+import { randomUUID } from "node:crypto";
 import { PiiStore } from "../pii/store.js";
+import { ImConnectorManager } from "../im/imConnectorManager.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createRotatingFileSink, type RotatingFileSink } from "../util/rotatingFileSink.js";
 import { createTraceSampler, DEFAULT_TRACE_FILE_MAX_BYTES } from "../util/traceSampler.js";
@@ -21,7 +23,7 @@ import type { HostLaunchContext } from "../manager/hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
-import { isProviderQuotaBackend, tokenUsageCapability, type DiagnosticCollectCommand } from "@alook/shared";
+import { isProviderQuotaBackend, makeRuntimeConfig, tokenUsageCapability, type DaemonImTriggerConfig, type DiagnosticCollectCommand } from "@alook/shared";
 import { createBuiltinAgentDriverSdk, readBuiltinProviderQuota, supportsBuiltinQuotaPolling } from "@alook/agent-driver/host";
 import type { BuiltinBackendId, ProviderQuotaObservation } from "@alook/agent-driver";
 import type { HostAgentActivity, ProviderQuotaSnapshot } from "@alook/shared";
@@ -303,7 +305,61 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const workdirFor = (agentId: string) => `${workingDirectoryBase}/${agentId}`;
   const dailyTokenUsage = new DailyTokenUsageStore(workingDirectoryBase);
   const localPiiStore = new PiiStore(opts.fsmTraceDir ?? workingDirectoryBase);
+  const imConnectorManager = new ImConnectorManager({
+    stateRootDir: opts.fsmTraceDir ?? workingDirectoryBase,
+    onStatus: (frame) => {
+      channelRef?.reportImStatus?.(frame);
+    },
+    onDeliverImEvent: async (botId, promptLine) => {
+      if (!managerRef) return;
+      if (!botsById.has(botId)) {
+        try {
+          const bots = await listMyBotsHttp();
+          replaceBotCache(bots);
+        } catch {
+          // Best-effort bot cache refresh.
+        }
+      }
+      if (!botsById.has(botId)) return;
+      await enrollAgent(botId);
+      const existing = managerRef.snapshot().agents[botId];
+      if (!existing) {
+        const botMeta = botsById.get(botId);
+        const healthyRuntime =
+          opts.runtimeReport.find((r) => r.status !== "unhealthy")?.id ??
+          opts.runtimeReport[0]?.id ??
+          "claude";
+        managerRef.register(botId, {
+          runtimeConfig: makeRuntimeConfig({
+            runtime: healthyRuntime,
+            ...(botMeta ? {
+              agentName: botMeta.name,
+              agentHandle: `@${formatHandle(botMeta.name, botMeta.discriminator)}`,
+            } : {}),
+          }),
+          launchId: `im_${randomUUID()}`,
+        });
+      }
+      managerRef.deliver(botId, {
+        id: `${botId}:im:${randomUUID()}`,
+        text: promptLine,
+      });
+    },
+    onReportDelivery: async (report) => {
+      if (stopping) return;
+      await fetch(`${opts.serverUrl}/api/community/daemon/im-deliveries`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${opts.machineKey}`,
+        },
+        body: JSON.stringify(report),
+        signal: stopAbort.signal,
+      });
+    },
+  });
   let stopping = false;
+  const stopAbort = new AbortController();
   let usageSealed = false;
   let stopPromise: Promise<void> | undefined;
   const telemetryTasks = new Set<Promise<unknown>>();
@@ -508,6 +564,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
     onMessageReminderArm: (input) =>
       reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
+    onLocalExternalSend: ({ agentId, externalRef, text }) =>
+      imConnectorManager.sendExternalReply(agentId, externalRef, text),
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
     // ONLY on `verdict.ok === true`, before the upstream request is written.
     onProxyRequest: (agentId, _method, _pathname, metadata, subcommand) => {
@@ -1078,6 +1136,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // Machine lifecycle commands are claimed before diagnostics, bot observers,
   // and AgentRouter; updates never enter agent lifecycle routing.
   channel.onCommand((command) => {
+    if (command.type !== "im:qr_start" && command.type !== "im:config_sync") return;
+    void imConnectorManager.handleCommand(command).catch(() => {
+      log.warn("im command failed", { type: command.type });
+    });
+    return WS_CONTROL_COMMAND_CONSUMED;
+  });
+  channel.onCommand((command) => {
     if (command.type !== "pii:manage") return;
     void (async () => {
       try {
@@ -1126,11 +1191,30 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     handleBotFrame(cmd);
   });
 
+  const syncImTriggers = async (): Promise<void> => {
+    if (stopping) return;
+    try {
+      const res = await fetch(`${opts.serverUrl}/api/community/daemon/im-triggers`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${opts.machineKey}` },
+        signal: stopAbort.signal,
+      });
+      if (!res.ok || stopping) return;
+      const data = (await res.json()) as { triggers?: DaemonImTriggerConfig[] };
+      if (!stopping && Array.isArray(data.triggers)) {
+        imConnectorManager.syncTriggers(data.triggers);
+      }
+    } catch {
+      // Best-effort IM trigger sync; will retry on reconnect or im:config_sync.
+    }
+  };
+
   channel.onOpen(() => {
     if (stopping) return;
     void coldStartWarmup();
     void resyncPendingWakes();
     void resyncPendingDiagnostics();
+    void syncImTriggers();
     refreshMachineQuotas();
   });
 
@@ -1162,10 +1246,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     stop: () => {
       if (stopPromise) return stopPromise;
       stopping = true;
+      stopAbort.abort();
       clearInterval(quotaRefreshTimer);
       const failures: unknown[] = [];
       stopPromise = Promise.resolve().then(async () => {
         try {
+          try { imConnectorManager.stopAll(); } catch (error) { failures.push(error); }
           try { await localPiiStore.close(); } catch (error) { failures.push(error); }
           try { await proxy.close(); } catch (error) { failures.push(error); }
           try { await manager.stopAll(); } catch (error) { failures.push(error); }

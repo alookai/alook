@@ -34,12 +34,14 @@ export function summarizeAuditEvent(
       : null
     if (reason === "webhook") return "Woke for a trigger"
     if (reason === "schedule") return "Woke for a scheduled task"
+    if (reason === "im") return "Woke for an IM message"
   }
   return SUMMARY_BY_KIND[event.kind]
 }
 
 const ALOOK_COMMAND_BY_SUBCOMMAND: Record<string, string> = {
   send: "message send",
+  externalSend: "message send",
   read: "channel history",
   resolve: "channel history",
   reactAdd: "message emoji",

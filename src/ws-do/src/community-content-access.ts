@@ -49,6 +49,7 @@ export const communityContentAccessKinds = {
   "community:machine.updated": "control",
   "community:runtime.models": "control",
   "community:bot.pii": "control",
+  "community:bot.im_status": "control",
   "community:machine.removed": "control",
   "community:bot.audit_event": "control",
   "community:schedule.changed": "control",

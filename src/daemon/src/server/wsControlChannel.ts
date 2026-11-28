@@ -12,6 +12,7 @@ import type {
   HostAgentActivity,
   HostBotAuditEventFrame,
   HostRuntimeModelsFrame,
+  ImStatusFrame,
 } from "./contract.js";
 import { HostCommandSchema } from "./contract.js";
 import { createLogger, type Logger } from "../logger.js";
@@ -125,6 +126,7 @@ type OutboundFrame =
   | HostBotAuditEventFrame
   | HostRuntimeModelsFrame
   | PiiResultFrame
+  | ImStatusFrame
   | SessionErrorFrame;
 
 type ResyncProvider = () => {
@@ -333,6 +335,8 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   reportPiiResult(frame: PiiResultFrame): void { this.sendFrame(frame); }
+
+  reportImStatus(frame: ImStatusFrame): void { this.sendFrame(frame); }
 
   reportRuntimeModels(frame: HostRuntimeModelsFrame): void {
     this.sendFrame(frame);

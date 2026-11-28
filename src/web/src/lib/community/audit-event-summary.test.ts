@@ -34,6 +34,10 @@ describe("summarizeAuditEvent", () => {
     })).toBe("alook inbox pull")
     expect(summarizeAuditEvent({
       kind: "cli_invocation",
+      payload: { subcommand: "externalSend" },
+    })).toBe("alook message send")
+    expect(summarizeAuditEvent({
+      kind: "cli_invocation",
       payload: { subcommand: "inboxSnapshot" },
     })).toBe("alook inbox pull")
     expect(summarizeAuditEvent({
@@ -94,6 +98,17 @@ describe("summarizeAuditEvent", () => {
         summary: "private repo https://private.example",
       },
     })).toBe("Woke for a trigger")
+    expect(summarizeAuditEvent({
+      kind: "wake_trigger",
+      payload: {
+        reason: "im",
+        triggerId: "im_1",
+        triggerName: "Telegram",
+        platform: "telegram",
+        senderLabel: "Alice",
+        summary: "private message https://private.example",
+      },
+    })).toBe("Woke for an IM message")
     expect(summarizeAuditEvent({
       kind: "wake_trigger",
       payload: {

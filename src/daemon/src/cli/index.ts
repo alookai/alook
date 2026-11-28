@@ -362,15 +362,49 @@ async function uploadPageDirectory(api: ServerApi, agent: string, directory: str
 }
 
 async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
-  const remindAfterFlag = opts.remindAfter as string;
-  const remindAfterMs = parseRemindAfter(remindAfterFlag);
   const api = getApi();
   const agent = agentId(opts);
-  const channel = opts.target as string;
-  if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
+  const channel = opts.target as string | undefined;
+  const externalRef = (opts.externalRef as string | undefined)?.trim();
+  const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
+
+  if (externalRef && channel) {
+    throw new CliError("message send: --external-ref and --target are mutually exclusive");
+  }
+  if (externalRef) {
+    if (opts.ask === true) throw new CliError("message send: cannot combine --external-ref with --ask");
+    if (opts.page) throw new CliError("message send: cannot combine --external-ref with --page");
+    if (opts.reply !== undefined && opts.reply !== "") throw new CliError("message send: cannot combine --external-ref with --reply");
+    if (attachmentIds.length > 0) throw new CliError("message send: cannot combine --external-ref with --attachment");
+    if (!api.externalSend) throw new CliError("message send: --external-ref is unavailable in this environment");
+    const literalText = await readLiteralInput({
+      command: "message send --external-ref",
+      stdinSelected: opts.stdin === true,
+      stdin,
+      maxBytes: 4096,
+    });
+    const text = stripMalformedAlookHeredocTail(literalText ?? "").trim();
+    if (!text) {
+      throw new CliError("message send --external-ref: --stdin must contain non-empty text");
+    }
+    const res = await withTransientMutationRetry(() => api.externalSend!({ externalRef, text }));
+    return {
+      sent: res.externalRef,
+      platform: res.platform,
+      ...(res.messageId ? { messageId: res.messageId } : {}),
+      ...(res.pii?.triggeredFilters.length ? { pii: res.pii } : {}),
+      reminder: { armed: false, reason: "external IM replies do not arm Alook channel reminders" },
+    };
+  }
+
+  if (!channel) throw new CliError("message send: --target <ref> or --external-ref <ref> is required (e.g. /demo-workspace#1234/general)");
+  const remindAfterFlag = opts.remindAfter as string | undefined;
+  if (remindAfterFlag === undefined) {
+    throw new CliError("message send: --remind-after <0|Nm|Nh> is required");
+  }
+  const remindAfterMs = parseRemindAfter(remindAfterFlag);
   parseRef(channel);
 
-  const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
   const replyToSeq = parseReplySeqOption("message send", opts.reply);
 
   if (opts.ask === true) {
@@ -861,8 +895,9 @@ function buildProgram(stdin: CliInputStream): Command {
 
   message
     .command("send")
-    .description("send a message to a channel, DM, or thread")
+    .description("send a message to a channel, DM, thread, or external IM reply ref")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
+    .option("--external-ref <ref>", "external IM reply ref from an inbound IM JSON line (mutually exclusive with --target)")
     .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB, or 8 KiB JSON with --ask)")
     .option("--page <id>", "attach an uploaded live Page by id (from page upload)")
     .option("--ask", "send a structured decision card from UTF-8 JSON on --stdin with required summary and questions (text channel, thread, or DM)")
@@ -874,7 +909,7 @@ function buildProgram(stdin: CliInputStream): Command {
     )
     .option("--force", "bypass duplicate detection only; channel alignment and other send checks still apply")
     .option("--reply <seq>", 'reply to a message by its seq in --target (e.g. "#37" or 37)')
-    .requiredOption(
+    .option(
       "--remind-after <0|Nm|Nh>",
       "required idle follow-up: 0 disables; 1m..24h arms/resets one same-scope timer; a newer message or daemon restart cancels it",
     )

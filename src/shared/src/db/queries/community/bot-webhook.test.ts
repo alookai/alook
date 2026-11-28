@@ -15,14 +15,19 @@ import {
   updatePrivateInboxEventStatus,
 } from "./bot-private-inbox"
 import {
+  allowBotImTriggerSender,
   createBotWebhook,
   createBotWebhookDelivery,
   deleteBotWebhook,
+  getBotImReplyRef,
   getBotWebhookById,
   getBotWebhookByTokenHash,
   listBotWebhookDeliveries,
   listBotWebhooks,
+  listDaemonPollImTriggersForBots,
+  updateBotImDaemonStatus,
   updateBotWebhook,
+  upsertBotImReplyRef,
 } from "./bot-webhook"
 import { BOT_WEBHOOK_DELIVERY_RETENTION, BOT_WEBHOOK_MAX_PER_BOT } from "../../../bot-webhook"
 
@@ -224,5 +229,63 @@ describe("community bot private inbox & webhook D1 queries", () => {
     sqlite.prepare("DELETE FROM user WHERE id = ?").run("bot_1")
     const afterDelete = await listBotWebhooks(db, "owner_1", "bot_1")
     expect(afterDelete.webhooks).toEqual([])
+  })
+
+  it("supports IM trigger allow-sender, daemon_poll listing, status updates, and indexed reply-ref lookups", async () => {
+    const baseMs = Date.parse("2026-11-28T09:00:00.000Z")
+    const created = await createBotWebhook(db, {
+      ownerUserId: "owner_1",
+      botUserId: "bot_1",
+      name: "My WeChat",
+      provider: "wechat",
+      tokenHash: "wx_tok_1",
+      signingSecretEnc: null,
+      eventFilter: null,
+      instruction: "Be brief",
+      nowMs: baseMs,
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    expect(created.webhook.category).toBe("im")
+    expect(created.webhook.transport).toBe("daemon_poll")
+
+    const daemonTriggers = await listDaemonPollImTriggersForBots(db, "owner_1", ["bot_1"])
+    expect(daemonTriggers.map((t) => t.id)).toEqual([created.webhook.id])
+
+    const allow1 = await allowBotImTriggerSender(db, "owner_1", "bot_1", created.webhook.id, "wx_user_1", baseMs + 100)
+    expect(allow1.ok).toBe(true)
+    if (allow1.ok) {
+      expect(allow1.added).toBe(true)
+      expect(allow1.webhook.config.allowedSenders).toEqual(["wx_user_1"])
+    }
+    const allowDup = await allowBotImTriggerSender(db, "owner_1", "bot_1", created.webhook.id, "wx_user_1", baseMs + 200)
+    expect(allowDup.ok && allowDup.added).toBe(false)
+
+    const statusUpdated = await updateBotImDaemonStatus(db, "owner_1", "bot_1", created.webhook.id, {
+      daemonStatus: "connected",
+      botAccountLabel: "wx_bot@im.bot",
+      daemonLastError: null,
+      nowMs: baseMs + 300,
+    })
+    expect(statusUpdated?.config.daemonStatus).toBe("connected")
+    expect(statusUpdated?.config.botAccountLabel).toBe("wx_bot@im.bot")
+
+    await upsertBotImReplyRef(db, {
+      botUserId: "bot_1",
+      ref: "ext_tg_test123",
+      ownerUserId: "owner_1",
+      triggerId: created.webhook.id,
+      platform: "telegram",
+      targetJson: JSON.stringify({ chatId: "12345", replyToMessageId: 99 }),
+      nowMs: baseMs + 400,
+    })
+    const refRow = await getBotImReplyRef(db, "bot_1", "ext_tg_test123")
+    expect(refRow?.platform).toBe("telegram")
+    expect(await getBotImReplyRef(db, "bot_other", "ext_tg_test123")).toBeNull()
+
+    const refPlan = sqlite.prepare(
+      `EXPLAIN QUERY PLAN SELECT * FROM community_bot_im_reply_ref WHERE bot_user_id = ? AND ref = ? LIMIT 1`,
+    ).all("bot_1", "ext_tg_test123") as Array<{ detail: string }>
+    expect(refPlan.some((row) => row.detail.includes("PRIMARY KEY") || row.detail.includes("sqlite_autoindex"))).toBe(true)
   })
 })

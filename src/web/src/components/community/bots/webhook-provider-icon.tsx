@@ -13,6 +13,40 @@ export function WebhookProviderIcon({
   className?: string
 }) {
   switch (provider) {
+    case "telegram":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
+          <circle cx="12" cy="12" r="12" fill="#26A5E4" />
+          <path
+            fill="#FFFFFF"
+            d="M17.56 7.45c.14-.56-.21-.78-.68-.61L5.85 11.09c-.74.29-.73.71-.13.9l2.82.88 6.53-4.12c.31-.19.59-.09.36.12l-5.29 4.78-.2 2.94c.29 0 .42-.13.58-.29l1.4-1.36 2.91 2.15c.54.3.92.14 1.06-.49l1.67-9.15z"
+          />
+        </svg>
+      )
+    case "feishu":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
+          <path
+            fill="#00D6B9"
+            d="M4.2 3.4c-.4-.3-.9 0-.8.5l1.9 7.3 7.6-4.1L4.2 3.4z"
+          />
+          <path
+            fill="#3370FF"
+            d="M20.9 8.9c.4-.3.2-.9-.3-.9l-7.7-.9-7.6 4.1 6.7 7.9c.3.3.8.3 1.1 0l7.8-10.2z"
+          />
+          <path
+            fill="#133C9A"
+            d="M5.3 11.2l3.1 9c.2.5.8.6 1.2.2l2.4-1.3-6.7-7.9z"
+          />
+        </svg>
+      )
+    case "wechat":
+      return (
+        <svg viewBox="0 0 24 24" fill="#07C160" aria-hidden="true" className={className}>
+          <path d="M8.69 3.5C4.44 3.5 1 6.38 1 9.93c0 2.02 1.11 3.82 2.86 5.01l-.72 2.18 2.53-1.27c.94.28 1.95.44 3.02.44.24 0 .48-.01.72-.03a5.88 5.88 0 0 1-.27-1.76c0-3.38 3.22-6.12 7.2-6.12.22 0 .43.01.64.03C16.29 5.58 12.83 3.5 8.69 3.5zm-2.55 4.9a.95.95 0 1 1 0-1.9.95.95 0 0 1 0 1.9zm5.1 0a.95.95 0 1 1 0-1.9.95.95 0 0 1 0 1.9z" />
+          <path d="M23 14.5c0-2.96-2.94-5.36-6.56-5.36-3.62 0-6.56 2.4-6.56 5.36s2.94 5.36 6.56 5.36c.79 0 1.54-.12 2.24-.33l2.06 1.04-.58-1.78C21.88 17.81 23 16.26 23 14.5zm-8.65-.9a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6zm4.18 0a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6z" />
+        </svg>
+      )
     case "github":
       return (
         <svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true" className={className}>

@@ -547,6 +547,7 @@ describe("POST /api/webhooks/bot/[token]", () => {
       provider: "slack",
       tokenHash: await hashBotWebhookToken(slackToken),
       signingSecretEnc: await encryptBotWebhookSecret(mocks.env, slackSecret),
+      config: { accessPolicy: "anyone", allowedSenders: [], requireMentionInGroups: true },
       eventFilter: null,
       instruction: "",
     })
