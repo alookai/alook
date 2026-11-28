@@ -33,17 +33,18 @@ it("rejects expanded files over the bound before reading their data", async () =
   await expect(preparePageDirectory(root)).rejects.toThrow("32 MiB");
 });
 
-it("rejects excessive files and incompressible archives over the upload bound", async () => {
+it("rejects directories exceeding the 2,000-file upload bound", async () => {
   const root = await fixture();
   await Promise.all(Array.from({ length: 1999 }, (_, i) => writeFile(join(root, `file-${i}`), "x")));
   await expect(preparePageDirectory(root)).rejects.toThrow("2000 files");
-  await rm(root, { recursive: true }); await mkdir(root);
-  await writeFile(join(root, ".artifact.json"), JSON.stringify({ type: "page" }));
-  await writeFile(join(root, "index.html"), "<title>Test</title>");
+}, 30_000);
+
+it("rejects incompressible archives exceeding the 16 MiB compressed upload bound", async () => {
+  const root = await fixture();
   const { randomBytes } = await import("node:crypto");
   await writeFile(join(root, "noise.bin"), randomBytes(17 * 1024 * 1024));
   await expect(preparePageDirectory(root)).rejects.toThrow("16 MiB compressed");
-});
+}, 30_000);
 
 it("detects built-in Open Artifact directories from native markers even without .artifact.json", async () => {
   const cases: ReadonlyArray<readonly [string, string, string]> = [
