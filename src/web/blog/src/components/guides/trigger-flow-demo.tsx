@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { BOT_WEBHOOK_PROVIDER_META, type BotWebhookProvider } from "@alook/shared";
 import { AgentAvatar } from "@/components/avatar";
@@ -18,6 +17,7 @@ import {
 } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTriggerFlowPlayback } from "../../hooks/use-trigger-flow-playback";
 import { TriggerExternalSurface } from "./trigger-external-surface";
 
 export type TriggerExternalStatus = "open" | "failing" | "passing" | "merged" | "alert" | "info";
@@ -85,8 +85,6 @@ export type TriggerFlowDemoProps = {
   initialStage?: number;
 };
 
-const STAGE_DURATION_MS = 3800;
-
 export function TriggerFlowDemo({
   label,
   provider,
@@ -97,46 +95,13 @@ export function TriggerFlowDemo({
   stages,
   initialStage = 0,
 }: TriggerFlowDemoProps) {
-  const reducedMotion = useReducedMotion();
-  const lastIndex = Math.max(0, stages.length - 1);
-  const [activeIndex, setActiveIndex] = useState(() =>
-    Math.min(lastIndex, Math.max(0, initialStage)),
-  );
-  const [playing, setPlaying] = useState(false);
-  const hasAutoPlayed = useRef(false);
-  const hasManualInteraction = useRef(false);
-  const containerRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (reducedMotion || stages.length <= 1) return;
-    const node = containerRef.current;
-    if (!node || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting && !hasAutoPlayed.current && !hasManualInteraction.current) {
-          hasAutoPlayed.current = true;
-          setPlaying(true);
-        }
-      },
-      { threshold: 0.35 },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [reducedMotion, stages.length]);
-
-  useEffect(() => {
-    if (!playing || reducedMotion || stages.length <= 1) return;
-    const timer = window.setTimeout(() => {
-      setActiveIndex((current) => {
-        if (current >= lastIndex) {
-          setPlaying(false);
-          return lastIndex;
-        }
-        return current + 1;
-      });
-    }, STAGE_DURATION_MS);
-    return () => window.clearTimeout(timer);
-  }, [playing, activeIndex, lastIndex, reducedMotion, stages.length]);
+  const reducedMotion = Boolean(useReducedMotion());
+  const { containerRef, activeIndex, playing, selectStage, togglePlay, replay } =
+    useTriggerFlowPlayback({
+      stageCount: stages.length,
+      initialStage,
+      reducedMotion,
+    });
 
   const stage = stages[activeIndex] ?? stages[0];
   if (!stage) return null;
@@ -145,22 +110,6 @@ export function TriggerFlowDemo({
   const isToAlook = stage.direction === "to-alook";
   const bridgeTag = stage.signalTag ?? stage.signalLabel;
   const headline = stage.headline ?? stage.signalLabel;
-
-  const handleTogglePlay = () => {
-    if (playing) {
-      setPlaying(false);
-      return;
-    }
-    if (activeIndex >= lastIndex) {
-      setActiveIndex(0);
-    }
-    setPlaying(true);
-  };
-
-  const handleReplay = () => {
-    setActiveIndex(0);
-    setPlaying(!reducedMotion);
-  };
 
   return (
     <figure
@@ -187,11 +136,7 @@ export function TriggerFlowDemo({
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => {
-                  hasManualInteraction.current = true;
-                  setPlaying(false);
-                  setActiveIndex(index);
-                }}
+                onClick={() => selectStage(index)}
                 className={cn(
                   "relative min-h-11 shrink-0 whitespace-nowrap py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:min-h-10",
                   active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
@@ -215,10 +160,7 @@ export function TriggerFlowDemo({
             variant="ghost"
             size="sm"
             className="h-8 gap-2 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              hasManualInteraction.current = true;
-              handleTogglePlay();
-            }}
+            onClick={togglePlay}
           >
             {playing ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
             <span>{playing ? "Pause" : "Play"}</span>
@@ -228,10 +170,7 @@ export function TriggerFlowDemo({
             variant="ghost"
             size="sm"
             className="h-8 gap-2 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              hasManualInteraction.current = true;
-              handleReplay();
-            }}
+            onClick={replay}
           >
             <RotateCcw className="size-3.5" aria-hidden />
             <span>Replay</span>

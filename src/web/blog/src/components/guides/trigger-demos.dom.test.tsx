@@ -1,9 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { BOT_WEBHOOK_PROVIDERS } from "@alook/shared";
-import { render, screen } from "@/test/react-dom-harness";
+import { act, fireEvent, render, screen } from "@/test/react-dom-harness";
 import { TriggerFlowDemo } from "./trigger-flow-demo";
 import { TriggerSetupDemo } from "./trigger-setup-demo";
+
+const motionState = { reduced: true };
+
+vi.mock("motion/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("motion/react")>();
+  return {
+    ...actual,
+    useReducedMotion: () => motionState.reduced,
+  };
+});
 
 const sampleStages = [
   {
@@ -46,6 +56,52 @@ const sampleStages = [
 ];
 
 describe("TriggerFlowDemo", () => {
+  const originalIntersectionObserver = globalThis.IntersectionObserver;
+
+  afterEach(() => {
+    motionState.reduced = true;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      writable: true,
+      value: originalIntersectionObserver,
+    });
+  });
+
+  function installIntersectionObserver() {
+    let callback: IntersectionObserverCallback | null = null;
+    const disconnect = vi.fn();
+    const observe = vi.fn();
+    class StubIntersectionObserver {
+      constructor(cb: IntersectionObserverCallback) {
+        callback = cb;
+      }
+      observe = observe;
+      disconnect = disconnect;
+      unobserve = vi.fn();
+      takeRecords = () => [];
+      root = null;
+      rootMargin = "";
+      thresholds = [0.35];
+    }
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      writable: true,
+      value: StubIntersectionObserver,
+    });
+    return {
+      observe,
+      disconnect,
+      trigger(isIntersecting: boolean) {
+        callback?.(
+          [{ isIntersecting } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        );
+      },
+    };
+  }
+
   it("renders external platform and Alook thread and lets users switch stages", async () => {
     const user = userEvent.setup();
     render(
@@ -68,6 +124,93 @@ describe("TriggerFlowDemo", () => {
     expect(screen.getByText("Fixed in PR #215.")).toBeVisible();
     expect(screen.getByText("Merged PR #215 and replied on #214.")).toBeVisible();
     expect(screen.queryByText("Image export fails inside nested folders")).toBeNull();
+  });
+
+  it("auto-plays on first intersection, advances across stages, and supports replay", () => {
+    vi.useFakeTimers();
+    motionState.reduced = false;
+    const observer = installIntersectionObserver();
+
+    const { unmount } = render(
+      <TriggerFlowDemo
+        label="GitHub webhook flow"
+        provider="github"
+        channel="fixes"
+        threadTitle="Issue #214: Image export fails"
+        botName="Atlas"
+        stages={sampleStages}
+      />,
+    );
+
+    expect(observer.observe).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("trigger-flow-demo")).toHaveAttribute("data-active-stage", "issue");
+
+    act(() => {
+      observer.trigger(true);
+    });
+    expect(screen.getByRole("button", { name: "Pause" })).toBeVisible();
+
+    act(() => {
+      vi.advanceTimersByTime(3800);
+    });
+    expect(screen.getByTestId("trigger-flow-demo")).toHaveAttribute("data-active-stage", "merged");
+
+    act(() => {
+      vi.advanceTimersByTime(3800);
+    });
+    expect(screen.getByRole("button", { name: "Play" })).toBeVisible();
+    expect(vi.getTimerCount()).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Replay" }));
+    expect(screen.getByTestId("trigger-flow-demo")).toHaveAttribute("data-active-stage", "issue");
+    expect(screen.getByRole("button", { name: "Pause" })).toBeVisible();
+
+    unmount();
+    expect(observer.disconnect).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not auto-play when reduced motion is enabled or after manual stage selection", () => {
+    vi.useFakeTimers();
+    motionState.reduced = true;
+    const reducedObserver = installIntersectionObserver();
+
+    const view = render(
+      <TriggerFlowDemo
+        label="GitHub webhook flow"
+        provider="github"
+        channel="fixes"
+        threadTitle="Issue #214: Image export fails"
+        botName="Atlas"
+        stages={sampleStages}
+      />,
+    );
+
+    expect(reducedObserver.observe).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Replay" }));
+    expect(screen.getByRole("button", { name: "Play" })).toBeVisible();
+    expect(vi.getTimerCount()).toBe(0);
+    view.unmount();
+
+    motionState.reduced = false;
+    const manualObserver = installIntersectionObserver();
+    render(
+      <TriggerFlowDemo
+        label="GitHub webhook flow"
+        provider="github"
+        channel="fixes"
+        threadTitle="Issue #214: Image export fails"
+        botName="Atlas"
+        stages={sampleStages}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "2. Merged & replied" }));
+    act(() => {
+      manualObserver.trigger(true);
+    });
+    expect(screen.getByRole("button", { name: "Play" })).toBeVisible();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each(BOT_WEBHOOK_PROVIDERS)("renders authentic external surface and Alook shell for %s", (provider) => {
