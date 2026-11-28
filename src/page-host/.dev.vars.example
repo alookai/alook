@@ -1,3 +1,8 @@
 OA_SIGNING_KEYS=
 OA_OWNER_KEY=
 ALOOK_PAGE_SERVICE_KEY=
+OA_APP_ORIGIN=http://localhost:8795
+OA_CONTENT_ORIGIN=http://{id}.content.localhost:8795
+ALOOK_WEB_ORIGIN=http://localhost:3000
+ALOOK_WEB_DEV_LOOPBACK=1
+ALOOK_EMBED_ORIGINS=["http://localhost:3000"]
