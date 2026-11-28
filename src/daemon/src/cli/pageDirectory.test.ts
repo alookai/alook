@@ -44,3 +44,21 @@ it("rejects excessive files and incompressible archives over the upload bound", 
   await writeFile(join(root, "noise.bin"), randomBytes(17 * 1024 * 1024));
   await expect(preparePageDirectory(root)).rejects.toThrow("16 MiB compressed");
 });
+
+it("detects built-in Open Artifact directories from native markers even without .artifact.json", async () => {
+  const cases: ReadonlyArray<readonly [string, string, string]> = [
+    ["docs", "doc/doc.json", JSON.stringify({ format: "oa-doc", tabs: {} })],
+    ["sheets", "sheet/sheet.json", JSON.stringify({ id: "00000000-0000-0000-0000-000000000000", title: "Budget" })],
+    ["slides", "project/deck.json", JSON.stringify({ v: 5, title: "Deck", order: [] })],
+    ["whiteboard", "db/board/meta.json", JSON.stringify({ v: 1, title: "Board", order: [] })],
+  ];
+  for (const [expectedType, relPath, body] of cases) {
+    const root = await mkdtemp(join(tmpdir(), `page-marker-${expectedType}-`));
+    roots.push(root);
+    const dir = join(root, relPath.split("/").slice(0, -1).join("/"));
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(root, relPath), body);
+    const prepared = await preparePageDirectory(root);
+    expect(prepared.type).toBe(expectedType);
+  }
+});

@@ -23,13 +23,16 @@ For local app integration, copy `.dev.vars.example` to `.dev.vars`, set random d
 A bot uses the existing message command and upload path:
 
 ```sh
-alook page upload --dir /absolute/artifact-directory --cover /absolute/cover.png
+alook page guide --type slides
+alook page local check /absolute/artifact-directory
+alook page preview --dir /absolute/artifact-directory --out /tmp/preview.png
+alook page upload --dir /absolute/artifact-directory [--cover /tmp/preview.png]
 alook message send --target /example#1234/general --page page_ID_FROM_UPLOAD --remind-after 5m --stdin <<'PAGE_MESSAGE'
 Please review this Page.
 PAGE_MESSAGE
 ```
 
-Upload an artifact directory with its required homepage cover image once using `page upload --dir <directory> --cover <image>` and pass the returned `page_id` to `message send --page <page_id>` across one or more channels. The CLI validates the directory before network access, excludes `.git`, `node_modules` and hidden unrelated files, rejects symlinks, then constructs the upstream ZIP with one enclosing folder. That folder contains `.artifact.json` and the native artifact files. A generic Page has `{"type":"page","title":"Example","capabilities":{"comments":{}}}` and `index.html`. Upstream exports for the other supported types retain their native format. Archives are limited to 16 MiB compressed, 32 MiB expanded and 2,000 files.
+`page guide`, `page local`, and `page preview` lazily download and SHA-256-verify the deduplicated local Open Artifact runtime (`pnpm --filter @alook/page-host pack:runtime`, ~16.9 MB `.tar.gz` containing the shared editors, local `cli.mjs`, and all 9 upstream `SKILL.md` + `reference/*.md` guides) once per machine into `~/.alook/page-runtime/<cacheKey>/`. `page upload --dir <directory>` validates the directory locally and captures its real 16:10 homepage cover locally before any network upload (or uses an explicit `--cover <image>` override), then uploads the archive and cover before returning `page_id`. Pass the returned `page_id` to `message send --page <page_id>` across one or more channels. The CLI validates the directory before network access, excludes `.git`, `node_modules`, `_agent`, and hidden unrelated files, rejects symlinks, then constructs the upstream ZIP with one enclosing folder. That folder contains `.artifact.json` and the native artifact files. A generic Page has `{"type":"page","title":"Example","capabilities":{"comments":{}}}` and `index.html`. Upstream exports for the other supported types retain their native format. Archives are limited to 16 MiB compressed, 32 MiB expanded and 2,000 files.
 
 The server registers the archive as an independent Page before advertising a card. Bot plus archive attachment id determines the Page id; repeated registration never replaces live edits. The normal message, trusted embed and many-to-many message association commit in one D1 batch. Reusing a Page id requires its publisher or current reader access, and makes no new upload or import. All messages point to the same live artifact. Deleting a message removes only its association. Removing all readable associations revokes reader access and live connections; the publisher retains its independent resource. The archive attachment stays referenced by the resource, without adding a visible ZIP block to its messages.
 

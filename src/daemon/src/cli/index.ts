@@ -8,6 +8,15 @@ import {
 } from "@alook/shared";
 import { preparePageDirectory } from "./pageDirectory.js";
 import { preparePageCover } from "./pageCover.js";
+import {
+  captureLocalPagePreview,
+  openLocalPagePreview,
+  serveStaticPagePreviewLoop,
+  writeLocalPagePreviewFile,
+  type LocalPagePreviewOptions,
+  type LocalPagePreviewResult,
+} from "./pageLocalPreview.js";
+import { ensurePageRuntime, readPageGuide, runPageLocalCli } from "./pageRuntime.js";
 import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
@@ -327,13 +336,30 @@ async function dispatchSendAndArmReminder(
   }
 }
 
-async function uploadPageDirectory(api: ServerApi, agent: string, directory: string, coverFile: string) {
-  const cover = await preparePageCover(coverFile);
+export type LocalPageCoverCapturer = (directory: string, options?: LocalPagePreviewOptions) => Promise<LocalPagePreviewResult>;
+
+let localPageCoverCapturerOverride: LocalPageCoverCapturer | null = null;
+
+export function setLocalPageCoverCapturerForTesting(fn: LocalPageCoverCapturer | null): void {
+  localPageCoverCapturerOverride = fn;
+}
+
+async function uploadPageDirectory(api: ServerApi, agent: string, directory: string, coverFile?: string) {
   const prepared = await preparePageDirectory(directory);
+  const cover = coverFile !== undefined
+    ? await preparePageCover(coverFile)
+    : await (localPageCoverCapturerOverride ?? captureLocalPagePreview)(directory);
   const uploaded = await api.attachmentUpload({ agentId: agent, file: { data: prepared.bytes, filename: "page.zip", contentType: "application/zip" } });
   const page = await withTransientMutationRetry(() => api.pageCreate({ archiveAttachmentId: uploaded.id }));
-  try { await withTransientMutationRetry(() => api.pageCover({ id: page.id, ...cover })); }
-  catch (error) { throw new CliError(`Page ${page.id} was created; cover upload failed: ${(error as Error).message}. Delete it with page delete --id ${page.id} and re-upload.`); }
+  try {
+    await withTransientMutationRetry(() => api.pageCover({ id: page.id, data: cover.data, contentType: cover.contentType }));
+  } catch (error) {
+    const rolledBack = await api.pageDelete({ id: page.id }).then(() => true, () => false);
+    if (rolledBack) {
+      throw new CliError(`page upload: cover upload failed (${(error as Error).message}); rolled back Page creation. Retry page upload.`);
+    }
+    throw new CliError(`Page ${page.id} was created; cover upload failed: ${(error as Error).message}. Delete it with page delete --id ${page.id} and re-upload.`);
+  }
   return page;
 }
 
@@ -412,7 +438,7 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   if (opts.page) {
     const value = String(opts.page);
     if (!/^page_[A-Za-z0-9_-]{1,123}$/.test(value)) {
-      throw new CliError("message send: --page requires a Page id from page upload --dir <dir> --cover <image>");
+      throw new CliError("message send: --page requires a Page id from page upload --dir <dir>");
     }
     page = { id: value };
   }
@@ -882,12 +908,65 @@ function buildProgram(stdin: CliInputStream): Command {
       } else printEnvelope({ success: result });
     });
 
-  pageCommand.command("upload").description("validate and upload an artifact directory with its homepage cover; return its reusable live Page id")
-    .requiredOption("--dir <directory>", "directory containing .artifact.json and artifact files")
-    .requiredOption("--cover <image>", "required real homepage screenshot (PNG, JPEG or WebP, max 2 MiB)")
+  pageCommand.command("guide").description("read the official authoring SKILL.md and reference docs for any of the 9 Page artifact types (lazily caches the shared runtime)")
+    .option("--type <type>", "artifact type: docs, slides, sheets, whiteboard, design, data, motion, design-system, or page")
+    .option("--ref <file>", "reference markdown filename under the type's reference/ folder (requires --type)")
     .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
-      printEnvelope({ success: await uploadPageDirectory(getApi(), agentId(program.opts()), String(this.opts().dir), String(this.opts().cover)) });
+      const opts = this.opts();
+      if (opts.ref && !opts.type) throw new CliError("page guide: --ref requires --type <type>");
+      const runtime = await ensurePageRuntime();
+      printEnvelope({ success: await readPageGuide(runtime, opts.type as string | undefined, opts.ref as string | undefined) });
+    });
+
+  pageCommand.command("local [args...]").description("run a local Open Artifact authoring or validation command (create, update, read, batch, write-db, read-db, check, upload, info, open, stop) via the cached runtime; forwards piped stdin")
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command, rawArgs: string[]) {
+      const forwarded = Array.isArray(rawArgs) ? rawArgs : [];
+      if (forwarded.length === 0) throw new CliError("page local: pass a local Open Artifact subcommand and arguments (e.g. check <dir>)");
+      const runtime = await ensurePageRuntime();
+      const result = await runPageLocalCli(runtime, forwarded, {
+        ...(stdin.isTTY ? {} : { stdinStream: stdin }),
+      });
+      if (result.exitCode !== 0) {
+        printEnvelope({
+          error: result.stderr.trim() || result.stdout.trim() || `page local exited with code ${result.exitCode}`,
+          code: `EXIT_${result.exitCode}`,
+        });
+        return;
+      }
+      printEnvelope({ success: result });
+    });
+
+  pageCommand.command("preview").description("preview a local Page directory (all 9 types): omit --out to open an interactive local browser URL, or pass --out <img.png> to save a 16:10 screenshot")
+    .requiredOption("--dir <directory>", "local artifact directory")
+    .option("--out <path>", "optional destination image path; when set, renders and saves a 16:10 screenshot instead of starting a live local URL")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const outPath = this.opts().out ?? pageCommand.opts().out;
+      if (outPath) {
+        printEnvelope({ success: await writeLocalPagePreviewFile(String(this.opts().dir), String(outPath)) });
+      } else {
+        printEnvelope({ success: await openLocalPagePreview(String(this.opts().dir)) });
+      }
+    });
+
+  pageCommand.command("_serve-static", { hidden: true })
+    .requiredOption("--dir <directory>")
+    .option("--idle <seconds>", "auto-exit idle timeout in seconds", "600")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      await serveStaticPagePreviewLoop(String(this.opts().dir), Number(this.opts().idle ?? 600));
+    });
+
+  pageCommand.command("upload").description("validate a local artifact directory, capture its 16:10 homepage cover locally before upload (or use --cover), and return its reusable live Page id")
+    .requiredOption("--dir <directory>", "directory containing .artifact.json and artifact files")
+    .option("--cover <image>", "optional 16:10 cover image override (PNG, JPEG or WebP, max 2 MiB); auto-rendered locally before upload when omitted")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      printEnvelope({ success: await uploadPageDirectory(getApi(), agentId(program.opts()), String(this.opts().dir), this.opts().cover as string | undefined) });
     });
 
   pageCommand.command("list").description("list Pages created by this bot, including unused uploads; return the total and message counts")

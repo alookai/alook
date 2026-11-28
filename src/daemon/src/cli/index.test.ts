@@ -31,7 +31,7 @@ vi.mock("./daemonRefresh.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("./daemonRefresh.js")>(),
   daemonRefreshFromIpc: mockDaemonRefreshFromIpc,
 }));
-import { main, setApiForTesting, decodeTextEscapes, type CliInputStream } from "./index";
+import { main, setApiForTesting, setLocalPageCoverCapturerForTesting, decodeTextEscapes, type CliInputStream } from "./index";
 import type { ServerApi } from "../server/contract";
 import { MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared/constants/community";
 import { MESSAGE_SEND_STDIN_POLICY } from "../drivers/systemPrompt";
@@ -2542,28 +2542,43 @@ it("reuses a live Page id without a file upload or resource creation", async () 
   expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
 });
 
-it("page upload requires --cover, returns a reusable id, and invalid directories fail before any network call", async () => {
+it("page upload auto-captures a local cover before any network call when --cover is omitted, fails pre-network on capture error, and supports --cover override", async () => {
   const fs = await import("node:fs/promises"); const folder = await fs.mkdtemp(join(tmpdir(), "page-upload-cli-"));
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64");
   const coverPath = join(folder, "cover.png");
   const upload = vi.fn(async () => ({ id: "archive-id", filename: "page.zip", contentType: "application/zip", size: 17 }));
   const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_uploaded", type: "page", title: "Test" }));
   const pageCover = vi.fn(async () => ({ id: "page_uploaded", etag: "revision" }));
+  const localCapture = vi.fn(async () => ({ data: new Uint8Array(png), contentType: "image/png" as const, type: "page", width: 1280, height: 800 }));
   setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, pageCover }));
+  setLocalPageCoverCapturerForTesting(localCapture);
   try {
     await fs.writeFile(coverPath, png);
     await main(["page", "upload", "--dir", folder]);
-    expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("--cover") });
-    expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
-    await main(["page", "upload", "--dir", folder, "--cover", coverPath]);
-    expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled(); expect(localCapture).not.toHaveBeenCalled();
+
     await fs.writeFile(join(folder, ".artifact.json"), JSON.stringify({ type: "page" }));
     await fs.writeFile(join(folder, "index.html"), "<title>Test</title>");
-    await main(["page", "upload", "--dir", folder, "--cover", coverPath]);
+
+    localCapture.mockRejectedValueOnce(new Error("no local browser found"));
+    await main(["page", "upload", "--dir", folder]);
+    expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("no local browser") });
+    expect(upload).not.toHaveBeenCalled(); expect(pageCreate).not.toHaveBeenCalled();
+
+    expect(await main(["page", "upload", "--dir", folder])).toBe(0);
+    expect(localCapture).toHaveBeenCalledTimes(2);
+    expect(localCapture.mock.invocationCallOrder[1]).toBeLessThan(upload.mock.invocationCallOrder[0]!);
     expect(upload).toHaveBeenCalledOnce(); expect(pageCreate).toHaveBeenCalledWith({ archiveAttachmentId: "archive-id" });
-    expect(pageCover).toHaveBeenCalledOnce();
+    expect(pageCover).toHaveBeenCalledWith({ id: "page_uploaded", data: new Uint8Array(png), contentType: "image/png" });
     expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ success: { id: "page_uploaded" } });
-  } finally { await fs.rm(folder, { recursive: true, force: true }); }
+
+    expect(await main(["page", "upload", "--dir", folder, "--cover", coverPath])).toBe(0);
+    expect(localCapture).toHaveBeenCalledTimes(2);
+    expect(pageCover).toHaveBeenCalledTimes(2);
+  } finally {
+    setLocalPageCoverCapturerForTesting(null);
+    await fs.rm(folder, { recursive: true, force: true });
+  }
 });
 
 it("lists the bot's own Page total and deletes by id through the canonical resource APIs", async () => {
@@ -2610,17 +2625,78 @@ it("uploads required cover only during page upload and rejects removed cover com
   expect(pageCover).toHaveBeenCalledOnce();
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
-it("validates covers before network and reports the created Page id when a later cover upload fails", async () => {
+it("rolls back a newly created Page when cover upload fails, and reports page_id if rollback also fails", async () => {
  const fs = await import("node:fs/promises"); const dir = await fs.mkdtemp(join(tmpdir(), "page-cli-cover-"));
  const upload = vi.fn(async () => ({ id: "archive" })); const pageCreate = vi.fn(async () => ({ kind: "alook_page" as const, id: "page_partial", type: "page", title: "Test" }));
- const pageCover = vi.fn(async () => { throw new Error("forbidden"); }); setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, pageCover }));
+ const pageCover = vi.fn(async () => { throw new Error("forbidden"); });
+ const pageDelete = vi.fn(async () => ({ deleted: true as const }));
+ setApiForTesting(stubApi({ attachmentUpload: upload, pageCreate, pageCover, pageDelete }));
  try {
   const coverPath = join(dir, "cover.png");
   await fs.writeFile(join(dir, ".artifact.json"), JSON.stringify({ type: "page" })); await fs.writeFile(join(dir, "index.html"), "Hello"); await fs.writeFile(coverPath, "<svg/>");
   await main(["page", "upload", "--dir", dir, "--cover", coverPath]); expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("PNG") }); expect(upload).not.toHaveBeenCalled();
   await fs.writeFile(coverPath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lqkAAAAASUVORK5CYII=", "base64"));
   await main(["page", "upload", "--dir", dir, "--cover", coverPath]);
-  expect(cap.lines().join("")).toContain("page_partial was created"); expect(cap.lines().join("")).toContain("page delete --id page_partial");
-  expect(pageCreate).toHaveBeenCalledOnce();
+  expect(pageDelete).toHaveBeenCalledWith({ id: "page_partial" });
+  expect(JSON.parse(cap.lines().at(-1)!)).toMatchObject({ error: expect.stringContaining("rolled back") });
+
+  pageDelete.mockRejectedValueOnce(new Error("delete unavailable"));
+  await main(["page", "upload", "--dir", dir, "--cover", coverPath]);
+  expect(cap.lines().at(-1)!).toContain("page_partial was created"); expect(cap.lines().at(-1)!).toContain("page delete --id page_partial");
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
+
+it("page guide, page local (with piped stdin and non-zero exit), and page preview work cleanly through CLI", async () => {
+  const fs = await import("node:fs/promises");
+  const tmp = await fs.mkdtemp(join(tmpdir(), "page-local-cli-"));
+  const runtimeDir = join(tmp, "runtime-root");
+  await fs.mkdir(join(runtimeDir, "runtime"), { recursive: true });
+  await fs.mkdir(join(runtimeDir, "guides", "docs", "reference"), { recursive: true });
+  await fs.writeFile(join(runtimeDir, "guides", "docs", "SKILL.md"), "# Docs Guide\nRun open-artifact create.\n");
+  await fs.writeFile(join(runtimeDir, "guides", "docs", "reference", "tabs.md"), "# Tabs\n");
+  await fs.writeFile(join(runtimeDir, "runtime", "cli.mjs"), [
+    'const args = process.argv.slice(2);',
+    'if (args[0] === "fail") { console.error("refused"); process.exit(1); }',
+    'if (args[0] === "open") { console.log(JSON.stringify({ url: "http://127.0.0.1:41234/docs/tok/" })); process.exit(0); }',
+    'let input = "";',
+    'for await (const chunk of process.stdin) input += chunk;',
+    'console.log(JSON.stringify({ argv: args, stdin: input }));',
+  ].join("\n") + "\n");
+  const prevRuntimeDir = process.env.ALOOK_PAGE_RUNTIME_DIR;
+  process.env.ALOOK_PAGE_RUNTIME_DIR = runtimeDir;
+  try {
+    await main(["page", "guide", "--ref", "tabs.md"]);
+    expect(parseEnvelope(cap.lines()).error).toContain("--ref requires --type");
+
+    cap.lines().length = 0;
+    await main(["page", "guide", "--type", "docs"]);
+    const guideEnv = parseEnvelope(cap.lines()) as { success: { type: string; content: string; references: string[] } };
+    expect(guideEnv.success.type).toBe("docs");
+    expect(guideEnv.success.references).toEqual(["tabs.md"]);
+    expect(guideEnv.success.content).toContain("alook page local");
+    expect(guideEnv.success.content).toContain("# Docs Guide");
+
+    cap.lines().length = 0;
+    await mainWithStdin(["page", "local", "update", "/tmp/d", "-"], '{"ops":["hello"]}');
+    const localEnv = parseEnvelope(cap.lines()) as { success: { exitCode: number; stdout: string } };
+    expect(localEnv.success.exitCode).toBe(0);
+    expect(JSON.parse(localEnv.success.stdout)).toEqual({ argv: ["update", "/tmp/d", "-"], stdin: '{"ops":["hello"]}' });
+
+    cap.lines().length = 0;
+    await main(["page", "local", "fail"]);
+    expect(parseEnvelope(cap.lines())).toMatchObject({ error: "refused", code: "EXIT_1" });
+
+    const docDir = join(tmp, "doc-artifact");
+    await fs.mkdir(join(docDir, "doc"), { recursive: true });
+    await fs.writeFile(join(docDir, "doc", "doc.json"), JSON.stringify({ format: "oa-doc", tabs: {} }));
+    cap.lines().length = 0;
+    await main(["page", "preview", "--dir", docDir]);
+    expect(parseEnvelope(cap.lines())).toMatchObject({
+      success: { mode: "interactive", type: "docs", url: "http://127.0.0.1:41234/docs/tok/" },
+    });
+  } finally {
+    if (prevRuntimeDir === undefined) delete process.env.ALOOK_PAGE_RUNTIME_DIR;
+    else process.env.ALOOK_PAGE_RUNTIME_DIR = prevRuntimeDir;
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
 });

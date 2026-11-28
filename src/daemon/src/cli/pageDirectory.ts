@@ -6,6 +6,23 @@ import { archiveKeeps, foldedName, writeArchive, checkZip, unpackZipFile } from 
 
 export const PAGE_ARCHIVE_LIMITS = { compressed: 16 * 1024 * 1024, expanded: 32 * 1024 * 1024, files: 2000 } as const;
 const types = new Set(["page", "docs", "slides", "sheets", "whiteboard", "design", "data", "motion", "design-system"]);
+const builtinMarkers: ReadonlyArray<readonly [string, string]> = [
+  ["doc/doc.json", "docs"],
+  ["sheet/sheet.json", "sheets"],
+  ["project/deck.json", "slides"],
+  ["project/canvas.json", "design"],
+  ["project/design-system.json", "design-system"],
+  ["db/board/meta.json", "whiteboard"],
+  ["db/dash/meta.json", "data"],
+  ["db/film/meta.json", "motion"],
+];
+
+function detectBuiltinType(paths: ReadonlySet<string>): string | null {
+  for (const [marker, type] of builtinMarkers) {
+    if (paths.has(marker)) return type;
+  }
+  return null;
+}
 
 export async function preparePageDirectory(directory: string) {
   const root = resolve(directory);
@@ -47,11 +64,27 @@ export async function preparePageDirectory(directory: string) {
   };
   try {
     await walk("");
-    let manifest: unknown;
-    try { const file = await readFile(join(snapshot, ".artifact.json")); if (file.length > 64 * 1024) throw new Error(); manifest = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(file)); }
-    catch { throw new Error("Page directory requires a valid .artifact.json object"); }
-    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest) || !("type" in manifest) || typeof manifest.type !== "string" || !types.has(manifest.type)) throw new Error("Page .artifact.json has an unsupported type");
-    if (manifest.type === "page" && !paths.has("index.html")) throw new Error("A generic Page requires index.html");
+    let type: string | null = null;
+    if (paths.has(".artifact.json")) {
+      let manifest: unknown;
+      try {
+        const file = await readFile(join(snapshot, ".artifact.json"));
+        if (file.length > 64 * 1024) throw new Error();
+        manifest = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(file));
+      } catch {
+        throw new Error("Page directory requires a valid .artifact.json object");
+      }
+      if (!manifest || typeof manifest !== "object" || Array.isArray(manifest) || !("type" in manifest) || typeof manifest.type !== "string" || !types.has(manifest.type)) {
+        throw new Error("Page .artifact.json has an unsupported type");
+      }
+      type = manifest.type;
+    } else {
+      type = detectBuiltinType(paths);
+      if (!type) {
+        throw new Error("Page directory requires a valid .artifact.json object or recognized Open Artifact marker");
+      }
+    }
+    if (type === "page" && !paths.has("index.html")) throw new Error("A generic Page requires index.html");
     const archive = join(temporary, "page.zip");
     await writeArchive(snapshot, archive);
     const size = (await lstat(archive)).size;
@@ -59,6 +92,6 @@ export async function preparePageDirectory(directory: string) {
     const bytes = await readFile(archive);
     const checked = checkZip(bytes, { noun: "Page archive", maxFiles: PAGE_ARCHIVE_LIMITS.files, maxBytes: PAGE_ARCHIVE_LIMITS.expanded, maxFileBytes: PAGE_ARCHIVE_LIMITS.expanded });
     for (const entry of checked.files) await unpackZipFile(bytes, entry);
-    return { bytes: new Uint8Array(bytes), type: manifest.type, files: count, expandedBytes: expanded };
+    return { bytes: new Uint8Array(bytes), type, files: count, expandedBytes: expanded };
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
