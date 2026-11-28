@@ -1,18 +1,40 @@
 import { queryOptions } from "@tanstack/react-query"
-import type {
-  ScheduleActorSummary,
-  ScheduleEvent,
-  ScheduleListResponse,
-  ScheduleOccurrenceStatus,
-  ScheduleRecurrence,
-  ScheduleRunStatus,
-  ScheduleSourceMessageStatus,
+import {
+  COMMUNITY_CONTRACT_HEADER,
+  COMMUNITY_RESOURCE_CONTRACT_VERSION,
+  type CommunityMessageRead,
+  type ScheduleActorSummary,
+  type ScheduleEvent,
+  type ScheduleListResponse,
+  type ScheduleOccurrenceStatus,
+  type ScheduleRecurrence,
+  type ScheduleRunStatus,
+  type ScheduleSourceMessageStatus,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { apiFetchCommunity } from "./account-cache-lifecycle"
+import { avatarInitial } from "./avatar"
+import { presentCanonicalMessage } from "./message-wire"
+import type { Msg } from "./models/message"
 
 export type ScheduleViewMode = "week" | "agenda"
+
+export type ScheduleBoundMessage = {
+  id: string
+  authorId?: string
+  authorName: string
+  authorAvatar: string
+  createdAt?: string
+  content: string
+  attachments?: Msg["attachments"]
+}
+
+export type ScheduleBoundMessageState = {
+  status: "idle" | "loading" | "ready" | "unavailable" | "error"
+  message: ScheduleBoundMessage | null
+  onRetry?: () => void
+}
 
 type ScheduleActorKind = "human" | "bot"
 
@@ -237,6 +259,42 @@ export function scheduleEventsQueryOptions(params: {
         { signal },
         token,
       )
+    },
+  })
+}
+
+export function presentScheduleBoundMessage(read: CommunityMessageRead): ScheduleBoundMessage {
+  const profilesById = new Map((read.profiles ?? []).map((profile) => [profile.id, profile]))
+  const presented = presentCanonicalMessage(read.message)
+  const authorProfile = read.message.authorId ? profilesById.get(read.message.authorId) : undefined
+  const authorName = authorProfile?.name ?? presented.authorName ?? "Unknown"
+  const authorAvatar = authorProfile?.avatar ?? presented.authorAvatar ?? avatarInitial(authorName)
+
+  return {
+    id: presented.id,
+    authorId: read.message.authorId,
+    authorName,
+    authorAvatar,
+    createdAt: presented.createdAt,
+    content: presented.content ?? "",
+    ...(presented.attachments ? { attachments: presented.attachments } : {}),
+  }
+}
+
+export function scheduleSourceMessageQueryOptions(messageId: string) {
+  return queryOptions({
+    queryKey: communityKeys.scheduleSourceMessage(messageId),
+    queryFn: async ({ client, signal }): Promise<ScheduleBoundMessage> => {
+      const token = captureCommunityLiveSnapshotToken(client)
+      const read = await apiFetchCommunity<CommunityMessageRead>(
+        `/api/community/messages/${encodeURIComponent(messageId)}`,
+        {
+          signal,
+          headers: { [COMMUNITY_CONTRACT_HEADER]: String(COMMUNITY_RESOURCE_CONTRACT_VERSION) },
+        },
+        token,
+      )
+      return presentScheduleBoundMessage(read)
     },
   })
 }

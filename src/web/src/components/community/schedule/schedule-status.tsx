@@ -182,11 +182,9 @@ function parseSourceRefPillParts(ref: string | null | undefined): {
 
 export function ScheduleSourceRefPill({
   source,
-  onOpenSourceMessage,
   testId,
 }: {
   source: ScheduleSourceMessage
-  onOpenSourceMessage: (messageId: string) => void
   testId?: string
 }) {
   if (!source.accessible) return null
@@ -198,10 +196,6 @@ export function ScheduleSourceRefPill({
       serverPrefix={parts.serverPrefix}
       seqSuffix={parts.seqSuffix}
       testId={testId}
-      onClick={(event) => {
-        event.stopPropagation()
-        onOpenSourceMessage(source.messageId)
-      }}
     >
       {parts.label}
     </ChannelPill>

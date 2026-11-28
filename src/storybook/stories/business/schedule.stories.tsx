@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite"
 import { SchedulePageSkeleton } from "@/components/community/schedule/schedule-skeleton"
 import type {
   ScheduleActor,
+  ScheduleBoundMessageState,
   ScheduleOccurrenceItem,
   ScheduleViewMode,
 } from "@/components/community/schedule/schedule-types"
@@ -39,7 +40,7 @@ const SAMPLE_OCCURRENCES: ScheduleOccurrenceItem[] = [
         messageId: "msg_standup",
         accessible: true,
         status: "accessible",
-        channelLabel: "/Alook#5620/gus-board#42",
+        channelLabel: "/.dm/Alli#6011#14",
         excerpt: "Please send a daily standup digest here.",
       },
       lastExecution: {
@@ -75,7 +76,7 @@ const SAMPLE_OCCURRENCES: ScheduleOccurrenceItem[] = [
         messageId: "msg_standup",
         accessible: true,
         status: "accessible",
-        channelLabel: "/Alook#5620/gus-board#42",
+        channelLabel: "/.dm/Alli#6011#14",
         excerpt: "Please send a daily standup digest here.",
       },
       lastExecution: {
@@ -167,10 +168,39 @@ const SAMPLE_OCCURRENCES: ScheduleOccurrenceItem[] = [
   },
 ]
 
-function ScheduleSpecimen({ initialView }: { initialView: ScheduleViewMode }) {
+const SAMPLE_DM_BOUND_MESSAGE: ScheduleBoundMessageState = {
+  status: "ready",
+  message: {
+    id: "msg_standup",
+    authorId: "demo-gus",
+    authorName: "Gus",
+    authorAvatar: "G",
+    createdAt: new Date(2026, 10, 24, 21, 18).toISOString(),
+    content: [
+      "Every weekday at `09:30`, send a short digest here covering:",
+      "",
+      "- Shipped PRs merged into `main`",
+      "- Open blockers that need a decision",
+      "- Pending visual QA items for light & dark mode",
+    ].join("\n"),
+  },
+}
+
+function ScheduleSpecimen({
+  initialView,
+  refreshing = false,
+  initialSelectedOccurrenceKey = null,
+  boundMessage,
+}: {
+  initialView: ScheduleViewMode
+  refreshing?: boolean
+  initialSelectedOccurrenceKey?: string | null
+  boundMessage?: ScheduleBoundMessageState
+}) {
   const [view, setView] = useState<ScheduleViewMode>(initialView)
   const [anchorDate, setAnchorDate] = useState<Date>(ANCHOR)
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null)
+  const [selectedOccurrenceKey, setSelectedOccurrenceKey] = useState<string | null>(initialSelectedOccurrenceKey)
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-background">
       <ScheduleWorkspace
@@ -180,10 +210,13 @@ function ScheduleSpecimen({ initialView }: { initialView: ScheduleViewMode }) {
         onAnchorDateChange={setAnchorDate}
         selectedBotId={selectedBotId}
         onSelectedBotIdChange={setSelectedBotId}
+        selectedOccurrenceKey={selectedOccurrenceKey}
+        onSelectedOccurrenceKeyChange={setSelectedOccurrenceKey}
+        boundMessage={boundMessage}
         bots={[ALLI, ELWIRA, CECILIA]}
         occurrences={SAMPLE_OCCURRENCES}
+        refreshing={refreshing}
         onBack={() => undefined}
-        onOpenSourceMessage={() => undefined}
         onAskBot={() => undefined}
         onOpenBots={() => undefined}
       />
@@ -196,7 +229,7 @@ const meta = {
   component: ScheduleSpecimen,
   tags: ["autodocs", "ai-generated"],
   parameters: { layout: "fullscreen" },
-  args: { initialView: "week" },
+  args: { initialView: "week", refreshing: false, initialSelectedOccurrenceKey: null },
 } satisfies Meta<typeof ScheduleSpecimen>
 
 export default meta
@@ -208,6 +241,33 @@ export const WeekView: Story = {
 
 export const AgendaView: Story = {
   args: { initialView: "agenda" },
+}
+
+export const RefreshingWeek: Story = {
+  args: { initialView: "week", refreshing: true },
+}
+
+export const DetailSheetDmMessage: Story = {
+  args: {
+    initialView: "week",
+    initialSelectedOccurrenceKey: "sch_1:2026-11-24T09:30",
+    boundMessage: SAMPLE_DM_BOUND_MESSAGE,
+  },
+}
+
+export const DetailSheetLoading: Story = {
+  args: {
+    initialView: "week",
+    initialSelectedOccurrenceKey: "sch_1:2026-11-25T09:30",
+    boundMessage: { status: "loading", message: null },
+  },
+}
+
+export const DetailSheetUnavailable: Story = {
+  args: {
+    initialView: "agenda",
+    initialSelectedOccurrenceKey: "sch_2:2026-11-26T14:00",
+  },
 }
 
 export const LoadingSkeleton: Story = {

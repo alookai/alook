@@ -2,9 +2,11 @@ import { QueryClient } from "@tanstack/react-query"
 import { describe, expect, it, vi } from "vitest"
 import { handleScheduleChanged } from "@/hooks/community/community-ws/schedule-events"
 import { communityKeys } from "@/lib/query-keys"
+import { messageResourceFixture, singleMessageReadFixture } from "@/test/community-resource-fixtures"
 import {
   formatScheduleRecurrence,
   mapScheduleListResponse,
+  presentScheduleBoundMessage,
   type ScheduleListResponseDto,
 } from "./schedule"
 
@@ -140,5 +142,25 @@ describe("schedule client mapping", () => {
       queryKey: communityKeys.schedule(),
       refetchType: "active",
     })
+  })
+
+  it("presents a hydrated DM bound message content with profile avatar without reply quote", () => {
+    const bound = messageResourceFixture({
+      id: "msg_dm_14",
+      channelId: "dm_alli",
+      seq: 14,
+      authorId: "user_gus",
+      authorName: "Gus",
+      authorAvatarVersion: 2,
+      content: "Yes! Include blockers and open PRs.",
+      replyToId: "msg_parent",
+      replyTo: { id: "msg_parent", authorId: "bot_alli", authorName: "Alli", deleted: false },
+    })
+    const presented = presentScheduleBoundMessage(singleMessageReadFixture(bound))
+
+    expect(presented.id).toBe("msg_dm_14")
+    expect(presented.authorName).toBe("Gus")
+    expect(presented.content).toBe("Yes! Include blockers and open PRs.")
+    expect("replyTo" in presented).toBe(false)
   })
 })
