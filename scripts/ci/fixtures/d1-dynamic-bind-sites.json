@@ -189,9 +189,6 @@
     "key": "src/shared/src/db/queries/community/bot-private-inbox.ts:enqueuePrivateInboxEvent:notInArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/bot-private-inbox.ts:getLatestPrivateInboxEventsBySources:inArray:1"
-  },
-  {
     "key": "src/shared/src/db/queries/community/bot.ts:activationCursorCatchupBuilder:inArray:1"
   },
   {
