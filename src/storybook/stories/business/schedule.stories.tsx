@@ -183,13 +183,6 @@ const SAMPLE_DM_BOUND_MESSAGE: ScheduleBoundMessageState = {
       "- Open blockers that need a decision",
       "- Pending visual QA items for light & dark mode",
     ].join("\n"),
-    replyTo: {
-      id: "msg_prev",
-      authorName: "Alli",
-      text: "Want me to bind the daily standup check to our DM?",
-      deleted: false,
-    },
-    replyAuthorName: "Alli",
   },
 }
 

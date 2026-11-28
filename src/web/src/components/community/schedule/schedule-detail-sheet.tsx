@@ -7,7 +7,6 @@ import { AttachmentCard } from "@/components/community/messages/attachment-card"
 import { MessageAuthorLine } from "@/components/community/messages/message-author-line"
 import { MessageBody } from "@/components/community/messages/message-body"
 import { MessageImageAttachment } from "@/components/community/messages/message-image-attachment"
-import { MessageReplyPreview } from "@/components/community/messages/message-reply-preview"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { formatMessageTime } from "@/lib/community/format-time"
@@ -93,57 +92,48 @@ function BoundMessageRendered({ message }: { message: ScheduleBoundMessage }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.16, ease: EASE_OUT_EXPO }}
       data-schedule-bound-message="ready"
-      className="flex flex-col gap-2"
+      className="flex items-start gap-2.5"
     >
-      {message.replyTo ? (
-        <MessageReplyPreview
-          reply={message.replyTo}
-          authorName={message.replyAuthorName ?? "Unknown"}
+      <Avatar
+        label={message.authorAvatar}
+        seed={message.authorId}
+        size={40}
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <MessageAuthorLine
+          authorName={message.authorName}
+          timestamp={message.createdAt ? formatMessageTime(message.createdAt) : undefined}
+          timestampProps={message.createdAt ? { dateTime: message.createdAt } : undefined}
         />
-      ) : null}
 
-      <div className="flex items-start gap-2">
-        <Avatar
-          label={message.authorAvatar}
-          seed={message.authorId}
-          size={40}
-        />
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <MessageAuthorLine
-            authorName={message.authorName}
-            timestamp={message.createdAt ? formatMessageTime(message.createdAt) : undefined}
-            timestampProps={message.createdAt ? { dateTime: message.createdAt } : undefined}
+        {visibleContent ? (
+          <MessageBody
+            key={message.id}
+            text={visibleContent}
+            attachments={message.attachments}
           />
+        ) : null}
 
-          {visibleContent ? (
-            <MessageBody
-              key={message.id}
-              text={visibleContent}
-              attachments={message.attachments}
-            />
-          ) : null}
+        {visibleAttachments.length > 0 ? (
+          <div className="flex flex-col gap-2 pt-0.5">
+            {visibleAttachments.map((attachment, index) => {
+              if (attachment.kind === "image") {
+                return (
+                  <MessageImageAttachment
+                    key={`${message.id}:${index}`}
+                    testId={`community-schedule-bound-image-${index}`}
+                    attachment={attachment}
+                  />
+                )
+              }
+              return <AttachmentCard key={`${message.id}:${index}`} attachment={attachment} />
+            })}
+          </div>
+        ) : null}
 
-          {visibleAttachments.length > 0 ? (
-            <div className="flex flex-col gap-2 pt-0.5">
-              {visibleAttachments.map((attachment, index) => {
-                if (attachment.kind === "image") {
-                  return (
-                    <MessageImageAttachment
-                      key={`${message.id}:${index}`}
-                      testId={`community-schedule-bound-image-${index}`}
-                      attachment={attachment}
-                    />
-                  )
-                }
-                return <AttachmentCard key={`${message.id}:${index}`} attachment={attachment} />
-              })}
-            </div>
-          ) : null}
-
-          {!visibleContent && visibleAttachments.length === 0 ? (
-            <p className="text-sm italic text-muted-foreground">Empty message</p>
-          ) : null}
-        </div>
+        {!visibleContent && visibleAttachments.length === 0 ? (
+          <p className="text-sm italic text-muted-foreground">Empty message</p>
+        ) : null}
       </div>
     </motion.div>
   )

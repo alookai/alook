@@ -144,15 +144,7 @@ describe("schedule client mapping", () => {
     })
   })
 
-  it("presents a hydrated DM bound message with profile avatar and reply context", () => {
-    const replyTarget = messageResourceFixture({
-      id: "msg_parent",
-      channelId: "dm_alli",
-      authorId: "bot_alli",
-      authorName: "Alli",
-      authorAvatarVersion: 1,
-      content: "Want me to summarize every morning at 9:30?",
-    })
+  it("presents a hydrated DM bound message content with profile avatar without reply quote", () => {
     const bound = messageResourceFixture({
       id: "msg_dm_14",
       channelId: "dm_alli",
@@ -164,13 +156,11 @@ describe("schedule client mapping", () => {
       replyToId: "msg_parent",
       replyTo: { id: "msg_parent", authorId: "bot_alli", authorName: "Alli", deleted: false },
     })
-    const read = { ...singleMessageReadFixture(bound), relatedMessages: [replyTarget] }
-    const presented = presentScheduleBoundMessage(read)
+    const presented = presentScheduleBoundMessage(singleMessageReadFixture(bound))
 
     expect(presented.id).toBe("msg_dm_14")
     expect(presented.authorName).toBe("Gus")
     expect(presented.content).toBe("Yes! Include blockers and open PRs.")
-    expect(presented.replyAuthorName).toBe("Alli")
-    expect(presented.replyTo?.text).toContain("9:30")
+    expect("replyTo" in presented).toBe(false)
   })
 })

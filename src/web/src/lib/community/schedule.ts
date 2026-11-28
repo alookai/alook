@@ -28,8 +28,6 @@ export type ScheduleBoundMessage = {
   createdAt?: string
   content: string
   attachments?: Msg["attachments"]
-  replyTo?: Msg["replyTo"]
-  replyAuthorName?: string
 }
 
 export type ScheduleBoundMessageState = {
@@ -267,21 +265,10 @@ export function scheduleEventsQueryOptions(params: {
 
 export function presentScheduleBoundMessage(read: CommunityMessageRead): ScheduleBoundMessage {
   const profilesById = new Map((read.profiles ?? []).map((profile) => [profile.id, profile]))
-  const replyTarget = read.message.replyTo
-    ? (read.relatedMessages ?? []).find(
-        (candidate) =>
-          candidate.id === read.message.replyTo?.id
-          && candidate.channelId === read.message.channelId,
-      )
-    : undefined
-  const presented = presentCanonicalMessage(read.message, replyTarget)
+  const presented = presentCanonicalMessage(read.message)
   const authorProfile = read.message.authorId ? profilesById.get(read.message.authorId) : undefined
   const authorName = authorProfile?.name ?? presented.authorName ?? "Unknown"
   const authorAvatar = authorProfile?.avatar ?? presented.authorAvatar ?? avatarInitial(authorName)
-  const replyAuthorProfile = replyTarget?.authorId ? profilesById.get(replyTarget.authorId) : undefined
-  const replyAuthorName = replyTarget
-    ? (replyAuthorProfile?.name ?? replyTarget.authorName ?? presented.replyTo?.authorName ?? "Unknown")
-    : presented.replyTo?.authorName
 
   return {
     id: presented.id,
@@ -291,7 +278,6 @@ export function presentScheduleBoundMessage(read: CommunityMessageRead): Schedul
     createdAt: presented.createdAt,
     content: presented.content ?? "",
     ...(presented.attachments ? { attachments: presented.attachments } : {}),
-    ...(presented.replyTo ? { replyTo: presented.replyTo, replyAuthorName } : {}),
   }
 }
 
