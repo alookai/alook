@@ -182,6 +182,11 @@ describe("community bot private inbox & webhook D1 queries", () => {
     ).all("bot_1") as Array<{ detail: string }>
     expect(pendingPlan.some((row) => row.detail.includes("idx_community_bot_private_inbox_bot_pending"))).toBe(true)
 
+    const latestPlan = sqlite.prepare(
+      `EXPLAIN QUERY PLAN SELECT id, source_id, event_type, summary, status, last_error, created_at_ms FROM community_bot_private_inbox WHERE source_kind = 'webhook' AND source_id = ? ORDER BY created_at_ms DESC, id DESC LIMIT 1`,
+    ).all(created.webhook.id) as Array<{ detail: string }>
+    expect(latestPlan.some((row) => row.detail.includes("idx_community_bot_private_inbox_source_created"))).toBe(true)
+
     expect(await deleteBotWebhook(db, "owner_1", "bot_1", created.webhook.id)).toBe(true)
     expect(await listBotWebhookDeliveries(db, "owner_1", "bot_1", created.webhook.id, 10)).toEqual([])
     expect((await listPendingPrivateInboxEventsForBot(db, "bot_1", 20)).map((r) => r.id)).toEqual([

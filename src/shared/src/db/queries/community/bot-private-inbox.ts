@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, notInArray } from "drizzle-orm"
+import { and, asc, desc, eq, notInArray } from "drizzle-orm"
 import { nanoid } from "nanoid"
 import type { Database } from "../../index"
 import { communityBotPrivateInbox } from "../../community-bot-private-inbox-schema"
@@ -301,38 +301,16 @@ export async function getLatestPrivateInboxEventsBySources(
   sourceIds: string[],
 ): Promise<Record<string, StoredBotPrivateInboxSummary>> {
   const result: Record<string, StoredBotPrivateInboxSummary> = {}
-  if (sourceIds.length === 0) return result
+  const uniqueIds = [...new Set(sourceIds)]
+  if (uniqueIds.length === 0) return result
 
-  const rows = await db
-    .select({
-      id: communityBotPrivateInbox.id,
-      sourceId: communityBotPrivateInbox.sourceId,
-      eventType: communityBotPrivateInbox.eventType,
-      summary: communityBotPrivateInbox.summary,
-      status: communityBotPrivateInbox.status,
-      lastError: communityBotPrivateInbox.lastError,
-      createdAtMs: communityBotPrivateInbox.createdAtMs,
-    })
-    .from(communityBotPrivateInbox)
-    .where(
-      and(
-        eq(communityBotPrivateInbox.sourceKind, sourceKind),
-        inArray(communityBotPrivateInbox.sourceId, sourceIds),
-      ),
-    )
-    .orderBy(desc(communityBotPrivateInbox.createdAtMs), desc(communityBotPrivateInbox.id))
-
-  for (const row of rows) {
-    if (result[row.sourceId] === undefined) {
-      result[row.sourceId] = {
-        id: row.id,
-        sourceId: row.sourceId,
-        eventType: row.eventType,
-        summary: row.summary,
-        status: row.status,
-        lastError: row.lastError ?? null,
-        createdAtMs: row.createdAtMs,
-      }
+  // Bounded per-source LIMIT 1 lookup served by idx_community_bot_private_inbox_source_created.
+  const latest = await Promise.all(
+    uniqueIds.map((sourceId) => getLatestPrivateInboxEventForSource(db, sourceKind, sourceId)),
+  )
+  for (const row of latest) {
+    if (row) {
+      result[row.sourceId] = row
     }
   }
   return result
