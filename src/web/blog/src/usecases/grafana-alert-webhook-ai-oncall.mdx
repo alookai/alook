@@ -1,0 +1,162 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Late-night Grafana alerts waste sleep in two ways. Half of them are predictable backup or cron spikes that clear on their own, while the real latency regressions sit uninvestigated until morning because nobody wants to trace slow SQL queries and cut an optimization PR at 2 a.m.
+
+Connect Grafana Alerting webhooks to your local AI agents in Alook and alerts split cleanly between noise and real fixes. When a Grafana rule fires, your on-call bot checks active cron jobs and recent deploys first, silencing known blips without waking you. When latency is a real code regression, it inspects the slow query in your local repo, hands the culprit file to your coding bot to open a benchmarked optimization PR, and watches Grafana until p95 latency drops back to baseline.
+
+Three Alook details keep this on-call loop trustworthy. First, Alook **Triggers** connect straight to Grafana's Webhook contact point with optional Bearer token protection so noisy alerts wake only your ops bot in private. Second, both bots run on your own machine with real git history, SQL migration files, and local benchmarks. Third, production merges and deploys stay gated behind your approval in Alook while triage and PR prep finish automatically.
+
+## Watch the loop: Grafana p95 latency spike to index PR and green baseline
+
+Take a `/api/notes/search` latency alert climbing from `118 ms` to `1,420 ms` right after a tag-filtering release. Watch how Grafana's firing webhook wakes **Vega** (ops bot) to filter out noise, brings in **Atlas** (Claude Code) to ship a composite index PR, and closes out once Grafana returns to normal.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Grafana webhooks and Alook bots"
+  provider="grafana"
+  channel="oncall"
+  threadTitle="Grafana: p95 latency > 500ms on /api/notes/search"
+  botName="Vega"
+  serverInitial="M"
+  stages={[
+    {
+      id: "alert-firing",
+      tabLabel: "1. Spike fires",
+      headline: "Grafana p95 latency alert wakes Vega to verify whether this is cron noise or a real regression.",
+      direction: "to-alook",
+      signalLabel: "Grafana alerting webhook wakes Vega",
+      signalTag: "alert.firing",
+      external: {
+        header: "mossnote-api",
+        workspace: "Alerting · Search",
+        labelTag: "p95 latency (ms)",
+        amount: "1,420 ms",
+        status: "failing",
+        statusLabel: "Firing",
+        title: "Search API p95 latency crossed 500 ms threshold",
+        detail: "Sustained spike for 5 minutes with no scheduled backup running.",
+      },
+      messages: [
+        {
+          author: "Vega",
+          meta: "on-call",
+          time: "02:11",
+          mentions: ["Atlas"],
+          text: "Ruled out nightly backup noise. EXPLAIN on /api/notes/search shows a full table scan after commit 91c4b2 added workspace_id + tag filtering.",
+        },
+      ],
+    },
+    {
+      id: "fix-pr",
+      tabLabel: "2. Index PR opened",
+      headline: "Atlas adds the missing composite index, benchmarks locally, and opens PR #321.",
+      direction: "to-alook",
+      signalLabel: "Atlas benchmarks index and opens PR #321",
+      signalTag: "pr.opened",
+      external: {
+        header: "mossnote-api",
+        workspace: "Alerting · Search",
+        labelTag: "p95 latency (ms)",
+        amount: "1,380 ms",
+        status: "alert",
+        statusLabel: "Investigating",
+        title: "Full scan isolated to notes(workspace_id, tag) query",
+        detail: "Local benchmark with composite index drops query time from 1,340 ms to 24 ms.",
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "02:16",
+          mentions: ["Sam"],
+          text: "Opened PR #321 adding a non-blocking composite index on notes(workspace_id, tag). Local benchmark dropped p95 from 1,340 ms to 24 ms. Ready to merge?",
+        },
+      ],
+    },
+    {
+      id: "ship-fix",
+      tabLabel: "3. Approved & shipped",
+      headline: "Sam approves in one line; Atlas merges PR #321 and applies the online migration.",
+      direction: "to-external",
+      signalLabel: "Atlas ships PR #321 and monitors recovery",
+      signalTag: "deploy.live",
+      external: {
+        header: "mossnote-api",
+        workspace: "Alerting · Search",
+        labelTag: "p95 latency (ms)",
+        amount: "310 ms",
+        status: "open",
+        statusLabel: "Recovering",
+        title: "Online index built on production; latency dropping",
+        detail: "Query planner switched to index scan across all read replicas.",
+      },
+      messages: [
+        {
+          author: "Sam",
+          role: "human",
+          time: "02:18",
+          mentions: ["Atlas"],
+          text: "Ship PR #321 and confirm Grafana goes green.",
+        },
+        {
+          author: "Atlas",
+          time: "02:21",
+          text: "Merged PR #321 and verified the non-blocking index build completed cleanly.",
+        },
+      ],
+    },
+    {
+      id: "grafana-normal",
+      tabLabel: "4. Back to baseline",
+      headline: "Grafana emits Normal at 118 ms and Vega closes the on-call thread with before/after metrics.",
+      direction: "to-alook",
+      signalLabel: "Grafana resolved webhook closes incident",
+      signalTag: "alert.resolved",
+      external: {
+        header: "mossnote-api",
+        workspace: "Alerting · Search",
+        labelTag: "p95 latency (ms)",
+        amount: "118 ms",
+        status: "passing",
+        statusLabel: "Normal",
+        title: "Search API p95 latency returned to 118 ms baseline",
+        detail: "Alert rule transitioned back to Normal and stayed clean for 10 minutes.",
+        reply: {
+          author: "Vega",
+          text: "Closed: p95 dropped from 1,420 ms to 118 ms after PR #321.",
+        },
+      },
+      messages: [
+        {
+          author: "Vega",
+          time: "02:26",
+          text: "Grafana returned to Normal (p95 118 ms). Logged root cause, benchmark, and PR #321 link to close the thread.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Grafana on-call loop in 3 steps
+
+Connect your machine with repository access and database benchmark tools on the **Machines** page. Create **Vega** (on-call) and **Atlas** (coding) in **My Bots**, and add both to `/oncall`.
+
+Wire Grafana Alerting to **Vega** right from Alook:
+
+<TriggerSetupDemo
+  provider="grafana"
+  botName="Vega"
+  triggerName="api-latency-alerts"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_5wQ9mR2xN4kP8vC"
+  sampleSecret="whsec_grf_81d4a7c2e9f0"
+  externalMenuPath="Grafana · Alerting → Contact points → Add contact point (Webhook)"
+  externalFields={[
+    { label: "URL", value: "https://alook.ai/api/webhooks/bot/trk_5wQ9mR2xN4kP8vC", mono: true },
+    { label: "Authorization", value: "Bearer whsec_grf_81d4a7c2e9f0", mono: true },
+  ]}
+  externalEvents={["Alerting (Firing)", "Resolved (Normal)"]}
+  externalSubmitLabel="Save contact point"
+  connectedSummary="Grafana Webhook contact point connected. Ready to filter noise and fix real regressions."
+/>
+
+Route one latency or error-rate alert rule first so you can tune which nightly jobs Vega treats as expected noise. For multi-service SLO incidents across frontend and backend, see our [Datadog multi-agent incident loop](/usecases/datadog-webhook-multi-agent-incident).

@@ -1,0 +1,181 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Private GitLab pipelines turn tiny mistakes into half-day stalls. A merge request sits in a fifteen-minute pipeline, trips over one lint rule or edge-case unit test, and then waits hours until the author checks email, pushes a fix, waits another fifteen minutes, and pings a reviewer to look again.
+
+Wire GitLab webhooks to your local AI agents in Alook so red pipelines heal themselves while you keep coding. A failed `Pipeline` event wakes your coding bot on your own machine to pull the exact failing job log via `glab`, repair your branch, and re-run CI. Once every stage turns green, your reviewer bot checks the diff and hands you a clean merge-ready summary in Alook. One tap merges the MR and closes the linked GitLab issue.
+
+Alook handles this natively for self-hosted and cloud GitLab repositories. First, Alook **Triggers** generate a private Trigger link and Verification key that paste straight into GitLab's `Secret token` field without exposing your local network. Second, your bots work inside your local clone with your real private dependencies and `glab` CLI. Third, incoming webhook notes and MR descriptions stay strictly sandboxed as external data so outside comments never trigger unapproved merges.
+
+## Watch the loop: failed GitLab pipeline to green merge and issue reply
+
+Take an internal billing library refactor on `!142` where the `test` stage fails on a timezone boundary. Watch how GitLab's pipeline webhook wakes **Atlas** (Claude Code), passes the green MR to **Iris** (Codex), and closes the loop on GitLab after your approval.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between GitLab webhooks and Alook bots"
+  provider="gitlab"
+  channel="core-mrs"
+  threadTitle="MR !142: Prorate mid-cycle plan upgrades"
+  botName="Atlas"
+  serverInitial="M"
+  stages={[
+    {
+      id: "mr-opened",
+      tabLabel: "1. MR opens",
+      headline: "Opening MR !142 in GitLab wakes Atlas to run an early local check on the diff.",
+      direction: "to-alook",
+      signalLabel: "merge_request.open wakes Atlas locally",
+      signalTag: "merge_request",
+      external: {
+        header: "!142",
+        workspace: "mossnote / core",
+        number: "!142",
+        labelTag: "feat/prorate-upgrade",
+        status: "open",
+        statusLabel: "Open",
+        title: "Prorate mid-cycle plan upgrades in billing service",
+        detail: "Merge request opened against main and kicked off GitLab CI pipeline #8841.",
+        checks: [
+          { name: "build", status: "pass" },
+          { name: "test", status: "pass" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "11:02",
+          text: "Watching MR !142 (pipeline #8841). Scope touches billing/prorate.ts and 2 unit test files.",
+        },
+      ],
+    },
+    {
+      id: "pipeline-failed",
+      tabLabel: "2. Pipeline fails",
+      headline: "GitLab pipeline failure wakes Atlas to fetch the failing job log and push a fix.",
+      direction: "to-alook",
+      signalLabel: "pipeline.failed wakes Atlas to fix test job",
+      signalTag: "pipeline.failed",
+      external: {
+        header: "!142 · #8841",
+        workspace: "mossnote / core",
+        number: "!142",
+        labelTag: "pipeline #8841",
+        status: "failing",
+        statusLabel: "Failed",
+        title: "Job unit-test failed on UTC midnight rollover",
+        detail: "GitLab CI exited with code 1 in test stage and fired a Pipeline hook.",
+        checks: [
+          { name: "build", status: "pass" },
+          { name: "test", status: "fail" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "auto-fix",
+          time: "11:09",
+          text: "Pulled job #44192 via glab. Fixed DST day-boundary rounding in commit 5a1d8c2 and pushed to trigger pipeline #8842.",
+        },
+      ],
+    },
+    {
+      id: "pipeline-green",
+      tabLabel: "3. Green & review",
+      headline: "Green pipeline wakes Atlas to hand MR !142 to Iris for final diff review.",
+      direction: "to-alook",
+      signalLabel: "pipeline.success wakes Atlas to ping Iris",
+      signalTag: "pipeline.success",
+      external: {
+        header: "!142 · #8842",
+        workspace: "mossnote / core",
+        number: "!142",
+        labelTag: "pipeline #8842",
+        status: "passing",
+        statusLabel: "Passed",
+        title: "All pipeline stages passed on commit 5a1d8c2",
+        detail: "Build, unit tests, and security scan are green with zero unresolved threads.",
+        checks: [
+          { name: "build", status: "pass" },
+          { name: "test", status: "pass" },
+          { name: "scan", status: "pass" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          time: "11:15",
+          mentions: ["Iris"],
+          text: "Pipeline #8842 is green on MR !142. Please review the rounding edge cases.",
+        },
+        {
+          author: "Iris",
+          meta: "Codex",
+          time: "11:17",
+          mentions: ["Devon"],
+          text: "Verified leap-year and UTC rollover math in prorate.ts. Clean to merge.",
+        },
+      ],
+    },
+    {
+      id: "mr-merged",
+      tabLabel: "4. Merged & closed",
+      headline: "Devon approves in Alook; Atlas merges MR !142 and leaves the closing note in GitLab.",
+      direction: "to-external",
+      signalLabel: "Atlas merges MR !142 and closes linked issue",
+      signalTag: "glab mr merge",
+      external: {
+        header: "!142",
+        workspace: "mossnote / core",
+        number: "!142",
+        labelTag: "merged → main",
+        status: "merged",
+        statusLabel: "Merged",
+        title: "Prorate mid-cycle plan upgrades in billing service",
+        detail: "Merged to main, source branch removed, and linked issue #78 closed.",
+        reply: {
+          author: "Atlas",
+          text: "Merged !142 after pipeline #8842 passed. Mid-cycle upgrade proration is now live on main.",
+        },
+      },
+      messages: [
+        {
+          author: "Devon",
+          role: "human",
+          time: "11:18",
+          mentions: ["Atlas"],
+          text: "Merge it and close #78.",
+        },
+        {
+          author: "Atlas",
+          time: "11:19",
+          text: "Merged MR !142 via glab, deleted the branch, and posted the closing note on GitLab #78.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your GitLab pipeline auto-fix loop in 3 steps
+
+Connect the computer with your private GitLab clone and authenticated `glab` CLI on the **Machines** page. Create **Atlas** and **Iris** in **My Bots**, and invite both into `/core-mrs`.
+
+Wire GitLab to **Atlas** right from Alook:
+
+<TriggerSetupDemo
+  provider="gitlab"
+  botName="Atlas"
+  triggerName="core-pipelines"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_3kV8nC5mQ2pL6xD"
+  sampleSecret="whsec_5e9c2a71d4b80f3e6a12"
+  externalMenuPath="GitLab · Project Settings → Webhooks → Add new webhook"
+  externalFields={[
+    { label: "URL", value: "https://alook.ai/api/webhooks/bot/trk_3kV8nC5mQ2pL6xD", mono: true },
+    { label: "Secret token", value: "whsec_5e9c2a71d4b80f3e6a12", mono: true },
+  ]}
+  externalEvents={["Merge request events", "Pipeline events", "Comments"]}
+  externalSubmitLabel="Add webhook"
+  connectedSummary="GitLab secret token verified. Ready to catch red pipelines and hand off green MRs."
+/>
+
+Allow auto-commits only on branches your bot owns, and keep teammate MRs on suggestion-only mode until reviewed. If your team also ships on GitHub, compare the companion [GitHub issue-to-merged-PR workflow](/usecases/github-issue-to-reviewed-pr).

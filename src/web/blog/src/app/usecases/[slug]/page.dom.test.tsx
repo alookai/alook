@@ -4,6 +4,8 @@ import { useCases } from "@/lib/usecases";
 import UseCasePage, { generateMetadata, generateStaticParams } from "./page";
 
 vi.mock("@blog/components/guides/story-demo", () => ({ StoryDemo: ({ label }: { label: string }) => <div data-testid="story-demo">{label}</div> }));
+vi.mock("@blog/components/guides/trigger-flow-demo", () => ({ TriggerFlowDemo: ({ label }: { label: string }) => <div data-testid="trigger-flow-demo">{label}</div> }));
+vi.mock("@blog/components/guides/trigger-setup-demo", () => ({ TriggerSetupDemo: ({ triggerName }: { triggerName: string }) => <div data-testid="trigger-setup-demo">{triggerName}</div> }));
 
 describe("use case pages", () => {
   it("prerenders every registered use case", () => {
@@ -17,7 +19,11 @@ describe("use case pages", () => {
     expect(screen.getByText(useCase.description)).toBeVisible();
     expect(container.querySelector("header img")?.getAttribute("src")).toContain(encodeURIComponent(useCase.image));
     expect(container.querySelector(".blog-prose h2")).not.toBeNull();
-    expect(screen.getAllByTestId("story-demo").length).toBeGreaterThan(0);
+    const demos = [
+      ...screen.queryAllByTestId("story-demo"),
+      ...screen.queryAllByTestId("trigger-flow-demo"),
+    ];
+    expect(demos.length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "All use cases" })).toHaveAttribute("href", "/usecases");
     expect(await generateMetadata({ params })).toMatchObject({ alternates: { canonical: `https://alook.ai/usecases/${useCase.slug}` } });
   });

@@ -1,0 +1,158 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Automation flows in n8n are great at collecting signals across hundreds of SaaS tools, yet most collected items end up sitting unread in a Notion table. When n8n spots a competitor pricing change or recurring community request, a cloud workflow still cannot open your local codebase, verify live facts in a real browser, edit your comparison page, and open a tested pull request.
+
+Wire an n8n HTTP Request node into your local Alook agents and passive monitoring turns into shipped updates. n8n handles the scheduled scraping and filtering, then POSTs high-signal leads to your Alook bot. Your local agents verify the source page in a real browser, open a ready-to-merge website or docs PR with screenshots, and call back n8n once merged so your tracking board updates automatically.
+
+Three Alook details make n8n + Alook a clean two-stage pipeline. First, Alook **Triggers** give n8n a private POST endpoint with optional `X-Webhook-Secret` or Bearer auth that queues cleanly if your laptop is offline. Second, your Alook bots operate on your actual local repository and browser without exposing SSH or repo tokens to cloud runners. Third, every PR merge stays behind your quick review in Alook before updating live docs or calling back n8n.
+
+## Watch the loop: n8n competitor signal to verified website PR and board update
+
+Take an n8n workflow watching competitor pricing pages and RSS changelogs. Watch how n8n hands a detected pricing change to **Sora** (research bot) and **Nova** (frontend bot) in Alook, ships a verified comparison-page PR #341, and triggers n8n's callback to mark the Notion row **Shipped**.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between n8n webhooks and Alook bots"
+  provider="n8n"
+  channel="content-ops"
+  threadTitle="n8n Signal: Competitor Pro tier moved to $29/seat"
+  botName="Sora"
+  serverInitial="M"
+  stages={[
+    {
+      id: "n8n-signal",
+      tabLabel: "1. n8n fires POST",
+      headline: "n8n detects a competitor pricing change and POSTs the payload to Sora's Alook Trigger.",
+      direction: "to-alook",
+      signalLabel: "n8n HTTP Request node wakes Sora",
+      signalTag: "POST /trigger",
+      external: {
+        header: "wf_pricing_watch",
+        workspace: "Competitor Watch",
+        status: "open",
+        statusLabel: "Running",
+        title: "Detected Pro plan change on rivalnotes.com/pricing",
+        detail: "n8n diffed the weekly crawl, filtered out cosmetic HTML noise, and called Alook.",
+        nodes: ["Schedule", "Diff", "HTTP → Alook", "Notion"],
+      },
+      messages: [
+        {
+          author: "Sora",
+          meta: "research · browser",
+          time: "09:04",
+          mentions: ["Nova"],
+          text: "Verified rivalnotes.com/pricing live in browser: Pro moved from $19 to $29/seat and dropped free guest seats. Can you update /compare/rivalnotes?",
+        },
+      ],
+    },
+    {
+      id: "pr-opened",
+      tabLabel: "2. Local PR opened",
+      headline: "Nova updates the comparison table locally, runs blog validation, and opens PR #341.",
+      direction: "to-alook",
+      signalLabel: "Nova opens PR #341 with verified screenshots",
+      signalTag: "pr.opened",
+      external: {
+        header: "wf_pricing_watch",
+        workspace: "Competitor Watch",
+        status: "info",
+        statusLabel: "Awaiting Callback",
+        title: "Comparison table update ready for human review",
+        detail: "n8n workflow paused cleanly while Alook bots handle repo edits and visual checks.",
+        nodes: ["Schedule", "Diff", "HTTP → Alook", "Notion"],
+      },
+      messages: [
+        {
+          author: "Nova",
+          meta: "Claude Code",
+          time: "09:11",
+          mentions: ["Elena"],
+          text: "Opened PR #341 updating /compare/rivalnotes with the $29/seat price and March source date. Lint + desktop/mobile screenshots are green. Merge?",
+        },
+      ],
+    },
+    {
+      id: "approved-merged",
+      tabLabel: "3. Approved & merged",
+      headline: "Elena approves PR #341 in one line; Nova merges and calls n8n's resume webhook.",
+      direction: "to-external",
+      signalLabel: "Nova merges PR #341 and calls n8n callback",
+      signalTag: "n8n.callback",
+      external: {
+        header: "wf_pricing_watch",
+        workspace: "Competitor Watch",
+        status: "passing",
+        statusLabel: "Resumed",
+        title: "Callback received with merged PR #341 and live URL",
+        detail: "n8n advances to the Notion node to mark the tracking item Shipped.",
+        nodes: ["Schedule", "Diff", "HTTP → Alook", "Notion ✓"],
+      },
+      messages: [
+        {
+          author: "Elena",
+          role: "human",
+          time: "09:13",
+          mentions: ["Nova"],
+          text: "Merge PR #341 and update the Notion tracker.",
+        },
+        {
+          author: "Nova",
+          time: "09:14",
+          text: "Merged PR #341 and POSTed the live URL back to n8n to close the Notion item.",
+        },
+      ],
+    },
+    {
+      id: "board-closed",
+      tabLabel: "4. Board synced",
+      headline: "n8n finishes updating Notion with the live page link, closing the whole pipeline.",
+      direction: "to-alook",
+      signalLabel: "Notion row marked Shipped with live URL",
+      signalTag: "workflow.done",
+      external: {
+        header: "wf_pricing_watch",
+        workspace: "Competitor Watch",
+        status: "passing",
+        statusLabel: "Completed",
+        title: "Notion tracker updated to Shipped with live URL",
+        detail: "Full loop from external detection to verified production edit took 11 minutes.",
+        nodes: ["Schedule", "Diff", "HTTP → Alook", "Notion ✓"],
+        reply: {
+          author: "Nova",
+          text: "Updated Notion row with PR #341 and live /compare/rivalnotes link.",
+        },
+      },
+      messages: [
+        {
+          author: "Sora",
+          time: "09:15",
+          text: "n8n callback succeeded and Notion row is marked Shipped. Closing thread.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your n8n-to-Alook shipping pipeline in 3 steps
+
+Connect the machine with your repo and local browser on the **Machines** page. Create **Sora** (research) and **Nova** (frontend) in **My Bots**, and invite both to `/content-ops`.
+
+Wire an n8n HTTP Request node to **Sora** right from Alook:
+
+<TriggerSetupDemo
+  provider="n8n"
+  botName="Sora"
+  triggerName="n8n-competitor-watch"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_7xK3mP9qR2vN4wC"
+  sampleSecret="whsec_n8n_4a8c2e9f1d6b"
+  externalMenuPath="n8n · Workflow Editor → Add Node → HTTP Request (POST)"
+  externalFields={[
+    { label: "Method & URL", value: "POST https://alook.ai/api/webhooks/bot/trk_7xK3mP9qR2vN4wC", mono: true },
+    { label: "Header", value: "X-Webhook-Secret: whsec_n8n_4a8c2e9f1d6b", mono: true },
+  ]}
+  externalEvents={["HTTP Request POST (JSON body)", "Optional Resume Webhook callback"]}
+  externalSubmitLabel="Execute node"
+  connectedSummary="n8n HTTP POST verified. Ready to turn workflow leads into shipped PRs."
+/>
+
+Building custom shell scripts, cron scrapers, or Zapier flows outside n8n? Use the universal [Custom app curl webhook guide](/usecases/trigger-local-ai-agent-webhook).

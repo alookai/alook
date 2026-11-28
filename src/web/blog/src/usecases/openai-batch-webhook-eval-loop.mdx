@@ -1,0 +1,179 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Long-running OpenAI Batch and fine-tuning jobs crawl when humans have to babysit them. You kick off a 1,200-prompt eval before bed, check the dashboard in the morning, download the output JSONL by hand, run a scoring script, inspect failure clusters, tweak the prompt, and wait another full day just to finish one iteration.
+
+Connect OpenAI Platform webhooks to your eval and prompt-engineering bots in Alook and overnight jobs roll directly into the next tested improvement. The moment `batch.completed` or `fine_tuning.job.succeeded` fires at 3 a.m., your eval bot downloads the results on your machine, diffs scores against baseline, clusters the top failure modes, and hands them to your coding bot to open a smoke-tested prompt PR. You wake up to a clear scorecard and a one-tap launch for the next batch.
+
+Three Alook mechanics make autonomous AI eval loops dependable. First, Alook **Triggers** verify OpenAI's Standard Webhooks signature privately on your eval bot so nocturnal completions trigger local scripts reliably without polling. Second, both bots run locally against your real eval datasets, golden fixtures, and git repo. Third, paid API runs stay bounded behind your explicit spend ceiling or morning approval in Alook.
+
+## Watch the loop: OpenAI Batch completion to error clustering and next-round PR
+
+Take an overnight `batch_67f9a2c4` eval across 1,200 extraction prompts. Watch how `batch.completed` wakes **Orion** (eval bot) at 3:14 a.m., brings in **Atlas** (Claude Code) to patch the top failure cluster on PR #334, and hands **Maya** a ready-to-launch v5 run at breakfast.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between OpenAI webhooks and Alook bots"
+  provider="openai"
+  channel="ml-evals"
+  threadTitle="Eval v4: Extraction Batch (1,200 cases)"
+  botName="Orion"
+  serverInitial="M"
+  stages={[
+    {
+      id: "batch-done",
+      tabLabel: "1. Batch completes",
+      headline: "OpenAI batch.completed wakes Orion at 3:14 a.m. to download results and score against v3.",
+      direction: "to-alook",
+      signalLabel: "batch.completed wakes Orion locally",
+      signalTag: "batch.completed",
+      external: {
+        header: "batch_67f9a2c4",
+        workspace: "Dashboard · Batches",
+        number: "batch_67f9a2c4",
+        labelTag: "gpt-4.1-mini",
+        status: "passing",
+        statusLabel: "Completed",
+        title: "Overnight eval batch finished (1,200 / 1,200)",
+        detail: "Output file results_v4.jsonl ready for local scoring and regression diff.",
+        metrics: [
+          { label: "Requests", value: "1,200 / 1,200" },
+          { label: "Pass rate", value: "94.2% (+6.2%)" },
+          { label: "Remaining fails", value: "70 cases" },
+        ],
+      },
+      messages: [
+        {
+          author: "Orion",
+          meta: "eval runner",
+          time: "03:15",
+          mentions: ["Atlas"],
+          text: "Scored v4 batch: 94.2% pass (+6.2% vs v3). 41 of 70 failures come from multi-currency date tables dropping the ISO code. Can you patch extraction-prompt.ts?",
+        },
+      ],
+    },
+    {
+      id: "prompt-patched",
+      tabLabel: "2. Fix top failure",
+      headline: "Atlas updates the prompt schema, smoke-tests the 41 failing cases, and opens PR #334.",
+      direction: "to-alook",
+      signalLabel: "Atlas verifies 39/41 fails fixed in PR #334",
+      signalTag: "smoke.passed",
+      external: {
+        header: "batch_67f9a2c4",
+        workspace: "Dashboard · Evals",
+        number: "v5 candidate",
+        labelTag: "PR #334",
+        status: "open",
+        statusLabel: "Smoke Passed",
+        title: "Targeted fix clears 39 of 41 multi-currency failures",
+        detail: "Zero regressions on the 100-case golden canary set.",
+        metrics: [
+          { label: "Target cluster", value: "39 / 41 fixed" },
+          { label: "Golden canary", value: "100 / 100 pass" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "03:24",
+          mentions: ["Maya"],
+          text: "Opened PR #334 with explicit currency-field examples. Smoke run fixed 39/41 multi-currency misses with 100/100 on the canary set. Launch full v5 Batch ($4.20 est)?",
+        },
+      ],
+    },
+    {
+      id: "launch-v5",
+      tabLabel: "3. Morning approve",
+      headline: "Maya reviews the morning summary on her phone and approves PR #334 plus the v5 Batch.",
+      direction: "to-external",
+      signalLabel: "Orion submits batch_67fa8e10 to OpenAI",
+      signalTag: "batches.create",
+      external: {
+        header: "batch_67fa8e10",
+        workspace: "Dashboard · Batches",
+        number: "batch_67fa8e10",
+        labelTag: "v5 · 1,200 cases",
+        status: "open",
+        statusLabel: "In Progress",
+        title: "Full v5 evaluation batch queued on OpenAI",
+        detail: "Submitted automatically from PR #334 with webhook callback armed.",
+        metrics: [
+          { label: "Batch ID", value: "batch_67fa8e10" },
+          { label: "Est. cost", value: "$4.20" },
+        ],
+      },
+      messages: [
+        {
+          author: "Maya",
+          role: "human",
+          time: "08:32",
+          mentions: ["Orion"],
+          text: "Merge PR #334 and kick off the v5 batch.",
+        },
+        {
+          author: "Orion",
+          time: "08:33",
+          text: "Merged PR #334 and submitted batch_67fa8e10 (1,200 cases). I will post the new scorecard automatically when it finishes.",
+        },
+      ],
+    },
+    {
+      id: "v5-scored",
+      tabLabel: "4. v5 hits 97.6%",
+      headline: "v5 completes at 97.6% pass rate and Orion updates the team eval leaderboard automatically.",
+      direction: "to-alook",
+      signalLabel: "v5 batch completed at 97.6% pass rate",
+      signalTag: "eval: 97.6%",
+      external: {
+        header: "batch_67fa8e10",
+        workspace: "Dashboard · Batches",
+        number: "batch_67fa8e10",
+        labelTag: "v5 Complete",
+        status: "passing",
+        statusLabel: "Completed",
+        title: "Eval v5 reached 97.6% accuracy across 1,200 cases",
+        detail: "Two full iterations shipped before noon without manual JSONL wrangling.",
+        metrics: [
+          { label: "v4 → v5", value: "94.2% → 97.6%" },
+          { label: "Currency fails", value: "41 → 2" },
+        ],
+        reply: {
+          author: "Orion",
+          text: "v5 passed release bar (97.6% > 97.0%). Leaderboard updated in /ml-evals.",
+        },
+      },
+      messages: [
+        {
+          author: "Orion",
+          time: "11:18",
+          text: "batch_67fa8e10 finished: 97.6% pass rate (+3.4% over v4), clearing our 97% launch target. Summary saved to evals/v5-report.md.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your OpenAI eval loop in 3 steps
+
+Connect the machine with your eval scripts, datasets, and OpenAI API key on the **Machines** page. Create **Orion** (eval runner) and **Atlas** (coding) in **My Bots**, and invite both to `/ml-evals`.
+
+Wire OpenAI Platform to **Orion** right from Alook:
+
+<TriggerSetupDemo
+  provider="openai"
+  botName="Orion"
+  triggerName="nightly-evals"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_8qR4mN2vK5wL9xP"
+  sampleSecret="whsec_oai_3b7d9f1a4c8e2056"
+  externalMenuPath="OpenAI Platform · Settings → Webhooks → Create"
+  externalFields={[
+    { label: "URL", value: "https://alook.ai/api/webhooks/bot/trk_8qR4mN2vK5wL9xP", mono: true },
+    { label: "Signing secret", value: "whsec_oai_3b7d9f1a4c8e2056", mono: true },
+  ]}
+  externalEvents={["batch.completed", "batch.failed", "fine_tuning.job.succeeded"]}
+  externalSubmitLabel="Create"
+  connectedSummary="OpenAI Standard Webhooks key saved. Ready to score overnight batches and prep next-round PRs."
+/>
+
+Running self-hosted GPU training runs alongside OpenAI jobs? Wire your local training scripts with the same closed-loop pattern in our [Custom app curl webhook guide](/usecases/trigger-local-ai-agent-webhook).

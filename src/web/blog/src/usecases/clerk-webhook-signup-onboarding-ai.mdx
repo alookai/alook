@@ -1,0 +1,180 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Your best B2B sign-ups quietly churn in their first ten minutes. An engineering manager creates a new Clerk Organization with a real company domain, hits one setup question, closes the tab, and never comes back. By the time you inspect your user table a week later, the window for a helpful personal note is long gone.
+
+Connect Clerk webhooks to your growth agent in Alook and high-intent sign-ups turn into activated teams inside ten minutes. When `organization.created` or a work-email `user.created` fires, your bot filters out disposable sign-ups, checks the company's public stack, and drops a concise, stack-specific welcome draft into `/growth`. One tap sends the personal note, and your bot follows up if the team stalls before their first key milestone.
+
+Three Alook mechanics keep outreach human instead of spammy. First, Alook **Triggers** verify Clerk's Standard Webhooks key privately on your growth bot so every free sign-up doesn't clutter Slack or email. Second, your bot surfaces only the two or three high-intent teams each day right inside your Alook `/growth` room. Third, every outbound note waits for your ten-second review before sending.
+
+## Watch the loop: Clerk organization sign-up to tailored welcome and team activation
+
+Take a new Clerk Organization created by `dev@acme.io` (`Acme Engineering`). Watch how `organization.created` wakes **Sora** (growth bot) to research their public stack in thirty seconds, get **Elena's** approval in Alook, and track first-day setup to activation.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Clerk webhooks and Alook bots"
+  provider="clerk"
+  channel="growth"
+  threadTitle="High-intent signup: Acme Engineering (acme.io)"
+  botName="Sora"
+  serverInitial="M"
+  stages={[
+    {
+      id: "org-created",
+      tabLabel: "1. Team signs up",
+      headline: "Clerk organization.created wakes Sora to qualify Acme Engineering and check their public stack.",
+      direction: "to-alook",
+      signalLabel: "organization.created wakes Sora",
+      signalTag: "org.created",
+      external: {
+        header: "org_2kL9x4",
+        workspace: "Organizations",
+        number: "acme.io",
+        labelTag: "Verified work domain",
+        status: "open",
+        statusLabel: "New Org",
+        title: "Acme Engineering created a workspace",
+        detail: "Admin alex@acme.io signed up with SSO and invited 4 teammates.",
+        metrics: [
+          { label: "Domain", value: "acme.io" },
+          { label: "Members", value: "5 invited" },
+          { label: "Public stack", value: "Next.js + GitHub" },
+        ],
+      },
+      messages: [
+        {
+          author: "Sora",
+          meta: "growth",
+          time: "11:20",
+          mentions: ["Elena"],
+          text: "High-intent Clerk signup: Acme Engineering (acme.io, 5 members invited). Their public docs show Next.js + GitHub Actions. Drafted a 3-line personal welcome pointing straight to our GitHub Trigger guide. Send?",
+        },
+      ],
+    },
+    {
+      id: "note-sent",
+      tabLabel: "2. Personal welcome",
+      headline: "Elena approves in ten seconds; Sora sends the tailored note from Elena's authorized inbox.",
+      direction: "to-external",
+      signalLabel: "Sora sends tailored onboarding note",
+      signalTag: "email.sent",
+      external: {
+        header: "org_2kL9x4",
+        workspace: "Organizations",
+        number: "acme.io",
+        labelTag: "Outreach sent",
+        status: "info",
+        statusLabel: "Welcomed",
+        title: "Personal setup tip sent to alex@acme.io",
+        detail: "Included direct 2-minute GitHub Trigger walkthrough matching their stack.",
+        metrics: [
+          { label: "Delivered", value: "11:22 AM" },
+          { label: "Reply watch", value: "Active" },
+        ],
+      },
+      messages: [
+        {
+          author: "Elena",
+          role: "human",
+          time: "11:21",
+          mentions: ["Sora"],
+          text: "Great catch. Send it and let me know if they get stuck on setup.",
+        },
+        {
+          author: "Sora",
+          time: "11:22",
+          text: "Sent to alex@acme.io. Watching for first machine connect or a reply over the next 24h.",
+        },
+      ],
+    },
+    {
+      id: "stall-nudge",
+      tabLabel: "3. Unblock setup",
+      headline: "Acme invites 3 more engineers and replies with one quick SSO question; Sora helps unblock it.",
+      direction: "to-alook",
+      signalLabel: "Team reply answered cleanly inside 5m",
+      signalTag: "setup.unblocked",
+      external: {
+        header: "org_2kL9x4",
+        workspace: "Organizations",
+        number: "acme.io",
+        labelTag: "8 members",
+        status: "open",
+        statusLabel: "Active Setup",
+        title: "Acme Engineering grew to 8 invited seats",
+        detail: "Alex replied asking whether GitHub triggers work on private monorepos.",
+        metrics: [
+          { label: "Seats", value: "8 members" },
+          { label: "Response time", value: "4 min" },
+        ],
+      },
+      messages: [
+        {
+          author: "Sora",
+          time: "11:34",
+          mentions: ["Elena"],
+          text: "Alex replied asking about private monorepos. Prepared a concise answer explaining private bot endpoints + local repo access. Send?",
+        },
+        {
+          author: "Elena",
+          role: "human",
+          time: "11:35",
+          text: "Send it.",
+        },
+      ],
+    },
+    {
+      id: "team-activated",
+      tabLabel: "4. Team activated",
+      headline: "Acme connects their first bot and trigger; Sora logs the activated win in /growth.",
+      direction: "to-alook",
+      signalLabel: "First trigger verified; team activated",
+      signalTag: "org.activated",
+      external: {
+        header: "org_2kL9x4",
+        workspace: "Organizations",
+        number: "acme.io",
+        labelTag: "Activated",
+        status: "passing",
+        statusLabel: "Activated",
+        title: "Acme Engineering live with 8 active users",
+        detail: "First machine paired and GitHub Trigger verified within 45 minutes of signup.",
+        reply: {
+          author: "Sora",
+          text: "Activated in 45m (8 seats). Added Acme Engineering to the active enterprise cohort.",
+        },
+      },
+      messages: [
+        {
+          author: "Sora",
+          time: "12:05",
+          text: "Acme Engineering connected their first machine and verified a GitHub Trigger (8 seats active). Closing onboarding thread.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Clerk sign-up activation loop in 3 steps
+
+Connect your machine with your email CLI and product analytics script on the **Machines** page. Create **Sora** in **My Bots** and invite Sora to `/growth`.
+
+Wire Clerk to **Sora** right from Alook:
+
+<TriggerSetupDemo
+  provider="clerk"
+  botName="Sora"
+  triggerName="team-signups"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_4vM7rK2pN8wQ5xL"
+  sampleSecret="whsec_clk_7e2a9c4b1f8d3065"
+  externalMenuPath="Clerk · Configure → Webhooks → Add Endpoint"
+  externalFields={[
+    { label: "Endpoint URL", value: "https://alook.ai/api/webhooks/bot/trk_4vM7rK2pN8wQ5xL", mono: true },
+    { label: "Signing Secret", value: "whsec_clk_7e2a9c4b1f8d3065", mono: true },
+  ]}
+  externalEvents={["organization.created", "user.created", "organizationMembership.created"]}
+  externalSubmitLabel="Create"
+  connectedSummary="Clerk Standard Webhooks secret saved. Ready to qualify and welcome high-intent teams."
+/>
+
+Instruct Sora in its workspace rules to skip free consumer email domains (`gmail.com`, `outlook.com`) unless a user invites multiple teammates, so `/growth` stays high-signal. Pair this with our [Resend inbound support loop](/usecases/resend-inbound-email-support-loop) so replies to your welcome notes feed straight back into the same team.

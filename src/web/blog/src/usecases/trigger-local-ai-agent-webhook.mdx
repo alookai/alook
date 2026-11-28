@@ -1,0 +1,168 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Long shell scripts, nightly scrapers, and GPU training jobs are black boxes once you walk away. A job crashes halfway through a broken DOM selector or finishes at 4 a.m. with an output folder sitting on a remote server, and nothing happens until you SSH in hours later to inspect logs, fix the script, and re-run it by hand.
+
+Add a single `curl -X POST` line to an Alook **Custom app** Trigger and any script becomes a self-finishing loop. When your job exits with an error or completes a run, it POSTs its status and artifact path to your local Alook bot. If a scraper failed because a target page changed, your bot inspects the live DOM, patches the selector, and re-runs until outputs validate cleanly; when metrics pass, it opens the PR or delivers the finished summary straight to your phone.
+
+Three Alook details make one-line `curl` triggers effortless. First, Alook **Triggers** give you a private HTTPS POST URL with optional `X-Webhook-Secret` or `Authorization: Bearer` protection so any shell script, Zapier action, Make scenario, or GPU box can wake your bot without opening inbound ports. Second, your bot runs locally with your real repo, SSH config, and browser tooling. Third, every external POST body is marked as untrusted input while code pushes and production updates stay inside your workspace rules.
+
+## Watch the loop: failing nightly scraper to auto-repaired selector and verified artifact
+
+Take a nightly pricing-data scraper running on `cron-box-01` that exits non-zero after a site layout change. Watch how a single `curl` exit trap wakes **Atlas** (Claude Code) in Alook to inspect the live page, fix the CSS selector, re-run the job cleanly, and deliver the validated CSV to **Kai**.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between custom curl webhooks and Alook bots"
+  provider="generic"
+  channel="jobs"
+  threadTitle="Job: nightly-pricing-scraper (exit 1)"
+  botName="Atlas"
+  serverInitial="M"
+  stages={[
+    {
+      id: "job-failed",
+      tabLabel: "1. Exit 1 POST",
+      headline: "Nightly scraper fails on a changed CSS selector and its trap curl POST wakes Atlas.",
+      direction: "to-alook",
+      signalLabel: "curl POST wakes Atlas with exit status & log path",
+      signalTag: "POST /trigger",
+      external: {
+        header: "cron-box-01",
+        workspace: "zsh · cron-box-01",
+        status: "failing",
+        statusLabel: "Exit 1",
+        title: "nightly-pricing-scraper.py failed on missing selector",
+        detail: "Shell trap sent JSON payload to Alook Trigger automatically on non-zero exit.",
+        logLines: [
+          "$ python scrape_prices.py || curl -s -X POST $ALOOK_URL -d '{\"status\":\"fail\"}'",
+          "ERR Selector '.plan-price-card' matched 0 nodes",
+          "POST https://alook.ai/api/webhooks/bot/trk_... -> 202 Accepted",
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "Claude Code",
+          time: "04:02",
+          text: "Woken by cron-box-01 (exit 1). Opening target page in local browser to inspect why .plan-price-card matched 0 nodes.",
+        },
+      ],
+    },
+    {
+      id: "selector-fixed",
+      tabLabel: "2. Fix & rerun",
+      headline: "Atlas finds the renamed data attribute, patches scrape_prices.py, and re-runs the job.",
+      direction: "to-external",
+      signalLabel: "Atlas patches selector and re-runs scraper",
+      signalTag: "ssh rerun",
+      external: {
+        header: "cron-box-01",
+        workspace: "zsh · cron-box-01",
+        status: "open",
+        statusLabel: "Re-running",
+        title: "Patched selector to [data-tier-price] and triggered fresh run",
+        detail: "Unit parser tests passed locally before re-running against live targets.",
+        logLines: [
+          "$ git diff scrape_prices.py -> [data-tier-price]",
+          "$ python scrape_prices.py --verify",
+          "Parsed 48/48 plans -> out/prices-2026-11-28.csv",
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "auto-heal",
+          time: "04:07",
+          text: "Target site renamed .plan-price-card to [data-tier-price]. Patched scrape_prices.py, passed parser tests, and started a clean rerun.",
+        },
+      ],
+    },
+    {
+      id: "artifact-verified",
+      tabLabel: "3. Output verified",
+      headline: "Rerun succeeds with 48/48 rows valid and POSTs completion back to Atlas for sanity checks.",
+      direction: "to-alook",
+      signalLabel: "Exit 0 POST verifies 48/48 rows clean",
+      signalTag: "status: ok",
+      external: {
+        header: "cron-box-01",
+        workspace: "zsh · cron-box-01",
+        status: "passing",
+        statusLabel: "Exit 0",
+        title: "out/prices-2026-11-28.csv passed schema and row checks",
+        detail: "Zero nulls, zero outlier spikes vs yesterday's baseline snapshot.",
+        logLines: [
+          "$ curl -s -X POST $ALOOK_URL -d '{\"status\":\"ok\",\"rows\":48}'",
+          "202 Accepted · artifact verified (48/48 rows)",
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          time: "04:09",
+          mentions: ["Kai"],
+          text: "Rerun succeeded (48/48 rows validated, 0 schema errors). Opened PR #344 with the selector fix and attached today's CSV summary.",
+        },
+      ],
+    },
+    {
+      id: "morning-ready",
+      tabLabel: "4. Shipped",
+      headline: "Kai wakes up to a verified dataset and a one-line PR to merge instead of a dead cron job.",
+      direction: "to-external",
+      signalLabel: "PR #344 merged; nightly schedule stays green",
+      signalTag: "pr.merged",
+      external: {
+        header: "cron-box-01",
+        workspace: "zsh · cron-box-01",
+        status: "passing",
+        statusLabel: "Synced",
+        title: "Selector patch deployed to cron-box-01 for tomorrow's run",
+        detail: "Same curl snippet works for GPU training checkpoints, ETL jobs, Zapier, and Make.",
+        reply: {
+          author: "Atlas",
+          text: "Deployed commit 6c9d1a to cron-box-01. Next nightly run ready.",
+        },
+      },
+      messages: [
+        {
+          author: "Kai",
+          role: "human",
+          time: "08:15",
+          mentions: ["Atlas"],
+          text: "Nice save overnight. Merge PR #344 so tonight's cron uses the new selector.",
+        },
+        {
+          author: "Atlas",
+          time: "08:16",
+          text: "Merged PR #344 and synced cron-box-01.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Custom app curl trigger in 3 steps
+
+Connect the machine that runs or accesses your scripts on the **Machines** page. Create **Atlas** in **My Bots** and add Atlas to `/jobs`.
+
+Create a **Custom app** Trigger in Alook and paste one `curl` call into your script:
+
+<TriggerSetupDemo
+  provider="generic"
+  botName="Atlas"
+  triggerName="nightly-jobs"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_5mN8qR2pK4vL7xB"
+  sampleSecret="whsec_job_9d2f4a7c1e8b"
+  externalMenuPath="Terminal / Script / Zapier · HTTP POST"
+  externalFields={[
+    { label: "POST URL", value: "https://alook.ai/api/webhooks/bot/trk_5mN8qR2pK4vL7xB", mono: true },
+    { label: "Header (optional)", value: "X-Webhook-Secret: whsec_job_9d2f4a7c1e8b", mono: true },
+    { label: "Payload", value: "{\"job\":\"scraper\",\"status\":\"fail\",\"log\":\"/var/log/job.log\"}", mono: true },
+  ]}
+  externalEvents={["Shell exit trap", "GPU training checkpoint", "Zapier / Make webhook"]}
+  externalSubmitLabel="Send test POST"
+  connectedSummary="Custom POST accepted (202). Ready to wake Atlas from any script or cloud workflow."
+/>
+
+Running visual workflows across 200+ SaaS apps? Pair this with our [n8n local AI agent workflow](/usecases/n8n-webhook-local-ai-agent) or [OpenAI overnight Batch eval loop](/usecases/openai-batch-webhook-eval-loop).

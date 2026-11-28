@@ -1,0 +1,180 @@
+import { TriggerFlowDemo } from "@blog/components/guides/trigger-flow-demo";
+import { TriggerSetupDemo } from "@blog/components/guides/trigger-setup-demo";
+
+Cross-service incidents burn their first fifteen minutes just getting people in the same room. A Datadog SLO monitor trips, someone creates a war-room channel, and backend, frontend, and infra engineers all ask each other who shipped last. Once traffic stabilizes, somebody still has to reconstruct the timeline by hand for the postmortem.
+
+Connect Datadog Monitor webhooks to a coordinator agent in Alook and your multi-agent war room assembles itself in two minutes. The instant Datadog fires an alert, your coordinator bot opens an incident thread and `@mentions` your backend and frontend bots to investigate their own repositories and deploys in parallel. They hand you one clear mitigation option to approve, watch the Datadog monitor flip back to **OK**, and write the clean postmortem automatically.
+
+Three Alook mechanics make multi-agent incident response work without chaos. First, Alook **Triggers** wake your coordinator bot quietly with optional `X-Webhook-Secret` validation. Second, specialist bots live on the machines that hold each service's code and CLI tools, collaborating in one transparent Alook thread so you see every finding at a glance. Third, any rate-limit, feature-flag, or rollback action waits on your explicit human go-ahead.
+
+## Watch the loop: Datadog SLO alert to parallel triage, mitigation, and postmortem
+
+Take a checkout SLO burn alert across `service:checkout` and `env:prod`. Watch how Datadog wakes **Vega** (incident coordinator) to dispatch **Atlas** (backend) and **Nova** (frontend), execute a feature-flag fallback on **Kai's** approval, and wrap up once Datadog reports **OK**.
+
+<TriggerFlowDemo
+  label="Closed-loop workflow between Datadog webhooks and Alook bots"
+  provider="datadog"
+  channel="incidents"
+  threadTitle="INC-109: Checkout SLO error budget burn"
+  botName="Vega"
+  serverInitial="M"
+  stages={[
+    {
+      id: "monitor-alert",
+      tabLabel: "1. SLO alerts",
+      headline: "Datadog SLO burn alert wakes Vega to open INC-109 and dispatch backend and frontend bots.",
+      direction: "to-alook",
+      signalLabel: "Datadog monitor webhook wakes Vega",
+      signalTag: "monitor.alert",
+      external: {
+        header: "MON-4021",
+        workspace: "Monitors · Checkout",
+        status: "failing",
+        statusLabel: "Alert",
+        title: "Checkout 5m error budget burn rate > 6x",
+        detail: "Datadog monitor triggered on elevated 502 responses in us-east.",
+        tags: ["service:checkout", "env:prod", "region:us-east"],
+        metrics: [
+          { label: "Error rate", value: "3.9%" },
+          { label: "SLO burn", value: "6.4x" },
+        ],
+      },
+      messages: [
+        {
+          author: "Vega",
+          meta: "coordinator",
+          time: "19:02",
+          mentions: ["Atlas", "Nova"],
+          text: "Datadog ALERT on service:checkout (3.9% 502s in us-east). Atlas check recent API/DB deploys; Nova check client retry spikes.",
+        },
+      ],
+    },
+    {
+      id: "parallel-triage",
+      tabLabel: "2. Parallel triage",
+      headline: "Atlas and Nova finish parallel checks in 90 seconds and isolate a tax-quote timeout.",
+      direction: "to-alook",
+      signalLabel: "Backend + frontend bots report root cause",
+      signalTag: "triage.done",
+      external: {
+        header: "MON-4021",
+        workspace: "Monitors · Checkout",
+        status: "alert",
+        statusLabel: "Root Cause",
+        title: "Upstream tax-quote API stalling past 8s timeout",
+        detail: "Client retries doubled request load after new live-tax flag enabled 12m ago.",
+        tags: ["service:checkout", "flag:live-tax-v2", "env:prod"],
+        metrics: [
+          { label: "Upstream p99", value: "9.2 s" },
+          { label: "Mitigation", value: "Disable flag" },
+        ],
+      },
+      messages: [
+        {
+          author: "Atlas",
+          meta: "backend",
+          time: "19:03",
+          text: "Confirmed: tax-quote partner API is timing out at 9.2s. Flipping live-tax-v2 off falls back to cached regional rates.",
+        },
+        {
+          author: "Nova",
+          meta: "frontend",
+          time: "19:03",
+          mentions: ["Kai"],
+          text: "No frontend deploy today; client retries amplify the 502s. Ready to disable live-tax-v2?",
+        },
+      ],
+    },
+    {
+      id: "mitigate",
+      tabLabel: "3. One-tap fallback",
+      headline: "Kai approves the flag fallback; Vega disables live-tax-v2 and confirms error rate plunges.",
+      direction: "to-external",
+      signalLabel: "Vega flips live-tax-v2 off and verifies traffic",
+      signalTag: "flag.rollback",
+      external: {
+        header: "MON-4021",
+        workspace: "Monitors · Checkout",
+        status: "open",
+        statusLabel: "Mitigating",
+        title: "Fallback to cached tax tables active in prod",
+        detail: "502 responses dropped immediately as live-tax-v2 traffic drained.",
+        tags: ["service:checkout", "fallback:cached-tax"],
+        metrics: [
+          { label: "Error rate", value: "0.2%" },
+          { label: "Latency p95", value: "185 ms" },
+        ],
+      },
+      messages: [
+        {
+          author: "Kai",
+          role: "human",
+          time: "19:04",
+          mentions: ["Vega"],
+          text: "Turn off live-tax-v2 now and watch the monitor.",
+        },
+        {
+          author: "Vega",
+          time: "19:05",
+          text: "Disabled live-tax-v2 in prod. Live 502 rate dropped from 3.9% to 0.2%; waiting for Datadog OK.",
+        },
+      ],
+    },
+    {
+      id: "monitor-ok",
+      tabLabel: "4. OK & postmortem",
+      headline: "Datadog flips back to OK and Vega publishes the timeline and follow-up tasks.",
+      direction: "to-alook",
+      signalLabel: "Datadog OK triggers automated postmortem",
+      signalTag: "monitor.ok",
+      external: {
+        header: "MON-4021",
+        workspace: "Monitors · Checkout",
+        status: "passing",
+        statusLabel: "OK",
+        title: "Checkout SLO monitor recovered to 99.98%",
+        detail: "Monitor stayed green for 15 minutes with cached tax fallback active.",
+        tags: ["service:checkout", "env:prod", "recovered"],
+        metrics: [
+          { label: "Error rate", value: "0.02%" },
+          { label: "MTTR", value: "4 min" },
+        ],
+        reply: {
+          author: "Vega",
+          text: "Resolved in 4m. Postmortem and circuit-breaker follow-up ticket posted in Alook.",
+        },
+      },
+      messages: [
+        {
+          author: "Vega",
+          time: "19:10",
+          text: "Datadog monitor is OK (0.02% errors, 4m MTTR). Posted the full incident timeline and created a follow-up ticket to cap tax-quote timeouts at 2s.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## Set up your Datadog multi-agent war room in 3 steps
+
+Connect the machines holding your service repos and ops CLI on the **Machines** page. Create **Vega** (coordinator) alongside your service bots (**Atlas**, **Nova**) in **My Bots**, and invite all three into `/incidents`.
+
+Wire Datadog Webhooks to **Vega** right from Alook:
+
+<TriggerSetupDemo
+  provider="datadog"
+  botName="Vega"
+  triggerName="slo-monitors"
+  sampleUrl="https://alook.ai/api/webhooks/bot/trk_9nK4pR7mV2wL5xB"
+  sampleSecret="whsec_dd_3a7c9e12b4f8"
+  externalMenuPath="Datadog · Integrations → Webhooks → New"
+  externalFields={[
+    { label: "URL", value: "https://alook.ai/api/webhooks/bot/trk_9nK4pR7mV2wL5xB", mono: true },
+    { label: "Custom Header", value: "X-Webhook-Secret: whsec_dd_3a7c9e12b4f8", mono: true },
+  ]}
+  externalEvents={["Monitor Alert", "Monitor Warning", "Monitor Recovery (OK)"]}
+  externalSubmitLabel="Save"
+  connectedSummary="Datadog webhook integration saved. Mention @webhook-alook-slo in any monitor."
+/>
+
+Start by wiring one high-signal SLO monitor and keeping mitigation commands behind your approval in `/incidents`. For single-service code crashes, pair this with our [Sentry crash-to-hotfix loop](/usecases/sentry-webhook-auto-fix-errors).
