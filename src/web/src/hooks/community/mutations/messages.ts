@@ -19,6 +19,7 @@ import { toastApiError } from "@/lib/api/client"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
+import { appendContiguousTailMessageToWindow } from "@/lib/community/message-reconcile"
 import {
   projectPostedMessage,
   type PostedMessage,
@@ -107,6 +108,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       await publishCommunityMessages(queryClient, { channelId: scope.id, profiles: result.profiles,
         messages: [message], relatedMessages: result.relatedMessages,
         proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
+      appendContiguousTailMessageToWindow(queryClient, scope.id, message)
       return result
     },
     onError: (error, args) => {
@@ -122,6 +124,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       }
       const confirmed = getConfirmedSentMessage(error, origin, args.original, scope.id, nonce, args.assertActive, args.assertCommand)
       if (confirmed) {
+        appendContiguousTailMessageToWindow(queryClient, scope.id, confirmed)
         stream.dispatch(scope, { type: "wsMessage", message: confirmed })
         return
       }
@@ -220,6 +223,7 @@ export function useSubmitInboxDecisionCard() {
         relatedMessages: result.relatedMessages,
         proof: { token: original },
       })
+      appendContiguousTailMessageToWindow(queryClient, channelId, message)
       return { replyToId: result.message.replyToId ?? null }
     },
     onMutate: async ({ input: { messageId }, original }) => {
@@ -336,6 +340,7 @@ export function useReplyInboxChannel(dismissConversation?: RequestNativeConversa
         relatedMessages: result.relatedMessages,
         proof: { token: original },
       })
+      appendContiguousTailMessageToWindow(queryClient, channelId, message)
       return { id: result.message.id, seq: result.message.seq ?? 0 }
     },
     onSuccess: async (data, { input: { channelId }, original }) => {

@@ -4,13 +4,15 @@ import { COMMUNITY_CONTRACT_HEADER, CommunityMessageResourceSchema, type Communi
 import { CancelledError, hashKey, queryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages, retireCommunityChannelReading, getCanonicalCommunityMessages } from "@/lib/community-db/sync"
+import { channelMembershipKey } from "@/lib/community-db/schema"
+import { readCommunityCollectionRow } from "@/lib/community-db/write"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages, retireCommunityChannelReading, getCanonicalCommunityMessages, getCanonicalCommunityMessageResources } from "@/lib/community-db/sync"
 import { ConversationReadTimeoutError, withConversationReadDeadline, isConversationAnchorMissingError } from "@/lib/community/conversation-read"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityRuntime } from "@/stores/community/runtime-owner"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
-import { messageWindowPage, type MessageInput, type MessagesPage, type MessagesReadPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
+import { messageWindowPage, type CanonicalMessage, type MessageInput, type MessagesPage, type MessagesReadPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
 import { buildMessagesUrl, messageWindowIdentity, viewportFillFetchMeta } from "@/lib/community/message-window"
 
 type MessageCache = InfiniteData<MessagesWindowPage, MessagesPageParam>
@@ -378,6 +380,152 @@ export function scheduleFocusedMessageGapRepair(queryClient: QueryClient, scope:
   const messages = getCommunityDbRegistry(queryClient)?.collections.messages
   const known = Math.max(windowSeq, ...ids.map((id) => messages?.get(id)?.seq ?? 0), 0)
   return incomingSeq > known + 1 ? reconcile(queryClient, scope, incomingSeq).catch(() => undefined) : null
+}
+
+export function appendContiguousTailMessageToWindow(
+  queryClient: QueryClient,
+  channelId: string,
+  message: CanonicalMessage,
+): boolean {
+  const registry = getCommunityDbRegistry(queryClient)
+  const accountId = registry?.accountId
+  const viewer = registry?.sessionViewer()
+  if (
+    !registry
+    || !accountId
+    || (viewer !== undefined && viewer !== accountId)
+    || registry.runtime.ws.get().profileViewerId !== accountId
+    || !registry.runtime.lifecycle.get().active
+  ) {
+    return false
+  }
+  if (
+    message.channelId !== channelId
+    || typeof message.id !== "string"
+    || !message.id
+    || message.id.includes("|")
+    || typeof message.seq !== "number"
+    || !Number.isSafeInteger(message.seq)
+    || message.seq <= 0
+    || typeof message.createdAt !== "string"
+    || !Number.isFinite(Date.parse(message.createdAt))
+  ) {
+    return false
+  }
+  const readChannel = (id: string) => (
+    registry.collections.channels.status === "ready"
+      ? registry.collections.channels.get(id)
+      : readCommunityCollectionRow(registry, "channels", id)
+  )
+  const readMembership = (id: string) => (
+    registry.collections.channelMemberships.status === "ready"
+      ? registry.collections.channelMemberships.get(id)
+      : readCommunityCollectionRow(registry, "channelMemberships", id)
+  )
+  const readMessage = (id: string) => (
+    registry.collections.messages.status === "ready"
+      ? registry.collections.messages.get(id)
+      : readCommunityCollectionRow(registry, "messages", id)
+  )
+  const channel = readChannel(channelId)
+  if (!channel || channel.pending || channel.archived || channel.type === "forum") {
+    return false
+  }
+  const parent = channel.parentChannelId ? readChannel(channel.parentChannelId) : undefined
+  if (channel.type !== "thread" && channel.parentChannelId) {
+    return false
+  }
+  if (
+    channel.type === "thread"
+    && (
+      !parent
+      || parent.pending
+      || parent.archived
+      || parent.serverId !== channel.serverId
+      || (parent.type !== "text" && parent.type !== "forum")
+      || !channel.parentMessageId
+    )
+  ) {
+    return false
+  }
+  if (
+    registry.runtime.ws.actions.isChannelAccessRevoked(
+      channel.id,
+      channel.serverId,
+      channel.parentChannelId ?? undefined,
+    )
+  ) {
+    return false
+  }
+  const hasAccess = (id: string) => (
+    readMembership(channelMembershipKey(id, accountId, "access")) !== undefined
+  )
+  if (!hasAccess(channel.id) || (parent && !hasAccess(parent.id))) {
+    return false
+  }
+  const canonical = readMessage(message.id)
+  if (!canonical || canonical.channelId !== channelId || canonical.seq !== message.seq) {
+    return false
+  }
+  const requiredRows: typeof canonical[] = [canonical]
+  if (canonical.replyTo && !canonical.replyTo.deleted && canonical.replyToId) {
+    const replyTarget = readMessage(canonical.replyToId)
+    if (!replyTarget || replyTarget.channelId !== channelId) {
+      return false
+    }
+    requiredRows.push(replyTarget)
+  }
+  if (!getCanonicalCommunityMessageResources(queryClient, requiredRows)) {
+    return false
+  }
+  const key = communityKeys.channelMessagesWindow(channelId, { mode: "newest" }, null)
+  const existing = queryClient.getQueryData<MessageCache>(key)
+  if (
+    !isMessageCache(existing)
+    || existing.pages.length === 0
+    || existing.pages.length !== existing.pageParams.length
+    || existing.pageParams[0]?.mode !== "newest"
+    || existing.pages[0]!.hasMoreNewer !== false
+  ) {
+    return false
+  }
+  let appended = false
+  queryClient.setQueryData<MessageCache>(key, (cache) => {
+    if (
+      !isMessageCache(cache)
+      || cache.pages.length === 0
+      || cache.pages.length !== cache.pageParams.length
+      || cache.pageParams[0]?.mode !== "newest"
+      || cache.pages[0]!.hasMoreNewer !== false
+    ) {
+      return cache
+    }
+    if (cache.pages.some((page) => page.messages.some((ref) => ref.id === message.id || ref.seq === message.seq))) {
+      return cache
+    }
+    if (message.seq !== latest(cache) + 1) {
+      return cache
+    }
+    const firstPage = cache.pages[0]!
+    const nextCursor = `${message.createdAt}|${message.id}`
+    const newestCursor = [firstPage.newestCursor, nextCursor]
+      .filter((value): value is string => !!value)
+      .sort()
+      .at(-1)
+    const nextFirstPage: MessagesWindowPage = {
+      ...firstPage,
+      messages: [...firstPage.messages, { id: message.id, seq: message.seq }],
+      latestSeq: Math.max(firstPage.latestSeq ?? 0, message.seq),
+      hasMoreNewer: false,
+      ...(newestCursor ? { newestCursor } : {}),
+    }
+    appended = true
+    return {
+      ...cache,
+      pages: [nextFirstPage, ...cache.pages.slice(1)],
+    }
+  })
+  return appended
 }
 
 export function reconcileFocusedMessageQueries(queryClient: QueryClient, kind: "channel" | "dm", scopeId: string, serverId?: string, initialMode?: "newest"): Promise<void> {
