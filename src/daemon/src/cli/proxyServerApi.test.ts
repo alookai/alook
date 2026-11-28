@@ -784,3 +784,13 @@ describe("createProxyServerApi — friendRequest / listFriends", () => {
     );
   });
 });
+
+it("sends cover bytes unchanged through the credential proxy with attach capability", async () => {
+ const { resolveProxyCapability } = await import("../credentials/route-policy");
+ const data = new Uint8Array([137, 80, 78, 71]);
+ const fetchImpl = vi.fn(async () => Response.json({ id: "page_test", etag: '"revision"' }));
+ const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+ expect(await api.pageCover({ id: "page_test", data, contentType: "image/png" })).toEqual({ id: "page_test", etag: '"revision"' });
+ expect(fetchImpl).toHaveBeenCalledWith("http://proxy.test/api/community/pages/page_test/cover", { method: "PUT", headers: { authorization: "Bearer vch_test", "content-type": "image/png" }, body: data });
+ expect(resolveProxyCapability("PUT", "/api/community/pages/page_test/cover")).toBe("attach");
+});

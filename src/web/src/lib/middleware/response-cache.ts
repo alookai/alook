@@ -7,6 +7,7 @@ export function rejectUnknownCommunityContract(request: Request, independentActo
   const mediaRead = ["GET", "HEAD"].includes(request.method)
     && (/\/(?:users|servers|bots)\/[^/]+\/(?:avatar|icon)$/.test(path)
       || /^\/api\/community\/share-image\/avatar\//.test(path)
+      || /^\/api\/community\/pages\/[^/]+\/cover$/.test(path)
       || /\/channels\/[^/]+\/attachments\/[^/]+(?:\/thumbnail)?$/.test(path))
   if (version === null && (independentActor || mediaRead)) return null
   return requestedCommunityContract(request.headers) === BUSINESS_SCHEMA_VERSION ? null

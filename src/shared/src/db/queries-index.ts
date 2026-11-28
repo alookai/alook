@@ -46,6 +46,7 @@ export const nativeOauth = nativeOauthQueries;
 export * as billing from "./queries/billing";
 
 export * as communityFeedback from "./queries/community/feedback";
+export * as communityPage from "./queries/community/page";
 export * as communitySchedule from "./queries/community/schedule";
 export * as communityBotPrivateInbox from "./queries/community/bot-private-inbox";
 export * as communityBotWebhook from "./queries/community/bot-webhook";

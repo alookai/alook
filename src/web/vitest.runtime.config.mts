@@ -52,6 +52,7 @@ export default defineProject({
           EMAIL_WORKER: () => new Response("email"),
           BLOG_WORKER: () => new Response("blog"),
           QUEUE_WORKER: () => new Response("queue"),
+          ALOOK_PAGE_HOST: () => new Response("page-host"),
         },
       },
     }),

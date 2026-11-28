@@ -1,10 +1,20 @@
 #!/usr/bin/env node
 import { MEMORY_COMMIT_MAX_BYTES, validateMemoryCommit } from "../memory/commit.js";
 import {
+  AlookPageOperationSchema,
   BOT_FEEDBACK_MAX_BYTES,
   DECISION_CARD_MAX_BYTES,
   parseDecisionCardCliInput,
 } from "@alook/shared";
+import { preparePageDirectory } from "./pageDirectory.js";
+import { preparePageCover } from "./pageCover.js";
+import {
+  captureLocalPagePreview,
+  writeLocalPagePreviewFile,
+  type LocalPagePreviewOptions,
+  type LocalPagePreviewResult,
+} from "./pageLocalPreview.js";
+import { ensurePageRuntime, readPageGuide, runPageLocalCli } from "./pageRuntime.js";
 import { savedDaemonMachineIds } from "./daemonState.js";
 import { withTransientMutationRetry } from "./transientMutationRetry.js";
 import { daemonRefreshFromIpc } from "./daemonRefresh.js";
@@ -306,7 +316,7 @@ async function dispatchSendAndArmReminder(
     );
   }
   const sent = `${res.message.channel}${res.message.seq}`;
-  const pii = res.pii?.triggeredFilters.length ? { pii: res.pii } : {};
+  const pii = { ...(res.pii?.triggeredFilters.length ? { pii: res.pii } : {}), ...(res.message.content.pages?.length ? { pages: res.message.content.pages } : {}) };
   const seqText = res.message.seq.replace(/^#/, "");
   const sentSeq = Number(seqText);
   if (!/^\d+$/.test(seqText) || !Number.isSafeInteger(sentSeq) || sentSeq < 1) {
@@ -324,6 +334,33 @@ async function dispatchSendAndArmReminder(
   }
 }
 
+export type LocalPageCoverCapturer = (directory: string, options?: LocalPagePreviewOptions) => Promise<LocalPagePreviewResult>;
+
+let localPageCoverCapturerOverride: LocalPageCoverCapturer | null = null;
+
+export function setLocalPageCoverCapturerForTesting(fn: LocalPageCoverCapturer | null): void {
+  localPageCoverCapturerOverride = fn;
+}
+
+async function uploadPageDirectory(api: ServerApi, agent: string, directory: string, coverFile?: string) {
+  const prepared = await preparePageDirectory(directory);
+  const cover = coverFile !== undefined
+    ? await preparePageCover(coverFile)
+    : await (localPageCoverCapturerOverride ?? captureLocalPagePreview)(directory);
+  const uploaded = await api.attachmentUpload({ agentId: agent, file: { data: prepared.bytes, filename: "page.zip", contentType: "application/zip" } });
+  const page = await withTransientMutationRetry(() => api.pageCreate({ archiveAttachmentId: uploaded.id }));
+  try {
+    await withTransientMutationRetry(() => api.pageCover({ id: page.id, data: cover.data, contentType: cover.contentType }));
+  } catch (error) {
+    const rolledBack = await api.pageDelete({ id: page.id }).then(() => true, () => false);
+    if (rolledBack) {
+      throw new CliError(`page upload: cover upload failed (${(error as Error).message}); rolled back Page creation. Retry page upload.`);
+    }
+    throw new CliError(`Page ${page.id} was created; cover upload failed: ${(error as Error).message}. Delete it with page delete --id ${page.id} and re-upload.`);
+  }
+  return page;
+}
+
 async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
   const remindAfterFlag = opts.remindAfter as string;
   const remindAfterMs = parseRemindAfter(remindAfterFlag);
@@ -337,6 +374,7 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   const replyToSeq = parseReplySeqOption("message send", opts.reply);
 
   if (opts.ask === true) {
+    if (opts.page) throw new CliError("message send: cannot combine --ask with --page");
     if (attachmentIds.length > 0) {
       throw new CliError("message send --ask: cannot combine --ask with --attachment");
     }
@@ -394,11 +432,20 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
     throw new CliError("message send: --stdin must contain text unless --attachment <id> is present");
   }
 
+  let page: { id: string } | undefined;
+  if (opts.page) {
+    const value = String(opts.page);
+    if (!/^page_[A-Za-z0-9_-]{1,123}$/.test(value)) {
+      throw new CliError("message send: --page requires a Page id from page upload --dir <dir>");
+    }
+    page = { id: value };
+  }
   const nonce = randomUUID();
   return dispatchSendAndArmReminder(api, channel, remindAfterMs, {
     agentId: agent,
     channel,
     content: { text: text ?? "" },
+    ...(page ? { page } : {}),
     attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
     replyToSeq,
     nonce,
@@ -817,6 +864,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
     .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB, or 8 KiB JSON with --ask)")
+    .option("--page <id>", "attach an uploaded live Page by id (from page upload)")
     .option("--ask", "send a structured decision card from UTF-8 JSON on --stdin with required summary and questions (text channel, thread, or DM)")
     .option(
       "-a, --attachment <id>",
@@ -837,6 +885,93 @@ function buildProgram(stdin: CliInputStream): Command {
       const globalOpts = program.opts();
       const result = await cmdMessageSend({ ...globalOpts, ...localOpts }, stdin);
       printEnvelope({ success: result });
+    });
+
+  const pageCommand = program.command("page").description("read or change a published Page through its native file or editor actions")
+    .option("--id <id>", "Page id from upload or a message card")
+    .option("--stdin", "operation JSON: actions (native schemas), manifest, read, write (requires if_match), or action")
+    .option("--out <path>", "write a read operation's base64 file response to this local path")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const opts = this.opts();
+      if (!opts.id || !opts.stdin) throw new CliError("page: --id and --stdin are required for operations");
+      const text = await readLiteralInput({ command: "page", stdinSelected: opts.stdin === true, stdin, maxBytes: 2 * 1024 * 1024, strictUtf8: true });
+      const operation = AlookPageOperationSchema.parse(JSON.parse(text ?? ""));
+      const result = await getApi().page({ id: String(opts.id), operation });
+      if (opts.out) {
+        if (operation.kind !== "read" || !result || typeof result !== "object" || !("content" in result) || typeof result.content !== "string") throw new CliError("page: --out requires a successful read operation");
+        const fs = await import("node:fs/promises");
+        await fs.writeFile(String(opts.out), Buffer.from(result.content, "base64"), { flag: "wx" });
+        printEnvelope({ success: { path: opts.out, etag: "etag" in result ? result.etag : undefined } });
+      } else printEnvelope({ success: result });
+    });
+
+  pageCommand.command("guide").description("read the official authoring SKILL.md and reference docs for any of the 9 Page artifact types (lazily caches the shared runtime)")
+    .option("--type <type>", "artifact type: docs, slides, sheets, whiteboard, design, data, motion, design-system, or page")
+    .option("--ref <file>", "reference markdown filename under the type's reference/ folder (requires --type)")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const opts = this.opts();
+      if (opts.ref && !opts.type) throw new CliError("page guide: --ref requires --type <type>");
+      const runtime = await ensurePageRuntime();
+      printEnvelope({ success: await readPageGuide(runtime, opts.type as string | undefined, opts.ref as string | undefined) });
+    });
+
+  pageCommand.command("local [args...]").description("run a local Open Artifact authoring or validation command (create, update, read, batch, write-db, read-db, check, upload, info, open, stop) via the cached runtime; forwards piped stdin")
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command, rawArgs: string[]) {
+      const forwarded = Array.isArray(rawArgs) ? rawArgs : [];
+      if (forwarded.length === 0) throw new CliError("page local: pass a local Open Artifact subcommand and arguments (e.g. check <dir>)");
+      const runtime = await ensurePageRuntime();
+      const result = await runPageLocalCli(runtime, forwarded, {
+        ...(stdin.isTTY ? {} : { stdinStream: stdin }),
+      });
+      if (result.exitCode !== 0) {
+        printEnvelope({
+          error: result.stderr.trim() || result.stdout.trim() || `page local exited with code ${result.exitCode}`,
+          code: `EXIT_${result.exitCode}`,
+        });
+        return;
+      }
+      printEnvelope({ success: result });
+    });
+
+  pageCommand.command("preview").description("render a local Page directory (all 9 types) at 16:10, save a screenshot to --out, and automatically shut down the temporary browser and local server")
+    .requiredOption("--dir <directory>", "local artifact directory")
+    .option("--out <path>", "required destination image path for the rendered 16:10 screenshot")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const outPath = this.opts().out ?? pageCommand.opts().out;
+      if (!outPath) throw new CliError("page preview: --out <path> is required");
+      printEnvelope({ success: await writeLocalPagePreviewFile(String(this.opts().dir), String(outPath)) });
+    });
+
+  pageCommand.command("upload").description("validate a local artifact directory, capture its 16:10 homepage cover locally before upload (or use --cover), and return its reusable live Page id")
+    .requiredOption("--dir <directory>", "directory containing .artifact.json and artifact files")
+    .option("--cover <image>", "optional 16:10 cover image override (PNG, JPEG or WebP, max 2 MiB); auto-rendered locally before upload when omitted")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      printEnvelope({ success: await uploadPageDirectory(getApi(), agentId(program.opts()), String(this.opts().dir), this.opts().cover as string | undefined) });
+    });
+
+  pageCommand.command("list").description("list Pages created by this bot, including unused uploads; return the total and message counts")
+    .option("--limit <n>", "page size, 1..100 (default 50)").option("--cursor <cursor>", "nextCursor from the previous result")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const opts = this.opts();
+      const limit = opts.limit === undefined ? undefined : Number(opts.limit);
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) throw new CliError("page list: --limit must be an integer from 1 to 100");
+      printEnvelope({ success: await getApi().pageList({ ...(limit === undefined ? {} : { limit }), ...(opts.cursor ? { cursor: String(opts.cursor) } : {}) }) });
+    });
+  pageCommand.command("delete").description("permanently delete a Page created by this bot and all its message associations")
+    .option("--id <id>", "required Page id to delete")
+    .exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const id = this.opts().id ?? pageCommand.opts().id;
+      if (!id) throw new CliError("page delete: --id is required");
+      printEnvelope({ success: await getApi().pageDelete({ id: String(id) }) });
     });
 
   const property = message.command("property").description("message property operations").exitOverride();
@@ -1290,6 +1425,32 @@ export async function main(argv = process.argv.slice(2), io: CliIo = {}): Promis
   const program = buildProgram(stdin);
   let internalExitCode = 0;
   try {
+    // True verbatim passthrough for `alook page local <cmd> [args...]`:
+    // prevent parent `page` options (--out, --id, --stdin) or root flags (--agent)
+    // from being consumed by Commander before reaching the local Open Artifact CLI.
+    if (
+      argv[0] === "page"
+      && argv[1] === "local"
+      && !(argv.length === 3 && (argv[2] === "-h" || argv[2] === "--help"))
+    ) {
+      const forwarded = argv.slice(2);
+      if (forwarded.length === 0) {
+        throw new CliError("page local: pass a local Open Artifact subcommand and arguments (e.g. check <dir>)");
+      }
+      const runtime = await ensurePageRuntime();
+      const result = await runPageLocalCli(runtime, forwarded, {
+        ...(stdin.isTTY ? {} : { stdinStream: stdin }),
+      });
+      if (result.exitCode !== 0) {
+        printEnvelope({
+          error: result.stderr.trim() || result.stdout.trim() || `page local exited with code ${result.exitCode}`,
+          code: `EXIT_${result.exitCode}`,
+        });
+      } else {
+        printEnvelope({ success: result });
+      }
+      return 0;
+    }
     await program.parseAsync(argv, { from: "user" });
   } catch (err) {
     if (err instanceof CommanderError) {

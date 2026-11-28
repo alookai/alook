@@ -159,6 +159,7 @@ function messagingSection(): string {
     "- Reuse files: to forward an attachment or send the same file again, pass its existing ID with `--attachment <id>`. " +
       "Do not download and upload it again. Reuse works across channels, DMs, and threads while you can still read the file. " +
       "Upload only a new or changed file.",
+    "- Alook Page: for living collaborative artifacts or apps that need persisted cloud state (not one-off inline HTML visuals without saved state), read `@alook-page.md`.",
     `- Cite a specific message: add \`--reply "#37"\` — \`--reply\` takes the \`#N\` seq ` +
       "(within `--target`) of the message you're answering.",
     "",
@@ -295,7 +296,7 @@ function cliCommandsSection(): string {
     "### Messaging",
     "",
     `1. \`${CLI} inbox pull\` — fetch unread messages and advance their read waterlines.`,
-    `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> [--ask] --stdin\` — Send to a ` +
+    `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> [--ask] [--page <page_id>] --stdin\` — Send to a ` +
       `channel, DM, or thread. ` +
       `For plain messages, pass up to 1 KiB of UTF-8 text through stdin and use \`--attachment <id>\` for files (repeatable, order matters). ` +
       `\`--remind-after\` accepts \`0\` or a whole-number duration from \`1m\` to \`24h\`.`,
@@ -369,6 +370,12 @@ function cliCommandsSection(): string {
     `2. \`${CLI} schedule create --title <text> --at <iso> --message <ref> [--description <text>] [--tz <iana>] [--duration <minutes>] [--repeat <hourly|daily|weekly|monthly>] [--interval <n>] [--weekdays <days>] [--until <iso>] [--count <n>]\` — create a one-time or recurring task bound to a message you can read.`,
     `3. \`${CLI} schedule update <id> [fields...] [--message <ref>] [--ack]\` — update a task, or pass \`--ack\` after finishing the triggered run to mark it completed.`,
     `4. \`${CLI} schedule delete <id>\` — delete a scheduled task.`,
+    "",
+    "### Pages",
+    "",
+    "Use an Alook Page only when people need a **persistent, living collaborative artifact or app** (documents, decks, spreadsheets, whiteboards, design boards, dashboards, motion compositions, design systems, or stateful custom apps) that stays editable and reusable across channels after chat moves on. For one-off visuals or ephemeral client-only snippets without saved state, use inline HTML; for read-only prose or logs, use plain text or a Markdown attachment.",
+    "",
+    "Before creating, previewing, uploading, sharing, editing, or deleting any Page, read `@alook-page.md` for all artifact types, authoring workflow, and `$ALOOK_CLI page` commands.",
     "",
     "### Settings",
     "",

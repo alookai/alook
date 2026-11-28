@@ -389,6 +389,9 @@ jobs:
             .vitest-reports/unit.blob
           if-no-files-found: error
           retention-days: 14
+      - name: Run selected Page Worker native tests
+        if: contains(fromJSON(needs.scope.outputs.linux_suites), 'page-host')
+        run: pnpm --filter @alook/page-host test:native
       - name: Run selected daemon real-process tests
         if: contains(fromJSON(needs.scope.outputs.linux_suites), 'daemon-real')
         run: |

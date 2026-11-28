@@ -5758,6 +5758,30 @@
     ],
     "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
   },
+  "src/web/src/components/community/messages/open-artifact-card.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-business-open-artifact--cards",
+        "region": "Document and Slides page cards rendered inside a message"
+      }
+    ],
+    "reason": "The authored story mounts the original OpenArtifactCard component inside a message; opening live cloud pages requires the OA host worker."
+  },
+  "src/web/src/components/community/messages/open-artifact-sheet.tsx": {
+    "kind": "direct",
+    "examples": [
+      {
+        "story": "web-business-open-artifact--side-container",
+        "region": "Resizable side panel and full-screen toggle container"
+      },
+      {
+        "story": "web-business-open-artifact--revoked-state",
+        "region": "Revoked 404 access-unavailable state"
+      }
+    ],
+    "reason": "The authored story mounts the original OpenArtifactSheet component in active and revoked states; cross-origin OA Shell handshakes require separate runtime evidence."
+  },
   "src/web/src/components/ui/calendar.tsx": {
     "kind": "direct",
     "examples": [

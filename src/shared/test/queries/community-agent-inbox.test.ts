@@ -135,6 +135,17 @@ describe("toAgentMessages", () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
+  it("returns validated Page identifiers for agent reads and update commands", async () => {
+    const db = createSequentialDb([
+      [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "srv_1", name: "studio", discriminator: "0042" }],
+    ]);
+    const page = { kind: "alook_page", id: "page_1", type: "page", title: "Review" };
+    const [message] = await agentInbox.toAgentMessages(db, [rawMsg({ embeds: JSON.stringify([page, { ...page, id: "forged/path" }]) })], "viewer_1");
+    expect(message.content.pages).toEqual([page]);
+  });
+
   it("hydrates a plain channel message: ref, sender, content, seq, time", async () => {
     // Call order (all non-empty-guarded selects, in construction order):
     //  1. resolveScopeRefs' `channels` query (channelIds=[ch_1])

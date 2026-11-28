@@ -11,7 +11,7 @@
     "composition": 379,
     "environment": 14,
     "nonvisual": 32,
-    "direct": 164
+    "direct": 166
   },
   "entries": [
     {
@@ -3926,6 +3926,46 @@
         }
       ],
       "reason": "The authored story mounts the original visual component or its named product composition. Use the indicated region; branch rendering and interactions require separate runtime evidence."
+    },
+    {
+      "source": "src/web/src/components/community/messages/open-artifact-card.tsx",
+      "application": "Web",
+      "candidates": [
+        "MessageOpenArtifactCard",
+        "OpenArtifactCard",
+        "PageFallbackSvg",
+        "PageKindIcon",
+        "RuntimeOpenArtifactCard"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-open-artifact--cards",
+          "region": "Document and Slides page cards rendered inside a message"
+        }
+      ],
+      "reason": "The authored story mounts the original OpenArtifactCard component inside a message; opening live cloud pages requires the OA host worker."
+    },
+    {
+      "source": "src/web/src/components/community/messages/open-artifact-sheet.tsx",
+      "application": "Web",
+      "candidates": [
+        "OpenArtifactSheet",
+        "OpenArtifactSheetSurface",
+        "PageHeaderIcon"
+      ],
+      "kind": "direct",
+      "examples": [
+        {
+          "story": "web-business-open-artifact--side-container",
+          "region": "Resizable side panel and full-screen toggle container"
+        },
+        {
+          "story": "web-business-open-artifact--revoked-state",
+          "region": "Revoked 404 access-unavailable state"
+        }
+      ],
+      "reason": "The authored story mounts the original OpenArtifactSheet component in active and revoked states; cross-origin OA Shell handshakes require separate runtime evidence."
     },
     {
       "source": "src/web/src/components/community/messages/pdf-preview.tsx",
@@ -9958,6 +9998,24 @@
       "title": "Web/Business/Navigation",
       "name": "Forum Counts",
       "source": "src/storybook/stories/business/navigation.stories.tsx"
+    },
+    {
+      "id": "web-business-open-artifact--cards",
+      "title": "Web/Business/Open Artifact",
+      "name": "Cards",
+      "source": "src/storybook/stories/business/open-artifact.stories.tsx"
+    },
+    {
+      "id": "web-business-open-artifact--side-container",
+      "title": "Web/Business/Open Artifact",
+      "name": "Side Container",
+      "source": "src/storybook/stories/business/open-artifact.stories.tsx"
+    },
+    {
+      "id": "web-business-open-artifact--revoked-state",
+      "title": "Web/Business/Open Artifact",
+      "name": "Revoked State",
+      "source": "src/storybook/stories/business/open-artifact.stories.tsx"
     },
     {
       "id": "web-business-presence--typing",

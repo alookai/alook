@@ -2,6 +2,7 @@ import { BUSINESS_SCHEMA_VERSION, CommunityMessageResourceSchema, extractDecisio
 import { MessageEmbedSchema, type Msg, type CanonicalMessage } from "@/lib/community/models/message"
 import { avatarInitial } from "@/lib/community/avatar"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
+import { extractAlookPagesFromEmbeds } from "@/lib/community/open-artifact"
 
 type UiEmbed = NonNullable<Msg["embeds"]>[number]
 const richContentSchema = CommunityMessageResourceSchema.pick({ attachments: true, embeds: true }).strip()
@@ -20,7 +21,7 @@ function projectEmbed(value: unknown): UiEmbed | undefined {
   return parsed.success ? omitUndefined(parsed.data) : undefined
 }
 
-type RichContentProjection = Pick<Msg, "attachments" | "embeds" | "decisionCard">
+type RichContentProjection = Pick<Msg, "attachments" | "embeds" | "pages" | "decisionCard">
 const NO_REPLY_TARGET: object = {}
 const richContentCache = new WeakMap<CommunityMessageResource, RichContentProjection>()
 const presentedMessageCache = new WeakMap<CommunityMessageResource, WeakMap<object, Msg>>()
@@ -30,15 +31,17 @@ function projectMessageRichContent(value: CommunityMessageResource): RichContent
   if (cached) return cached
   const { attachments, embeds } = richContentSchema.parse(value)
   const extracted = extractDecisionCardFromEmbeds(embeds)
-  const genericEmbeds = extracted.otherEmbeds?.flatMap((entry) => {
+  const extractedPages = extractAlookPagesFromEmbeds(extracted.otherEmbeds)
+  const genericEmbeds = extractedPages.otherEmbeds.flatMap((entry) => {
     const embed = projectEmbed(entry)
     return embed ? [embed] : []
   })
   const projected: RichContentProjection = {
     ...(attachments ? { attachments: attachments.map(presentMessageAttachment) } : {}),
     ...(embeds
-      ? { embeds: genericEmbeds ?? [] }
+      ? { embeds: genericEmbeds }
       : {}),
+    ...(extractedPages.pages.length > 0 ? { pages: extractedPages.pages } : {}),
     ...(extracted.card ? { decisionCard: extracted.card } : {}),
   }
   richContentCache.set(value, projected)

@@ -1,0 +1,38 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "alook-page-host",
+  "main": "dist/site/worker.js",
+  "compatibility_date": "2026-11-25",
+  "compatibility_flags": ["nodejs_compat", "request_signal_passthrough"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "no_bundle": true,
+  "base_dir": "dist/site",
+  "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": false }],
+  "assets": {
+    "directory": "dist/assets",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": ["/_open-artifact/shell/index.html"]
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "alook-pages", "database_id": "00000000-0000-0000-0000-000000000000" }],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "ArtifactObject" }, { "name": "HUB", "class_name": "SiteHubObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactObject", "SiteHubObject"] }],
+  "services": [{ "binding": "ALOOK_WEB", "service": "alook-web" }],
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "triggers": { "crons": ["17 * * * *"] },
+  "vars": {
+    "OA_APP_ORIGIN": "http://localhost:8795",
+    "OA_CONTENT_ORIGIN": "http://{id}.content.localhost:8795",
+    "OA_SIGNUP": "owners-only",
+    "OA_PUBLIC_ACCESS": "false",
+    "OA_TYPES_PUBLISH": "off",
+    "ALOOK_WEB_ORIGIN": "http://localhost:3000",
+    "ALOOK_WEB_DEV_LOOPBACK": "1",
+    "ALOOK_EMBED_ORIGINS": "[\"http://localhost:3000\"]",
+    "OA_PLUGINS": "[{\"use\":\"alook\",\"config\":{\"origin\":{\"env\":\"ALOOK_WEB_ORIGIN\"},\"secret\":{\"env\":\"ALOOK_PAGE_SERVICE_KEY\"}}}]"
+  }
+}

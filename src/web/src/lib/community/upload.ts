@@ -208,7 +208,7 @@ async function readFile(req: NextRequest): Promise<ParsedUpload | UploadErr> {
   }
 }
 
-async function putAttachmentContent(bucket: R2Bucket, file: File, prefix: string): Promise<string> {
+export async function putAttachmentContent(bucket: R2Bucket, file: File, prefix: string): Promise<string> {
   const hash = createHash("sha256")
   const reader = file.stream().getReader()
   try {

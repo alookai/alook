@@ -14,10 +14,15 @@ const SCHEDULE_EVENTS_PROXY_PATH_RE = /^\/api\/community\/schedule\/events(?:\/[
 function isCanonicalCommunityProxyPath(pathname: string): boolean {
   return pathname === "/api/community/platform/feedback"
     || SCHEDULE_EVENTS_PROXY_PATH_RE.test(pathname)
-    || /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots|machines)(\/|$)/.test(pathname);
+    || /^\/api\/community\/(channels|messages|servers|invites|friends|users|bots|machines|pages)(\/|$)/.test(pathname);
 }
 
 export function resolveProxyCapability(method: string, pathname: string): string | undefined {
+  if (/^\/api\/community\/pages\/[^/]+\/cover$/.test(pathname) && method === "PUT") return "attach";
+  if (pathname === "/api/community/pages" && method === "GET") return "read";
+  if (/^\/api\/community\/pages\/[^/]+$/.test(pathname) && method === "DELETE") return "send";
+  if (pathname === "/api/community/pages" && method === "POST") return "attach";
+  if (/^\/api\/community\/pages\/[^/]+\/operations$/.test(pathname) && method === "POST") return "send";
   if (pathname === "/api/community/platform/feedback" && method === "POST") return "send";
   if (pathname.startsWith("/api/community/machines")) return "read";
   if (pathname === "/api/community/bots" && method === "GET") return "read";

@@ -4,6 +4,7 @@ import { useSelector, shallow } from "@tanstack/react-store"
 import { useMemo } from "react"
 import type React from "react"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { AlookPageOpenTarget } from "@/lib/community/open-artifact"
 import { useCommunityRuntime } from "./runtime"
 import { createCommunityStore, type CommunityUiHandlers } from "./ui-store"
 
@@ -23,6 +24,7 @@ export function useUiHandlers() {
   return useMemo(() => ({
     previewImage: (image: ImagePreview) => ui.get().uiHandlers.previewImage?.(image),
     previewAttachment: (attachment: FileAttachment) => ui.get().uiHandlers.previewAttachment?.(attachment),
+    openPage: (page: AlookPageOpenTarget) => ui.get().uiHandlers.openPage?.(page),
     openProfile: (name: string, event: React.MouseEvent, discriminator?: string, userId?: string) => ui.get().uiHandlers.openProfile?.(name, event, discriminator, userId),
     goBackMobile: (parentPath?: string) => ui.get().uiHandlers.goBackMobile?.(parentPath),
     navigatePath: (href: string) => ui.get().uiHandlers.navigatePath?.(href),

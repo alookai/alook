@@ -174,6 +174,7 @@ export async function createCommunityMessage(params: {
    * identity-agnostic — the bot-only caller supplies the statement.
    */
   extraStatements?: unknown[]
+  extraStatementsForMessage?: (messageId: string) => unknown[]
   forumThread?: Parameters<typeof queries.communityMessage.createMessage>[1]["forumThread"]
   type?: string
   embeds?: string
@@ -202,6 +203,7 @@ export async function createCommunityMessage(params: {
     attachmentIds,
     clientNonce,
     extraStatements,
+    extraStatementsForMessage,
     type,
     embeds,
     explicitMentionedUserIds,
@@ -438,7 +440,8 @@ export async function createCommunityMessage(params: {
 
   const qualifiesForFirstAgentReply = authorKind === "bot"
     && (source === "cli" || source === "daemon-http")
-  const messageId = qualifiesForFirstAgentReply ? nanoid() : undefined
+  const messageId = qualifiesForFirstAgentReply || extraStatementsForMessage ? nanoid() : undefined
+  const messageStatements = [...(extraStatements ?? []), ...(messageId ? extraStatementsForMessage?.(messageId) ?? [] : [])]
   const conversationType = target.kind === "dm"
     ? "dm"
     : target.kind === "thread" || target.kind === "forum"
@@ -475,8 +478,8 @@ export async function createCommunityMessage(params: {
     replyToId,
     mentionType,
     clientNonce,
-    ...(extraStatements?.length || funnelStatements.length
-      ? { extraStatements: [...(extraStatements ?? []), ...funnelStatements] }
+    ...(messageStatements.length || funnelStatements.length
+      ? { extraStatements: [...messageStatements, ...funnelStatements] }
       : {}),
     attachmentIds,
     participants,

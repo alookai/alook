@@ -1,0 +1,1 @@
+export default [{ files: ["**/*.mjs"], rules: { "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrors: "none" }], "no-unreachable": "error", "no-constant-condition": ["error", { checkLoops: false }], "valid-typeof": "error" } }];

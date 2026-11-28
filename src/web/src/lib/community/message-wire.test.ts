@@ -242,6 +242,19 @@ describe("projectPostedMessage", () => {
     expect(cardOnly.embeds).toEqual([])
   })
 
+  it("extracts alook_page embeds onto pages without duplicating them in generic embeds", () => {
+    const pageEmbed = { kind: "alook_page", id: "pg_roadmap", type: "doc", title: "Q4 Launch Plan" }
+    const linkEmbed = { title: "Release notes", url: "https://example.com" }
+
+    const presented = presentCanonicalMessage(wire({ embeds: [pageEmbed, linkEmbed] }))
+    expect(presented.pages).toEqual([pageEmbed])
+    expect(presented.embeds).toEqual([linkEmbed])
+
+    const pageOnly = presentCanonicalMessage(wire({ embeds: [pageEmbed] }))
+    expect(pageOnly.pages).toEqual([pageEmbed])
+    expect(pageOnly.embeds).toEqual([])
+  })
+
   it("reuses memoized presented messages for unchanged canonical rows", () => {
     const row = wire({
       id: "m-memo",

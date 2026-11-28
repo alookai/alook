@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate as drainEventTasks } from "node:timers/promises";
 import { DailyTokenUsageStore } from "../telemetry/dailyTokenUsage.js";
+import { ALOOK_PAGE_GUIDE_CONTENT, ALOOK_PAGE_GUIDE_FILENAME } from "../drivers/alookPageGuide.js";
 import {
   createDaemon,
   createBuiltinDaemonSessionFactory,
@@ -922,6 +923,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       expect(admission).toMatchObject({ status: "accepted" });
       expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
       expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
+      expect(readFileSync(join(workingDirectory, ALOOK_PAGE_GUIDE_FILENAME), "utf8")).toBe(ALOOK_PAGE_GUIDE_CONTENT);
     } finally {
       await session.stop({ reason: "shutdown", forceAfterMs: 10 });
       await session.closed;

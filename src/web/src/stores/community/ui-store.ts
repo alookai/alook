@@ -1,6 +1,7 @@
 import { createStore } from "@tanstack/store"
 import type React from "react"
 import type { FileAttachment, ImagePreview, ReplyTarget } from "@/lib/community/models/message"
+import type { AlookPageOpenTarget } from "@/lib/community/open-artifact"
 import type { CommunityOnboardingState } from "@/lib/community-onboarding"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -20,6 +21,7 @@ type CommunitySubscription = {
 export type CommunityUiHandlers = {
   previewImage?: (image: ImagePreview) => void
   previewAttachment?: (attachment: FileAttachment) => void
+  openPage?: (page: AlookPageOpenTarget) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
   goBackMobile?: (parentPath?: string) => void
   navigatePath?: (href: string) => void

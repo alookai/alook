@@ -43,8 +43,10 @@ import { cn } from "@/lib/utils"
 import { usePageSwipeStart } from "@/components/ui/swipe-container"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
+import type { AlookPageOpenTarget } from "@/lib/community/open-artifact"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
+import { MessageOpenArtifactCard } from "./open-artifact-card"
 import { isAttachmentContextMenuTarget } from "./attachment-context-menu"
 import { MessageImageAttachment } from "./message-image-attachment"
 import {
@@ -190,7 +192,7 @@ export function messageLinkClickUsesMenu({
 function MessageImpl({
   m, bodyKey, compact, pinned, readOnly, avatarSize = 40, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onRetry, onDismiss,
-  onPreviewImage, onPreviewAttachment, highlighted, resolveUserName, onImageLoad,
+  onPreviewImage, onPreviewAttachment, onOpenPage, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
   viewerUserId, onSubmitDecisionCard, allowDecisionCardSubmit, liveRespondedUserIds, hoverCapable = true,
 }: {
@@ -218,6 +220,7 @@ function MessageImpl({
   onDismiss?: () => void
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
+  onOpenPage?: (page: AlookPageOpenTarget) => void
   highlighted?: boolean
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
@@ -946,6 +949,20 @@ function MessageImpl({
                 }
                 return <AttachmentCard key={i} attachment={a} onPreview={onPreviewAttachment} contextMenuDisabled={selectMode} />
               })}
+            </div>
+          )}
+
+          {m.pages && m.pages.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {m.pages.map((page) => (
+                <MessageOpenArtifactCard
+                  key={`${m.id}:${page.id}`}
+                  page={page}
+                  sourceMessageId={m.id}
+                  onOpenPage={onOpenPage}
+                  disabled={selectMode}
+                />
+              ))}
             </div>
           )}
 

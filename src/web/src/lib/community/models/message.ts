@@ -1,6 +1,7 @@
 import { z } from "zod"
 import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead, DecisionCardEmbed } from "@alook/shared"
 import type { InfiniteData } from "@tanstack/react-query"
+import type { AlookPageEmbed } from "@/lib/community/open-artifact"
 
 // ── Messages ───────────────────────────────────────────────────────────────
 export type AttachmentPreview = Pick<CommunityMessageAttachment, "name" | "url"> & Partial<Omit<CommunityMessageAttachment, "name" | "url">>
@@ -57,6 +58,7 @@ export type Msg = Pick<CommunityMessageResource, "id" | "type"> & Partial<Omit<C
   clientNonce?: string
   attachments?: Attachment[]
   embeds?: Embed[]
+  pages?: AlookPageEmbed[]
   decisionCard?: DecisionCardEmbed
   authorAvatar?: string
   thread?: CommunityMessageResource["thread"]

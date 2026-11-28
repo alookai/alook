@@ -16,6 +16,7 @@ export default defineConfig({
       "src/daemon/agent-driver",
       "src/email-worker",
       "src/ws-do",
+      "src/page-host",
       "src/queue-worker",
       "src/app",
       "tests/utils",
@@ -28,12 +29,13 @@ export default defineConfig({
     ],
     coverage: {
       provider: "istanbul",
-      include: ["src/**/*.{ts,tsx,js,jsx}", "scripts/ci/**/*.mjs"],
+      include: ["src/**/*.{ts,tsx,js,jsx}", "scripts/ci/**/*.mjs", "src/page-host/src/**/*.mjs"],
       exclude: [
         ...turbo.tasks["@alook/web#build"].outputs.filter(pattern => !pattern.startsWith("!")).map(pattern => "src/web/" + pattern),
         "**/*.test.*",
         "**/*.spec.*",
         "**/node_modules/**",
+        "src/page-host/.cache/**",
         "**/.next/**",
         "**/.open-next/**",
         "**/.wrangler/**",

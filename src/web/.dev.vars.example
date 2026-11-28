@@ -32,3 +32,6 @@ APPLE_PRIVATE_KEY=
 # JEV wake relevance providers. Configure the key for the selected JEV_PROVIDER.
 OPENROUTER_API_KEY=
 TYPESAFE_API_KEY=
+
+ALOOK_PAGE_ORIGIN=http://localhost:8795
+ALOOK_PAGE_SERVICE_KEY=

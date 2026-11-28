@@ -99,6 +99,24 @@
       "app_artifact": true
     },
     {
+      "name": "@alook/page-host",
+      "root": "src/page-host",
+      "static": true,
+      "build": true,
+      "knip": false,
+      "unit_root": "src/page-host",
+      "coverage_roots": [
+        "src/page-host/src/**/*.mjs"
+      ],
+      "windows_suites": [],
+      "integration_suites": [],
+      "linux_suites": [
+        "page-host"
+      ],
+      "ui": false,
+      "app_artifact": false
+    },
+    {
       "name": "@alook/queue-worker",
       "root": "src/queue-worker",
       "static": true,
@@ -216,7 +234,8 @@
     "linux": [
       "agent-driver-packed",
       "daemon-packed",
-      "daemon-real"
+      "daemon-real",
+      "page-host"
     ]
   },
   "path_suites": [
@@ -481,6 +500,11 @@
         "email-worker-runtime"
       ],
       "selection": "project"
+    },
+    "@alook/page-host#test": {
+      "projects": [
+        "page-host"
+      ]
     },
     "@alook/queue-worker#test": {
       "projects": [

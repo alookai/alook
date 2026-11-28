@@ -492,6 +492,12 @@
     "key": "src/shared/src/db/queries/community/notification-eligibility.ts:resolveNotificationEligibilityForUsers:inArray:1"
   },
   {
+    "key": "src/shared/src/db/queries/community/page.ts:createPageViewerTicket:inArray:1"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/page.ts:listOwnedPages:inArray:1"
+  },
+  {
     "key": "src/shared/src/db/queries/community/push-device.ts:listActivePushTargetsForUsers:inArray:1"
   },
   {

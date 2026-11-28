@@ -1,4 +1,8 @@
 interface RuntimeEnv {
+  ALOOK_PAGE_HOST?: Fetcher
+  COMMUNITY_MEDIA?: R2Bucket
+  ALOOK_PAGE_ORIGIN?: string
+  ALOOK_PAGE_SERVICE_KEY?: string
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
   STRIPE_PORTAL_CONFIGURATION_ID?: string

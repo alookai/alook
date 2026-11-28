@@ -7,6 +7,7 @@ import { UserSettings } from "../settings/user-settings"
 import { ProfileCard } from "../social/profile-card"
 import { ImageLightbox } from "../messages/image-lightbox"
 import { AttachmentPreviewSheet } from "../messages/attachment-preview-sheet"
+import { OpenArtifactSheet } from "../messages/open-artifact-sheet"
 import { ImageCropDialog } from "../image-crop-dialog"
 import type { useShellProfileController } from "./use-shell-profile-controller"
 
@@ -49,6 +50,11 @@ export function ShellFrameOverlays({
         attachment={controller.attachmentPreview}
         open={!!controller.attachmentPreview}
         onOpenChange={controller.onAttachmentPreviewOpenChange}
+      />
+      <OpenArtifactSheet
+        page={controller.activePage}
+        open={!!controller.activePage}
+        onOpenChange={controller.onActivePageOpenChange}
       />
       <Dialog
         open={controller.editingProfile}
