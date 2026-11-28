@@ -4,8 +4,11 @@ import type { Database } from "./db/index"
 import { withD1Retry } from "./db/resilience"
 import * as communityAgentInbox from "./db/queries/community/agent-inbox"
 import * as communityBot from "./db/queries/community/bot"
+import * as communityBotAuditLog from "./db/queries/community/bot-audit-log"
+import type { WakeTriggerPayload } from "./db/queries/community/bot-audit-log"
 import * as communityBotPrivateInbox from "./db/queries/community/bot-private-inbox"
 import type { StoredBotPrivateInboxEvent } from "./db/queries/community/bot-private-inbox"
+import * as communityBotWebhook from "./db/queries/community/bot-webhook"
 import * as communityChannel from "./db/queries/community/channel"
 import * as communityDm from "./db/queries/community/dm"
 import * as communityFriendship from "./db/queries/community/friendship"
@@ -15,6 +18,7 @@ import { resolveModelConfig } from "./community/bot-model"
 import { makeRuntimeConfig } from "./runtime-config"
 import { buildScheduleEventPrompt } from "./schedule"
 import { visibilityIsDmParticipant } from "./utils/community-roles"
+import { utcDayKey } from "./utils/day-key"
 import { formatHandle } from "./lib/discriminator"
 
 export type PushAgentEventFn = (
@@ -27,6 +31,70 @@ export type NotifyScheduleChangeFn = (
   eventId: string,
   reason: "run_updated",
 ) => Promise<void>
+
+export interface BotAuditWakeBroadcastEvent {
+  botId: string
+  ownerUserId: string
+  id: string
+  kind: "wake_trigger"
+  payload: WakeTriggerPayload
+  createdAt: string
+  launchId: string
+}
+
+export type BroadcastBotAuditEventFn = (event: BotAuditWakeBroadcastEvent) => Promise<void>
+
+export interface DispatchPrivateInboxOpts {
+  notifyScheduleChange?: NotifyScheduleChangeFn
+  broadcastBotAuditEvent?: BroadcastBotAuditEventFn
+}
+
+async function recordPrivateInboxWakeAudit(
+  db: Database,
+  broadcastBotAuditEvent: BroadcastBotAuditEventFn | undefined,
+  input: {
+    botId: string
+    ownerUserId: string
+    launchId: string
+    payload: WakeTriggerPayload
+  },
+): Promise<void> {
+  try {
+    const inserted = await communityBotAuditLog.insertBotAuditWakeTrigger(
+      db,
+      {
+        botId: input.botId,
+        launchId: input.launchId,
+        payload: input.payload,
+      },
+      [communityBot.bumpBotDailyActivityStatement(db, input.botId, utcDayKey(new Date()), "handled")],
+    )
+    if (!inserted || !broadcastBotAuditEvent) return
+    try {
+      await broadcastBotAuditEvent({
+        botId: input.botId,
+        ownerUserId: input.ownerUserId,
+        id: inserted.id,
+        kind: "wake_trigger",
+        payload: input.payload,
+        createdAt: inserted.createdAt,
+        launchId: input.launchId,
+      })
+    } catch (err) {
+      console.warn("private_inbox_wake_trigger_broadcast_failed", {
+        botId: input.botId,
+        launchId: input.launchId,
+        err: String(err),
+      })
+    }
+  } catch (err) {
+    console.warn("private_inbox_wake_trigger_audit_failed", {
+      botId: input.botId,
+      launchId: input.launchId,
+      err: String(err),
+    })
+  }
+}
 
 export interface DispatchPrivateInboxResult {
   outcome: "dispatched" | "pending" | "blocked_access" | "failed" | "ignored"
@@ -68,10 +136,10 @@ export async function dispatchBotPrivateInboxEvent(
   db: Database,
   pushAgentEvent: PushAgentEventFn,
   event: StoredBotPrivateInboxEvent,
-  opts: { notifyScheduleChange?: NotifyScheduleChangeFn } = {},
+  opts: DispatchPrivateInboxOpts = {},
 ): Promise<DispatchPrivateInboxResult> {
   if (event.sourceKind === "schedule") {
-    return dispatchSchedulePrivateInboxEvent(db, pushAgentEvent, event, opts.notifyScheduleChange)
+    return dispatchSchedulePrivateInboxEvent(db, pushAgentEvent, event, opts)
   }
 
   const botCtx = await withD1Retry(
@@ -133,6 +201,39 @@ export async function dispatchBotPrivateInboxEvent(
           }),
         { route: "bot-private-inbox:update-dispatched" },
       )) ?? { ...event, status: "dispatched", lastError: null, dispatchedAtMs: nowMs }
+
+    let webhook: Awaited<ReturnType<typeof communityBotWebhook.getBotWebhookById>> = null
+    try {
+      webhook = await withD1Retry(
+        () =>
+          communityBotWebhook.getBotWebhookById(
+            db,
+            event.ownerUserId,
+            event.botUserId,
+            event.sourceId,
+          ),
+        { route: "bot-private-inbox:webhook-meta" },
+      )
+    } catch {
+      webhook = null
+    }
+    const triggerName = (webhook?.name.trim() || "Trigger").slice(0, 120)
+    const provider = (webhook?.provider || "generic").slice(0, 64)
+    const eventType = (event.eventType.trim() || "event").slice(0, 120)
+    const summary = (event.summary.trim() || eventType || "Trigger event").slice(0, 240)
+    await recordPrivateInboxWakeAudit(db, opts.broadcastBotAuditEvent, {
+      botId: event.botUserId,
+      ownerUserId: event.ownerUserId,
+      launchId: event.id,
+      payload: {
+        reason: "webhook",
+        triggerId: event.sourceId,
+        triggerName,
+        provider,
+        eventType,
+        summary,
+      },
+    })
     return { outcome: "dispatched", event: updated }
   }
 
@@ -152,8 +253,9 @@ async function dispatchSchedulePrivateInboxEvent(
   db: Database,
   pushAgentEvent: PushAgentEventFn,
   event: StoredBotPrivateInboxEvent,
-  notifyScheduleChange?: NotifyScheduleChangeFn,
+  opts: DispatchPrivateInboxOpts = {},
 ): Promise<DispatchPrivateInboxResult> {
+  const notifyScheduleChange = opts.notifyScheduleChange
   const runId = event.sourceRefId
   if (!runId) {
     const updated =
@@ -323,6 +425,19 @@ async function dispatchSchedulePrivateInboxEvent(
         summary: current.titleSnapshot,
         promptText: prompt,
       }
+    await recordPrivateInboxWakeAudit(db, opts.broadcastBotAuditEvent, {
+      botId: current.botUserId,
+      ownerUserId: current.ownerUserId,
+      launchId: `schrun_${current.id}`,
+      payload: {
+        reason: "schedule",
+        scheduleId: current.eventId,
+        runId: current.id,
+        title: (current.titleSnapshot.trim() || "Scheduled task").slice(0, 200),
+        ...(channelRef ? { channel: channelRef } : {}),
+        ...(typeof msg.seq === "number" && msg.seq > 0 ? { seq: msg.seq } : {}),
+      },
+    })
     await notifyScheduleChange?.(current.ownerUserId, current.eventId, "run_updated")
     return { outcome: "dispatched", event: updated }
   }
@@ -335,8 +450,7 @@ export async function resyncBotPrivateInboxForBots(
   pushAgentEvent: PushAgentEventFn,
   ownerUserId: string,
   botIds: readonly string[],
-  opts: {
-    notifyScheduleChange?: NotifyScheduleChangeFn
+  opts: DispatchPrivateInboxOpts & {
     limitPerBot?: number
   } = {},
 ): Promise<{ attempted: number; dispatched: number; blocked: number }> {

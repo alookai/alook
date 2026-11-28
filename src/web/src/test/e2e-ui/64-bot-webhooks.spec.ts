@@ -177,4 +177,20 @@ test("My Bots Triggers sheet separates source picker and forms, delivers signed 
   await sheet.getByTestId(tid.botWebhookDelete(webhookId)).click()
   await alice.page.getByRole("button", { name: "Delete trigger" }).click()
   await expect(sheet.getByText("No triggers yet")).toBeVisible()
+
+  await alice.page.setViewportSize({ width: 1280, height: 800 })
+  await sheet.getByRole("button", { name: "Close" }).click()
+  await expect(sheet).not.toBeVisible()
+  await botCard.getByRole("button", { name: "Bot actions" }).click()
+  await alice.page.getByRole("menuitem", { name: "View activity" }).click()
+  await expect(
+    alice.page.getByRole("button", {
+      name: `Triggered by GitHub · alook CI ${suffix} — alookai/alook: CI failure (#1495)`,
+    }),
+  ).toBeVisible()
+  await expect(
+    alice.page.getByRole("button", {
+      name: `Triggered by GitHub · alook CI ${suffix} — Test notification for alook CI ${suffix}`,
+    }),
+  ).toBeVisible()
 })

@@ -179,6 +179,92 @@ describe("BotActivityRow — error", () => {
   })
 })
 
+describe("BotActivityRow — wake_trigger", () => {
+  it("renders webhook trigger wakes with provider, trigger name, and summary", () => {
+    const renderer = render({
+      id: "e-wh-1",
+      kind: "wake_trigger",
+      payload: {
+        reason: "webhook",
+        triggerId: "wh_1",
+        triggerName: "alook CI",
+        provider: "github",
+        eventType: "workflow_run.completed",
+        summary: "alookai/alook: CI failure (#1496)",
+      },
+      sessionId: null,
+      launchId: "whd_1",
+      createdAt: "2026-11-28T05:00:00.000Z",
+    })
+    expect(rowText(renderer, "bot-activity-event-wake_trigger")).toBe(
+      "Triggered by GitHub · alook CI — alookai/alook: CI failure (#1496)",
+    )
+  })
+
+  it("avoids duplicating provider name when trigger name matches provider label", () => {
+    const renderer = render({
+      id: "e-wh-2",
+      kind: "wake_trigger",
+      payload: {
+        reason: "webhook",
+        triggerId: "wh_2",
+        triggerName: "Stripe",
+        provider: "stripe",
+        eventType: "invoice.payment_failed",
+        summary: "Stripe invoice.payment_failed",
+      },
+      sessionId: null,
+      launchId: "whd_2",
+      createdAt: "2026-11-28T05:00:00.000Z",
+    })
+    expect(rowText(renderer, "bot-activity-event-wake_trigger")).toBe(
+      "Triggered by Stripe — Stripe invoice.payment_failed",
+    )
+  })
+
+  it("renders scheduled task wakes with title and optional channel ref", () => {
+    const renderer = render({
+      id: "e-sch-1",
+      kind: "wake_trigger",
+      payload: {
+        reason: "schedule",
+        scheduleId: "sch_1",
+        runId: "run_1",
+        title: "Daily triage",
+        channel: "/Alook#5620/general",
+        seq: 42,
+      },
+      sessionId: null,
+      launchId: "schrun_run_1",
+      createdAt: "2026-11-28T05:00:00.000Z",
+    })
+    expect(rowText(renderer, "bot-activity-event-wake_trigger")).toBe(
+      "Scheduled · Daily triage in /Alook#5620/general #42",
+    )
+  })
+
+  it("renders chat unread and mention wakes unchanged", () => {
+    const renderer = render({
+      id: "e-chat-1",
+      kind: "wake_trigger",
+      payload: {
+        reason: "mention",
+        messageId: "m_1",
+        channel: "/Alook#5620/gus-uiux",
+        seq: 4076,
+        senderId: "u_1",
+        senderHandle: "@gus#1813",
+      },
+      sessionId: null,
+      launchId: "l_1",
+      createdAt: "2026-11-28T05:00:00.000Z",
+    })
+    expect(rowText(renderer, "bot-activity-event-wake_trigger")).toBe(
+      "Mentioned by @gus#1813 in /Alook#5620/gus-uiux #4076",
+    )
+  })
+})
+
 
 describe("BotActivityRow native detail owners", () => {
   const detailEvent = (id: string, text: string): AuditEvent => ({ id, kind: "thinking", payload: { text }, sessionId: null, launchId: null, createdAt: "2026-10-14T00:00:00.000Z" })

@@ -81,4 +81,31 @@ describe("summarizeAuditEvent", () => {
       payload: { text: "private body https://private.example", truncated: true, chars: 500 },
     })).toBe("Completed text output")
   })
+
+  it("distinguishes trigger, schedule, and message wake summaries without leaking payload details", () => {
+    expect(summarizeAuditEvent({
+      kind: "wake_trigger",
+      payload: {
+        reason: "webhook",
+        triggerId: "wh_1",
+        triggerName: "alook CI",
+        provider: "github",
+        eventType: "workflow_run.completed",
+        summary: "private repo https://private.example",
+      },
+    })).toBe("Woke for a trigger")
+    expect(summarizeAuditEvent({
+      kind: "wake_trigger",
+      payload: {
+        reason: "schedule",
+        scheduleId: "sch_1",
+        runId: "run_1",
+        title: "Secret standup",
+      },
+    })).toBe("Woke for a scheduled task")
+    expect(summarizeAuditEvent({
+      kind: "wake_trigger",
+      payload: { reason: "mention", senderHandle: "@gus#1813" },
+    })).toBe("Woke for a new message")
+  })
 })

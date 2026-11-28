@@ -169,6 +169,8 @@ const AUDIT: AuditEvent[] = ([
   ["error", { scope: "runtime", code: "RATE_LIMITED", message: "Provider rate limit reached", model: "claude-opus-5-5" }, 22],
   ["turn_interrupt", null, 20],
   ["nap", null, 12],
+  ["wake_trigger", { reason: "webhook", triggerId: "wh-demo-ci", triggerName: "alook CI", provider: "github", eventType: "workflow_run.completed", summary: "alookai/alook: CI failure (#1496)" }, 8],
+  ["wake_trigger", { reason: "schedule", scheduleId: "sch-demo-1", runId: "run-demo-1", title: "Daily design triage", channel: "/Studio#4012/design-review", seq: 412 }, 6],
   ["wake_trigger", { channel: "/.dm/gus#1813", seq: 88, senderHandle: "@gus#1813", reason: "unread" }, 4],
   ["text", { text: "Pulled the latest board. Three specimens still clip on narrow phones; notes attached.", truncated: true, chars: 340 }, 3],
 ] as const).map(([kind, payload, minutesAgo], i) => ({ id: `audit-${String(i).padStart(2, "0")}`, kind, payload, sessionId: "s-1", launchId: "l-1", createdAt: iso(minutesAgo) }))

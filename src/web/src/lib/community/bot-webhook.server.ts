@@ -1,6 +1,7 @@
 import {
   dispatchBotPrivateInboxEvent,
   resyncBotPrivateInboxForBots,
+  type BotAuditWakeBroadcastEvent,
   type BotWebhookDelivery,
   type BotWebhookLastDelivery,
   type BotWebhookSummary,
@@ -9,6 +10,7 @@ import {
   type StoredBotPrivateInboxSummary,
   type StoredBotWebhook,
 } from "@alook/shared"
+import { wsDoFetch } from "@/lib/broadcast"
 import { pushBotEventToMachine } from "./bot-push"
 import { syncOwnerScheduleAlarm } from "./schedule.server"
 
@@ -366,6 +368,25 @@ export function toBotWebhookSummary(
   }
 }
 
+async function broadcastBotAuditEvent(
+  env: Env,
+  event: BotAuditWakeBroadcastEvent,
+): Promise<void> {
+  const res = await wsDoFetch(
+    env,
+    "/internal/broadcast-bot-audit-event",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(event),
+    },
+    { label: event.ownerUserId, type: "community:bot.audit_event" },
+  )
+  if (!res.ok) {
+    throw new Error(`audit broadcast failed: ${res.status}`)
+  }
+}
+
 export async function dispatchBotWebhookDelivery(
   db: Database,
   env: Env,
@@ -378,6 +399,9 @@ export async function dispatchBotWebhookDelivery(
     db,
     (machineId, command) => pushBotEventToMachine(env, machineId, command),
     delivery,
+    {
+      broadcastBotAuditEvent: (event) => broadcastBotAuditEvent(env, event),
+    },
   )
   const outcome =
     result.outcome === "dispatched"
@@ -402,6 +426,7 @@ export async function resyncSystemPrivateInboxForBots(
     {
       notifyScheduleChange: (ownerId, eventId, reason) =>
         syncOwnerScheduleAlarm(env, ownerId, { eventId, reason }),
+      broadcastBotAuditEvent: (event) => broadcastBotAuditEvent(env, event),
     },
   )
 }

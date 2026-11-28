@@ -28,6 +28,13 @@ export function summarizeAuditEvent(
 ): string {
   if (event.kind === "cli_invocation") return formatAlookAuditCommand(event.payload)
   if (event.kind === "tool_call") return formatAuditToolName(event.payload)
+  if (event.kind === "wake_trigger") {
+    const reason = event.payload && typeof event.payload === "object" && "reason" in event.payload
+      ? event.payload.reason
+      : null
+    if (reason === "webhook") return "Woke for a trigger"
+    if (reason === "schedule") return "Woke for a scheduled task"
+  }
   return SUMMARY_BY_KIND[event.kind]
 }
 

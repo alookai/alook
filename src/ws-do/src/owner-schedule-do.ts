@@ -7,6 +7,7 @@ import {
   resyncBotPrivateInboxForBots,
   withD1Retry,
   WS_EVENTS,
+  type BotAuditWakeBroadcastEvent,
   type HostCommand,
   type StoredScheduleRun,
 } from "@alook/shared"
@@ -56,6 +57,31 @@ export class OwnerScheduleDurableObject extends DurableObject<Env> {
       )
     } catch (err) {
       log.warn("schedule_owner_broadcast_failed", { ownerUserId, eventId, reason, err: String(err) })
+    }
+  }
+
+  private async broadcastBotAuditEvent(event: BotAuditWakeBroadcastEvent): Promise<void> {
+    try {
+      const doId = this.env.WS_DO.idFromName("user:" + event.ownerUserId)
+      const stub = this.env.WS_DO.get(doId)
+      await stub.fetch(
+        createInternalBrowserBroadcastRequest(event.ownerUserId, {
+          type: WS_EVENTS.BOT_AUDIT_EVENT,
+          botId: event.botId,
+          id: event.id,
+          kind: event.kind,
+          payload: event.payload,
+          sessionId: null,
+          launchId: event.launchId,
+          createdAt: event.createdAt,
+        }),
+      )
+    } catch (err) {
+      log.warn("private_inbox_audit_broadcast_failed", {
+        ownerUserId: event.ownerUserId,
+        botId: event.botId,
+        err: String(err),
+      })
     }
   }
 
@@ -129,6 +155,7 @@ export class OwnerScheduleDurableObject extends DurableObject<Env> {
         {
           notifyScheduleChange: (ownerId, eventId, reason) =>
             this.notifyOwnerChanged(ownerId, eventId, reason),
+          broadcastBotAuditEvent: (auditEvent) => this.broadcastBotAuditEvent(auditEvent),
         },
       )
       if (result.outcome === "dispatched") return "dispatched"
@@ -235,6 +262,7 @@ export class OwnerScheduleDurableObject extends DurableObject<Env> {
         limitPerBot: RESYNC_RUN_BATCH_LIMIT,
         notifyScheduleChange: (ownerId, eventId, reason) =>
           this.notifyOwnerChanged(ownerId, eventId, reason),
+        broadcastBotAuditEvent: (auditEvent) => this.broadcastBotAuditEvent(auditEvent),
       },
     )
 

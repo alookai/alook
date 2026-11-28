@@ -67,6 +67,27 @@ describe("parseAuditLogPayload", () => {
     }
     expect(parseAuditLogPayload("wake_trigger", JSON.stringify(payload))).toEqual(payload)
   })
+  it("parses webhook and schedule wake_trigger payloads", () => {
+    const webhookPayload = {
+      reason: "webhook" as const,
+      triggerId: "wh_1",
+      triggerName: "alook CI",
+      provider: "github",
+      eventType: "workflow_run.completed",
+      summary: "alookai/alook: CI failure (#1496)",
+    }
+    expect(parseAuditLogPayload("wake_trigger", JSON.stringify(webhookPayload))).toEqual(webhookPayload)
+
+    const schedulePayload = {
+      reason: "schedule" as const,
+      scheduleId: "sch_1",
+      runId: "run_1",
+      title: "Daily triage",
+      channel: "/Alook#5620/general",
+      seq: 42,
+    }
+    expect(parseAuditLogPayload("wake_trigger", JSON.stringify(schedulePayload))).toEqual(schedulePayload)
+  })
   it("parses a well-shaped model_changed payload (null-able from/to)", () => {
     expect(parseAuditLogPayload("model_changed", JSON.stringify({ from: null, to: "claude-opus-4-6" }))).toEqual({
       from: null,
