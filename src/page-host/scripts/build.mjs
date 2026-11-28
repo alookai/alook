@@ -3,21 +3,26 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { here, pin, prepare, run, upstream } from "./prepare.mjs";
+import { SHARED_EDITOR_BASE, shareEditorAssets } from "./editor-assets.mjs";
 
 prepare();
 
-function patch(file, edit) {
+function patch(file, edit, previousEdit) {
   const original = execFileSync("git", ["show", `${pin.revision}:${file}`], { cwd: upstream, encoding: "utf8" });
   const modified = edit(original);
   const path = resolve(upstream, file);
   const current = readFileSync(path, "utf8");
-  if (current !== original && current !== modified) throw new Error(`Unrecognized upstream change in ${file}`);
+  if (current !== original && current !== modified && (!previousEdit || current !== previousEdit(original))) throw new Error(`Unrecognized upstream change in ${file}`);
   writeFileSync(path, modified);
 }
 
 function replaceOnce(text, before, after) {
   if (text.split(before).length !== 2) throw new Error(`Pinned upstream seam changed: ${before}`);
   return text.replace(before, after);
+}
+
+for (const type of ["design", "design-system", "whiteboard", "data", "slides", "sheets", "docs", "motion"]) {
+  patch(`packages/${type}-editor/vite.config.ts`, text => replaceOnce(text, "base: './',", `base: ${JSON.stringify(SHARED_EDITOR_BASE)},`));
 }
 
 patch("packages/host-cloudflare/src/plugins.ts", (text) => {
@@ -82,10 +87,19 @@ patch("packages/host-cloudflare/src/frames.ts", text => {
   text = replaceOnce(text, "{ name: string; role: ArtifactRole } | undefined =>", "{ name: string; role: ArtifactRole; userId?: string; sourceMessageId?: string } | undefined =>");
   return replaceOnce(text, "{ name: by.name, role: placed?.role ?? 'editor' }", "{ name: by.name, role: placed?.role ?? 'editor', ...(placed?.ref.kind === 'user' ? { userId: placed.ref.id, sourceMessageId: placed.sourceMessageId } : {}) }");
 });
-patch("packages/type-server/src/server.ts", text => {
+function withPageSenderIdentity(text) {
   text = replaceOnce(text, "{ name: who.name, role: who.role });", "{ name: who.name, role: who.role, userId: who.id, sourceMessageId: who.sourceMessageId });");
   return replaceOnce(text, "{ name: who.name, client: author, id: who.id, role: who.role }", "{ name: who.name, client: author, id: who.id, role: who.role, sourceMessageId: who.sourceMessageId }");
-});
+}
+patch("packages/type-server/src/server.ts", text => {
+  text = withPageSenderIdentity(text);
+  text = replaceOnce(text,
+    "if (!isTypeName(type) || !hosted.has(type)) throw new HttpError(404, 'not_found', 'Not found.');",
+    "if (type !== '_shared' && (!isTypeName(type) || !hosted.has(type))) throw new HttpError(404, 'not_found', 'Not found.');");
+  return replaceOnce(text,
+    "inside(resolve(editorDir(type), 'assets'), file)",
+    "inside(resolve(options.assetsDir, 'editors/_shared/assets'), file)");
+}, withPageSenderIdentity);
 patch("packages/type-server/src/db-host.ts", text => {
   text = replaceOnce(text, "export interface DbGuest {", "export interface DbGuest {\n  sourceMessageId?: string;");
   return replaceOnce(text, "{ name: as.name, role: as.role } : undefined", "{ name: as.name, role: as.role, userId: as.id, sourceMessageId: as.sourceMessageId } : undefined");
@@ -139,12 +153,14 @@ patch("deploy/cloudflare/build.mjs", (text) => replaceOnce(text,
   "entryPoints: [join(pkg, entry)],",
   `entryPoints: [entry === 'worker.ts' ? ${JSON.stringify(entry)} : join(pkg, entry)],`));
 
-const recipe = createHash("sha256").update(readFileSync(new URL(import.meta.url))).digest("hex");
+const recipe = createHash("sha256").update(readFileSync(new URL(import.meta.url))).update(readFileSync(new URL("./editor-assets.mjs", import.meta.url))).digest("hex");
 const receipt = resolve(upstream, ".alook-build-recipe");
-if (!existsSync(receipt) || readFileSync(receipt, "utf8") !== recipe || !existsSync(resolve(upstream, "dist/server/editors"))) {
+const rebuild = !existsSync(receipt) || readFileSync(receipt, "utf8") !== recipe || !existsSync(resolve(upstream, "dist/server/editors"));
+if (rebuild) {
   run("npm", ["run", "build"]);
-  writeFileSync(receipt, recipe);
 }
+console.log("shared editor assets:", await shareEditorAssets(resolve(upstream, "dist/server")));
+if (rebuild) writeFileSync(receipt, recipe);
 run("node", ["build.mjs"], resolve(upstream, "deploy/cloudflare"), {
   OA_PLUGINS_MODULE: resolve(here, "src/plugins.mjs"),
   OA_BUILD_DIST: resolve(here, "dist"),

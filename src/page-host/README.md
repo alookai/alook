@@ -49,6 +49,12 @@ Use `alook page --id <page-id> --stdin` for native operations. For example:
 
 `alook page delete --id <page-id>` permanently deletes a resource created by that bot, destroys its cloud files/catalog and closes live connections, then removes its Alook associations. Cloud failure retains the resource record so the same creator can retry; it does not report success. Reader access does not permit whole-resource deletion. Original archive uploads follow the existing attachment retention policy.
 
+## Shared editor runtime
+
+The build sets one public asset base before Vite computes content hashes. All eight editor pages use `/_open-artifact/editors/_shared/assets/`; identical filenames must have identical bytes before the build combines them. A collision fails before deleting the original editor assets. The local type server serves the shared directory through its existing static asset route, and the Cloudflare build copies that same directory into Worker assets. No PDF, chart, font, editor or import/export capability is removed.
+
+The canonical local runtime is the pinned upstream `dist/server` directory after `scripts/build.mjs` completes. Package that directory once rather than the copies under every upstream `artifact-types/*/scripts`. Its local CLI loads the Sheets engine from the same WASM file used by the browser, removing the extra root `sheets.wasm`. The Worker retains its separately compiled WASM module alongside the browser asset, because workerd and the browser consume different deployment resources. Native type guides and references remain separate from this runtime.
+
 ## Authority and deployment
 
 Web and this Worker call each other through service bindings and a separate random key of at least 32 bytes. Viewer tickets use Web's existing verification table, expire after 60 seconds and are consumed once. They enter the bootstrap through a URL fragment that is removed before the exchange request. They are not durable access grants. OA session users derive from immutable Alook account ids; display names never select an account. HTTPS iframe sessions use `HttpOnly; Secure; SameSite=None; Partitioned` cookies.
