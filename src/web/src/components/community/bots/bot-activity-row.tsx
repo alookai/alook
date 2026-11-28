@@ -1,6 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { BOT_WEBHOOK_PROVIDER_META, type BotWebhookProvider } from "@alook/shared"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -152,18 +153,77 @@ function RowBody({ event }: { event: AuditEvent }) {
   }
   if (event.kind === "wake_trigger") {
     const p = event.payload as {
-      channel?: string
-      seq?: number
+      channel?: string | null
+      seq?: number | null
       senderHandle?: string
-      reason?: "unread" | "mention"
+      reason?: "unread" | "mention" | "webhook" | "schedule"
+      triggerName?: string
+      provider?: string
+      summary?: string
+      title?: string
     } | null
+    if (p?.reason === "webhook") {
+      const providerLabel =
+        p.provider &&
+        p.provider !== "generic" &&
+        Object.hasOwn(BOT_WEBHOOK_PROVIDER_META, p.provider)
+          ? BOT_WEBHOOK_PROVIDER_META[p.provider as BotWebhookProvider].label
+          : null
+      const triggerName = p.triggerName?.trim() || "Trigger"
+      const showProvider = Boolean(
+        providerLabel && providerLabel.toLowerCase() !== triggerName.toLowerCase(),
+      )
+      const source = showProvider ? `${providerLabel} · ${triggerName}` : triggerName
+      const summary = p.summary?.trim() || ""
+      const detail = summary ? `Triggered by ${source} — ${summary}` : `Triggered by ${source}`
+      return (
+        <TruncatedAuditLog fullText={detail} data-testid="bot-activity-event-wake_trigger">
+          <span className="text-muted-foreground">Triggered by</span>{" "}
+          {showProvider ? (
+            <>
+              {providerLabel} <span className="text-muted-foreground/60">·</span> {triggerName}
+            </>
+          ) : (
+            triggerName
+          )}
+          {summary ? (
+            <>
+              {" "}
+              <span className="text-muted-foreground/60">—</span>{" "}
+              <span className="text-muted-foreground">{summary}</span>
+            </>
+          ) : null}
+        </TruncatedAuditLog>
+      )
+    }
+    if (p?.reason === "schedule") {
+      const title = p.title?.trim() || "Scheduled task"
+      const channel = p.channel?.trim() || null
+      const seqLabel = p.seq != null ? `#${p.seq}` : ""
+      const detail = channel
+        ? `Scheduled · ${title} in ${channel}${seqLabel ? ` ${seqLabel}` : ""}`
+        : `Scheduled · ${title}`
+      return (
+        <TruncatedAuditLog fullText={detail} data-testid="bot-activity-event-wake_trigger">
+          <span className="text-muted-foreground">Scheduled</span>{" "}
+          <span className="text-muted-foreground/60">·</span> {title}
+          {channel ? (
+            <>
+              {" "}
+              <span className="text-muted-foreground">in</span> {channel}
+              {seqLabel ? <span className="text-muted-foreground/70"> {seqLabel}</span> : null}
+            </>
+          ) : null}
+        </TruncatedAuditLog>
+      )
+    }
     const sender = p?.senderHandle ?? "Sender unavailable"
     const channel = p?.channel ?? "Conversation unavailable"
     const seqLabel = p?.seq != null ? `#${p.seq}` : ""
     const verb = p?.reason === "mention" ? "Mentioned by" : "Woken by"
     const detail = `${verb} ${sender} in ${channel}${seqLabel ? ` ${seqLabel}` : ""}`
     return (
-      <TruncatedAuditLog fullText={detail}>
+      <TruncatedAuditLog fullText={detail} data-testid="bot-activity-event-wake_trigger">
         <span className="text-muted-foreground">{verb}</span> {sender}{" "}
         <span className="text-muted-foreground">in</span> {channel}
         {seqLabel ? <span className="text-muted-foreground/70"> {seqLabel}</span> : null}

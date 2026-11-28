@@ -761,7 +761,7 @@ export type AuditLogTurnInterruptPayload = z.infer<typeof AuditLogTurnInterruptP
  * render without a second D1 fetch. `senderHandle` is frozen at wake time
  * (renaming after the fact does NOT rewrite past rows).
  */
-export const AuditLogWakeTriggerPayloadSchema = z.object({
+export const AuditLogChatWakeTriggerPayloadSchema = z.object({
   messageId: z.string().min(1),
   channel: z.string().min(1),
   seq: CommunityAgentPositiveSeqSchema,
@@ -769,6 +769,30 @@ export const AuditLogWakeTriggerPayloadSchema = z.object({
   senderHandle: z.string().min(1),
   reason: z.enum(["unread", "mention"]),
 });
+
+export const AuditLogWebhookWakeTriggerPayloadSchema = z.object({
+  reason: z.literal("webhook"),
+  triggerId: z.string().min(1),
+  triggerName: z.string().min(1).max(120),
+  provider: z.string().min(1).max(64),
+  eventType: z.string().min(1).max(120),
+  summary: z.string().min(1).max(240),
+});
+
+export const AuditLogScheduleWakeTriggerPayloadSchema = z.object({
+  reason: z.literal("schedule"),
+  scheduleId: z.string().min(1),
+  runId: z.string().min(1),
+  title: z.string().min(1).max(200),
+  channel: z.string().min(1).optional(),
+  seq: CommunityAgentPositiveSeqSchema.optional(),
+});
+
+export const AuditLogWakeTriggerPayloadSchema = z.union([
+  AuditLogChatWakeTriggerPayloadSchema,
+  AuditLogWebhookWakeTriggerPayloadSchema,
+  AuditLogScheduleWakeTriggerPayloadSchema,
+]);
 export type AuditLogWakeTriggerPayload = z.infer<typeof AuditLogWakeTriggerPayloadSchema>;
 
 /**

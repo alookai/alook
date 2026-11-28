@@ -600,4 +600,103 @@ describe("OwnerScheduleDurableObject workerd runtime (D1 + stateless DO timer)",
       fx.close()
     }
   })
+
+  it("writes wake_trigger activity log rows for dispatched schedule and resynced webhook wakes", async () => {
+    const fx = await seedHouseholdAndMessage({ machineConnected: true, channelType: "text" })
+    try {
+      const startAtMs = Date.now() - 1000
+      const created = await queries.communitySchedule.createScheduleEvent(fx.db, {
+        ownerUserId: fx.ownerId,
+        createdByUserId: fx.botId,
+        title: "Morning digest",
+        description: "Summarize open PRs",
+        startAtMs,
+        timeZone: "UTC",
+        recurrence: null,
+        sourceMessageId: fx.messageId,
+        sourceChannelId: fx.channelId,
+      })
+      expect(created.ok).toBe(true)
+      if (!created.ok) return
+
+      await syncAlarm(fx.ownerId, { eventId: created.event.id, reason: "created" })
+      const stub = runtimeEnv.OWNER_SCHEDULE_DO.get(
+        runtimeEnv.OWNER_SCHEDULE_DO.idFromName(`owner-schedule:${fx.ownerId}`),
+      )
+      await runDurableObjectAlarm(stub)
+
+      const createdWebhook = await queries.communityBotWebhook.createBotWebhook(fx.db, {
+        ownerUserId: fx.ownerId,
+        botUserId: fx.botId,
+        name: "GitHub alook",
+        provider: "github",
+        tokenHash: `tok_${crypto.randomUUID()}`,
+        signingSecretEnc: null,
+        eventFilter: null,
+        instruction: "",
+        nowMs: Date.now(),
+      })
+      expect(createdWebhook.ok).toBe(true)
+      if (!createdWebhook.ok) return
+      const webhook = createdWebhook.webhook
+      const delivery = await queries.communityBotWebhook.createBotWebhookDelivery(fx.db, {
+        ownerUserId: fx.ownerId,
+        botUserId: fx.botId,
+        webhookId: webhook.id,
+        externalDeliveryId: `ext_${crypto.randomUUID()}`,
+        eventType: "pull_request.opened",
+        summary: "PR #1514 opened",
+        promptText: "[External Webhook Notification]\nPR #1514 opened",
+        status: "pending",
+        nowMs: Date.now(),
+      })
+
+      const resyncRes = await worker.fetch(new Request(`https://worker.test/owner-schedule/${fx.ownerId}/resync-bots`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ownerUserId: fx.ownerId, botIds: [fx.botId] }),
+      }))
+      expect(resyncRes.status).toBe(200)
+      expect(await resyncRes.json()).toEqual({ attempted: 1, dispatched: 1, blocked: 0 })
+
+      const auditRows = await queries.communityBotAuditLog.listOwnedBotActivityEvents(fx.db, {
+        botId: fx.botId,
+        ownerUserId: fx.ownerId,
+        limit: 10,
+      })
+      expect(auditRows).toHaveLength(2)
+      const payloads = auditRows!.map((row) => ({
+        kind: row.kind,
+        launchId: row.launchId,
+        payload: JSON.parse(row.payload) as Record<string, unknown>,
+      }))
+      expect(payloads).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "wake_trigger",
+            payload: expect.objectContaining({
+              reason: "schedule",
+              scheduleId: created.event.id,
+              title: "Morning digest",
+              seq: 7,
+            }),
+          }),
+          {
+            kind: "wake_trigger",
+            launchId: delivery.delivery.id,
+            payload: {
+              reason: "webhook",
+              triggerId: webhook.id,
+              triggerName: "GitHub alook",
+              provider: "github",
+              eventType: "pull_request.opened",
+              summary: "PR #1514 opened",
+            },
+          },
+        ]),
+      )
+    } finally {
+      fx.close()
+    }
+  })
 })

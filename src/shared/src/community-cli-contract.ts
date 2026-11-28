@@ -1009,14 +1009,31 @@ export type BotAuditEventPayload =
   | { kind: "turn_interrupt"; payload: { status: "accepted" } }
   | {
       kind: "wake_trigger";
-      payload: {
-        messageId: string;
-        channel: ChannelRef;
-        seq: Seq;
-        senderId: string;
-        senderHandle: string;
-        reason: "unread" | "mention";
-      };
+      payload:
+        | {
+            messageId: string;
+            channel: ChannelRef;
+            seq: Seq;
+            senderId: string;
+            senderHandle: string;
+            reason: "unread" | "mention";
+          }
+        | {
+            reason: "webhook";
+            triggerId: string;
+            triggerName: string;
+            provider: string;
+            eventType: string;
+            summary: string;
+          }
+        | {
+            reason: "schedule";
+            scheduleId: string;
+            runId: string;
+            title: string;
+            channel?: ChannelRef;
+            seq?: Seq;
+          };
     }
   | {
       kind: "error";

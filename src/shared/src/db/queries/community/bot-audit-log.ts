@@ -41,14 +41,31 @@ export type BotActivityEventInput = {
  * `AuditLogWakeTriggerPayloadSchema` in schemas.ts). Frozen at wake time —
  * a subsequent rename does NOT rewrite past rows.
  */
-export type WakeTriggerPayload = {
-  messageId: string;
-  channel: string;
-  seq: number;
-  senderId: string;
-  senderHandle: string;
-  reason: "unread" | "mention";
-};
+export type WakeTriggerPayload =
+  | {
+      messageId: string;
+      channel: string;
+      seq: number;
+      senderId: string;
+      senderHandle: string;
+      reason: "unread" | "mention";
+    }
+  | {
+      reason: "webhook";
+      triggerId: string;
+      triggerName: string;
+      provider: string;
+      eventType: string;
+      summary: string;
+    }
+  | {
+      reason: "schedule";
+      scheduleId: string;
+      runId: string;
+      title: string;
+      channel?: string;
+      seq?: number;
+    };
 
 /**
  * Insert + retention prune in a single D1 batch. This is the writer ws-do
